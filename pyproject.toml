@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "QuPRS"
+authors = [
+    { name = "Wei-Jia Huang", email = "wei.jia.huang.physics@gmail.com" },
+]
+description = "QuPRS: Quantum Path-sum Reduction and Solver" 
+keywords = ["pathsum", "weighted model counting", "quantum circuit", "equivalence checking", ]
+readme = "README.md"
+license-files  = ["LICENSE.md", "NOTICE.md"]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha", # (Alpha, Beta, Production/Stable)
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent", 
+]
+dependencies = [
+    "numpy",
+    "sympy",
+    "symengine",
+    "qiskit<2.0,>=1.0.0",
+    "qiskit-qasm3-import>=0.5.1",
+    "ipykernel",
+    "pandas",
+    "tqdm"
+]
+dynamic = ["version"]
+[project.urls]
+# Homepage = "" # GitHub link
+# (Optional) Other URLs related to your project
+# "Bug Tracker" = "..."
+# "Documentation" = "..."
+
+[tool.setuptools.packages.find]
+where = ["src"]  
+
+[tool.setuptools.package-data]
+QuPRS = ["utils/gpmc"]
+
+[tool.setuptools_scm]
+write_to = "src/QuPRS/_version.py"

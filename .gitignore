@@ -1,7 +1,33 @@
-dist/quprs-0.1.dev0+d20250611.tar.gz
-src/QuPRS.egg-info/dependency_links.txt
-src/QuPRS.egg-info/PKG-INFO
-src/QuPRS.egg-info/requires.txt
-src/QuPRS.egg-info/SOURCES.txt
-src/QuPRS.egg-info/top_level.txt
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build and distribution directories
+build/
+dist/
+*.egg-info/
+wheels/
+
+# Virtual environment directories
+.venv/
+venv/
+env/
+
+# IDE and editor settings
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Test and coverage reports
+.pytest_cache/
+.coverage
+htmlcov/
+
+# other
 src/QuPRS/_version.py

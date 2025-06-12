@@ -1,4 +1,4 @@
-name: Build and Push to Multiple Registries
+name: Build and Push docker image to Multiple Registries
 
 on:
     push:
@@ -19,8 +19,10 @@ jobs:
               - name: Checkout repository
                 uses: actions/checkout@v4
 
-              - name: Set repository name to lowercase
-                run: echo "LOWERCASE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+              - name: Set lowercase repo name
+                run: |
+                  echo "LOWERCASE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+                  echo "DOCKERHUB_REPO=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
               # Step 3: Log in to GitHub Container Registry (GHCR)
               - name: Log in to GHCR
@@ -49,5 +51,5 @@ jobs:
                   tags: |
                     ghcr.io/${{ env.LOWERCASE_REPO }}:latest
                     ghcr.io/${{ env.LOWERCASE_REPO }}:${{ github.sha }}
-                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.LOWERCASE_REPO }}:latest
-                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.LOWERCASE_REPO }}:${{ github.sha }}
+                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:latest
+                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:${{ github.sha }}

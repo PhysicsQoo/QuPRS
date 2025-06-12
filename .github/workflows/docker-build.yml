@@ -1,0 +1,50 @@
+name: Build and Push to Multiple Registries
+
+on:
+    push:
+        branches: [ "main" ]
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+
+        # Step 1: Set permissions
+        # To push to GHCR, packages: write permission is required
+        permissions:
+            contents: read
+            packages: write
+
+        steps:
+            # Step 2: Checkout your project source code
+              - name: Checkout repository
+                uses: actions/checkout@v4
+    
+              # Step 3: Log in to GitHub Container Registry (GHCR)
+              - name: Log in to GHCR
+                uses: docker/login-action@v3
+                with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+    
+              # Step 4: Log in to Docker Hub
+              - name: Log in to Docker Hub
+                uses: docker/login-action@v3
+                with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
+              # Step 5: Build the image and push to all registries at once
+              # This is the most important step
+              - name: Build and push to both registries
+                uses: docker/build-push-action@v5
+                with:
+                  context: .
+                  push: true
+                  # Key: Use multiline string to define all target tags
+                  # The action will parse each tag and push to the corresponding registry
+                  tags: |
+                    ghcr.io/${{ github.repository }}:latest
+                    ghcr.io/${{ github.repository }}:${{ github.sha }}
+                    ${{ secrets.DOCKERHUB_USERNAME }}/quprs:latest
+                    ${{ secrets.DOCKERHUB_USERNAME }}/quprs:${{ github.sha }}

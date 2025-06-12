@@ -1,6 +1,7 @@
 import symengine as se
 import sympy as sp
 import numpy as np
+import uuid
 from itertools import combinations, count
 from qiskit.circuit import Parameter, ParameterExpression
 from qiskit.circuit.tools.pi_check import pi_check
@@ -182,3 +183,6 @@ def find_new_variables(pathvar: set|frozenset, num_vars_needed = 1) -> list[se.S
             if candidate_var not in pathvar:
                 new_vars.append(candidate_var)
         return new_vars
+def generate_unique_key():
+    unique_key = str(uuid.uuid4())
+    return unique_key

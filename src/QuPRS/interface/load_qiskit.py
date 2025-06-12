@@ -164,7 +164,7 @@ def qasm_eq_check(circuit1: str|QuantumCircuit, circuit2:str|QuantumCircuit, str
             output_dict["equivalent"] = 'unknown'
             return output_dict, pathsum_circuit
 
-def qasm_eq_check_with_wmc(circuit1: str|QuantumCircuit, circuit2:str|QuantumCircuit, strategy ='Difference' , Benchmark_Name=None, timeout= 600):
+def qasm_eq_check_with_wmc(circuit1: str|QuantumCircuit, circuit2:str|QuantumCircuit, strategy ='Difference' , Benchmark_Name=None, cnf_filename = None, timeout= 600):
     tolerance = config.TOLERANCE
 
     output_dict, circuit = qasm_eq_check(circuit1=circuit1, circuit2=circuit2, strategy =strategy , Benchmark_Name=Benchmark_Name, timeout= timeout)
@@ -181,7 +181,9 @@ def qasm_eq_check_with_wmc(circuit1: str|QuantumCircuit, circuit2:str|QuantumCir
         signal.alarm(timeout)
         start_time = time.time()
         try:
-            to_DIMACS(circuit)
+            if cnf_filename is None:
+                cnf_filename = 'wmc.cnf'
+            to_DIMACS(circuit, cnf_filename)
             to_DIMACS_time = round(time.time() - start_time, 3)
         except TimeoutError:
             to_DIMACS_time = f'>{timeout}'
@@ -192,7 +194,7 @@ def qasm_eq_check_with_wmc(circuit1: str|QuantumCircuit, circuit2:str|QuantumCir
             signal.alarm(timeout)
             start_time = time.time()
             try:
-                complex_number = run_wmc()
+                complex_number = run_wmc(cnf_filename)
                 wmc_time = round(time.time() - start_time, 3)
                 abs_num = np.sqrt(complex_number[0]**2 + complex_number[1]**2)
                 log_wmc = round(np.log2(abs_num), 3)

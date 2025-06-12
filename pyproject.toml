@@ -36,6 +36,8 @@ dev = [
     "ipykernel",
     "build",
     "pytest",
+    "pytest-xdist",
+    "pytest-cov",
     "pandas",
     "tqdm"
 ]

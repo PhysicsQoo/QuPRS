@@ -1,9 +1,10 @@
 from QuPRS import config
 from QuPRS.pathsum import PathSum
 from QuPRS.interface.ps2wmc import to_DIMACS, run_wmc
-from QuPRS.utils.util import get_theta
+from QuPRS.utils.util import get_theta, generate_unique_key
 
-import math
+import math, os
+
 TOLERANCE = config.TOLERANCE
 def test_CX_XT_CH_XTdg__2():
     qubit_num = 2
@@ -23,8 +24,11 @@ def test_CX_XT_CH_XTdg__2():
     circuit = circuit.tdg(1)
     circuit = circuit.reduction()
     
-    to_DIMACS(circuit)
-    complex_number = run_wmc()
+    temp_name = generate_unique_key()+'cnf'
+    to_DIMACS(circuit, temp_name)
+    complex_number = run_wmc(temp_name)
+    os.remove(temp_name)
+    
 
     abs_num = math.sqrt(complex_number[0]**2 + complex_number[1]**2)
     log_wmc = math.log2(abs_num)
@@ -42,8 +46,10 @@ def test_HH():
     circuit = circuit.h(0)
     circuit = circuit.h(0)
 
-    to_DIMACS(circuit)
-    complex_number = run_wmc()
+    temp_name = generate_unique_key()+'cnf'
+    to_DIMACS(circuit, temp_name)
+    complex_number = run_wmc(temp_name)
+    os.remove(temp_name)
 
     abs_num = math.sqrt(complex_number[0]**2 + complex_number[1]**2)
     log_wmc = math.log2(abs_num)

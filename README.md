@@ -1,5 +1,7 @@
+[![PyPI version](https://img.shields.io/pypi/v/QuPRS)](https://pypi.org/project/QuPRS/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
-![Python Versions](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/QuPRS)
+![GitHub last commit](https://img.shields.io/github/last-commit/PhysicsQoo/QuPRS)
 
 # QuPRS: Quantum Path-sum Reduction and Solver
 
@@ -42,6 +44,10 @@ It is recommended to install `QuPRS` in a virtual environment.
 2.  Install `QuPRS` using pip:
     ```bash
     pip install QuPRS
+    ```
+    or install `QuPRS` latest commit:
+    ```bash
+    pip install git+https://github.com/PhysicsQoo/QuPRS.git
     ```
 
 ## Using QuPRS

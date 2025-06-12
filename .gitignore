@@ -13,6 +13,7 @@ wheels/
 .venv/
 venv/
 env/
+uv.lock
 
 # IDE and editor settings
 .vscode/
@@ -31,3 +32,4 @@ htmlcov/
 
 # other
 src/QuPRS/_version.py
+*.cnf

@@ -1,55 +1,82 @@
-name: Build and Push docker image to Multiple Registries
+name: Build and Push Docker Image to Multiple Registries
 
 on:
-    push:
-        branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-    build-and-push:
-        runs-on: ubuntu-latest
+  build-and-push:
+    runs-on: ubuntu-latest
 
-        # Step 1: Set permissions
-        # To push to GHCR, packages: write permission is required
-        permissions:
-            contents: read
-            packages: write
+    # Set permissions: write access to packages is required for GHCR
+    permissions:
+      contents: read
+      packages: write
 
-        steps:
-            # Step 2: Checkout your project source code
-              - name: Checkout repository
-                uses: actions/checkout@v4
+    steps:
+      # Checkout the repository source code
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-              - name: Set lowercase repo name
-                run: |
-                  echo "LOWERCASE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-                  echo "DOCKERHUB_REPO=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+      # Set lowercase repository and image names for Docker
+      - name: Set lowercase repo name
+        run: |
+          # Convert repository name to lowercase for Docker image naming
+          echo "LOWERCASE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          # Extract and lowercase the repository name for Docker Hub
+          echo "DOCKERHUB_REPO=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
-              # Step 3: Log in to GitHub Container Registry (GHCR)
-              - name: Log in to GHCR
-                uses: docker/login-action@v3
-                with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-    
-              # Step 4: Log in to Docker Hub
-              - name: Log in to Docker Hub
-                uses: docker/login-action@v3
-                with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-    
-              # Step 5: Build the image and push to all registries at once
-              # This is the most important step
-              - name: Build and push to both registries
-                uses: docker/build-push-action@v5
-                with:
-                  context: .
-                  push: true
-                  # Key: Use multiline string to define all target tags
-                  # The action will parse each tag and push to the corresponding registry
-                  tags: |
-                    ghcr.io/${{ env.LOWERCASE_REPO }}:latest
-                    ghcr.io/${{ env.LOWERCASE_REPO }}:${{ github.sha }}
-                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:latest
-                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:${{ github.sha }}
+      # Extract Docker metadata (tags, labels, etc.)
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            # Image for GitHub Container Registry (GHCR)
+            ghcr.io/${{ env.LOWERCASE_REPO }}
+            # Image for Docker Hub
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}
+          tags: |
+            # Tag with semantic version if a Git tag is present (e.g., 1.2.3)
+            type=semver,pattern={{version}}
+            # Tag with short commit SHA
+            type=sha,format=short
+            # Tag as 'latest' only on the default branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Log in to GitHub Container Registry (GHCR)
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Log in to Docker Hub
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build and push the Docker image to both registries (only for push events)
+      - name: Build, Test and Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          # If the event is a PR, use the 'tester' target for testing; otherwise, build the final stage
+          target: ${{ github.event_name == 'pull_request' && 'tester' || '' }}
+          # Only push images if the event is not a pull request
+          push: ${{ github.event_name != 'pull_request' }}
+          # Use tags and labels generated by the metadata action
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Enable build cache to speed up subsequent builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

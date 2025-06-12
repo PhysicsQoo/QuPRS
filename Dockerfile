@@ -7,6 +7,7 @@ FROM continuumio/miniconda3
 
 # Set the working directory inside the container
 WORKDIR /app
+COPY . .
 
 # 1. Update Conda and upgrade Python in the base environment to version 3.12
 # Combine conda update, Python upgrade, and pip installation in a single RUN command
@@ -24,8 +25,7 @@ RUN apt update && \
     rm -rf /var/lib/apt/lists/*
 
 # 3. Install Python packages in the base environment
-RUN pip install git+https://github.com/PhysicsQoo/QuPRS.git && \
-    pip install tqdm psutil pytest pytest-xdist && \
+RUN pip install .[dev] && \
     # Remove pip cache to reduce image size
     rm -rf ~/.cache/pip && \
     rm -rf ./dist
@@ -38,8 +38,12 @@ COPY README.md /app/README.md
 COPY LICENSE.md /app/LICENSE.md
 COPY NOTICE.md /app/NOTICE.md
 
+RUN conda run -n base pytest -n auto 
+
 # 5. Set license information as a container label
 LABEL org.opencontainers.image.licenses="MIT"
+
+
 
 # 6. Set the default command to run when the container starts
 CMD ["/bin/bash"]

@@ -3,7 +3,7 @@ from QuPRS.pathsum import PathSum
 from QuPRS.interface.ps2wmc import to_DIMACS, run_wmc
 from QuPRS.utils.util import get_theta, generate_unique_key
 
-import math, os
+import math, tempfile
 
 TOLERANCE = config.TOLERANCE
 def test_CX_XT_CH_XTdg__2():
@@ -23,12 +23,10 @@ def test_CX_XT_CH_XTdg__2():
     circuit = circuit.x(0)
     circuit = circuit.tdg(1)
     circuit = circuit.reduction()
-    
-    temp_name = generate_unique_key()+'cnf'
-    to_DIMACS(circuit, temp_name)
-    complex_number = run_wmc(temp_name)
-    os.remove(temp_name)
-    
+    with tempfile.NamedTemporaryFile(delete=True, suffix='.cnf') as temp_file:
+        temp_name = temp_file.name
+        to_DIMACS(circuit, temp_name)
+        complex_number = run_wmc(temp_name)
 
     abs_num = math.sqrt(complex_number[0]**2 + complex_number[1]**2)
     log_wmc = math.log2(abs_num)
@@ -46,10 +44,10 @@ def test_HH():
     circuit = circuit.h(0)
     circuit = circuit.h(0)
 
-    temp_name = generate_unique_key()+'cnf'
-    to_DIMACS(circuit, temp_name)
-    complex_number = run_wmc(temp_name)
-    os.remove(temp_name)
+    with tempfile.NamedTemporaryFile(delete=True, suffix='.cnf') as temp_file:
+        temp_name = temp_file.name
+        to_DIMACS(circuit, temp_name)
+        complex_number = run_wmc(temp_name)
 
     abs_num = math.sqrt(complex_number[0]**2 + complex_number[1]**2)
     log_wmc = math.log2(abs_num)

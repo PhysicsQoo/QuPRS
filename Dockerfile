@@ -18,7 +18,7 @@ RUN conda update -n base -c defaults conda --yes && \
 # 2. Install Python packages
 # All packages are installed in the base environment
 RUN pip install git+https://github.com/PhysicsQoo/QuPRS.git && \
-    pip install tqdm psutil pytest && \
+    pip install tqdm psutil pytest pytest-xdist && \
     # Clean up pip cache to reduce image size
     rm -rf ~/.cache/pip && \
     rm -rf ./dist

@@ -217,7 +217,7 @@ def run_wmc(file='wmc.cnf'):
                 real_part = 0 
                 imag_part = float(match.group(1))  
                 return real_part, imag_part
-    return None
+    assert False, "WMC output format error, result: {}".format(result.stdout)
 
 if __name__ == "__main__":
     # from pathsum.pathsum import PathSum, F, Register

@@ -18,7 +18,10 @@ jobs:
             # Step 2: Checkout your project source code
               - name: Checkout repository
                 uses: actions/checkout@v4
-    
+
+              - name: Set repository name to lowercase
+                run: echo "LOWERCASE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
               # Step 3: Log in to GitHub Container Registry (GHCR)
               - name: Log in to GHCR
                 uses: docker/login-action@v3
@@ -44,7 +47,7 @@ jobs:
                   # Key: Use multiline string to define all target tags
                   # The action will parse each tag and push to the corresponding registry
                   tags: |
-                    ghcr.io/${{ github.repository }}:latest
-                    ghcr.io/${{ github.repository }}:${{ github.sha }}
-                    ${{ secrets.DOCKERHUB_USERNAME }}/quprs:latest
-                    ${{ secrets.DOCKERHUB_USERNAME }}/quprs:${{ github.sha }}
+                    ghcr.io/${{ env.LOWERCASE_REPO }}:latest
+                    ghcr.io/${{ env.LOWERCASE_REPO }}:${{ github.sha }}
+                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.LOWERCASE_REPO }}:latest
+                    ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.LOWERCASE_REPO }}:${{ github.sha }}

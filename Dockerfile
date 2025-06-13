@@ -32,7 +32,7 @@ ARG SETUPTOOLS_SCM_PRETEND_VERSION
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 # 3. Install Python dependencies (including development dependencies)
-RUN pip install ".[dev]" && \
+RUN pip install --no-build-isolation ".[dev]" && \
     rm -rf ~/.cache/pip
 
 FROM builder AS tester

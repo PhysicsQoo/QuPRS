@@ -51,7 +51,6 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
       - name: Get App Version
         id: app_version
-        if: github.event_name != 'pull_request'
         run: |
           # Extract the semantic version from the Git tag
           echo "VERSION=$(git describe --tags --always)" >> $GITHUB_OUTPUT
@@ -93,5 +92,5 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            SETUPTOOLS_SCM_PRETEND_VERSION=${{ steps.app_version.outputs.VERSION }}
+            SETUPTOOLS_SCM_PRETEND_VERSION=${{ steps.app_version.outputs.VERSION || '0.0.0-pr' }}
 

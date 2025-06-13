@@ -91,14 +91,12 @@ jobs:
           echo "--- Running benchmark on PR branch ---"
           (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=pr --benchmark-storage=file://../benchmarks)
 
-          # 3. Compare results using explicit file paths as separate arguments.
+          # 3. Compare results using a single glob pattern argument.
+          #    The format "glob_for_baseline:glob_for_comparison" is the most robust way.
+          #    This compares files matching *_pr.json (new) against files matching *_main.json (baseline).
           echo "--- Comparing benchmarks ---"
-          MAIN_BENCHMARK=$(find benchmarks -type f -name "*_main.json" | sort -r | head -n 1)
-          PR_BENCHMARK=$(find benchmarks -type f -name "*_pr.json" | sort -r | head -n 1)
-          # Use a space, not a colon, to separate the two files for comparison.
-          pytest --benchmark-compare $MAIN_BENCHMARK $PR_BENCHMARK --benchmark-storage=file://./benchmarks
+          pytest --benchmark-compare="*_main.json:*_pr.json" --benchmark-storage=file://./benchmarks
 
-      # ... The rest of the steps remain unchanged ...
       - name: Generate and Upload Report
         if: github.event_name == 'pull_request'
         # Since we added 'src' to PYTHONPATH, this script should now find its modules

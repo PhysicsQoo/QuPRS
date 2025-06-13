@@ -44,15 +44,14 @@ jobs:
   test-and-benchmark:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    needs: build-and-save-baseline
     strategy:
       matrix:
         python-version: ["3.12"]
     steps:
-      - name: Checkout PR Code
+      - name: Checkout PR branch
         uses: actions/checkout@v4
 
-      - name: Setup Python ${{ matrix.python-version }}
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -66,11 +65,29 @@ jobs:
       - name: Run tests
         run: pytest -n auto -v
 
-      - name: Download main benchmark baseline
+      - name: Try downloading main benchmark baseline
+        id: download_baseline
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: benchmark-main-${{ matrix.python-version }}
           path: benchmarks
+
+      - name: Generate baseline if not found
+        if: steps.download_baseline.outcome == 'failure'
+        run: |
+          echo "⚠️ No baseline found, generating from main branch..."
+          git fetch origin main
+          git checkout origin/main
+          pip install .[dev]
+          mkdir -p benchmarks
+          pytest --benchmark-only \
+            --benchmark-save=main \
+            --benchmark-storage=file://./benchmarks
+
+      - name: Return to PR branch
+        run: |
+          git checkout ${{ github.head_ref }}
 
       - name: Run benchmark on PR branch
         run: |
@@ -87,8 +104,7 @@ jobs:
 
       - name: Generate benchmark markdown report
         run: |
-          echo "## Benchmark Comparison Results" > benchmark_report.md
-          python -m json.tool comparison_results.json >> benchmark_report.md
+          python scripts/generate_benchmark_report.py
 
       - name: Upload benchmark report artifacts
         uses: actions/upload-artifact@v4

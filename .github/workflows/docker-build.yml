@@ -18,39 +18,34 @@ jobs:
       packages: write
 
     steps:
-      # Checkout the repository source code
+      # 1. Checkout the repository source code
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # Fetch all git history, required for setuptools-scm and metadata-action
           fetch-depth: 0
 
-      # Set lowercase repository and image names for Docker
+      # 2. Set lowercase repository and image names for Docker
       - name: Set lowercase repo name
+        id: set_repo_name
         run: |
-          # Convert repository name to lowercase for Docker image naming
-          echo "LOWERCASE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          # Extract and lowercase the repository name for Docker Hub
-          echo "DOCKERHUB_REPO=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "lowercase_repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          echo "dockerhub_repo=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      # Extract Docker metadata (tags, labels, etc.)
+      # 3. Extract Docker metadata (tags, labels, etc.)
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            # Image for GitHub Container Registry (GHCR)
-            ghcr.io/${{ env.LOWERCASE_REPO }}
-            # Image for Docker Hub
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}
+            ghcr.io/${{ steps.set_repo_name.outputs.lowercase_repo }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.set_repo_name.outputs.dockerhub_repo }}
           tags: |
-            # Tag with semantic version if a Git tag is present (e.g., 1.2.3)
             type=semver,pattern={{version}}
-            # Tag with short commit SHA
             type=sha,format=short
-            # Tag as 'latest' only on the default branch
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # Log in to GitHub Container Registry (GHCR)
+      # 4. Log in to registries (only for push events)
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -59,23 +54,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Log in to Docker Hub
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
+          registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Set up QEMU for multi-architecture builds (recommended best practice)
+      # 5. Set up QEMU and Docker Buildx
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # Set up Docker Buildx (required for advanced build features)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
-      # Build, test, and push the Docker image to both registries (only for push events)
+
+      # 6. Build, test, and push the Docker image
       - name: Build, Test and Push
         id: build
         uses: docker/build-push-action@v5
@@ -88,5 +82,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            SETUPTOOLS_SCM_PRETEND_VERSION=${{ steps.meta.outputs.version || github.sha }}
-
+            SETUPTOOLS_SCM_PRETEND_VERSION=${{ steps.meta.outputs.version }}

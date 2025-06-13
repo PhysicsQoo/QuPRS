@@ -41,57 +41,78 @@ jobs:
 
     # ────────────────────────────────────────────────────────────────────────────
     # 2. Unit tests + PR Benchmark comparison (runs on pull requests)
-    test-and-compare:
+    test-and-benchmark:
+      runs-on: ubuntu-latest
+      strategy:
+      matrix:
+        python-version: ["3.12"]
+
+      steps:
+      - name: Checkout PR Code
+        uses: actions/checkout@v4
+        with:
+        # Checkout PR code into 'pr_code' directory
+        path: pr_code
+
+      # Only for pull_request events, checkout main branch for baseline comparison
+      - name: Checkout main branch for baseline
         if: github.event_name == 'pull_request'
-        runs-on: ubuntu-latest
-        strategy:
-            matrix:
-                python-version: ["3.12"]
-        steps:
-          - name: Checkout code
-            uses: actions/checkout@v4
+        uses: actions/checkout@v4
+        with:
+        # Use github.base_ref to get the latest code of the PR target branch (main)
+        ref: ${{ github.base_ref }}
+        # Checkout main branch code into 'main_code' directory
+        path: main_code
 
-          - name: Setup Python ${{ matrix.python-version }}
-            uses: actions/setup-python@v5
-            with:
-              python-version: ${{ matrix.python-version }}
-              cache: 'pip'
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
 
-          - name: Install dependencies
-            run: |
-              python -m pip install --upgrade pip
-              pip install .[dev]
+      - name: Install dependencies
+        # Since dependencies may differ between main and PR, install in each directory
+        run: |
+        python -m pip install --upgrade pip
+        # Install dependencies for PR code
+        pip install ./pr_code[dev]
+        # If this is a PR event, also install dependencies for main code
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          pip install ./main_code[dev]
+        fi
+      
+      - name: Run unit tests on PR code
+        run: pytest --rootdir=pr_code -n auto -v
 
-          - name: Run unit tests
-            run: pytest -n auto -v
+      # Benchmark and comparison only run on pull_request events
+      - name: Run and Compare Benchmarks
+        if: github.event_name == 'pull_request'
+        run: |
+        # 1. Generate baseline benchmark from main_code, named 'main'
+        pytest --rootdir=main_code --benchmark-only --benchmark-save=main --benchmark-storage=file://./benchmarks
+        
+        # 2. Generate benchmark for this PR from pr_code, named 'pr'
+        pytest --rootdir=pr_code --benchmark-only --benchmark-save=pr --benchmark-storage=file://./benchmarks
 
-          - name: Download baseline benchmark
-            uses: actions/download-artifact@v4
-            with:
-              name: benchmark-main
-              path: .benchmarks
+        # 3. Compare results between main and pr
+        pytest --benchmark-compare --benchmark-storage=file://./benchmarks main:pr
 
-          - name: Run PR benchmark and compare
-            run: |
-              pytest --benchmark-only --benchmark-save=pr
-              pytest --benchmark-compare main pr
+      - name: Generate and Upload Report
+        if: github.event_name == 'pull_request'
+        # Ensure generate_benchmark_report.py can find the benchmarks folder in the root directory
+        run: python pr_code/generate_benchmark_report.py
+      
+      - name: Upload Report Artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+        name: benchmark-report
+        path: |
+          benchmark_report.md
+          benchmark_chart.png
 
-          - name: Generate Markdown & Chart report
-            run: python generate_benchmark_report.py
-
-          - name: Upload report markdown
-            uses: actions/upload-artifact@v4
-            with:
-              name: benchmark-report-md
-              path: benchmark_report.md
-
-          - name: Upload chart image
-            uses: actions/upload-artifact@v4
-            with:
-              name: benchmark-chart-png
-              path: benchmark_chart.png
-
-          - name: Comment benchmark results on PR
-            uses: marocchino/sticky-pull-request-comment@v2
-            with:
-              path: benchmark_report.md
+      - name: Comment benchmark results on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+        path: benchmark_report.md

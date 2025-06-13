@@ -91,12 +91,12 @@ jobs:
           echo "--- Running benchmark on PR branch ---"
           (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=pr --benchmark-storage=file://../benchmarks)
 
-          # 3. Compare results using explicit file paths instead of names.
+          # 3. Compare results using explicit file paths as separate arguments.
           echo "--- Comparing benchmarks ---"
-          # Find the most recent file saved for 'main' and 'pr' and pass their paths directly.
           MAIN_BENCHMARK=$(find benchmarks -type f -name "*_main.json" | sort -r | head -n 1)
           PR_BENCHMARK=$(find benchmarks -type f -name "*_pr.json" | sort -r | head -n 1)
-          pytest --benchmark-compare $MAIN_BENCHMARK:$PR_BENCHMARK --benchmark-storage=file://./benchmarks
+          # Use a space, not a colon, to separate the two files for comparison.
+          pytest --benchmark-compare $MAIN_BENCHMARK $PR_BENCHMARK --benchmark-storage=file://./benchmarks
 
       # ... The rest of the steps remain unchanged ...
       - name: Generate and Upload Report

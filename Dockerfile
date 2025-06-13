@@ -28,6 +28,9 @@ RUN apt-get update && \
 COPY pyproject.toml MANIFEST.in ./
 COPY ./src /app/src
 
+ARG SETUPTOOLS_SCM_PRETEND_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
+
 # 3. Install Python dependencies (including development dependencies)
 RUN pip install ".[dev]" && \
     rm -rf ~/.cache/pip
@@ -60,6 +63,10 @@ RUN pip install --upgrade pip setuptools wheel
 
 COPY pyproject.toml MANIFEST.in ./
 COPY ./src /app/src
+
+ARG SETUPTOOLS_SCM_PRETEND_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
+
 
 # Install the package (without development dependencies)
 RUN pip install . && \

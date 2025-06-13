@@ -18,6 +18,7 @@ RUN pip install --upgrade pip setuptools wheel
 # 2. Install required system libraries
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        build-essential \
         libgmpxx4ldbl \
         libmpfr6 \
         libatomic1 && \
@@ -49,6 +50,7 @@ RUN conda update -n base -c defaults conda --yes && \
     conda clean --all -f -y && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
+        build-essential \
         libgmpxx4ldbl \
         libmpfr6 \
         libatomic1 && \

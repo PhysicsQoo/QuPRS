@@ -27,7 +27,7 @@ COPY pyproject.toml MANIFEST.in ./
 COPY ./src /app/src
 
 # 3. Install Python dependencies (including development dependencies)
-RUN pip install .[dev] && \
+RUN pip install ".[dev]" && \
     rm -rf ~/.cache/pip
 
 FROM builder AS tester

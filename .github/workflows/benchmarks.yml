@@ -75,33 +75,33 @@ jobs:
           fi
       
       - name: Run unit tests on PR code
-        # Set the working directory to pr_code. This ensures that:
-        # 1. Pytest correctly discovers modules within the QuPRS package.
-        # 2. Relative paths like './benchmarks/...' in the test code resolve correctly.
+        # For 'src' layout, run from the project root ('pr_code')
+        # and add the 'src' directory to the PYTHONPATH.
         working-directory: ./pr_code
-        run: pytest -n auto -v
+        run: PYTHONPATH=$(pwd)/src:$PYTHONPATH pytest -n auto -v
 
       - name: Run and Compare Benchmarks
         if: github.event_name == 'pull_request'
         run: |
-          # 1. Generate baseline benchmark from main_code.
-          #    Run from within the main_code directory.
+          # 1. Generate baseline benchmark from main_code, accounting for 'src' layout.
           echo "--- Running benchmark on main branch ---"
-          (cd main_code && pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://../benchmarks)
+          (cd main_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://../benchmarks)
           
-          # 2. Generate benchmark for this PR from pr_code.
-          #    Run from within the pr_code directory.
+          # 2. Generate benchmark for this PR from pr_code, accounting for 'src' layout.
           echo "--- Running benchmark on PR branch ---"
-          (cd pr_code && pytest --benchmark-only --benchmark-save=pr --benchmark-storage=file://../benchmarks)
+          (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=pr --benchmark-storage=file://../benchmarks)
 
           # 3. Compare results. The storage path is relative to the root.
           echo "--- Comparing benchmarks ---"
           pytest --benchmark-compare --benchmark-storage=file://./benchmarks main:pr
 
+      # ... The rest of the steps remain unchanged ...
       - name: Generate and Upload Report
         if: github.event_name == 'pull_request'
-        run: python pr_code/generate_benchmark_report.py
-      
+        # Since we added 'src' to PYTHONPATH, this script should now find its modules
+        working-directory: ./pr_code
+        run: PYTHONPATH=$(pwd)/src:$PYTHONPATH python generate_benchmark_report.py
+
       - name: Upload Report Artifacts
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4

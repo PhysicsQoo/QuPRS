@@ -4,36 +4,36 @@ import pkgutil
 import importlib
 import inspect
 
-# --- 匯入與附加核心功能 (這部分保持不變) ---
+# --- Import and attach core functionalities (keep this part unchanged) ---
 from .core import PathSum, Register, F
 from . import statistics
 from . import reduction
 
 PathSum.get_reduction_counts = staticmethod(statistics.get_reduction_counts)
-# ... 其他統計方法的附加 ...
+# ... attach other statistics methods ...
 PathSum.reduction = reduction.apply_reduction
 
-# --- 全自動發現並附加量子閘 ---
-# 1. 指定量子閘模組所在的套件路徑
+# --- Automatically discover and attach quantum gates ---
+# 1. Specify the package path where quantum gate modules are located
 from . import gates
 package = gates
 
-# 2. 遍歷該套件中的所有模組
-for _, module_name, _ in pkgutil.iter_modules(package.__path__):
-    # 排除 base.py 或其他非量子閘檔案
+# 2. Iterate over all modules in the package
+for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
+    # Exclude base.py or other non-gate files
     if module_name == 'base':
         continue
-    
-    # 3. 動態匯入找到的模組
-    #    例如，import QuPRS.pathsum.gates.single_qubit
+
+    # 3. Dynamically import the found module
+    #    e.g., import QuPRS.pathsum.gates.single_qubit
     module = importlib.import_module(f'{package.__name__}.{module_name}')
-    
-    # 4. 遍歷模組中的所有成員 (函式、類別等)
+
+    # 4. Iterate over all members (functions, classes, etc.) in the module
     for name, member in inspect.getmembers(module):
-        # 5. 檢查成員是否是被 @gate 裝飾過的函式
-        if inspect.isfunction(member) and hasattr(member, '_is_gate'):
-            # 6. 將其附加到 PathSum 類別
+        # 5. Check if the member is a function decorated with @gate
+        if inspect.isfunction(member) and getattr(member, '_is_gate', False):
+            # 6. Attach it to the PathSum class
             setattr(PathSum, name, member)
 
-# (可選) 定義 __all__
+# (Optional) Define __all__
 __all__ = ['PathSum', 'Register', 'F']

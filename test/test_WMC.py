@@ -2,6 +2,7 @@ from QuPRS import config
 from QuPRS.pathsum import PathSum
 from QuPRS.interface.ps2wmc import to_DIMACS, run_wmc
 from QuPRS.utils.util import get_theta, generate_unique_key
+from QuPRS.pathsum.statistics import set_reduction_switch
 
 import math, tempfile
 
@@ -43,11 +44,11 @@ def test_CX_XT_CH_XTdg__2():
     assert abs(theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
 def test_HH():
-    PathSum.set_reduction_switch(False)
+    set_reduction_switch(False)
     circuit = PathSum.QuantumCircuit(1)
     circuit = circuit.h(0)
     circuit = circuit.h(0)
-
+    
     complex_number, abs_num = generte_test(circuit)
     
     theta = get_theta(complex_number[1]/abs_num, complex_number[0]/abs_num)

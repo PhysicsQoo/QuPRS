@@ -3,42 +3,77 @@
 # SPDX-License-Identifier: MIT
 
 # Use the official Miniconda3 image as the base image
-FROM continuumio/miniconda3
+FROM continuumio/miniconda3 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
-COPY . .
 
-# 1. Update Conda and upgrade Python in the base environment to version 3.12
-# Combine conda update, Python upgrade, and pip installation in a single RUN command
-# Clean up to reduce image size
+# 1. Update Conda and upgrade Python to version 3.12 in the base environment
 RUN conda update -n base -c defaults conda --yes && \
     conda install -n base -c defaults python=3.12 pip --yes && \
     conda clean --all -f -y
 
+RUN pip install --upgrade pip setuptools wheel
+
 # 2. Install required system libraries
-RUN apt update && \
-    apt install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
         libgmpxx4ldbl \
         libmpfr6 \
         libatomic1 && \
     rm -rf /var/lib/apt/lists/*
 
-# 3. Install Python packages in the base environment
-RUN pip install .[dev] && \
-    # Remove pip cache to reduce image size
-    rm -rf ~/.cache/pip && \
-    rm -rf ./dist
+# Copy Python project files and source code
+COPY pyproject.toml MANIFEST.in ./
+COPY ./src /app/src
+
+ARG SETUPTOOLS_SCM_PRETEND_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
+
+# 3. Install Python dependencies (including development dependencies)
+RUN pip install --no-build-isolation ".[dev]" && \
+    rm -rf ~/.cache/pip
+
+FROM builder AS tester
 
 # 4. Copy benchmark, test, and documentation files into the container
-COPY ./benchmarks/Feymann /app/benchmarks/Feymann
-COPY ./benchmarks/MQTBench /app/benchmarks/MQTBench
+COPY ./benchmarks /app/benchmarks
 COPY ./test /app/test
-COPY README.md /app/README.md
-COPY LICENSE.md /app/LICENSE.md
-COPY NOTICE.md /app/NOTICE.md
 
+# Run tests using pytest
 RUN conda run -n base pytest -n auto 
+
+FROM continuumio/miniconda3 AS final
+WORKDIR /app
+
+# Repeat environment setup for the final image
+RUN conda update -n base -c defaults conda --yes && \
+    conda install -n base -c defaults python=3.12 pip --yes && \
+    conda clean --all -f -y && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libgmpxx4ldbl \
+        libmpfr6 \
+        libatomic1 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip setuptools wheel
+
+COPY pyproject.toml MANIFEST.in ./
+COPY ./src /app/src
+
+ARG SETUPTOOLS_SCM_PRETEND_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
+
+
+# Install the package (without development dependencies)
+RUN pip install . && \
+    rm -rf ~/.cache/pip
+
+# Copy documentation and license files
+COPY README.md LICENSE.md NOTICE.md /app/
 
 # 5. Set license information as a container label
 LABEL org.opencontainers.image.licenses="MIT"

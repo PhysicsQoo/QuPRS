@@ -93,16 +93,24 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           # Step 1: Run benchmarks on the main branch in an isolated environment and save results
-          echo "--- Running benchmark on main branch ---"
-          (cd main_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://../benchmarks)
-          
+          cd main_code
+          export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+          pytest --benchmark-only \
+                 --benchmark-save=main \
+                 --benchmark-storage=file://../benchmarks
+
           # Step 2: Run benchmarks on the PR branch in an isolated environment and save results
-          echo "--- Running benchmark on PR branch ---"
-          (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=pr --benchmark-storage=file://../benchmarks)
+          cd ../pr_code
+          export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+          pytest --benchmark-only \
+                 --benchmark-save=pr \
+                 --benchmark-storage=file://../benchmarks
 
           # Step 3: Compare the benchmark results between main and PR branches using glob patterns
-          echo "--- Comparing benchmarks ---"
-          (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-compare="./**/*_main.json:./**/*_pr.json" --benchmark-storage=file://../benchmarks)
+          cd ../pr_code
+          export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+          pytest --benchmark-compare="benchmarks/*/*_main.json:benchmarks/*/*_pr.json" \
+                --benchmark-storage=file://../benchmarks
 
       # Step 4: Generate a benchmark report and upload it as an artifact
       - name: Generate and Upload Report
@@ -128,3 +136,4 @@ jobs:
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: benchmark_report.md
+          header: "🔍 Benchmark Comparison Report"

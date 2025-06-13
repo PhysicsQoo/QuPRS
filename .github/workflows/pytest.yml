@@ -38,7 +38,7 @@ jobs:
           # Step 4: Run pytest
           - name: Run tests with pytest
             run: |
-              pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html
+              pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html
 
           # Step 5: Upload pytest HTML results as artifact
           - name: Upload pytest HTML results

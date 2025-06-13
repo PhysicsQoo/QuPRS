@@ -107,8 +107,11 @@ jobs:
       # Step 4: Generate a benchmark report and upload it as an artifact
       - name: Generate and Upload Report
         if: github.event_name == 'pull_request'
+        # The working directory is still 'pr_code'
         working-directory: ./pr_code
-        run: PYTHONPATH=$(pwd)/src:$PYTHONPATH python generate_benchmark_report.py
+        # We provide the correct path to the script, likely inside 'src',
+        # while also providing the PYTHONPATH so the script can import project modules.
+        run: PYTHONPATH=$(pwd)/src:$PYTHONPATH python src/generate_benchmark_report.py
 
       - name: Upload Report Artifacts
         if: github.event_name == 'pull_request'

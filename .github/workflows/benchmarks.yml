@@ -51,17 +51,13 @@ jobs:
       - name: Checkout PR Code
         uses: actions/checkout@v4
         with:
-          # Checkout PR code into 'pr_code' directory
           path: pr_code
 
-      # Only for pull_request events, checkout main branch for baseline comparison
       - name: Checkout main branch for baseline
         if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
-          # Use github.base_ref to get the latest code of the PR target branch (main)
           ref: ${{ github.base_ref }}
-          # Checkout main branch code into 'main_code' directory
           path: main_code
 
       - name: Setup Python ${{ matrix.python-version }}
@@ -71,47 +67,39 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        # Since dependencies may differ between main and PR, install in each directory
         run: |
           python -m pip install --upgrade pip
-          # Install dependencies for PR code
           pip install ./pr_code[dev]
-          # If this is a PR event, also install dependencies for main code
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             pip install ./main_code[dev]
           fi
       
       - name: Run unit tests on PR code
-        run: |
-          # Prepend the pr_code directory to PYTHONPATH to ensure its modules are found first.
-          # This resolves the 'import file mismatch' error.
-          # We explicitly point pytest to the test directory.
-          # The command's working directory is the repo root, so './benchmarks' paths in code resolve correctly.
-          PYTHONPATH=$(pwd)/pr_code:$PYTHONPATH pytest pr_code/test -n auto -v
+        # Set the working directory to pr_code. This ensures that:
+        # 1. Pytest correctly discovers modules within the QuPRS package.
+        # 2. Relative paths like './benchmarks/...' in the test code resolve correctly.
+        working-directory: ./pr_code
+        run: pytest -n auto -v
 
-      # Benchmark and comparison only run on pull_request events
       - name: Run and Compare Benchmarks
         if: github.event_name == 'pull_request'
         run: |
           # 1. Generate baseline benchmark from main_code.
-          #    Set PYTHONPATH to prioritize the main_code directory.
+          #    Run from within the main_code directory.
           echo "--- Running benchmark on main branch ---"
-          PYTHONPATH=$(pwd)/main_code:$PYTHONPATH pytest main_code/test --benchmark-only --benchmark-save=main --benchmark-storage=file://./benchmarks
+          (cd main_code && pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://../benchmarks)
           
           # 2. Generate benchmark for this PR from pr_code.
-          #    Set PYTHONPATH to prioritize the pr_code directory.
+          #    Run from within the pr_code directory.
           echo "--- Running benchmark on PR branch ---"
-          PYTHONPATH=$(pwd)/pr_code:$PYTHONPATH pytest pr_code/test --benchmark-only --benchmark-save=pr --benchmark-storage=file://./benchmarks
+          (cd pr_code && pytest --benchmark-only --benchmark-save=pr --benchmark-storage=file://../benchmarks)
 
-          # 3. Compare results. This command compares data and doesn't execute test code,
-          #    so PYTHONPATH is not critical here.
+          # 3. Compare results. The storage path is relative to the root.
           echo "--- Comparing benchmarks ---"
           pytest --benchmark-compare --benchmark-storage=file://./benchmarks main:pr
 
       - name: Generate and Upload Report
         if: github.event_name == 'pull_request'
-        # Ensure generate_benchmark_report.py can find the benchmarks folder in the root directory
-        # We run the script from the pr_code directory itself
         run: python pr_code/generate_benchmark_report.py
       
       - name: Upload Report Artifacts

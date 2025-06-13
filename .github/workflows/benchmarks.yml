@@ -54,6 +54,8 @@ jobs:
   #    - Posts the benchmark comparison as a comment on the pull request
   test-and-benchmark:
     runs-on: ubuntu-latest
+    env:
+      BENCH_DIR: ${{ github.workspace }}/benchmarks
     strategy:
       matrix:
         python-version: ["3.12"]
@@ -89,26 +91,25 @@ jobs:
         working-directory: ./pr_code
         run: PYTHONPATH=$(pwd)/src:$PYTHONPATH pytest -n auto -v
 
-      - name: Run and Compare Benchmarks
-        if: github.event_name == 'pull_request'
+      - name: Run baseline on main
         run: |
-          # Step 1: Run benchmarks on the main branch in an isolated environment and save results
           cd main_code
-          export PYTHONPATH=$(pwd)/src:$PYTHONPATH
           pytest --benchmark-only \
                  --benchmark-save=main \
-                 --benchmark-storage=file://../benchmarks
+                 --benchmark-storage=file://$BENCH_DIR
 
-          # Step 2: Run benchmarks on the PR branch in an isolated environment and save results
-          cd ../pr_code
-          export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+      - name: Run benchmark on PR
+        run: |
+          cd pr_code
           pytest --benchmark-only \
                  --benchmark-save=pr \
-                 --benchmark-storage=file://../benchmarks
+                 --benchmark-storage=file://$BENCH_DIR
 
-          # Step 3: Compare the benchmark results between main and PR branches using glob patterns
-          pytest --benchmark-compare="*/*_main.json:*/*_pr.json" \
-               --benchmark-storage=file://../benchmarks
+      - name: Compare benchmarks
+        run: |
+          cd pr_code
+          pytest --benchmark-storage=file://$BENCH_DIR \
+                 --benchmark-compare="*/*_main.json:*/*_pr.json"
 
       # Step 4: Generate a benchmark report and upload it as an artifact
       - name: Generate and Upload Report

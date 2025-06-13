@@ -9,14 +9,15 @@ FROM continuumio/miniconda3 AS builder
 WORKDIR /app
 
 # 1. Update Conda and upgrade Python to version 3.12 in the base environment
-# Install pip and clean up to reduce image size
 RUN conda update -n base -c defaults conda --yes && \
     conda install -n base -c defaults python=3.12 pip --yes && \
     conda clean --all -f -y
 
+RUN pip install --upgrade pip setuptools wheel
+
 # 2. Install required system libraries
-RUN apt update && \
-    apt install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         libgmpxx4ldbl \
         libmpfr6 \
         libatomic1 && \
@@ -53,8 +54,9 @@ RUN conda update -n base -c defaults conda --yes && \
         libatomic1 && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy project files and source code
-COPY setup.py pyproject.toml MANIFEST.in ./
+RUN pip install --upgrade pip setuptools wheel
+
+COPY pyproject.toml MANIFEST.in ./
 COPY ./src /app/src
 
 # Install the package (without development dependencies)

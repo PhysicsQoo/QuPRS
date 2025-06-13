@@ -21,6 +21,8 @@ jobs:
       # Checkout the repository source code
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Set lowercase repository and image names for Docker
       - name: Set lowercase repo name

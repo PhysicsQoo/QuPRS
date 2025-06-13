@@ -39,80 +39,92 @@ jobs:
               name: benchmark-main
               path: ./benchmarks/**/*.json
 
-    # ────────────────────────────────────────────────────────────────────────────
-    # 2. Unit tests + PR Benchmark comparison (runs on pull requests)
-    test-and-benchmark:
-      runs-on: ubuntu-latest
-      strategy:
-        matrix:
-          python-version: ["3.12"]
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. Unit tests + PR Benchmark comparison (runs on pull requests)
+  test-and-benchmark:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
 
-      steps:
-        - name: Checkout PR Code
-          uses: actions/checkout@v4
-          with:
-            # Checkout PR code into 'pr_code' directory
-            path: pr_code
+    steps:
+      - name: Checkout PR Code
+        uses: actions/checkout@v4
+        with:
+          # Checkout PR code into 'pr_code' directory
+          path: pr_code
 
-        # Only for pull_request events, checkout main branch for baseline comparison
-        - name: Checkout main branch for baseline
-          if: github.event_name == 'pull_request'
-          uses: actions/checkout@v4
-          with:
-            # Use github.base_ref to get the latest code of the PR target branch (main)
-            ref: ${{ github.base_ref }}
-            # Checkout main branch code into 'main_code' directory
-            path: main_code
+      # Only for pull_request events, checkout main branch for baseline comparison
+      - name: Checkout main branch for baseline
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          # Use github.base_ref to get the latest code of the PR target branch (main)
+          ref: ${{ github.base_ref }}
+          # Checkout main branch code into 'main_code' directory
+          path: main_code
 
-        - name: Setup Python ${{ matrix.python-version }}
-          uses: actions/setup-python@v5
-          with:
-            python-version: ${{ matrix.python-version }}
-            cache: 'pip'
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
 
-        - name: Install dependencies
-          # Since dependencies may differ between main and PR, install in each directory
-          run: |
-            python -m pip install --upgrade pip
-            # Install dependencies for PR code
-            pip install ./pr_code[dev]
-            # If this is a PR event, also install dependencies for main code
-            if [ "${{ github.event_name }}" == "pull_request" ]; then
-              pip install ./main_code[dev]
-            fi
-        
-        - name: Run unit tests on PR code
-          run: pytest --rootdir=pr_code -n auto -v
+      - name: Install dependencies
+        # Since dependencies may differ between main and PR, install in each directory
+        run: |
+          python -m pip install --upgrade pip
+          # Install dependencies for PR code
+          pip install ./pr_code[dev]
+          # If this is a PR event, also install dependencies for main code
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            pip install ./main_code[dev]
+          fi
+      
+      - name: Run unit tests on PR code
+        run: |
+          # Prepend the pr_code directory to PYTHONPATH to ensure its modules are found first.
+          # This resolves the 'import file mismatch' error.
+          # We explicitly point pytest to the test directory.
+          # The command's working directory is the repo root, so './benchmarks' paths in code resolve correctly.
+          PYTHONPATH=$(pwd)/pr_code:$PYTHONPATH pytest pr_code/test -n auto -v
 
-        # Benchmark and comparison only run on pull_request events
-        - name: Run and Compare Benchmarks
-          if: github.event_name == 'pull_request'
-          run: |
-            # 1. Generate baseline benchmark from main_code, named 'main'
-            pytest --rootdir=main_code --benchmark-only --benchmark-save=main --benchmark-storage=file://./benchmarks
-            
-            # 2. Generate benchmark for this PR from pr_code, named 'pr'
-            pytest --rootdir=pr_code --benchmark-only --benchmark-save=pr --benchmark-storage=file://./benchmarks
+      # Benchmark and comparison only run on pull_request events
+      - name: Run and Compare Benchmarks
+        if: github.event_name == 'pull_request'
+        run: |
+          # 1. Generate baseline benchmark from main_code.
+          #    Set PYTHONPATH to prioritize the main_code directory.
+          echo "--- Running benchmark on main branch ---"
+          PYTHONPATH=$(pwd)/main_code:$PYTHONPATH pytest main_code/test --benchmark-only --benchmark-save=main --benchmark-storage=file://./benchmarks
+          
+          # 2. Generate benchmark for this PR from pr_code.
+          #    Set PYTHONPATH to prioritize the pr_code directory.
+          echo "--- Running benchmark on PR branch ---"
+          PYTHONPATH=$(pwd)/pr_code:$PYTHONPATH pytest pr_code/test --benchmark-only --benchmark-save=pr --benchmark-storage=file://./benchmarks
 
-            # 3. Compare results between main and pr
-            pytest --benchmark-compare --benchmark-storage=file://./benchmarks main:pr
+          # 3. Compare results. This command compares data and doesn't execute test code,
+          #    so PYTHONPATH is not critical here.
+          echo "--- Comparing benchmarks ---"
+          pytest --benchmark-compare --benchmark-storage=file://./benchmarks main:pr
 
-        - name: Generate and Upload Report
-          if: github.event_name == 'pull_request'
-          # Ensure generate_benchmark_report.py can find the benchmarks folder in the root directory
-          run: python pr_code/generate_benchmark_report.py
-        
-        - name: Upload Report Artifacts
-          if: github.event_name == 'pull_request'
-          uses: actions/upload-artifact@v4
-          with:
-            name: benchmark-report
-            path: |
-              benchmark_report.md
-              benchmark_chart.png
+      - name: Generate and Upload Report
+        if: github.event_name == 'pull_request'
+        # Ensure generate_benchmark_report.py can find the benchmarks folder in the root directory
+        # We run the script from the pr_code directory itself
+        run: python pr_code/generate_benchmark_report.py
+      
+      - name: Upload Report Artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: |
+            benchmark_report.md
+            benchmark_chart.png
 
-        - name: Comment benchmark results on PR
-          if: github.event_name == 'pull_request'
-          uses: marocchino/sticky-pull-request-comment@v2
-          with:
-            path: benchmark_report.md
+      - name: Comment benchmark results on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: benchmark_report.md

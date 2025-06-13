@@ -53,9 +53,9 @@ jobs:
   #    - Generates a benchmark report and uploads it as an artifact
   #    - Posts the benchmark comparison as a comment on the pull request
   test-and-benchmark:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    env:
-      BENCH_DIR: ${{ github.workspace }}/benchmarks
+    needs: build-and-save-baseline # Ensures a baseline exists, though triggers are separate
     strategy:
       matrix:
         python-version: ["3.12"]
@@ -78,61 +78,54 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ./pr_code[dev]  # Install dependencies for PR code
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            pip install ./main_code[dev]  # Install dependencies for main branch code (for benchmarking)
-          fi
+          pip install .[dev]
+
+      - name: Download baseline benchmark from main
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-main-${{ matrix.python-version }}
+          path: ./benchmarks
+          # Note: This will fail if no artifact is found.
+          # For the very first PR, you might need to run the 'main' branch workflow first.
 
       - name: Run unit tests on PR code
-        working-directory: ./pr_code
-        run: PYTHONPATH=$(pwd)/src:$PYTHONPATH pytest -n auto -v
+        run: pytest -n auto -v
 
-      - name: Run baseline on main
+      - name: Run benchmark on PR and compare with main
         run: |
-          cd main_code
+          # Run benchmark for the PR and save it with the name 'pr'
           pytest --benchmark-only \
-                 --benchmark-save=main \
-                 --benchmark-storage=file://$BENCH_DIR
+            --benchmark-save=pr \
+            --benchmark-storage=file://./benchmarks
+            
+          # Compare the new 'pr' results with the 'main' baseline from the artifact
+          # The command will fail if the new mean time is 10% slower than the baseline
+          pytest --benchmark-storage=file://./benchmarks \
+            --benchmark-compare="*/_pr.json:*/_main.json" \
+            --benchmark-compare-fail=mean:10% \
+            --benchmark-json=comparison_results.json
 
-      - name: Run benchmark on PR
-        run: |
-          cd pr_code
-          pytest --benchmark-only \
-                 --benchmark-save=pr \
-                 --benchmark-storage=file://$BENCH_DIR
-
-      - name: Compare benchmarks
-        run: |
-          cd pr_code
-          pytest --benchmark-storage=file://$BENCH_DIR \
-                 --benchmark-compare="*/*_main.json:*/*_pr.json"
-
-      # Step 4: Generate a benchmark report and upload it as an artifact
       - name: Generate and Upload Report
-        if: github.event_name == 'pull_request'
-        # The working directory is still 'pr_code'
-        working-directory: ./pr_code
-        # We provide the correct path to the script, likely inside 'src',
-        # while also providing the PYTHONPATH so the script can import project modules.
-        run: PYTHONPATH=$(pwd)/src:$PYTHONPATH python src/generate_benchmark_report.py
+        run: |
+          # Assuming your script reads benchmark JSON files from the './benchmarks' directory
+          # and the comparison results from 'comparison_results.json'
+          python src/generate_benchmark_report.py
 
       - name: Upload Report Artifacts
-        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-report
+          name: benchmark-report-${{ matrix.python-version }}
           path: |
             benchmark_report.md
             benchmark_chart.png
 
-      # Step 5: Post the benchmark report as a comment on the pull request
       - name: Comment benchmark results on PR
-        if: github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: benchmark_report.md
-          header: "🔍 Benchmark Comparison Report"
+          header: "🔍 Benchmark Comparison Report (Python ${{ matrix.python-version }})"
+

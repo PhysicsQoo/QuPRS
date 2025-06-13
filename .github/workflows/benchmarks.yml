@@ -7,11 +7,6 @@ on:
     branches: [ main ]
 
 jobs:
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 1. Run unit tests and save benchmark baseline (only on push to main branch)
-  #    - Installs dependencies and runs all tests
-  #    - Executes benchmarks and saves the results as the baseline for future comparisons
-  #    - Uploads the generated benchmark data as an artifact for later use
   build-and-save-baseline:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -31,101 +26,80 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[dev]  # Installs all development dependencies including pytest, pytest-benchmark, matplotlib, tabulate
+          pip install .[dev]
 
-      - name: Run tests and save baseline benchmark
+      - name: Run benchmark on main
         run: |
-          pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://./benchmarks
+          mkdir -p benchmarks
+          pytest --benchmark-only \
+            --benchmark-save=main \
+            --benchmark-storage=file://./benchmarks
 
-      - name: Upload baseline benchmark artifact
+      - name: Upload benchmark artifact
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-main
-          path: ./benchmarks/**/*.json
+          name: benchmark-main-${{ matrix.python-version }}
+          path: benchmarks/**/*.json
 
-  # ──────────────────────────────────────────────────────────────────────────────
-  # 2. Run unit tests and compare PR benchmarks (on pull requests)
-  #    - Checks out both the PR code and the main branch code for comparison
-  #    - Installs dependencies for both codebases
-  #    - Runs unit tests on the PR code
-  #    - Runs benchmarks on both the main and PR branches in isolated environments
-  #    - Compares the benchmark results between main and PR branches
-  #    - Generates a benchmark report and uploads it as an artifact
-  #    - Posts the benchmark comparison as a comment on the pull request
   test-and-benchmark:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    needs: build-and-save-baseline # Ensures a baseline exists, though triggers are separate
+    needs: build-and-save-baseline
     strategy:
       matrix:
         python-version: ["3.12"]
-
     steps:
       - name: Checkout PR Code
         uses: actions/checkout@v4
-        with:
-          path: pr_code
-
-      - name: Checkout main branch for baseline
-        if: github.event_name == 'pull_request'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.base_ref }}
-          path: main_code
 
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install .[dev]
 
-      - name: Download baseline benchmark from main
+      - name: Run tests
+        run: pytest -n auto -v
+
+      - name: Download main benchmark baseline
         uses: actions/download-artifact@v4
         with:
           name: benchmark-main-${{ matrix.python-version }}
-          path: ./benchmarks
-          # Note: This will fail if no artifact is found.
-          # For the very first PR, you might need to run the 'main' branch workflow first.
+          path: benchmarks
 
-      - name: Run unit tests on PR code
-        run: pytest -n auto -v
-
-      - name: Run benchmark on PR and compare with main
+      - name: Run benchmark on PR branch
         run: |
-          # Run benchmark for the PR and save it with the name 'pr'
           pytest --benchmark-only \
             --benchmark-save=pr \
             --benchmark-storage=file://./benchmarks
-            
-          # Compare the new 'pr' results with the 'main' baseline from the artifact
-          # The command will fail if the new mean time is 10% slower than the baseline
-          pytest --benchmark-storage=file://./benchmarks \
-            --benchmark-compare="*/_pr.json:*/_main.json" \
+
+      - name: Compare benchmark with main
+        run: |
+          pytest --benchmark-compare \
+            --benchmark-storage=file://./benchmarks \
             --benchmark-compare-fail=mean:10% \
             --benchmark-json=comparison_results.json
 
-      - name: Generate and Upload Report
+      - name: Generate benchmark markdown report
         run: |
-          # Assuming your script reads benchmark JSON files from the './benchmarks' directory
-          # and the comparison results from 'comparison_results.json'
-          python src/generate_benchmark_report.py
+          echo "## Benchmark Comparison Results" > benchmark_report.md
+          python -m json.tool comparison_results.json >> benchmark_report.md
 
-      - name: Upload Report Artifacts
+      - name: Upload benchmark report artifacts
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-${{ matrix.python-version }}
           path: |
             benchmark_report.md
-            benchmark_chart.png
+            comparison_results.json
 
       - name: Comment benchmark results on PR
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: benchmark_report.md
           header: "🔍 Benchmark Comparison Report (Python ${{ matrix.python-version }})"
-

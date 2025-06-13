@@ -82,4 +82,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            SETUPTOOLS_SCM_PRETEND_VERSION=${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.version != 'latest' && format('SETUPTOOLS_SCM_PRETEND_VERSION={0}', steps.meta.outputs.version) || '' }}

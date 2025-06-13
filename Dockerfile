@@ -43,7 +43,5 @@ RUN conda run -n base pytest -n auto
 # 5. Set license information as a container label
 LABEL org.opencontainers.image.licenses="MIT"
 
-
-
 # 6. Set the default command to run when the container starts
 CMD ["/bin/bash"]

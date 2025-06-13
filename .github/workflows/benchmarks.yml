@@ -1,0 +1,99 @@
+name: Python CI & Benchmarks
+
+on:
+    push:
+        branches: [ main ]
+    pull_request:
+        branches: [ main ]
+
+jobs:
+    # ────────────────────────────────────────────────────────────────────────────
+    # 1. Unit tests + Benchmark baseline (only runs on push to main branch)
+    build-and-save-baseline:
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                python-version: ["3.12"]
+        steps:
+          - name: Checkout code
+            uses: actions/checkout@v4
+
+          - name: Setup Python ${{ matrix.python-version }}
+            uses: actions/setup-python@v5
+            with:
+              python-version: ${{ matrix.python-version }}
+              cache: 'pip'
+
+          - name: Install dependencies
+            run: |
+              python -m pip install --upgrade pip
+              pip install .[dev]  # Includes pytest, pytest-benchmark, matplotlib, tabulate
+
+          - name: Run tests and save baseline benchmark
+            run: |
+              pytest --benchmark-only --benchmark-save=main
+
+          - name: Upload baseline benchmark artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: benchmark-main
+              path: .benchmarks/
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # 2. Unit tests + PR Benchmark comparison (runs on pull requests)
+    test-and-compare:
+        if: github.event_name == 'pull_request'
+        needs: build-and-save-baseline
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                python-version: ["3.12"]
+        steps:
+          - name: Checkout code
+            uses: actions/checkout@v4
+
+          - name: Setup Python ${{ matrix.python-version }}
+            uses: actions/setup-python@v5
+            with:
+              python-version: ${{ matrix.python-version }}
+              cache: 'pip'
+
+          - name: Install dependencies
+            run: |
+              python -m pip install --upgrade pip
+              pip install .[dev]
+
+          - name: Run unit tests
+            run: pytest -n auto -v
+
+          - name: Download baseline benchmark
+            uses: actions/download-artifact@v4
+            with:
+              name: benchmark-main
+              path: .benchmarks/
+
+          - name: Run PR benchmark and compare
+            run: |
+              pytest --benchmark-only --benchmark-save=pr
+              pytest --benchmark-compare main pr
+
+          - name: Generate Markdown & Chart report
+            run: python generate_benchmark_report.py
+
+          - name: Upload report markdown
+            uses: actions/upload-artifact@v4
+            with:
+              name: benchmark-report-md
+              path: benchmark_report.md
+
+          - name: Upload chart image
+            uses: actions/upload-artifact@v4
+            with:
+              name: benchmark-chart-png
+              path: benchmark_chart.png
+
+          - name: Comment benchmark results on PR
+            uses: marocchino/sticky-pull-request-comment@v2
+            with:
+              path: benchmark_report.md

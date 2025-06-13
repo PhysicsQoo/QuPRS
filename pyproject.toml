@@ -38,6 +38,9 @@ dev = [
     "pytest",
     "pytest-xdist",
     "pytest-cov",
+    "pytest-flake8",
+    "pytest-benchmark",
+    "pytest-html",
     "pandas",
     "tqdm"
 ]

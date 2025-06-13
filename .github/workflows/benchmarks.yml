@@ -32,16 +32,12 @@ jobs:
 
           - name: Run tests and save baseline benchmark
             run: |
-              pytest --benchmark-only --benchmark-save=main
-          - name: list .benchmarks directory
-            run: |
-              echo "PWD = $PWD"
-              ls -R .benchmarks
+              pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://./benchmarks
           - name: Upload baseline benchmark artifact
             uses: actions/upload-artifact@v4
             with:
               name: benchmark-main
-              path: .benchmarks/**/*.json
+              path: ./benchmarks/**/*.json
 
     # ────────────────────────────────────────────────────────────────────────────
     # 2. Unit tests + PR Benchmark comparison (runs on pull requests)

@@ -69,7 +69,7 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 
 # Install the package (without development dependencies)
-RUN pip install . && \
+RUN pip install --no-build-isolation . && \
     rm -rf ~/.cache/pip
 
 # Copy documentation and license files

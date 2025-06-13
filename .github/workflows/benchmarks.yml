@@ -1,14 +1,17 @@
 name: Python CI & Benchmarks
 
 on:
-    push:
-        branches: [ main ]
-    pull_request:
-        branches: [ main ]
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  # ────────────────────────────────────────────────────────────────────────────
-  # 1. Unit tests + Benchmark baseline (only runs on push to main branch)
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 1. Run unit tests and save benchmark baseline (only on push to main branch)
+  #    - Installs dependencies and runs all tests
+  #    - Executes benchmarks and saves the results as the baseline for future comparisons
+  #    - Uploads the generated benchmark data as an artifact for later use
   build-and-save-baseline:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -28,19 +31,27 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[dev]  # Includes pytest, pytest-benchmark, matplotlib, tabulate
+          pip install .[dev]  # Installs all development dependencies including pytest, pytest-benchmark, matplotlib, tabulate
 
       - name: Run tests and save baseline benchmark
         run: |
           pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://./benchmarks
+
       - name: Upload baseline benchmark artifact
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-main
           path: ./benchmarks/**/*.json
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # 2. Unit tests + PR Benchmark comparison (runs on pull requests)
+  # ──────────────────────────────────────────────────────────────────────────────
+  # 2. Run unit tests and compare PR benchmarks (on pull requests)
+  #    - Checks out both the PR code and the main branch code for comparison
+  #    - Installs dependencies for both codebases
+  #    - Runs unit tests on the PR code
+  #    - Runs benchmarks on both the main and PR branches in isolated environments
+  #    - Compares the benchmark results between main and PR branches
+  #    - Generates a benchmark report and uploads it as an artifact
+  #    - Posts the benchmark comparison as a comment on the pull request
   test-and-benchmark:
     runs-on: ubuntu-latest
     strategy:
@@ -69,37 +80,33 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ./pr_code[dev]
+          pip install ./pr_code[dev]  # Install dependencies for PR code
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-            pip install ./main_code[dev]
+            pip install ./main_code[dev]  # Install dependencies for main branch code (for benchmarking)
           fi
-      
+
       - name: Run unit tests on PR code
-        # For 'src' layout, run from the project root ('pr_code')
-        # and add the 'src' directory to the PYTHONPATH.
         working-directory: ./pr_code
         run: PYTHONPATH=$(pwd)/src:$PYTHONPATH pytest -n auto -v
 
       - name: Run and Compare Benchmarks
         if: github.event_name == 'pull_request'
         run: |
-          # 1. Generate baseline benchmark from main_code.
+          # Step 1: Run benchmarks on the main branch in an isolated environment and save results
           echo "--- Running benchmark on main branch ---"
           (cd main_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=main --benchmark-storage=file://../benchmarks)
           
-          # 2. Generate benchmark for this PR from pr_code.
+          # Step 2: Run benchmarks on the PR branch in an isolated environment and save results
           echo "--- Running benchmark on PR branch ---"
           (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-only --benchmark-save=pr --benchmark-storage=file://../benchmarks)
 
-          # 3. Compare results using a single glob pattern argument.
-          #    The format "glob_for_baseline:glob_for_comparison" is the most robust way.
-          #    This compares files matching *_pr.json (new) against files matching *_main.json (baseline).
+          # Step 3: Compare the benchmark results between main and PR branches using glob patterns
           echo "--- Comparing benchmarks ---"
-          pytest --benchmark-compare="*_main.json:*_pr.json" --benchmark-storage=file://./benchmarks
+          (cd pr_code && pytest --benchmark-compare="*_main.json:*_pr.json" --benchmark-storage=file://../benchmarks)
 
+      # Step 4: Generate a benchmark report and upload it as an artifact
       - name: Generate and Upload Report
         if: github.event_name == 'pull_request'
-        # Since we added 'src' to PYTHONPATH, this script should now find its modules
         working-directory: ./pr_code
         run: PYTHONPATH=$(pwd)/src:$PYTHONPATH python generate_benchmark_report.py
 
@@ -112,6 +119,7 @@ jobs:
             benchmark_report.md
             benchmark_chart.png
 
+      # Step 5: Post the benchmark report as a comment on the pull request
       - name: Comment benchmark results on PR
         if: github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2

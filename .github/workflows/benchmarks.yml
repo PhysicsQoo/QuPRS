@@ -102,7 +102,7 @@ jobs:
 
           # Step 3: Compare the benchmark results between main and PR branches using glob patterns
           echo "--- Comparing benchmarks ---"
-          (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-compare="*_main.json:*_pr.json" --benchmark-storage=file://../benchmarks)
+          (cd pr_code && export PYTHONPATH=$(pwd)/src:$PYTHONPATH && pytest --benchmark-compare="./**/*_main.json:./**/*_pr.json" --benchmark-storage=file://../benchmarks)
 
       # Step 4: Generate a benchmark report and upload it as an artifact
       - name: Generate and Upload Report

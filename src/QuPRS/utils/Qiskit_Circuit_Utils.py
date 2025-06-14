@@ -30,58 +30,64 @@
 
 """Utility functions for generating random circuits."""
 
-import numpy as np
-import random
 import os
-from qiskit import QuantumCircuit, transpile, qasm2, qasm3
-from qiskit.circuit import library, CircuitInstruction
+import random
+
+import numpy as np
+from qiskit import QuantumCircuit, qasm2, qasm3, transpile
+from qiskit.circuit import CircuitInstruction, library
 from qiskit.circuit.library import standard_gates
-
-
 from qiskit.circuit.parameter import Parameter
 from qiskit.circuit.parametervector import ParameterVectorElement
-from qiskit.quantum_info.operators.symplectic.clifford_circuits import _BASIS_1Q, _BASIS_2Q
+from qiskit.quantum_info.operators.symplectic.clifford_circuits import (
+    _BASIS_1Q, _BASIS_2Q)
 
 from QuPRS.interface.load_qiskit import load_circuit
 
-def pqc_generator(qubit_num=1, reps=1, function_name='TwoLocal',
-                 basis_gates1=['h', 'ry', 'rz', 'cx'],
-                 basis_gates2=['rz', 'sx', 'x', 'cx']):
+
+def pqc_generator(
+    qubit_num=1,
+    reps=1,
+    function_name="TwoLocal",
+    basis_gates1=["h", "ry", "rz", "cx"],
+    basis_gates2=["rz", "sx", "x", "cx"],
+):
     """
     Generate a parameterized quantum circuit based on specified library function.
-    
+
     Args:
         qubit_num (int): Number of qubits in the circuit.
         reps (int): Number of repetitions of the circuit.
         function_name (str): Name of the circuit library function to use.
         basis_gates1 (list): First set of basis gates for transpilation.
         basis_gates2 (list): Second set of basis gates for transpilation.
-        
+
     Returns:
         tuple: Original circuit, transpiled circuit, and circuit name string.
     """
-    if function_name == 'TwoLocal':
-        cir = library.TwoLocal(qubit_num, ['ry'], 'cx', reps=reps)
-    if function_name == 'ExcitationPreserving':
+    if function_name == "TwoLocal":
+        cir = library.TwoLocal(qubit_num, ["ry"], "cx", reps=reps)
+    if function_name == "ExcitationPreserving":
         cir = library.ExcitationPreserving(qubit_num, reps=reps)
-    if function_name == 'RealAmplitudes':
+    if function_name == "RealAmplitudes":
         cir = library.RealAmplitudes(qubit_num, reps=reps)
-    if function_name == 'EfficientSU2':
+    if function_name == "EfficientSU2":
         cir = library.EfficientSU2(qubit_num, reps=reps)
-    if function_name == 'PauliTwoDesign':
+    if function_name == "PauliTwoDesign":
         cir = library.PauliTwoDesign(qubit_num, reps=reps)
     # cir = cir.decompose().decompose().decompose()
     cir = transpile(cir, basis_gates=basis_gates1)
     cir2 = transpile(cir, basis_gates=basis_gates2)
-    return cir, cir2, '%s_%i_%i' % (function_name, qubit_num, reps)
+    return cir, cir2, "%s_%i_%i" % (function_name, qubit_num, reps)
+
 
 def random_circuit(
-    num_qubits: int, 
-    num_gates: int, 
-    gates: str|list[str] = "all", 
-    parameterized: bool = False, 
-    measure: bool = False, 
-    seed: int|np.random.Generator = None
+    num_qubits: int,
+    num_gates: int,
+    gates: str | list[str] = "all",
+    parameterized: bool = False,
+    measure: bool = False,
+    seed: int | np.random.Generator = None,
 ):
     """
     Generate a pseudo-random quantum circuit.
@@ -96,22 +102,37 @@ def random_circuit(
         parameterized (bool): Whether to parameterize the gates. Defaults to False.
         measure (bool): Whether to add a measurement at the end of the circuit. Defaults to False.
         seed (int or numpy.random.Generator): The seed for the random number generator. Defaults to None.
-        
+
     Returns:
         QuantumCircuit: The generated random circuit.
     """
     instructions = standard_gates.get_standard_gate_name_mapping()
-    
+
     if gates == "all":
         gates = list(instructions.keys())
-        gates.remove('delay')
+        gates.remove("delay")
         if measure is False:
-            gates.remove('measure')
+            gates.remove("measure")
     elif gates == "Clifford":
-        gates = ["x","y","z","h","s","sdg","sx","sxdg","cx","cy","cz","ch"]
+        gates = ["x", "y", "z", "h", "s", "sdg", "sx", "sxdg", "cx", "cy", "cz", "ch"]
     elif gates == "Clifford+T":
-        gates = ["x","y","z","h","s","sdg","t","tdg","sx","sxdg","cx","cy","cz","ch"]
-        
+        gates = [
+            "x",
+            "y",
+            "z",
+            "h",
+            "s",
+            "sdg",
+            "t",
+            "tdg",
+            "sx",
+            "sxdg",
+            "cx",
+            "cy",
+            "cz",
+            "ch",
+        ]
+
     if isinstance(seed, np.random.Generator):
         rng = seed
     else:
@@ -119,28 +140,39 @@ def random_circuit(
 
     samples = rng.choice(gates, num_gates)
 
-    circ = QuantumCircuit(num_qubits) if measure is False else QuantumCircuit(num_qubits, num_qubits)
+    circ = (
+        QuantumCircuit(num_qubits)
+        if measure is False
+        else QuantumCircuit(num_qubits, num_qubits)
+    )
 
-    param_base = Parameter('ϴ')
+    param_base = Parameter("ϴ")
     num_params = 0
 
     for name in samples:
         gate, nqargs = instructions[name], instructions[name].num_qubits
 
-        if (len_param:=len(gate.params)) >0:
+        if (len_param := len(gate.params)) > 0:
             gate = gate.copy()
             if parameterized is True:
-                gate.params = [ParameterVectorElement(param_base, num_params + i) for i in range(len_param)]
+                gate.params = [
+                    ParameterVectorElement(param_base, num_params + i)
+                    for i in range(len_param)
+                ]
                 num_params += len_param
             else:
-                param_list = rng.choice(range(1,16), 2*len_param)
-                gate.params = [param_list[2*i]/param_list[2*i+1]*np.pi for i in range(len_param)]
+                param_list = rng.choice(range(1, 16), 2 * len_param)
+                gate.params = [
+                    param_list[2 * i] / param_list[2 * i + 1] * np.pi
+                    for i in range(len_param)
+                ]
 
-        qargs = rng.choice(range(num_qubits), nqargs, replace = False).tolist()
+        qargs = rng.choice(range(num_qubits), nqargs, replace=False).tolist()
         print(gate, qargs)
         circ.append(gate, qargs, copy=False)
 
     return circ
+
 
 def random_clifford_T_circuit(num_qubits, num_gates, gates="all", seed=None):
     """
@@ -148,7 +180,7 @@ def random_clifford_T_circuit(num_qubits, num_gates, gates="all", seed=None):
 
     This function generates a circuit by randomly selecting the chosen amount of Clifford
     and T gates from the set of standard gates in qiskit.circuit.library.standard_gates.
-    
+
     Example:
         from qiskit.circuit.random import random_clifford_circuit
         circ = random_clifford_circuit(num_qubits=2, num_gates=6)
@@ -212,7 +244,10 @@ def random_clifford_T_circuit(num_qubits, num_gates, gates="all", seed=None):
 
     return circ
 
-def remove_random_gates(input_circuit, num_gates_to_remove, output_format="circuit", output_path=None):
+
+def remove_random_gates(
+    input_circuit, num_gates_to_remove, output_format="circuit", output_path=None
+):
     """
     Randomly remove a specified number of quantum gates from a quantum circuit.
 
@@ -232,13 +267,22 @@ def remove_random_gates(input_circuit, num_gates_to_remove, output_format="circu
     elif isinstance(input_circuit, str):
         qc = load_circuit(input_circuit)
     else:
-        raise ValueError("Unsupported 'input_circuit' format. Provide a QuantumCircuit object or QASM file path.")
+        raise ValueError(
+            "Unsupported 'input_circuit' format. Provide a QuantumCircuit object or QASM file path."
+        )
 
     # 2. Identify removable quantum gates (exclude barriers, measurements, resets, etc.)
     removable_indices = []
     for i, instruction in enumerate(qc.data):
         # Get .operation from CircuitInstruction object, then get its .name
-        if instruction.operation.name not in ['barrier', 'measure', 'reset', 'delay', 'snapshot', 'initialize']:
+        if instruction.operation.name not in [
+            "barrier",
+            "measure",
+            "reset",
+            "delay",
+            "snapshot",
+            "initialize",
+        ]:
             removable_indices.append(i)
 
     num_available_gates = len(removable_indices)
@@ -249,18 +293,22 @@ def remove_random_gates(input_circuit, num_gates_to_remove, output_format="circu
         num_gates_to_remove = num_available_gates
 
     # 3. Randomly select gates to remove
-    indices_to_remove = set(random.sample(removable_indices, num_gates_to_remove)) if num_gates_to_remove else set()
+    indices_to_remove = (
+        set(random.sample(removable_indices, num_gates_to_remove))
+        if num_gates_to_remove
+        else set()
+    )
 
     # 4. Build new circuit, skipping removed gates
     if not indices_to_remove:
         modified_qc = qc
     else:
         modified_qc = QuantumCircuit(*qc.qregs, *qc.cregs, name=qc.name)
-        if hasattr(qc, 'global_phase'):
+        if hasattr(qc, "global_phase"):
             modified_qc.global_phase = qc.global_phase
-        if hasattr(qc, 'calibrations') and qc.calibrations:
+        if hasattr(qc, "calibrations") and qc.calibrations:
             modified_qc.calibrations = qc.calibrations.copy()
-        if hasattr(qc, 'metadata') and qc.metadata:
+        if hasattr(qc, "metadata") and qc.metadata:
             modified_qc.metadata = qc.metadata.copy()
         for i, instruction in enumerate(qc.data):
             if i not in indices_to_remove:
@@ -273,22 +321,29 @@ def remove_random_gates(input_circuit, num_gates_to_remove, output_format="circu
         return qasm2.dumps(modified_qc)
     elif output_format == "qasm2_file":
         if not output_path:
-            raise ValueError("Provide 'output_path' when output_format is 'qasm2_file'.")
-        with open(output_path, 'w') as f:
+            raise ValueError(
+                "Provide 'output_path' when output_format is 'qasm2_file'."
+            )
+        with open(output_path, "w") as f:
             f.write(qasm2.dumps(modified_qc))
         return None
     elif output_format == "qasm3_str":
         return qasm3.dumps(modified_qc)
     elif output_format == "qasm3_file":
         if not output_path:
-            raise ValueError("Provide 'output_path' when output_format is 'qasm3_file'.")
-        with open(output_path, 'w') as f:
+            raise ValueError(
+                "Provide 'output_path' when output_format is 'qasm3_file'."
+            )
+        with open(output_path, "w") as f:
             f.write(qasm3.dumps(modified_qc))
         return None
     else:
         raise ValueError(f"Unsupported 'output_format': '{output_format}'.")
 
-def add_random_rotation_gates(input_circuit, num_gates_to_add, output_format="circuit", output_path=None):
+
+def add_random_rotation_gates(
+    input_circuit, num_gates_to_add, output_format="circuit", output_path=None
+):
     """
     Randomly insert a specified number of single-qubit rotation gates into a quantum circuit.
     Supports multiple output formats.
@@ -319,10 +374,14 @@ def add_random_rotation_gates(input_circuit, num_gates_to_add, output_format="ci
     instructions = list(qc.data)
     num_qubits = qc.num_qubits
     # Find the index of the first measurement gate, or use the end of the circuit
-    max_insert_idx = next((i for i, inst in enumerate(instructions) if inst.operation.name == 'measure'), len(instructions))
+    max_insert_idx = next(
+        (i for i, inst in enumerate(instructions) if inst.operation.name == "measure"),
+        len(instructions),
+    )
 
     # Add random rotation gates at random positions
     from qiskit.circuit.library import RXGate, RYGate, RZGate
+
     for _ in range(num_gates_to_add):
         # Select a random rotation gate type (RX, RY, or RZ)
         gate_cls = random.choice([RXGate, RYGate, RZGate])
@@ -363,7 +422,7 @@ def add_random_rotation_gates(input_circuit, num_gates_to_add, output_format="ci
         # Save QASM 2.0 to a file
         if not output_path:
             raise ValueError("'output_path' required for 'qasm2_file'.")
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             qasm2.dump(new_qc, f)
         return None
     elif output_format == "qasm3_str":
@@ -373,14 +432,17 @@ def add_random_rotation_gates(input_circuit, num_gates_to_add, output_format="ci
         # Save QASM 3.0 to a file
         if not output_path:
             raise ValueError("'output_path' required for 'qasm3_file'.")
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             qasm3.dump(new_qc, f)
         return None
     else:
         # Handle unsupported format
         raise ValueError(f"Unsupported output format '{output_format}'.")
 
-def add_random_pauli_gates(input_circuit, num_gates_to_add, output_format="circuit", output_path=None):
+
+def add_random_pauli_gates(
+    input_circuit, num_gates_to_add, output_format="circuit", output_path=None
+):
     """
     Randomly insert a specified number of single-qubit pauli gates into a quantum circuit.
     Supports multiple output formats.
@@ -411,10 +473,14 @@ def add_random_pauli_gates(input_circuit, num_gates_to_add, output_format="circu
     instructions = list(qc.data)
     num_qubits = qc.num_qubits
     # Find the index of the first measurement gate, or use the end of the circuit
-    max_insert_idx = next((i for i, inst in enumerate(instructions) if inst.operation.name == 'measure'), len(instructions))
+    max_insert_idx = next(
+        (i for i, inst in enumerate(instructions) if inst.operation.name == "measure"),
+        len(instructions),
+    )
 
     # Add random pauli gates at random positions
     from qiskit.circuit.library import XGate, YGate, ZGate
+
     for _ in range(num_gates_to_add):
         # Select a random pauli gate type (X, Y, or Z)
         gate_cls = random.choice([XGate, YGate, ZGate])
@@ -453,7 +519,7 @@ def add_random_pauli_gates(input_circuit, num_gates_to_add, output_format="circu
         # Save QASM 2.0 to a file
         if not output_path:
             raise ValueError("'output_path' required for 'qasm2_file'.")
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             qasm2.dump(new_qc, f)
         return None
     elif output_format == "qasm3_str":
@@ -463,7 +529,7 @@ def add_random_pauli_gates(input_circuit, num_gates_to_add, output_format="circu
         # Save QASM 3.0 to a file
         if not output_path:
             raise ValueError("'output_path' required for 'qasm3_file'.")
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             qasm3.dump(new_qc, f)
         return None
     else:

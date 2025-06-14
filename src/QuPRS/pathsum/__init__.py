@@ -1,39 +1,29 @@
 # src/QuPRS/pathsum/__init__.py
 
-import pkgutil
-import importlib
-import inspect
-
-# --- Import and attach core functionalities (keep this part unchanged) ---
-from .core import PathSum, Register, F
-from . import statistics
-from . import reduction
+from . import reduction, statistics
+from .core import F, PathSum, Register
 
 PathSum.get_reduction_counts = staticmethod(statistics.get_reduction_counts)
-# ... attach other statistics methods ...
 PathSum.reduction = reduction.apply_reduction
 
 # --- Automatically discover and attach quantum gates ---
-# 1. Specify the package path where quantum gate modules are located
+# 1. Specify the package where quantum gate modules are located
 from . import gates
+
 package = gates
 
-# 2. Iterate over all modules in the package
-for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
-    # Exclude base.py or other non-gate files
-    if module_name == 'base':
-        continue
+# --- Retrieve and attach quantum gates from the gates package ---
+# 1. Get all available quantum gate functions
+all_gate_functions = gates.get_all_gates()
 
-    # 3. Dynamically import the found module
-    #    e.g., import QuPRS.pathsum.gates.single_qubit
-    module = importlib.import_module(f'{package.__name__}.{module_name}')
+# 2. Attach each gate function to the PathSum class
+for name, func in all_gate_functions.items():
+    setattr(PathSum, name, func)
 
-    # 4. Iterate over all members (functions, classes, etc.) in the module
-    for name, member in inspect.getmembers(module):
-        # 5. Check if the member is a function decorated with @gate
-        if inspect.isfunction(member) and getattr(member, '_is_gate', False):
-            # 6. Attach it to the PathSum class
-            setattr(PathSum, name, member)
+# Make list_supported_gates and get_gates_by_type available on PathSum
+PathSum.list_supported_gates = staticmethod(gates.list_supported_gates)
+PathSum.get_gates_by_type = staticmethod(gates.get_gates_by_type)
+PathSum.support_gate_set = staticmethod(gates.support_gate_set)
 
 # (Optional) Define __all__
-__all__ = ['PathSum', 'Register', 'F']
+__all__ = ["PathSum", "Register", "F"]

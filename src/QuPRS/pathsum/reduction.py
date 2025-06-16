@@ -33,6 +33,7 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
     reducible_vars = tuple(filter(lambda x: x.name not in f_var_names, pathsum.pathvar))
 
     if reducible_vars:
+        statistics.increment_reduction_count("total")
         # Try Elim rule
         yo_val = match_Elim(new_P, reducible_vars)
         if yo_val is not None:

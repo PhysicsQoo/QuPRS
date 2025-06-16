@@ -4,6 +4,11 @@ from . import reduction, statistics
 from .core import F, PathSum, Register
 
 PathSum.get_reduction_counts = staticmethod(statistics.get_reduction_counts)
+PathSum.get_reduction_count = staticmethod(statistics.get_reduction_count)
+PathSum.get_reduction_hitrate = staticmethod(statistics.get_reduction_hitrate)
+PathSum.reset_reduction_counts = staticmethod(statistics.reset_reduction_counts)
+PathSum.set_reduction_switch = staticmethod(statistics.set_reduction_switch)
+PathSum.is_reduction_enabled = staticmethod(statistics.is_reduction_enabled)
 PathSum.reduction = reduction.apply_reduction
 
 # --- Automatically discover and attach quantum gates ---

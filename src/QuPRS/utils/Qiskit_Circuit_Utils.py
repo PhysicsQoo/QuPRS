@@ -96,13 +96,15 @@ def random_circuit(
     Args:
         num_qubits (int): The number of qubits in the circuit.
         num_gates (int): The number of gates in the circuit.
-        gates (list[str]): The gates to use in the circuit.
+        gates (list[str] or str): The gates to use in the circuit.
             If "all", use all the gates in the standard library.
             If "Clifford", use the gates in the Clifford set.
             If "Clifford+T", use the gates in the Clifford set and the T gate.
         parameterized (bool): Whether to parameterize the gates. Defaults to False.
-        measure (bool): Whether to add a measurement at the end of the circuit. Defaults to False.
-        seed (int or numpy.random.Generator): The seed for the random number generator. Defaults to None.
+        measure (bool): Whether to add a measurement at the end of the circuit.
+            Defaults to False.
+        seed (int or numpy.random.Generator, optional): The seed for the random number
+            generator. Defaults to None.
 
     Returns:
         QuantumCircuit: The generated random circuit.
@@ -179,8 +181,9 @@ def random_clifford_T_circuit(num_qubits, num_gates, gates="all", seed=None):
     """
     Generate a pseudo-random Clifford+T circuit.
 
-    This function generates a circuit by randomly selecting the chosen amount of Clifford
-    and T gates from the set of standard gates in qiskit.circuit.library.standard_gates.
+    This function generates a circuit by randomly selecting the chosen amount of
+    Clifford and T gates from the set of standard gates in
+    qiskit.circuit.library.standard_gates.
 
     Example:
         from qiskit.circuit.random import random_clifford_circuit
@@ -190,8 +193,9 @@ def random_clifford_T_circuit(num_qubits, num_gates, gates="all", seed=None):
     Args:
         num_qubits (int): Number of quantum wires.
         num_gates (int): Number of gates in the circuit.
-        gates (list[str]): Optional list of Clifford gate names to randomly sample from.
-            If "all" (default), use all Clifford gates in the standard library.
+        gates (list[str]): Optional list of Clifford gate names to randomly sample
+            from. If "all" (default), use all Clifford gates in the standard
+            library.
         seed (int | np.random.Generator): Sets random seed/generator (optional).
 
     Returns:
@@ -255,11 +259,13 @@ def remove_random_gates(
     Args:
         input_circuit (QuantumCircuit or str): Input circuit or QASM file path.
         num_gates_to_remove (int): Number of gates to remove.
-        output_format (str): Output format: "circuit", "qasm2_str", "qasm2_file", "qasm3_str", or "qasm3_file".
+        output_format (str): Output format: "circuit", "qasm2_str", "qasm2_file",
+            "qasm3_str", or "qasm3_file".
         output_path (str, optional): Output file path if saving to file.
 
     Returns:
-        QuantumCircuit or str or None: Modified circuit or QASM string, or None if saved to file.
+        QuantumCircuit or str or None: Modified circuit or QASM string, or None if
+            saved to file.
     """
 
     # 1. Handle input
@@ -269,7 +275,8 @@ def remove_random_gates(
         qc = load_circuit(input_circuit)
     else:
         raise ValueError(
-            "Unsupported 'input_circuit' format. Provide a QuantumCircuit object or QASM file path."
+            "Unsupported 'input_circuit' format. Provide a QuantumCircuit object or "
+            "QASM file path."
         )
 
     # 2. Identify removable quantum gates (exclude barriers, measurements, resets, etc.)
@@ -346,17 +353,19 @@ def add_random_rotation_gates(
     input_circuit, num_gates_to_add, output_format="circuit", output_path=None
 ):
     """
-    Randomly insert a specified number of single-qubit rotation gates into a quantum circuit.
-    Supports multiple output formats.
+    Randomly insert a specified number of single-qubit rotation gates into a quantum
+    circuit. Supports multiple output formats.
 
     Args:
         input_circuit (QuantumCircuit or str): Input circuit or QASM file path.
         num_gates_to_add (int): Number of rotation gates to add.
-        output_format (str): Output format: "circuit", "qasm2_str", "qasm2_file", "qasm3_str", or "qasm3_file".
+        output_format (str): Output format: "circuit", "qasm2_str", "qasm2_file",
+            "qasm3_str", or "qasm3_file".
         output_path (str, optional): Output file path if saving to file.
 
     Returns:
-        QuantumCircuit or str or None: Modified circuit or QASM string, or None if saved to file.
+        QuantumCircuit or str or None: Modified circuit or QASM string, or None if
+            saved to file.
     """
     # 1. Handle input
     if isinstance(input_circuit, QuantumCircuit):
@@ -445,17 +454,19 @@ def add_random_pauli_gates(
     input_circuit, num_gates_to_add, output_format="circuit", output_path=None
 ):
     """
-    Randomly insert a specified number of single-qubit pauli gates into a quantum circuit.
-    Supports multiple output formats.
+    Randomly insert a specified number of single-qubit Pauli gates into a quantum
+    circuit. Supports multiple output formats.
 
     Args:
         input_circuit (QuantumCircuit or str): Input circuit or QASM file path.
-        num_gates_to_add (int): Number of pauli gates to add.
-        output_format (str): Output format: "circuit", "qasm2_str", "qasm2_file", "qasm3_str", or "qasm3_file".
+        num_gates_to_add (int): Number of Pauli gates to add.
+        output_format (str): Output format: "circuit", "qasm2_str", "qasm2_file",
+            "qasm3_str", or "qasm3_file".
         output_path (str, optional): Output file path if saving to file.
 
     Returns:
-        QuantumCircuit or str or None: Modified circuit or QASM string, or None if saved to file.
+        QuantumCircuit or str or None: Modified circuit or QASM string, or None if
+            saved to file.
     """
     # 1. Handle input
     if isinstance(input_circuit, QuantumCircuit):

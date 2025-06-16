@@ -13,7 +13,7 @@ counter = {"idx": 0}
 
 def fresh_var():
     counter["idx"] += 1
-    return sp.Symbol(f'e_{counter["idx"]-1}')
+    return sp.Symbol(f'e_{counter["idx"] - 1}')
 
 
 def extend_symbols_map(symbols_map, new_symbol):
@@ -179,7 +179,7 @@ def cnf_to_clauses(cnf, symbols_map, flag=False):
     elif isinstance(cnf, Not):
         return f"-{cnf_to_clauses(cnf.args[0], symbols_map, flag)}"
     elif isinstance(cnf, sp.Symbol):
-        clause = f"{symbols_map[cnf] }"
+        clause = f"{symbols_map[cnf]}"
         return clause if flag else [clause + " 0"]
     elif cnf == sp.true:
         return []
@@ -192,12 +192,14 @@ def wlogi_to_clauses(wlogi_list, symbols_map):
     clauses = []
     weights = []
     z = sp.symbols(f"z_:{len(wlogi_list)}")
-    l = len(symbols_map)
+    num_existing_symbols = len(symbols_map)
     for symbol in z:
         extend_symbols_map(symbols_map, symbol)
     for i, (w, logi) in enumerate(wlogi_list):
         weights.append(
-            f"c p weight {l + i + 1} {se.cos(2*se.pi*w).evalf()} {se.sin(2*se.pi*w).evalf()} 0"
+            f"c p weight {num_existing_symbols + i + 1} "
+            f"{se.cos(2 * se.pi * w).evalf()} "
+            f"{se.sin(2 * se.pi * w).evalf()} 0"
         )
         idx = counter["idx"]
         temp = encode_equivalence(z[i], logi)
@@ -248,7 +250,8 @@ def run_wmc(file="wmc.cnf"):
     for line in output_lines:
         if line.startswith("c s exact double prec-sci"):
             match = re.search(
-                r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)([-+]\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i",
+                r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"
+                r"([-+]\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i",
                 line,
             )
             if match:
@@ -288,10 +291,8 @@ if __name__ == "__main__":
     x = sp.symbols("x_:10")
     # A = sp.Symbol('A')
     # B = And(Or(x,y),z)
-    A = x[0]
     B = (x[3] | x[4] | ~x[1]) & (x[3] | x[1] | ~x[4]) & (x[4] | x[1] | ~x[3])
-    # & (x[4] | x[2] | ~x[5]) & (x[4] | x[5] | ~x[2]) & (x[2] | x[5] | ~x[4]) & (~x[3] | ~x[4] | ~x[1]) & (~x[4] | ~x[2] | ~x[5])
-
+    A = x[0]
     eq_cnf = encode_equivalence(A, B)
     print(eq_cnf)
 

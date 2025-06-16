@@ -9,7 +9,8 @@ except ImportError:
     import warnings
 
     warnings.warn(
-        "Version not found in _version.py, likely in development mode or during sdist build.",
+        "Version not found in _version.py, likely in development mode or during "
+        "sdist build.",
         stacklevel=2,
     )
     __version__ = "0.0.0+unknown"
@@ -17,4 +18,9 @@ except ImportError:
     version = __version__
     version_tuple = __version_tuple__
 
-__all__ = ["__version__", "__version_tuple__", "version", "version_tuple"]
+__all__ = [
+    "__version__",
+    "__version_tuple__",
+    "version",
+    "version_tuple",
+]

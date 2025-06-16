@@ -41,7 +41,12 @@ def logical_to_algebraic(expr, max_order=None):
 
     if expr.is_Symbol:
         return expr
-    elif isinstance(expr, sp.Xor):
+    if expr is sp.true or (expr is se.S.true):
+        return se.S.One
+    if expr is sp.false or (expr is se.S.false):
+        return se.S.Zero
+
+    if isinstance(expr, sp.Xor):
         algebraic_exprs = [logical_to_algebraic(arg, max_order) for arg in expr.args]
         return calculate_expr(algebraic_exprs, max_order)
     elif isinstance(expr, sp.And):
@@ -51,13 +56,8 @@ def logical_to_algebraic(expr, max_order=None):
         return se.S.One - se.Mul(*[1 - term for term in terms])
     elif isinstance(expr, sp.Not):
         return se.S.One - logical_to_algebraic(expr.args[0], max_order)
-    else:
-        if expr == True:
-            return se.S.One
-        elif expr == False:
-            return se.S.Zero
-        else:
-            return expr
+
+    return expr
 
 
 @tracked_lru_cache(maxsize=2048)
@@ -164,7 +164,8 @@ def fraction_to_nearest_binary(numerator, denominator, precision=10):
         fraction *= 2
         bit = int(fraction)
         binary_fraction_part += str(bit)
-        fraction -= bit  # Remove the integer part, keep the fraction part for the next calculation
+        # Remove the integer part, keep the fraction part for the next calculation
+        fraction -= bit
 
     # Rounding: check the next bit to decide whether to carry
     if fraction >= 0.5:

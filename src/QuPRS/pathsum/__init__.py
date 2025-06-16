@@ -1,8 +1,9 @@
 # src/QuPRS/pathsum/__init__.py
 
-from . import reduction, statistics
+from . import gates, reduction, statistics
 from .core import F, PathSum, Register
 
+# Make reduction and statistics methods available on PathSum
 PathSum.get_reduction_counts = staticmethod(statistics.get_reduction_counts)
 PathSum.get_reduction_count = staticmethod(statistics.get_reduction_count)
 PathSum.get_reduction_hitrate = staticmethod(statistics.get_reduction_hitrate)
@@ -13,7 +14,7 @@ PathSum.reduction = reduction.apply_reduction
 
 # --- Automatically discover and attach quantum gates ---
 # 1. Specify the package where quantum gate modules are located
-from . import gates
+
 
 package = gates
 

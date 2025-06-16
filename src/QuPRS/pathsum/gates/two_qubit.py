@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
 
 import symengine as se
 import sympy as sp
@@ -12,9 +11,6 @@ from QuPRS.utils.util import div_pi, logical_to_algebraic, reduce_expression
 
 from ..core import PathSum
 from .base import gate
-
-if TYPE_CHECKING:
-    from ..core import PathSum
 
 
 # --- Two-Qubit Gates ---

@@ -22,7 +22,7 @@ def proportional(
     gates1 = get_gates(qiskit_circuit1)
     gates2 = get_gates(qiskit_circuit2)
 
-    l = min(l1, l2)
+    min_length = min(l1, l2)
     d = l1 - l2
     r = int(l1 / l2) if d > 0 else int(l2 / l1)
 
@@ -30,7 +30,7 @@ def proportional(
     count = 0
     try:
         if r == 1:
-            for i in range(l):
+            for i in range(min_length):
                 gate1 = gates1[i]
                 gate2 = gates2[i]
                 pathsum_circuit, count = add_gate(pathsum_circuit, gate1, count=count)
@@ -40,13 +40,13 @@ def proportional(
 
             if d > 0:
                 for i in range(d):
-                    gate1 = gates1[l + i]
+                    gate1 = gates1[min_length + i]
                     pathsum_circuit, count = add_gate(
                         pathsum_circuit, gate1, count=count
                     )
             elif d < 0:
                 for i in range(-d):
-                    gate2 = gates2[l + i]
+                    gate2 = gates2[min_length + i]
                     pathsum_circuit, count = add_gate(
                         pathsum_circuit, gate2, count=count, is_bra=True
                     )
@@ -90,12 +90,12 @@ def proportional(
     except TimeoutError:
         output_dict["Time"] = f">{timeout}"
         output_dict["equivalent"] = "Timeout"
-        output_dict["progress"] = f"{count}/{l1+l2}"
+        output_dict["progress"] = f"{count}/{l1 + l2}"
         return output_dict, pathsum_circuit
     finally:
         signal.alarm(0)
 
-    output_dict["progress"] = f"{count}/{l1+l2}"
+    output_dict["progress"] = f"{count}/{l1 + l2}"
     return output_dict, pathsum_circuit
 
 
@@ -134,12 +134,12 @@ def naive(
     except TimeoutError:
         output_dict["Time"] = f">{timeout}"
         output_dict["equivalent"] = "Timeout"
-        output_dict["progress"] = f"{count}/{l1+l2}"
+        output_dict["progress"] = f"{count}/{l1 + l2}"
         return output_dict, pathsum_circuit
     finally:
         signal.alarm(0)
 
-    output_dict["progress"] = f"{count}/{l1+l2}"
+    output_dict["progress"] = f"{count}/{l1 + l2}"
     return output_dict, pathsum_circuit
 
 
@@ -163,11 +163,11 @@ def straightforward(
     except TimeoutError:
         output_dict["Time"] = f">{timeout}"
         output_dict["equivalent"] = "Timeout"
-        output_dict["progress"] = f"{count}/{l1+l2}"
+        output_dict["progress"] = f"{count}/{l1 + l2}"
         return output_dict, pathsum_circuit
     finally:
         signal.alarm(0)
-    output_dict["progress"] = f"{count}/{l1+l2}"
+    output_dict["progress"] = f"{count}/{l1 + l2}"
     return output_dict, pathsum_circuit
 
 
@@ -189,27 +189,27 @@ def difference(
         list1_str = [str(item) for item in list1]
         list2_str = [str(item) for item in list2]
         diff = list(difflib.ndiff(list1_str, list2_str))
-        # 存儲索引及其變化
+        # Store index and its changes
         changes = []
-        # 追踪當前索引
+        # Track current index
         index1 = index2 = 0
         for line in diff:
             if line.startswith("-"):
-                # `list1` 中的元素，標記為刪除
+                # Element from `list1`, marked as deleted
                 changes.append(("-", index1, list1[index1]))
                 index1 += 1
             elif line.startswith("+"):
-                # `list2` 中的元素，標記為新增
+                # Element from `list2`, marked as added
                 changes.append(("+", index2, list2[index2]))
                 index2 += 1
             elif line.startswith(" "):
-                # 在兩個列表中都存在的元素
+                # Element present in both lists
                 changes.append((" ", index1, list1[index1]))
                 index1 += 1
                 index2 += 1
         return changes
 
-    # 獲取變化的索引及其詳情
+    # Get the changed indices and their details
     try:
         changes = compare_lists_with_index(gates1, gates2)
         count = 0
@@ -230,9 +230,9 @@ def difference(
     except TimeoutError:
         output_dict["Time"] = f">{timeout}"
         output_dict["equivalent"] = "Timeout"
-        output_dict["progress"] = f"{count}/{l1+l2}"
+        output_dict["progress"] = f"{count}/{l1 + l2}"
         return output_dict, pathsum_circuit
     finally:
         signal.alarm(0)
-    output_dict["progress"] = f"{count}/{l1+l2}"
+    output_dict["progress"] = f"{count}/{l1 + l2}"
     return output_dict, pathsum_circuit

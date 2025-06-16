@@ -4,8 +4,11 @@ import symengine as se
 import sympy as sp
 
 from QuPRS import config
-from QuPRS.utils.util import (algebraic_to_logical, logical_to_algebraic,
-                              reduce_expression)
+from QuPRS.utils.util import (
+    algebraic_to_logical,
+    logical_to_algebraic,
+    reduce_expression,
+)
 
 
 def match_Elim(P, reducible_vars):
@@ -32,7 +35,7 @@ def match_HH(P, reducible_vars, pathvar, bits):
             Q_val = reduce_expression((2 * P_coeff - yi_val), 2)
             Q_val_free_symbols = Q_val.free_symbols
             if (
-                not yi_val in Q_val_free_symbols
+                yi_val not in Q_val_free_symbols
                 and all(str(symbol) in valid_symbols for symbol in Q_val_free_symbols)
                 and reduce_expression(Q_val).is_zero
             ):

@@ -1,0 +1,16 @@
+[flake8]
+# Set line length to 88 to match black
+max-line-length = 88
+
+# Ignore rules that conflict with or are unnecessary due to black
+# E203: whitespace before ':' (black style)
+# W503: line break before binary operator (conflicts with black)
+ignore = E203, W503
+
+# Exclude directories that do not need to be checked
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    build,
+    dist

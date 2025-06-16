@@ -2,21 +2,21 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
 
 import symengine as se
 import sympy as sp
 from sympy.logic.boolalg import to_anf
 
-from QuPRS.utils.util import (div_pi, find_new_variables, logical_to_algebraic,
-                              reduce_expression)
+from QuPRS.utils.util import (
+    div_pi,
+    find_new_variables,
+    logical_to_algebraic,
+    reduce_expression,
+)
 
 from .. import reduction
 from ..core import PathSum
 from .base import gate
-
-if TYPE_CHECKING:
-    from ..core import PathSum
 
 # --- Single-Qubit Gates ---
 

@@ -10,6 +10,7 @@ from QuPRS import config
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 
+
 def timeout_handler(signum, frame):
     raise TimeoutError("Operation timed out")
 
@@ -210,7 +211,6 @@ def qasm_eq_check(
         total_time = time.time() - start_time
         output_dict["Time"] = round(total_time, 3)
 
-        # if pathsum_circuit.f == initial_state.f and pathsum_circuit.pathvar == initial_state.pathvar:
         if pathsum_circuit.f == initial_state.f:
             if pathsum_circuit.P == initial_state.P:
                 output_dict["equivalent"] = "equivalent"

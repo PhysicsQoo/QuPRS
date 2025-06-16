@@ -3,6 +3,7 @@ from QuPRS.pathsum import PathSum
 support_gate_set = PathSum.support_gate_set().copy()
 support_gate_set.update(["barrier", "measure"])
 
+
 def gate_map(
     circuit: PathSum,
     gate_name: str,

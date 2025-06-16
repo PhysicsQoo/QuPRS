@@ -126,7 +126,8 @@ class PathSum:
     """
     Core class for PathSum.
     Includes initialization, basic properties, constructors, and the compose method.
-    All quantum gate, reduction, and statistics functionalities are dynamically added from external modules.
+    All quantum gate, reduction, and statistics functionalities are dynamically added
+    from external modules.
     """
 
     def __init__(

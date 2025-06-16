@@ -6,11 +6,16 @@ from typing import TYPE_CHECKING
 from QuPRS.utils.util import reduce_expression
 
 from . import statistics
-from .pattern_match import (HH_reduction, match_Elim, match_HH, match_omega,
-                            omega_reduction)
+from .pattern_match import (
+    HH_reduction,
+    match_Elim,
+    match_HH,
+    match_omega,
+    omega_reduction,
+)
 
 if TYPE_CHECKING:
-    from .core import F, PathSum
+    from .core import PathSum
 
 
 def apply_reduction(pathsum: "PathSum") -> "PathSum":
@@ -33,6 +38,7 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
     reducible_vars = tuple(filter(lambda x: x.name not in f_var_names, pathsum.pathvar))
 
     if reducible_vars:
+        statistics.increment_reduction_count("total")
         # Try Elim rule
         yo_val = match_Elim(new_P, reducible_vars)
         if yo_val is not None:

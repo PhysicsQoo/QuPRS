@@ -4,8 +4,11 @@ import symengine as se
 import sympy as sp
 
 from QuPRS import config
-from QuPRS.utils.util import (algebraic_to_logical, logical_to_algebraic,
-                              reduce_expression)
+from QuPRS.utils.util import (
+    algebraic_to_logical,
+    logical_to_algebraic,
+    reduce_expression,
+)
 
 
 def match_Elim(P, reducible_vars):

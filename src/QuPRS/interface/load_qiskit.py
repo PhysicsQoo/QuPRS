@@ -10,6 +10,7 @@ from QuPRS import config
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 
+
 def timeout_handler(signum, frame):
     raise TimeoutError("Operation timed out")
 

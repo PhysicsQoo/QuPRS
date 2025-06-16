@@ -30,7 +30,6 @@
 
 """Utility functions for generating random circuits."""
 
-import os
 import random
 
 import numpy as np
@@ -40,7 +39,9 @@ from qiskit.circuit.library import standard_gates
 from qiskit.circuit.parameter import Parameter
 from qiskit.circuit.parametervector import ParameterVectorElement
 from qiskit.quantum_info.operators.symplectic.clifford_circuits import (
-    _BASIS_1Q, _BASIS_2Q)
+    _BASIS_1Q,
+    _BASIS_2Q,
+)
 
 from QuPRS.interface.load_qiskit import load_circuit
 

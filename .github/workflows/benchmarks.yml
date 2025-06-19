@@ -30,16 +30,16 @@ jobs:
 
       - name: Run benchmark on main
         run: |
-          mkdir -p benchmarks
+          mkdir -p .benchmarks
           pytest --benchmark-only \
             --benchmark-save=main \
-            --benchmark-storage=file://./benchmarks
+            --benchmark-storage=file://./.benchmarks
 
       - name: Upload benchmark artifact
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-main-${{ matrix.python-version }}
-          path: benchmarks/
+          path: .benchmarks/
 
   test-and-benchmark:
     if: github.event_name == 'pull_request'
@@ -77,21 +77,21 @@ jobs:
           workflow: ${{ github.workflow }} 
           branch: main 
           name: benchmark-main-${{ matrix.python-version }} 
-          path: benchmarks 
+          path: .benchmarks 
           search_artifacts: true 
           check_artifacts: true 
         continue-on-error: true
       - name: Generate baseline if not found
         run: |
-          if [ ! -f "benchmarks/$(ls -A benchmarks | head -n 1)" ]; then 
+          if [ ! -f ".benchmarks/$(ls -A .benchmarks | head -n 1)" ]; then 
             echo "⚠️ No baseline found, generating from main branch..."
             git fetch origin main
             git checkout origin/main
             pip install .[dev] 
-            mkdir -p benchmarks
+            mkdir -p .benchmarks
             pytest --benchmark-only \
               --benchmark-save=main \
-              --benchmark-storage=file://./benchmarks
+              --benchmark-storage=file://./.benchmarks
           fi
           
       - name: Return to PR branch
@@ -103,12 +103,12 @@ jobs:
         run: |
           pytest --benchmark-only \
             --benchmark-save=pr \
-            --benchmark-storage=file://./benchmarks
+            --benchmark-storage=file://./.benchmarks
 
       - name: Compare benchmark with main
         run: |
           pytest --benchmark-compare \
-            --benchmark-storage=file://./benchmarks \
+            --benchmark-storage=file://./.benchmarks \
             --benchmark-compare-fail=mean:10% \
             --benchmark-json=comparison_results.json
 

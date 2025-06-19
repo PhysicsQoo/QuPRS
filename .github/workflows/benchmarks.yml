@@ -39,7 +39,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-main-${{ matrix.python-version }}
-          path: benchmarks/**/*.json
+          path: benchmarks/
 
   test-and-benchmark:
     if: github.event_name == 'pull_request'
@@ -70,26 +70,30 @@ jobs:
       - name: Run tests
         run: pytest -n auto -v
 
-      - name: Try downloading main benchmark baseline
+      - name: Download main branch benchmark baseline
         id: download_baseline
-        continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v2
         with:
-          name: benchmark-main-${{ matrix.python-version }}
-          path: benchmarks
-
+          workflow: ${{ github.workflow }} 
+          branch: main 
+          name: benchmark-main-${{ matrix.python-version }} 
+          path: benchmarks 
+          search_artifacts: true 
+          check_artifacts: true 
+        continue-on-error: true
       - name: Generate baseline if not found
-        if: steps.download_baseline.outcome == 'failure'
         run: |
-          echo "⚠️ No baseline found, generating from main branch..."
-          git fetch origin main
-          git checkout origin/main
-          pip install .[dev]
-          mkdir -p benchmarks
-          pytest --benchmark-only \
-            --benchmark-save=main \
-            --benchmark-storage=file://./benchmarks
-
+          if [ ! -f "benchmarks/$(ls -A benchmarks | head -n 1)" ]; then 
+            echo "⚠️ No baseline found, generating from main branch..."
+            git fetch origin main
+            git checkout origin/main
+            pip install .[dev] 
+            mkdir -p benchmarks
+            pytest --benchmark-only \
+              --benchmark-save=main \
+              --benchmark-storage=file://./benchmarks
+          fi
+          
       - name: Return to PR branch
         run: |
           git fetch origin ${{ github.head_ref }}

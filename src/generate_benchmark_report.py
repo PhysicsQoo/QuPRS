@@ -1,21 +1,20 @@
 import json
 import argparse
 from pathlib import Path
+from collections import defaultdict
 from typing import List, Dict, Any, Tuple
 
 def generate_report(comparison_file: Path, report_file: Path, status: str):
     """
     Generates a markdown report from a pytest-benchmark comparison JSON file.
-
-    This enhanced version includes an executive summary and sorts the results
-    by the magnitude of performance change to highlight the most significant differences.
+    This version correctly handles the flat data structure produced by
+    'pytest --benchmark-compare' by grouping the runs first.
     """
     # --- Step 1: Handle the case where the comparison was skipped ---
     if status == 'false':
         with report_file.open('w', encoding='utf-8') as f:
             f.write("### ⚠️ Benchmark Comparison Skipped\n\n")
             f.write("Could not find a baseline artifact from the `main` branch to compare against.\n")
-            f.write("Please ensure the `build-and-save-baseline` job has run successfully on the `main` branch.\n")
         print("✅ Report generated for skipped comparison.")
         return
 
@@ -24,6 +23,7 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
         with comparison_file.open('r', encoding='utf-8') as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
+        # Handle cases where the JSON is missing or invalid
         with report_file.open('w', encoding='utf-8') as f:
             f.write("### ❌ Error Generating Report\n\n")
             f.write(f"Could not read or parse the comparison file: `{comparison_file}`.\n\n")
@@ -31,59 +31,66 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
         print(f"❌ Error: Could not read or parse {comparison_file}")
         exit(1)
 
-    # --- Step 3: Process data and prepare for sorting ---
+    # --- Step 3: Group benchmark runs by name (★ KEY FIX HERE ★) ---
+    # The comparison JSON is a flat list. We need to group 'main' and 'pr' runs together.
+    grouped_benchmarks = defaultdict(dict)
+    for bench in data.get("benchmarks", []):
+        # The 'name' is the unique identifier for a test case.
+        name = bench.get("group") or bench.get("name")
+        # 'pytest-benchmark' adds a 'param' to distinguish runs during comparison.
+        # The baseline is named after the file, the current run is often 'NOW'.
+        # We check which run this is and store it under the correct key.
+        if "main_baseline" in bench.get("param", ""):
+             grouped_benchmarks[name]["main"] = bench
+        else:
+             grouped_benchmarks[name]["pr"] = bench
+    
+    # --- Step 4: Process the grouped data and prepare for sorting ---
     DEGRADATION_THRESHOLD = 10.0
     processed_benchmarks: List[Tuple[float, List[str]]] = []
     regressions = 0
     improvements = 0
 
-    if data.get("benchmarks"):
-        for bench in data["benchmarks"]:
-            name = bench["group"] if bench.get("group") else bench["name"]
-            
-            main_run = next((r for r in bench["runs"] if r["name"].endswith("main_baseline]")), None)
-            pr_run = next((r for r in bench["runs"] if not r["name"].endswith("main_baseline]")), None)
+    for name, runs in grouped_benchmarks.items():
+        pr_run = runs.get("pr")
+        main_run = runs.get("main")
 
-            if not main_run or not pr_run:
-                main_run = bench["runs"][0]
-                pr_run = bench["runs"][1]
+        # Skip if we don't have both runs for a complete comparison
+        if not pr_run:
+            continue
+        
+        pr_stats = pr_run.get("stats", {})
+        pr_mean = pr_stats.get("mean", 0.0)
+        
+        main_mean = 0.0
+        if main_run and "stats" in main_run:
+            main_mean = main_run["stats"].get("mean", 0.0)
 
-            main_mean = main_run["stats"]["mean"]
-            pr_mean = pr_run["stats"]["mean"]
+        pr_mean_ms = f"{pr_mean * 1000:.3f} ms"
+        main_mean_ms = f"{main_mean * 1000:.3f} ms" if main_run else "N/A"
+        pr_stddev_ms = f"{pr_stats.get('stddev', 0.0) * 1000:.3f} ms"
 
-            pr_mean_ms = f"{pr_mean * 1000:.3f} ms"
-            main_mean_ms = f"{main_mean * 1000:.3f} ms"
-            pr_stddev_ms = f"{pr_run['stats']['stddev'] * 1000:.3f} ms"
+        if main_mean > 0:
+            delta_pct = ((pr_mean - main_mean) / main_mean) * 100
+            change_str = f"**{delta_pct:+.2f}%**"
+        else: # This is a new benchmark not present in main
+            delta_pct = float('inf') 
+            change_str = "**New ✨**"
+        
+        emoji = ""
+        if delta_pct > DEGRADATION_THRESHOLD:
+            emoji = "🔴"
+            regressions += 1
+        elif delta_pct < -DEGRADATION_THRESHOLD:
+            emoji = "🟢"
+            improvements += 1
+        
+        row_data = [f"`{name}`", pr_mean_ms, main_mean_ms, f"{change_str} {emoji}".strip(), pr_stddev_ms]
+        processed_benchmarks.append((abs(delta_pct if delta_pct != float('inf') else 0), row_data))
 
-            if main_mean > 0:
-                delta_pct = ((pr_mean - main_mean) / main_mean) * 100
-                change_str = f"**{delta_pct:+.2f}%**"
-            else:
-                delta_pct = float('inf')
-                change_str = "**New ✨**"
-
-            emoji = ""
-            if delta_pct > DEGRADATION_THRESHOLD:
-                emoji = "🔴"
-                regressions += 1
-            elif delta_pct < -DEGRADATION_THRESHOLD:
-                emoji = "🟢"
-                improvements += 1
-            
-            row_data = [
-                f"`{name}`",
-                pr_mean_ms,
-                main_mean_ms,
-                f"{change_str} {emoji}".strip(),
-                pr_stddev_ms,
-            ]
-            # Store the absolute change for sorting, along with the formatted row
-            processed_benchmarks.append((abs(delta_pct), row_data))
-
-    # --- Step 4: Sort benchmarks by the magnitude of change (descending) ---
+    # --- Step 5: Sort and assemble the final report ---
     processed_benchmarks.sort(key=lambda x: x[0], reverse=True)
-
-    # --- Step 5: Assemble the final markdown report ---
+    
     machine_info = data.get("machine_info", {})
     python_version = machine_info.get("python_version", "N/A")
     
@@ -114,18 +121,10 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a markdown report for benchmark comparison.")
-    parser.add_argument(
-        "--comparison-file", type=Path, default=Path("comparison_results.json"),
-        help="Path to the pytest-benchmark JSON comparison output file."
-    )
-    parser.add_argument(
-        "--report-file", type=Path, default=Path("benchmark_report.md"),
-        help="Path to the output markdown report file."
-    )
-    parser.add_argument(
-        "--comparison-status", type=str, required=True,
-        help="Status of the comparison step ('true' or 'false')."
-    )
+    # ... (argparse section remains unchanged) ...
+    parser.add_argument("--comparison-file", type=Path, default=Path("comparison_results.json"))
+    parser.add_argument("--report-file", type=Path, default=Path("benchmark_report.md"))
+    parser.add_argument("--comparison-status", type=str, required=True)
     args = parser.parse_args()
     
     generate_report(

@@ -7,6 +7,11 @@ on:
     branches: [ main ]
 
 jobs:
+  # ====================================================================
+  # JOB 1: Build and save a new performance baseline when code is merged into main.
+  # This job's sole responsibility is to run on the main branch and store
+  # its performance benchmark results as a workflow artifact.
+  # ====================================================================
   build-and-save-baseline:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -14,46 +19,8 @@ jobs:
       matrix:
         python-version: ["3.12"]
     steps:
-      - name: Checkout code
+      - name: Checkout main branch code
         uses: actions/checkout@v4
-
-      - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install .[dev]
-
-      - name: Run benchmark on main
-        run: |
-          mkdir -p result
-          pytest --benchmark-only \
-                 --benchmark-json=main_baseline.json
-
-      - name: Upload benchmark artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-main-${{ matrix.python-version }}
-          path: main_baseline.json
-
-  test-and-benchmark:
-    if: github.event_name == 'pull_request'
-    permissions:
-      pull-requests: write
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-    steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.head_ref }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -62,74 +29,113 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install .[dev]
+        run: pip install .[dev]
+
+      - name: Run benchmark and save results as JSON
+        run: pytest --benchmark-only --benchmark-json=main_baseline.json tests/
+
+      - name: Upload benchmark baseline as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline-${{ matrix.python-version }}
+          path: main_baseline.json
+
+  # ====================================================================
+  # JOB 2: For Pull Requests, run tests and compare performance against the main branch baseline.
+  # This job features a robust fallback mechanism: if the baseline artifact
+  # from 'main' is not found, it will generate one on-the-fly in a
+  # completely isolated environment to prevent conflicts.
+  # ====================================================================
+  test-and-benchmark-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write # Required to post comments on the PR
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      # --- Step 1: Prepare the Pull Request Environment ---
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        # 'actions/checkout' automatically checks out the PR's branch in a pull_request event.
+
+      - name: Setup Python and Install PR Dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: Install PR dependencies
+        run: pip install .[dev]
 
       - name: Run Unit Tests on PR
         run: pytest -n auto -v
 
-      - name: Run Benchmark on PR code and generate result
+      - name: Run Benchmark on PR code
+        run: pytest --benchmark-only --benchmark-json=pr_benchmark.json tests/
+
+      # --- Step 2: Obtain the Baseline from the main branch (with fallback) ---
+      - name: Download baseline artifact from the main branch
+        id: get_baseline # Assign an ID to this step to check its outcome later
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ${{ github.workflow }}
+          branch: main
+          name: benchmark-baseline-${{ matrix.python-version }}
+        continue-on-error: true # Prevents the job from failing if the artifact is not found
+
+      - name: Generate baseline on-the-fly if not found
+        # This step runs only if the previous 'get_baseline' step failed (e.g., artifact not found).
+        if: steps.get_baseline.conclusion == 'failure'
         run: |
-          pytest --benchmark-only \
-                 --benchmark-json=pr_benchmark.json 
+          echo "⚠️ WARNING: Baseline artifact not found. Attempting to generate from main branch on-the-fly."
+          
+          # Strategy: Use a fully isolated directory and Python virtual environment (venv)
+          # to prevent any path or dependency conflicts with the PR's environment.
+          
+          echo "INFO: Cloning main branch into 'main_code' directory..."
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" main_code --branch main --single-branch
 
-      - name: Get baseline from main branch
+          cd main_code
+
+          echo "INFO: Creating and activating a separate venv for the main branch..."
+          python -m venv .venv
+          source .venv/bin/activate
+          
+          echo "INFO: Installing dependencies for main branch inside its venv..."
+          pip install --upgrade pip
+          pip install .[dev]
+
+          echo "INFO: Running benchmark on main branch inside its venv..."
+          # The '|| true' ensures that even if the benchmark fails on the main branch,
+          # it won't cause the entire PR check to fail.
+          pytest --benchmark-only --benchmark-json=../main_baseline.json ../tests/ || true
+          
+          cd ..
+          echo "INFO: Deactivated and finished with the temporary venv."
+
+      # --- Step 3: Compare, Report, and Comment ---
+      - name: Compare benchmarks and generate final JSON report
         run: |
-          # Strategy 1: Try to download baseline artifact from main branch
-          echo "INFO: Attempting to download baseline artifact from main branch..."
-          gh_token="${{ secrets.GITHUB_TOKEN }}"
-          curl -L \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $gh_token" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs?branch=main&status=success&per_page=1" | \
-            jq -r '.workflow_runs[0].artifacts_url' | \
-            xargs -I {} curl -L -o artifact.zip -H "Authorization: Bearer $gh_token" {}
-
-          unzip -o artifact.zip || echo "INFO: No artifact found or failed to unzip."
-
-          # Check if baseline file exists
-          if [ -f "main_baseline.json" ]; then
-            echo "✅ SUCCESS: Baseline artifact 'main_baseline.json' found."
-          else
-            # Strategy 2: If artifact does not exist, generate on-the-fly by checking out main branch
-            echo "⚠️ WARNING: Baseline artifact not found. Attempting to generate from main branch on-the-fly."
-            
-            # Use actions/checkout to cleanly checkout main into a separate directory
-            git config --global --add safe.directory /github/workspace/main_code
-            git clone "https://x-access-token:$gh_token@github.com/${{ github.repository }}" main_code --branch main --single-branch
-            
-            cd main_code
-            echo "INFO: Installing dependencies for main branch..."
-            python -m pip install --upgrade pip
-            pip install .[dev] || echo "ERROR: Failed to install deps on main"
-            
-            echo "INFO: Running benchmark on main branch..."
-            # Run pytest, continue even if it fails (|| true) to avoid failing the whole CI
-            pytest --benchmark-only --benchmark-json=../main_baseline.json tests/ || true
-            cd ..
-          fi
-
-          # Strategy 3: Final check, if baseline file still does not exist, create an empty one
+          # Final check: If main_baseline.json still doesn't exist after all attempts,
+          # create an empty one to allow the workflow to complete gracefully.
           if [ ! -f "main_baseline.json" ]; then
-            echo "❌ ERROR: Failed to generate baseline from main. Creating an empty baseline as a final fallback."
+            echo "❌ ERROR: Failed to obtain or generate baseline. Creating an empty one for comparison."
             echo '{"benchmarks": []}' > main_baseline.json
           fi
 
-      - name: 6. Compare benchmarks and generate report
-        run: |
           echo "INFO: Comparing PR benchmark against the obtained baseline."
           pytest --benchmark-compare=main_baseline.json \
                  --benchmark-storage=file://. \
                  --benchmark-compare-fail=mean:10% \
                  --benchmark-json=comparison_results.json
-          
+
       - name: Generate benchmark markdown report
-        run: |
-          python src/generate_benchmark_report.py
+        run: python src/generate_benchmark_report.py
 
       - name: Upload benchmark report artifacts
+        # This step uploads the generated markdown and JSON reports as artifacts
+        # for inspection and debugging purposes.
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-${{ matrix.python-version }}
@@ -138,6 +144,8 @@ jobs:
             comparison_results.json
 
       - name: Comment benchmark results on PR
+        # This action posts the content of the markdown report as a sticky comment
+        # on the pull request for easy review.
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: benchmark_report.md

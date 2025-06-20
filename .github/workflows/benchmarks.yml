@@ -72,6 +72,9 @@ jobs:
 
       # --- Step 3: Get or Generate the Baseline from Main ---
       - name: Get or Generate Baseline from Main
+        # Add the GH_TOKEN environment variable for gh cli authentication.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # First, attempt to download the latest artifact from the main branch.
           echo "INFO: Attempting to download baseline artifact..."

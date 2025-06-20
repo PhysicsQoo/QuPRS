@@ -7,7 +7,7 @@ from sympy.logic.boolalg import to_anf
 from QuPRS.cache_manager import cache_manager
 from QuPRS.utils.util import find_new_variables, logical_to_algebraic
 
-from . import statistics
+from .statistics import statistics_manager
 
 
 class Register:
@@ -123,11 +123,11 @@ class F:
 
 
 class PathSum:
-    """
-    Core class for PathSum.
-    Includes initialization, basic properties, constructors, and the compose method.
-    All quantum gate, reduction, and statistics functionalities are dynamically added
-    from external modules.
+    """Core class for PathSum.
+
+    Includes initialization, basic properties, constructors, and the compose method. All
+    quantum gate, reduction, and statistics_manager functionalities are dynamically
+    added from external modules.
     """
 
     def __init__(
@@ -196,7 +196,7 @@ class PathSum:
             f_data = {f.bits[i]: to_anf(initial_state[i]) for i in range(len(f))}
             f = f.update_data(f_data)
 
-        statistics.reset_reduction_counts()
+        statistics_manager.reset_reduction_counts()
         return PathSum(P, f)
 
     @staticmethod

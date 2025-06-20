@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 from QuPRS.utils.util import reduce_expression
 
-from . import statistics
 from .pattern_match import (
     HH_reduction,
     match_Elim,
@@ -13,6 +12,7 @@ from .pattern_match import (
     match_omega,
     omega_reduction,
 )
+from .statistics import statistics_manager
 
 if TYPE_CHECKING:
     from .core import PathSum
@@ -25,7 +25,7 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
     """
     from .core import PathSum  # Avoid circular import
 
-    if not statistics.is_reduction_enabled():
+    if not statistics_manager.is_reduction_enabled():
         return pathsum
 
     new_P = reduce_expression(pathsum.P)
@@ -38,14 +38,14 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
     reducible_vars = tuple(filter(lambda x: x.name not in f_var_names, pathsum.pathvar))
 
     if reducible_vars:
-        statistics.increment_reduction_count("total")
+        statistics_manager.increment_reduction_count("total")
         # Try Elim rule
         yo_val = match_Elim(new_P, reducible_vars)
         if yo_val is not None:
             new_pathvar = set(pathsum.pathvar)
             new_pathvar.remove(yo_val)
             new_pathsum = PathSum(new_P, pathsum.f, frozenset(new_pathvar))
-            statistics.increment_reduction_count("Elim")
+            statistics_manager.increment_reduction_count("Elim")
             return apply_reduction(
                 new_pathsum
             )  # Recursive call to apply further reductions
@@ -57,7 +57,7 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
         )
         if yo_val is not None:
             new_pathsum = omega_reduction(pathsum, yo_val, Q_val, R_val, return_flag)
-            statistics.increment_reduction_count("omega")
+            statistics_manager.increment_reduction_count("omega")
             return apply_reduction(new_pathsum)
 
         # Try HH rule
@@ -66,7 +66,7 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
         )
         if yo_val is not None:
             new_pathsum = HH_reduction(pathsum, yo_val, yi_val, Q_val, R_val)
-            statistics.increment_reduction_count("HH")
+            statistics_manager.increment_reduction_count("HH")
             return apply_reduction(new_pathsum)
 
     # If no rules can be applied, return the current PathSum

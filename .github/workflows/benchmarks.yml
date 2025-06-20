@@ -41,24 +41,24 @@ jobs:
           path: main_baseline.json
 
   # ====================================================================
-  # JOB 2: For Pull Requests, run tests and compare performance against the main branch baseline.
-  # This version is simplified to be robust: it fetches the baseline, and if
-  # the baseline doesn't exist, it skips the comparison instead of trying
-  # to generate it on-the-fly, thus avoiding all environment conflicts.
+  # JOB 2: For Pull Requests, using the official GitHub CLI for robust artifact handling.
+  # This is the definitive version to solve the artifact download issues.
   # ====================================================================
   test-and-benchmark-pr:
     if: github.event_name == 'pull_request'
     permissions:
+      # actions:read is crucial for gh run list to search workflow history.
+      actions: read
+      # pull-requests:write is for commenting.
       pull-requests: write
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.12"]
     steps:
-      # --- Step 1: Prepare the PR Environment ---
+      # --- Step 1: Prepare PR Environment ---
       - name: Checkout PR code
         uses: actions/checkout@v4
-
       - name: Setup Python and Install PR Dependencies
         uses: actions/setup-python@v5
         with:
@@ -67,55 +67,78 @@ jobs:
       - name: Install PR dependencies
         run: pip install .[dev]
 
-      # --- Step 2: Run Benchmark on the PR ---
+      # --- Step 2: Run Benchmark on PR ---
       - name: Run Benchmark on PR code
         run: pytest --benchmark-only --benchmark-json=pr_benchmark.json
 
-      # --- Step 3: Attempt to Download the Baseline from Main ---
-      - name: Download baseline artifact from the main branch
-        id: get_baseline
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          workflow: ${{ github.workflow }}
-          branch: main
-          name: benchmark-baseline-${{ matrix.python-version }}
-          # The path where the artifact will be downloaded.
-          path: . 
-        continue-on-error: true
-
-      # --- Step 4: Compare and Report ---
-      - name: Compare benchmarks and generate report
-        id: compare_benchmarks # Give this step an ID
+      # --- Step 3: Get or Generate Baseline from Main using GitHub CLI ---
+      - name: Get or Generate Baseline from Main
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Check if the baseline was successfully downloaded.
-          if [ -f "main_baseline.json" ]; then
-            echo "✅ Baseline found. Comparing PR against main."
-            # Set a flag to indicate that comparison will be performed.
-            echo "comparison_performed=true" >> $GITHUB_OUTPUT
-            pytest --benchmark-compare=main_baseline.json \
-                   --benchmark-storage=file://. \
-                   --benchmark-compare-fail=mean:10% \
-                   --benchmark-json=comparison_results.json
+          echo "INFO: Finding latest successful workflow run on the main branch..."
+          LATEST_RUN_ID=$(gh run list --workflow "${{ github.workflow }}" --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId')
+
+          if [[ -n "$LATEST_RUN_ID" && "$LATEST_RUN_ID" != "null" ]]; then
+            echo "✅ Found successful run with ID: $LATEST_RUN_ID. Downloading artifact..."
+            # Use 'gh run download' to download the artifact from the specific run ID.
+            gh run download "$LATEST_RUN_ID" -n "benchmark-baseline-${{ matrix.python-version }}" --dir . || echo "Download failed, will proceed to fallback."
           else
-            echo "⚠️ WARNING: Baseline artifact from main branch not found. Skipping comparison."
-            # Set a flag to indicate that comparison was skipped.
+            echo "INFO: No successful workflow run found on the main branch."
+          fi
+
+          if [ -f "main_baseline.json" ]; then
+            echo "✅ SUCCESS: Baseline 'main_baseline.json' is available."
+          else
+            # Fallback Plan: This part is now a true safety net for when no baseline has ever been created.
+            echo "⚠️ WARNING: Baseline not found. Generating from main branch on-the-fly."
+            
+            echo "INFO: Cloning main branch into 'main_code' directory..."
+            git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" main_code --branch main --single-branch
+            cd main_code
+            echo "INFO: Creating and activating a separate venv for the main branch..."
+            python -m venv .venv
+            source .venv/bin/activate
+            echo "INFO: Installing dependencies for main branch inside its venv..."
+            pip install --upgrade pip
+            pip install .[dev]
+            echo "INFO: Running benchmark on main branch inside its venv..."
+            pytest --benchmark-only --benchmark-json=../main_baseline.json ../test || true
+            cd ..
+          fi
+
+      # --- Step 4: Compare (for CI failure check) and Report Generation ---
+      - name: Compare for regression & determine status
+        id: compare_benchmarks
+        run: |
+          if [ -f "main_baseline.json" ]; then
+            echo "comparison_performed=true" >> $GITHUB_OUTPUT
+            echo "INFO: Baseline found. Checking for performance regressions..."
+            # This command's primary purpose is to fail the job on significant regression.
+            pytest --benchmark-compare=main_baseline.json --benchmark-compare-fail=mean:10%
+          else
             echo "comparison_performed=false" >> $GITHUB_OUTPUT
-            # Create an empty result file so the next step doesn't fail.
-            echo '{"benchmarks": []}' > comparison_results.json
+            echo "⚠️ WARNING: Baseline not found. Skipping regression check."
           fi
 
       - name: Generate benchmark markdown report
         run: |
-          # Pass the comparison status to the report generation script.
-          python src/generate_benchmark_report.py --comparison-status ${{ steps.compare_benchmarks.outputs.comparison_performed }}
-
+          # This script reads the two source JSON files directly for reporting.
+          python src/generate_benchmark_report.py \
+            --comparison-status ${{ steps.compare_benchmarks.outputs.comparison_performed }} \
+            --main-file main_baseline.json \
+            --pr-file pr_benchmark.json \
+            --report-file benchmark_report.md
+      
       - name: Upload benchmark report artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-${{ matrix.python-version }}
           path: |
             benchmark_report.md
-            comparison_results.json
+            pr_benchmark.json
+            main_baseline.json
 
       - name: Comment benchmark results on PR
         uses: marocchino/sticky-pull-request-comment@v2

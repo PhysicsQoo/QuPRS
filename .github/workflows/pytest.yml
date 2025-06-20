@@ -4,7 +4,7 @@ name: Python Pytest CI
 
 # Trigger this workflow on push or pull request to main branch
 on:
-  [push, pull_request]
+  push
 
 jobs:
     build:

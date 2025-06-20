@@ -1,70 +1,96 @@
 # src/QuPRS/pathsum/gates/__init__.py
+
 import importlib
 import inspect
 import pkgutil
+from collections import defaultdict
 
-# Private variable to store discovered gates and avoid redundant lookups
+# Import base gate classes for type checking and inheritance checks
+from .base import Gate, MultiQubitGate, SingleQubitGate, TwoQubitGate
+from .patcher import attach_gate_methods
+
+# Internal cache for discovered gate classes to avoid redundant lookups
 _all_gates = {}
+_discovery_done = False
 
 
-def _discover_gates():
+def _discover_and_attach_gates():
+    """Discover all gate classes in the current package and attach gate methods.
+
+    This function is called internally to populate the _all_gates dictionary.
     """
-    Private function to perform one-time discovery and collection of quantum gates.
-    """
-    # Return immediately if discovery has already been done
-    if _all_gates:
+    global _discovery_done
+    if _discovery_done:
         return
-
+    base_classes = {Gate, SingleQubitGate, TwoQubitGate, MultiQubitGate}
     package = __import__(__name__, fromlist=[""])
-
     for _, module_name, _ in pkgutil.iter_modules(package.__path__):
-        if module_name == "base" or module_name == "utils":
+        # Skip utility and base modules
+        if module_name in ["base", "utils", "applier", "patcher"]:
             continue
-
         module = importlib.import_module(f".{module_name}", package.__name__)
-
-        for name, member in inspect.getmembers(module):
-            if inspect.isfunction(member) and getattr(member, "_is_gate", False):
+        for name, member in inspect.getmembers(module, inspect.isclass):
+            # Register only subclasses of Gate that are not base classes themselves
+            if issubclass(member, Gate) and member not in base_classes:
                 _all_gates[name] = member
+    attach_gate_methods(_all_gates)
+    _discovery_done = True
 
 
 def get_all_gates() -> dict:
+    """Returns a dictionary mapping gate class names to their class objects.
+
+    Ensures that gate discovery is performed only once.
     """
-    Public function to retrieve a dictionary of all quantum gates {name: function}.
-    """
-    _discover_gates()  # Ensure discovery is performed
+    _discover_and_attach_gates()
     return _all_gates.copy()
 
 
 def get_gates_by_type(gate_type: str) -> list[str]:
-    """
-    Retrieve a sorted list of quantum gate names by type.
+    """Returns a sorted list of gate class names filtered by the specified type.
+
+    The type should be one of: 'single', 'two', or 'multi'.
     """
     all_gates = get_all_gates()
+    type_map = {
+        "single": SingleQubitGate,
+        "two": TwoQubitGate,
+        "multi": MultiQubitGate,
+    }
+    base_class = type_map.get(gate_type)
+    if not base_class:
+        return []
     return sorted(
-        [
-            name
-            for name, func in all_gates.items()
-            if getattr(func, "_gate_type", None) == gate_type
-        ]
+        [name for name, cls in all_gates.items() if issubclass(cls, base_class)]
     )
 
 
 def list_supported_gates():
-    """
-    Print all supported quantum gates, grouped by type.
-    """
-    print("--- Supported Gates ---")
-    print(f"Single-Qubit: {get_gates_by_type('single')}")
-    print(f"Two-Qubit: {get_gates_by_type('two')}")
-    print(f"Multi-Qubit: {get_gates_by_type('multi')}")
-    print("-----------------------")
+    """Prints all supported quantum gate classes, grouped by their base class type."""
+    print("--- Supported Gate Classes ---")
+    all_gates = get_all_gates()
+    gates_by_type = defaultdict(list)
+    for name, cls in all_gates.items():
+        if issubclass(cls, MultiQubitGate):
+            gates_by_type["Multi-Qubit"].append(name)
+        elif issubclass(cls, TwoQubitGate):
+            gates_by_type["Two-Qubit"].append(name)
+        elif issubclass(cls, SingleQubitGate):
+            gates_by_type["Single-Qubit"].append(name)
+    print(f"Single-Qubit: {sorted(gates_by_type['Single-Qubit'])}")
+    print(f"Two-Qubit: {sorted(gates_by_type['Two-Qubit'])}")
+    print(f"Multi-Qubit: {sorted(gates_by_type['Multi-Qubit'])}")
+    print("------------------------------")
 
 
 def support_gate_set() -> set:
-    """
-    Return a set containing the names of all supported quantum gates.
-    This set is generated dynamically.
+    """Returns a set containing the names of all supported quantum gate methods (e.g.,
+    'h', 'cx').
+
+    The names are extracted from the 'gate_name' attribute of each gate class.
     """
     all_gates = get_all_gates()
-    return set(all_gates.keys())
+    gate_names = {
+        cls.gate_name for cls in all_gates.values() if hasattr(cls, "gate_name")
+    }
+    return gate_names

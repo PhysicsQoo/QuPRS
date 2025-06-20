@@ -9,8 +9,6 @@ on:
 jobs:
   # ====================================================================
   # JOB 1: Build and save a new performance baseline when code is merged into main.
-  # This job's sole responsibility is to run on the main branch and store
-  # its performance benchmark results as a workflow artifact.
   # ====================================================================
   build-and-save-baseline:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -32,7 +30,8 @@ jobs:
         run: pip install .[dev]
 
       - name: Run benchmark and save results as JSON
-        run: pytest --benchmark-only --benchmark-json=main_baseline.json tests/
+        # No path needed; pytest will auto-discover the 'test' directory.
+        run: pytest --benchmark-only --benchmark-json=main_baseline.json
 
       - name: Upload benchmark baseline as artifact
         uses: actions/upload-artifact@v4
@@ -42,9 +41,6 @@ jobs:
 
   # ====================================================================
   # JOB 2: For Pull Requests, run tests and compare performance against the main branch baseline.
-  # This job features a robust fallback mechanism: if the baseline artifact
-  # from 'main' is not found, it will generate one on-the-fly in a
-  # completely isolated environment to prevent conflicts.
   # ====================================================================
   test-and-benchmark-pr:
     if: github.event_name == 'pull_request'
@@ -58,7 +54,6 @@ jobs:
       # --- Step 1: Prepare the Pull Request Environment ---
       - name: Checkout PR code
         uses: actions/checkout@v4
-        # 'actions/checkout' automatically checks out the PR's branch in a pull_request event.
 
       - name: Setup Python and Install PR Dependencies
         uses: actions/setup-python@v5
@@ -69,29 +64,27 @@ jobs:
         run: pip install .[dev]
 
       - name: Run Unit Tests on PR
+        # No path needed for auto-discovery.
         run: pytest -n auto -v
 
       - name: Run Benchmark on PR code
-        run: pytest --benchmark-only --benchmark-json=pr_benchmark.json tests/
+        # No path needed for auto-discovery.
+        run: pytest --benchmark-only --benchmark-json=pr_benchmark.json
 
       # --- Step 2: Obtain the Baseline from the main branch (with fallback) ---
       - name: Download baseline artifact from the main branch
-        id: get_baseline # Assign an ID to this step to check its outcome later
+        id: get_baseline
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: ${{ github.workflow }}
           branch: main
           name: benchmark-baseline-${{ matrix.python-version }}
-        continue-on-error: true # Prevents the job from failing if the artifact is not found
+        continue-on-error: true
 
       - name: Generate baseline on-the-fly if not found
-        # This step runs only if the previous 'get_baseline' step failed (e.g., artifact not found).
         if: steps.get_baseline.conclusion == 'failure'
         run: |
           echo "⚠️ WARNING: Baseline artifact not found. Attempting to generate from main branch on-the-fly."
-          
-          # Strategy: Use a fully isolated directory and Python virtual environment (venv)
-          # to prevent any path or dependency conflicts with the PR's environment.
           
           echo "INFO: Cloning main branch into 'main_code' directory..."
           git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" main_code --branch main --single-branch
@@ -107,9 +100,10 @@ jobs:
           pip install .[dev]
 
           echo "INFO: Running benchmark on main branch inside its venv..."
-          # The '|| true' ensures that even if the benchmark fails on the main branch,
-          # it won't cause the entire PR check to fail.
-          pytest --benchmark-only --benchmark-json=../main_baseline.json ../tests/ || true
+          # Here, the path '../test' IS REQUIRED.
+          # This is because we are currently inside the 'main_code' directory,
+          # and pytest needs to be told to look in the parent directory for the 'test' folder.
+          pytest --benchmark-only --benchmark-json=../main_baseline.json ../test || true
           
           cd ..
           echo "INFO: Deactivated and finished with the temporary venv."
@@ -117,14 +111,13 @@ jobs:
       # --- Step 3: Compare, Report, and Comment ---
       - name: Compare benchmarks and generate final JSON report
         run: |
-          # Final check: If main_baseline.json still doesn't exist after all attempts,
-          # create an empty one to allow the workflow to complete gracefully.
           if [ ! -f "main_baseline.json" ]; then
-            echo "❌ ERROR: Failed to obtain or generate baseline. Creating an empty one for comparison."
+            echo "❌ ERROR: Failed to obtain or generate baseline. Creating an empty one."
             echo '{"benchmarks": []}' > main_baseline.json
           fi
 
           echo "INFO: Comparing PR benchmark against the obtained baseline."
+          # No path needed; comparison is done via JSON files, not by re-running tests.
           pytest --benchmark-compare=main_baseline.json \
                  --benchmark-storage=file://. \
                  --benchmark-compare-fail=mean:10% \
@@ -134,8 +127,6 @@ jobs:
         run: python src/generate_benchmark_report.py
 
       - name: Upload benchmark report artifacts
-        # This step uploads the generated markdown and JSON reports as artifacts
-        # for inspection and debugging purposes.
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-${{ matrix.python-version }}
@@ -144,8 +135,6 @@ jobs:
             comparison_results.json
 
       - name: Comment benchmark results on PR
-        # This action posts the content of the markdown report as a sticky comment
-        # on the pull request for easy review.
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: benchmark_report.md

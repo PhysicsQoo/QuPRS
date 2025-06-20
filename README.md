@@ -1,7 +1,9 @@
 [![PyPI version](https://img.shields.io/pypi/v/QuPRS)](https://pypi.org/project/QuPRS/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/QuPRS)
+[![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
 ![GitHub last commit](https://img.shields.io/github/last-commit/PhysicsQoo/QuPRS)
+
 
 # QuPRS: Quantum Path-sum Reduction and Solver
 
@@ -165,15 +167,17 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
   ```python
   from QuPRS.interface.load_qiskit import qasm_eq_check_with_wmc
-  from QuPRS.pathsum import pathsum
+  from QuPRS.pathsum import set_reduction_switch
 
-  pathsum.set_reduction_switch(False)
+  set_reduction_switch(False)
   output_dict = qasm_eq_check_with_wmc(circuit1, circuit2)
   ```
 ## Cite
 If you use `QuPRS` in your research, please consider citing it.
 
 This code is associated with a forthcoming publication. Please cite this repository for now, and check back for the full paper citation.
+
+[![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
 ```
 ```
 ## License Information

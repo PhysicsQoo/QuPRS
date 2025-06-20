@@ -72,21 +72,27 @@ jobs:
 
       # --- Step 3: Get or Generate the Baseline from Main ---
       - name: Get or Generate Baseline from Main
-        # Add the GH_TOKEN environment variable for gh cli authentication.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # First, attempt to download the latest artifact from the main branch.
-          echo "INFO: Attempting to download baseline artifact..."
-          gh api \
+          # First, attempt to get the download URL for the artifact.
+          echo "INFO: Attempting to find baseline artifact from the main branch..."
+          DOWNLOAD_URL=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "/repos/${{ github.repository }}/actions/artifacts?name=benchmark-baseline-${{ matrix.python-version }}" | \
-            jq '.artifacts[0].archive_download_url' | xargs curl -L -o baseline_artifact.zip
-          
-          # Unzip the artifact. The '||' operator silences errors if the file doesn't exist.
-          unzip -o baseline_artifact.zip || echo "INFO: No artifact found or failed to unzip."
+            jq -r '.artifacts[0].archive_download_url') # Use -r for raw string output
 
+          # Check if the DOWNLOAD_URL is valid (not null and not empty).
+          if [[ "$DOWNLOAD_URL" != "null" && -n "$DOWNLOAD_URL" ]]; then
+            echo "INFO: Artifact found. Downloading from URL..."
+            curl -L -o baseline_artifact.zip "$DOWNLOAD_URL"
+            # Unzip the artifact. The '||' operator silences errors if unzipping fails.
+            unzip -o baseline_artifact.zip || echo "INFO: Failed to unzip artifact."
+          else
+            echo "INFO: No valid artifact download URL found."
+          fi
+          
           # The robust check: if the baseline JSON file does not exist after the download attempt,
           # then execute the on-the-fly generation logic.
           if [ -f "main_baseline.json" ]; then
@@ -100,7 +106,7 @@ jobs:
 
             cd main_code
 
-            echo "INFO: Creating and activating a separate venv for the main branch to prevent environment pollution..."
+            echo "INFO: Creating and activating a separate venv for the main branch..."
             python -m venv .venv
             source .venv/bin/activate
             
@@ -109,8 +115,6 @@ jobs:
             pip install .[dev]
 
             echo "INFO: Running benchmark on main branch inside its venv..."
-            # The path '../test' is required here because the current working directory is 'main_code'.
-            # '|| true' ensures that even if this benchmark fails, it won't fail the entire PR check.
             pytest --benchmark-only --benchmark-json=../main_baseline.json ../test || true
             
             cd ..

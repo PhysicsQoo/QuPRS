@@ -1,140 +1,130 @@
 import json
+import argparse
 from pathlib import Path
 
-BENCHMARK_DIR = Path("./benchmarks")
-OUTPUT_FILE = Path("benchmark_report.md")
-DEGRADATION_THRESHOLD = 10.0  # percent
+def generate_report(comparison_file: Path, report_file: Path, status: str):
+    """
+    Generates a markdown report from a pytest-benchmark comparison JSON file.
 
+    This script reads a single, pre-compared JSON file and formats it into
+    a human-readable markdown table. It also handles cases where the
+    comparison was skipped.
+    """
+    # --- Step 1: Handle the case where the comparison was skipped ---
+    if status == 'false':
+        with report_file.open('w', encoding='utf-8') as f:
+            f.write("### ⚠️ Benchmark Comparison Skipped\n\n")
+            f.write("Could not find a baseline artifact from the `main` branch to compare against.\n")
+            f.write("Please ensure the `build-and-save-baseline` job has run successfully on the `main` branch.\n")
+        print("✅ Report generated for skipped comparison.")
+        return
 
-def find_latest_benchmark_file(pattern: str) -> Path | None:
-    """Find the latest file matching the pattern in the benchmarks directory"""
+    # --- Step 2: Load the comparison data ---
     try:
-        files = sorted(BENCHMARK_DIR.rglob(pattern))
-        if files:
-            print(f"🔍 Found benchmark file: {files[-1]}")
-            return files[-1]
-    except FileNotFoundError:
-        return None
-    return None
+        with comparison_file.open('r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        with report_file.open('w', encoding='utf-8') as f:
+            f.write("### ❌ Error Generating Report\n\n")
+            f.write(f"Could not read or parse the comparison file: `{comparison_file}`.\n\n")
+            f.write(f"**Error details:**\n```\n{e}\n```")
+        print(f"❌ Error: Could not read or parse {comparison_file}")
+        exit(1) # Exit with an error code to make the CI step fail
 
-
-def load_data(file_path: Path):
-    """Load JSON data from the given path"""
-    if not file_path or not file_path.exists():
-        raise FileNotFoundError(f"Cannot find input file: {file_path}")
-    with open(file_path, "r") as f:
-        return json.load(f)
-
-
-def create_benchmark_map(benchmarks: list) -> dict:
-    """Convert benchmark list to a dict keyed by test name for fast lookup"""
-    return {bench["name"]: bench for bench in benchmarks}
-
-
-def format_row(pr_bench, main_bench_map):
-    """Format a single row of the table"""
-    name = pr_bench.get("name", "n/a")
-
-    pr_stats = pr_bench.get("stats", {})
-    pr_mean = pr_stats.get("mean", 0.0)
-    rounds = pr_stats.get("rounds", 0)
-    stddev = pr_stats.get("stddev", 0.0)
-
-    main_bench = main_bench_map.get(name, {})
-    main_stats = main_bench.get("stats", {})
-    main_mean = main_stats.get("mean", 0.0)
-
-    delta_pct = ((pr_mean - main_mean) / main_mean * 100) if main_mean else 0.0
-
-    if main_mean == 0.0:
-        emoji = "✨"
-    elif delta_pct > DEGRADATION_THRESHOLD:
-        emoji = "🔴"
-    elif delta_pct < -DEGRADATION_THRESHOLD:
-        emoji = "🟢"
-    else:
-        emoji = "🟡"
-
-    return (
-        [
-            f"{emoji} {name}",
-            f"{pr_mean * 1000:.3f} ms",
-            f"{main_mean * 1000:.3f} ms",
-            f"{delta_pct:+.2f}%",
-            f"{stddev * 1000:.3f} ms",
-            str(rounds),
-        ],
-        delta_pct,
-        emoji,
-    )
-
-
-def generate_markdown_table(pr_data, main_data):
-    """Generate Markdown table and warning messages"""
-    pr_benchmarks = pr_data.get("benchmarks", [])
-    main_benchmarks = main_data.get("benchmarks", [])
-
-    if not pr_benchmarks:
-        return "⚠️ No PR benchmark data found.", []
-
-    main_bench_map = create_benchmark_map(main_benchmarks)
-
-    headers = ["Test", "Mean (PR)", "Mean (Main)", "Δ %", "StdDev", "Rounds"]
-    table = [
-        "| " + " | ".join(headers) + " |",
-        "| " + " | ".join(["---"] * len(headers)) + " |",
+    # --- Step 3: Create the markdown report from the data ---
+    machine_info = data.get("machine_info", {})
+    python_version = machine_info.get("python_version", "N/A")
+    
+    markdown_lines = [
+        f"### 🔬 Benchmark Report\n",
+        f"**Python version:** `{python_version}`\n"
     ]
-
+    
+    # Create the table header
+    headers = ["Benchmark Name", "PR (Mean)", "Main (Mean)", "Change (%)", "StdDev (PR)"]
+    separator = "|:---|---:|---:|---:|---:|"
+    table = [header, separator]
+    
     warnings = []
-    for bench in pr_benchmarks:
-        row, delta_pct, emoji = format_row(bench, main_bench_map)
-        table.append("| " + " | ".join(row) + " |")
 
-        if emoji == "🔴":
-            warnings.append(
-                f"⚠️ `{bench.get('name')}` is {delta_pct:.2f}% slower than `main`"
-            )
+    if not data.get("benchmarks"):
+        table.append("| *No benchmark data found* | | | | |")
+    else:
+        # Populate the table rows
+        for bench in data["benchmarks"]:
+            name = bench["group"] if bench.get("group") else bench["name"]
+            
+            # pytest-benchmark conveniently provides both runs in the "runs" list
+            # The baseline run is the one used in the `--benchmark-compare` argument
+            main_stats = bench["runs"][0]["stats"]
+            pr_stats = bench["runs"][1]["stats"]
 
-    return "\n".join(table), warnings
+            main_mean = main_stats["mean"]
+            pr_mean = pr_stats["mean"]
 
+            # Format numbers in milliseconds for readability
+            pr_mean_ms = f"{pr_mean * 1000:.3f} ms"
+            main_mean_ms = f"{main_mean * 1000:.3f} ms"
+            pr_stddev_ms = f"{pr_stats['stddev'] * 1000:.3f} ms"
 
-def main():
-    try:
-        main_file = find_latest_benchmark_file("*main.json")
-        pr_file = find_latest_benchmark_file("*pr.json")
+            # Calculate and format the percentage change
+            if main_mean > 0:
+                delta_pct = ((pr_mean - main_mean) / main_mean) * 100
+                change_str = f"**{delta_pct:+.2f}%**"
+            else: # Handle new benchmarks where main_mean is 0
+                delta_pct = float('inf')
+                change_str = "**New ✨**"
 
-        if not main_file or not pr_file:
-            raise FileNotFoundError("Could not find both main and PR benchmark files.")
+            # Add color for visual indication
+            DEGRADATION_THRESHOLD = 10.0
+            if delta_pct > DEGRADATION_THRESHOLD:
+                change_str += " 🔴"
+                warnings.append(f"⚠️ `{name}` is {delta_pct:.2f}% slower than `main`.")
+            elif delta_pct < -DEGRADATION_THRESHOLD:
+                change_str += " 🟢"
 
-        main_data = load_data(main_file)
-        pr_data = load_data(pr_file)
+            # Add a row to the table
+            row = f"| `{name}` | {pr_mean_ms} | {main_mean_ms} | {change_str} | {pr_stddev_ms} |"
+            table.append(row)
+            
+    # Assemble the final report content
+    if warnings:
+        markdown_lines.append("\n### ⚠️ Performance Regressions Detected\n")
+        markdown_lines.extend(warnings)
 
-        python_version = pr_data.get("machine_info", {}).get(
-            "python_version", "Unknown Python"
-        )
+    markdown_lines.append("\n### 📊 Detailed Comparison\n")
+    markdown_lines.extend(table)
+    
+    # Write the report to the markdown file
+    report_file.write_text("\n".join(markdown_lines), encoding='utf-8')
 
-        header = f"## 🔬 Benchmark Report\n\n**Python version:** `{python_version}`\n\n"
-        table, warnings = generate_markdown_table(pr_data, main_data)
-
-        summary = ""
-        if warnings:
-            summary += "\n### ⚠️ Performance Regressions Detected\n"
-            summary += "\n".join(warnings) + "\n"
-
-        content = header + summary + "\n### 📊 Detailed Comparison\n" + table + "\n"
-        OUTPUT_FILE.write_text(content)
-
-        print(f"✅ Benchmark report written to {OUTPUT_FILE}")
-
-    except Exception as e:
-        error_message = (
-            f"⚠️ Failed to generate benchmark report.\n\n**Error:**\n```\n{e}\n```"
-        )
-        OUTPUT_FILE.write_text(error_message)
-        print(f"❌ Error generating report: {e}")
-        # In CI environment, return non-zero exit code to indicate failure
-        exit(1)
+    print(f"✅ Benchmark report successfully generated at {report_file}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Generate a markdown report for benchmark comparison.")
+    parser.add_argument(
+        "--comparison-file",
+        type=Path,
+        default=Path("comparison_results.json"),
+        help="Path to the pytest-benchmark JSON comparison output file."
+    )
+    parser.add_argument(
+        "--report-file",
+        type=Path,
+        default=Path("benchmark_report.md"),
+        help="Path to the output markdown report file."
+    )
+    parser.add_argument(
+        "--comparison-status",
+        type=str,
+        required=True,
+        help="Status of the comparison step ('true' or 'false')."
+    )
+    args = parser.parse_args()
+    
+    generate_report(
+        comparison_file=args.comparison_file,
+        report_file=args.report_file,
+        status=args.comparison_status
+    )

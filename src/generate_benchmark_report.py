@@ -8,7 +8,7 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
     """
     Generates a markdown report from a pytest-benchmark comparison JSON file.
     This version correctly handles the flat data structure produced by
-    'pytest --benchmark-compare' by grouping the runs first.
+    'pytest --benchmark-compare' and safely checks for 'None' type parameters.
     """
     # --- Step 1: Handle the case where the comparison was skipped ---
     if status == 'false':
@@ -23,7 +23,6 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
         with comparison_file.open('r', encoding='utf-8') as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        # Handle cases where the JSON is missing or invalid
         with report_file.open('w', encoding='utf-8') as f:
             f.write("### ❌ Error Generating Report\n\n")
             f.write(f"Could not read or parse the comparison file: `{comparison_file}`.\n\n")
@@ -32,18 +31,18 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
         exit(1)
 
     # --- Step 3: Group benchmark runs by name (★ KEY FIX HERE ★) ---
-    # The comparison JSON is a flat list. We need to group 'main' and 'pr' runs together.
     grouped_benchmarks = defaultdict(dict)
     for bench in data.get("benchmarks", []):
-        # The 'name' is the unique identifier for a test case.
         name = bench.get("group") or bench.get("name")
-        # 'pytest-benchmark' adds a 'param' to distinguish runs during comparison.
-        # The baseline is named after the file, the current run is often 'NOW'.
-        # We check which run this is and store it under the correct key.
-        if "main_baseline" in bench.get("param", ""):
-             grouped_benchmarks[name]["main"] = bench
+        param = bench.get("param") # This can be a string, or it can be None
+
+        # Safely check if 'param' is a string before doing the 'in' operation.
+        if param and "main_baseline" in param:
+            grouped_benchmarks[name]["main"] = bench
         else:
-             grouped_benchmarks[name]["pr"] = bench
+            # This handles both PR runs with no params (param is None)
+            # and PR runs that might have their own params.
+            grouped_benchmarks[name]["pr"] = bench
     
     # --- Step 4: Process the grouped data and prepare for sorting ---
     DEGRADATION_THRESHOLD = 10.0
@@ -55,7 +54,6 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
         pr_run = runs.get("pr")
         main_run = runs.get("main")
 
-        # Skip if we don't have both runs for a complete comparison
         if not pr_run:
             continue
         
@@ -73,7 +71,7 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
         if main_mean > 0:
             delta_pct = ((pr_mean - main_mean) / main_mean) * 100
             change_str = f"**{delta_pct:+.2f}%**"
-        else: # This is a new benchmark not present in main
+        else:
             delta_pct = float('inf') 
             change_str = "**New ✨**"
         
@@ -121,7 +119,6 @@ def generate_report(comparison_file: Path, report_file: Path, status: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a markdown report for benchmark comparison.")
-    # ... (argparse section remains unchanged) ...
     parser.add_argument("--comparison-file", type=Path, default=Path("comparison_results.json"))
     parser.add_argument("--report-file", type=Path, default=Path("benchmark_report.md"))
     parser.add_argument("--comparison-status", type=str, required=True)

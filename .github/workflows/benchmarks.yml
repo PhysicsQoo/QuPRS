@@ -126,6 +126,12 @@ jobs:
             echo "comparison_performed=false" >> $GITHUB_OUTPUT
             echo '{"benchmarks": []}' > comparison_results.json
           fi
+      - name: "DEBUG: Display contents of comparison_results.json"
+        if: always() 
+        run: |
+          echo "--- Contents of comparison_results.json ---"
+          cat comparison_results.json || echo "comparison_results.json not found."
+          echo "-------------------------------------------"
 
       # --- Step 5: Generate and Upload Report ---
       - name: Generate benchmark markdown report

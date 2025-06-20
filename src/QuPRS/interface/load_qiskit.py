@@ -1,4 +1,3 @@
-import os
 import signal
 import time
 
@@ -66,7 +65,7 @@ def get_gates(circuit: QuantumCircuit):
 
 
 def add_gate(
-    pathsum_circuit: PathSum.QuantumCircuit, gate, is_bra=False, count=0, debug=False
+    pathsum_circuit: PathSum, gate, is_bra=False, count=0, debug=False
 ) -> tuple[PathSum, int]:
     assert gate[0] in support_gate_set, "Not support %s gate yet." % gate[0]
     if debug:
@@ -95,17 +94,23 @@ def load_circuit(circuit: str) -> QuantumCircuit:
     Returns:
         QuantumCircuit: The loaded Qiskit circuit.
     """
-    if os.path.isfile(circuit):
-        with open(circuit, "r") as f:
+    if isinstance(circuit, str):
+        if circuit.endswith(".qasm"):
+            f = open(circuit, "r")
             data = f.read()
-    else:
-        data = circuit
-    flag = True if "OPENQASM 3.0" in data else False
-    if flag:
-        qiskit_circuit = qasm3.loads(data)
-    else:
-        qiskit_circuit = qasm2.loads(data)
-    return qiskit_circuit
+            if "OPENQASM 3.0" in data:
+                return qasm3.load(circuit)
+            else:
+                return qasm2.load(circuit)
+        elif "OPENQASM" in circuit:
+            if "OPENQASM 3.0" in circuit:
+                return qasm3.loads(circuit)
+            else:
+                return qasm2.loads(circuit)
+        else:
+            raise ValueError("Invalid circuit format")
+    elif isinstance(circuit, QuantumCircuit):
+        return circuit
 
 
 def qasm_eq_check(
@@ -116,25 +121,6 @@ def qasm_eq_check(
     timeout=600,
 ):
     tolerance = config.TOLERANCE
-
-    def load_circuit(circuit):
-        if isinstance(circuit, str):
-            if circuit.endswith(".qasm"):
-                f = open(circuit, "r")
-                data = f.read()
-                if "OPENQASM 3.0" in data:
-                    return qasm3.load(circuit)
-                else:
-                    return qasm2.load(circuit)
-            elif "OPENQASM" in circuit:
-                if "OPENQASM 3.0" in circuit:
-                    return qasm3.loads(circuit)
-                else:
-                    return qasm2.loads(circuit)
-            else:
-                raise ValueError("Invalid circuit format")
-        elif isinstance(circuit, QuantumCircuit):
-            return circuit
 
     qiskit_circuit = load_circuit(circuit1)
     qiskit_circuit2 = load_circuit(circuit2)

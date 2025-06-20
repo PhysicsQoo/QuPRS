@@ -3,8 +3,7 @@ import tempfile
 
 from QuPRS import config
 from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-from QuPRS.pathsum import PathSum
-from QuPRS.pathsum.statistics import set_reduction_switch
+from QuPRS.pathsum import PathSum, set_reduction_switch
 from QuPRS.utils.util import get_theta
 
 TOLERANCE = config.TOLERANCE

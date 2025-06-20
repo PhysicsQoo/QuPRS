@@ -77,20 +77,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "INFO: Finding latest successful workflow run on the main branch..."
-          # Use 'gh run list' to find the ID of the last successful run for this workflow on the 'main' branch.
           LATEST_RUN_ID=$(gh run list --workflow "${{ github.workflow }}" --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId')
 
-          # Check if a valid run ID was found.
           if [[ -n "$LATEST_RUN_ID" && "$LATEST_RUN_ID" != "null" ]]; then
             echo "✅ Found successful run with ID: $LATEST_RUN_ID. Downloading artifact..."
             # Use 'gh run download' to download the artifact from the specific run ID.
-            # The '|| true' handles cases where the artifact might not be in the found run for some reason.
-            gh run download "$LATEST_RUN_ID" -n "benchmark-baseline-${{ matrix.python-version }}" --dir . || true
+            gh run download "$LATEST_RUN_ID" -n "benchmark-baseline-${{ matrix.python-version }}" --dir . || echo "Download failed, will proceed to fallback."
           else
             echo "INFO: No successful workflow run found on the main branch."
           fi
 
-          # The rest of the logic remains the same: check if the file now exists.
           if [ -f "main_baseline.json" ]; then
             echo "✅ SUCCESS: Baseline 'main_baseline.json' is available."
           else
@@ -111,41 +107,38 @@ jobs:
             cd ..
           fi
 
-      # --- Step 4: Compare and Report ---
-      - name: Compare benchmarks and generate report
+      # --- Step 4: Compare (for CI failure check) and Report Generation ---
+      - name: Compare for regression & determine status
         id: compare_benchmarks
         run: |
-          # This logic remains robust.
           if [ -f "main_baseline.json" ]; then
             echo "comparison_performed=true" >> $GITHUB_OUTPUT
-            pytest --benchmark-compare=main_baseline.json \
-                   --benchmark-storage=file://. \
-                   --benchmark-compare-fail=mean:10% \
-                   --benchmark-json=comparison_results.json
+            echo "INFO: Baseline found. Checking for performance regressions..."
+            # This command's primary purpose is to fail the job on significant regression.
+            pytest --benchmark-compare=main_baseline.json --benchmark-compare-fail=mean:10%
           else
             echo "comparison_performed=false" >> $GITHUB_OUTPUT
-            echo '{"benchmarks": []}' > comparison_results.json
+            echo "⚠️ WARNING: Baseline not found. Skipping regression check."
           fi
-      - name: "DEBUG: Display contents of comparison_results.json"
-        if: always() 
-        run: |
-          echo "--- Contents of comparison_results.json ---"
-          cat comparison_results.json || echo "comparison_results.json not found."
-          echo "-------------------------------------------"
 
-      # --- Step 5: Generate and Upload Report ---
       - name: Generate benchmark markdown report
         run: |
-          # Make sure your script can handle the status argument.
-          python src/generate_benchmark_report.py --comparison-status ${{ steps.compare_benchmarks.outputs.comparison_performed }}
-
+          # This script reads the two source JSON files directly for reporting.
+          python src/generate_benchmark_report.py \
+            --comparison-status ${{ steps.compare_benchmarks.outputs.comparison_performed }} \
+            --main-file main_baseline.json \
+            --pr-file pr_benchmark.json \
+            --report-file benchmark_report.md
+      
       - name: Upload benchmark report artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-${{ matrix.python-version }}
           path: |
             benchmark_report.md
-            comparison_results.json
+            pr_benchmark.json
+            main_baseline.json
 
       - name: Comment benchmark results on PR
         uses: marocchino/sticky-pull-request-comment@v2

@@ -214,9 +214,18 @@ class PGate(SingleQubitGate):
 
 
 class RzGate(SingleQubitGate):
+    """Applies a rotation around the Z-axis.
+    This gate rotates the state of the qubit around the Z-axis
+    on the plane of the Bloch sphere.
+    """
+
     gate_name = "rz"
 
     def __init__(self, theta):
+        """
+        Args:
+            theta (float): The rotation angle in radians.
+        """
         self.theta = div_pi(theta)
 
     def apply(

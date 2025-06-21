@@ -4,26 +4,32 @@ import importlib
 import inspect
 import pkgutil
 from collections import defaultdict
+from typing import Dict, Type
 
 # Import base gate classes for type checking and inheritance checks
 from .base import Gate, MultiQubitGate, SingleQubitGate, TwoQubitGate
-from .patcher import attach_gate_methods
 
-# Internal cache for discovered gate classes to avoid redundant lookups
-_all_gates = {}
-_discovery_done = False
+_gate_map: Dict[str, Type[Gate]] = dict()
 
 
-def _discover_and_attach_gates():
-    """Discover all gate classes in the current package and attach gate methods.
-
-    This function is called internally to populate the _all_gates dictionary.
+def get_all_gates() -> Dict[str, Type[Gate]]:
     """
-    global _discovery_done
-    if _discovery_done:
-        return
+    Dynamically discovers all Gate subclasses within this package.
+
+    This function scans all modules in the 'gates' package, finds classes
+    that inherit from the base 'Gate' class, and returns a map of
+    {gate_name: gate_class}.
+
+    Returns:
+        A dictionary mapping the gate_name attribute of each gate class
+        to the class itself.
+    """
+    if _gate_map:
+        return _gate_map
+
     base_classes = {Gate, SingleQubitGate, TwoQubitGate, MultiQubitGate}
     package = __import__(__name__, fromlist=[""])
+
     for _, module_name, _ in pkgutil.iter_modules(package.__path__):
         # Skip utility and base modules
         if module_name in ["base", "utils", "applier", "patcher"]:
@@ -32,18 +38,9 @@ def _discover_and_attach_gates():
         for name, member in inspect.getmembers(module, inspect.isclass):
             # Register only subclasses of Gate that are not base classes themselves
             if issubclass(member, Gate) and member not in base_classes:
-                _all_gates[name] = member
-    attach_gate_methods(_all_gates)
-    _discovery_done = True
+                _gate_map[name] = member
 
-
-def get_all_gates() -> dict:
-    """Returns a dictionary mapping gate class names to their class objects.
-
-    Ensures that gate discovery is performed only once.
-    """
-    _discover_and_attach_gates()
-    return _all_gates.copy()
+    return _gate_map
 
 
 def get_gates_by_type(gate_type: str) -> list[str]:

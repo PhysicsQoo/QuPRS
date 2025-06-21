@@ -9,7 +9,10 @@ from .gates import (
     list_supported_gates,
     support_gate_set,
 )
+from .gates.patcher import attach_gate_methods
 from .statistics import statistics_manager
+
+attach_gate_methods(get_all_gates())
 
 PathSum.get_reduction_counts = staticmethod(statistics_manager.get_reduction_counts)
 PathSum.get_reduction_count = staticmethod(statistics_manager.get_reduction_count)

@@ -25,7 +25,7 @@ class HGate(SingleQubitGate):
     gate_name = "h"
 
     def apply(
-        self, pathsum: "PathSum", qubit: int | str, is_bra: bool = False
+        self, pathsum: "PathSum", qubit: int | str | se.Symbol, is_bra: bool = False
     ) -> "PathSum":
         new_var = find_new_variables(pathsum.pathvar)[0]
         if not is_bra:
@@ -214,9 +214,18 @@ class PGate(SingleQubitGate):
 
 
 class RzGate(SingleQubitGate):
+    """Applies a rotation around the Z-axis.
+    This gate rotates the state of the qubit around the Z-axis
+    on the plane of the Bloch sphere.
+    """
+
     gate_name = "rz"
 
     def __init__(self, theta):
+        """
+        Args:
+            theta (float): The rotation angle in radians.
+        """
         self.theta = div_pi(theta)
 
     def apply(

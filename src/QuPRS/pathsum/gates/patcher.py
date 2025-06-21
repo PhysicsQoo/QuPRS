@@ -3,73 +3,72 @@ from __future__ import annotations
 
 import inspect
 from functools import wraps
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Type
 
 if TYPE_CHECKING:
     from ..core import PathSum
-    from .base import Gate
+
+from .base import Gate
+from .builder import build_docstring, build_signature
 
 
-def _create_gate_method(gate_cls: type["Gate"]) -> Callable:
+def _create_gate_method(gate_cls: Type["Gate"]) -> Callable:
     """
-    Factory function: Creates a method for a given Gate class that can be injected
-    into PathSum. This version correctly handles both positional and keyword
-    arguments for gate initialization.
+    Factory function to create a gate method for the PathSum class.
+
+    This function generates a method that wraps the given gate class,
+    automatically handling argument parsing and metadata generation for
+    runtime introspection. The generated method can be attached to the
+    PathSum class as a quantum gate operation.
     """
-    # Retrieve the parameter names for the Gate class's __init__ method
-    init_sig = inspect.signature(gate_cls.__init__)
+    # Key call: build_docstring is called here with two arguments to generate
+    # the signature and the docstring.
+    signature = build_signature(gate_cls, include_self=False)
+    docstring = build_docstring(gate_cls, signature)
     init_param_names = [
-        p.name for p in init_sig.parameters.values() if p.name != "self"
+        p.name
+        for p in inspect.signature(gate_cls.__init__).parameters.values()
+        if p.name != "self"
     ]
 
-    @wraps(gate_cls.apply)
+    @wraps(gate_cls)
     def gate_method(pathsum_instance: "PathSum", *args, **kwargs) -> "PathSum":
         """
-        Wrapper function to be injected as a new PathSum method, e.g., PathSum.rz().
+        Dynamically generated gate method for PathSum.
 
-        Handles argument parsing and gate instantiation.
+        This method parses positional and keyword arguments, instantiates the
+        gate class, and applies it to the given PathSum instance.
         """
         init_kwargs = {}
-
-        # 1. Prioritize extracting __init__ parameters from keyword arguments.
-        #    This allows users to always override defaults explicitly.
         for name in init_param_names:
             if name in kwargs:
                 init_kwargs[name] = kwargs.pop(name)
-
-        # 2. Next, extract remaining __init__ parameters from the beginning of
-        #    positional arguments.
         args_list = list(args)
-
-        # Calculate how many __init__ parameters are still needed
         needed_init_params = len(init_param_names) - len(init_kwargs)
-
         if needed_init_params > 0 and len(args_list) >= needed_init_params:
-            # Take the required number of arguments from the start of args_list
             init_args = args_list[:needed_init_params]
-            # Remove these from args_list, leaving only those for the apply method
             del args_list[:needed_init_params]
-
-            # Map the extracted positional arguments to their parameter names
             remaining_init_names = [
                 name for name in init_param_names if name not in init_kwargs
             ]
             init_kwargs.update(zip(remaining_init_names, init_args))
-
-        # 3. Instantiate the gate (e.g., RzGate(theta=1.5707))
         gate_instance = gate_cls(**init_kwargs)
-
-        # 4. Call the gate instance's apply method, passing remaining arguments
         return gate_instance.apply(pathsum_instance, *args_list, **kwargs)
 
+    gate_method.__signature__ = signature
+    gate_method.__doc__ = docstring
+    gate_method.__name__ = gate_cls.gate_name
     return gate_method
 
 
 def attach_gate_methods(gate_class_map: dict[str, type["Gate"]]):
     """
-    Injects all discovered quantum gates as methods into the PathSum class.
+    Attach all discovered quantum gate methods to the PathSum class.
 
-    Each gate class must define a 'gate_name' class attribute.
+    Each gate class in the provided mapping must define a 'gate_name'
+    class attribute. This function injects a corresponding method into
+    the PathSum class for each gate, unless a method with the same name
+    already exists.
     """
     from ..core import PathSum
 
@@ -86,4 +85,5 @@ def attach_gate_methods(gate_class_map: dict[str, type["Gate"]]):
             continue
 
         method = _create_gate_method(gate_cls)
+        method.__name__ = method_name
         setattr(PathSum, method_name, method)

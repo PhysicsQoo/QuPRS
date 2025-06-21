@@ -200,7 +200,9 @@ class PathSum:
         return PathSum(P, f)
 
     @staticmethod
-    def load_from_qasm_file(filename: str, initial_state: bool | list | tuple = None):
+    def load_from_qasm_file(
+        filename: str, initial_state: bool | list | tuple = None
+    ) -> "PathSum":
         from qiskit import qasm2, qasm3
 
         from QuPRS.interface.load_qiskit import build_circuit
@@ -213,7 +215,9 @@ class PathSum:
         return build_circuit(qiskit_circuit, initial_state)
 
     @staticmethod
-    def load_from_qasm_str(program: str, initial_state: bool | list | tuple = None):
+    def load_from_qasm_str(
+        program: str, initial_state: bool | list | tuple = None
+    ) -> "PathSum":
         from qiskit import qasm2, qasm3
 
         from QuPRS.interface.load_qiskit import build_circuit

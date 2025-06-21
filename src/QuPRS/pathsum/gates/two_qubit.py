@@ -58,8 +58,8 @@ class CZGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         # ... (Implementation is the same)
@@ -130,8 +130,8 @@ class CHGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         pathsum = self.s.apply(pathsum, target_qubit, is_bra)
@@ -153,8 +153,8 @@ class CRkGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         # ... (Implementation is the same)
@@ -189,8 +189,8 @@ class CRkdgGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         # ... (Implementation is the same)
@@ -225,8 +225,8 @@ class CPGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         # ... (Implementation is the same)
@@ -267,8 +267,8 @@ class CRZGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         # ... (Implementation is the same)
@@ -313,8 +313,8 @@ class CRYGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         pathsum = self.ry_pos.apply(pathsum, target_qubit, is_bra)
@@ -334,8 +334,8 @@ class CRXGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         pathsum = self.h.apply(pathsum, target_qubit, is_bra)
@@ -366,8 +366,8 @@ class CU3Gate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         pathsum = self.crz_lam.apply(pathsum, control_qubit, target_qubit, is_bra)
@@ -387,8 +387,8 @@ class CUGate(TwoQubitGate):
     def apply(
         self,
         pathsum: "PathSum",
-        control_qubit: int,
-        target_qubit: int,
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
         pathsum = self.cu3.apply(pathsum, control_qubit, target_qubit, is_bra)

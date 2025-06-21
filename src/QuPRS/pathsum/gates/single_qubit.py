@@ -25,7 +25,7 @@ class HGate(SingleQubitGate):
     gate_name = "h"
 
     def apply(
-        self, pathsum: "PathSum", qubit: int | str, is_bra: bool = False
+        self, pathsum: "PathSum", qubit: int | str | se.Symbol, is_bra: bool = False
     ) -> "PathSum":
         new_var = find_new_variables(pathsum.pathvar)[0]
         if not is_bra:

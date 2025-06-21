@@ -2,128 +2,138 @@
 import inspect
 import os
 import sys
-from inspect import Parameter
-from typing import List, Type
+from typing import Any, Callable, Type
 
-# Set up the correct Python path so this script can import the QuPRS library
-# from the 'src' directory. This code finds the project root by going up two
-# levels from the current file, then adds 'src' to sys.path if not already present.
+from QuPRS.pathsum.gates.base import Gate
+
+# Set up the project root and source path for module imports.
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-# Now we can safely import components from the QuPRS library.
+from QuPRS.pathsum import core as core_module
 from QuPRS.pathsum.gates import get_all_gates
-from QuPRS.pathsum.gates.base import Gate, MultiQubitGate, SingleQubitGate, TwoQubitGate
+from QuPRS.pathsum.gates.builder import build_docstring, build_signature
 
 
-def _build_signature(gate_cls: Type[Gate]) -> inspect.Signature:
+def _format_pyi_docstring(doc: str) -> str:
     """
-    Build a function signature object based on the Gate class.
-
-    Args:
-        gate_cls (Type[Gate]): The gate class to inspect.
-
-    Returns:
-        inspect.Signature: The constructed function signature.
+    Format a docstring for inclusion in a .pyi stub file.
+    Handles single-line and multi-line docstrings.
     """
-    init_sig = inspect.signature(gate_cls.__init__)
-    apply_sig = inspect.signature(gate_cls.apply)
-
-    init_params = [p for p in init_sig.parameters.values() if p.name != "self"]
-    apply_params = [
-        p for p in apply_sig.parameters.values() if p.name not in ("self", "pathsum")
-    ]
-
-    combined_params: List[Parameter] = init_params + apply_params
-    return inspect.Signature(parameters=combined_params)
+    if not doc:
+        return '""'
+    if "\n" not in doc:
+        return f'"""{doc}"""'
+    lines = doc.split("\n")
+    indented_body = "\n".join([f"    {line}" for line in lines])
+    return f'"""\n{indented_body}\n    """'
 
 
-def _build_docstring(gate_cls: Type[Gate], signature: inspect.Signature) -> str:
+def _cleanup_type_str(type_str: str) -> str:
     """
-    Build a formatted docstring for the stub method based on the Gate class and signature.
-
-    Args:
-        gate_cls (Type[Gate]): The gate class to document.
-        signature (inspect.Signature): The function signature.
-
-    Returns:
-        str: The formatted docstring.
+    Clean up type annotation strings for stub output.
+    Removes module prefixes and standardizes type names.
     """
-    class_doc = inspect.getdoc(gate_cls)
+    if type_str is None:
+        return "Any"
+    s = (
+        str(type_str)
+        .replace("QuPRS.pathsum.core.", "")
+        .replace("symengine.lib.symengine_wrapper.", "se.")
+    )
+    return (
+        s.replace("sympy.core.expr.", "sp.")
+        .replace("typing.", "")
+        .replace("<class '", "")
+        .replace("'>", "")
+    )
 
-    generic_docs = {
-        inspect.getdoc(Gate),
-        inspect.getdoc(SingleQubitGate),
-        inspect.getdoc(TwoQubitGate),
-        inspect.getdoc(MultiQubitGate),
-    }
-    if not class_doc or class_doc in generic_docs:
-        class_doc = f"Applies the {gate_cls.gate_name} gate."
 
-    # Format the docstring for correct display in the .pyi file.
-    # Use ''' instead of """ to avoid conflicts with the .pyi file's own docstring.
-    docstring_parts = [class_doc.replace('"""', "'''"), "\n"]
+def _build_stub_for_member(name: str, member: Any) -> str:
+    """
+    Generate a .pyi stub string for a class member.
+    Handles properties, static/class methods, and regular methods.
+    """
+    if name.startswith("__") and name not in (
+        "__init__",
+        "__eq__",
+        "__hash__",
+        "__repr__",
+        "__len__",
+        "__getitem__",
+    ):
+        return ""
+    func: Callable[..., Any] | None = None
+    decorator = ""
+    if isinstance(member, property):
+        doc = inspect.getdoc(member.fget) or ""
+        return_type = "Any"
+        if member.fget and "return" in member.fget.__annotations__:
+            return_type = _cleanup_type_str(member.fget.__annotations__["return"])
+        return f"\n    @property\n    def {name}(self) -> {return_type}:\n        {_format_pyi_docstring(doc)}\n        ...\n"
+    elif isinstance(member, (staticmethod, classmethod)):
+        decorator = f"@{type(member).__name__}\n    "
+        func = member.__func__
+    elif inspect.isfunction(member) or inspect.ismethod(member):
+        func = member
+    if func:
+        try:
+            sig = inspect.signature(func)
+            doc = inspect.getdoc(func) or ""
+            cleaned_sig_str = _cleanup_type_str(str(sig))
+            return f"\n    {decorator}def {name}{cleaned_sig_str}:\n        {_format_pyi_docstring(doc)}\n        ...\n"
+        except (ValueError, TypeError):
+            return f"\n    def {name}(self, *args: Any, **kwargs: Any) -> Any: ...\n"
+    return ""
 
-    if signature.parameters:
-        docstring_parts.append("\nArgs:\n")
-        for param in signature.parameters.values():
-            # Future extension: parse detailed parameter descriptions from the original docstring.
-            param_type_hint = (
-                param.annotation
-                if param.annotation != inspect.Parameter.empty
-                else "Any"
-            )
-            docstring_parts.append(
-                f"    {param.name} ({param_type_hint}): The parameter description.\n"
-            )
 
-    # Combine parts into a single, properly indented string.
-    return "".join(docstring_parts).strip().replace("\n", "\n        ")
+def _build_dynamic_method_stub(gate_cls: Type[Gate]) -> str:
+    """
+    Generate a .pyi stub for a dynamically injected gate method.
+    Used for PathSum gate methods.
+    """
+    gate_name = gate_cls.gate_name
+    signature = build_signature(gate_cls, include_self=True)
+    docstring = build_docstring(gate_cls, signature)
+    cleaned_sig_str = _cleanup_type_str(str(signature))
+    return f"\n    def {gate_name}{cleaned_sig_str} -> 'PathSum':\n        {_format_pyi_docstring(docstring)}\n        ...\n"
 
 
 def generate_stub_file():
     """
-    Main function to perform discovery, generation, and writing of the stub file.
+    Main function to generate the .pyi stub file for core classes.
+    Writes the output to QuPRS/pathsum/core.pyi.
     """
-    print("Starting to generate .pyi stub file for PathSum...")
-
-    # Define the output .pyi file path.
+    print("Starting to generate .pyi stub file...")
     output_path = os.path.join(src_path, "QuPRS", "pathsum", "core.pyi")
-
-    # Discover all Gate classes.
-    gate_class_map = get_all_gates()
-    if not gate_class_map:
-        print("No gates found. Aborting.")
-        return
-
-    print(f"Found {len(gate_class_map)} gates to process.")
-
-    # Prepare the contents of the .pyi file.
     pyi_content = [
         "# This file is auto-generated by scripts/generate_stubs.py.",
         "# Do not edit this file directly.",
-        "from typing import Any, Dict, List, Optional, Set, Tuple, Union",
-        "",
-        "class PathSum:",
-        "    # --- Dynamically Injected Gate Methods ---",
+        "\nfrom typing import Any, Dict, List, Optional, Set, Tuple, Union",
+        "import symengine as se",
+        "import sympy as sp",
+        "\n",
     ]
-
-    # Generate a stub method for each Gate.
-    for gate_cls in sorted(gate_class_map.values(), key=lambda c: c.gate_name):
-        gate_name = gate_cls.gate_name
-        signature = _build_signature(gate_cls)
-        docstring = _build_docstring(gate_cls, signature)
-
-        method_stub = (
-            f"\n    def {gate_name}{signature} -> 'PathSum':\n"
-            f'        """{docstring}"""\n'
-            f"        ...\n"
-        )
-        pyi_content.append(method_stub)
-
-    # Write all contents to the file.
+    classes_to_stub = [core_module.Register, core_module.F, core_module.PathSum]
+    gate_class_map = get_all_gates()
+    gate_names = {gate.gate_name for gate in gate_class_map.values()}
+    for cls in classes_to_stub:
+        print(f"Processing class: {cls.__name__}...")
+        pyi_content.append(f"class {cls.__name__}:")
+        class_doc = inspect.getdoc(cls) or ""
+        if class_doc:
+            pyi_content.append(f"    {_format_pyi_docstring(class_doc)}")
+        for name, member in cls.__dict__.items():
+            if cls is core_module.PathSum and name in gate_names:
+                continue
+            pyi_content.append(_build_stub_for_member(name, member))
+        if cls is core_module.PathSum:
+            pyi_content.append("\n    # --- Dynamically Injected Gate Methods ---")
+            for gate_cls in sorted(gate_class_map.values(), key=lambda c: c.gate_name):
+                pyi_content.append(_build_dynamic_method_stub(gate_cls))
+        pyi_content.append("\n")
     try:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(pyi_content))

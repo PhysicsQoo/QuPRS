@@ -63,7 +63,9 @@ class CCXGate(MultiQubitGate):
 class MCXGate(MultiQubitGate):
     gate_name = "mcx"
 
-    def apply(self, pathsum: "PathSum", *qubits, is_bra: bool = False) -> "PathSum":
+    def apply(
+        self, pathsum: "PathSum", *qubits: int | str | se.Symbol, is_bra: bool = False
+    ) -> "PathSum":
         if len(qubits) < 2:
             raise ValueError(
                 "MCXGate requires at least one control and one target qubit."

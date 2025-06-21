@@ -3,94 +3,72 @@ from __future__ import annotations
 
 import inspect
 from functools import wraps
-from inspect import Parameter
-from typing import TYPE_CHECKING, Callable, List, Type
+from typing import TYPE_CHECKING, Callable, Type
 
 if TYPE_CHECKING:
     from ..core import PathSum
 
-from .base import Gate, MultiQubitGate, SingleQubitGate, TwoQubitGate
+from .base import Gate
+from .builder import build_docstring, build_signature
 
 
 def _create_gate_method(gate_cls: Type["Gate"]) -> Callable:
     """
-    Factory function: Creates a method for a given Gate class.
-    This version dynamically generates a new signature and docstring
-    to provide an optimal IDE experience.
+    Factory function to create a gate method for the PathSum class.
+
+    This function generates a method that wraps the given gate class,
+    automatically handling argument parsing and metadata generation for
+    runtime introspection. The generated method can be attached to the
+    PathSum class as a quantum gate operation.
     """
-
-    # Step 1: Dynamically build a new function signature.
-    init_sig = inspect.signature(gate_cls.__init__)
-    apply_sig = inspect.signature(gate_cls.apply)
-
-    # Extract parameters from __init__, excluding 'self'.
-    init_params = [p for p in init_sig.parameters.values() if p.name != "self"]
-
-    # Extract parameters from apply, excluding 'self' and 'pathsum'.
-    apply_params = [
-        p for p in apply_sig.parameters.values() if p.name not in ("self", "pathsum")
+    # Key call: build_docstring is called here with two arguments to generate
+    # the signature and the docstring.
+    signature = build_signature(gate_cls, include_self=False)
+    docstring = build_docstring(gate_cls, signature)
+    init_param_names = [
+        p.name
+        for p in inspect.signature(gate_cls.__init__).parameters.values()
+        if p.name != "self"
     ]
 
-    # Combine parameter lists for the new signature.
-    combined_params: List[Parameter] = init_params + apply_params
-    new_signature = inspect.Signature(parameters=combined_params)
-
-    # Step 2: Dynamically build a new docstring.
-    class_doc = inspect.getdoc(gate_cls)
-
-    # Check and provide a meaningful default docstring if needed.
-    generic_docs = {
-        inspect.getdoc(Gate),
-        inspect.getdoc(SingleQubitGate),
-        inspect.getdoc(TwoQubitGate),
-        inspect.getdoc(MultiQubitGate),
-    }
-    if not class_doc or class_doc in generic_docs:
-        class_doc = f"Applies the {gate_cls.gate_name} gate."
-
-    docstring_parts = [class_doc, "\n"]
-    if combined_params:
-        docstring_parts.append("\nArgs:\n")
-        for param in combined_params:
-            docstring_parts.append(f"    {param.name}: The parameter description.\n")
-
-    new_docstring = "".join(docstring_parts)
-
-    # Step 3: Define the wrapper function and attach metadata.
-    @wraps(gate_cls.apply)
+    @wraps(gate_cls)
     def gate_method(pathsum_instance: "PathSum", *args, **kwargs) -> "PathSum":
-        # Parse init parameters from args and kwargs.
-        init_param_names_list = [p.name for p in init_params]
+        """
+        Dynamically generated gate method for PathSum.
+
+        This method parses positional and keyword arguments, instantiates the
+        gate class, and applies it to the given PathSum instance.
+        """
         init_kwargs = {}
-        for name in init_param_names_list:
+        for name in init_param_names:
             if name in kwargs:
                 init_kwargs[name] = kwargs.pop(name)
         args_list = list(args)
-        needed_init_params = len(init_param_names_list) - len(init_kwargs)
+        needed_init_params = len(init_param_names) - len(init_kwargs)
         if needed_init_params > 0 and len(args_list) >= needed_init_params:
             init_args = args_list[:needed_init_params]
             del args_list[:needed_init_params]
             remaining_init_names = [
-                name for name in init_param_names_list if name not in init_kwargs
+                name for name in init_param_names if name not in init_kwargs
             ]
             init_kwargs.update(zip(remaining_init_names, init_args))
         gate_instance = gate_cls(**init_kwargs)
         return gate_instance.apply(pathsum_instance, *args_list, **kwargs)
 
-    # Attach metadata for IDE support.
-    gate_method.__signature__ = new_signature
-    gate_method.__doc__ = new_docstring
+    gate_method.__signature__ = signature
+    gate_method.__doc__ = docstring
     gate_method.__name__ = gate_cls.gate_name
-    gate_method.source_gate_class = gate_cls
-
     return gate_method
 
 
 def attach_gate_methods(gate_class_map: dict[str, type["Gate"]]):
     """
-    Injects all discovered quantum gates as methods into the PathSum class.
+    Attach all discovered quantum gate methods to the PathSum class.
 
-    Each gate class must define a 'gate_name' class attribute.
+    Each gate class in the provided mapping must define a 'gate_name'
+    class attribute. This function injects a corresponding method into
+    the PathSum class for each gate, unless a method with the same name
+    already exists.
     """
     from ..core import PathSum
 
@@ -107,4 +85,5 @@ def attach_gate_methods(gate_class_map: dict[str, type["Gate"]]):
             continue
 
         method = _create_gate_method(gate_cls)
+        method.__name__ = method_name
         setattr(PathSum, method_name, method)

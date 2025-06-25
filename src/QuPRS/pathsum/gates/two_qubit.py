@@ -32,7 +32,7 @@ class CXGate(TwoQubitGate):
                 target_qubit,
                 to_anf(sp.Xor(pathsum.f[control_qubit], pathsum.f[target_qubit])),
             )
-            return PathSum(pathsum.P, new_f, pathsum.pathvar)
+            return PathSum(pathsum.P, new_f, pathsum.pathvar, pathsum._stats)
         else:
             x_i = se.symbols(
                 f"{pathsum.bits[target_qubit]}"
@@ -49,7 +49,7 @@ class CXGate(TwoQubitGate):
             new_P = pathsum.P.subs(x_i, update_var)
             new_P = reduce_expression(new_P)
             new_f = pathsum.f.sub(x_i, new_var)
-            return PathSum(new_P, new_f, pathsum.pathvar)
+            return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 
 
 class CZGate(TwoQubitGate):
@@ -80,7 +80,7 @@ class CZGate(TwoQubitGate):
             )
             new_P = pathsum.P + se.Rational(1, 2) * x_i * x_j
         new_P = reduce_expression(new_P)
-        return PathSum(new_P, pathsum.f, pathsum.pathvar)
+        return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
 class SwapGate(TwoQubitGate):
@@ -113,7 +113,7 @@ class SwapGate(TwoQubitGate):
             new_f = pathsum.f.sub(x_i, temp_sym)
             new_f = new_f.sub(x_j, x_i)
             new_f = new_f.sub(temp_sym, x_j)
-        return PathSum(new_P, new_f, pathsum.pathvar)
+        return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 
 
 class CHGate(TwoQubitGate):
@@ -177,7 +177,7 @@ class CRkGate(TwoQubitGate):
             )
         new_P = pathsum.P + phase_factor * x_i * x_j
         new_P = reduce_expression(new_P)
-        return PathSum(new_P, pathsum.f, pathsum.pathvar)
+        return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
 class CRkdgGate(TwoQubitGate):
@@ -213,7 +213,7 @@ class CRkdgGate(TwoQubitGate):
             )
         new_P = pathsum.P + phase_factor * x_i * x_j
         new_P = reduce_expression(new_P)
-        return PathSum(new_P, pathsum.f, pathsum.pathvar)
+        return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
 class CPGate(TwoQubitGate):
@@ -255,7 +255,7 @@ class CPGate(TwoQubitGate):
             )
         new_P = pathsum.P + phase_factor * x_i * x_j
         new_P = reduce_expression(new_P)
-        return PathSum(new_P, pathsum.f, pathsum.pathvar)
+        return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
 class CRZGate(TwoQubitGate):
@@ -299,7 +299,7 @@ class CRZGate(TwoQubitGate):
                 self.theta - 2 * self.theta * x_j
             )
         new_P = reduce_expression(new_P)
-        return PathSum(new_P, pathsum.f, pathsum.pathvar)
+        return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
 class CRYGate(TwoQubitGate):

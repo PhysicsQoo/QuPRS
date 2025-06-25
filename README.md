@@ -3,7 +3,7 @@
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/QuPRS)
 [![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
 ![GitHub last commit](https://img.shields.io/github/last-commit/PhysicsQoo/QuPRS)
-
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/PhysicsQoo/QuPRS)
 
 # QuPRS: Quantum Path-sum Reduction and Solver
 
@@ -59,16 +59,16 @@ This tool can build quantum circuit using path-sum formulation.
 First, import the necessary components from the `QuPRS` library.
 
 ```python
-from QuPRS.pathsum import pathsum
+from QuPRS.pathsum import PathSum
 ```
 
 ### Create pathsum Circuit
 
 Create a `pathsum` Circuit
-You can create a pathsum.QuantumCircuit object directly:
+You can create a PathSum.QuantumCircuit object directly:
 ```python
 qubit_num = 2
-circuit = pathsum.QuantumCircuit(qubit_num)
+circuit = PathSum.QuantumCircuit(qubit_num)
 circuit = circuit.h(0) # Apply Hadamard gate to qubit 0
 circuit = circuit.h(0) # Apply Hadamard gate to qubit 0 again (H*H = I)
 # Add more gates as needed
@@ -90,7 +90,7 @@ filename = "my_circuit.qasm"
 # h q[0];
 # cx q[0],q[1];
 
-circuit = pathsum.load_from_qasm_file(filename)
+circuit = PathSum.load_from_qasm_file(filename)
 ```
 Or
 ```python
@@ -101,7 +101,7 @@ qreg q[2];
 h q[0];
 cx q[0],q[1];
 """
-circuit = pathsum.load_from_qasm_str(qasm_str)
+circuit = PathSum.load_from_qasm_str(qasm_str)
 ```
 
 ## Equivalence Checking

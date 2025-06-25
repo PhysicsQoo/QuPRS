@@ -35,7 +35,7 @@ class CCXGate(MultiQubitGate):
                     )
                 ),
             )
-            return PathSum(pathsum.P, new_f, pathsum.pathvar)
+            return PathSum(pathsum.P, new_f, pathsum.pathvar, pathsum._stats)
         else:
             x_i = se.symbols(
                 f"{pathsum.bits[target_qubit]}"
@@ -57,7 +57,7 @@ class CCXGate(MultiQubitGate):
             new_P = pathsum.P.subs(x_i, update_var)
             new_P = reduce_expression(new_P)
             new_f = pathsum.f.sub(x_i, new_var)
-            return PathSum(new_P, new_f, pathsum.pathvar)
+            return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 
 
 class MCXGate(MultiQubitGate):
@@ -80,7 +80,7 @@ class MCXGate(MultiQubitGate):
                 target_qubit,
                 to_anf(sp.Xor(pathsum.f[target_qubit], sp.And(*control_fs))),
             )
-            return PathSum(pathsum.P, new_f, pathsum.pathvar)
+            return PathSum(pathsum.P, new_f, pathsum.pathvar, pathsum._stats)
         else:
             x_i = se.symbols(
                 f"{pathsum.bits[target_qubit]}"
@@ -100,4 +100,4 @@ class MCXGate(MultiQubitGate):
             new_P = pathsum.P.subs(x_i, update_var)
             new_P = reduce_expression(new_P)
             new_f = pathsum.f.sub(x_i, new_var)
-            return PathSum(new_P, new_f, pathsum.pathvar)
+            return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)

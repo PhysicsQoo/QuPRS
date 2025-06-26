@@ -7,7 +7,7 @@ from sympy.logic.boolalg import to_anf
 from QuPRS.cache_manager import cache_manager
 from QuPRS.utils.util import find_new_variables, logical_to_algebraic
 
-from .statistics import statistics_manager
+from .statistics import StatisticsManager
 
 
 class Register:
@@ -131,12 +131,17 @@ class PathSum:
     """
 
     def __init__(
-        self, P: se.Expr, f: F, pathvar: frozenset | set = frozenset()
+        self,
+        P: se.Expr,
+        f: F,
+        pathvar: frozenset | set = frozenset(),
+        stats: StatisticsManager | None = None,
     ) -> None:
         self._P = P
         self._f = f
         self._pathvar = frozenset(pathvar) if isinstance(pathvar, set) else pathvar
         self._num_qubits = len(f)
+        self._stats = stats if stats is not None else StatisticsManager()
 
     def __repr__(self) -> str:
         return f"P:{self.P}\nf: {self.f}\npathvar: {self.pathvar}"
@@ -182,6 +187,35 @@ class PathSum:
     def num_pathvar(self) -> int:
         return len(self.pathvar)
 
+    @property
+    def stats(self) -> StatisticsManager:
+        return self._stats
+        # --- Instance methods for statistics ---
+
+    def get_reduction_counts(self) -> dict:
+        """Get a copy of all reduction rule counts for this instance."""
+        return self._stats.get_reduction_counts()
+
+    def get_reduction_count(self, key: str) -> int:
+        """Get the count for a specific reduction rule for this instance."""
+        return self._stats.get_reduction_count(key)
+
+    def get_reduction_hitrate(self) -> float:
+        """Calculate the hit rate of reduction rules for this instance."""
+        return self._stats.get_reduction_hitrate()
+
+    def reset_reduction_counts(self):
+        """Reset all reduction rule counts for this instance to 0."""
+        self._stats.reset_reduction_counts()
+
+    def set_reduction_switch(self, value: bool) -> None:
+        """Set the reduction switch for this instance."""
+        self._stats.set_reduction_switch(value)
+
+    def is_reduction_enabled(self) -> bool:
+        """Check if reduction is enabled for this instance."""
+        return self._stats.is_reduction_enabled()
+
     # --- Static Constructors ---
     @staticmethod
     def QuantumCircuit(
@@ -195,8 +229,6 @@ class PathSum:
         if initial_state is not None:
             f_data = {f.bits[i]: to_anf(initial_state[i]) for i in range(len(f))}
             f = f.update_data(f_data)
-
-        statistics_manager.reset_reduction_counts()
         return PathSum(P, f)
 
     @staticmethod
@@ -256,7 +288,7 @@ class PathSum:
         new_P = self.P + temp_P
         new_f = temp_f
         new_pathvar = self.pathvar.union(other_pathsum.pathvar, new_vars_set)
-        new_pathsum = PathSum(new_P, new_f, new_pathvar)
+        new_pathsum = PathSum(new_P, new_f, new_pathvar, self._stats)
 
         from . import reduction
 

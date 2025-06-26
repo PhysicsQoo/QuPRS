@@ -7,14 +7,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..core import PathSum
 
-# Global registry to store all gate classes
-_gate_registry = {}
-
-
-def get_all_gates():
-    """Public function to retrieve the complete gate registry."""
-    return _gate_registry
-
 
 class Gate(ABC):
     gate_name: str

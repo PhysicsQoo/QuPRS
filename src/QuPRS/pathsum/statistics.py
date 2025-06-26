@@ -11,6 +11,13 @@ class StatisticsManager:
         self.reset_reduction_counts()
         self._reduction_enabled = True
 
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}("
+            f"reduction_counts={self._reduction_counts}, "
+            f"hitrate={self.get_reduction_hitrate()})"
+        )
+
     def get_reduction_counts(self) -> dict:
         """Get a copy of all reduction rule counts."""
         return self._reduction_counts.copy()
@@ -28,7 +35,7 @@ class StatisticsManager:
         """Calculate the hit rate of reduction rules."""
         total = self._reduction_counts["total"]
         if total == 0:
-            return 1.0
+            return 0.0
         else:
             hit = (
                 self._reduction_counts["Elim"]
@@ -53,6 +60,3 @@ class StatisticsManager:
     def is_reduction_enabled(self) -> bool:
         """Check if reduction functionality is enabled."""
         return self._reduction_enabled
-
-
-statistics_manager = StatisticsManager()

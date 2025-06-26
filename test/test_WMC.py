@@ -3,7 +3,7 @@ import tempfile
 
 from QuPRS import config
 from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-from QuPRS.pathsum import PathSum, set_reduction_switch
+from QuPRS.pathsum import PathSum
 from QuPRS.utils.util import get_theta
 
 TOLERANCE = config.TOLERANCE
@@ -49,8 +49,8 @@ def test_CX_XT_CH_XTdg__2():
 
 
 def test_HH():
-    set_reduction_switch(False)
     circuit = PathSum.QuantumCircuit(1)
+    circuit.set_reduction_switch(False)
     circuit = circuit.h(0)
     circuit = circuit.h(0)
 

@@ -143,20 +143,19 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
 
   ```python
-  from QuPRS.interface.load_qiskit import qasm_eq_check_with_wmc
+  from QuPRS import check_equivalence
 
-  output_dict = qasm_eq_check_with_wmc(circuit1, circuit2)
+  result = check_equivalence(circuit1, circuit2, method = "hybrid",)
+  
   ```
 
 - Using **Reduction Rules (RR)**
    
-  This method checks if two circuits are equivalent primarily using Reduction Rules.
-
 
   ```python
-  from QuPRS.interface.load_qiskit import qasm_eq_check
+  from QuPRS import check_equivalence
 
-  output_dict, circuit = qasm_eq_check(circuit1, circuit2)
+  result = check_equivalence(circuit1, circuit2, method = "reduction_rules",)
   ```
 
 
@@ -166,11 +165,9 @@ You can load circuits from QASM files or define them directly using Qiskit for c
   To perform equivalence checking using only WMC, you need to disable the Reduction Rules switch.
 
   ```python
-  from QuPRS.interface.load_qiskit import qasm_eq_check_with_wmc
-  from QuPRS.pathsum import set_reduction_switch
+  from QuPRS import check_equivalence
 
-  set_reduction_switch(False)
-  output_dict = qasm_eq_check_with_wmc(circuit1, circuit2)
+  result = check_equivalence(circuit1, circuit2, method = "wmc_only",)
   ```
 ## Cite
 If you use `QuPRS` in your research, please consider citing it.

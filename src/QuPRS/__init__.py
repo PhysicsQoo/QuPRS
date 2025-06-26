@@ -2,6 +2,8 @@
 
 from typing import Tuple, Union
 
+from QuPRS.interface.load_qiskit import check_equivalence
+
 try:
     from ._version import __version__, __version_tuple__, version, version_tuple
 except ImportError:
@@ -23,4 +25,5 @@ __all__ = [
     "__version_tuple__",
     "version",
     "version_tuple",
+    "check_equivalence",
 ]

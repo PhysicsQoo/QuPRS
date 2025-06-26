@@ -186,6 +186,10 @@ class PathSum:
     @property
     def num_pathvar(self) -> int:
         return len(self.pathvar)
+
+    @property
+    def stats(self) -> StatisticsManager:
+        return self._stats
         # --- Instance methods for statistics ---
 
     def get_reduction_counts(self) -> dict:

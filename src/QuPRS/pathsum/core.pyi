@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import symengine as se
 import sympy as sp
 
+import QuPRS
+
 class Register:
     def __init__(
         self, size: int | None = None, name: str | None = None, bits=None
@@ -101,7 +103,11 @@ class PathSum:
     """
 
     def __init__(
-        self, P: se.Expr, f: F, pathvar: frozenset | set = frozenset()
+        self,
+        P: se.Expr,
+        f: F,
+        pathvar: frozenset | set = frozenset(),
+        stats: QuPRS.pathsum.statistics.StatisticsManager | None = None,
     ) -> None:
         """Initialize self.  See help(type(self)) for accurate signature."""
         ...
@@ -153,6 +159,35 @@ class PathSum:
         """"""
         ...
 
+    @property
+    def stats(self) -> QuPRS.pathsum.statistics.StatisticsManager:
+        """"""
+        ...
+
+    def get_reduction_counts(self) -> dict:
+        """Get a copy of all reduction rule counts for this instance."""
+        ...
+
+    def get_reduction_count(self, key: str) -> int:
+        """Get the count for a specific reduction rule for this instance."""
+        ...
+
+    def get_reduction_hitrate(self) -> float:
+        """Calculate the hit rate of reduction rules for this instance."""
+        ...
+
+    def reset_reduction_counts(self):
+        """Reset all reduction rule counts for this instance to 0."""
+        ...
+
+    def set_reduction_switch(self, value: bool) -> None:
+        """Set the reduction switch for this instance."""
+        ...
+
+    def is_reduction_enabled(self) -> bool:
+        """Check if reduction is enabled for this instance."""
+        ...
+
     @staticmethod
     def QuantumCircuit(
         *regs: Register | int, initial_state: bool | list | tuple = None
@@ -176,36 +211,6 @@ class PathSum:
 
     def compose(self, other_pathsum: "PathSum") -> "PathSum":
         """"""
-        ...
-
-    @staticmethod
-    def get_reduction_counts() -> dict:
-        """Get a copy of all reduction rule counts."""
-        ...
-
-    @staticmethod
-    def get_reduction_count(key: str) -> int:
-        """Get the count for a specific reduction rule."""
-        ...
-
-    @staticmethod
-    def get_reduction_hitrate() -> float:
-        """Calculate the hit rate of reduction rules."""
-        ...
-
-    @staticmethod
-    def reset_reduction_counts():
-        """Reset all reduction rule counts to 0."""
-        ...
-
-    @staticmethod
-    def set_reduction_switch(value: bool) -> None:
-        """Set the global switch for reduction functionality."""
-        ...
-
-    @staticmethod
-    def is_reduction_enabled() -> bool:
-        """Check if reduction functionality is enabled."""
         ...
 
     def reduction(pathsum: "'PathSum'") -> "'PathSum'":

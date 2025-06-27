@@ -187,7 +187,7 @@ def random_circuit(
                 ]
 
         qargs = rng.choice(range(num_qubits), nqargs, replace=False).tolist()
-        print(gate, qargs)
+        # print(gate, qargs)
         circ.append(gate, qargs, copy=False)
 
     return circ

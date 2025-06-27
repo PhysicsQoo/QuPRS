@@ -409,18 +409,20 @@ def check_equivalence(
                 if pathsum_circuit.P == initial_state.P:
                     equivalent = "equivalent"
                 P_free_symbols = pathsum_circuit.P.free_symbols
-                check_P_symbol = tuple(
-                    filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
-                )
+                # check_P_symbol = tuple(
+                #     filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
+                # )
                 if len(P_free_symbols) == 0:
                     if pathsum_circuit.P < tolerance:
                         equivalent = "equivalent"
                     else:
                         equivalent = "equivalent*"
-                elif len(check_P_symbol) == 0:
+                elif len(pathsum_circuit.pathvar) == 0:
                     equivalent = "equivalent*"
                 else:
-                    equivalent = "not_equivalent"
+                    equivalent = "unknown"
+            elif len(pathsum_circuit.pathvar) == 0:
+                equivalent = "not_equivalent"
             else:
                 equivalent = "unknown"
 

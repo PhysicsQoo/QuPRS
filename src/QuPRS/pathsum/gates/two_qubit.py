@@ -46,9 +46,9 @@ class CXGate(TwoQubitGate):
             )
             new_var = sp.Xor(x_i, x_j)
             update_var = logical_to_algebraic(new_var)
-            new_P = pathsum.P.subs(x_i, update_var)
+            new_P = pathsum.P.subs(x_j, update_var)
             new_P = reduce_expression(new_P)
-            new_f = pathsum.f.sub(x_i, new_var)
+            new_f = pathsum.f.sub(x_j, new_var)
             return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 
 
@@ -84,10 +84,10 @@ class CYGate(TwoQubitGate):
             new_var = sp.Xor(x_i, x_j)
             update_var = logical_to_algebraic(new_var)
             new_P = (
-                pathsum.P.subs(x_i, update_var)
+                pathsum.P.subs(x_j, update_var)
                 + (se.Rational(3, 4) + se.Rational(1, 2) * x_j) * x_i
             )
-            new_f = pathsum.f.sub(x_i, new_var)
+            new_f = pathsum.f.sub(x_j, new_var)
         new_P = reduce_expression(new_P)
         return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 

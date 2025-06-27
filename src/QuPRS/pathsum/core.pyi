@@ -125,12 +125,12 @@ class PathSum:
         ...
 
     @property
-    def regs(self) -> Any:
+    def regs(self) -> tuple:
         """"""
         ...
 
     @property
-    def bits(self) -> Any:
+    def bits(self) -> tuple:
         """"""
         ...
 
@@ -140,12 +140,12 @@ class PathSum:
         ...
 
     @property
-    def f(self) -> Any:
+    def f(self) -> F:
         """"""
         ...
 
     @property
-    def pathvar(self) -> Any:
+    def pathvar(self) -> frozenset:
         """"""
         ...
 

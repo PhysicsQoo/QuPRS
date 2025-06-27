@@ -14,5 +14,5 @@ exclude =
     .venv,
     build,
     dist,
-    scripys,
+    scripts,
     

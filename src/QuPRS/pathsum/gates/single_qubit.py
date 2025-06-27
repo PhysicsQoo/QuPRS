@@ -357,6 +357,16 @@ class SxdgGate(SingleQubitGate):
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
+class IdGate(SingleQubitGate):
+    gate_name = "id"
+
+    def apply(
+        self, pathsum: "PathSum", qubit: int | str | se.Symbol, is_bra: bool = False
+    ) -> "PathSum":
+        # Identity gate does not change the PathSum
+        return PathSum(pathsum.P, pathsum.f, pathsum.pathvar, pathsum._stats)
+
+
 # --- Aliases and U-based Gates ---
 
 

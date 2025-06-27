@@ -341,7 +341,7 @@ class SxGate(SingleQubitGate):
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
-class SxdgGate(SingleQubitGate):
+class SXdgGate(SingleQubitGate):
     gate_name = "sxdg"
 
     def apply(

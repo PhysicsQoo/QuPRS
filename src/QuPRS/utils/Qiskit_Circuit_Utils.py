@@ -133,7 +133,19 @@ def random_circuit(
         if measure is False:
             gates.remove("measure")
     elif gates == "Clifford":
-        gates = ["x", "y", "z", "h", "s", "sdg", "sx", "sxdg", "cx", "cy", "cz"]
+        gates = [
+            "x",
+            "y",
+            "z",
+            "h",
+            "s",
+            "sdg",
+            "sx",
+            "sxdg",
+            "cx",
+            #  "cy",
+            "cz",
+        ]
     elif gates == "Clifford+T":
         gates = [
             "x",
@@ -147,7 +159,7 @@ def random_circuit(
             "sx",
             "sxdg",
             "cx",
-            "cy",
+            # "cy",
             "cz",
             "ch",
         ]

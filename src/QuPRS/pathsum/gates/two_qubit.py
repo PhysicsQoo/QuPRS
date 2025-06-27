@@ -35,21 +35,61 @@ class CXGate(TwoQubitGate):
             return PathSum(pathsum.P, new_f, pathsum.pathvar, pathsum._stats)
         else:
             x_i = se.symbols(
-                f"{pathsum.bits[target_qubit]}"
-                if isinstance(target_qubit, int)
-                else str(target_qubit)
-            )
-            x_j = se.symbols(
                 f"{pathsum.bits[control_qubit]}"
                 if isinstance(control_qubit, int)
                 else str(control_qubit)
             )
+            x_j = se.symbols(
+                f"{pathsum.bits[target_qubit]}"
+                if isinstance(target_qubit, int)
+                else str(target_qubit)
+            )
             new_var = sp.Xor(x_i, x_j)
             update_var = logical_to_algebraic(new_var)
-            new_P = pathsum.P.subs(x_i, update_var)
+            new_P = pathsum.P.subs(x_j, update_var)
             new_P = reduce_expression(new_P)
-            new_f = pathsum.f.sub(x_i, new_var)
+            new_f = pathsum.f.sub(x_j, new_var)
             return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
+
+
+class CYGate(TwoQubitGate):
+    gate_name = "cy"
+
+    def apply(
+        self,
+        pathsum: "PathSum",
+        control_qubit: int | str | se.Symbol,
+        target_qubit: int | str | se.Symbol,
+        is_bra: bool = False,
+    ) -> "PathSum":
+        if not is_bra:
+            x_i = logical_to_algebraic(pathsum.f[control_qubit], 1)
+            x_j = logical_to_algebraic(pathsum.f[target_qubit], 1)
+            new_P = pathsum.P + (se.Rational(3, 4) + se.Rational(1, 2) * x_j) * x_i
+            new_f = pathsum.f.update(
+                target_qubit,
+                to_anf(sp.Xor(pathsum.f[control_qubit], pathsum.f[target_qubit])),
+            )
+        else:
+            x_i = se.symbols(
+                f"{pathsum.bits[control_qubit]}"
+                if isinstance(control_qubit, int)
+                else str(control_qubit)
+            )
+            x_j = se.symbols(
+                f"{pathsum.bits[target_qubit]}"
+                if isinstance(target_qubit, int)
+                else str(target_qubit)
+            )
+            new_var = sp.Xor(x_i, x_j)
+            update_var = logical_to_algebraic(new_var)
+            new_P = (
+                pathsum.P.subs(x_j, update_var)
+                + (se.Rational(3, 4) + se.Rational(1, 2) * x_j) * x_i
+            )
+            new_f = pathsum.f.sub(x_j, new_var)
+        new_P = reduce_expression(new_P)
+        return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 
 
 class CZGate(TwoQubitGate):
@@ -62,7 +102,6 @@ class CZGate(TwoQubitGate):
         target_qubit: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
-        # ... (Implementation is the same)
         if not is_bra:
             x_i = logical_to_algebraic(pathsum.f[control_qubit], 1)
             x_j = logical_to_algebraic(pathsum.f[target_qubit], 1)
@@ -93,7 +132,6 @@ class SwapGate(TwoQubitGate):
         qubit2: int | str | se.Symbol,
         is_bra: bool = False,
     ) -> "PathSum":
-        # ... (Implementation is the same)
         if not is_bra:
             f1 = pathsum.f[qubit1]
             f2 = pathsum.f[qubit2]

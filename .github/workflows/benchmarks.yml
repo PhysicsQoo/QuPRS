@@ -124,7 +124,7 @@ jobs:
       - name: Generate benchmark markdown report
         run: |
           # This script reads the two source JSON files directly for reporting.
-          python scripys/generate_benchmark_report.py \
+          python scripts/generate_benchmark_report.py \
             --comparison-status ${{ steps.compare_benchmarks.outputs.comparison_performed }} \
             --main-file main_baseline.json \
             --pr-file pr_benchmark.json \

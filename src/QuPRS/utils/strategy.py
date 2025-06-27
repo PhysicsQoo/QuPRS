@@ -16,17 +16,22 @@ class Strategy(ABC):
         if hasattr(cls, "name"):
             cls._registry[cls.name] = cls
         else:
-            print(f"警告: 類別 {cls.__name__} 沒有定義 'name' 屬性，無法註冊。")
+            print(
+                f"Warning: Class {cls.__name__} does not define "
+                "a 'name' attribute and cannot be registered."
+            )
 
     @classmethod
     def get(cls, name: str) -> "Strategy":
         """
-        工廠方法：根據名稱查詢註冊表，並回傳一個策略物件的「實例」。
+        Factory method: Look up the registry by name and return an instance of
+                        the strategy.
         """
         strategy_class = cls._registry.get(name.lower())
         if not strategy_class:
             raise ValueError(
-                f"未知的策略: '{name}'. 可用策略: {list(cls._registry.keys())}"
+                f"Unknown strategy: '{name}'."
+                f"Available strategies: {list(cls._registry.keys())}"
             )
         return strategy_class()
 

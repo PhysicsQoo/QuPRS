@@ -34,8 +34,15 @@ import random
 
 import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3, transpile
-from qiskit.circuit import CircuitInstruction, library
-from qiskit.circuit.library import standard_gates
+from qiskit.circuit import CircuitInstruction
+from qiskit.circuit.library import (
+    efficient_su2,
+    excitation_preserving,
+    n_local,
+    pauli_two_design,
+    real_amplitudes,
+    standard_gates,
+)
 from qiskit.circuit.parameter import Parameter
 from qiskit.circuit.parametervector import ParameterVectorElement
 from qiskit.quantum_info.operators.symplectic.clifford_circuits import (
@@ -47,9 +54,9 @@ from QuPRS.interface.load_qiskit import load_circuit
 
 
 def pqc_generator(
-    qubit_num=1,
-    reps=1,
-    function_name="TwoLocal",
+    qubit_num: int = 1,
+    reps: int = 1,
+    function_name="NLocal",
     basis_gates1=["h", "ry", "rz", "cx"],
     basis_gates2=["rz", "sx", "x", "cx"],
 ):
@@ -60,22 +67,31 @@ def pqc_generator(
         qubit_num (int): Number of qubits in the circuit.
         reps (int): Number of repetitions of the circuit.
         function_name (str): Name of the circuit library function to use.
+            Options include "NLocal", "ExcitationPreserving", "RealAmplitudes",
+            "EfficientSU2", and "PauliTwoDesign".
         basis_gates1 (list): First set of basis gates for transpilation.
         basis_gates2 (list): Second set of basis gates for transpilation.
 
     Returns:
         tuple: Original circuit, transpiled circuit, and circuit name string.
     """
-    if function_name == "TwoLocal":
-        cir = library.TwoLocal(qubit_num, ["ry"], "cx", reps=reps)
+    if function_name == "NLocal":
+        # cir = library.TwoLocal(qubit_num, ["ry"], "cx", reps=reps)
+        cir = n_local(
+            qubit_num, rotation_blocks=["ry"], entanglement_blocks="cx", reps=reps
+        )
     if function_name == "ExcitationPreserving":
-        cir = library.ExcitationPreserving(qubit_num, reps=reps)
+        # cir = library.ExcitationPreserving(qubit_num, reps=reps)
+        cir = excitation_preserving(qubit_num, reps=reps)
     if function_name == "RealAmplitudes":
-        cir = library.RealAmplitudes(qubit_num, reps=reps)
+        # cir = library.RealAmplitudes(qubit_num, reps=reps)
+        cir = real_amplitudes(qubit_num, reps=reps)
     if function_name == "EfficientSU2":
-        cir = library.EfficientSU2(qubit_num, reps=reps)
+        # cir = library.EfficientSU2(qubit_num, reps=reps)
+        cir = efficient_su2(qubit_num, reps=reps)
     if function_name == "PauliTwoDesign":
-        cir = library.PauliTwoDesign(qubit_num, reps=reps)
+        # cir = library.PauliTwoDesign(qubit_num, reps=reps)
+        cir = pauli_two_design(qubit_num, reps=reps)
     # cir = cir.decompose().decompose().decompose()
     cir = transpile(cir, basis_gates=basis_gates1)
     cir2 = transpile(cir, basis_gates=basis_gates2)
@@ -117,7 +133,19 @@ def random_circuit(
         if measure is False:
             gates.remove("measure")
     elif gates == "Clifford":
-        gates = ["x", "y", "z", "h", "s", "sdg", "sx", "sxdg", "cx", "cy", "cz", "ch"]
+        gates = [
+            "x",
+            "y",
+            "z",
+            "h",
+            "s",
+            "sdg",
+            "sx",
+            "sxdg",
+            "cx",
+            #  "cy",
+            "cz",
+        ]
     elif gates == "Clifford+T":
         gates = [
             "x",
@@ -131,7 +159,7 @@ def random_circuit(
             "sx",
             "sxdg",
             "cx",
-            "cy",
+            # "cy",
             "cz",
             "ch",
         ]
@@ -171,13 +199,13 @@ def random_circuit(
                 ]
 
         qargs = rng.choice(range(num_qubits), nqargs, replace=False).tolist()
-        print(gate, qargs)
+        # print(gate, qargs)
         circ.append(gate, qargs, copy=False)
 
     return circ
 
 
-def random_clifford_T_circuit(num_qubits, num_gates, gates="all", seed=None):
+def random_clifford_T_circuit(num_qubits: int, num_gates: int, gates="all", seed=None):
     """
     Generate a pseudo-random Clifford+T circuit.
 

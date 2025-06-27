@@ -160,11 +160,11 @@ class PathSum:
 
     # --- Properties ---
     @property
-    def regs(self):
+    def regs(self) -> tuple:
         return self.f.regs
 
     @property
-    def bits(self):
+    def bits(self) -> tuple:
         return self.f.bits
 
     @property
@@ -172,11 +172,11 @@ class PathSum:
         return self._P
 
     @property
-    def f(self):
+    def f(self) -> F:
         return self._f
 
     @property
-    def pathvar(self):
+    def pathvar(self) -> frozenset:
         return self._pathvar
 
     @property

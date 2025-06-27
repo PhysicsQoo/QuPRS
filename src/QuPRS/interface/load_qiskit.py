@@ -397,6 +397,8 @@ def check_equivalence(
         gpmc_time = None
         wmc_time = None
         CNF = (None,)
+        log_wmc = None
+        expect = None
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
@@ -409,18 +411,20 @@ def check_equivalence(
                 if pathsum_circuit.P == initial_state.P:
                     equivalent = "equivalent"
                 P_free_symbols = pathsum_circuit.P.free_symbols
-                check_P_symbol = tuple(
-                    filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
-                )
+                # check_P_symbol = tuple(
+                #     filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
+                # )
                 if len(P_free_symbols) == 0:
                     if pathsum_circuit.P < tolerance:
                         equivalent = "equivalent"
                     else:
                         equivalent = "equivalent*"
-                elif len(check_P_symbol) == 0:
+                elif len(pathsum_circuit.pathvar) == 0:
                     equivalent = "equivalent*"
                 else:
-                    equivalent = "not_equivalent"
+                    equivalent = "unknown"
+            elif len(pathsum_circuit.pathvar) == 0:
+                equivalent = "not_equivalent"
             else:
                 equivalent = "unknown"
 
@@ -493,6 +497,8 @@ def check_equivalence(
         gpmc_time=gpmc_time,
         wmc_time=wmc_time,
         CNF=CNF,
+        expect=expect,
+        log_wmc=log_wmc,
     )
     return Result
 
@@ -539,6 +545,8 @@ class EquivalenceCheckResult:
     gpmc_time: Optional[float] = None
     wmc_time: Optional[float] = None
     CNF: Optional[str] = None
+    expect: Optional[float] = None
+    log_wmc: Optional[float] = None
 
     def __repr__(self) -> str:
         class_name = self.__class__.__name__
@@ -583,5 +591,9 @@ class EquivalenceCheckResult:
             f"  {self.progress}",
             "-----------CNF------------------------",
             f"  {self.CNF if self.CNF is not None else 'N/A'}",
+            "-----------expect---------------------",
+            f"  {self.expect if self.expect is not None else 'N/A'}",
+            "-----------log_wmc--------------------",
+            f"  {self.log_wmc if self.log_wmc is not None else 'N/A'}",
         ]
         return "\n".join(lines)

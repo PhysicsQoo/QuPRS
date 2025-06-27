@@ -125,12 +125,12 @@ class PathSum:
         ...
 
     @property
-    def regs(self) -> Any:
+    def regs(self) -> tuple:
         """"""
         ...
 
     @property
-    def bits(self) -> Any:
+    def bits(self) -> tuple:
         """"""
         ...
 
@@ -140,12 +140,12 @@ class PathSum:
         ...
 
     @property
-    def f(self) -> Any:
+    def f(self) -> F:
         """"""
         ...
 
     @property
-    def pathvar(self) -> Any:
+    def pathvar(self) -> frozenset:
         """"""
         ...
 
@@ -479,6 +479,25 @@ class PathSum:
         """
         ...
 
+    def cy(
+        self,
+        control_qubit: "int | str | se.Symbol",
+        target_qubit: "int | str | se.Symbol",
+        is_bra: "bool" = False,
+    ) -> "PathSum":
+        """
+        Applies the CY gate to the specified qubit.
+
+        Args:
+            control_qubit (int | str | se.Symbol): The control qubit.
+            target_qubit (int | str | se.Symbol): The target qubit.
+            is_bra (bool): Whether the input is a bra state. Defaults to False.
+
+        Returns:
+            PathSum: The resulting PathSum object after applying the CY gate.
+        """
+        ...
+
     def cz(
         self,
         control_qubit: "int | str | se.Symbol",
@@ -508,6 +527,19 @@ class PathSum:
 
         Returns:
             PathSum: The resulting PathSum object after applying the H gate.
+        """
+        ...
+
+    def id(self, qubit: "int | str | se.Symbol", is_bra: "bool" = False) -> "PathSum":
+        """
+        Applies the ID gate to the specified qubit.
+
+        Args:
+            qubit (int | str | se.Symbol): The qubit to which the gate is applied.
+            is_bra (bool): Whether the input is a bra state. Defaults to False.
+
+        Returns:
+            PathSum: The resulting PathSum object after applying the ID gate.
         """
         ...
 

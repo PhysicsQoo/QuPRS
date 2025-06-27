@@ -159,9 +159,11 @@ class StraightforwardStrategy(Strategy):
         """
         Run the straightforward strategy to process the given circuits.
         """
-        qiskit_circuit = gates1.compose(gates2.inverse())
-        gates = get_gates(qiskit_circuit)
-        for gate in gates:
+        for gate in gates2:
+            pathsum_circuit, self.count = add_gate(
+                pathsum_circuit, gate, count=self.count, is_bra=True
+            )
+        for gate in gates1:
             pathsum_circuit, self.count = add_gate(
                 pathsum_circuit, gate, count=self.count
             )

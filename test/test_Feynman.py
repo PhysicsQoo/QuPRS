@@ -1,18 +1,22 @@
-from QuPRS import check_equivalence
 import pytest
 
-path1 = "./benchmarks/Feymann/"
-path2 = "./benchmarks/Feymann/h,y,z,t,tdg,cx/"
+from QuPRS import check_equivalence
+
+path1 = "./benchmarks/Feynman/"
+path2 = "./benchmarks/Feynman/h,y,z,t,tdg,cx/"
 
 
-def generate_test(file_name, strategy= "proportional"):
+def generate_test(file_name, strategy="proportional"):
     circuit1 = path1 + file_name
     circuit2 = path2 + file_name
-    result = check_equivalence(circuit1, circuit2,method="reduction_rules", strategy= strategy)
+    result = check_equivalence(
+        circuit1, circuit2, method="reduction_rules", strategy=strategy
+    )
     assert (
-            result.equivalent == "equivalent" or result.equivalent == "equivalent*"
-        ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
-   
+        result.equivalent == "equivalent" or result.equivalent == "equivalent*"
+    ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
+
+
 @pytest.mark.parametrize(
     "file_name, strategy",
     [

@@ -1,19 +1,20 @@
-from QuPRS import check_equivalence
 import pytest
 
+from QuPRS import check_equivalence
 
 path1 = "./benchmarks/MQTBench/"
 path2 = "./benchmarks/MQTBench/h,ry,rz,cx/"
 
 
-def generate_test(file_name, strategy= "proportional"):
+def generate_test(file_name, strategy="proportional"):
     circuit1 = path1 + file_name
     circuit2 = path2 + file_name
-    result = check_equivalence(circuit1, circuit2, strategy= strategy)
+    result = check_equivalence(circuit1, circuit2, strategy=strategy)
     assert (
-            result.equivalent == "equivalent" or result.equivalent == "equivalent*"
-        ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
-   
+        result.equivalent == "equivalent" or result.equivalent == "equivalent*"
+    ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
+
+
 @pytest.mark.parametrize(
     "file_name, strategy",
     [

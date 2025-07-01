@@ -179,9 +179,9 @@ This code is associated with a forthcoming publication. Please cite this reposit
 ```
 ## License Information
 
-- This project’s original source code is licensed under: [MIT](LICENSE.md)  
-- Kenji Hashimoto’s binary component (`QuPRS/utils/gpmc`) is licensed under the MIT License and the file (`QuPRS/utils/Qiskit_Circuit_Utils.py`) contains functions (`random_circuit`, `random_clifford_T_circuit`) that are derived from the Qiskit library. The original Qiskit code is licensed under the Apache 2.0. see: [NOTICE](NOTICE.md)
+- The original source code of this project is licensed under the **[MIT License](LICENSE.md)**.
 
+- This project utilizes and depends on several third-party components and libraries, which are governed by their own licenses. For detailed copyright notices and the full license texts of these components, please see the **[NOTICE.md](NOTICE.md)** file.
 
 ## Acknowledgements
 This project utilizes `gpmc`, a binary component developed by Kenji Hashimoto, for parts of its Weighted Model Counting functionality.

@@ -11,6 +11,8 @@ This section details code that is directly bundled with, or derived from, other 
 - **Source**: <https://git.trs.css.i.nagoya-u.ac.jp/k-hasimt/GPMC>
 - **License**: MIT License
 
+<details>
+<summary>Click to view the full license text. </summary>
 
 MIT License
 
@@ -23,13 +25,14 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 
----
+</details>
 
 ### Component: Derived functions from Qiskit
 - **Location**: `QuPRS/utils/Qiskit_Circuit_Utils.py` (functions: `random_circuit`, `random_clifford_T_circuit`)
 - **Source**: <https://github.com/Qiskit/qiskit/blob/main/qiskit/circuit/random/utils.py>
 - **License**: Apache License 2.0
-
+<details>
+<summary>Click to view the full license text. </summary>
                     Copyright 2017 IBM and its contributors
 
                                  Apache License
@@ -237,7 +240,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY
 
 
    ---
-
+</details>
 
 ## II. Project Dependencies
 
@@ -245,7 +248,8 @@ This section lists the libraries that `QuPRS` depends on. These libraries are no
 
 ### Dependency: `NumPy`
 - **License**: 3-Clause BSD License
-
+<details>
+<summary>Click to view the full license text. </summary>
 Copyright (c) 2005-2025, NumPy Developers.
 All rights reserved.
 
@@ -277,10 +281,12 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+</details>
 
 ### Dependency: `SymPy`
 - **License**: Modified BSD License
-  
+<details>
+<summary>Click to view the full license text. </summary>
 Copyright (c) 2006-2023 SymPy Development Team
 
 All rights reserved.
@@ -434,10 +440,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+</details>
 
 ### Dependency: `SymEngine`
 - **License**: MIT License
-  
+<details>
+<summary>Click to view the full license text. </summary>
 Copyright (c) 2013-2017 SymEngine Development Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -721,11 +729,12 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-
+</details>
 
 ### Dependency: `Qiskit` Ecosystem
 - **License**: Apache License 2.0
-
+<details>
+<summary>Click to view the full license text. </summary>
                     Copyright 2017 IBM and its contributors
 
                                  Apache License
@@ -929,3 +938,4 @@ DEALINGS IN THE SOFTWARE.
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+</details>

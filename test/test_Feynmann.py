@@ -1,15 +1,14 @@
 from QuPRS import check_equivalence
 import pytest
 
-
-path1 = "./benchmarks/MQTBench/"
-path2 = "./benchmarks/MQTBench/h,ry,rz,cx/"
+path1 = "./benchmarks/Feymann/"
+path2 = "./benchmarks/Feymann/h,y,z,t,tdg,cx/"
 
 
 def generate_test(file_name, strategy= "proportional"):
     circuit1 = path1 + file_name
     circuit2 = path2 + file_name
-    result = check_equivalence(circuit1, circuit2, strategy= strategy)
+    result = check_equivalence(circuit1, circuit2,method="reduction_rules", strategy= strategy)
     assert (
             result.equivalent == "equivalent" or result.equivalent == "equivalent*"
         ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
@@ -17,12 +16,10 @@ def generate_test(file_name, strategy= "proportional"):
 @pytest.mark.parametrize(
     "file_name, strategy",
     [
-        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward"),
-        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive"),
-        ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "proportional"),
-        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional"),
-        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional"),
-        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional"),
+        ("adder_8.qasm", "proportional"),
+        ("gf2^4_mult.qasm", "proportional"),
+        ("tof_3.qasm", "proportional"),
+        ("vbe_adder_3.qasm", "proportional"),
         # ("new_benchmark_file.qasm", "new_strategy"),
     ],
 )

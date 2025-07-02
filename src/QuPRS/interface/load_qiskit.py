@@ -401,6 +401,7 @@ def check_equivalence(
         expect = None
 
         # Run the selected strategy to build the PathSum circuit
+        pathsum_time = f'>{timeout}'
         pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
@@ -419,8 +420,6 @@ def check_equivalence(
                         equivalent = "equivalent"
                     else:
                         equivalent = "equivalent*"
-                elif len(pathsum_circuit.pathvar) == 0:
-                    equivalent = "equivalent*"
                 else:
                     equivalent = "unknown"
             elif len(pathsum_circuit.pathvar) == 0:

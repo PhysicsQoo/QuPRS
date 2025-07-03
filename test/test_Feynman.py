@@ -19,7 +19,6 @@ def generate_test(file_name, strategy="proportional", switch=False):
     ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
 
 
-
 @pytest.mark.parametrize(
     "file_name, strategy, switch",
     [

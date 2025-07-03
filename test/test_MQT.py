@@ -11,12 +11,11 @@ def generate_test(file_name, strategy="proportional", switch=False):
     circuit2 = path2 + file_name
     if switch:
         circuit1, circuit2 = circuit2, circuit1
-    result = check_equivalence(
-        circuit1, circuit2, method="hybrid", strategy=strategy
-    )
+    result = check_equivalence(circuit1, circuit2, method="hybrid", strategy=strategy)
     assert (
         result.equivalent == "equivalent" or result.equivalent == "equivalent*"
     ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
+
 
 @pytest.mark.parametrize(
     "file_name, strategy, switch",

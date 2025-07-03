@@ -1,9 +1,11 @@
+import resource
 import signal
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+import psutil
 import symengine as se
 from qiskit import QuantumCircuit, qasm2, qasm3
 
@@ -390,6 +392,9 @@ def check_equivalence(
     gates1 = get_gates(qiskit_circuit1)
     gates2 = get_gates(qiskit_circuit2)
 
+    total_mem = psutil.virtual_memory().total
+    soft, hard = int(total_mem * 0.7), int(total_mem * 0.8)
+    resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
     signal.alarm(timeout)
 
     try:
@@ -401,7 +406,7 @@ def check_equivalence(
         expect = None
 
         # Run the selected strategy to build the PathSum circuit
-        pathsum_time = f'>{timeout}'
+        pathsum_time = f">{timeout}"
         pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
@@ -472,6 +477,12 @@ def check_equivalence(
         Time = f">{timeout}"
         equivalent = "Timeout"
         progress = f"{strategy_obj.count}/{l1 + l2}"
+    except MemoryError:
+        Time = round(time.time() - start_time, 3)
+        if pathsum_time == f">{timeout}":
+            pathsum_time = Time
+        equivalent = "MemoryOut"
+        progress = f"{strategy_obj.count}/{l1 + l2}"
     finally:
         signal.alarm(0)
 
@@ -535,7 +546,7 @@ class EquivalenceCheckResult:
     # Result
     equivalent: str
     verification_time: float
-    pathsum_time: float
+    pathsum_time: float | str
     final_pathsum: PathSum
     Statistics: StatisticsManager
     progress: str = "0/0"
@@ -568,7 +579,7 @@ class EquivalenceCheckResult:
             "-----------result----------------------",
             f"  Equivalent: {self.equivalent}",
             "-----------verification time-----------",
-            f"  PathSum Time: {self.pathsum_time:.3f} s",
+            f"  PathSum Time: {self.pathsum_time} s",
             (
                 f"  to_DIMACS Time: "
                 f"{self.to_DIMACS_time if self.to_DIMACS_time is not None else 'N/A'} s"

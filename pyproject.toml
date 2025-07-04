@@ -52,18 +52,12 @@ PyPI = "https://pypi.org/project/QuPRS/"
 # (Optional) Other URLs related to your project
 # "Bug Tracker" = "..."
 # "Documentation" = "..."
-
-# Versioning is handled by hatch-vcs, so [tool.hatch.version] section is not needed.
-
-[tool.hatch.metadata.hooks.vcs]
-version-file = "src/QuPRS/_version.py"
+[tool.hatch.version]
+source = "vcs"
+path = "src/QuPRS/_version.py"
+fallback = "0.0.1"
 
 [tool.hatch.build]
-# Because `hatch_build.py` already copies gpmc into `src/QuPRS/utils`,
-# Hatch will automatically include it when packaging `src/QuPRS`, so
-# there is no need to specify binary files like package-data in setuptools.
-# By default, Hatch includes `src/<package_name>` or `<package_name>`.
-# Therefore, this section can even be left empty, but specifying it explicitly improves readability.
 packages = ["src/QuPRS"]
 
 [tool.hatch.build.hooks.custom]

@@ -21,6 +21,9 @@ jobs:
     steps:
       - name: Checkout main branch code
         uses: actions/checkout@v4
+        with:
+              submodules: true
+              fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -59,6 +62,9 @@ jobs:
       # --- Step 1: Prepare PR Environment ---
       - name: Checkout PR code
         uses: actions/checkout@v4
+        with:
+            submodules: true
+            fetch-depth: 0
       - name: Setup Python and Install PR Dependencies
         uses: actions/setup-python@v5
         with:

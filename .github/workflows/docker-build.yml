@@ -22,6 +22,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          submodules: true
           # Fetch all git history, required for setuptools-scm and metadata-action
           fetch-depth: 0
 

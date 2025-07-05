@@ -31,7 +31,6 @@ dependencies = [
     "qiskit-qasm3-import>=0.5.1",
 ]
 dynamic = ["version"]
-
 [project.optional-dependencies]
 dev = [
     "ipykernel",
@@ -47,18 +46,17 @@ dev = [
     "hatch",
     "hatch-vcs",
 ]
-
 [project.urls]
 Homepage = "https://github.com/PhysicsQoo/QuPRS" # GitHub link
 PyPI = "https://pypi.org/project/QuPRS/"
-
+# (Optional) Other URLs related to your project
+# "Bug Tracker" = "..."
+# "Documentation" = "..."
 [tool.hatch.version]
 source = "vcs"
 fallback-version = "0.0.1"
-
 [tool.hatch.build.hooks.vcs]
 version-file = "src/QuPRS/_version.py"
-
 [tool.hatch.build.hooks.custom]
 # Points to our custom build script
 path = "scripts/hatch_build.py"
@@ -75,23 +73,13 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/QuPRS"]
 pure-python-wheel = false
-shared-data = [
-    { path = "src/QuPRS/utils/*", tag = "platlib" }
-]
+
+
+
+
 [tool.cibuildwheel]
-test-requires = "pytest"
-test-command = "pytest {project}/tests"
-build-verbosity = 1
-before-all = "git submodule update --init --recursive"
-
+skip = "*-win*"
 [tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux_2_28"
-manylinux-i686-image = "manylinux_2_28"
-before-all = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
-
+before-build = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
 [tool.cibuildwheel.macos]
-before-all = "brew install gmp mpfr zlib cmake"
-
-[tool.cibuildwheel.windows]
-environment = "PATH=C:\\msys64\\usr\\bin;$PATH"
-before-all = "pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr mingw-w64-x86_64-zlib mingw-w64-x86_64-cmake"
+before-build = "brew install gmp mpfr zlib cmake"

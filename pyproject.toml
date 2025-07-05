@@ -80,15 +80,15 @@ pure-python-wheel = false
 
 test-requires = "pytest"
 test-command = "pytest {project}/tests" 
-
 build-verbosity = 1
 
 [tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-i686-image = "manylinux_2_28"
 before-all = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
 
 [tool.cibuildwheel.macos]
-before-all = "brew install gmp mpfr zlib cmake"
-
+before-build = "brew install gmp mpfr zlib cmake"
 
 [tool.cibuildwheel.windows]
-before-all = "choco install -y cmake gmp mpfr zlib"
+before-all = "pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr mingw-w64-x86_64-zlib mingw-w64-x86_64-cmake"

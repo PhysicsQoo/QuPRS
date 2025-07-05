@@ -241,9 +241,9 @@ def to_DIMACS(pathsum, filename="wmc.cnf"):
 
 
 def run_wmc(file="wmc.cnf"):
-    result = subprocess.run(
-        [str(WMC()), "-mode=1", file], capture_output=True, text=True
-    )
+    with WMC() as gpmc_executable:
+        command = [str(gpmc_executable), "-mode=1", file]
+        result = subprocess.run(command, capture_output=True, text=True)
 
     output_lines = result.stdout.split("\n")
 

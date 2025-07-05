@@ -1,4 +1,17 @@
-name: Build and Push Docker Image to Multiple Registries
+# .github/workflows/docker-build.yml
+#
+# GitHub Actions Workflow: Build, Test, and Push Docker Image
+#
+# This workflow performs the following steps:
+# 1. On push to main or tags (v*), or pull request to main:
+#    - Runs tests by building the Docker image up to the 'tester' stage.
+# 2. On push to main or tags (v*):
+#    - Builds and pushes the final Docker image to GHCR and Docker Hub.
+#
+# Prerequisites:
+# - Repository secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+
+name: Build, Test and Push Docker Image
 
 on:
   push:
@@ -9,31 +22,54 @@ on:
     branches: [ "main" ]
 
 jobs:
+  # Job 1: Run tests by building up to the 'tester' stage
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build tester image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: tester
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Note: If the build succeeds, tests have passed (pytest runs during build).
+
+  # Job 2: Build and push the final Docker image
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
 
-    # Permissions: write access to packages is required for GHCR
+    # Only run on push to main or tags, not on pull requests
+    if: github.event_name != 'pull_request'
+
     permissions:
       contents: read
       packages: write
 
     steps:
-      # 1. Checkout the repository source code
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: true
-          # Fetch all git history, required for setuptools-scm and metadata-action
           fetch-depth: 0
 
-      # 2. Set lowercase repository and image names for Docker
       - name: Set lowercase repo name
         id: set_repo_name
         run: |
           echo "lowercase_repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
           echo "dockerhub_repo=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      # 3. Extract Docker metadata (tags, labels, etc.)
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -46,9 +82,7 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # 4. Log in to registries (only for push events)
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -56,28 +90,25 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 5. Set up QEMU and Docker Buildx
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 6. Build, test, and push the Docker image
-      - name: Build, Test and Push
+      - name: Build and Push final image
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
-          target: ${{ github.event_name == 'pull_request' && 'tester' || '' }}
-          push: ${{ github.event_name != 'pull_request' }}
+          target: final
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

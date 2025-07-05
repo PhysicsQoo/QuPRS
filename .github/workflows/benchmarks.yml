@@ -30,6 +30,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+      - name: Install system dependencies for GPMC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev
 
       - name: Install dependencies
         run: |
@@ -73,6 +77,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+      - name: Install system dependencies for GPMC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev
       - name: Install PR dependencies
         run: |
           python -m pip install --upgrade pip

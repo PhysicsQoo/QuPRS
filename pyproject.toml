@@ -67,8 +67,8 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/QuPRS"]
 pure-python-wheel = false
+force-include = { "GPMC/build/gpmc" = "QuPRS/utils/gpmc" }
 
 [tool.hatch.build.hooks.custom]
 # Points to our custom build script

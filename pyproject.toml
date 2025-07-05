@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "setuptools_scm[toml]>=6.2", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "QuPRS"
@@ -42,7 +42,9 @@ dev = [
     "pytest-benchmark",
     "pytest-html",
     "pandas",
-    "tqdm"
+    "tqdm",
+    "hatch",
+    "hatch-vcs",
 ]
 [project.urls]
 Homepage = "https://github.com/PhysicsQoo/QuPRS" # GitHub link
@@ -50,12 +52,19 @@ PyPI = "https://pypi.org/project/QuPRS/"
 # (Optional) Other URLs related to your project
 # "Bug Tracker" = "..."
 # "Documentation" = "..."
+[tool.hatch.version]
+source = "vcs"
+path = "src/QuPRS/_version.py"
+fallback = "0.0.1"
 
-[tool.setuptools.packages.find]
-where = ["src"]  
+[tool.hatch.build]
+packages = ["src/QuPRS"]
 
-[tool.setuptools.package-data]
-QuPRS = ["utils/gpmc"]
+[tool.hatch.build.hooks.custom]
+# Points to our custom build script
+path = "hatch_build.py"
 
-[tool.setuptools_scm]
-write_to = "src/QuPRS/_version.py"
+[tool.cibuildwheel]
+before-build-linux = "sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev"
+before-build-macos = "brew install gmp mpfr"
+skip = "*-win*"

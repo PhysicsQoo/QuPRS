@@ -8,78 +8,71 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
         """
-        Custom build hook for cross-platform compilation of the GPMC binary.
+        Custom Hatch build hook for cross-platform compilation of the GPMC binary.
 
-        This hook is invoked by Hatch during the build process. It performs the following steps:
-        1. Prepares the build environment and sets platform-specific environment variables.
-        2. Configures and builds the GPMC binary using CMake and Make.
-        3. Copies the resulting binary into the Python package's utils directory for distribution.
-
-        Raises:
-            FileNotFoundError: If the GPMC source directory or the compiled binary is missing.
-            subprocess.CalledProcessError: If the build commands fail.
+        This hook performs the following steps:
+        1. Ensures the GPMC source directory exists.
+        2. Creates a clean build directory.
+        3. Prepares and runs the CMake configuration, with special handling for macOS dependencies.
+        4. Builds the GPMC binary using make.
+        5. Copies the resulting binary to the package's utils directory.
         """
+
         print("--- [Hatch Hook] Running custom cross-platform build step for GPMC ---")
         PROJECT_ROOT = self.root
         gpmc_src_path = os.path.join(PROJECT_ROOT, 'GPMC')
         build_dir = os.path.join(gpmc_src_path, 'build')
 
+        # Step 1: Ensure the GPMC source directory exists
         if not os.path.isdir(gpmc_src_path):
             raise FileNotFoundError(
                 "GPMC source directory not found. Did you forget to run 'git submodule update --init'?"
             )
 
-        # 1. Prepare build environment variables
-        build_env = os.environ.copy()
-        os_name = platform.system()
-
-        if os_name == "Darwin":  # Darwin is the core name for macOS
-            print("--- [Hatch Hook] Configuring build environment for macOS ---")
-            # On Apple Silicon, Homebrew is typically installed at /opt/homebrew.
-            # On Intel Macs, it's usually /usr/local. We use the CI runner's Homebrew prefix if available.
-            brew_prefix = build_env.get("HOMEBREW_PREFIX", "/opt/homebrew")
-            
-            # Set CPPFLAGS to specify header file search paths for the compiler
-            cppflags = (
-                f"-I{brew_prefix}/opt/gmp/include "
-                f"-I{brew_prefix}/opt/mpfr/include "
-                f"-I{brew_prefix}/opt/zlib/include"
-            )
-            # Set LDFLAGS to specify library search paths for the linker
-            ldflags = (
-                f"-L{brew_prefix}/opt/gmp/lib "
-                f"-L{brew_prefix}/opt/mpfr/lib "
-                f"-L{brew_prefix}/opt/zlib/lib"
-            )
-            
-            build_env['CPPFLAGS'] = cppflags
-            build_env['LDFLAGS'] = ldflags
-            print(f"macOS CPPFLAGS set to: {cppflags}")
-            print(f"macOS LDFLAGS set to: {ldflags}")
-
-        # Remove any existing build directory to ensure a clean build
+        # Step 2: Create a clean build directory
         if os.path.exists(build_dir):
             shutil.rmtree(build_dir)
         os.makedirs(build_dir, exist_ok=True)
 
-        # 2. Prepare and run the cmake command to configure the build
+        # Step 3: Prepare CMake command arguments
         cmake_args = [
             'cmake',
             '-DCMAKE_BUILD_TYPE=Release',
+            # For compatibility with older CMakeLists.txt files
             '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',
-            '..'
         ]
-        
-        print(f"Running command: {' '.join(cmake_args)} in {build_dir}")
-        subprocess.check_call(cmake_args, cwd=build_dir, env=build_env)
 
-        # 3. Run 'make' to compile the binary
-        print(f"Running command: make in {build_dir}")
-        subprocess.check_call(['make'], cwd=build_dir, env=build_env)
+        # Special handling for macOS: set CMAKE_PREFIX_PATH for Homebrew dependencies
+        os_name = platform.system()
+        if os_name == "Darwin":
+            print("--- [Hatch Hook] Configuring CMAKE_PREFIX_PATH for macOS ---")
+            brew_prefix = os.environ.get("HOMEBREW_PREFIX", "/opt/homebrew")
+            # Join all Homebrew dependency paths with semicolons, as required by CMake
+            cmake_prefix_path = (
+                f"{brew_prefix}/opt/gmp;"
+                f"{brew_prefix}/opt/mpfr;"
+                f"{brew_prefix}/opt/zlib"
+            )
+            cmake_args.append(f'-DCMAKE_PREFIX_PATH={cmake_prefix_path}')
+            print(f"macOS CMAKE_PREFIX_PATH set to: {cmake_prefix_path}")
+
+        # Add the source directory ('..') as the final argument
+        cmake_args.append('..')
+        
+        # Step 4: Run CMake and make to build the binary
+        try:
+            print(f"Running command: {' '.join(cmake_args)} in {build_dir}")
+            subprocess.check_call(cmake_args, cwd=build_dir)
+
+            print(f"Running command: make in {build_dir}")
+            subprocess.check_call(['make'], cwd=build_dir)
+        except subprocess.CalledProcessError as e:
+            print(f"!!! [Hatch Hook] GPMC compilation failed on {os_name}: {e}")
+            raise
 
         print(f"--- [Hatch Hook] GPMC compiled successfully on {os_name} ---")
 
-        # 4. Copy the compiled binary to the package's utils directory
+        # Step 5: Copy the compiled binary to the package's utils directory
         binary_name = 'gpmc.exe' if os_name == "Windows" else 'gpmc'
         compiled_binary_path = os.path.join(build_dir, binary_name)
         target_dir = os.path.join(PROJECT_ROOT, 'src', 'QuPRS', 'utils')

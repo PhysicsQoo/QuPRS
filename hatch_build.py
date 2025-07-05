@@ -8,58 +8,65 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
         """
-        Custom Hatch build hook for cross-platform compilation of the GPMC binary.
+        Custom build hook for cross-platform compilation of the GPMC binary.
 
-        This hook performs the following steps:
-        1. Ensures the GPMC source directory exists.
-        2. Creates a clean build directory.
-        3. Prepares and runs the CMake configuration, with special handling for macOS dependencies.
-        4. Builds the GPMC binary using make.
-        5. Copies the resulting binary to the package's utils directory.
+        This hook ensures:
+        - The GPMC source directory exists.
+        - A clean build directory is created.
+        - CMake is invoked with appropriate compiler and linker flags, especially for macOS.
+        - The GPMC binary is built and copied to the Python package's utility directory.
         """
-
         print("--- [Hatch Hook] Running custom cross-platform build step for GPMC ---")
         PROJECT_ROOT = self.root
         gpmc_src_path = os.path.join(PROJECT_ROOT, 'GPMC')
         build_dir = os.path.join(gpmc_src_path, 'build')
 
-        # Step 1: Ensure the GPMC source directory exists
+        # Ensure the GPMC source directory exists
         if not os.path.isdir(gpmc_src_path):
             raise FileNotFoundError(
                 "GPMC source directory not found. Did you forget to run 'git submodule update --init'?"
             )
 
-        # Step 2: Create a clean build directory
+        # 1. Create a clean build directory
         if os.path.exists(build_dir):
             shutil.rmtree(build_dir)
         os.makedirs(build_dir, exist_ok=True)
 
-        # Step 3: Prepare CMake command arguments
+        # 2. Prepare CMake command-line arguments
         cmake_args = [
             'cmake',
             '-DCMAKE_BUILD_TYPE=Release',
-            # For compatibility with older CMakeLists.txt files
             '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',
         ]
 
-        # Special handling for macOS: set CMAKE_PREFIX_PATH for Homebrew dependencies
         os_name = platform.system()
-        if os_name == "Darwin":
-            print("--- [Hatch Hook] Configuring CMAKE_PREFIX_PATH for macOS ---")
+        if os_name == "Darwin":  # Darwin is the core name for macOS
+            print("--- [Hatch Hook] Forcefully injecting compiler flags for macOS ---")
             brew_prefix = os.environ.get("HOMEBREW_PREFIX", "/opt/homebrew")
-            # Join all Homebrew dependency paths with semicolons, as required by CMake
-            cmake_prefix_path = (
-                f"{brew_prefix}/opt/gmp;"
-                f"{brew_prefix}/opt/mpfr;"
-                f"{brew_prefix}/opt/zlib"
+            
+            # Compose all required -I (include) flags for the C++ compiler
+            cxx_flags = (
+                f"-I{brew_prefix}/opt/gmp/include "
+                f"-I{brew_prefix}/opt/mpfr/include "
+                f"-I{brew_prefix}/opt/zlib/include"
             )
-            cmake_args.append(f'-DCMAKE_PREFIX_PATH={cmake_prefix_path}')
-            print(f"macOS CMAKE_PREFIX_PATH set to: {cmake_prefix_path}")
+            # Compose all required -L (library) flags for the linker
+            ld_flags = (
+                f"-L{brew_prefix}/opt/gmp/lib "
+                f"-L{brew_prefix}/opt/mpfr/lib "
+                f"-L{brew_prefix}/opt/zlib/lib"
+            )
+            
+            # Forcefully inject flags using CMAKE_CXX_FLAGS and CMAKE_EXE_LINKER_FLAGS
+            cmake_args.append(f'-DCMAKE_CXX_FLAGS={cxx_flags}')
+            cmake_args.append(f'-DCMAKE_EXE_LINKER_FLAGS={ld_flags}')
+            print(f"macOS CMAKE_CXX_FLAGS set to: {cxx_flags}")
+            print(f"macOS CMAKE_EXE_LINKER_FLAGS set to: {ld_flags}")
 
-        # Add the source directory ('..') as the final argument
+        # Add the source path ('..') as the last argument
         cmake_args.append('..')
         
-        # Step 4: Run CMake and make to build the binary
+        # 3. Run cmake and make to build the binary
         try:
             print(f"Running command: {' '.join(cmake_args)} in {build_dir}")
             subprocess.check_call(cmake_args, cwd=build_dir)
@@ -72,7 +79,7 @@ class CustomBuildHook(BuildHookInterface):
 
         print(f"--- [Hatch Hook] GPMC compiled successfully on {os_name} ---")
 
-        # Step 5: Copy the compiled binary to the package's utils directory
+        # 4. Copy the compiled binary to the package's utility directory
         binary_name = 'gpmc.exe' if os_name == "Windows" else 'gpmc'
         compiled_binary_path = os.path.join(build_dir, binary_name)
         target_dir = os.path.join(PROJECT_ROOT, 'src', 'QuPRS', 'utils')

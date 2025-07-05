@@ -54,9 +54,9 @@ PyPI = "https://pypi.org/project/QuPRS/"
 # "Documentation" = "..."
 [tool.hatch.version]
 source = "vcs"
-path = "src/QuPRS/_version.py"
-fallback = "0.0.1"
-
+fallback-version = "0.0.1"
+[tool.hatch.build.hooks.vcs]
+version-file = "src/QuPRS/_version.py"
 [tool.hatch.build]
 packages = ["src/QuPRS"]
 
@@ -67,6 +67,6 @@ path = "hatch_build.py"
 [tool.cibuildwheel]
 skip = "*-win*"
 [tool.cibuildwheel.linux]
-before-build-linux = "sudo apt-get update && sudo apt-get install -y libgmp-dev libmpfr-dev"
+before-build = "apt-get update && apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev cmake"
 [tool.cibuildwheel.macos]
-before-build-macos = "brew install gmp mpfr"
+before-build = "brew install gmp mpfr zlib cmake"

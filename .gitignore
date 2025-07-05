@@ -31,5 +31,4 @@ Thumbs.db
 htmlcov/
 
 # other
-src/QuPRS/_version.py
 *.cnf

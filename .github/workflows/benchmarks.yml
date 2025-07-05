@@ -32,7 +32,10 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install .[dev]
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cibuildwheel
+          pip install .[dev]
 
       - name: Run benchmark and save results as JSON
         run: pytest --benchmark-only --benchmark-json=main_baseline.json
@@ -71,7 +74,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
       - name: Install PR dependencies
-        run: pip install .[dev]
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cibuildwheel
+          pip install .[dev]
 
       # --- Step 2: Run Benchmark on PR ---
       - name: Run Benchmark on PR code
@@ -107,6 +113,7 @@ jobs:
             source .venv/bin/activate
             echo "INFO: Installing dependencies for main branch inside its venv..."
             pip install --upgrade pip
+            pip install cibuildwheel
             pip install .[dev]
             echo "INFO: Running benchmark on main branch inside its venv..."
             pytest --benchmark-only --benchmark-json=../main_baseline.json ../test || true

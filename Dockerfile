@@ -16,24 +16,27 @@ RUN conda update -n base -c defaults conda --yes && \
 RUN pip install --upgrade pip setuptools wheel
 
 # 2. Install required system libraries
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        libgmpxx4ldbl \
-        libmpfr6 \
-        libatomic1 && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    libgmp-dev \
+    libmpfr-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy Python project files and source code
-COPY pyproject.toml MANIFEST.in ./
-COPY ./src /app/src
+# COPY pyproject.toml MANIFEST.in ./
+# COPY ./src /app/src
+COPY . .
 
+RUN git submodule update --init --recursive
+
+RUN pip install wheel && \
+    pip wheel . --wheel-dir /wheels
+
+# Set environment variables
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
-# 3. Install Python dependencies (including development dependencies)
-RUN pip install --no-build-isolation ".[dev]" && \
-    rm -rf ~/.cache/pip
 
 FROM builder AS tester
 
@@ -42,6 +45,7 @@ COPY ./benchmarks /app/benchmarks
 COPY ./test /app/test
 
 # Run tests using pytest
+RUN pip install --no-index --find-links=/wheels "QuPRS[dev]"
 RUN conda run -n base pytest -n auto 
 
 FROM continuumio/miniconda3 AS final
@@ -51,26 +55,22 @@ WORKDIR /app
 RUN conda update -n base -c defaults conda --yes && \
     conda install -n base -c defaults python=3.12 pip --yes && \
     conda clean --all -f -y && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        libgmpxx4ldbl \
-        libmpfr6 \
-        libatomic1 && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y --no-install-recommends \
+    libgmp10 \
+    libmpfr6 \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip setuptools wheel
 
-COPY pyproject.toml MANIFEST.in ./
-COPY ./src /app/src
 
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 
 # Install the package (without development dependencies)
-RUN pip install --no-build-isolation . && \
-    rm -rf ~/.cache/pip
+COPY --from=builder /wheels /wheels
+
+RUN pip install --no-index --find-links=/wheels QuPRS && \
+    rm -rf /wheels ~/.cache/pip
 
 # Copy documentation and license files
 COPY README.md LICENSE.md NOTICE.md /app/

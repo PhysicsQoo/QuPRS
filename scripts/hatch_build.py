@@ -1,4 +1,4 @@
-# hatch_build.py
+# scripts/hatch_build.py
 # This script defines a custom Hatch build hook for cross-platform compilation and integration of the GPMC binary.
 # It compiles the GPMC source using CMake, renames the output binary according to the platform,
 # and copies it into the package's utils directory for distribution.

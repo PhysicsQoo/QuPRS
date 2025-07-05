@@ -31,4 +31,5 @@ Thumbs.db
 htmlcov/
 
 # other
+build_cpp/
 *.cnf

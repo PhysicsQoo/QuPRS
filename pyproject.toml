@@ -68,6 +68,8 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/QuPRS"]
+pure-python-wheel = false
+
 [tool.hatch.build.hooks.custom]
 # Points to our custom build script
 path = "hatch_build.py"

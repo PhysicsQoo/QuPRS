@@ -30,25 +30,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-      - name: Install system dependencies for GPMC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgmp-dev libmpfr-dev
+      - name: Install Hatch
+        run: python -m pip install hatch
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install cibuildwheel
-          pip install .[dev]
-
-      - name: Run benchmark and save results as JSON
-        run: pytest --benchmark-only --benchmark-json=main_baseline.json
+      - name: Run benchmark and save results
+        run: hatch run bench main_baseline.json
 
       - name: Upload benchmark baseline as artifact
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-baseline-${{ matrix.python-version }}
           path: main_baseline.json
+
 
   # ====================================================================
   # JOB 2: For Pull Requests, using the official GitHub CLI for robust artifact handling.
@@ -69,82 +62,60 @@ jobs:
       # --- Step 1: Prepare PR Environment ---
       - name: Checkout PR code
         uses: actions/checkout@v4
-        with:
-            submodules: true
-            fetch-depth: 0
-      - name: Setup Python and Install PR Dependencies
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-      - name: Install system dependencies for GPMC
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgmp-dev libmpfr-dev
-      - name: Install PR dependencies
+          sudo apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev cmake
+      - name: Install Hatch and run benchmark on PR
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install cibuildwheel
-          pip install .[dev]
+          python -m pip install hatch
+          hatch run bench pr_benchmark.json
 
-      # --- Step 2: Run Benchmark on PR ---
-      - name: Run Benchmark on PR code
-        run: pytest --benchmark-only --benchmark-json=pr_benchmark.json
 
-      # --- Step 3: Get or Generate Baseline from Main using GitHub CLI ---
+      # --- Step 2: Get or Generate Baseline from Main using GitHub CLI ---
       - name: Get or Generate Baseline from Main
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "INFO: Finding latest successful workflow run on the main branch..."
           LATEST_RUN_ID=$(gh run list --workflow "${{ github.workflow }}" --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId')
 
           if [[ -n "$LATEST_RUN_ID" && "$LATEST_RUN_ID" != "null" ]]; then
-            echo "✅ Found successful run with ID: $LATEST_RUN_ID. Downloading artifact..."
-            # Use 'gh run download' to download the artifact from the specific run ID.
+            echo "✅ Found successful run: $LATEST_RUN_ID. Downloading artifact..."
             gh run download "$LATEST_RUN_ID" -n "benchmark-baseline-${{ matrix.python-version }}" --dir . || echo "Download failed, will proceed to fallback."
           else
-            echo "INFO: No successful workflow run found on the main branch."
+            echo "INFO: No successful workflow run found."
           fi
 
-          if [ -f "main_baseline.json" ]; then
-            echo "✅ SUCCESS: Baseline 'main_baseline.json' is available."
-          else
-            # Fallback Plan: This part is now a true safety net for when no baseline has ever been created.
+          if [ ! -f "main_baseline.json" ]; then
             echo "⚠️ WARNING: Baseline not found. Generating from main branch on-the-fly."
-            
-            echo "INFO: Cloning main branch into 'main_code' directory..."
             git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" main_code --branch main --single-branch
             cd main_code
-            echo "INFO: Creating and activating a separate venv for the main branch..."
-            python -m venv .venv
-            source .venv/bin/activate
-            echo "INFO: Installing dependencies for main branch inside its venv..."
-            pip install --upgrade pip
-            pip install cibuildwheel
-            pip install .[dev]
-            echo "INFO: Running benchmark on main branch inside its venv..."
-            pytest --benchmark-only --benchmark-json=../main_baseline.json ../test || true
+            echo "INFO: Installing Hatch and running benchmark on main branch..."
+            python -m pip install hatch
+            hatch run bench ../main_baseline.json
             cd ..
           fi
+          
+          if [ ! -f "main_baseline.json" ]; then
+             echo "❌ ERROR: Failed to generate a baseline. Cannot proceed."
+             exit 1
+          fi
 
-      # --- Step 4: Compare (for CI failure check) and Report Generation ---
+      # --- Step 3: Compare (for CI failure check) and Report Generation ---
       - name: Compare for regression & determine status
         id: compare_benchmarks
         run: |
-          if [ -f "main_baseline.json" ]; then
-            echo "comparison_performed=true" >> $GITHUB_OUTPUT
-            echo "INFO: Baseline found. Checking for performance regressions..."
-            # This command's primary purpose is to fail the job on significant regression.
-            pytest --benchmark-compare=main_baseline.json --benchmark-compare-fail=mean:10%
-          else
-            echo "comparison_performed=false" >> $GITHUB_OUTPUT
-            echo "⚠️ WARNING: Baseline not found. Skipping regression check."
-          fi
+          echo "comparison_performed=true" >> $GITHUB_OUTPUT
+          echo "INFO: Checking for performance regressions..."
+          hatch run bench-compare main_baseline.json --fail=mean:10%
 
       - name: Generate benchmark markdown report
         run: |
-          # This script reads the two source JSON files directly for reporting.
           python scripts/generate_benchmark_report.py \
             --comparison-status ${{ steps.compare_benchmarks.outputs.comparison_performed }} \
             --main-file main_baseline.json \
@@ -166,3 +137,4 @@ jobs:
         with:
           path: benchmark_report.md
           header: "🔍 Benchmark Comparison Report (Python ${{ matrix.python-version }})"
+

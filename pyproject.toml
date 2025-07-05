@@ -75,7 +75,10 @@ include = [
 [tool.hatch.build.targets.wheel]
 include = ["/src/QuPRS"]
 pure-python-wheel = false
-
+[tool.hatch.envs.default.scripts]
+test = "pytest"
+bench = "pytest --benchmark-only --benchmark-json={args}"
+bench-compare = "pytest --benchmark-compare={args}"
 
 
 

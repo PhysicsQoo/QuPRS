@@ -31,6 +31,7 @@ dependencies = [
     "qiskit-qasm3-import>=0.5.1",
 ]
 dynamic = ["version"]
+
 [project.optional-dependencies]
 dev = [
     "ipykernel",
@@ -46,17 +47,18 @@ dev = [
     "hatch",
     "hatch-vcs",
 ]
+
 [project.urls]
 Homepage = "https://github.com/PhysicsQoo/QuPRS" # GitHub link
 PyPI = "https://pypi.org/project/QuPRS/"
-# (Optional) Other URLs related to your project
-# "Bug Tracker" = "..."
-# "Documentation" = "..."
+
 [tool.hatch.version]
 source = "vcs"
 fallback-version = "0.0.1"
+
 [tool.hatch.build.hooks.vcs]
 version-file = "src/QuPRS/_version.py"
+
 [tool.hatch.build.hooks.custom]
 # Points to our custom build script
 path = "scripts/hatch_build.py"
@@ -74,12 +76,19 @@ include = [
 packages = ["src/QuPRS"]
 pure-python-wheel = false
 
-
-
-
 [tool.cibuildwheel]
-skip = "*-win*"
+
+test-requires = "pytest"
+test-command = "pytest {project}/tests" 
+
+build-verbosity = 1
+
 [tool.cibuildwheel.linux]
-before-build = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
+before-all = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
+
 [tool.cibuildwheel.macos]
-before-build = "brew install gmp mpfr zlib cmake"
+before-all = "brew install gmp mpfr zlib cmake"
+
+
+[tool.cibuildwheel.windows]
+before-all = "choco install -y cmake gmp mpfr zlib"

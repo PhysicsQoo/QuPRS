@@ -82,7 +82,6 @@ shared-data = [
 test-requires = "pytest"
 test-command = "pytest {project}/tests"
 build-verbosity = 1
-before-all = "git submodule update --init --recursive"
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"

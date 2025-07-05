@@ -32,7 +32,7 @@ jobs:
         with:
           # It is recommended to specify an explicit Python version to ensure consistent build environments
 
-          python-version: '3.x'
+          python-version: '3.12'
 
       - name: Install cibuildwheel
         run: python -m pip install cibuildwheel
@@ -41,6 +41,8 @@ jobs:
         # Run cibuildwheel, which handles all platform-specific build details
         # It reads your pyproject.toml for system dependencies
         run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_BUILD: cp311-* cp312-* cp313-*
 
       - name: Upload built wheels
         # Upload the built wheel files as artifacts for use in the next job

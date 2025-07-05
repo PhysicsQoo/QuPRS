@@ -9,13 +9,14 @@ on:
 jobs:
     build:
         # Specify the runner environment
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.os }}
 
-        # Test matrix for multiple Python versions
+        # Test matrix for multiple operating systems
         strategy:
             fail-fast: false
             matrix:
-                python-version: ["3.11", "3.12", "3.13"]
+                os: [ubuntu-latest, macos-latest]
+                python-version: ["3.11", "3.12", "3.13"]                
 
         steps:
           # Step 1: Checkout repository code
@@ -31,10 +32,15 @@ jobs:
             with:
               python-version: ${{ matrix.python-version }}
               cache: 'pip'
-          - name: Install system dependencies for GPMC
+          - name: Install system dependencies for GPMC (Linux)
+            if: matrix.os == 'ubuntu-latest'
             run: |
               sudo apt-get update
               sudo apt-get install -y libgmp-dev libmpfr-dev
+          - name: Install system dependencies for GPMC (macOS)
+            if: matrix.os == 'macos-latest'
+            run: |
+              brew install cmake gmp mpfr zlib
 
           # Step 3: Install dependencies
           - name: Install dependencies
@@ -59,7 +65,7 @@ jobs:
             if: always()
             uses: actions/upload-artifact@v4
             with:
-              name: pytest-results-html-${{ matrix.python-version }}
+              name: pytest-results-html-${{ matrix.os }}-${{ matrix.python-version }}
               path: pytest-results.html
 
           # Step 6: Upload pytest XML results as artifact
@@ -67,14 +73,14 @@ jobs:
             if: always()
             uses: actions/upload-artifact@v4
             with:
-              name: pytest-results-xml-${{ matrix.python-version }}
+              name: pytest-results-xml-${{ matrix.os }}-${{ matrix.python-version }}
               path: pytest-results.xml
           # Step 7: Upload coverage XML report  
           - name: Upload coverage XML report
             if: always()
             uses: actions/upload-artifact@v4
             with:
-              name: coverage-report-xml-${{ matrix.python-version }}
+              name: coverage-report-xml-${{ matrix.os }}-${{ matrix.python-version }}
               path: coverage.xml
 
           # Step 8: Upload coverage HTML report  
@@ -82,6 +88,6 @@ jobs:
             if: always()
             uses: actions/upload-artifact@v4
             with:
-              name: coverage-report-html-${{ matrix.python-version }}
+              name: coverage-report-html-${{ matrix.os }}-${{ matrix.python-version }}
               path: htmlcov
             

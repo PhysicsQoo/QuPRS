@@ -57,6 +57,10 @@ source = "vcs"
 fallback-version = "0.0.1"
 [tool.hatch.build.hooks.vcs]
 version-file = "src/QuPRS/_version.py"
+[tool.hatch.build.hooks.custom]
+# Points to our custom build script
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
@@ -67,13 +71,11 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-pure-python-wheel = false
-
-
-[tool.hatch.build.hooks.custom]
-# Points to our custom build script
 packages = ["src/QuPRS"]
 pure-python-wheel = false
+
+
+
 
 [tool.cibuildwheel]
 skip = "*-win*"

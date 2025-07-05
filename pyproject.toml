@@ -75,6 +75,6 @@ path = "hatch_build.py"
 [tool.cibuildwheel]
 skip = "*-win*"
 [tool.cibuildwheel.linux]
-before-build = "apt-get update && apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev cmake"
+before-build = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
 [tool.cibuildwheel.macos]
 before-build = "brew install gmp mpfr zlib cmake"

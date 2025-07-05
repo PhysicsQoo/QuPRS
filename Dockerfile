@@ -27,7 +27,7 @@ COPY . .
 
 RUN git submodule update --init --recursive
 RUN conda run -n base pip install wheel && \
-    conda run -n base pip wheel . --wheel-dir /wheels
+    conda run -n base pip wheel ".[dev]" --wheel-dir /wheels
 
 # Set environment variables
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
@@ -37,8 +37,9 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 FROM builder AS tester
 
 # Run tests using pytest
-RUN pip install --no-index --find-links=/wheels "QuPRS[dev]"
-RUN conda run -n base pytest -n auto 
+RUN conda run -n base pip install --no-index --find-links=/wheels "QuPRS[dev]"
+RUN conda run -n base pytest -n auto
+
 
 FROM continuumio/miniconda3 AS final
 WORKDIR /app

@@ -19,19 +19,17 @@ RUN pip install --upgrade pip setuptools wheel
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
+    cmake \
     libgmp-dev \
     libmpfr-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python project files and source code
-# COPY pyproject.toml MANIFEST.in ./
-# COPY ./src /app/src
 COPY . .
 
 RUN git submodule update --init --recursive
 
-RUN pip install wheel && \
-    pip wheel . --wheel-dir /wheels
+RUN conda run -n base pip install wheel && \
+    conda run -n base pip wheel . --wheel-dir /wheels
 
 # Set environment variables
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
@@ -39,10 +37,6 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 
 FROM builder AS tester
-
-# 4. Copy benchmark, test, and documentation files into the container
-COPY ./benchmarks /app/benchmarks
-COPY ./test /app/test
 
 # Run tests using pytest
 RUN pip install --no-index --find-links=/wheels "QuPRS[dev]"

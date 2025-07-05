@@ -14,14 +14,17 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 class CustomBuildHook(BuildHookInterface):
     def get_gpmc_binary_name(self):
         """
-        Returns the platform-specific executable name for GPMC.
-        Executables on Linux and macOS typically have no extension.
+        Returns the platform-specific binary name for GPMC.
         """
         os_name = platform.system()
-        if os_name == "Windows":
+        if os_name == "Linux":
+            return "gpmc.so"
+        elif os_name == "Darwin":  # macOS
+            return "gpmc.dylib"
+        elif os_name == "Windows":
             return "gpmc.exe"
-        # For Linux and macOS, the executable is just 'gpmc'
-        return "gpmc"
+        else:
+            return "gpmc"  # Fallback for unknown platforms
 
     def initialize(self, version, build_data):
         """
@@ -33,22 +36,24 @@ class CustomBuildHook(BuildHookInterface):
         gpmc_src_path = os.path.join(PROJECT_ROOT, "GPMC")
         build_dir = os.path.join(gpmc_src_path, "build")
 
-        # The rest of the file remains unchanged, but I'll make one small change
-        # to the binary renaming logic to be more robust.
-
+        # Ensure the GPMC source directory exists
         if not os.path.isdir(gpmc_src_path):
             raise FileNotFoundError("GPMC source directory not found.")
 
+        # Clean up any previous build artifacts
         if os.path.exists(build_dir):
             shutil.rmtree(build_dir)
         os.makedirs(build_dir, exist_ok=True)
 
+        # Prepare CMake arguments for cross-platform compatibility
         cmake_args = [
             "cmake",
             "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         ]
         os_name = platform.system()
         if os_name == "Darwin":
+            # On macOS, add Homebrew include and lib paths if available
             brew_prefix = os.environ.get("HOMEBREW_PREFIX", "/opt/homebrew")
             cxx_flags = f"-I{brew_prefix}/opt/gmp/include -I{brew_prefix}/opt/mpfr/include -I{brew_prefix}/opt/zlib/include"
             ld_flags = f"-L{brew_prefix}/opt/gmp/lib -L{brew_prefix}/opt/mpfr/lib -L{brew_prefix}/opt/zlib/lib"
@@ -60,47 +65,31 @@ class CustomBuildHook(BuildHookInterface):
             )
         cmake_args.append("..")
 
+        # Run CMake and Make to build the binary
         try:
             subprocess.check_call(cmake_args, cwd=build_dir)
             subprocess.check_call(["make"], cwd=build_dir)
         except subprocess.CalledProcessError as e:
             raise e
 
-        # CMake on Windows might already produce 'gpmc.exe'
-        original_binary_name_unix = "gpmc"
-        original_binary_name_windows = "gpmc.exe"
-        
-        # The final name we want for the binary
+        # Rename the binary according to the platform
         new_binary_name = self.get_gpmc_binary_name()
-        
-        # Path to the final binary in the build directory
+        original_binary_path = os.path.join(build_dir, "gpmc")
         new_binary_path = os.path.join(build_dir, new_binary_name)
-        
-        # Check for original names and rename if necessary
-        original_binary_path_unix = os.path.join(build_dir, original_binary_name_unix)
-        original_binary_path_windows = os.path.join(build_dir, "Release", original_binary_name_windows) # VS builds are often in a Release subdir
-
-        # Default path
-        binary_to_move = None
-        if os.path.exists(original_binary_path_unix):
-             binary_to_move = original_binary_path_unix
-        elif os.path.exists(original_binary_path_windows):
-             binary_to_move = original_binary_path_windows
-        
-        if binary_to_move and binary_to_move != new_binary_path:
-            shutil.move(binary_to_move, new_binary_path)
-        
-        if not os.path.exists(new_binary_path):
+        if os.path.exists(original_binary_path):
+            shutil.move(original_binary_path, new_binary_path)
+        elif not os.path.exists(new_binary_path):
             raise FileNotFoundError(
-                f"GPMC binary not found after build at expected path '{new_binary_path}'"
+                f"GPMC binary not found after build at {original_binary_path}"
             )
 
         print(f"--- [Hatch Hook] GPMC compiled successfully on {os_name} ---")
 
+        # Copy the compiled binary to the package's utils directory
         target_dir = os.path.join(PROJECT_ROOT, "src", "QuPRS", "utils")
         os.makedirs(target_dir, exist_ok=True)
         target_file = os.path.join(target_dir, new_binary_name)
 
         print(f"--- [Hatch Hook] Copying '{new_binary_path}' to '{target_file}' ---")
         shutil.copy(new_binary_path, target_file)
-        build_data["artifacts"].append(target_file)
+        # Note: No need for chmod, as the file will be used directly in editable installs

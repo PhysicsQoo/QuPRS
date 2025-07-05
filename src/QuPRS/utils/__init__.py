@@ -21,12 +21,15 @@ def get_gpmc_path() -> Iterator[Path]:
         FileNotFoundError: If the binary is missing from the package.
     """
     os_name = platform.system()
-    
-    if os_name == "Windows":
+    if os_name == "Linux":
+        binary_name = "gpmc.so"
+    elif os_name == "Darwin":  # macOS
+        binary_name = "gpmc.dylib"
+    elif os_name == "Windows":
         # Reserved for future Windows support
         binary_name = "gpmc.exe"
     else:
-        binary_name = "gpmc"
+        raise OSError(f"Unsupported OS: GPMC binary not available for {os_name}")
 
     try:
         # 1. Locate the binary resource within the 'QuPRS.utils' submodule

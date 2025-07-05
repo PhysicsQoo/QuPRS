@@ -54,11 +54,9 @@ PyPI = "https://pypi.org/project/QuPRS/"
 # "Documentation" = "..."
 [tool.hatch.version]
 source = "vcs"
-fallback = "0.0.1"
-
+fallback-version = "0.0.1"
 [tool.hatch.build.hooks.vcs]
 version-file = "src/QuPRS/_version.py"
-
 [tool.hatch.build.hooks.custom]
 # Points to our custom build script
 path = "hatch_build.py"
@@ -73,18 +71,15 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-include = ["/src/QuPRS"]
+packages = ["src/QuPRS"]
 pure-python-wheel = false
-[tool.hatch.envs.default.scripts]
-test = "pytest"
-bench = "pytest --benchmark-only --benchmark-json={args}"
-bench-compare = "pytest --benchmark-compare={args}"
+
 
 
 
 [tool.cibuildwheel]
+skip = "*-win*"
 [tool.cibuildwheel.linux]
 before-build = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
 [tool.cibuildwheel.macos]
 before-build = "brew install gmp mpfr zlib cmake"
-[tool.cibuildwheel.windows]

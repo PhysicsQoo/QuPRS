@@ -1,11 +1,9 @@
-import resource
 import signal
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-import psutil
 import symengine as se
 from qiskit import QuantumCircuit, qasm2, qasm3
 
@@ -13,6 +11,7 @@ from QuPRS import config
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 from QuPRS.pathsum.statistics import StatisticsManager
+from QuPRS.utils.util import set_safe_memory_limit
 
 
 def timeout_handler(signum, frame):
@@ -392,9 +391,7 @@ def check_equivalence(
     gates1 = get_gates(qiskit_circuit1)
     gates2 = get_gates(qiskit_circuit2)
 
-    total_mem = psutil.virtual_memory().total
-    soft, hard = int(total_mem * 0.7), int(total_mem * 0.8)
-    resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+    set_safe_memory_limit()
     signal.alarm(timeout)
 
     try:

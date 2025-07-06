@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0.0", "setuptools_scm[toml]>=6.2", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "QuPRS"
@@ -31,7 +31,6 @@ dependencies = [
     "qiskit-qasm3-import>=0.5.1",
 ]
 dynamic = ["version"]
-
 [project.optional-dependencies]
 dev = [
     "ipykernel",
@@ -43,37 +42,20 @@ dev = [
     "pytest-benchmark",
     "pytest-html",
     "pandas",
-    "tqdm",
-    "hatch",
-    "hatch-vcs",
+    "tqdm"
 ]
-
 [project.urls]
 Homepage = "https://github.com/PhysicsQoo/QuPRS" # GitHub link
 PyPI = "https://pypi.org/project/QuPRS/"
+# (Optional) Other URLs related to your project
+# "Bug Tracker" = "..."
+# "Documentation" = "..."
 
-[tool.hatch.version]
-source = "vcs"
-fallback-version = "0.0.1"
+[tool.setuptools.packages.find]
+where = ["src"]  
 
-[tool.hatch.build.hooks.vcs]
-version-file = "src/QuPRS/_version.py"
+[tool.setuptools.package-data]
+QuPRS = ["utils/gpmc","utils/gpmc.so","utils/gpmc.dylib"]
 
-[tool.hatch.build.targets.wheel.hooks.custom]
-# Points to our custom build script
-path = "scripts/hatch_build.py"
-
-[tool.hatch.build.targets.sdist]
-include = [
-    "src",
-    "GPMC",
-    "scripts/hatch_build.py",
-    "pyproject.toml",
-    "README.md",
-]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/QuPRS"]
-pure-python-wheel = false
-
-
+[tool.setuptools_scm]
+write_to = "src/QuPRS/_version.py"

@@ -71,6 +71,10 @@ jobs:
                 BINARY_PATH="${{ env.GPMC_DIR }}/gpmc.exe"
               else
                 BINARY_PATH="${{ env.GPMC_DIR }}/gpmc"
+              else
+                BINARY_PATH="${{ env.GPMC_DIR }}/gpmc.so"
+              else
+                BINARY_PATH="${{ env.GPMC_DIR }}/gpmc.dylib"
               fi
               if [ ! -f "$BINARY_PATH" ]; then
                 echo "Binary not found at $BINARY_PATH"; exit 1

@@ -32,6 +32,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          submodules: True
           fetch-depth: 0
 
       - name: Build wheels with cibuildwheel

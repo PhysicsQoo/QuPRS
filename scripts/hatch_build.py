@@ -67,21 +67,33 @@ class CustomBuildHook(BuildHookInterface):
 
         # Run CMake and Make to build the binary
         try:
+            # Step 1: Configure
             subprocess.check_call(cmake_args, cwd=build_dir)
-            subprocess.check_call(["make"], cwd=build_dir)
+            # Step 2: Build using cmake's universal build command
+            # This works on Linux (make), macOS (make/xcodebuild), and Windows (MSBuild)
+            subprocess.check_call(["cmake", "--build", "."], cwd=build_dir)
+
         except subprocess.CalledProcessError as e:
             raise e
 
-        # Rename the binary according to the platform
         new_binary_name = self.get_gpmc_binary_name()
-        original_binary_path = os.path.join(build_dir, "gpmc")
-        new_binary_path = os.path.join(build_dir, new_binary_name)
-        if os.path.exists(original_binary_path):
-            shutil.move(original_binary_path, new_binary_path)
-        elif not os.path.exists(new_binary_path):
-            raise FileNotFoundError(
-                f"GPMC binary not found after build at {original_binary_path}"
-            )
+
+        # Step 3: Find the compiled binary at the correct path
+        if os_name == "Windows":
+            # On Windows, the executable is often in a 'Release' subdirectory
+            original_binary_path = os.path.join(build_dir, "Release", new_binary_name)
+        else:
+            original_binary_path = os.path.join(build_dir, new_binary_name)
+
+        # Fallback if the path is different
+        if not os.path.exists(original_binary_path):
+            fallback_path = os.path.join(build_dir, new_binary_name)
+            if os.path.exists(fallback_path):
+                original_binary_path = fallback_path
+            else:
+                 raise FileNotFoundError(
+                    f"GPMC binary not found at '{original_binary_path}' or '{fallback_path}'"
+                )
 
         print(f"--- [Hatch Hook] GPMC compiled successfully on {os_name} ---")
 
@@ -90,6 +102,5 @@ class CustomBuildHook(BuildHookInterface):
         os.makedirs(target_dir, exist_ok=True)
         target_file = os.path.join(target_dir, new_binary_name)
 
-        print(f"--- [Hatch Hook] Copying '{new_binary_path}' to '{target_file}' ---")
-        shutil.copy(new_binary_path, target_file)
-        # Note: No need for chmod, as the file will be used directly in editable installs
+        print(f"--- [Hatch Hook] Copying '{original_binary_path}' to '{target_file}' ---")
+        shutil.copy(original_binary_path, target_file)

@@ -95,4 +95,4 @@ before-all = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
 before-build = "brew install gmp mpfr zlib cmake"
 
 [tool.cibuildwheel.windows]
-before-all = "pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr mingw-w64-x86_64-zlib mingw-w64-x86_64-cmake"
+before-all = "choco install -y msys2 --params \"/NoUpdate /InstallDir:C:\\msys64\" && C:\\msys64\\usr\\bin\\bash -lc 'pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr'"

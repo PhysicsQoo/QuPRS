@@ -32,7 +32,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: True
+          submodules: 'recursive'
           fetch-depth: 0
 
       - name: Build wheels with cibuildwheel
@@ -78,9 +78,6 @@ jobs:
     runs-on: ubuntu-latest
 
     # Uses PyPI Trusted Publishing (OIDC) for secure publishing.
-    environment:
-      name: pypi
-      url: https://pypi.org/p/QuPRS # Replace QuPRS with your PyPI project name
     permissions:
       # id-token: write is required for OIDC Trusted Publishing.
       id-token: write

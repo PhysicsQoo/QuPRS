@@ -19,9 +19,9 @@ class CustomBuildHook(BuildHookInterface):
         """
         os_name = platform.system()
         if os_name == "Linux":
-            return "gpmc-linux"
+            return "gpmc.so"
         elif os_name == "Darwin":  # macOS
-            return "gpmc-macos"
+            return "gpmc.dylib"
         elif os_name == "Windows":
             return "gpmc.exe"
         else:

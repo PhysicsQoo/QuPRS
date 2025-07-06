@@ -110,7 +110,7 @@ jobs:
         run: |
           PACKAGE_VERSION="${GITHUB_REF_NAME#v}"
           echo "Setting Hatch project version to: $PACKAGE_VERSION"
-          hatch version "$PACKAGE_VERSION"
+          hatch version "$PACKAGE_VERSION" --allow-same-version
         shell: bash
 
       - name: Temporarily set Hatch version source to static (for release builds)

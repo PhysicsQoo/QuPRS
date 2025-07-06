@@ -59,20 +59,17 @@ jobs:
       - name: Install Hatch
         run: pip install hatch hatch-vcs
 
-      - name: Set Hatch version from Git tag (for release builds)
+      - name: Convert pyproject.toml to static version for release builds
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
-          PACKAGE_VERSION="${GITHUB_REF_NAME#v}" 
-          echo "Setting Hatch project version to: $PACKAGE_VERSION"
-          hatch version "$PACKAGE_VERSION" || true
-        shell: bash
+          PACKAGE_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Converting pyproject.toml to static version: $PACKAGE_VERSION"
 
-      - name: Temporarily set Hatch version source to static (for release builds)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        run: |
+          perl -pi -e "s/^dynamic = \[\"version\"\]/version = \"$PACKAGE_VERSION\"/" pyproject.toml
           perl -pi -e 's/source = "vcs"/source = "static"/' pyproject.toml
-          echo "pyproject.toml modified: source is now static"
-          cat pyproject.toml 
+
+          echo "Modified pyproject.toml content:"
+          cat pyproject.toml
         shell: bash
 
 
@@ -108,21 +105,19 @@ jobs:
       - name: Install Hatch
         run: pip install hatch hatch-vcs
 
-      - name: Set Hatch version from Git tag (for release builds)
+      - name: Convert pyproject.toml to static version for release builds
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           PACKAGE_VERSION="${GITHUB_REF_NAME#v}"
-          echo "Setting Hatch project version to: $PACKAGE_VERSION"
-          hatch version "$PACKAGE_VERSION" || true
-        shell: bash
+          echo "Converting pyproject.toml to static version: $PACKAGE_VERSION"
 
-      - name: Temporarily set Hatch version source to static (for release builds)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        run: |
+          perl -pi -e "s/^dynamic = \[\"version\"\]/version = \"$PACKAGE_VERSION\"/" pyproject.toml
           perl -pi -e 's/source = "vcs"/source = "static"/' pyproject.toml
-          echo "pyproject.toml modified: source is now static"
+
+          echo "Modified pyproject.toml content:"
           cat pyproject.toml
         shell: bash
+
 
       - name: Clean up existing dist directory
         run: rm -rf dist/

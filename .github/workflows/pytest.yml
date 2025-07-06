@@ -33,78 +33,62 @@ jobs:
             with:
               python-version: ${{ matrix.python-version }}
               cache: 'pip'
-          - name: Install system dependencies for GPMC (Linux)
+          # Step 3: Install system dependencies
+          - name: Install system dependencies (Linux)
             if: matrix.os == 'ubuntu-latest'
-            run: |
-              sudo apt-get update
-              sudo apt-get install -y libgmp-dev libmpfr-dev
-          - name: Install system dependencies for GPMC (macOS)
+            run: sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev
+          - name: Install system dependencies (macOS)
             if: matrix.os == 'macos-latest'
-            run: |
-              brew install cmake gmp mpfr zlib
-          - name: Install system dependencies (Windows)
+            run: brew install cmake gmp mpfr zlib
+          - name: Setup MSYS2 and install dependencies (Windows)
             if: matrix.os == 'windows-latest'
-            shell: powershell
-            run: |
-              git clone https://github.com/microsoft/vcpkg.git
-              ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
-              ./vcpkg/vcpkg.exe install gmp:x64-windows mpfr:x64-windows zlib:x64-windows
-              echo "CMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+            uses: msys2/setup-msys2@v2
+            with:
+              msystem: MINGW64
+              update: true
+              install: >-
+                mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr mingw-w64-x86_64-zlib
 
-
-          # Step 3: Install dependencies
-          - name: Install dependencies
-            run: |
-              python -m pip install --upgrade pip
-              pip install .[dev]
-          - name: Verify GPMC binary exists (Windows)
-            if: matrix.os == 'windows-latest'
-            shell: powershell
-            run: |
-              $binaryPath = "${{ env.GPMC_DIR }}/gpmc.exe"
-              if (-not (Test-Path $binaryPath)) {
-                echo "Binary not found at $binaryPath"
-                exit 1
-              }
-              echo "✅ Binary found: $binaryPath"
-              ls ${{ env.GPMC_DIR }}
-
-          - name: Verify GPMC binary exists (Unix)
+          # Step 4: Install Python dependencies and build binary (Now split by platform)
+          - name: Install and build (Unix)
             if: matrix.os != 'windows-latest'
-            run: |
-              binary_path="${{ env.GPMC_DIR }}/gpmc"
-              if [ ! -f "$binary_path" ]; then
-                echo "Binary not found at $binary_path"
-                exit 1
-              fi
-              echo "✅ Binary found: $binary_path"
-              ls -l ${{ env.GPMC_DIR }}
-          - name: Locate built GPMC binary
-            id: locate-bin
+            run: python -m pip install --upgrade pip && pip install .[dev]
+          - name: Install and build (Windows)
+            if: matrix.os == 'windows-latest'
+            shell: msys2 {0}
+            run: python -m pip install --upgrade pip && pip install .[dev]
+
+          # Step 5: Verify the binary exists (No Change, already safe)
+          - name: Verify GPMC binary exists
             shell: bash
             run: |
               if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-                echo "BIN=$GPMC_DIR/gpmc.exe" >> $GITHUB_OUTPUT
-              elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-                echo "BIN=$GPMC_DIR/gpmc.dylib" >> $GITHUB_OUTPUT
+                BINARY_PATH="${{ env.GPMC_DIR }}/gpmc.exe"
               else
-                echo "BIN=$GPMC_DIR/gpmc.so" >> $GITHUB_OUTPUT   # Linux 預設為 .so
+                BINARY_PATH="${{ env.GPMC_DIR }}/gpmc"
               fi
+              if [ ! -f "$BINARY_PATH" ]; then
+                echo "Binary not found at $BINARY_PATH"; exit 1
+              fi
+              echo "✅ Binary found: $BINARY_PATH"
+
+          # Step 6: Upload artifact (No Change, already safe)
           - name: Upload GPMC binary artifact
+            if: always()
             uses: actions/upload-artifact@v4
             with:
               name: gpmc-${{ matrix.os }}-${{ matrix.python-version }}
-              path: ${{ steps.locate-bin.outputs.BIN }}
-          # Step 4: Run pytest
-          - name: Run tests with pytest
-            run: |
-              pytest -n auto -v \
-              --junitxml=pytest-results.xml \
-              --html=pytest-results.html \
-              --self-contained-html \
-              --cov=QuPRS \
-              --cov-report=xml \
-              --cov-report=html
+              path: ${{ env.GPMC_DIR }}
+
+          # Step 7: Run pytest (Now split by platform)
+          - name: Run tests (Unix)
+            if: matrix.os != 'windows-latest'
+            run: pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html --cov=QuPRS --cov-report=xml --cov-report=html
+          - name: Run tests (Windows)
+            if: matrix.os == 'windows-latest'
+            shell: msys2 {0}
+            run: pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html --cov=QuPRS --cov-report=xml --cov-report=html
+
 
           # Step 5: Upload pytest HTML results as artifact
           - name: Upload pytest HTML results

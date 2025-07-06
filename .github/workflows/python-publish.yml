@@ -42,9 +42,18 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install gmp mpfr zlib cmake
 
-      - name: Install build dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: echo "No extra dependencies needed for Windows runner by default"
+      - name: Setup MSYS2 and install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-gmp
+            mingw-w64-x86_64-mpfr
+            mingw-w64-x86_64-zlib
 
       - name: Install Hatch
         run: pip install hatch hatch-vcs

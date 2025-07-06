@@ -22,9 +22,9 @@ def get_gpmc_path() -> Iterator[Path]:
     """
     os_name = platform.system()
     if os_name == "Linux":
-        binary_name = "gpmc.so"
+        binary_name = "gpmc-linux"
     elif os_name == "Darwin":  # macOS
-        binary_name = "gpmc.dylib"
+        binary_name = "gpmc-macos"
     elif os_name == "Windows":
         # Reserved for future Windows support
         binary_name = "gpmc.exe"

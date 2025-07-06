@@ -17,7 +17,8 @@ jobs:
             matrix:
                 os: [ubuntu-latest, macos-latest, windows-latest]
                 python-version: ["3.11", "3.12", "3.13"]                
-
+        env:
+          GPMC_DIR: src/QuPRS/utils
         steps:
           # Step 1: Checkout repository code
           - name: Check out repository code
@@ -43,8 +44,14 @@ jobs:
               brew install cmake gmp mpfr zlib
           - name: Install system dependencies for GPMC (Windows)
             if: matrix.os == 'windows-latest'
+            shell: powershell
             run: |
-              choco install cmake gmp mpfr zlib
+              git clone https://github.com/microsoft/vcpkg.git
+              ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
+              ./vcpkg/vcpkg.exe install gmp mpfr zlib:x64-windows
+              echo "VCPKG_ROOT=${{ github.workspace }}\\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+              echo "CMAKE_TOOLCHAIN_FILE=${{ github.workspace }}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+
 
           # Step 3: Install dependencies
           - name: Install dependencies
@@ -52,7 +59,24 @@ jobs:
               python -m pip install --upgrade pip
               python -m pip install cibuildwheel
               pip install .[dev]
-
+          - name: Build wheel (invokes Hatch custom build hook)
+            run: python -m build --wheel
+          - name: Locate built GPMC binary
+            id: locate-bin
+            shell: bash
+            run: |
+              if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+                echo "BIN=$GPMC_DIR/gpmc.exe" >> $GITHUB_OUTPUT
+              elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+                echo "BIN=$GPMC_DIR/gpmc.dylib" >> $GITHUB_OUTPUT
+              else
+                echo "BIN=$GPMC_DIR/gpmc.so" >> $GITHUB_OUTPUT   # Linux 預設為 .so
+              fi
+          - name: Upload GPMC binary artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: gpmc-${{ matrix.os }}-${{ matrix.python-version }}
+              path: ${{ steps.locate-bin.outputs.BIN }}
           # Step 4: Run pytest
           - name: Run tests with pytest
             run: |

@@ -59,7 +59,7 @@ fallback-version = "0.0.1"
 [tool.hatch.build.hooks.vcs]
 version-file = "src/QuPRS/_version.py"
 
-[tool.hatch.build.hooks.custom]
+[tool.hatch.build.targets.wheel.hooks.custom]
 # Points to our custom build script
 path = "scripts/hatch_build.py"
 

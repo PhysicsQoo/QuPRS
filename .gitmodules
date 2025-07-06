@@ -1,3 +1,3 @@
 [submodule "GPMC"]
 	path = GPMC
-	url = https://github.com/PhysicsQoo/GPMC.git
+	url = https://github.com/System-Verification-Lab/GPMC.git

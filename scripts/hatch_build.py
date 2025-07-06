@@ -11,6 +11,7 @@ import subprocess
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
+
 class CustomBuildHook(BuildHookInterface):
     def get_gpmc_binary_name(self):
         """
@@ -51,6 +52,9 @@ class CustomBuildHook(BuildHookInterface):
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         ]
+        toolchain = os.environ.get("CMAKE_TOOLCHAIN_FILE")
+        if toolchain:
+            cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain}")
         os_name = platform.system()
         if os_name == "Darwin":
             # On macOS, add Homebrew include and lib paths if available

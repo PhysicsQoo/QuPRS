@@ -11,6 +11,7 @@ import subprocess
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
+
 class CustomBuildHook(BuildHookInterface):
     def get_gpmc_binary_name(self):
         """
@@ -68,26 +69,17 @@ class CustomBuildHook(BuildHookInterface):
             )
         cmake_args.append("..")
 
-        # Run CMake configuration
-        subprocess.check_call(cmake_args, cwd=build_dir)
-
-        # Build with cmake --build, cross-platform
-        build_cmd = ["cmake", "--build", ".", "--config", "Release"]
-        subprocess.check_call(build_cmd, cwd=build_dir)
+        # Run CMake and Make to build the binary
+        try:
+            subprocess.check_call(cmake_args, cwd=build_dir)
+            subprocess.check_call(["make"], cwd=build_dir)
+        except subprocess.CalledProcessError as e:
+            raise e
 
         # Rename the binary according to the platform
         new_binary_name = self.get_gpmc_binary_name()
-
-        # Determine the actual build output path for each OS
-        if os_name == "Windows":
-            # On Windows, executable usually goes to build_dir\Release\
-            original_binary_path = os.path.join(build_dir, "Release", "gpmc.exe")
-        else:
-            # On Linux/macOS usually directly in build_dir
-            original_binary_path = os.path.join(build_dir, "gpmc")
-
+        original_binary_path = os.path.join(build_dir, "gpmc")
         new_binary_path = os.path.join(build_dir, new_binary_name)
-
         if os.path.exists(original_binary_path):
             shutil.move(original_binary_path, new_binary_path)
         elif not os.path.exists(new_binary_path):
@@ -104,3 +96,4 @@ class CustomBuildHook(BuildHookInterface):
 
         print(f"--- [Hatch Hook] Copying '{new_binary_path}' to '{target_file}' ---")
         shutil.copy(new_binary_path, target_file)
+        # Note: No need for chmod, as the file will be used directly in editable installs

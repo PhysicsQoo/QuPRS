@@ -66,8 +66,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist-wheels-${{ matrix.os }}
+          path: dist/*.whl      
+      - name: Upload wheel artifacts (for PyPI release - only on tags)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-release-wheels 
           path: dist/*.whl
-
   # --- Job 2: Build Source Distribution (Sdist) ---
   # This job runs on all triggers and builds the source distribution.
   build_sdist:
@@ -90,6 +95,12 @@ jobs:
         with:
           name: dist-sdist
           path: dist/*.tar.gz
+      - name: Upload sdist artifact (for PyPI release - only on tags)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-release-sdist # 專門用於 PyPI 發布的 artifact 名稱
+          path: dist/*.tar.gz
 
 
   # --- Job 3: Publish to PyPI and Create GitHub Release ---
@@ -111,12 +122,18 @@ jobs:
       contents: write
 
     steps:
-      - name: Download all artifacts
+      - name: Download PyPI release artifacts (wheels)
         uses: actions/download-artifact@v4
         with:
+          name: pypi-release-wheels 
           path: dist
-          pattern: dist-*
-          merge-multiple: true
+      - name: Download PyPI release artifacts (sdist)
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-release-sdist 
+          path: dist
+      - name: List files in dist directory (for debugging)
+        run: ls -R dist
 
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

@@ -59,19 +59,22 @@ jobs:
       - name: Install Hatch
         run: pip install hatch hatch-vcs
 
-      - name: Set build environment variables
-        id: set_build_env
+      - name: Set Hatch version from Git tag (for release builds)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           PACKAGE_VERSION="${GITHUB_REF_NAME#v}" 
+          echo "Setting Hatch project version to: $PACKAGE_VERSION"
+          hatch version "$PACKAGE_VERSION" || true
+        shell: bash
 
-          if [[ "${{ github.event_name }}" == "push" && "${{ startsWith(github.ref, 'refs/tags/v') }}" == "true" ]]; then
-            echo "HATCH_BUILD_HOOK_ENABLE=0" >> $GITHUB_ENV
-            echo "HATCH_BUILD_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
-            echo "Building with forced version: $PACKAGE_VERSION"
-          else
-            echo "Building with auto-detected version."
-          fi
-        shell: bash 
+      - name: Temporarily set Hatch version source to static (for release builds)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          perl -pi -e 's/source = "vcs"/source = "static"/' pyproject.toml
+          echo "pyproject.toml modified: source is now static"
+          cat pyproject.toml 
+        shell: bash
+
 
       - name: Clean up existing dist directory
         run: rm -rf dist/ 
@@ -110,7 +113,7 @@ jobs:
         run: |
           PACKAGE_VERSION="${GITHUB_REF_NAME#v}"
           echo "Setting Hatch project version to: $PACKAGE_VERSION"
-          hatch version "$PACKAGE_VERSION" --allow-same-version
+          hatch version "$PACKAGE_VERSION" || true
         shell: bash
 
       - name: Temporarily set Hatch version source to static (for release builds)

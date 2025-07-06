@@ -75,24 +75,5 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/QuPRS"]
 pure-python-wheel = false
-include = ["src/QuPRS/utils/gpmc*",
-            "GPMC/**", 
-]
 
-[tool.cibuildwheel]
-build-frontend = "build"
 
-test-requires = "pytest"
-test-command = "pytest {project}/tests"
-build-verbosity = 1
-
-[tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux_2_28"
-manylinux-i686-image = "manylinux_2_28"
-before-all = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
-
-[tool.cibuildwheel.macos]
-before-build = "brew install gmp mpfr zlib cmake"
-
-[tool.cibuildwheel.windows]
-before-all = "choco install -y msys2 --params \"/NoUpdate /InstallDir:C:\\msys64\" && C:\\msys64\\usr\\bin\\bash -lc 'pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr'"

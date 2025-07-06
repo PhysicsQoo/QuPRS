@@ -34,17 +34,29 @@ jobs:
         with:
           submodules: 'recursive'
           fetch-depth: 0
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential gmp-devel mpfr-devel zlib-devel
 
-      - name: Build wheels with cibuildwheel
-        uses: pypa/cibuildwheel@v2.19.1
-        env:
-          CIBW_BUILD: cp311-* cp312-* cp313-*
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gmp mpfr zlib cmake
+
+      - name: Install build dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: echo "No extra dependencies needed for Windows runner by default"
+        
+      - name: Install Hatch
+        run: pip install hatch hatch-vcs
+
+      - name: Build wheel
+        run: hatch build
 
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cibw-wheels-${{ matrix.os }}
-          path: ./wheelhouse/*.whl
+          name: dist-wheels-${{ matrix.os }}
+          path: dist/*.whl
 
   # --- Job 2: Build Source Distribution (Sdist) ---
   # This job runs on all triggers and builds the source distribution.
@@ -56,6 +68,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Install Hatch
+        run: pip install hatch hatch-vcs
 
       - name: Build sdist
         run: pipx run build --sdist
@@ -63,8 +77,9 @@ jobs:
       - name: Upload sdist artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cibw-sdist
+          name: dist-sdist
           path: dist/*.tar.gz
+
 
   # --- Job 3: Publish to PyPI and Create GitHub Release ---
   # This job runs only when a 'v*' tag is pushed.
@@ -89,7 +104,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: cibw-*
+          pattern: dist-*
           merge-multiple: true
 
       - name: Publish package to PyPI

@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 0
       - name: Install build dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential gmp-devel mpfr-devel zlib-devel
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libgmp-dev libmpfr-dev zlib1g-dev
 
       - name: Install build dependencies (macOS)
         if: runner.os == 'macOS'
@@ -45,7 +45,7 @@ jobs:
       - name: Install build dependencies (Windows)
         if: runner.os == 'Windows'
         run: echo "No extra dependencies needed for Windows runner by default"
-        
+
       - name: Install Hatch
         run: pip install hatch hatch-vcs
 

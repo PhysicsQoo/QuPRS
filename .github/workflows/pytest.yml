@@ -57,7 +57,6 @@ jobs:
           - name: Install dependencies
             run: |
               python -m pip install --upgrade pip
-              python -m pip install cibuildwheel
               pip install .[dev]
           - name: Build wheel (invokes Hatch custom build hook)
             run: python -m build --wheel

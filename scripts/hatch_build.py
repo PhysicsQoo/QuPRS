@@ -18,14 +18,10 @@ class CustomBuildHook(BuildHookInterface):
         Returns the platform-specific binary name for GPMC.
         """
         os_name = platform.system()
-        if os_name == "Linux":
-            return "gpmc.so"
-        elif os_name == "Darwin":  # macOS
-            return "gpmc.dylib"
-        elif os_name == "Windows":
+        if os_name == "Windows":
             return "gpmc.exe"
         else:
-            return "gpmc"  # Fallback for unknown platforms
+            return "gpmc"  
 
     def initialize(self, version, build_data):
         """

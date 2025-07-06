@@ -1,6 +1,6 @@
 [build-system]
-requires = ["scikit-build-core>=0.8", "cmake>=3.18"]
-build-backend = "scikit_build_core.build"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "QuPRS"
@@ -44,52 +44,40 @@ dev = [
     "pytest-html",
     "pandas",
     "tqdm",
-    # "hatch",
-    # "hatch-vcs",
+    "hatch",
+    "hatch-vcs",
 ]
 
 [project.urls]
 Homepage = "https://github.com/PhysicsQoo/QuPRS" # GitHub link
 PyPI = "https://pypi.org/project/QuPRS/"
 
-# [tool.hatch.version]
-# source = "vcs"
-# fallback-version = "0.0.1"
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.1"
 
-# [tool.hatch.build.hooks.vcs]
-# version-file = "src/QuPRS/_version.py"
+[tool.hatch.build.hooks.vcs]
+version-file = "src/QuPRS/_version.py"
 
-# [tool.hatch.build.hooks.custom]
-# # Points to our custom build script
-# path = "scripts/hatch_build.py"
+[tool.hatch.build.hooks.custom]
+# Points to our custom build script
+path = "scripts/hatch_build.py"
 
-# [tool.hatch.build.targets.sdist]
-# include = [
-#     "src",
-#     "GPMC",
-#     "scripts/hatch_build.py",
-#     "pyproject.toml",
-#     "README.md",
-# ]
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "GPMC",
+    "scripts/hatch_build.py",
+    "pyproject.toml",
+    "README.md",
+]
 
-# [tool.hatch.build.targets.wheel]
-# packages = ["src/QuPRS"]
-# pure-python-wheel = false
-# include = ["src/QuPRS/utils/gpmc*",
-#             "GPMC/**", 
-# ]
-
-[tool.scikit-build]
-cmake.source-dir = "wrapper"          
-wheel.packages = ["src/QuPRS"]
-metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
-
-
-[tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "node-and-date"
-
-
+[tool.hatch.build.targets.wheel]
+packages = ["src/QuPRS"]
+pure-python-wheel = false
+include = ["src/QuPRS/utils/gpmc*",
+            "GPMC/**", 
+]
 
 [tool.cibuildwheel]
 build-frontend = "build"
@@ -104,7 +92,7 @@ manylinux-i686-image = "manylinux_2_28"
 before-all = "yum install -y gmp-devel mpfr-devel zlib-devel cmake"
 
 [tool.cibuildwheel.macos]
-before-all = "brew install gmp mpfr zlib cmake"
+before-build = "brew install gmp mpfr zlib cmake"
 
 [tool.cibuildwheel.windows]
 before-all = "choco install -y msys2 --params \"/NoUpdate /InstallDir:C:\\msys64\" && C:\\msys64\\usr\\bin\\bash -lc 'pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr'"

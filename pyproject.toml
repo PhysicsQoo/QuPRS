@@ -75,12 +75,15 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/QuPRS"]
 pure-python-wheel = false
+include = ["src/QuPRS/utils/gpmc*",
+            "GPMC/**", 
+]
 
 [tool.cibuildwheel]
-build-frontend = "build" 
+build-frontend = "build"
 
 test-requires = "pytest"
-test-command = "pytest {project}/tests" 
+test-command = "pytest {project}/tests"
 build-verbosity = 1
 
 [tool.cibuildwheel.linux]

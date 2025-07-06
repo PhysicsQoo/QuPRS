@@ -7,10 +7,13 @@ name = "QuPRS"
 authors = [
     { name = "Wei-Jia Huang", email = "wei.jia.huang.physics@gmail.com" },
 ]
-description = "QuPRS: Quantum Path-sum Reduction and Solver" 
-keywords = ["pathsum", "weighted model counting", "quantum circuit", "equivalence checking", ]
+description = "QuPRS: Quantum Path-sum Reduction and Solver"
+keywords = ["pathsum", "weighted model counting", "quantum circuit", "equivalence checking"]
 readme = "README.md"
-license-files  = ["LICENSE.md", "NOTICE.md"]
+license-files = [
+  { file = "LICENSE.md" },
+  { file = "NOTICE.md" }
+]
 requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 3 - Alpha", # (Alpha, Beta, Production/Stable)

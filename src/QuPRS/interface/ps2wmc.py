@@ -243,33 +243,38 @@ def to_DIMACS(pathsum, filename="wmc.cnf"):
 def run_wmc(file="wmc.cnf"):
     with WMC() as gpmc_executable:
         command = [str(gpmc_executable), "-mode=1", file]
+        # command = [str(gpmc_executable), "--mode=6", file]
         result = subprocess.run(command, capture_output=True, text=True)
 
     output_lines = result.stdout.split("\n")
-
+    complex_regex = re.compile(
+    r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"  # Group 1: Optional real part
+    r"(?:([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i)?"  # Group 2: Optional imaginary part
+    )
     for line in output_lines:
         if line.startswith("c s exact double prec-sci"):
-            match = re.search(
-                r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"
-                r"([-+]\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i",
-                line,
-            )
+            # We need to strip the prefix to apply the regex correctly to the number part
+            number_string = line.replace("c s exact double prec-sci", "").strip()
+            match = complex_regex.search(number_string)
             if match:
-                real_part = float(match.group(1))
-                imag_part = float(match.group(2))
-                return real_part, imag_part
-            match = re.search(r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)", line)
-            if match:
-                real_part = float(match.group(1))
-                imag_part = 0
-                return real_part, imag_part
-            match = re.search(r"([-+]\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i", line)
-            if match:
-                real_part = 0
-                imag_part = float(match.group(1))
-                return real_part, imag_part
-    assert False, "WMC output format error, result: {}".format(result.stdout)
+                real_str = match.group(1)
+                imag_str = match.group(2)
 
+                real_part = float(real_str) if real_str else 0.0
+                imag_part = float(imag_str) if imag_str else 0.0
+
+                return real_part, imag_part
+    
+    if result.returncode != 0:
+        if result.stdout:
+            assert False, "WMC output format error, result: {}".format(result.stdout)
+        if result.stderr:
+            assert False, "Standard Error (stderr): {}".format(result.stderr)
+        assert False, "Command exited with non-zero status code: {}".format(result.returncode)
+    else:
+        print("Command executed successfully.")
+        assert False, "WMC output format error, result: {}".format(result.stdout)
+    
 
 if __name__ == "__main__":
     # from pathsum.pathsum import PathSum, F, Register

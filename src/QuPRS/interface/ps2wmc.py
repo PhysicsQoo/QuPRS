@@ -201,6 +201,10 @@ def wlogi_to_clauses(wlogi_list, symbols_map):
             f"{se.cos(2 * se.pi * w).evalf()} "
             f"{se.sin(2 * se.pi * w).evalf()} 0"
         )
+        weights.append(
+            f"c p weight -{num_existing_symbols + i + 1} "
+            f"1.0 0.0 0"
+        )
         idx = counter["idx"]
         temp = encode_equivalence(z[i], logi)
         for i in range(idx, counter["idx"]):
@@ -240,19 +244,24 @@ def to_DIMACS(pathsum, filename="wmc.cnf"):
     return DIMACS_text
 
 
-def run_wmc(file="wmc.cnf"):
-    with WMC() as gpmc_executable:
-        command = [str(gpmc_executable), "-mode=1", file]
-        # command = [str(gpmc_executable), "--mode=6", file]
-        result = subprocess.run(command, capture_output=True, text=True)
-
+def run_wmc(file="wmc.cnf", tool_name="gpmc"):
+    if tool_name == "gpmc":
+        with WMC(tool_name) as gpmc_exe:
+            command = [str(gpmc_exe), "-mode=1", file]
+    elif tool_name == "ganak":
+        with WMC(tool_name) as ganak_exe:
+            command = [str(ganak_exe), "--mode=6", file]
+    else:
+        raise ValueError(f"Unsupported tool name: {tool_name}")
+    
+    result = subprocess.run(command, capture_output=True, text=True)
     output_lines = result.stdout.split("\n")
     complex_regex = re.compile(
     r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"  # Group 1: Optional real part
     r"(?:([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i)?"  # Group 2: Optional imaginary part
     )
     for line in output_lines:
-        if line.startswith("c s exact double prec-sci"):
+        if line.startswith("c s exact double prec-sci") or line.startswith("c s exact arb cpx"):
             # We need to strip the prefix to apply the regex correctly to the number part
             number_string = line.replace("c s exact double prec-sci", "").strip()
             match = complex_regex.search(number_string)

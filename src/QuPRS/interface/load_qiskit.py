@@ -326,8 +326,9 @@ def check_equivalence(
     circuit1: str | QuantumCircuit,
     circuit2: str | QuantumCircuit,
     method: str = "hybrid",
-    strategy="Difference",
-    timeout=600,
+    strategy: str ="Difference",
+    tool_name: str = "gpmc",
+    timeout: int=600,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -451,7 +452,7 @@ def check_equivalence(
             # Run weighted model counting (WMC)
             gpmc_time = f">{timeout - pathsum_time - to_DIMACS_time}"
             gpmc_start_time = time.time()
-            complex_number = run_wmc(temp_name)
+            complex_number = run_wmc(temp_name, tool_name= tool_name)
             gpmc_time = round(time.time() - gpmc_start_time, 3)
             abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
             log_wmc = round(np.log2(abs_num), 3)

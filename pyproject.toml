@@ -56,7 +56,7 @@ PyPI = "https://pypi.org/project/QuPRS/"
 where = ["src"]  
 
 [tool.setuptools.package-data]
-QuPRS = ["utils/wmc_tools/gpmc","utils/wmc_tools/gpmc.so","utils/wmc_tools/gpmc.dylib"]
+QuPRS = ["utils/wmc_tools/gpmc","utils/wmc_tools/gpmc.so","utils/wmc_tools/gpmc.dylib","utils/wmc_tools/ganak.so","utils/wmc_tools/ganak.dylib"]
 
 [tool.setuptools_scm]
 write_to = "src/QuPRS/_version.py"

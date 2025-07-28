@@ -256,23 +256,20 @@ def run_wmc(file="wmc.cnf", tool_name="gpmc"):
     
     result = subprocess.run(command, capture_output=True, text=True)
     output_lines = result.stdout.split("\n")
-    complex_regex = re.compile(
-    r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"  # Group 1: Optional real part
-    r"(?:([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i)?"  # Group 2: Optional imaginary part
-    )
+    
     for line in output_lines:
-        if line.startswith("c s exact double prec-sci") or line.startswith("c s exact arb cpx"):
+        if line.startswith("c s exact double prec-sci"):
             # We need to strip the prefix to apply the regex correctly to the number part
             number_string = line.replace("c s exact double prec-sci", "").strip()
-            match = complex_regex.search(number_string)
-            if match:
-                real_str = match.group(1)
-                imag_str = match.group(2)
-
-                real_part = float(real_str) if real_str else 0.0
-                imag_part = float(imag_str) if imag_str else 0.0
-
-                return real_part, imag_part
+        elif line.startswith("c s exact arb cpx"):
+            number_string = line.replace("c s exact arb cpx", "").strip()
+            number_string = number_string.replace(' ', '')
+            number_string = number_string.replace('+-', '-')
+        else:
+            continue
+        number_string = number_string.strip().replace('i', 'j')
+        complex_num = complex(number_string)
+        return complex_num.real, complex_num.imag
     
     if result.returncode != 0:
         if result.stdout:

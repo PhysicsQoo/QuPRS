@@ -397,7 +397,7 @@ def check_equivalence(
 
     try:
         to_DIMACS_time = None
-        gpmc_time = None
+        tool_time = None
         wmc_time = None
         CNF = (None,)
         log_wmc = None
@@ -450,10 +450,10 @@ def check_equivalence(
             to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
 
             # Run weighted model counting (WMC)
-            gpmc_time = f">{timeout - pathsum_time - to_DIMACS_time}"
-            gpmc_start_time = time.time()
-            complex_number = run_wmc(temp_name, tool_name= tool_name)
-            gpmc_time = round(time.time() - gpmc_start_time, 3)
+            tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
+            tool_start_time = time.time()
+            complex_number = run_wmc(temp_name, tool_name)
+            tool_time = round(time.time() - tool_start_time, 3)
             abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
             log_wmc = round(np.log2(abs_num), 3)
             theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
@@ -464,7 +464,7 @@ def check_equivalence(
                     equivalent = "equivalent*"
             else:
                 equivalent = "not_equivalent"
-            wmc_time = gpmc_time + to_DIMACS_time
+            wmc_time = tool_time + to_DIMACS_time
             # Clean up temporary CNF file
             if temp_name and os.path.exists(temp_name):
                 os.remove(temp_name)
@@ -500,9 +500,10 @@ def check_equivalence(
         final_pathsum=pathsum_circuit,
         progress=progress,
         Statistics=pathsum_circuit._stats,
-        # If method runs WMC, then to_DIMACS_time and gpmc_time are not None
+        # If method runs WMC, then to_DIMACS_time and tool_time are not None
         to_DIMACS_time=to_DIMACS_time,
-        gpmc_time=gpmc_time,
+        tool_name=tool_name,
+        tool_time=tool_time,
         wmc_time=wmc_time,
         CNF=CNF,
         expect=expect,
@@ -529,7 +530,8 @@ class EquivalenceCheckResult:
         Statistics (StatisticsManager): Statistics for the computation.
         progress (str): Progress string (e.g., "N/M").
         to_DIMACS_time (Optional[float]): Time for CNF conversion.
-        gpmc_time (Optional[float]): Time for weighted model counting.
+        tool_name (Optional[str]): Name of the WMC tool used (if applicable).
+        tool_time (Optional[float]): Time for weighted model counting.
         wmc_time (Optional[float]): Total WMC time.
         CNF (Optional[str]): CNF representation (if generated).
     """
@@ -548,9 +550,10 @@ class EquivalenceCheckResult:
     final_pathsum: PathSum
     Statistics: StatisticsManager
     progress: str = "0/0"
-    # If method runs WMC, then to_DIMACS_time and gpmc_time are not None
+    # If method runs WMC, then to_DIMACS_time and tool_time are not None
     to_DIMACS_time: Optional[float] = None
-    gpmc_time: Optional[float] = None
+    tool_name: Optional[str] = None
+    tool_time: Optional[float] = None
     wmc_time: Optional[float] = None
     CNF: Optional[str] = None
     expect: Optional[float] = None
@@ -583,8 +586,8 @@ class EquivalenceCheckResult:
                 f"{self.to_DIMACS_time if self.to_DIMACS_time is not None else 'N/A'} s"
             ),
             (
-                f"  gpmc Time: "
-                f"{self.gpmc_time if self.gpmc_time is not None else 'N/A'} s"
+                f"  tool Time: "
+                f"{self.tool_time if self.tool_time is not None else 'N/A'} s"
             ),
             (
                 f"  wmc Time: "
@@ -603,5 +606,7 @@ class EquivalenceCheckResult:
             f"  {self.expect if self.expect is not None else 'N/A'}",
             "-----------log_wmc--------------------",
             f"  {self.log_wmc if self.log_wmc is not None else 'N/A'}",
+            "-----------tool name------------------",
+            f"  {self.tool_name if self.tool_name is not None else 'N/A'}",
         ]
         return "\n".join(lines)

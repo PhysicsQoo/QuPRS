@@ -9,12 +9,8 @@ name: Build and Publish Python Package
 # 4. Manual trigger via GitHub Actions UI.
 on:
   push:
-    branches:
-      - '**'
     tags:
       - 'v*'
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:

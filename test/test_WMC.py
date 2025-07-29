@@ -9,11 +9,11 @@ from QuPRS.utils.util import get_theta
 TOLERANCE = config.TOLERANCE
 
 
-def generte_test(circuit):
+def generte_test(circuit, tool_name):
     with tempfile.NamedTemporaryFile(delete=True, suffix=".cnf") as temp_file:
         temp_name = temp_file.name
         to_DIMACS(circuit, temp_name)
-        complex_number = run_wmc(temp_name)
+        complex_number = run_wmc(temp_name, tool_name)
     abs_num = math.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
     log_wmc = math.log2(abs_num)
     expect = circuit.num_qubits + circuit.num_pathvar / 2
@@ -41,11 +41,13 @@ def test_CX_XT_CH_XTdg__2():
     circuit = circuit.tdg(1)
     circuit = circuit.reduction()
 
-    complex_number, abs_num = generte_test(circuit)
-
+    complex_number, abs_num = generte_test(circuit, tool_name="gpmc")
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
-    assert abs(theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    complex_number, abs_num = generte_test(circuit, tool_name="ganak")
+    theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
 
 def test_HH():
@@ -54,8 +56,10 @@ def test_HH():
     circuit = circuit.h(0)
     circuit = circuit.h(0)
 
-    complex_number, abs_num = generte_test(circuit)
-
+    complex_number, abs_num = generte_test(circuit, tool_name="gpmc")
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
-    assert abs(theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    complex_number, abs_num = generte_test(circuit, tool_name="ganak")
+    theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)

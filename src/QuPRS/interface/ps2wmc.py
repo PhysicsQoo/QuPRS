@@ -201,6 +201,10 @@ def wlogi_to_clauses(wlogi_list, symbols_map):
             f"{se.cos(2 * se.pi * w).evalf()} "
             f"{se.sin(2 * se.pi * w).evalf()} 0"
         )
+        weights.append(
+            f"c p weight -{num_existing_symbols + i + 1} "
+            f"1.0 0.0 0"
+        )
         idx = counter["idx"]
         temp = encode_equivalence(z[i], logi)
         for i in range(idx, counter["idx"]):
@@ -240,36 +244,43 @@ def to_DIMACS(pathsum, filename="wmc.cnf"):
     return DIMACS_text
 
 
-def run_wmc(file="wmc.cnf"):
-    with WMC() as gpmc_executable:
-        command = [str(gpmc_executable), "-mode=1", file]
-        result = subprocess.run(command, capture_output=True, text=True)
-
+def run_wmc(file="wmc.cnf", tool_name="gpmc"):
+    if tool_name == "gpmc":
+        with WMC(tool_name) as gpmc_exe:
+            command = [str(gpmc_exe), "-mode=1", file]
+    elif tool_name == "ganak":
+        with WMC(tool_name) as ganak_exe:
+            command = [str(ganak_exe), "--mode=6", file]
+    else:
+        raise ValueError(f"Unsupported tool name: {tool_name}")
+    
+    result = subprocess.run(command, capture_output=True, text=True)
     output_lines = result.stdout.split("\n")
-
+    
     for line in output_lines:
         if line.startswith("c s exact double prec-sci"):
-            match = re.search(
-                r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)"
-                r"([-+]\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i",
-                line,
-            )
-            if match:
-                real_part = float(match.group(1))
-                imag_part = float(match.group(2))
-                return real_part, imag_part
-            match = re.search(r"([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)", line)
-            if match:
-                real_part = float(match.group(1))
-                imag_part = 0
-                return real_part, imag_part
-            match = re.search(r"([-+]\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)i", line)
-            if match:
-                real_part = 0
-                imag_part = float(match.group(1))
-                return real_part, imag_part
-    assert False, "WMC output format error, result: {}".format(result.stdout)
-
+            # We need to strip the prefix to apply the regex correctly to the number part
+            number_string = line.replace("c s exact double prec-sci", "").strip()
+        elif line.startswith("c s exact arb cpx"):
+            number_string = line.replace("c s exact arb cpx", "").strip()
+            number_string = number_string.replace(' ', '')
+            number_string = number_string.replace('+-', '-')
+        else:
+            continue
+        number_string = number_string.strip().replace('i', 'j')
+        complex_num = complex(number_string)
+        return complex_num.real, complex_num.imag
+    
+    if result.returncode != 0:
+        if result.stdout:
+            assert False, "WMC output format error, result: {}".format(result.stdout)
+        if result.stderr:
+            assert False, "Standard Error (stderr): {}".format(result.stderr)
+        assert False, "Command exited with non-zero status code: {}".format(result.returncode)
+    else:
+        print("Command executed successfully.")
+        assert False, "WMC output format error, result: {}".format(result.stdout)
+    
 
 if __name__ == "__main__":
     # from pathsum.pathsum import PathSum, F, Register

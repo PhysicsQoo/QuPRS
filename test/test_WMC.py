@@ -43,11 +43,11 @@ def test_CX_XT_CH_XTdg__2():
 
     complex_number, abs_num = generte_test(circuit, tool_name="gpmc")
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
     complex_number, abs_num = generte_test(circuit, tool_name="ganak")
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
 
 def test_HH():
@@ -58,8 +58,8 @@ def test_HH():
 
     complex_number, abs_num = generte_test(circuit, tool_name="gpmc")
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
     complex_number, abs_num = generte_test(circuit, tool_name="ganak")
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)

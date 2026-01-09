@@ -36,8 +36,7 @@ jobs:
       - name: Checkout main branch code
         uses: actions/checkout@v4
         with:
-              submodules: true
-              fetch-depth: 0
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -78,28 +77,26 @@ jobs:
             # Set Git identity
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-            # Create a temporary directory for generated files
-            mkdir -p temp_assets
-            cp output.json temp_assets/main_baseline.json
+            cp output.json "$RUNNER_TEMP/main_baseline.json"
+            
+            git clean -fdx
+            git checkout .
             
             # Fetch and switch to the benchmarks branch
             git fetch origin benchmarks
             git checkout benchmarks
             
-            # Copy the raw JSON file for PR job comparison
-            cp ../temp_assets/main_baseline.json .
+            cp "$RUNNER_TEMP/main_baseline.json" .
             
-            # Stage the baseline JSON and other changes (e.g., data.js)
+            # Stage the baseline JSON
             git add main_baseline.json
             git add .
             
-            # Commit and push changes if there are any
             if git diff --staged --quiet; then
-            echo "No changes to commit."
+              echo "No changes to commit."
             else
-            git commit -m "Update benchmark: ${GITHUB_SHA::7}"
-            git push origin benchmarks
+              git commit -m "Update benchmark: ${GITHUB_SHA::7}"
+              git push origin benchmarks
             fi
 
   # ====================================================================
@@ -120,7 +117,6 @@ jobs:
       - name: Checkout PR code
         uses: actions/checkout@v4
         with:
-          submodules: true
           fetch-depth: 0
       - name: Setup Python and install dependencies
         uses: actions/setup-python@v5

@@ -1,5 +1,4 @@
-import signal
-import time
+import signal, time, signal
 from dataclasses import dataclass
 from typing import Optional
 
@@ -405,7 +404,11 @@ def check_equivalence(
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
+        elapsed_so_far = time.time() - start_time
+        remaining_time = max(1, int(timeout - elapsed_so_far))
+        pathsum_circuit = strategy_obj.safe_run(
+            pathsum_circuit, gates1, gates2, timeout=remaining_time
+        )
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 
@@ -434,41 +437,46 @@ def check_equivalence(
         if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
             from QuPRS.utils.util import get_theta
+            current_elapsed = time.time() - start_time
+            if current_elapsed >= timeout:
+                raise TimeoutError("Timeout before WMC")
+            signal.alarm(int(timeout - current_elapsed))
+            try:
+                to_DIMACS_time = f">{timeout - pathsum_time}"
+                log_wmc = None
+                theta = None
+                expect = pathsum_circuit.num_qubits + pathsum_circuit.num_pathvar / 2
+                import os
+                import tempfile
 
-            to_DIMACS_time = f">{timeout - pathsum_time}"
-            log_wmc = None
-            theta = None
-            expect = pathsum_circuit.num_qubits + pathsum_circuit.num_pathvar / 2
-            import os
-            import tempfile
+                # Convert PathSum to CNF (DIMACS format)
+                to_DIMACS_start_time = time.time()
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".cnf") as temp_file:
+                    temp_name = temp_file.name
+                    CNF = to_DIMACS(pathsum_circuit, temp_name)
+                to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
 
-            # Convert PathSum to CNF (DIMACS format)
-            to_DIMACS_start_time = time.time()
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".cnf") as temp_file:
-                temp_name = temp_file.name
-                CNF = to_DIMACS(pathsum_circuit, temp_name)
-            to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
-
-            # Run weighted model counting (WMC)
-            tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
-            tool_start_time = time.time()
-            complex_number = run_wmc(temp_name, tool_name)
-            tool_time = round(time.time() - tool_start_time, 3)
-            abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
-            log_wmc = round(np.log2(abs_num), 3)
-            theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-            if abs(log_wmc - expect) < tolerance:
-                if abs(theta) < tolerance * 2 * np.pi:
-                    equivalent = "equivalent"
+                # Run weighted model counting (WMC)
+                tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
+                tool_start_time = time.time()
+                complex_number = run_wmc(temp_name, tool_name)
+                tool_time = round(time.time() - tool_start_time, 3)
+                abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
+                log_wmc = round(np.log2(abs_num), 3)
+                theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
+                if abs(log_wmc - expect) < tolerance:
+                    if abs(theta) < tolerance * 2 * np.pi:
+                        equivalent = "equivalent"
+                    else:
+                        equivalent = "equivalent*"
                 else:
-                    equivalent = "equivalent*"
-            else:
-                equivalent = "not_equivalent"
-            wmc_time = tool_time + to_DIMACS_time
-            # Clean up temporary CNF file
-            if temp_name and os.path.exists(temp_name):
-                os.remove(temp_name)
-
+                    equivalent = "not_equivalent"
+                wmc_time = tool_time + to_DIMACS_time
+                # Clean up temporary CNF file
+                if temp_name and os.path.exists(temp_name):
+                    os.remove(temp_name)
+            finally:
+                signal.alarm(0)
         Time = round(time.time() - start_time, 3)
 
     except TimeoutError:

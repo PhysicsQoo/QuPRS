@@ -85,8 +85,10 @@ class Strategy(ABC):
         """
         Executes the run() method in a separate process using file-based IPC.
         """
-        queue = multiprocessing.Queue()
-        p = multiprocessing.Process(
+        ctx = multiprocessing.get_context("spawn")
+        
+        queue = ctx.Queue()
+        p = ctx.Process(
             target=self._worker,
             args=(self, queue, pathsum_circuit, gates1, gates2)
         )

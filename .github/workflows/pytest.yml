@@ -4,7 +4,12 @@ name: Python Pytest CI
 
 # Trigger this workflow on push or pull request to main branch
 on:
-  push
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/**'
 
 jobs:
     build:

@@ -1,8 +1,10 @@
-[![PyPI version](https://img.shields.io/pypi/v/QuPRS)](https://pypi.org/project/QuPRS/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
+[![PyPI version](https://img.shields.io/pypi/v/QuPRS)](https://pypi.org/project/QuPRS/)
+[![PyPI Downloads](https://static.pepy.tech/badge/quprs)](https://pepy.tech/projects/quprs)
+[![Docker Pulls](https://img.shields.io/docker/pulls/physicsqoo/quprs)](https://hub.docker.com/repository/docker/physicsqoo/quprs/)
+![GitHub last commit](https://img.shields.io/github/last-commit/PhysicsQoo/QuPRS)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/QuPRS)
 [![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
-![GitHub last commit](https://img.shields.io/github/last-commit/PhysicsQoo/QuPRS)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/PhysicsQoo/QuPRS)
 
 # QuPRS: Quantum Path-sum Reduction and Solver

@@ -1,4 +1,4 @@
-import signal
+import signal, multiprocessing, resource, psutil, os, pickle, tempfile 
 from abc import ABC, abstractmethod
 
 from QuPRS.interface.load_qiskit import add_gate, get_gates
@@ -42,6 +42,95 @@ class Strategy(ABC):
         """
         raise NotImplementedError
 
+    @staticmethod
+    def _set_memory_limit(limit_ratio=0.85):
+        """
+        Set a memory limit for the current process.
+        """
+        try:
+            total_mem = psutil.virtual_memory().total
+            limit = int(total_mem * limit_ratio)
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        except Exception:
+            # Ignore if not supported or insufficient permissions
+            pass
+
+    @staticmethod
+    def _worker(strategy_instance, queue, pathsum_circuit, gates1, gates2):
+        """
+        Worker process:
+        1. Set memory limit.
+        2. Perform computation.
+        3. Write result to a temporary file.
+        4. Return metadata via queue.
+        """
+        temp_path = None
+        try:
+            Strategy._set_memory_limit(limit_ratio=0.85)
+            result_circuit = strategy_instance.run(pathsum_circuit, gates1, gates2)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as f:
+                pickle.dump(result_circuit, f)
+                temp_path = f.name
+            queue.put(("success", temp_path, strategy_instance.count))
+        except MemoryError:
+            queue.put(("memory_error", None, None))
+        except Exception as e:
+            queue.put(("error", e, None))
+        finally:
+            del pathsum_circuit
+            del gates1
+            del gates2
+
+    def safe_run(self, pathsum_circuit: "PathSum", gates1: list, gates2: list, timeout: int) -> "PathSum":
+        """
+        Executes the run() method in a separate process using file-based IPC.
+        """
+        ctx = multiprocessing.get_context("spawn")
+        
+        queue = ctx.Queue()
+        p = ctx.Process(
+            target=self._worker,
+            args=(self, queue, pathsum_circuit, gates1, gates2)
+        )
+        p.start()
+        p.join(timeout=timeout)
+
+        # Handle timeout
+        if p.is_alive():
+            p.terminate()
+            p.join()
+            raise TimeoutError("Strategy execution timed out.")
+
+        # Handle crashes
+        if p.exitcode != 0:
+            raise MemoryError(f"Subprocess crashed (Exit code: {p.exitcode}). Likely out of memory.")
+
+        # Handle no data returned
+        if queue.empty():
+            raise MemoryError("Subprocess finished but returned no data.")
+
+        # Process result
+        status, data, returned_count = queue.get()
+
+        if status == "memory_error":
+            raise MemoryError("Worker reported MemoryError.")
+        if status == "error":
+            raise data  # Re-raise exception from worker
+
+        # Load result from temporary file
+        temp_path = data
+        result_circuit = None
+        try:
+            with open(temp_path, "rb") as f:
+                result_circuit = pickle.load(f)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load result from temp file: {e}")
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+
+        self.count = returned_count
+        return result_circuit
 
 class ProportionalStrategy(Strategy):
     name = "proportional"

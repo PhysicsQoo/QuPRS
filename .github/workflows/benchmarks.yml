@@ -58,6 +58,11 @@ jobs:
       - name: Run benchmark and save results as JSON
         run: pytest --benchmark-only --benchmark-json=output.json
 
+      - name: Discard local changes to tracked files
+        run: |
+          echo "Cleaning up modified files (like _version.py) to allow branch switching..."
+          git checkout .
+
       - name: Process benchmark data (Generate Charts)
         uses: benchmark-action/github-action-benchmark@v1
         with:

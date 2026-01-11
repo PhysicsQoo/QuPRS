@@ -30,63 +30,29 @@ jobs:
         with:
           submodules: 'recursive'
           fetch-depth: 0
-      - name: Install build dependencies (Linux)
+
+      - name: Set up QEMU
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libgmp-dev libmpfr-dev zlib1g-dev
+        uses: docker/setup-qemu-action@v3
 
-      - name: Install build dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install gmp mpfr zlib cmake
-
-      - name: Setup MSYS2 and install dependencies (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          path-type: inherit
-          install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-gmp
-            mingw-w64-x86_64-mpfr
-            mingw-w64-x86_64-zlib
-
-      - name: Install Hatch
-        run: pip install hatch hatch-vcs
-
-      - name: Convert pyproject.toml to static version for release builds
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        run: |
-          PACKAGE_VERSION="${GITHUB_REF_NAME#v}"
-          echo "Converting pyproject.toml to static version: $PACKAGE_VERSION"
-
-          perl -pi -e "s/^dynamic = \[\"version\"\]/version = \"$PACKAGE_VERSION\"/" pyproject.toml
-          perl -pi -e 's/source = "vcs"/source = "static"/' pyproject.toml
-
-          echo "Modified pyproject.toml content:"
-          cat pyproject.toml
-        shell: bash
-
-
-      - name: Clean up existing dist directory
-        run: rm -rf dist/ 
-
-      - name: Build wheel (general purpose or forced version for tags)
-        run: hatch build
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22.0
+        env:
+          CIBW_ARCHS_LINUX: auto aarch64
+          CIBW_ARCHS_MACOS: x86_64 arm64
 
       - name: Upload wheel artifacts (for all builds - general purpose)
         uses: actions/upload-artifact@v4
         with:
           name: all-builds-dist-wheels-${{ matrix.os }}
-          path: dist/*.whl
+          path: ./wheelhouse/*.whl
 
       - name: Upload wheel artifacts (for PyPI release - only on tags)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: pypi-release-wheels-${{ matrix.os }}
-          path: dist/*.whl
+          path: ./wheelhouse/*.whl
   # --- Job 2: Build Source Distribution (Sdist) ---
   # This job runs on all triggers and builds the source distribution.
   build_sdist:

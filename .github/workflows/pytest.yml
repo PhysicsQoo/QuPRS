@@ -9,7 +9,8 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'pyproject.toml'
-      - '.github/workflows/**'
+      - '.github/workflows/pytest.yml'
+      - 'scripts/hatch_build.py'
 
 jobs:
     build:
@@ -23,13 +24,13 @@ jobs:
                 os: [ubuntu-latest, macos-latest]
                 python-version: ["3.11", "3.12", "3.13"]                
         env:
-          GPMC_DIR: src/QuPRS/utils
+          BINARY_DIR: src/QuPRS/utils
         steps:
           # Step 1: Checkout repository code
           - name: Check out repository code
             uses: actions/checkout@v4
             with:
-              submodules: true
+              submodules: recursive
               fetch-depth: 0
 
           # Step 2: Set up Python environment
@@ -41,7 +42,7 @@ jobs:
           # Step 3: Install system dependencies
           - name: Install system dependencies (Linux)
             if: matrix.os == 'ubuntu-latest'
-            run: sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev
+            run: sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
           - name: Install system dependencies (macOS)
             if: matrix.os == 'macos-latest'
             run: brew install cmake gmp mpfr zlib
@@ -53,11 +54,15 @@ jobs:
               update: true
               path-type: inherit
               install: >-
-                mingw-w64-x86_64-toolchain
-                mingw-w64-x86_64-cmake
-                mingw-w64-x86_64-gmp
-                mingw-w64-x86_64-mpfr
                 mingw-w64-x86_64-zlib
+
+          # Cache compiled GPMC/Ganak binaries
+          - name: Cache Compiled Binaries (GPMC/Ganak)
+            id: cache-wmc-tools
+            uses: actions/cache@v4
+            with:
+               path: ${{ env.BINARY_DIR }}/wmc_tools
+               key: ${{ runner.os }}-wmc-tools-v0
 
           # Step 4: Install Python dependencies and build binary (Now split by platform)
           - name: Install and build (Unix)

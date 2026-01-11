@@ -12,7 +12,7 @@ TOLERANCE = config.TOLERANCE
 def generte_test(circuit, tool_name):
     with tempfile.NamedTemporaryFile(delete=True, suffix=".cnf") as temp_file:
         temp_name = temp_file.name
-        to_DIMACS(circuit, temp_name)
+        to_DIMACS(circuit, temp_name, tool_name=tool_name)
         complex_number = run_wmc(temp_name, tool_name)
     abs_num = math.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
     log_wmc = math.log2(abs_num)

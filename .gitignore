@@ -8,6 +8,7 @@ build/
 dist/
 *.egg-info/
 wheels/
+src/QuPRS/utils/wmc_tools/
 
 # Virtual environment directories
 .venv/

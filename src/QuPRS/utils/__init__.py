@@ -9,23 +9,9 @@ from typing import Iterator
 def get_gpmc_path() -> Iterator[Path]:
     """
     Context manager to safely obtain the path to the packaged GPMC binary.
-
-    This function determines the correct binary for the current operating system,
-    locates it within the 'QuPRS.utils' package, and yields a valid file path.
-    Raises:
-        OSError: If the current OS is not supported.
-        FileNotFoundError: If the binary is missing from the package.
     """
-    os_name = platform.system()
-    if os_name == "Linux":
-        binary_name = "wmc_tools/gpmc.so"
-    elif os_name == "Darwin":  # macOS
-        binary_name = "wmc_tools/gpmc.dylib"
-    # elif os_name == "Windows":
-    #     # Reserved for future Windows support
-    #     binary_name = "wmc_tools/gpmc.exe"
-    else:
-        raise OSError(f"Unsupported OS: GPMC binary not available for {os_name}")
+    # Standardized binary name regardless of OS
+    binary_name = "wmc_tools/gpmc"
 
     try:
         # 1. Locate the binary resource within the 'QuPRS.utils' submodule
@@ -45,24 +31,10 @@ def get_gpmc_path() -> Iterator[Path]:
 @contextmanager
 def get_ganak_path() -> Iterator[Path]:
     """
-    Context manager to safely obtain the path to the packaged GPMC binary.
-
-    This function determines the correct binary for the current operating system,
-    locates it within the 'QuPRS.utils' package, and yields a valid file path.
-    Raises:
-        OSError: If the current OS is not supported.
-        FileNotFoundError: If the binary is missing from the package.
+    Context manager to safely obtain the path to the packaged Ganak binary.
     """
-    os_name = platform.system()
-    if os_name == "Linux":
-        binary_name = "wmc_tools/ganak.so"
-    elif os_name == "Darwin":  # macOS
-        binary_name = "wmc_tools/ganak.dylib"
-    # elif os_name == "Windows":
-    #     # Reserved for future Windows support
-    #     binary_name = "wmc_tools/ganak.exe"
-    else:
-        raise OSError(f"Unsupported OS: ganak binary not available for {os_name}")
+    # Standardized binary name regardless of OS
+    binary_name = "wmc_tools/ganak"
 
     try:
         # 1. Locate the binary resource within the 'QuPRS.utils' submodule
@@ -75,7 +47,7 @@ def get_ganak_path() -> Iterator[Path]:
 
     except FileNotFoundError:
         raise FileNotFoundError(
-            f"GPMC binary '{binary_name}' not found in package 'QuPRS.utils'. "
+            f"Ganak binary '{binary_name}' not found in package 'QuPRS.utils'. "
             "The package might be installed incorrectly or the binary was not included."
         )
 

@@ -36,6 +36,7 @@ jobs:
       - name: Checkout main branch code
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 0
 
       - name: Setup Python
@@ -46,7 +47,14 @@ jobs:
       - name: Install system dependencies for GPMC
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgmp-dev libmpfr-dev
+          sudo apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Cache Compiled Binaries (GPMC/Ganak)
+        id: cache-wmc-tools
+        uses: actions/cache@v4
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-wmc-tools-v1
 
       - name: Install dependencies
         run: |

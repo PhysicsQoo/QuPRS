@@ -1,0 +1,6 @@
+[submodule "GPMC"]
+	path = GPMC
+	url = https://github.com/System-Verification-Lab/GPMC
+[submodule "ganak"]
+	path = ganak
+	url = https://github.com/meelgroup/ganak

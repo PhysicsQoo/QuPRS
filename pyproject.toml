@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "setuptools_scm[toml]>=6.2", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs", "cmake"]
+build-backend = "hatchling.build"
 
 [project]
 name = "QuPRS"
@@ -52,11 +52,38 @@ PyPI = "https://pypi.org/project/QuPRS/"
 # "Bug Tracker" = "..."
 # "Documentation" = "..."
 
-[tool.setuptools.packages.find]
-where = ["src"]  
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "scripts/hatch_build.py"
 
-[tool.setuptools.package-data]
-QuPRS = ["utils/wmc_tools/gpmc","utils/wmc_tools/gpmc.so","utils/wmc_tools/gpmc.dylib","utils/wmc_tools/ganak.so","utils/wmc_tools/ganak.dylib"]
+[tool.hatch.build.targets.wheel]
+artifacts = ["src/QuPRS/utils/wmc_tools/*"]
+packages = ["src/QuPRS"]
 
-[tool.setuptools_scm]
-write_to = "src/QuPRS/_version.py"
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "scripts",
+    "GPMC",
+    "ganak",
+    "LICENSE.md",
+    "NOTICE.md",
+    "README.md",
+    "pyproject.toml"
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/QuPRS/_version.py"
+
+[tool.cibuildwheel]
+# Skip PyPy, 32-bit, and musllinux builds
+skip = ["pp*", "*i686*", "*musllinux*"]
+build-frontend = "build"
+
+[tool.cibuildwheel.linux]
+before-all = "yum install -y gmp-devel mpfr-devel zlib-devel"
+
+[tool.cibuildwheel.macos]
+before-all = "brew install gmp mpfr zlib"

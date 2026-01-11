@@ -143,7 +143,12 @@ class CustomBuildHook(BuildHookInterface):
             return
 
         filename = f"ganak-{target_os}-{target_arch}.zip"
-        url = f"https://github.com/meelgroup/ganak/releases/download/v2.5.2/{filename}"
+        # Tag is 'release/2.5.2', so URL parsing handles the slash
+        # assets are at /releases/download/release%2F2.5.2/ ? 
+        # Usually github handles /releases/download/<TAG>/<FILE>
+        # If tag has slash, it might be URL encoded. 
+        # Let's try "release/2.5.2".
+        url = f"https://github.com/meelgroup/ganak/releases/download/release/2.5.2/{filename}"
 
         print(f"--- [Hatch Hook] Downloading Ganak ({filename}) from {url} ---")
         

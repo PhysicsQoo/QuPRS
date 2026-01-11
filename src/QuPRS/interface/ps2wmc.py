@@ -188,7 +188,7 @@ def cnf_to_clauses(cnf, symbols_map, flag=False):
 
 
 # Convert weighted logical expressions to clauses
-def wlogi_to_clauses(wlogi_list, symbols_map):
+def wlogi_to_clauses(wlogi_list, symbols_map, tool_name="gpmc"):
     clauses = []
     weights = []
     z = sp.symbols(f"z_:{len(wlogi_list)}")
@@ -196,14 +196,22 @@ def wlogi_to_clauses(wlogi_list, symbols_map):
     for symbol in z:
         extend_symbols_map(symbols_map, symbol)
     for i, (w, logi) in enumerate(wlogi_list):
+        real = se.cos(2 * se.pi * w).evalf()
+        imag = se.sin(2 * se.pi * w).evalf()
+        
+        if tool_name == "gpmc":
+            weight_str = f"{real} {imag} 0"
+            neg_weight_str = f"1.0 0.0 0"
+        else:
+            op = "+" if imag >= 0 else "-"
+            weight_str = f"{real} {op} {abs(imag)}i 0"
+            neg_weight_str = f"1.0 + 0.0i 0"
+
         weights.append(
-            f"c p weight {num_existing_symbols + i + 1} "
-            f"{se.cos(2 * se.pi * w).evalf()} "
-            f"{se.sin(2 * se.pi * w).evalf()} 0"
+            f"c p weight {num_existing_symbols + i + 1} {weight_str}"
         )
         weights.append(
-            f"c p weight -{num_existing_symbols + i + 1} "
-            f"1.0 0.0 0"
+            f"c p weight -{num_existing_symbols + i + 1} {neg_weight_str}"
         )
         idx = counter["idx"]
         temp = encode_equivalence(z[i], logi)
@@ -214,7 +222,7 @@ def wlogi_to_clauses(wlogi_list, symbols_map):
 
 
 # Convert PathSum object to DIMACS format
-def to_DIMACS(pathsum, filename="wmc.cnf"):
+def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
     counter["idx"] = 0
     free_symbols_list = [sp.Symbol(item) for item in pathsum.bits]
     free_symbols_list.extend(sp.sympify(free_symbol) for free_symbol in pathsum.pathvar)
@@ -222,7 +230,7 @@ def to_DIMACS(pathsum, filename="wmc.cnf"):
     for symbol in free_symbols_list:
         extend_symbols_map(symbols_map, symbol)
 
-    weights, clauses, symbols_map = wlogi_to_clauses(P_to_wlogi(pathsum.P), symbols_map)
+    weights, clauses, symbols_map = wlogi_to_clauses(P_to_wlogi(pathsum.P), symbols_map, tool_name=tool_name)
     for qubit in range(pathsum.num_qubits):
         a = sp.Symbol(pathsum.bits[qubit])
         idx = counter["idx"]
@@ -263,6 +271,10 @@ def run_wmc(file="wmc.cnf", tool_name="gpmc"):
             number_string = line.replace("c s exact double prec-sci", "").strip()
         elif line.startswith("c s exact arb cpx"):
             number_string = line.replace("c s exact arb cpx", "").strip()
+            number_string = number_string.replace(' ', '')
+            number_string = number_string.replace('+-', '-')
+        elif line.startswith("c s exact quadruple float"):
+            number_string = line.replace("c s exact quadruple float", "").strip()
             number_string = number_string.replace(' ', '')
             number_string = number_string.replace('+-', '-')
         else:

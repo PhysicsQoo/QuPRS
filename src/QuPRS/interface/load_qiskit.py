@@ -453,7 +453,7 @@ def check_equivalence(
                 to_DIMACS_start_time = time.time()
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".cnf") as temp_file:
                     temp_name = temp_file.name
-                    CNF = to_DIMACS(pathsum_circuit, temp_name)
+                    CNF = to_DIMACS(pathsum_circuit, temp_name, tool_name=tool_name)
                 to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
 
                 # Run weighted model counting (WMC)

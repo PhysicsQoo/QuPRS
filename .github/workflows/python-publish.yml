@@ -22,7 +22,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            arch: "auto aarch64"
+            name: "Linux"
+          - os: macos-13    # Intel Mac
+            arch: "x86_64"  # Build only x86_64
+            name: "macOS Intel"
+          - os: macos-14    # M1/M2 Mac (ARM64)
+            arch: "arm64"   # Build only arm64
+            name: "macOS Silicon"
 
     steps:
       - name: Checkout repository
@@ -38,8 +47,7 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22.0
         env:
-          CIBW_ARCHS_LINUX: auto aarch64
-          CIBW_ARCHS_MACOS: x86_64 arm64
+          CIBW_ARCHS: ${{ matrix.arch }}
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_COMMAND: pytest {project}/test/test_WMC.py
 

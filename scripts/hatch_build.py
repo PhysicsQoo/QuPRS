@@ -195,6 +195,12 @@ class CustomBuildHook(BuildHookInterface):
 
     def initialize(self, version, build_data):
         print("--- [Hatch Hook] Running custom build step ---")
+        
+        # Force the wheel to be marked as platform-specific (not pure Python)
+        # This is critical for cibuildwheel to accept the generated wheel.
+        build_data["pure_python"] = False
+        build_data["infer_tag"] = True
+        
         PROJECT_ROOT = self.root
         
         tools = [

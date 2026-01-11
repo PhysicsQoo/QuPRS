@@ -103,18 +103,110 @@ class CustomBuildHook(BuildHookInterface):
 
         return found_binary, binary_name
 
+    def download_ganak(self, dest_path):
+        """
+        Downloads the pre-compiled static Ganak binary from GitHub Releases (ZIP format).
+        Detects OS and Architecture to select the correct file.
+        """
+        import urllib.request
+        import zipfile
+        import stat
+        import tempfile
+
+        os_name = platform.system()
+        machine = platform.machine().lower()
+
+        # Map to Ganak release naming convention
+        # ganak-linux-amd64.zip
+        # ganak-linux-arm64.zip
+        # ganak-mac-arm64.zip
+        # ganak-mac-x86_64.zip
+        
+        target_os = ""
+        target_arch = ""
+
+        if os_name == "Linux":
+            target_os = "linux"
+            if machine in ["x86_64", "amd64"]:
+                target_arch = "amd64"
+            elif machine in ["aarch64", "arm64"]:
+                target_arch = "arm64"
+        elif os_name == "Darwin":
+            target_os = "mac"
+            if machine in ["x86_64", "amd64"]:
+                target_arch = "x86_64"
+            elif machine in ["arm64", "aarch64"]:
+                target_arch = "arm64"
+        
+        if not target_os or not target_arch:
+            print(f"--- [Hatch Hook] WARNING: Unsupported platform for Ganak download: {os_name} {machine}. Skipping. ---")
+            return
+
+        filename = f"ganak-{target_os}-{target_arch}.zip"
+        url = f"https://github.com/meelgroup/ganak/releases/download/v2.5.2/{filename}"
+
+        print(f"--- [Hatch Hook] Downloading Ganak ({filename}) from {url} ---")
+        
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                zip_path = os.path.join(tmp_dir, filename)
+                
+                # Download ZIP
+                with urllib.request.urlopen(url) as response, open(zip_path, 'wb') as out_file:
+                    shutil.copyfileobj(response, out_file)
+                
+                # Extract ZIP
+                print(f"--- [Hatch Hook] Extracting {filename} ---")
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(tmp_dir)
+                    
+                # Find the binary in the extracted files
+                # It might be in a subdirectory or just the file itself.
+                # Usually it's named 'ganak' inside.
+                found_bin = None
+                for root, dirs, files in os.walk(tmp_dir):
+                    if "ganak" in files:
+                        found_bin = os.path.join(root, "ganak")
+                        break
+                
+                if not found_bin:
+                    raise FileNotFoundError(f"Could not find 'ganak' binary inside {filename}")
+
+                # Move to destination
+                print(f"--- [Hatch Hook] Installing Ganak to {dest_path} ---")
+                if os.path.exists(dest_path):
+                     os.remove(dest_path)
+                shutil.move(found_bin, dest_path)
+
+                # Make executable
+                st = os.stat(dest_path)
+                os.chmod(dest_path, st.st_mode | stat.S_IEXEC)
+                print(f"--- [Hatch Hook] Successfully installed Ganak ---")
+
+        except Exception as e:
+            print(f"--- [Hatch Hook] ERROR downloading/installing Ganak: {e} ---")
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+
     def initialize(self, version, build_data):
         print("--- [Hatch Hook] Running custom build step ---")
         PROJECT_ROOT = self.root
         
         tools = [
             {"name": "gpmc", "dir": "GPMC"},
-            {"name": "ganak", "dir": "ganak"},
         ]
         
         target_dir = os.path.join(PROJECT_ROOT, "src", "QuPRS", "utils", "wmc_tools")
         os.makedirs(target_dir, exist_ok=True)
 
+        # 1. Download Ganak (Static)
+        ganak_dest = os.path.join(target_dir, "ganak")
+        if not os.path.exists(ganak_dest):
+             self.download_ganak(ganak_dest)
+        else:
+             print(f"--- [Hatch Hook] Binary ganak found at {ganak_dest}. Skipping download. ---")
+
+        # 2. Build Tools from Source (GPMC)
         for tool in tools:
             src_path = os.path.join(PROJECT_ROOT, tool["dir"])
             if not os.path.isdir(src_path) or not os.listdir(src_path):
@@ -136,13 +228,14 @@ class CustomBuildHook(BuildHookInterface):
             build_dir = os.path.join(src_path, "build")
             
             try:
+                # GPMC: Build from source
                 built_binary_path, _ = self.build_cmake_project(src_path, build_dir, tool["name"])
                 
                 print(f"--- [Hatch Hook] Installing {tool['name']} to {dest_path} ---")
                 shutil.copy(built_binary_path, dest_path)
                 
             except Exception as e:
-                print(f"--- [Hatch Hook] ERROR building {tool['name']}: {e} ---")
+                print(f"--- [Hatch Hook] ERROR building/installing {tool['name']}: {e} ---")
                 raise e
 
         print("--- [Hatch Hook] Build complete ---")

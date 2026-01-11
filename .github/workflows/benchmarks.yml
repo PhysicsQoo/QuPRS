@@ -34,6 +34,8 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.12"]
+    env:
+      BINARY_DIR: src/QuPRS/utils
     steps:
       - name: Checkout main branch code
         uses: actions/checkout@v4
@@ -55,8 +57,8 @@ jobs:
         id: cache-wmc-tools
         uses: actions/cache@v4
         with:
-          path: src/QuPRS/utils/wmc_tools
-          key: ${{ runner.os }}-wmc-tools-v3
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-wmc-tools-v0
 
       - name: Install dependencies
         run: |

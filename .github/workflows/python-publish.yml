@@ -40,6 +40,8 @@ jobs:
         env:
           CIBW_ARCHS_LINUX: auto aarch64
           CIBW_ARCHS_MACOS: x86_64 arm64
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: pytest {project}/test/test_WMC.py
 
       - name: Upload wheel artifacts (for all builds - general purpose)
         uses: actions/upload-artifact@v4
@@ -120,22 +122,12 @@ jobs:
       contents: write
 
     steps:
-      - name: Download PyPI release wheels (Linux)
+      - name: Download all release artifacts
         uses: actions/download-artifact@v4
         with:
-          name: pypi-release-wheels-ubuntu-latest
+          pattern: pypi-release-*
           path: dist
-
-      - name: Download PyPI release wheels (macOS)
-        uses: actions/download-artifact@v4
-        with:
-          name: pypi-release-wheels-macos-latest
-          path: dist
-      - name: Download PyPI release artifacts (sdist)
-        uses: actions/download-artifact@v4
-        with:
-          name: pypi-release-sdist 
-          path: dist
+          merge-multiple: true
       - name: List files in dist directory (for debugging)
         run: ls -R dist
 

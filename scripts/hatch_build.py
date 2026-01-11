@@ -33,6 +33,7 @@ class CustomBuildHook(BuildHookInterface):
         cmake_args = [
             "cmake",
             "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         ]
         
         # Cross-platform toolchain support

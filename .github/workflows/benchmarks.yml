@@ -8,6 +8,7 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - '.github/workflows/**'
+      - 'scripts/hatch_build.py'
   pull_request:
     branches: [ main ]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - '.github/workflows/**'
+      - 'scripts/hatch_build.py'
 permissions:
   contents: write
   pull-requests: write

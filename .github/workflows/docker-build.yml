@@ -23,6 +23,7 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - '.github/workflows/**'
+      - 'scripts/hatch_build.py'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -30,6 +31,7 @@ on:
       - 'tests/**'
       - 'pyproject.toml'
       - '.github/workflows/**'
+      - 'scripts/hatch_build.py'
 
 jobs:
   # Job 1: Run tests by building up to the 'tester' stage

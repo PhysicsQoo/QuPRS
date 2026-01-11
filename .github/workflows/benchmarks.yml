@@ -17,6 +17,11 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/benchmarks.yml'
       - 'scripts/hatch_build.py'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   pull-requests: write
@@ -81,7 +86,7 @@ jobs:
           tool: 'pytest'
           output-file-path: output.json
           gh-pages-branch: benchmarks
-          auto-push: false  
+          auto-push: true  
           save-data-file: true
           fail-on-alert: false
       - name: Push results to benchmarks branch
@@ -94,10 +99,18 @@ jobs:
             git clean -fdx
             git checkout .
             
+            # De-init submodules to prevent "No url found" error during cleanup
+            # when switching to a branch (benchmarks) that doesn't have .gitmodules
+            git submodule deinit -f --all
+
             # Fetch and switch to the benchmarks branch
             git fetch origin benchmarks
             git checkout benchmarks
+            git pull origin benchmarks # Sync with the commit made by github-action-benchmark
             
+            # Remove accidentally committed GPMC folder from previous bad runs
+            git rm -rf --ignore-unmatch GPMC
+
             cp "$RUNNER_TEMP/main_baseline.json" .
             
             # Stage the baseline JSON

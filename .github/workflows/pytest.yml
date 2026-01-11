@@ -12,6 +12,10 @@ on:
       - '.github/workflows/pytest.yml'
       - 'scripts/hatch_build.py'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
     build:
         # Specify the runner environment

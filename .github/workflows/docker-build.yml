@@ -33,6 +33,10 @@ on:
       - '.github/workflows/docker-build.yml'
       - 'scripts/hatch_build.py'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Job 1: Run tests by building up to the 'tester' stage
   test:

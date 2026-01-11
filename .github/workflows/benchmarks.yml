@@ -56,7 +56,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src/QuPRS/utils/wmc_tools
-          key: ${{ runner.os }}-wmc-tools-v1
+          key: ${{ runner.os }}-wmc-tools-v2
 
       - name: Install dependencies
         run: |

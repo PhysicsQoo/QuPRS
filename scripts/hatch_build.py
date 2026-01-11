@@ -25,6 +25,26 @@ class CustomBuildHook(BuildHookInterface):
         
         return f"{base_name}{extension}"
 
+    def _get_target_arch(self):
+        """
+        Detects the target architecture for the build using ARCHFLAGS or platform.machine().
+        Useful for cross-compilation on macOS (e.g. building x86_64 wheel on arm64 host).
+        """
+        # cibuildwheel sets ARCHFLAGS on macOS, e.g. "-arch x86_64"
+        arch_flags = os.environ.get("ARCHFLAGS", "")
+        if "x86_64" in arch_flags:
+            return "x86_64"
+        elif "arm64" in arch_flags:
+            return "arm64"
+        
+        # Fallback to host machine (Linux usually runs in QEMU so this is correct there)
+        machine = platform.machine().lower()
+        if machine in ["amd64", "x86_64"]:
+            return "x86_64"
+        elif machine in ["aarch64", "arm64"]:
+            return "arm64"
+        return machine
+
     def build_cmake_project(self, src_path, build_dir, binary_base_name):
         """
         Builds a CMake project located at src_path.
@@ -41,7 +61,14 @@ class CustomBuildHook(BuildHookInterface):
         if toolchain:
             cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={toolchain}")
 
+        target_arch = self._get_target_arch()
+        print(f"--- [Hatch Hook] Target Architecture detected: {target_arch} ---")
+
         if os_name == "Darwin":
+            # Explicitly set the target architecture for CMake on macOS
+            # This ensures we build valid x86_64 binaries even on M1 runners (and vice versa)
+            cmake_args.append(f"-DCMAKE_OSX_ARCHITECTURES={target_arch}")
+
             # On macOS, add Homebrew include and lib paths if available
             brew_prefix = os.environ.get("HOMEBREW_PREFIX", "/opt/homebrew")
             # Common paths for gmp, mpfr, zlib
@@ -114,7 +141,8 @@ class CustomBuildHook(BuildHookInterface):
         import tempfile
 
         os_name = platform.system()
-        machine = platform.machine().lower()
+        # Use our robust detection instead of just platform.machine()
+        machine = self._get_target_arch()
 
         # Map to Ganak release naming convention
         # ganak-linux-amd64.zip

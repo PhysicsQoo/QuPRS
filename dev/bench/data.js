@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767977457974,
+  "lastUpdate": 1768140777038,
   "repoUrl": "https://github.com/PhysicsQoo/QuPRS",
   "entries": {
     "QuPRS Benchmark History": [
@@ -136,6 +136,142 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00416700220957519",
             "extra": "mean: 1.7993795139999975 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "34832121+PhysicsQoo@users.noreply.github.com",
+            "name": "Wei-Jia Huang",
+            "username": "PhysicsQoo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1fdec16f6440d369b202c209173c60312513840c",
+          "message": "Fix Ganak/GPMC Build Issues, Enable Cross-Platform CI (#16)\n\n* build: modernize build system with cross-platform support and caching\n- Integrate `cibuildwheel` for multi-arch (x86/ARM) and macOS wheels.\n- Enable CI caching for compiled binaries to speed up tests/benchmarks.\n- Replace tracked binaries with git submodules (GPMC/Ganak) and recursive checkout.\n- Standardize installed binary names (strip extensions) to simplify runtime lookup.\n- Update [pyproject.toml] to include compiled artifacts in wheels.\n\n* add \"-DCMAKE_POLICY_VERSION_MINIMUM=3.5\"\n\n* add run workflows on scripts/hatch_build.py change\n\n* Change ganak from build to download\n\n* Fix Ganak download link and parse code.\n\n* Update python-publish.yml to change build(ci): configure cibuildwheel for cross-platform builds\n\n* ci: enable multi-arch docker build and fix benchmark dependencies\n\n* change cache key\n\n* ci: harden build system and force cache refresh\n\n* Fixed Binary Location\n\n* update dependency\n\n* update dependency\n\n* update report logic\n\n* ci: optimize benchmark workflow\n- Consolidate \"Run\" and \"Compare\" steps to avoid double execution.\n- Ensure benchmark reports are generated even on regression failures.",
+          "timestamp": "2026-01-11T22:06:36+08:00",
+          "tree_id": "62fb73c765ad0a8413ef49abcbb93c4383ece4d1",
+          "url": "https://github.com/PhysicsQoo/QuPRS/commit/1fdec16f6440d369b202c209173c60312513840c"
+        },
+        "date": 1768140776621,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[adder_8.qasm-proportional-False]",
+            "value": 0.3354711739335477,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04928760824084533",
+            "extra": "mean: 2.9808820480000064 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[gf2^4_mult.qasm-proportional-False]",
+            "value": 0.9144470840349698,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04212188297520454",
+            "extra": "mean: 1.093556989199999 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[tof_3.qasm-proportional-True]",
+            "value": 1.0711891256923098,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021619674274664047",
+            "extra": "mean: 933.5419637999962 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[vbe_adder_3.qasm-proportional-True]",
+            "value": 0.9412391162746653,
+            "unit": "iter/sec",
+            "range": "stddev: 0.032411324602474124",
+            "extra": "mean: 1.0624292836000109 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-gpmc-True]",
+            "value": 1.050301823102802,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02600736713081963",
+            "extra": "mean: 952.1072685999911 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-ganak-True]",
+            "value": 0.9973244873714933,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04677266344107526",
+            "extra": "mean: 1.0026826902000152 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-gpmc-False]",
+            "value": 0.8672991550524629,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03731271457344708",
+            "extra": "mean: 1.1530046975999995 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-ganak-False]",
+            "value": 0.8729412866953454,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03440756292136992",
+            "extra": "mean: 1.1455524159999981 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-gpmc-True]",
+            "value": 0.8369642003725717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03850406649827765",
+            "extra": "mean: 1.1947942332000026 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-ganak-True]",
+            "value": 0.5111400971822245,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08337920087208495",
+            "extra": "mean: 1.956410787400023 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-gpmc-False]",
+            "value": 0.5933019821324859,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016913468443418657",
+            "extra": "mean: 1.685482317800006 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-ganak-False]",
+            "value": 0.3459510540475281,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10450384294258372",
+            "extra": "mean: 2.8905823187999773 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-gpmc-True]",
+            "value": 0.3106773865102717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09658216495287815",
+            "extra": "mean: 3.2187730534000023 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-ganak-True]",
+            "value": 0.3110775623444556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03109269464576456",
+            "extra": "mean: 3.214632365199975 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-gpmc-False]",
+            "value": 0.8878622528977294,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0257431543482727",
+            "extra": "mean: 1.1263008386000024 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-ganak-False]",
+            "value": 0.5468436387394738,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005469276238202523",
+            "extra": "mean: 1.828676296399999 sec\nrounds: 5"
           }
         ]
       }

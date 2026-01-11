@@ -43,7 +43,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -51,7 +51,7 @@ jobs:
       - name: Install system dependencies for GPMC
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
 
       - name: Cache Compiled Binaries (GPMC/Ganak)
         id: cache-wmc-tools

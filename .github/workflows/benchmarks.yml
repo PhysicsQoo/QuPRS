@@ -124,13 +124,16 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.12"]
+    env:
+      BINARY_DIR: src/QuPRS/utils
     steps:
       # Step 1: Setup PR environment
-      - name: Checkout PR code
+      - name: Check out repository code
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 0
-      - name: Setup Python and install dependencies
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -138,7 +141,13 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgmp-dev libmpfr-dev
+          sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Cache Compiled Binaries (GPMC/Ganak)
+        id: cache-wmc-tools
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-wmc-tools-v0
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip

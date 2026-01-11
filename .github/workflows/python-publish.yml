@@ -26,7 +26,7 @@ jobs:
           - os: ubuntu-latest
             arch: "auto aarch64"
             name: "Linux"
-          - os: macos-13    # Intel Mac
+          - os: macos-15    # Intel Mac (Using latest runner as 13 is retired)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
           - os: macos-14    # M1/M2 Mac (ARM64)
@@ -49,6 +49,8 @@ jobs:
         env:
           CIBW_ARCHS: ${{ matrix.arch }}
           CIBW_TEST_REQUIRES: pytest
+          # Install dependencies from pyproject.toml, forcing binaries for deps but allowing source for the package itself
+          CIBW_BEFORE_TEST: "pip install --only-binary=:all: --no-binary=QuPRS \".[dev]\""
           CIBW_TEST_COMMAND: pytest {project}/test/test_WMC.py
 
       - name: Upload wheel artifacts (for all builds - general purpose)

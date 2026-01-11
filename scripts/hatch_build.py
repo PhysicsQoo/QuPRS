@@ -69,8 +69,22 @@ class CustomBuildHook(BuildHookInterface):
             # This ensures we build valid x86_64 binaries even on M1 runners (and vice versa)
             cmake_args.append(f"-DCMAKE_OSX_ARCHITECTURES={target_arch}")
 
-            # On macOS, add Homebrew include and lib paths if available
-            brew_prefix = os.environ.get("HOMEBREW_PREFIX", "/opt/homebrew")
+            # Determine Homebrew prefix based on target architecture
+            # This is crucial for cross-compilation or Rosetta environments on macOS
+            if target_arch == "x86_64":
+                # Intel Macs or Rosetta: brew usually in /usr/local
+                default_prefix = "/usr/local"
+            else:
+                # Apple Silicon: brew usually in /opt/homebrew
+                default_prefix = "/opt/homebrew"
+
+            brew_prefix = os.environ.get("HOMEBREW_PREFIX", default_prefix)
+            
+            # Sanity check: If we are building for x86_64 but PREFIX is /opt/homebrew (ARM default),
+            # we might be in a mixed environment. We check if the default_prefix exists and use it if sensible.
+            if target_arch == "x86_64" and brew_prefix == "/opt/homebrew" and os.path.exists("/usr/local/include"):
+                 print(f"--- [Hatch Hook] NOTE: Overriding HOMEBREW_PREFIX to /usr/local for x86_64 build ---")
+                 brew_prefix = "/usr/local"
             # Common paths for gmp, mpfr, zlib
             include_paths = [
                 f"{brew_prefix}/opt/gmp/include",

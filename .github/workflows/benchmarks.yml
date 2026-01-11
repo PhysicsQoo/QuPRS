@@ -133,11 +133,20 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+
+      # Step 2: Fetch baseline from main branch (Moved up)
+      - name: Fetch baseline
+        run: |
+          echo "Fetching main_baseline.json from benchmarks branch..."
+          git fetch origin benchmarks:benchmarks
+          if git checkout benchmarks -- main_baseline.json; then
+            echo "Baseline found."
+          else
+            echo "Baseline not found. Creating an empty baseline."
+            echo "{}" > main_baseline.json
+          fi
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -154,40 +163,32 @@ jobs:
           python -m pip install cibuildwheel
           pip install .[dev]
 
-      # Step 2: Run benchmark on PR code
-      - name: Run benchmark
-        run: pytest --benchmark-only --benchmark-json=pr_benchmark.json
-
-      # Step 3: Fetch baseline from main branch
-      - name: Fetch baseline
+      # Step 4: Run benchmark on PR code (and compare if baseline exists)
+      - name: Run and compare benchmarks
+        id: benchmark_step 
         run: |
-          echo "Fetching main_baseline.json from benchmarks branch..."
-          git fetch origin benchmarks:benchmarks
-          if git checkout benchmarks -- main_baseline.json; then
-            echo "Baseline found."
-          else
-            echo "Baseline not found. Creating an empty baseline."
-            echo "{}" > main_baseline.json
-          fi
-
-      # Step 4: Compare benchmarks
-      - name: Compare benchmarks
-        id: compare_benchmarks
-        run: |
+          # Default command: just run and save JSON
+          CMD="pytest --benchmark-only --benchmark-json=pr_benchmark.json"
+          
+          # If baseline exists and is not empty, add comparison args
           if [ -s "main_baseline.json" ] && [ "$(cat main_baseline.json)" != "{}" ]; then
+            echo "Baseline detected. Enabling comparison."
             echo "comparison_performed=true" >> $GITHUB_OUTPUT
-            pytest --benchmark-compare=main_baseline.json --benchmark-compare-fail=mean:10%
+            CMD="$CMD --benchmark-compare=main_baseline.json --benchmark-compare-fail=mean:10%"
           else
+            echo "Baseline missing or empty. Running without comparison."
             echo "comparison_performed=false" >> $GITHUB_OUTPUT
-            echo "Baseline is empty or missing. Skipping comparison."
           fi
+          
+          echo "Executing: $CMD"
+          $CMD
 
       # Step 5: Generate benchmark report
       - name: Generate benchmark report
         if: success() || failure()
         run: |
           python scripts/generate_benchmark_report.py \
-            --comparison-status ${{ steps.compare_benchmarks.outputs.comparison_performed }} \
+            --comparison-status ${{ steps.benchmark_step.outputs.comparison_performed }} \
             --main-file main_baseline.json \
             --pr-file pr_benchmark.json \
             --report-file benchmark_report.md

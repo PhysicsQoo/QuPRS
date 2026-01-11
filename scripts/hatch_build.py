@@ -215,10 +215,7 @@ class CustomBuildHook(BuildHookInterface):
         for tool in tools:
             src_path = os.path.join(PROJECT_ROOT, tool["dir"])
             if not os.path.isdir(src_path) or not os.listdir(src_path):
-                 print(f"--- [Hatch Hook] WARNING: {tool['dir']} directory missing or empty. Skipping build. Ensure git submodules are initialized. ---")
-                 # We don't raise error to allow sdist creation even if submodules are missing locally, 
-                 # but for wheel build it might be critical.
-                 continue
+                 raise FileNotFoundError(f"{tool['dir']} directory missing or empty. Ensure git submodules are initialized.")
 
             # Check if binary already exists (e.g. via cache)
             # We standardize the installed binary name (no extension)

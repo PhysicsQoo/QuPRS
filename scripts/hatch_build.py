@@ -231,6 +231,29 @@ class CustomBuildHook(BuildHookInterface):
             
             try:
                 # GPMC: Build from source
+                # Patch Main.cc to fix ARM64 build failure
+                main_cc_path = os.path.join(src_path, "core", "Main.cc")
+                if os.path.exists(main_cc_path):
+                    print(f"--- [Hatch Hook] Patching {main_cc_path} for ARM64 compatibility ---")
+                    with open(main_cc_path, "r") as f:
+                        content = f.read()
+                    
+                    # Replace the linux check with linux AND x86 check
+                    # We look for the specific block start.
+                    # Original: #if defined(__linux__)
+                    # Target:   #if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
+                    new_content = content.replace(
+                        "#if defined(__linux__)", 
+                        "#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))"
+                    )
+                    
+                    if content != new_content:
+                        with open(main_cc_path, "w") as f:
+                            f.write(new_content)
+                        print("--- [Hatch Hook] Patch applied successfully ---")
+                    else:
+                         print("--- [Hatch Hook] Patch not applied (already patched or not found) ---")
+
                 built_binary_path, _ = self.build_cmake_project(src_path, build_dir, tool["name"])
                 
                 print(f"--- [Hatch Hook] Installing {tool['name']} to {dest_path} ---")

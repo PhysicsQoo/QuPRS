@@ -57,7 +57,38 @@ jobs:
 
       # Note: If the build succeeds, tests have passed (pytest runs during build).
 
-  # Job 2: Build and push the final Docker image
+      # Note: If the build succeeds, tests have passed (pytest runs during build).
+
+  # Job 2: Verify ARM64 compilation (PR only, no tests)
+  # This prevents merging code that breaks cross-compilation.
+  check-arm64-build:
+    runs-on: ubuntu-latest
+    # Only run on Pull Requests
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build builder image (ARM64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: builder  # Only build up to compilation, skip 'tester' stage
+          platforms: linux/arm64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 3: Build and push the final Docker image
   build-and-push:
     needs: test
     runs-on: ubuntu-latest

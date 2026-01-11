@@ -58,6 +58,7 @@ path = "scripts/hatch_build.py"
 [tool.hatch.build.targets.wheel]
 artifacts = ["src/QuPRS/utils/wmc_tools/*"]
 packages = ["src/QuPRS"]
+pure = false
 
 [tool.hatch.build.targets.sdist]
 include = [

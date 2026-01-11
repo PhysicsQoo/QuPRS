@@ -87,6 +87,7 @@ jobs:
           output-file-path: output.json
           gh-pages-branch: benchmarks
           auto-push: true  
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           save-data-file: true
           fail-on-alert: false
       - name: Push results to benchmarks branch

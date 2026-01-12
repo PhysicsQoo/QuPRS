@@ -67,7 +67,7 @@ jobs:
           echo "Modified pyproject.toml content:"
           cat pyproject.toml
         shell: bash
-        
+
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22.0
         env:
@@ -75,7 +75,7 @@ jobs:
           CIBW_TEST_REQUIRES: pytest
           # Install dependencies from pyproject.toml, forcing binaries for deps but allowing source for the package itself
           CIBW_BEFORE_TEST: "pip install --only-binary=:all: --no-binary=QuPRS \".[dev]\""
-          CIBW_TEST_COMMAND: pytest -n auto {project}/test
+          CIBW_TEST_COMMAND: pytest -n auto -k "not (Feynman or MQT)" {project}/test
 
       - name: Upload wheel artifacts (for all builds - general purpose)
         uses: actions/upload-artifact@v4

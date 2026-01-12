@@ -26,10 +26,10 @@ jobs:
           - os: ubuntu-latest
             arch: "auto aarch64"
             name: "Linux"
-          - os: macos-15    # Intel Mac (Using latest runner as 13 is retired)
+          - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-14    # M1/M2 Mac (ARM64)
+          - os: macos-15    # M1/M2 Mac (ARM64)
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
 
@@ -43,6 +43,11 @@ jobs:
       - name: Set up QEMU
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
+
+      - name: Export Compiler Paths
+        if: runner.os == 'macOS'
+        run: |
+          echo "CIBW_ENVIRONMENT_MACOS=CFLAGS='-I$(brew --prefix gmp)/include -I$(brew --prefix mpfr)/include -I$(brew --prefix zlib)/include' LDFLAGS='-L$(brew --prefix gmp)/lib -L$(brew --prefix mpfr)/lib -L$(brew --prefix zlib)/lib' CMAKE_PREFIX_PATH='$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)'" >> $GITHUB_ENV
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22.0

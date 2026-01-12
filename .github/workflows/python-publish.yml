@@ -29,7 +29,7 @@ jobs:
           - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-15    # M1/M2 Mac (ARM64)
+          - os: macos-14    # M1/M2 Mac (ARM64)
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
 
@@ -50,8 +50,11 @@ jobs:
           GMP=$(brew --prefix gmp)
           MPFR=$(brew --prefix mpfr)
           
-          echo "CIBW_ENVIRONMENT_MACOS=CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
-          
+          if [[ "${{ matrix.os }}" == "macos-14" ]]; then
+            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=14.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
+          else
+            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
+          fi          
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22.0
         env:

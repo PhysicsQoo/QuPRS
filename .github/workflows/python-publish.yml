@@ -43,17 +43,15 @@ jobs:
           submodules: 'recursive'
           fetch-depth: 0
 
-      - name: Export Compiler Paths
+      - name: Export Compiler Paths (macOS)
         if: runner.os == 'macOS'
         run: |
           GMP=$(brew --prefix gmp)
           MPFR=$(brew --prefix mpfr)
-          
-          if [[ "${{ matrix.os }}" == "macos-14" ]]; then
-            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=14.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
-          else
-            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
-          fi          
+          ZLIB=$(brew --prefix zlib) #
+          echo "CFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib -L$ZLIB/lib -Wl,-rpath,$ZLIB/lib" >> $GITHUB_ENV
+
       - name: Convert pyproject.toml to static version for release builds
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

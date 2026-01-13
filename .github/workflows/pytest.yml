@@ -7,7 +7,7 @@ on:
   push:
     paths:
       - 'src/**'
-      - 'tests/**'
+      - 'test/**'
       - 'pyproject.toml'
       - '.github/workflows/pytest.yml'
       - 'scripts/hatch_build.py'

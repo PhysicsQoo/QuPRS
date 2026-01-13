@@ -19,7 +19,7 @@ on:
       - 'v*'
     paths:
       - 'src/**'
-      - 'tests/**'
+      - 'test/**'
       - 'pyproject.toml'
       - '.github/workflows/docker-build.yml'
       - 'scripts/hatch_build.py'
@@ -27,7 +27,7 @@ on:
     branches: [ "main" ]
     paths:
       - 'src/**'
-      - 'tests/**'
+      - 'test/**'
       - 'pyproject.toml'
       - '.github/workflows/docker-build.yml'
       - 'scripts/hatch_build.py'

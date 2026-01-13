@@ -13,15 +13,22 @@ readme = "README.md"
 license-files  = ["LICENSE.md", "NOTICE.md"]
 requires-python = ">=3.11"
 classifiers = [
-    "Development Status :: 3 - Alpha", # (Alpha, Beta, Production/Stable)
+    "Development Status :: 4 - Beta", # (Alpha, Beta, Production/Stable)
     "Intended Audience :: Developers",
-    "Topic :: Software Development :: Build Tools",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Operating System :: OS Independent", 
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: POSIX :: Linux",   
+    "Operating System :: MacOS :: MacOS X", 
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Testing",
 ]
 dependencies = [
     "numpy",
@@ -49,8 +56,8 @@ dev = [
 Homepage = "https://github.com/PhysicsQoo/QuPRS" # GitHub link
 PyPI = "https://pypi.org/project/QuPRS/"
 # (Optional) Other URLs related to your project
-# "Bug Tracker" = "..."
-# "Documentation" = "..."
+"Bug Tracker" = "https://github.com/PhysicsQoo/QuPRS/issues"
+"Documentation" = "https://github.com/PhysicsQoo/QuPRS#readme"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 path = "scripts/hatch_build.py"

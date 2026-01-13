@@ -15,7 +15,6 @@ name: Build, Test and Push Docker Image
 
 on:
   push:
-    branches: [ "main" ]
     tags:
       - 'v*'
     paths:
@@ -32,74 +31,73 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/docker-build.yml'
       - 'scripts/hatch_build.py'
+  workflow_dispatch:
+    inputs:
+      run_build_push:
+        description: 'Run Build & Push? (Default: false)'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Define cache scope name to ensure Test and Build use the same key
+  CACHE_SCOPE_PREFIX: "build"
+
 jobs:
-  # Job 1: Run tests by building up to the 'tester' stage
+  # =================================================================
+  # Job 1: Run tests by building up to the 'tester' stage (Generate cache source)
+  # =================================================================
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
+
       - name: Build tester image
         uses: docker/build-push-action@v5
         with:
           context: .
           target: tester
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          load: true # Load to Runner only, do not push
+          # Key optimization: Write cache, scope includes architecture name
+          cache-from: type=gha,scope=${{ env.CACHE_SCOPE_PREFIX }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ env.CACHE_SCOPE_PREFIX }}-${{ matrix.arch }}
 
-      # Note: If the build succeeds, tests have passed (pytest runs during build).
-
-      # Note: If the build succeeds, tests have passed (pytest runs during build).
-
-  # Job 2: Verify ARM64 compilation (PR only, no tests)
-  # This prevents merging code that breaks cross-compilation.
-  check-arm64-build:
-    runs-on: ubuntu-latest
-    # Only run on Pull Requests
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        
-      - name: Build builder image (ARM64)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: builder  # Only build up to compilation, skip 'tester' stage
-          platforms: linux/arm64
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # Job 3: Build and push the final Docker image
-  build-and-push:
+  # =================================================================
+  # Job 2: Build & Push Architectures (Parallel native builds)
+  # =================================================================
+  build-digest:
     needs: test
-    runs-on: ubuntu-latest
-
-    # Only run on push to main or tags, not on pull requests
-    if: github.event_name != 'pull_request'
-
+    if: >-
+      (startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_build_push == true)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
     permissions:
       contents: read
       packages: write
@@ -111,19 +109,20 @@ jobs:
           submodules: true
           fetch-depth: 0
 
+      # Handle repository name case sensitivity
       - name: Set lowercase repo name
         id: set_repo_name
         run: |
           echo "lowercase_repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
           echo "dockerhub_repo=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
+      # Generate metadata, but only used to fetch version here, tags are handled manually
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
             ghcr.io/${{ steps.set_repo_name.outputs.lowercase_repo }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.set_repo_name.outputs.dockerhub_repo }}
           tags: |
             type=semver,pattern={{version}}
             type=sha,format=short
@@ -143,23 +142,99 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Push final image
+      - name: Build and Push by Digest
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           target: final
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }} # Explicitly specify single architecture
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Key: Push to tags with architecture suffix for later merging
+          # Example: myimage:sha-1234567-amd64
+          tags: |
+            ghcr.io/${{ steps.set_repo_name.outputs.lowercase_repo }}:${{ github.sha }}-${{ matrix.arch }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.set_repo_name.outputs.dockerhub_repo }}:${{ github.sha }}-${{ matrix.arch }}
+          # Key optimization: Read cache written by Job 1 (Base layers will be hit instantly)
+          cache-from: type=gha,scope=${{ env.CACHE_SCOPE_PREFIX }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ env.CACHE_SCOPE_PREFIX }}-${{ matrix.arch }}
           build-args: |
             ${{ steps.meta.outputs.version != 'latest' && format('SETUPTOOLS_SCM_PRETEND_VERSION={0}', steps.meta.outputs.version) || '' }}
+
+  # =================================================================
+  # Job 3: Merge Manifests (Combine and publish final tags)
+  # =================================================================
+  merge:
+    needs: build-digest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to Registries
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set lowercase repo name
+        id: set_repo_name
+        run: |
+          echo "lowercase_repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          echo "dockerhub_repo=$(basename '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ steps.set_repo_name.outputs.lowercase_repo }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.set_repo_name.outputs.dockerhub_repo }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Create and Push Manifest
+        run: |
+          # Get all target tags (e.g., latest, v1.0.0, sha-xyz)
+          TAGS="${{ steps.meta.outputs.tags }}"
+          
+          # Define source images (architecture-suffixed versions pushed in Job 2)
+          GHCR_REPO="ghcr.io/${{ steps.set_repo_name.outputs.lowercase_repo }}"
+          DH_REPO="${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.set_repo_name.outputs.dockerhub_repo }}"
+          
+          SRC_GHCR_AMD64="${GHCR_REPO}:${{ github.sha }}-amd64"
+          SRC_GHCR_ARM64="${GHCR_REPO}:${{ github.sha }}-arm64"
+          SRC_DH_AMD64="${DH_REPO}:${{ github.sha }}-amd64"
+          SRC_DH_ARM64="${DH_REPO}:${{ github.sha }}-arm64"
+
+          # Start merging and pushing (using docker buildx imagetools)
+          # Since imagetools can only handle one target tag at a time, process in a loop
+          
+          echo "$TAGS" | while IFS= read -r TAG; do
+            if [ -z "$TAG" ]; then continue; fi
+            echo "Processing Manifest for $TAG..."
+            
+            # Determine if the tag is for GHCR or DockerHub
+            if [[ "$TAG" == *"ghcr.io"* ]]; then
+              docker buildx imagetools create -t "$TAG" \
+                "$SRC_GHCR_AMD64" \
+                "$SRC_GHCR_ARM64"
+            else
+              docker buildx imagetools create -t "$TAG" \
+                "$SRC_DH_AMD64" \
+                "$SRC_DH_ARM64"
+            fi
+          done

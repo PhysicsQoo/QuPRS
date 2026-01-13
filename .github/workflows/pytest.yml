@@ -104,7 +104,9 @@ jobs:
           # Step 7: Run pytest (Now split by platform)
           - name: Run tests (Unix)
             if: matrix.os != 'windows-latest'
-            run: pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html --cov=QuPRS --cov-report=xml --cov-report=html
+            run: |
+              ulimit -s unlimited
+              pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html --cov=QuPRS --cov-report=xml --cov-report=html
           - name: Run tests (Windows)
             if: matrix.os == 'windows-latest'
             shell: msys2 {0}

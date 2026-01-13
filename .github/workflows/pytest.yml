@@ -69,8 +69,9 @@ jobs:
             run: |
               GMP=$(brew --prefix gmp)
               MPFR=$(brew --prefix mpfr)
-              echo "CFLAGS=-I$GMP/include -I$MPFR/include" >> $GITHUB_ENV
-              echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib" >> $GITHUB_ENV
+              ZLIB=$(brew --prefix zlib) 
+              echo "CFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> $GITHUB_ENV
+              echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib -L$ZLIB/lib -Wl,-rpath,$ZLIB/lib" >> $GITHUB_ENV
 
           - name: Setup MSYS2 and install dependencies (Windows)
             if: matrix.os == 'windows-latest'

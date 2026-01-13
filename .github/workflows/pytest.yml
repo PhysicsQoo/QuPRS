@@ -105,7 +105,12 @@ jobs:
           - name: Run tests (Unix)
             if: matrix.os != 'windows-latest'
             run: |
-              ulimit -s unlimited
+              echo "Before limit change:"
+              ulimit -a
+              ulimit -S -s $(ulimit -H -s)
+              echo "After limit change:"
+              ulimit -a
+              
               pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html --cov=QuPRS --cov-report=xml --cov-report=html
           - name: Run tests (Windows)
             if: matrix.os == 'windows-latest'

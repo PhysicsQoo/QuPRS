@@ -169,7 +169,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v1 
+          key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v1 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip

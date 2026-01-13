@@ -58,11 +58,20 @@ jobs:
               cache: 'pip'
           # Step 3: Install system dependencies
           - name: Install system dependencies (Linux)
-            if: matrix.os == 'ubuntu-latest'
+            if: runner.os == 'Linux'
             run: sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          
           - name: Install system dependencies (macOS)
-            if: matrix.os == 'macos-latest'
-            run: brew install cmake gmp mpfr zlib
+            if: runner.os == 'macOS'
+            run: brew install cmake gmp mpfr
+          - name: Export Compiler Paths (macOS)
+            if: runner.os == 'macOS'
+            run: |
+              GMP=$(brew --prefix gmp)
+              MPFR=$(brew --prefix mpfr)
+              echo "CFLAGS=-I$GMP/include -I$MPFR/include" >> $GITHUB_ENV
+              echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib" >> $GITHUB_ENV
+
           - name: Setup MSYS2 and install dependencies (Windows)
             if: matrix.os == 'windows-latest'
             uses: msys2/setup-msys2@v2

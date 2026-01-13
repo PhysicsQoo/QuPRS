@@ -89,7 +89,7 @@ jobs:
             uses: actions/cache@v4
             with:
                path: ${{ env.BINARY_DIR }}/wmc_tools
-               key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v1 
+               key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v0
 
           # Step 4: Install Python dependencies and build binary (Now split by platform)
           - name: Install and build (Unix)

@@ -45,14 +45,14 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
     except AssertionError as e:
         error_msg = str(e)
         if tool_name == "ganak" and "WMC output format error" in error_msg:
-            print(f"::warning title=Ganak Skipped::{file_name} skipped due to Ganak binary crash.\nerror_msg:{error_msg}")
-            pytest.skip(f"Ganak runtime crashed: {error_msg}")
+            print(f"::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}")
+            pytest.skip(f"::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}")
         else:
             raise e
     except Exception as e:
         error_msg = str(e)
         if tool_name == "ganak":
-             print(f"::warning title=Ganak Error::{file_name} encountered unexpected error. \nerror_msg:{error_msg}")
-             pytest.skip(f"Ganak unexpected error: {e}")
+             print(f"::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}")
+             pytest.skip(f"::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}")
         else:
             raise e

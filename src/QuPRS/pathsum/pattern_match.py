@@ -13,9 +13,9 @@ from QuPRS.utils.util import (
 
 def match_Elim(P, reducible_vars):
     P_free_symbols = P.free_symbols
-    for yo_val in reducible_vars:
-        if yo_val not in P_free_symbols:
-            return yo_val
+    candidates = set(reducible_vars) - P_free_symbols
+    if candidates:
+        return candidates.pop()
     return None
 
 

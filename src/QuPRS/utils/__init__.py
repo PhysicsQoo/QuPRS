@@ -1,4 +1,3 @@
-import platform
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
@@ -28,6 +27,7 @@ def get_gpmc_path() -> Iterator[Path]:
             "The package might be installed incorrectly or the binary was not included."
         )
 
+
 @contextmanager
 def get_ganak_path() -> Iterator[Path]:
     """
@@ -51,10 +51,13 @@ def get_ganak_path() -> Iterator[Path]:
             "The package might be installed incorrectly or the binary was not included."
         )
 
+
 # Alias for backward compatibility, if needed
 def WMC(tool_name="gpmc") -> Iterator[Path]:
     """
-    Context manager to obtain the path to the GPMC or Ganak binary based on the tool name.
+    Context manager to obtain the path to the GPMC or Ganak binary based on the tool
+    name.
+
     Args:
         tool_name (str): The name of the tool, either "gpmc" or "ganak".
     Raises:
@@ -66,4 +69,3 @@ def WMC(tool_name="gpmc") -> Iterator[Path]:
         return get_ganak_path()
     else:
         raise ValueError(f"Unsupported tool name: {tool_name}")
-

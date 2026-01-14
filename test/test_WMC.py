@@ -1,5 +1,6 @@
 import math
 import tempfile
+import pytest
 
 from QuPRS import config
 from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
@@ -22,8 +23,8 @@ def generte_test(circuit, tool_name):
     )
     return complex_number, abs_num
 
-
-def test_CX_XT_CH_XTdg__2():
+@pytest.mark.parametrize("tool_name", ["gpmc", "ganak"])
+def test_CX_XT_CH_XTdg__2(tool_name):
     qubit_num = 2
     circuit = PathSum.QuantumCircuit(qubit_num)
 
@@ -41,25 +42,17 @@ def test_CX_XT_CH_XTdg__2():
     circuit = circuit.tdg(1)
     circuit = circuit.reduction()
 
-    complex_number, abs_num = generte_test(circuit, tool_name="gpmc")
+    complex_number, abs_num = generte_test(circuit, tool_name=tool_name)
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
     assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
 
-    complex_number, abs_num = generte_test(circuit, tool_name="ganak")
-    theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
-
-
-def test_HH():
+@pytest.mark.parametrize("tool_name", ["gpmc", "ganak"])
+def test_HH(tool_name):
     circuit = PathSum.QuantumCircuit(1)
     circuit.set_reduction_switch(False)
     circuit = circuit.h(0)
     circuit = circuit.h(0)
 
-    complex_number, abs_num = generte_test(circuit, tool_name="gpmc")
-    theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
-
-    complex_number, abs_num = generte_test(circuit, tool_name="ganak")
+    complex_number, abs_num = generte_test(circuit, tool_name=tool_name)
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
     assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)

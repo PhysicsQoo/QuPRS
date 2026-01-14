@@ -225,16 +225,20 @@ def set_safe_memory_limit():
     environments such as macOS.
 
     If the system does not support this operation (e.g., Windows) or if any error occurs
-    (e.g., insufficient permissions, missing modules), the function will silently do nothing.
+    (e.g., insufficient permissions, missing modules), the function will silently do
+    nothing.
 
     Notes:
         - On Unix-like systems, this uses the `resource` and `psutil` modules.
-        - The soft limit is set to 70% of total memory or the new hard limit, whichever is lower.
-        - On systems where the hard limit is unlimited, the desired value is used directly.
+        - The soft limit is set to 70% of total memory or the new hard limit,
+            whichever is lower.
+        - On systems where the hard limit is unlimited, the desired value is used
+            directly.
         - No action is taken on Windows or unsupported platforms.
 
     Exceptions:
-        Any exceptions (ValueError, ImportError, AttributeError) are caught and ignored silently.
+        Any exceptions (ValueError, ImportError, AttributeError) are caught and ignored
+        silently.
     """
 
     try:
@@ -247,8 +251,9 @@ def set_safe_memory_limit():
         total_mem = psutil.virtual_memory().total
         desired_hard = int(total_mem * 0.8)
 
-        # Compute the final hard limit: use the smaller of the desired value and current system hard limit
-        # If the current system hard limit is unlimited, use our desired value directly
+        # Compute the final hard limit: use the smaller of the desired value and current
+        # system hard limit. If the current system hard limit is unlimited, use our
+        # desired value directly
         new_hard = (
             min(desired_hard, current_hard)
             if current_hard != resource.RLIM_INFINITY
@@ -262,5 +267,6 @@ def set_safe_memory_limit():
         resource.setrlimit(resource.RLIMIT_AS, (new_soft, new_hard))
 
     except (ValueError, ImportError, AttributeError):
-        # Catch all possible errors (insufficient permissions, missing modules, etc.) and silently ignore
+        # Catch all possible errors (insufficient permissions, missing modules, etc.)
+        # and silently ignore
         pass

@@ -1,10 +1,11 @@
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
-[![PyPI version](https://img.shields.io/pypi/v/QuPRS)](https://pypi.org/project/QuPRS/)
-[![PyPI Downloads](https://static.pepy.tech/badge/quprs)](https://pepy.tech/projects/quprs)
-[![Docker Pulls](https://img.shields.io/docker/pulls/physicsqoo/quprs)](https://hub.docker.com/repository/docker/physicsqoo/quprs/)
-![GitHub last commit](https://img.shields.io/github/last-commit/PhysicsQoo/QuPRS)
-![PyPI - Python Version](https://img.shields.io/pypi/pyversions/QuPRS)
 [![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
+[![PyPI version](https://img.shields.io/pypi/v/QuPRS?style=flat-square)](https://pypi.org/project/QuPRS/)
+[![Python Version](https://img.shields.io/pypi/pyversions/QuPRS?style=flat-square&logo=python&logoColor=white)](https://pypi.org/project/QuPRS/)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE.md)
+
+[![Docker Pulls](https://img.shields.io/docker/pulls/physicsqoo/quprs?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/repository/docker/physicsqoo/quprs/)
+[![PyPI Downloads](https://static.pepy.tech/badge/quprs?style=flat-square)](https://pepy.tech/projects/quprs)
+![GitHub last commit](https://img.shields.io/github/last-commit/PhysicsQoo/QuPRS?style=flat-square&logo=github)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/PhysicsQoo/QuPRS)
 
 # QuPRS: Quantum Path-sum Reduction and Solver
@@ -25,6 +26,7 @@ In quantum computing, verifying whether an optimized or compiled quantum circuit
 - [QuPRS: Quantum Path-sum Reduction and Solver](#quprs-quantum-path-sum-reduction-and-solver)
   - [Contents](#contents)
   - [Installation](#installation)
+    - [Platform Support](#platform-support)
   - [Using QuPRS](#using-quprs)
     - [Create pathsum Circuit](#create-pathsum-circuit)
     - [Import From qasm](#import-from-qasm)
@@ -49,10 +51,18 @@ It is recommended to install `QuPRS` in a virtual environment.
     ```bash
     pip install QuPRS
     ```
-    or install `QuPRS` latest commit:
-    ```bash
-    pip install git+https://github.com/PhysicsQoo/QuPRS.git
-    ```
+### Platform Support
+
+QuPRS provides pre-built wheels for the following operating systems and architectures:
+
+| OS | Architecture | Status | Note |
+| :--- | :--- | :--- | :--- |
+| **Linux** | x86_64 | ✅ Supported | Tested on Ubuntu |
+| **Linux** | ARM64 (aarch64) | ✅ Supported | Tested on Ubuntu |
+| **macOS** | Intel (x86_64) | ✅ Supported | macOS 15+ |
+| **macOS** | Apple Silicon (M1/M2/M3) | ✅ Supported | macOS 14+ |
+| **Windows** | x86_64 / ARM64 | ⚠️ **WSL2 Only** | Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) |
+
 
 ## Using QuPRS
 

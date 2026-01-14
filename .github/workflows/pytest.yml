@@ -7,7 +7,7 @@ on:
   push:
     paths:
       - 'src/**'
-      - 'tests/**'
+      - 'test/**'
       - 'pyproject.toml'
       - '.github/workflows/pytest.yml'
       - 'scripts/hatch_build.py'
@@ -25,8 +25,21 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                os: [ubuntu-latest, macos-latest]
-                python-version: ["3.11", "3.12", "3.13"]                
+                python-version: ["3.11", "3.12", "3.13"]
+                os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-14]
+                include:
+                - os: ubuntu-latest
+                  arch: auto
+                  name: "Linux x86_64"
+                - os: ubuntu-24.04-arm   # ARM64 Linux
+                  arch: aarch64
+                  name: "Linux ARM64"
+                - os: macos-15-intel    # Intel Mac (x86_64)
+                  arch: "x86_64"  # Build only x86_64
+                  name: "macOS Intel"
+                - os: macos-14    # M1/M2 Mac (ARM64)
+                  arch: "arm64"   # Build only arm64
+                  name: "macOS Silicon"
         env:
           BINARY_DIR: src/QuPRS/utils
         steps:
@@ -45,11 +58,22 @@ jobs:
               cache: 'pip'
           # Step 3: Install system dependencies
           - name: Install system dependencies (Linux)
-            if: matrix.os == 'ubuntu-latest'
+            if: runner.os == 'Linux'
             run: sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          
           - name: Install system dependencies (macOS)
-            if: matrix.os == 'macos-latest'
-            run: brew install cmake gmp mpfr zlib
+            if: runner.os == 'macOS'
+            run: brew install cmake gmp mpfr zlib 
+          - name: Export Compiler Paths (macOS)
+            if: runner.os == 'macOS'
+            run: |
+              GMP=$(brew --prefix gmp)
+              MPFR=$(brew --prefix mpfr)
+              ZLIB=$(brew --prefix zlib) 
+              echo "CFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> $GITHUB_ENV
+              echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib -L$ZLIB/lib -Wl,-rpath,$ZLIB/lib" >> $GITHUB_ENV
+              echo "DYLD_LIBRARY_PATH=$GMP/lib:$MPFR/lib:$ZLIB/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+
           - name: Setup MSYS2 and install dependencies (Windows)
             if: matrix.os == 'windows-latest'
             uses: msys2/setup-msys2@v2
@@ -66,7 +90,7 @@ jobs:
             uses: actions/cache@v4
             with:
                path: ${{ env.BINARY_DIR }}/wmc_tools
-               key: ${{ runner.os }}-wmc-tools-v0
+               key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v0
 
           # Step 4: Install Python dependencies and build binary (Now split by platform)
           - name: Install and build (Unix)
@@ -80,7 +104,8 @@ jobs:
           # Step 7: Run pytest (Now split by platform)
           - name: Run tests (Unix)
             if: matrix.os != 'windows-latest'
-            run: pytest -n auto -v --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html --cov=QuPRS --cov-report=xml --cov-report=html
+            run: |
+              pytest -n auto -v -ra --junitxml=pytest-results.xml --html=pytest-results.html --self-contained-html --cov=QuPRS --cov-report=xml --cov-report=html
           - name: Run tests (Windows)
             if: matrix.os == 'windows-latest'
             shell: msys2 {0}

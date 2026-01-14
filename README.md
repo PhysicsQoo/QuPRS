@@ -6,6 +6,7 @@
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/QuPRS)
 [![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/PhysicsQoo/QuPRS)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/PhysicsQoo/QuPRS?utm_source=badge)
 
 # QuPRS: Quantum Path-sum Reduction and Solver
 
@@ -187,8 +188,6 @@ This code is associated with a forthcoming publication. Please cite this reposit
 
 ## Acknowledgements
 This project utilizes `gpmc`, a binary component developed by Kenji Hashimoto, for parts of its Weighted Model Counting functionality.
-
-
 
 
 

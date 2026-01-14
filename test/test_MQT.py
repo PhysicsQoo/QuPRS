@@ -1,4 +1,5 @@
 import pytest
+import sys
 
 from QuPRS import check_equivalence
 
@@ -45,14 +46,14 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
     except AssertionError as e:
         error_msg = str(e)
         if tool_name == "ganak" and "WMC output format error" in error_msg:
-            print(f"::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}")
-            pytest.skip(f"::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}")
+            sys.__stderr__.write(f"::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}\n")
+            pytest.skip(f"Ganak Skipped {file_name} WMC output format error")
         else:
             raise e
     except Exception as e:
         error_msg = str(e)
         if tool_name == "ganak":
-             print(f"::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}")
-             pytest.skip(f"::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}")
+            sys.__stderr__.write(f"::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}\n")
+            pytest.skip(f"Ganak Error {file_name}")
         else:
             raise e

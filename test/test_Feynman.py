@@ -18,17 +18,17 @@ def generate_test(file_name, strategy="proportional", switch=False):
         result.equivalent == "equivalent" or result.equivalent == "equivalent*"
     ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
 
+file_names = [
+    "adder_8.qasm",
+    "gf2^4_mult.qasm",
+    "tof_3.qasm",
+    "vbe_adder_3.qasm",
+]
+strategies = ["proportional"]
 
-@pytest.mark.parametrize(
-    "file_name, strategy, switch",
-    [
-        ("adder_8.qasm", "proportional", False),
-        ("gf2^4_mult.qasm", "proportional", False),
-        ("tof_3.qasm", "proportional", True),
-        ("vbe_adder_3.qasm", "proportional", True),
-        # ("new_benchmark_file.qasm", "new_strategy"),
-    ],
-)
+@pytest.mark.parametrize("switch", [False])
+@pytest.mark.parametrize("strategy", strategies)
+@pytest.mark.parametrize("file_name", file_names)
 def test_all_benchmarks(benchmark, file_name, strategy, switch):
     """
     A function to test all benchmark files.

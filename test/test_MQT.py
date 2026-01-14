@@ -17,25 +17,21 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
         result.equivalent == "equivalent" or result.equivalent == "equivalent*"
     ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
 
+file_names = [
+    "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+    "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+    "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+    "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+    "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+    "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+]
+strategies = ["difference", "proportional", "naive", "straightforward"]
+tool_names = ["gpmc", "ganak"]
 
-@pytest.mark.parametrize(
-    "file_name, strategy, tool_name, switch",
-    [
-        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward","gpmc", True),
-        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward","ganak", True),
-        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive","gpmc", False),
-        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive","ganak", False),
-        ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "proportional","gpmc", True),
-        ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "proportional","ganak", True),
-        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional","gpmc", False),
-        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional","ganak", False),
-        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional","gpmc", True),
-        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional","ganak", True),
-        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional","gpmc", False),
-        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional","ganak", False),
-        # ("new_benchmark_file.qasm", "new_strategy"),
-    ],
-)
+@pytest.mark.parametrize("switch", [True, False])
+@pytest.mark.parametrize("tool_name", tool_names)
+@pytest.mark.parametrize("strategy", strategies)
+@pytest.mark.parametrize("file_name", file_names)
 def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
     """
     A function to test all benchmark files.
@@ -46,14 +42,12 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
     except AssertionError as e:
         error_msg = str(e)
         if tool_name == "ganak" and "WMC output format error" in error_msg:
-            sys.__stderr__.write(f"::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}\n")
-            pytest.skip(f"Ganak Skipped {file_name} WMC output format error")
+            pytest.skip(f"\n::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}")
         else:
             raise e
     except Exception as e:
         error_msg = str(e)
         if tool_name == "ganak":
-            sys.__stderr__.write(f"::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}\n")
-            pytest.skip(f"Ganak Error {file_name}")
+            pytest.skip(f"\n::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}")
         else:
             raise e

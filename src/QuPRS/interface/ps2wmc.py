@@ -1,4 +1,3 @@
-import re
 import subprocess
 
 import symengine as se
@@ -198,21 +197,17 @@ def wlogi_to_clauses(wlogi_list, symbols_map, tool_name="gpmc"):
     for i, (w, logi) in enumerate(wlogi_list):
         real = se.cos(2 * se.pi * w).evalf()
         imag = se.sin(2 * se.pi * w).evalf()
-        
+
         if tool_name == "gpmc":
             weight_str = f"{real} {imag} 0"
-            neg_weight_str = f"1.0 0.0 0"
+            neg_weight_str = "1.0 0.0 0"
         else:
             op = "+" if imag >= 0 else "-"
             weight_str = f"{real} {op} {abs(imag)}i 0"
-            neg_weight_str = f"1.0 + 0.0i 0"
+            neg_weight_str = "1.0 + 0.0i 0"
 
-        weights.append(
-            f"c p weight {num_existing_symbols + i + 1} {weight_str}"
-        )
-        weights.append(
-            f"c p weight -{num_existing_symbols + i + 1} {neg_weight_str}"
-        )
+        weights.append(f"c p weight {num_existing_symbols + i + 1} {weight_str}")
+        weights.append(f"c p weight -{num_existing_symbols + i + 1} {neg_weight_str}")
         idx = counter["idx"]
         temp = encode_equivalence(z[i], logi)
         for i in range(idx, counter["idx"]):
@@ -230,7 +225,9 @@ def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
     for symbol in free_symbols_list:
         extend_symbols_map(symbols_map, symbol)
 
-    weights, clauses, symbols_map = wlogi_to_clauses(P_to_wlogi(pathsum.P), symbols_map, tool_name=tool_name)
+    weights, clauses, symbols_map = wlogi_to_clauses(
+        P_to_wlogi(pathsum.P), symbols_map, tool_name=tool_name
+    )
     for qubit in range(pathsum.num_qubits):
         a = sp.Symbol(pathsum.bits[qubit])
         idx = counter["idx"]
@@ -261,38 +258,40 @@ def run_wmc(file="wmc.cnf", tool_name="gpmc"):
             command = [str(ganak_exe), "--mode=6", file]
     else:
         raise ValueError(f"Unsupported tool name: {tool_name}")
-    
+
     result = subprocess.run(command, capture_output=True, text=True)
     output_lines = result.stdout.split("\n")
-    
+
     for line in output_lines:
         if line.startswith("c s exact double prec-sci"):
-            # We need to strip the prefix to apply the regex correctly to the number part
+            # Strip the prefix to apply the regex correctly to the number part
             number_string = line.replace("c s exact double prec-sci", "").strip()
         elif line.startswith("c s exact arb cpx"):
             number_string = line.replace("c s exact arb cpx", "").strip()
-            number_string = number_string.replace(' ', '')
-            number_string = number_string.replace('+-', '-')
+            number_string = number_string.replace(" ", "")
+            number_string = number_string.replace("+-", "-")
         elif line.startswith("c s exact quadruple float"):
             number_string = line.replace("c s exact quadruple float", "").strip()
-            number_string = number_string.replace(' ', '')
-            number_string = number_string.replace('+-', '-')
+            number_string = number_string.replace(" ", "")
+            number_string = number_string.replace("+-", "-")
         else:
             continue
-        number_string = number_string.strip().replace('i', 'j')
+        number_string = number_string.strip().replace("i", "j")
         complex_num = complex(number_string)
         return complex_num.real, complex_num.imag
-    
+
     if result.returncode != 0:
         if result.stdout:
             assert False, "WMC output format error, result: {}".format(result.stdout)
         if result.stderr:
             assert False, "Standard Error (stderr): {}".format(result.stderr)
-        assert False, "Command exited with non-zero status code: {}".format(result.returncode)
+        assert False, "Command exited with non-zero status code: {}".format(
+            result.returncode
+        )
     else:
         print("Command executed successfully.")
         assert False, "WMC output format error, result: {}".format(result.stdout)
-    
+
 
 if __name__ == "__main__":
     # from pathsum.pathsum import PathSum, F, Register

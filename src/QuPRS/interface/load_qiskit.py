@@ -1,9 +1,9 @@
-import signal, time, signal
+import signal
+import time
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-import symengine as se
 from qiskit import QuantumCircuit, qasm2, qasm3
 
 from QuPRS import config
@@ -116,200 +116,6 @@ def load_circuit(circuit: str) -> QuantumCircuit:
         return circuit
 
 
-def qasm_eq_check(
-    circuit1: str | QuantumCircuit,
-    circuit2: str | QuantumCircuit,
-    reduction_enabled: bool = True,
-    strategy="Difference",
-    Benchmark_Name=None,
-    timeout=600,
-):
-    tolerance = config.TOLERANCE
-
-    qiskit_circuit = load_circuit(circuit1)
-    qiskit_circuit2 = load_circuit(circuit2)
-
-    start_time = time.time()
-
-    initial_state = initialize(qiskit_circuit)
-    pathsum_circuit = initial_state
-    pathsum_circuit.set_reduction_switch(reduction_enabled)
-    qubit_num = initial_state.num_qubits
-
-    l1 = len(qiskit_circuit.data)
-    l2 = len(qiskit_circuit2.data)
-
-    output_dict = {
-        "Benchmark_Name": Benchmark_Name,
-        "qubit_num": qubit_num,
-        "gate_num": l1,
-        "gate_num2": l2,
-    }
-
-    if strategy == "Proportional":
-        from QuPRS.utils.strategy import proportional
-
-        output_dict, pathsum_circuit = proportional(
-            pathsum_circuit,
-            qiskit_circuit,
-            qiskit_circuit2,
-            l1,
-            l2,
-            output_dict,
-            timeout,
-        )
-    elif strategy == "Naive":
-        from QuPRS.utils.strategy import naive
-
-        output_dict, pathsum_circuit = naive(
-            pathsum_circuit,
-            qiskit_circuit,
-            qiskit_circuit2,
-            l1,
-            l2,
-            output_dict,
-            timeout,
-        )
-    elif strategy == "Straightforward":
-        from QuPRS.utils.strategy import straightforward
-
-        output_dict, pathsum_circuit = straightforward(
-            pathsum_circuit,
-            qiskit_circuit,
-            qiskit_circuit2,
-            l1,
-            l2,
-            output_dict,
-            timeout,
-        )
-    elif strategy == "Difference":
-        from QuPRS.utils.strategy import difference
-
-        output_dict, pathsum_circuit = difference(
-            pathsum_circuit,
-            qiskit_circuit,
-            qiskit_circuit2,
-            l1,
-            l2,
-            output_dict,
-            timeout,
-        )
-    else:
-        raise ValueError("Invalid strategy")
-    if "equivalent" in output_dict:
-        return output_dict, pathsum_circuit
-    else:
-        total_time = time.time() - start_time
-        output_dict["Time"] = round(total_time, 3)
-
-        if pathsum_circuit.f == initial_state.f:
-            if pathsum_circuit.P == initial_state.P:
-                output_dict["equivalent"] = "equivalent"
-            P_free_symbols = pathsum_circuit.P.free_symbols
-            check_P_symbol = tuple(
-                filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
-            )
-            if len(P_free_symbols) == 0:
-                if pathsum_circuit.P < tolerance:
-                    output_dict["equivalent"] = "equivalent"
-                else:
-                    output_dict["equivalent"] = "equivalent*"
-            elif len(check_P_symbol) == 0:
-                output_dict["equivalent"] = "equivalent*"
-            else:
-                output_dict["equivalent"] = "not_equivalent"
-            return output_dict, pathsum_circuit
-        else:
-            output_dict["equivalent"] = "unknown"
-            return output_dict, pathsum_circuit
-
-
-def qasm_eq_check_with_wmc(
-    circuit1: str | QuantumCircuit,
-    circuit2: str | QuantumCircuit,
-    reduction_enabled: bool = True,
-    strategy="Difference",
-    Benchmark_Name=None,
-    cnf_filename=None,
-    timeout=600,
-):
-    tolerance = config.TOLERANCE
-
-    output_dict, circuit = qasm_eq_check(
-        circuit1=circuit1,
-        circuit2=circuit2,
-        reduction_enabled=reduction_enabled,
-        strategy=strategy,
-        Benchmark_Name=Benchmark_Name,
-        timeout=timeout,
-    )
-    wmc_time = 0
-    log_wmc = None
-    expect = None
-    theta = None
-    to_DIMACS_time = 0
-    if output_dict["equivalent"] == "unknown":
-        from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-        from QuPRS.utils.util import get_theta
-
-        expect = circuit.num_qubits + circuit.num_pathvar / 2
-        signal.alarm(timeout)
-        start_time = time.time()
-        try:
-            if cnf_filename is None:
-                cnf_filename = "wmc.cnf"
-            to_DIMACS(circuit, cnf_filename)
-            to_DIMACS_time = round(time.time() - start_time, 3)
-        except TimeoutError:
-            to_DIMACS_time = f">{timeout}"
-        finally:
-            signal.alarm(0)
-
-        if to_DIMACS_time != f">{timeout}":
-            signal.alarm(timeout)
-            start_time = time.time()
-            try:
-                complex_number = run_wmc(cnf_filename)
-                wmc_time = round(time.time() - start_time, 3)
-                abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
-                log_wmc = round(np.log2(abs_num), 3)
-                theta = get_theta(
-                    complex_number[1] / abs_num, complex_number[0] / abs_num
-                )
-                if abs(log_wmc - expect) < tolerance:
-                    if abs(theta) < tolerance * 2 * np.pi:
-                        output_dict["equivalent"] = "equivalent"
-                    else:
-                        output_dict["equivalent"] = "equivalent*"
-                else:
-                    output_dict["equivalent"] = "not_equivalent"
-            except TimeoutError:
-                wmc_time = f">{timeout}"
-            finally:
-                signal.alarm(0)
-
-    elif output_dict["equivalent"] == "equivalent*":
-        theta = str((circuit.P * 2 * se.pi).evalf())
-    elif output_dict["equivalent"] == "equivalent":
-        theta = 0
-
-    output_dict["PathSum_time"] = output_dict["Time"]
-    output_dict["to_DIMACS_time"] = to_DIMACS_time
-    output_dict["wmc_time"] = wmc_time
-    if (
-        output_dict["equivalent"] == "Timeout"
-        or to_DIMACS_time == f">{timeout}"
-        or wmc_time == f">{timeout}"
-    ):
-        output_dict["equivalent"] = "Timeout"
-        output_dict["Time"] = f">{timeout}"
-    else:
-        output_dict["Time"] = round(
-            wmc_time + to_DIMACS_time + output_dict["PathSum_time"], 3
-        )
-    return output_dict
-
-
 # =============================================================================
 # check_equivalence: Unified Quantum Circuit Equivalence Checking Interface
 # =============================================================================
@@ -325,9 +131,10 @@ def check_equivalence(
     circuit1: str | QuantumCircuit,
     circuit2: str | QuantumCircuit,
     method: str = "hybrid",
-    strategy: str ="Difference",
+    strategy: str = "Difference",
     tool_name: str = "gpmc",
-    timeout: int=600,
+    timeout: int = 600,
+    safe_mode: bool = False,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -352,6 +159,8 @@ def check_equivalence(
             - 'Naive': Uses a naive strategy.
             - 'Straightforward': Uses a straightforward strategy.
         timeout (int, optional): Timeout in seconds for the operation. Default is 600.
+        safe_mode (bool, optional): If True, enables safe mode with memory limits by
+            using multiple processes. Default is False.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -404,11 +213,14 @@ def check_equivalence(
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        elapsed_so_far = time.time() - start_time
-        remaining_time = max(1, int(timeout - elapsed_so_far))
-        pathsum_circuit = strategy_obj.safe_run(
-            pathsum_circuit, gates1, gates2, timeout=remaining_time
-        )
+        if safe_mode:
+            elapsed_so_far = time.time() - start_time
+            remaining_time = max(1, int(timeout - elapsed_so_far))
+            pathsum_circuit = strategy_obj.safe_run(
+                pathsum_circuit, gates1, gates2, timeout=remaining_time
+            )
+        else:
+            pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 
@@ -437,6 +249,7 @@ def check_equivalence(
         if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
             from QuPRS.utils.util import get_theta
+
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
                 raise TimeoutError("Timeout before WMC")
@@ -451,7 +264,9 @@ def check_equivalence(
 
                 # Convert PathSum to CNF (DIMACS format)
                 to_DIMACS_start_time = time.time()
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".cnf") as temp_file:
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".cnf"
+                ) as temp_file:
                     temp_name = temp_file.name
                     CNF = to_DIMACS(pathsum_circuit, temp_name, tool_name=tool_name)
                 to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
@@ -463,7 +278,9 @@ def check_equivalence(
                 tool_time = round(time.time() - tool_start_time, 3)
                 abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
                 log_wmc = round(np.log2(abs_num), 3)
-                theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
+                theta = get_theta(
+                    complex_number[1] / abs_num, complex_number[0] / abs_num
+                )
                 if abs(log_wmc - expect) < tolerance:
                     if abs(theta) < tolerance * 2 * np.pi:
                         equivalent = "equivalent"

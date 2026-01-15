@@ -69,4 +69,4 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
-          run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }} 
+          run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }} || ( [ $? -eq 5 ] && exit 0 || exit $? )

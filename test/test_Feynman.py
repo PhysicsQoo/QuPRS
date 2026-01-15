@@ -1,3 +1,4 @@
+import signal
 from pathlib import Path
 
 import pytest
@@ -38,7 +39,7 @@ def test_all_benchmarks(benchmark, file_name, strategy, switch):
     Pytest will execute this function once for each row in the parametrize list.
     """
     result = benchmark(generate_test, file_name, strategy=strategy, switch=switch)
-
+    signal.alarm(0)
     resource_limits = {"Timeout", "MemoryOut"}
     if result.equivalent in resource_limits:
         benchmark.extra_info["status"] = (

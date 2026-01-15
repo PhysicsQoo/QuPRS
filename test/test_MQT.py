@@ -1,3 +1,4 @@
+import signal
 from pathlib import Path
 
 import pytest
@@ -62,7 +63,7 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
         tool_name=tool_name,
         switch=switch,
     )
-
+    signal.alarm(0)
     is_ganak_format_error = tool_name == "ganak" and (
         "WMC output format error" in str(result.equivalent)
         or "error" in str(result.equivalent).lower()

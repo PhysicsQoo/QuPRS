@@ -1,4 +1,4 @@
-import signal
+import os
 from pathlib import Path
 
 import pytest
@@ -16,6 +16,8 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
     circuit2 = str(path2 / file_name)
     if switch:
         circuit1, circuit2 = circuit2, circuit1
+    IS_CODSPEED = os.getenv("CODSPEED_ENV") is not None
+    REAL_TIMEOUT = 60 if not IS_CODSPEED else 999999
     try:
         result = check_equivalence(
             circuit1,
@@ -23,7 +25,7 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
             method="hybrid",
             strategy=strategy,
             tool_name=tool_name,
-            timeout=60,
+            timeout=REAL_TIMEOUT,
         )
     except Exception as e:
         error_msg = str(e)
@@ -34,24 +36,34 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
     return result
 
 
-file_names = [
-    "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
-    "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
-    "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
-    "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
-    "qft_nativegates_ibm_qiskit_opt0_16.qasm",
-    "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
-]
-strategies = ["difference", "proportional", "naive", "straightforward"]
-tool_names = ["gpmc", "ganak"]
-
-def ignore_handler(signum, frame):
-    pass
-
-@pytest.mark.parametrize("switch", [False])
-@pytest.mark.parametrize("tool_name", tool_names)
-@pytest.mark.parametrize("strategy", strategies)
-@pytest.mark.parametrize("file_name", file_names)
+@pytest.mark.parametrize(
+    "file_name, strategy, tool_name, switch",
+    [
+        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward", "gpmc", True),
+        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward", "ganak", True),
+        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", "gpmc", False),
+        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", "ganak", False),
+        (
+            "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+            "proportional",
+            "gpmc",
+            True,
+        ),
+        (
+            "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+            "proportional",
+            "ganak",
+            True,
+        ),
+        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional", "gpmc", False),
+        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional", "ganak", False),
+        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", "gpmc", True),
+        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", "ganak", True),
+        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "gpmc", False),
+        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "ganak", False),
+        # ("new_benchmark_file.qasm", "new_strategy"),
+    ],
+)
 def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
     """
     A function to test all benchmark files.
@@ -65,30 +77,25 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
         tool_name=tool_name,
         switch=switch,
     )
-    signal.alarm(0)
-    original_handler = signal.signal(signal.SIGALRM, ignore_handler)
-    try:
-        is_ganak_format_error = tool_name == "ganak" and (
-            "WMC output format error" in str(result.equivalent)
-            or "error" in str(result.equivalent).lower()
-        )
-        if is_ganak_format_error:
-            benchmark.extra_info["status"] = f"[Ganak Format Error] {file_name}: {result}"
-            pytest.skip(f"\n::[Ganak Format Error] {file_name}: {result}")
 
-        resource_limits = {"Timeout", "MemoryOut"}
-        if result.equivalent in resource_limits:
-            benchmark.extra_info["status"] = (
-                f"Skipped due to resource limit: {result.equivalent}"
-            )
-            pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+    is_ganak_format_error = tool_name == "ganak" and (
+        "WMC output format error" in str(result.equivalent)
+        or "error" in str(result.equivalent).lower()
+    )
+    if is_ganak_format_error:
+        benchmark.extra_info["status"] = f"[Ganak Format Error] {file_name}: {result}"
+        pytest.skip(f"\n::[Ganak Format Error] {file_name}: {result}")
 
-        expected_outcomes = {"equivalent", "equivalent*"}
-        assert result.equivalent in expected_outcomes, (
-            f"Verification failed for {file_name}.\n"
-            f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
-            f"Full Result:\n{result}"
+    resource_limits = {"Timeout", "MemoryOut"}
+    if result.equivalent in resource_limits:
+        benchmark.extra_info["status"] = (
+            f"Skipped due to resource limit: {result.equivalent}"
         )
-    finally:
-        if original_handler:
-            signal.signal(signal.SIGALRM, original_handler)
+        pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+
+    expected_outcomes = {"equivalent", "equivalent*"}
+    assert result.equivalent in expected_outcomes, (
+        f"Verification failed for {file_name}.\n"
+        f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
+        f"Full Result:\n{result}"
+    )

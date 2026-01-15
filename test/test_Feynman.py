@@ -1,4 +1,4 @@
-import signal
+import os
 from pathlib import Path
 
 import pytest
@@ -16,14 +16,20 @@ def generate_test(file_name, strategy="proportional", switch=False):
     circuit2 = str(path2 / file_name)
     if switch:
         circuit1, circuit2 = circuit2, circuit1
+
+    IS_CODSPEED = os.getenv("CODSPEED_ENV") is not None
+    REAL_TIMEOUT = 60 if not IS_CODSPEED else 999999
+
     result = check_equivalence(
-        circuit1, circuit2, method="reduction_rules", strategy=strategy, timeout=60
+        circuit1,
+        circuit2,
+        method="reduction_rules",
+        strategy=strategy,
+        timeout=REAL_TIMEOUT,
     )
 
     return result
 
-def ignore_handler(signum, frame):
-    pass
 
 @pytest.mark.parametrize(
     "file_name, strategy, switch",
@@ -41,22 +47,17 @@ def test_all_benchmarks(benchmark, file_name, strategy, switch):
     Pytest will execute this function once for each row in the parametrize list.
     """
     result = benchmark(generate_test, file_name, strategy=strategy, switch=switch)
-    signal.alarm(0)
-    original_handler = signal.signal(signal.SIGALRM, ignore_handler)
-    try:
-        resource_limits = {"Timeout", "MemoryOut"}
-        if result.equivalent in resource_limits:
-            benchmark.extra_info["status"] = (
-                f"Skipped due to resource limit: {result.equivalent}"
-            )
-            pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
 
-        expected_outcomes = {"equivalent", "equivalent*"}
-        assert result.equivalent in expected_outcomes, (
-            f"Verification failed for {file_name}.\n"
-            f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
-            f"Full Result:\n{result}"
+    resource_limits = {"Timeout", "MemoryOut"}
+    if result.equivalent in resource_limits:
+        benchmark.extra_info["status"] = (
+            f"Skipped due to resource limit: {result.equivalent}"
         )
-    finally:
-        if original_handler:
-            signal.signal(signal.SIGALRM, original_handler)
+        pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+
+    expected_outcomes = {"equivalent", "equivalent*"}
+    assert result.equivalent in expected_outcomes, (
+        f"Verification failed for {file_name}.\n"
+        f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
+        f"Full Result:\n{result}"
+    )

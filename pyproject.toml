@@ -87,7 +87,7 @@ version-file = "src/QuPRS/_version.py"
 
 [tool.cibuildwheel]
 # Skip PyPy, 32-bit, and musllinux builds
-skip = ["pp*", "*i686*", "*musllinux*"]
+skip = ["pp*", "*i686*", "*musllinux*", "cp314*"]
 build-frontend = "build"
 
 [tool.cibuildwheel.linux]

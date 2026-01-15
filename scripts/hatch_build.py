@@ -307,32 +307,64 @@ class CustomBuildHook(BuildHookInterface):
 
             try:
                 # GPMC: Build from source
-                # Patch Main.cc to fix ARM64 build failure
+                
+                # --- Patch 1: Main.cc for ARM64 compatibility AND musl (fpu_control) ---
                 main_cc_path = os.path.join(src_path, "core", "Main.cc")
                 if os.path.exists(main_cc_path):
-                    print(
-                        f"--- [Hatch Hook] Patching {main_cc_path} for ARM64 compatibility ---"
-                    )
+                    print(f"--- [Hatch Hook] Patching {main_cc_path} for ARM64 and musl compatibility ---")
                     with open(main_cc_path, "r") as f:
                         content = f.read()
 
-                    # Replace the linux check with linux AND x86 check
-                    # We look for the specific block start.
-                    # Original: #if defined(__linux__)
-                    # Target:   #if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
-                    new_content = content.replace(
-                        "#if defined(__linux__)",
-                        "#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))",
-                    )
-
-                    if content != new_content:
-                        with open(main_cc_path, "w") as f:
-                            f.write(new_content)
-                        print("--- [Hatch Hook] Patch applied successfully ---")
-                    else:
-                        print(
-                            "--- [Hatch Hook] Patch not applied (already patched or not found) ---"
+                    # 1. Fix ARM64 compatibility
+                    if "#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))" not in content:
+                         content = content.replace(
+                            "#if defined(__linux__)",
+                            "#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))",
                         )
+
+                    # 2. Fix musl compatibility (fpu_control is glibc-only)
+                    # We check if we've already added the glibc check
+                    if "defined(__GLIBC__)" not in content:
+                        # Find the specific block:
+                        # #if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
+                        # 		fpu_control_t oldcw, newcw;
+                        # 		_FPU_GETCW(oldcw); newcw = (oldcw & ~_FPU_EXTENDED) | _FPU_DOUBLE; _FPU_SETCW(newcw);
+                        # 		printf("c o WARNING: for repeatability, setting FPU to use double precision\n");
+                        # #endif
+
+                        # We modify the #if line to also require __GLIBC__
+                        content = content.replace(
+                            "#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))",
+                            "#if defined(__linux__) && defined(__GLIBC__) && (defined(__i386__) || defined(__x86_64__))"
+                        )
+
+                    with open(main_cc_path, "w") as f:
+                        f.write(content)
+                
+                # --- Patch 2: System.h for musl compatibility (fpu_control.h) ---
+                system_h_path = os.path.join(src_path, "utils", "System.h")
+                if os.path.exists(system_h_path):
+                     print(f"--- [Hatch Hook] Patching {system_h_path} for musl compatibility ---")
+                     with open(system_h_path, "r") as f:
+                        content = f.read()
+                    
+                     # Original:
+                     # #if defined(__linux__)
+                     # #include <fpu_control.h>
+                     # #endif
+                     
+                     # Target:
+                     # #if defined(__linux__) && defined(__GLIBC__)
+                     # #include <fpu_control.h>
+                     # #endif
+
+                     if "#if defined(__linux__) && defined(__GLIBC__)" not in content:
+                         content = content.replace(
+                             "#if defined(__linux__)",
+                             "#if defined(__linux__) && defined(__GLIBC__)"
+                         )
+                         with open(system_h_path, "w") as f:
+                             f.write(content)
 
                 built_binary_path, _ = self.build_cmake_project(
                     src_path, build_dir, tool["name"]

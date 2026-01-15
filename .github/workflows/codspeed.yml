@@ -30,7 +30,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.12"]
-        shard_id: [1, 2, 3, 4, 5] 
+        shard_id: [0, 1, 2, 3, 4] 
         num_shards: [5]
     env:
       BINARY_DIR: src/QuPRS/utils

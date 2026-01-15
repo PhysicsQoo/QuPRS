@@ -91,7 +91,7 @@ skip = ["pp*", "*i686*", "*musllinux*"]
 build-frontend = "build"
 
 [tool.cibuildwheel.linux]
-before-all = "yum install -y gmp-devel mpfr-devel zlib-devel"
+before-all = "sh scripts/install_linux_deps.sh"
 
 [tool.cibuildwheel.macos]
 before-all = "brew install gmp mpfr zlib"

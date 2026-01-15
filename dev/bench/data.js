@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768446320656,
+  "lastUpdate": 1768450100629,
   "repoUrl": "https://github.com/PhysicsQoo/QuPRS",
   "entries": {
     "QuPRS Benchmark History": [
@@ -2852,6 +2852,394 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0011078084142093058",
             "extra": "mean: 882.9589997999847 msec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "wei.jia.huang.physics@gmail.com",
+            "name": "PhysicsQoo",
+            "username": "PhysicsQoo"
+          },
+          "committer": {
+            "email": "wei.jia.huang.physics@gmail.com",
+            "name": "PhysicsQoo",
+            "username": "PhysicsQoo"
+          },
+          "distinct": true,
+          "id": "da8ff4b8e4146c3b0ad739da576c9498c7795d33",
+          "message": "fix: 🐛 Refactor parameterization in test_Feynman.py and test_MQT.py for clarity",
+          "timestamp": "2026-01-15T12:01:20+08:00",
+          "tree_id": "fe53b638766485919226e3ed3dab061c725056f0",
+          "url": "https://github.com/PhysicsQoo/QuPRS/commit/da8ff4b8e4146c3b0ad739da576c9498c7795d33"
+        },
+        "date": 1768450100405,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[adder_8.qasm-proportional-False]",
+            "value": 0.49351603667608573,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023360442135067598",
+            "extra": "mean: 2.026276606400006 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[gf2^4_mult.qasm-proportional-False]",
+            "value": 9.708217777990084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015830119544936166",
+            "extra": "mean: 103.00551788889025 msec\nrounds: 9"
+          },
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[tof_3.qasm-proportional-True]",
+            "value": 99.2795285969961,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001390276569388925",
+            "extra": "mean: 10.072569986298838 msec\nrounds: 73"
+          },
+          {
+            "name": "test/test_Feynman.py::test_all_benchmarks[vbe_adder_3.qasm-proportional-True]",
+            "value": 16.439276070931236,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004088366011830481",
+            "extra": "mean: 60.82992923077987 msec\nrounds: 13"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-difference-gpmc-False]",
+            "value": 26.050437630801138,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00041526404287170303",
+            "extra": "mean: 38.38707104166398 msec\nrounds: 24"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-difference-ganak-False]",
+            "value": 26.078635144226613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00045575478985730586",
+            "extra": "mean: 38.345565037033154 msec\nrounds: 27"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-proportional-gpmc-False]",
+            "value": 27.74580148476212,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004861452274627866",
+            "extra": "mean: 36.04148903570855 msec\nrounds: 28"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-proportional-ganak-False]",
+            "value": 27.74208744941515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00043018024320371406",
+            "extra": "mean: 36.046314172406724 msec\nrounds: 29"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-naive-gpmc-False]",
+            "value": 27.564222642729725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010656771926355244",
+            "extra": "mean: 36.278911724135185 msec\nrounds: 29"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-naive-ganak-False]",
+            "value": 28.027358738069385,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00046792256648625",
+            "extra": "mean: 35.679423428569685 msec\nrounds: 28"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-gpmc-False]",
+            "value": 19.94636935895642,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00045683000560942094",
+            "extra": "mean: 50.134437100001605 msec\nrounds: 20"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-ganak-False]",
+            "value": 19.747381152666975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00048820374457964234",
+            "extra": "mean: 50.639626200000976 msec\nrounds: 10"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-difference-gpmc-False]",
+            "value": 6.275113691333672,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000843517480885851",
+            "extra": "mean: 159.35966249998992 msec\nrounds: 6"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-difference-ganak-False]",
+            "value": 6.2300074887806245,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004133799058792617",
+            "extra": "mean: 160.51345071428256 msec\nrounds: 7"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-proportional-gpmc-False]",
+            "value": 6.986765264004982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0011399631985776265",
+            "extra": "mean: 143.127751142848 msec\nrounds: 7"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-proportional-ganak-False]",
+            "value": 6.721047270628922,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020200910142970416",
+            "extra": "mean: 148.7863363749895 msec\nrounds: 8"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-gpmc-False]",
+            "value": 7.028830268208134,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0009604385981581546",
+            "extra": "mean: 142.27118337500144 msec\nrounds: 8"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-ganak-False]",
+            "value": 7.027115707057418,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003945517242103697",
+            "extra": "mean: 142.30589642855713 msec\nrounds: 7"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-straightforward-gpmc-False]",
+            "value": 6.62803870328775,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001407682436465139",
+            "extra": "mean: 150.87419442858163 msec\nrounds: 7"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-straightforward-ganak-False]",
+            "value": 6.5464138389144155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017558337308164508",
+            "extra": "mean: 152.75539014286161 msec\nrounds: 7"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-difference-gpmc-False]",
+            "value": 4.7126435304983145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02844938004350051",
+            "extra": "mean: 212.19512859998986 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-difference-ganak-False]",
+            "value": 1.535274948232965,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014534250599756088",
+            "extra": "mean: 651.3491287999955 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-gpmc-False]",
+            "value": 4.870618900824958,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006019419042336449",
+            "extra": "mean: 205.31271700001525 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-ganak-False]",
+            "value": 1.1755390612106666,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0022630501199323427",
+            "extra": "mean: 850.6735616000014 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-naive-gpmc-False]",
+            "value": 4.885799245379996,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007909423705459413",
+            "extra": "mean: 204.6748033999961 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-naive-ganak-False]",
+            "value": 1.1695818690853672,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03072077764233568",
+            "extra": "mean: 855.0064141999883 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-straightforward-gpmc-False]",
+            "value": 3.4995075153570716,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0022869296513879363",
+            "extra": "mean: 285.7544942000118 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-straightforward-ganak-False]",
+            "value": 1.140286007202269,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030963782409549268",
+            "extra": "mean: 876.9729643999881 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-difference-gpmc-False]",
+            "value": 1.240018427030949,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02034320947427281",
+            "extra": "mean: 806.4396288000012 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-difference-ganak-False]",
+            "value": 0.5119209785606764,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02960402853856153",
+            "extra": "mean: 1.9534264894000102 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-gpmc-False]",
+            "value": 1.444121561199106,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003432907782943341",
+            "extra": "mean: 692.4624816000005 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-ganak-False]",
+            "value": 0.542049032819932,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003772015531987097",
+            "extra": "mean: 1.844851553000001 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-naive-gpmc-False]",
+            "value": 1.468150632413441,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002744480625035901",
+            "extra": "mean: 681.1290190000022 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-naive-ganak-False]",
+            "value": 0.5378267238145897,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022448266875708268",
+            "extra": "mean: 1.8593349042 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-straightforward-gpmc-False]",
+            "value": 1.2841552881733296,
+            "unit": "iter/sec",
+            "range": "stddev: 0.035746587106088586",
+            "extra": "mean: 778.7220199999865 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-straightforward-ganak-False]",
+            "value": 0.5177040052506271,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025975356853808928",
+            "extra": "mean: 1.9316056855999932 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-difference-gpmc-False]",
+            "value": 0.455049206634478,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02931248784295489",
+            "extra": "mean: 2.1975645389999725 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-difference-ganak-False]",
+            "value": 0.4512149217788258,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03131445783915397",
+            "extra": "mean: 2.2162387627999918 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-gpmc-False]",
+            "value": 0.4981313669761495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.048232923221036214",
+            "extra": "mean: 2.0075025712000185 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-ganak-False]",
+            "value": 0.4925398423088266,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030332855024872225",
+            "extra": "mean: 2.0302926059999664 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-naive-gpmc-False]",
+            "value": 0.5001504701188956,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03320932144062327",
+            "extra": "mean: 1.999398300599978 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-naive-ganak-False]",
+            "value": 0.4903189039898101,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03234554489554349",
+            "extra": "mean: 2.0394889771999942 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-straightforward-gpmc-False]",
+            "value": 0.5277248539409032,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02921528583635934",
+            "extra": "mean: 1.8949268591999726 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-straightforward-ganak-False]",
+            "value": 0.5183310879007701,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030500300118591415",
+            "extra": "mean: 1.9292688078000082 sec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-difference-gpmc-False]",
+            "value": 4.393879043877258,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027290027531400765",
+            "extra": "mean: 227.58933280001656 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-difference-ganak-False]",
+            "value": 1.0531612818235072,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008694051285720445",
+            "extra": "mean: 949.52218359997 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-gpmc-False]",
+            "value": 6.452790695130156,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0013015782349511168",
+            "extra": "mean: 154.9717087142913 msec\nrounds: 7"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-ganak-False]",
+            "value": 1.0933894072463604,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0012957668953758293",
+            "extra": "mean: 914.5872397999938 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-naive-gpmc-False]",
+            "value": 5.760122133021475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027986801654420152",
+            "extra": "mean: 173.60743000000411 msec\nrounds: 6"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-naive-ganak-False]",
+            "value": 1.1003754205841112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001845461029440251",
+            "extra": "mean: 908.7807500000054 msec\nrounds: 5"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-straightforward-gpmc-False]",
+            "value": 5.3487921318383975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001537734873224202",
+            "extra": "mean: 186.95809733333135 msec\nrounds: 6"
+          },
+          {
+            "name": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-straightforward-ganak-False]",
+            "value": 1.1278064935368564,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0032509018815592935",
+            "extra": "mean: 886.6769305999924 msec\nrounds: 5"
           }
         ]
       }

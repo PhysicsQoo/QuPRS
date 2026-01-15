@@ -57,6 +57,9 @@ class CustomBuildHook(BuildHookInterface):
             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         ]
 
+        # Ensure C++11 standard for compatibility with older compilers (e.g. GCC 4.8 on CentOS 7)
+        cmake_args.append("-DCMAKE_CXX_STANDARD=11")
+
         # Cross-platform toolchain support
         toolchain = os.environ.get("CMAKE_TOOLCHAIN_FILE")
         if toolchain:
@@ -127,7 +130,8 @@ class CustomBuildHook(BuildHookInterface):
         subprocess.check_call(cmake_args, cwd=build_dir)
 
         print(f"--- [Hatch Hook] Building {binary_base_name} ---")
-        subprocess.check_call(["cmake", "--build", "."], cwd=build_dir)
+        # Use verbose output to help debug link/compile errors
+        subprocess.check_call(["cmake", "--build", ".", "--verbose"], cwd=build_dir)
 
         # Locate and handle the binary
         binary_name = self._get_cmake_output_name(binary_base_name)

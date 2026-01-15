@@ -45,6 +45,8 @@ file_names = [
 strategies = ["difference", "proportional", "naive", "straightforward"]
 tool_names = ["gpmc", "ganak"]
 
+def ignore_handler(signum, frame):
+    pass
 
 @pytest.mark.parametrize("switch", [False])
 @pytest.mark.parametrize("tool_name", tool_names)
@@ -64,24 +66,29 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
         switch=switch,
     )
     signal.alarm(0)
-    is_ganak_format_error = tool_name == "ganak" and (
-        "WMC output format error" in str(result.equivalent)
-        or "error" in str(result.equivalent).lower()
-    )
-    if is_ganak_format_error:
-        benchmark.extra_info["status"] = f"[Ganak Format Error] {file_name}: {result}"
-        pytest.skip(f"\n::[Ganak Format Error] {file_name}: {result}")
-
-    resource_limits = {"Timeout", "MemoryOut"}
-    if result.equivalent in resource_limits:
-        benchmark.extra_info["status"] = (
-            f"Skipped due to resource limit: {result.equivalent}"
+    original_handler = signal.signal(signal.SIGALRM, ignore_handler)
+    try:
+        is_ganak_format_error = tool_name == "ganak" and (
+            "WMC output format error" in str(result.equivalent)
+            or "error" in str(result.equivalent).lower()
         )
-        pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+        if is_ganak_format_error:
+            benchmark.extra_info["status"] = f"[Ganak Format Error] {file_name}: {result}"
+            pytest.skip(f"\n::[Ganak Format Error] {file_name}: {result}")
 
-    expected_outcomes = {"equivalent", "equivalent*"}
-    assert result.equivalent in expected_outcomes, (
-        f"Verification failed for {file_name}.\n"
-        f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
-        f"Full Result:\n{result}"
-    )
+        resource_limits = {"Timeout", "MemoryOut"}
+        if result.equivalent in resource_limits:
+            benchmark.extra_info["status"] = (
+                f"Skipped due to resource limit: {result.equivalent}"
+            )
+            pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+
+        expected_outcomes = {"equivalent", "equivalent*"}
+        assert result.equivalent in expected_outcomes, (
+            f"Verification failed for {file_name}.\n"
+            f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
+            f"Full Result:\n{result}"
+        )
+    finally:
+        if original_handler:
+            signal.signal(signal.SIGALRM, original_handler)

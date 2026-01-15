@@ -22,6 +22,8 @@ def generate_test(file_name, strategy="proportional", switch=False):
 
     return result
 
+def ignore_handler(signum, frame):
+    pass
 
 @pytest.mark.parametrize(
     "file_name, strategy, switch",
@@ -40,16 +42,21 @@ def test_all_benchmarks(benchmark, file_name, strategy, switch):
     """
     result = benchmark(generate_test, file_name, strategy=strategy, switch=switch)
     signal.alarm(0)
-    resource_limits = {"Timeout", "MemoryOut"}
-    if result.equivalent in resource_limits:
-        benchmark.extra_info["status"] = (
-            f"Skipped due to resource limit: {result.equivalent}"
-        )
-        pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+    original_handler = signal.signal(signal.SIGALRM, ignore_handler)
+    try:
+        resource_limits = {"Timeout", "MemoryOut"}
+        if result.equivalent in resource_limits:
+            benchmark.extra_info["status"] = (
+                f"Skipped due to resource limit: {result.equivalent}"
+            )
+            pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
 
-    expected_outcomes = {"equivalent", "equivalent*"}
-    assert result.equivalent in expected_outcomes, (
-        f"Verification failed for {file_name}.\n"
-        f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
-        f"Full Result:\n{result}"
-    )
+        expected_outcomes = {"equivalent", "equivalent*"}
+        assert result.equivalent in expected_outcomes, (
+            f"Verification failed for {file_name}.\n"
+            f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
+            f"Full Result:\n{result}"
+        )
+    finally:
+        if original_handler:
+            signal.signal(signal.SIGALRM, original_handler)

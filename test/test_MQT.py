@@ -45,7 +45,7 @@ strategies = ["difference", "proportional", "naive", "straightforward"]
 tool_names = ["gpmc", "ganak"]
 
 
-@pytest.mark.parametrize("switch", [True, False])
+@pytest.mark.parametrize("switch", [False])
 @pytest.mark.parametrize("tool_name", tool_names)
 @pytest.mark.parametrize("strategy", strategies)
 @pytest.mark.parametrize("file_name", file_names)

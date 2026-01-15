@@ -1,5 +1,6 @@
 import math
 import tempfile
+
 import pytest
 
 from QuPRS import config
@@ -23,6 +24,7 @@ def generte_test(circuit, tool_name):
     )
     return complex_number, abs_num
 
+
 @pytest.mark.parametrize("tool_name", ["gpmc", "ganak"])
 def test_CX_XT_CH_XTdg__2(tool_name):
     qubit_num = 2
@@ -44,7 +46,10 @@ def test_CX_XT_CH_XTdg__2(tool_name):
 
     complex_number, abs_num = generte_test(circuit, tool_name=tool_name)
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    assert (
+        abs(theta) < TOLERANCE or abs(2 * math.pi - theta) < TOLERANCE
+    ), "should be 0, but got {}".format(theta)
+
 
 @pytest.mark.parametrize("tool_name", ["gpmc", "ganak"])
 def test_HH(tool_name):
@@ -55,4 +60,6 @@ def test_HH(tool_name):
 
     complex_number, abs_num = generte_test(circuit, tool_name=tool_name)
     theta = get_theta(complex_number[1] / abs_num, complex_number[0] / abs_num)
-    assert abs(theta) < TOLERANCE or abs(2*math.pi-theta) < TOLERANCE, "should be 0, but got {}".format(theta)
+    assert (
+        abs(theta) < TOLERANCE or abs(2 * math.pi - theta) < TOLERANCE
+    ), "should be 0, but got {}".format(theta)

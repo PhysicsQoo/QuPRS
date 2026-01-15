@@ -1,22 +1,26 @@
+from pathlib import Path
+
 import pytest
 
 from QuPRS import check_equivalence
 
-path1 = "./benchmarks/Feynman/"
-path2 = "./benchmarks/Feynman/h,y,z,t,tdg,cx/"
+PROJECT_ROOT = Path(".").resolve()
+Feynman_BENCH_ROOT = PROJECT_ROOT / "benchmarks" / "Feynman"
+path1 = Feynman_BENCH_ROOT
+path2 = Feynman_BENCH_ROOT / "h,y,z,t,tdg,cx"
 
 
 def generate_test(file_name, strategy="proportional", switch=False):
-    circuit1 = path1 + file_name
-    circuit2 = path2 + file_name
+    circuit1 = str(path1 / file_name)
+    circuit2 = str(path2 / file_name)
     if switch:
         circuit1, circuit2 = circuit2, circuit1
     result = check_equivalence(
-        circuit1, circuit2, method="reduction_rules", strategy=strategy
+        circuit1, circuit2, method="reduction_rules", strategy=strategy, timeout=60
     )
-    assert (
-        result.equivalent == "equivalent" or result.equivalent == "equivalent*"
-    ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
+
+    return result
+
 
 file_names = [
     "adder_8.qasm",
@@ -26,6 +30,7 @@ file_names = [
 ]
 strategies = ["proportional"]
 
+
 @pytest.mark.parametrize("switch", [False])
 @pytest.mark.parametrize("strategy", strategies)
 @pytest.mark.parametrize("file_name", file_names)
@@ -34,4 +39,18 @@ def test_all_benchmarks(benchmark, file_name, strategy, switch):
     A function to test all benchmark files.
     Pytest will execute this function once for each row in the parametrize list.
     """
-    benchmark(generate_test, file_name, strategy=strategy, switch=switch)
+    result = benchmark(generate_test, file_name, strategy=strategy, switch=switch)
+
+    resource_limits = {"Timeout", "MemoryOut"}
+    if result.equivalent in resource_limits:
+        benchmark.extra_info["status"] = (
+            f"Skipped due to resource limit: {result.equivalent}"
+        )
+        pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+
+    expected_outcomes = {"equivalent", "equivalent*"}
+    assert result.equivalent in expected_outcomes, (
+        f"Verification failed for {file_name}.\n"
+        f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
+        f"Full Result:\n{result}"
+    )

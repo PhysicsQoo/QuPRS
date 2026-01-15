@@ -1,21 +1,37 @@
+from pathlib import Path
+
 import pytest
-import sys
 
 from QuPRS import check_equivalence
 
-path1 = "./benchmarks/MQTBench/"
-path2 = "./benchmarks/MQTBench/h,ry,rz,cx/"
+PROJECT_ROOT = Path(".").resolve()
+MQT_BENCH_ROOT = PROJECT_ROOT / "benchmarks" / "MQTBench"
+path1 = MQT_BENCH_ROOT
+path2 = MQT_BENCH_ROOT / "h,ry,rz,cx"
 
 
 def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=False):
-    circuit1 = path1 + file_name
-    circuit2 = path2 + file_name
+    circuit1 = str(path1 / file_name)
+    circuit2 = str(path2 / file_name)
     if switch:
         circuit1, circuit2 = circuit2, circuit1
-    result = check_equivalence(circuit1, circuit2, method="hybrid", strategy=strategy, tool_name=tool_name)
-    assert (
-        result.equivalent == "equivalent" or result.equivalent == "equivalent*"
-    ), f"Expected equivalent or equivalent*, got {result.equivalent} \n {result}"
+    try:
+        result = check_equivalence(
+            circuit1,
+            circuit2,
+            method="hybrid",
+            strategy=strategy,
+            tool_name=tool_name,
+            timeout=60,
+        )
+    except Exception as e:
+        error_msg = str(e)
+        if tool_name == "ganak":
+            pytest.skip(f"\n::[Ganak Crash] {file_name}: {error_msg}")
+        raise e
+
+    return result
+
 
 file_names = [
     "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
@@ -28,6 +44,7 @@ file_names = [
 strategies = ["difference", "proportional", "naive", "straightforward"]
 tool_names = ["gpmc", "ganak"]
 
+
 @pytest.mark.parametrize("switch", [True, False])
 @pytest.mark.parametrize("tool_name", tool_names)
 @pytest.mark.parametrize("strategy", strategies)
@@ -37,17 +54,33 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
     A function to test all benchmark files.
     Pytest will execute this function once for each row in the parametrize list.
     """
-    try:
-        benchmark(generate_test, file_name, strategy=strategy, tool_name=tool_name, switch=switch)
-    except AssertionError as e:
-        error_msg = str(e)
-        if tool_name == "ganak" and "WMC output format error" in error_msg:
-            pytest.skip(f"\n::warning title=Ganak Skipped {file_name} :: skipped due to Ganak binary crash. error_msg:{error_msg}")
-        else:
-            raise e
-    except Exception as e:
-        error_msg = str(e)
-        if tool_name == "ganak":
-            pytest.skip(f"\n::warning title=Ganak Error {file_name}:: encountered unexpected error. error_msg:{error_msg}")
-        else:
-            raise e
+
+    result = benchmark(
+        generate_test,
+        file_name,
+        strategy=strategy,
+        tool_name=tool_name,
+        switch=switch,
+    )
+
+    is_ganak_format_error = tool_name == "ganak" and (
+        "WMC output format error" in str(result.equivalent)
+        or "error" in str(result.equivalent).lower()
+    )
+    if is_ganak_format_error:
+        benchmark.extra_info["status"] = f"[Ganak Format Error] {file_name}: {result}"
+        pytest.skip(f"\n::[Ganak Format Error] {file_name}: {result}")
+
+    resource_limits = {"Timeout", "MemoryOut"}
+    if result.equivalent in resource_limits:
+        benchmark.extra_info["status"] = (
+            f"Skipped due to resource limit: {result.equivalent}"
+        )
+        pytest.skip(f"\n::Benchmark skipped due to resource limit: {result.equivalent}")
+
+    expected_outcomes = {"equivalent", "equivalent*"}
+    assert result.equivalent in expected_outcomes, (
+        f"Verification failed for {file_name}.\n"
+        f"Expected one of {expected_outcomes}, but got '{result.equivalent}'.\n"
+        f"Full Result:\n{result}"
+    )

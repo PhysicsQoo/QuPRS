@@ -370,7 +370,7 @@ class EquivalenceCheckResult:
     strategy: str
     # Result
     equivalent: str
-    verification_time: float
+    verification_time: float | str
     pathsum_time: float | str
     final_pathsum: PathSum
     Statistics: StatisticsManager
@@ -378,21 +378,38 @@ class EquivalenceCheckResult:
     # If method runs WMC, then to_DIMACS_time and tool_time are not None
     to_DIMACS_time: Optional[float] = None
     tool_name: Optional[str] = None
-    tool_time: Optional[float] = None
-    wmc_time: Optional[float] = None
+    tool_time: Optional[float | str] = None
+    wmc_time: Optional[float | str] = None
     CNF: Optional[str] = None
     expect: Optional[float] = None
     log_wmc: Optional[float] = None
 
+    @staticmethod
+    def _fmt(val: float | str | None) -> str:
+        """
+        Unified formatting logic:
+        1. If the value is a number (float/int) -> format to .3f (without unit)
+        2. If the value is None -> return 'N/A'
+        3. If the value is something else (e.g., error string)
+            -> return the original string
+        """
+        if val is None:
+            return "N/A"
+        if isinstance(val, (int, float)):
+            return f"{val:.3f}"
+        return str(val)
+
     def __repr__(self) -> str:
         class_name = self.__class__.__name__
+
         return (
             f"{class_name}(result={self.equivalent}, "
             f"method={self.method}, "
-            f"time={self.verification_time:.3f}s)"
+            f"time={self._fmt(self.verification_time)}s)"
         )
 
     def __str__(self) -> str:
+        f = self._fmt
         lines = [
             "Equivalence Check Result",
             "-----------circuit information---------",
@@ -405,20 +422,11 @@ class EquivalenceCheckResult:
             "-----------result----------------------",
             f"  Equivalent: {self.equivalent}",
             "-----------verification time-----------",
-            f"  PathSum Time: {self.pathsum_time} s",
-            (
-                f"  to_DIMACS Time: "
-                f"{self.to_DIMACS_time if self.to_DIMACS_time is not None else 'N/A'} s"
-            ),
-            (
-                f"  tool Time: "
-                f"{self.tool_time if self.tool_time is not None else 'N/A'} s"
-            ),
-            (
-                f"  wmc Time: "
-                f"{self.wmc_time if self.wmc_time is not None else 'N/A'} s"
-            ),
-            f"  Total Time: {self.verification_time:.3f} s",
+            f"  PathSum Time:   {f(self.pathsum_time)} s",
+            f"  to_DIMACS Time: {f(self.to_DIMACS_time)} s",
+            f"  tool Time:      {f(self.tool_time)} s",
+            f"  wmc Time:       {f(self.wmc_time)} s",
+            f"  Total Time:     {f(self.verification_time)} s",
             "-----------final pathsum circuit-------",
             f"  {self.final_pathsum}",
             "-----------statistics------------------",

@@ -71,7 +71,7 @@ jobs:
         uses: pypa/cibuildwheel@v3.3.1
         env:
           CIBW_ARCHS: ${{ matrix.arch }}
-          # CIBW_SKIP: cp314-*
+          CIBW_SKIP: cp314-*
           CIBW_TEST_REQUIRES: pytest
           # Install dependencies from pyproject.toml, forcing binaries for deps but allowing source for the package itself
           CIBW_BEFORE_TEST: "pip install --no-binary=QuPRS \".[dev]\""

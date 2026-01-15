@@ -253,7 +253,7 @@ def check_equivalence(
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
                 raise TimeoutError("Timeout before WMC")
-            signal.alarm(int(timeout - current_elapsed))
+            signal.alarm(int(timeout - current_elapsed + 1))
             try:
                 to_DIMACS_time = f">{timeout - pathsum_time}"
                 log_wmc = None
@@ -300,12 +300,17 @@ def check_equivalence(
         Time = f">{timeout}"
         equivalent = "Timeout"
         progress = f"{strategy_obj.count}/{l1 + l2}"
+        signal.alarm(0)
     except MemoryError:
         Time = round(time.time() - start_time, 3)
         if pathsum_time == f">{timeout}":
             pathsum_time = Time
         equivalent = "MemoryOut"
         progress = f"{strategy_obj.count}/{l1 + l2}"
+        signal.alarm(0)
+    except Exception as e:
+        signal.alarm(0)
+        raise e
     finally:
         signal.alarm(0)
 

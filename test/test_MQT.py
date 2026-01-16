@@ -36,31 +36,20 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
     return result
 
 
+@pytest.mark.parametrize("tool_name", ["gpmc", "ganak"])
 @pytest.mark.parametrize(
-    "file_name, strategy, tool_name, switch",
+    "file_name, strategy, switch",
     [
-        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward", "gpmc", True),
-        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward", "ganak", True),
-        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", "gpmc", False),
-        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", "ganak", False),
+        ("ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward", True),
+        ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", False),
         (
             "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
             "proportional",
-            "gpmc",
             True,
         ),
-        (
-            "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
-            "proportional",
-            "ganak",
-            True,
-        ),
-        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional", "gpmc", False),
-        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional", "ganak", False),
-        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", "gpmc", True),
-        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", "ganak", True),
-        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "gpmc", False),
-        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "ganak", False),
+        ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional", False),
+        ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", True),
+        ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", False),
         # ("new_benchmark_file.qasm", "new_strategy"),
     ],
 )

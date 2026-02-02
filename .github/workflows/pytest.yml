@@ -135,11 +135,13 @@ jobs:
               name: coverage-report-xml-${{ matrix.os }}-${{ matrix.python-version }}
               path: coverage.xml
 
-          # Step 8: Upload coverage HTML report  
-          - name: Upload coverage HTML report
+          # Step 8: Upload coverage to Codecov
+          - name: Upload coverage to Codecov
             if: always()
-            uses: actions/upload-artifact@v4
+            uses: codecov/codecov-action@v5
             with:
-              name: coverage-report-html-${{ matrix.os }}-${{ matrix.python-version }}
-              path: htmlcov
-            
+              name: codecov-${{ matrix.os }}-${{ matrix.python-version }}
+              flags: ${{ matrix.os }} 
+              token: ${{ secrets.CODECOV_TOKEN }}
+              files: coverage.xml
+              fail_ci_if_error: true

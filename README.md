@@ -1,6 +1,7 @@
 [![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
 [![PyPI version](https://img.shields.io/pypi/v/QuPRS?style=flat-square)](https://pypi.org/project/QuPRS/)
 [![Python Version](https://img.shields.io/pypi/pyversions/QuPRS?style=flat-square&logo=python&logoColor=white)](https://pypi.org/project/QuPRS/)
+[![codecov](https://codecov.io/gh/PhysicsQoo/QuPRS/graph/badge.svg?token=H9XIZF2EZ9)](https://codecov.io/gh/PhysicsQoo/QuPRS)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE.md)
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/physicsqoo/quprs?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/repository/docker/physicsqoo/quprs/)

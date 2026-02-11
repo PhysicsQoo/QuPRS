@@ -34,3 +34,7 @@ htmlcov/
 # other
 build_cpp/
 *.cnf
+
+# rust
+rust-test/target
+rust-test/**/*.rs.bk

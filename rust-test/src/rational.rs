@@ -4,7 +4,6 @@ use std::ops::*;
 use num_integer::Integer;
 use num_traits::Zero;
 
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rational {
     pub numer: i64,

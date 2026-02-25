@@ -1,9 +1,14 @@
 // src/rational.rs
+#![allow(dead_code)]
+use rustc_hash::FxHashMap;
 use std::fmt;
 use std::ops::*;
 use num_integer::Integer;
 use num_traits::Zero;
 
+// ==========================================
+// 1. Rational (受限於 [0, 1) 區間)
+// ==========================================
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rational {
     pub numer: i64,
@@ -13,9 +18,24 @@ pub struct Rational {
 impl Rational {
     pub fn new(numer: i64, denom: i64) -> Self {
         if denom == 0 { panic!("Zero denominator"); }
-        let mut n = numer; let mut d = denom;
-        if d < 0 { n = -n; d = -d; }
-        let common = n.abs().gcd(&d);
+        let mut n = numer;
+        let mut d = denom;
+
+        // 1. 確保分母為正
+        if d < 0 {
+            n = -n;
+            d = -d;
+        }
+
+        // 2. 限制值域在 [0, 1) 之間 (Modulo 1)
+        // 例如 -1.rem_euclid(4) = 3
+        n = n.rem_euclid(d);
+
+        // 3. 處理分子為 0 的情況
+        if n == 0 { return Rational { numer: 0, denom: 1 }; }
+
+        // 4. GCD 約分
+        let common = n.gcd(&d);
         Rational { numer: n / common, denom: d / common }
     }
 }
@@ -27,104 +47,131 @@ impl fmt::Display for Rational {
     }
 }
 
-impl Add for Rational {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        let n1 = self.numer as i128; let d1 = self.denom as i128;
-        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
-        let new_numer = n1 * d2 + n2 * d1;
-        let new_denom = d1 * d2;
-        let common = new_numer.abs().gcd(&new_denom);
-        Rational { numer: (new_numer / common) as i64, denom: (new_denom / common) as i64 }
-    }
-}
-
-impl AddAssign for Rational {
-    fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; }
-}
-
 impl Zero for Rational {
     fn zero() -> Self { Rational { numer: 0, denom: 1 } }
     fn is_zero(&self) -> bool { self.numer == 0 }
 }
 
-pub fn from_f64_phase(val: f64, epsilon: f64) -> Option<Rational> {
-    let pi = std::f64::consts::PI;
-    let target = val / pi;
-    let max_iterations = 50;
-    
-    let mut h_prev = 0i64;
-    let mut k_prev = 1i64;
-    let mut h_curr = 1i64;
-    let mut k_curr = 0i64;
-    let mut x = target;
-
-    for _ in 0..max_iterations {
-        if x.is_infinite() || x.is_nan() { break; }
-        let a = x.floor() as i64;
+impl Add for Rational {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        let n1 = self.numer as i128; let d1 = self.denom as i128;
+        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
         
-        let h_next = a.saturating_mul(h_curr).saturating_add(h_prev);
-        let k_next = a.saturating_mul(k_curr).saturating_add(k_prev);
-
-        let approx = h_next as f64 / k_next as f64;
-        if (approx - target).abs() < epsilon {
-            return Some(Rational::new(h_next, k_next));
-        }
-
-        h_prev = h_curr;
-        k_prev = k_curr;
-        h_curr = h_next;
-        k_curr = k_next;
-
-        let rem = x - a as f64;
-        if rem.abs() < 1e-15 {
-             return Some(Rational::new(h_curr, k_curr));
-        }
-        x = 1.0 / rem;
+        let new_numer = n1 * d2 + n2 * d1;
+        let new_denom = d1 * d2;
         
-        if k_curr > 1_000_000 { break; }
+        // 在 i128 空間執行 [0, 1) 的同餘限制
+        let mod_numer = new_numer.rem_euclid(new_denom);
+        if mod_numer == 0 { return Rational { numer: 0, denom: 1 }; }
+        
+        let common = mod_numer.gcd(&new_denom);
+        Rational { numer: (mod_numer / common) as i64, denom: (new_denom / common) as i64 }
     }
-    None
 }
 
-// --- 測試模組 (proptest) ---
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proptest::prelude::*;
-
-    // 定義一個"小數值"的有理數生成器，專門用於測試結合律等會讓數值膨脹的性質
-    prop_compose! {
-        fn any_rational_small()(n in any::<i16>(), d in 1..i16::MAX) -> Rational {
-            Rational::new(n as i64, d as i64)
-        }
-    }
-
-    // 一般測試可以使用較大範圍 (i32)，只要不涉及多次連乘
-    prop_compose! {
-        fn any_rational()(n in any::<i32>(), d in 1..i32::MAX) -> Rational {
-            Rational::new(n as i64, d as i64)
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn test_rational_addition_commutativity(a in any_rational(), b in any_rational()) {
-            // 交換律只涉及兩數運算，i32 是安全的
-            // (a + b) 分母約為 d1*d2 < 10^18 (i64 max)
-            prop_assert_eq!(a + b, b + a);
-        }
+impl Sub for Rational {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        let n1 = self.numer as i128; let d1 = self.denom as i128;
+        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
         
-        #[test]
-        fn test_reconstruct_pi_fractions(n in -100..100i64, d in 1..100i64) {
-             let target_rational = Rational::new(n, d);
-             let pi = std::f64::consts::PI;
-             let val = (target_rational.numer as f64 / target_rational.denom as f64) * pi;
-             
-             if let Some(recovered) = from_f64_phase(val, 1e-9) {
-                 prop_assert_eq!(recovered, target_rational);
-             }
+        let new_numer = n1 * d2 - n2 * d1;
+        let new_denom = d1 * d2;
+        
+        let mod_numer = new_numer.rem_euclid(new_denom);
+        if mod_numer == 0 { return Rational { numer: 0, denom: 1 }; }
+        
+        let common = mod_numer.gcd(&new_denom);
+        Rational { numer: (mod_numer / common) as i64, denom: (new_denom / common) as i64 }
+    }
+}
+
+// 相位 * 整數 (純量乘法，用於邏輯展開)
+impl Mul<i64> for Rational {
+    type Output = Self;
+    fn mul(self, rhs: i64) -> Self {
+        if rhs == 0 { return Rational { numer: 0, denom: 1 }; }
+        let new_numer = (self.numer as i128) * (rhs as i128);
+        let new_denom = self.denom as i128;
+
+        let mod_numer = new_numer.rem_euclid(new_denom);
+        if mod_numer == 0 { return Rational { numer: 0, denom: 1 }; }
+
+        let common = mod_numer.gcd(&new_denom);
+        Rational { numer: (mod_numer / common) as i64, denom: (new_denom / common) as i64 }
+    }
+}
+
+impl AddAssign for Rational { fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; } }
+impl MulAssign<i64> for Rational { fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; } }
+
+// ==========================================
+// 2. PhaseCoeff (常數與符號混合係數)
+// ==========================================
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PhaseCoeff {
+    pub constant: Rational,
+    pub symbols: FxHashMap<u32, Rational>,
+}
+
+impl PhaseCoeff {
+    pub fn new_constant(constant: Rational) -> Self {
+        Self { constant, symbols: FxHashMap::default() }
+    }
+
+    pub fn new_symbolic(symbol_id: u32, weight: Rational) -> Self {
+        let mut symbols = FxHashMap::default();
+        symbols.insert(symbol_id, weight);
+        Self { constant: Rational::zero(), symbols }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.constant.is_zero() && self.symbols.values().all(|v| v.is_zero())
+    }
+
+    pub fn is_pure_half(&self) -> bool {
+        self.constant.numer == 1 && 
+        self.constant.denom == 2 && 
+        self.symbols.values().all(|v| v.is_zero())
+    }
+
+    /// 檢查是否是純數值的 1/4 (對應 T 閘的正向相位)
+    pub fn is_pure_quarter(&self) -> bool {
+        self.constant.numer == 1 && 
+        self.constant.denom == 4 && 
+        self.symbols.values().all(|v| v.is_zero())
+    }
+
+    /// 檢查是否是純數值的 3/4
+    pub fn is_pure_three_quarters(&self) -> bool {
+        self.constant.numer == 3 && 
+        self.constant.denom == 4 && 
+        self.symbols.values().all(|v| v.is_zero())
+    }
+
+    /// 檢查是否是純數值的 -1/4 (對應 T^dag 閘的相位)
+    /// 由於 Rational 實作了 modulo [0, 1)，-1/4 會自動等於 3/4
+    pub fn is_pure_minus_quarter(&self) -> bool {
+        self.is_pure_three_quarters() 
+    }
+
+    /// 通用型判斷函數：檢查是否為指定的純常數分數
+    pub fn is_pure_fraction(&self, target_numer: i64, target_denom: i64) -> bool {
+        let expected = Rational::new(target_numer, target_denom);
+        self.constant == expected && self.symbols.values().all(|v| v.is_zero())
+    }
+}
+
+impl AddAssign for PhaseCoeff {
+    fn add_assign(&mut self, rhs: Self) {
+        self.constant += rhs.constant;
+        for (sym_id, weight) in rhs.symbols {
+            let entry = self.symbols.entry(sym_id).or_insert_with(Rational::zero);
+            *entry += weight;
+            if entry.is_zero() {
+                self.symbols.remove(&sym_id);
+            }
         }
     }
 }

@@ -24,7 +24,7 @@ impl PhasePolynomial {
         
         match self.terms.entry(monomial) {
             Entry::Occupied(mut entry) => {
-                entry.get_mut().add_assign(coeff); // 現在可以編譯了
+                entry.get_mut().add_assign(coeff);
                 if entry.get().is_zero() { entry.remove(); }
             }
             Entry::Vacant(entry) => { entry.insert(coeff); }

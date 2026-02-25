@@ -312,12 +312,18 @@ impl PathSum {
         // 5. Compute new phase and apply to P using algebraic engine
         // If y's coefficient is 1/4, new phase is -1/4 (i.e., 3/4)
         // If y's coefficient is 3/4, new phase is +1/4
-        let base_coeff = if c0.numer == 1 && c0.denom == 4 {
-            PhaseCoeff::new_constant(Rational::new(3, 4)) 
+        let (base_coeff, const_phase) = if c0.numer == 1 && c0.denom == 4 {
+            (
+            PhaseCoeff::new_constant(Rational::new(3, 4)),
+            PhaseCoeff::new_constant(Rational::new(1, 8))
+            )
         } else {
-            PhaseCoeff::new_constant(Rational::new(1, 4))
+            (
+            PhaseCoeff::new_constant(Rational::new(1, 4)),
+            PhaseCoeff::new_constant(Rational::new(7, 8))
+            )
         };
-
+        self.p.add_term(vec![], const_phase);
         self.apply_boolean_phase(&phi, base_coeff);
 
         // 6. Garbage collection

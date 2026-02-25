@@ -1,10 +1,11 @@
 // src/main.rs
-
+#![allow(dead_code)]
 // 1. Declare modules
 mod rational;
 mod pathsum;
 mod gates;
 mod reduction;
+mod qasm;
 
 // 2. Import required items
 use pathsum::PathSum;
@@ -15,7 +16,8 @@ fn main() {
     
     // Initialize 2-qubit system (x0, x1)
     let mut ps = PathSum::new(2);
-    
+    println!("Initial state:");
+    ps.print_status();
     // 1. H(0) -> Generate path variable y0
     // P should add (1/2)*x0*y0
     println!("\n[Step 1] Applying H(0)...");
@@ -42,4 +44,32 @@ fn main() {
     println!("\n=== try_reduce_hh ===");
     ps.full_reduce();
     ps.print_status();
+
+    let qasm_string = r#"
+        OPENQASM 2.0;
+        include "qelib1.inc";
+        qreg q[2];
+        h q[0];
+        cx q[0],q[1];
+        s q[1];
+        cx q[0],q[1];
+        h q[0];
+    "#;
+
+    println!("Loading circuit from QASM...");
+    PathSum::set_global_auto_reduce(false); 
+    match PathSum::load_from_qasm_str(qasm_string) {
+        Ok(mut ps) => {
+            println!("Circuit loaded successfully!");
+            println!("\n=== Before Reduction ===");
+            ps.print_status();
+
+            println!("\n=== Applying Full Reduction ===");
+            ps.full_reduce();
+            ps.print_status();
+        }
+        Err(e) => {
+            eprintln!("Error parsing QASM: {}", e);
+        }
+    }
 }

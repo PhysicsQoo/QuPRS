@@ -16,6 +16,8 @@ pub fn mul_monomials(m1: &Monomial, m2: &Monomial) -> Monomial {
     result
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+pub static GLOBAL_AUTO_REDUCE: AtomicBool = AtomicBool::new(true);
 pub struct PathSum {
     pub p: PhasePolynomial,
     pub f: BooleanState,
@@ -29,8 +31,11 @@ impl PathSum {
             p: PhasePolynomial::new(),
             f: BooleanState::new(num_qubits),
             v: VariableManager::new(num_qubits),
-            auto_reduce: true,
+            auto_reduce: GLOBAL_AUTO_REDUCE.load(Ordering::Relaxed),
         }
+    }
+    pub fn set_global_auto_reduce(enable: bool) {
+        GLOBAL_AUTO_REDUCE.store(enable, Ordering::Relaxed);
     }
     pub fn set_auto_reduce(&mut self, enable: bool) {
         self.auto_reduce = enable;

@@ -25,7 +25,7 @@ pub trait QuantumGates {
 impl PathSum {
     /// Core algebraic engine: transforms c * (m_1 ⊕ m_2 ⊕ ... ⊕ m_k) exactly and adds to P.
     /// Uses truncation modulo 1 to terminate polynomial expansion early, avoiding exponential blowup.
-    fn apply_boolean_phase(&mut self, poly: &FxHashSet<Monomial>, base_coeff: PhaseCoeff) {
+    pub(crate) fn apply_boolean_phase(&mut self, poly: &FxHashSet<Monomial>, base_coeff: PhaseCoeff) {
         let terms: Vec<Monomial> = poly.iter().cloned().collect();
         let n = terms.len();
         if n == 0 { return; }

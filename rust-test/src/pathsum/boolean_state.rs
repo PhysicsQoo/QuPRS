@@ -2,25 +2,58 @@
 use rustc_hash::FxHashSet;
 use super::phase_poly::Monomial; 
 
+/// Represents a quantum register for mapping flattened indices to named qubits.
+#[derive(Clone, Debug)]
+pub struct Register {
+    pub name: String,
+    pub size: usize,
+}
+
+impl Register {
+    pub fn new(name: &str, size: usize) -> Self {
+        Self {
+            name: name.to_string(),
+            size,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BooleanState {
     pub functions: Vec<FxHashSet<Monomial>>,
+    pub registers: Vec<Register>,
 }
 
 impl BooleanState {
-    pub fn new(num_qubits: usize) -> Self {
-        let mut functions = Vec::with_capacity(num_qubits);
-        for i in 0..num_qubits {
+    /// Construct a BooleanState using explicit register definitions.
+    /// This initializes each qubit's boolean function to its corresponding input variable x_i,
+    /// preserving the generic unitary matrix representation.
+    pub fn new_with_regs(regs: &[Register]) -> Self {
+        let total_qubits: usize = regs.iter().map(|r| r.size).sum();
+        let mut functions = Vec::with_capacity(total_qubits);
+        
+        for i in 0..total_qubits {
             let mut poly = FxHashSet::default();
             poly.insert(vec![i as u32]);
             functions.push(poly);
         }
-        Self { functions }
+        
+        Self { 
+            functions,
+            registers: regs.to_vec(),
+        }
     }
 
+    /// Backward-compatible constructor that defaults to a single register named "q".
+    pub fn new(num_qubits: usize) -> Self {
+        Self::new_with_regs(&[Register::new("q", num_qubits)])
+    }
+
+    /// Apply XOR logic for CNOT gates and pure boolean operations.
     pub fn apply_xor(&mut self, control: usize, target: usize) {
         let ctrl_poly = self.functions[control].clone();
         let target_poly = &mut self.functions[target];
+        
         for term in ctrl_poly {
             if target_poly.contains(&term) {
                 target_poly.remove(&term);
@@ -30,12 +63,26 @@ impl BooleanState {
         }
     }
 
+    /// Extract the variable ID if the boolean function is a single linear variable.
     pub fn get_single_var(&self, qubit: usize) -> Option<u32> {
         let poly = &self.functions[qubit];
         if poly.len() == 1 {
             let term = poly.iter().next().unwrap();
-            if term.len() == 1 { return Some(term[0]); }
+            if term.len() == 1 { 
+                return Some(term[0]); 
+            }
         }
         None
+    }
+
+    /// Format a flat qubit index into its physical register name (e.g., "|ancilla_0>").
+    pub fn format_qubit_name(&self, mut flat_index: usize) -> String {
+        for reg in &self.registers {
+            if flat_index < reg.size {
+                return format!("|{}_{}>", reg.name, flat_index);
+            }
+            flat_index -= reg.size;
+        }
+        format!("|q_{}>", flat_index) // Fallback for out-of-bounds mapping
     }
 }

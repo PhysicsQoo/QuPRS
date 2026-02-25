@@ -58,7 +58,7 @@ fn main() {
 
     println!("Loading circuit from QASM...");
     PathSum::set_global_auto_reduce(false); 
-    match PathSum::load_from_qasm_str(qasm_string) {
+    match PathSum::load_from_qasm_str(qasm_string, None) {
         Ok(mut ps) => {
             println!("Circuit loaded successfully!");
             println!("\n=== Before Reduction ===");

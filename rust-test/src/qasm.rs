@@ -1,45 +1,51 @@
 // src/qasm.rs
 use std::fs;
-use crate::pathsum::PathSum;
+use crate::pathsum::{PathSum, Register};
 use crate::gates::QuantumGates;
 
 impl PathSum {
-    pub fn load_from_qasm_file(file_path: &str) -> Result<Self, String> {
+    /// Load and initialize PathSum from an OpenQASM 2.0 file.
+    pub fn load_from_qasm_file(file_path: &str, initial_state: Option<&[u8]>) -> Result<Self, String> {
         let qasm_str = fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read file '{}': {}", file_path, e))?;
         
-        // Delegate to string parsing function
-        Self::load_from_qasm_str(&qasm_str)
+        Self::load_from_qasm_str(&qasm_str, initial_state)
     }
-    /// Construct and initialize PathSum from OpenQASM 2.0 string
-    pub fn load_from_qasm_str(qasm_str: &str) -> Result<Self, String> {
-        let mut num_qubits = 0;
+
+    /// Construct and initialize PathSum from an OpenQASM 2.0 string.
+    pub fn load_from_qasm_str(qasm_str: &str, initial_state: Option<&[u8]>) -> Result<Self, String> {
+        let mut parsed_regs = Vec::new();
 
         // ==========================================
-        // Phase 1: Scan qreg to determine total qubits
+        // Phase 1: Scan qreg to map physical registers
         // ==========================================
         for line in qasm_str.lines() {
             let line = line.trim();
             if line.starts_with("qreg") {
-                // Parse "qreg q[3];"
-                let parts: Vec<&str> = line.split(&['[', ']'][..]).collect();
-                if parts.len() >= 2 {
-                    if let Ok(n) = parts[1].parse::<usize>() {
-                        num_qubits += n; // Support accumulation of multiple qregs (though usually only one)
+                // Parse formats like "qreg q[3];" or "qreg ancilla[2];"
+                let parts: Vec<&str> = line.split(&[' ', '[', ']', ';'][..]).filter(|s| !s.is_empty()).collect();
+                if parts.len() >= 3 {
+                    let reg_name = parts[1];
+                    if let Ok(size) = parts[2].parse::<usize>() {
+                        parsed_regs.push(Register::new(reg_name, size));
                     }
                 }
             }
         }
 
-        if num_qubits == 0 {
-            return Err("No qreg found or num_qubits is 0".to_string());
+        if parsed_regs.is_empty() {
+            return Err("No qreg found in the provided QASM string.".to_string());
         }
 
-        // Initialize engine
-        let mut ps = PathSum::new(num_qubits);
+        // ==========================================
+        // Phase 2: Initialize engine via our unified API
+        // ==========================================
+        // We do NOT pass initial_state here yet, because we need to apply gates first
+        // on the generic unitary state, then collapse it at the very end.
+        let mut ps = PathSum::quantum_circuit(&parsed_regs, None);
 
         // ==========================================
-        // Phase 2: Parse each line and apply quantum gates
+        // Phase 3: Parse each line and apply quantum gates
         // ==========================================
         for line in qasm_str.lines() {
             let line = line.trim();
@@ -50,7 +56,7 @@ impl PathSum {
                 continue;
             }
 
-            // Split using multiple delimiters, e.g., "cx q[0], q[1];" becomes ["cx", "q", "0", "q", "1"]
+            // Extract gate and target IDs
             let tokens: Vec<&str> = line
                 .split(&[' ', ',', ';', '[', ']'][..])
                 .filter(|s| !s.is_empty())
@@ -60,9 +66,8 @@ impl PathSum {
 
             let gate = tokens[0].to_lowercase();
 
-            // Extract qubit IDs based on different gate types
             match gate.as_str() {
-                // Single-qubit gates (expected tokens[2] to be qubit ID)
+                // Single-qubit gates
                 "x" | "y" | "z" | "h" | "s" | "sdg" | "t" | "tdg" => {
                     if tokens.len() >= 3 {
                         let target = tokens[2].parse::<usize>().map_err(|_| format!("Invalid qubit ID in line: {}", line))?;
@@ -79,7 +84,7 @@ impl PathSum {
                         }
                     }
                 }
-                // Two-qubit gates (expected tokens[2] is control, tokens[4] is target)
+                // Two-qubit gates
                 "cx" | "cz" => {
                     if tokens.len() >= 5 {
                         let ctrl = tokens[2].parse::<usize>().map_err(|_| format!("Invalid control ID in line: {}", line))?;
@@ -91,9 +96,15 @@ impl PathSum {
                         }
                     }
                 }
-                // Unsupported gates (e.g., rx, u3, measure) return error
                 _ => return Err(format!("Unsupported gate: {}", gate)),
             }
+        }
+
+        // ==========================================
+        // Phase 4: Apply state collapse if initial_state is provided
+        // ==========================================
+        if let Some(state) = initial_state {
+            ps.set_initial_state(state);
         }
 
         Ok(ps)
@@ -108,7 +119,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_qasm_bell_state() {
+    fn test_parse_qasm_bell_state_generic() {
+        // Test parsing generic unitary without initial state
         let qasm = r#"
             OPENQASM 2.0;
             include "qelib1.inc";
@@ -117,17 +129,64 @@ mod tests {
             cx q[0],q[1];
         "#;
 
-        let mut ps = PathSum::load_from_qasm_str(qasm).expect("Failed to parse QASM");
+        let mut ps = PathSum::load_from_qasm_str(qasm, None).expect("Failed to parse QASM");
+        ps.set_auto_reduce(false); // Disable auto-reduce to inspect raw variables
 
-        // Verify qubit count
         assert_eq!(ps.v.num_qubits, 2);
+        assert_eq!(ps.f.registers.len(), 1);
+        assert_eq!(ps.f.registers[0].name, "q");
 
         // Verify F basis (H produces y_0, CX makes q1 become x_1 ⊕ y_0)
-        assert!(ps.f.functions[0].contains(&vec![2])); // y_0 ID is 2 (num_qubits=2)
+        assert!(ps.f.functions[0].contains(&vec![2])); // y_0 ID is 2
         
         let mut expected_q1 = rustc_hash::FxHashSet::default();
         expected_q1.insert(vec![1]); // x_1
         expected_q1.insert(vec![2]); // y_0
         assert_eq!(ps.f.functions[1], expected_q1);
+    }
+
+    #[test]
+    fn test_parse_qasm_multiple_registers() {
+        // Test parsing multiple qregs and checking formatting
+        let qasm = r#"
+            OPENQASM 2.0;
+            qreg q[1];
+            qreg ancilla[2];
+            h q[0];
+            cx q[0], ancilla[0];
+        "#;
+
+        let ps = PathSum::load_from_qasm_str(qasm, None).expect("Failed to parse multi-reg QASM");
+        
+        assert_eq!(ps.v.num_qubits, 3);
+        assert_eq!(ps.f.registers.len(), 2);
+        assert_eq!(ps.f.registers[0].name, "q");
+        assert_eq!(ps.f.registers[1].name, "ancilla");
+
+        // Flat index 1 should map to |ancilla_0>
+        assert_eq!(ps.f.format_qubit_name(1), "|ancilla_0>");
+    }
+
+    #[test]
+    fn test_parse_qasm_with_initial_state() {
+        // Test parsing with an initial state collapse (|00>)
+        let qasm = r#"
+            OPENQASM 2.0;
+            qreg q[2];
+            h q[0];
+            cx q[0],q[1];
+        "#;
+
+        // Apply |00> as initial state
+        let ps = PathSum::load_from_qasm_str(qasm, Some(&[0, 0])).expect("Failed to parse QASM");
+        
+        // After substituting x_0 = 0 and x_1 = 0, the input variables should be gone from F
+        // F[0] should just be {y_0}
+        assert_eq!(ps.f.functions[0].len(), 1);
+        assert!(ps.f.functions[0].contains(&vec![2])); // only y_0 remains
+        
+        // F[1] should also just be {y_0} because x_1 was 0
+        assert_eq!(ps.f.functions[1].len(), 1);
+        assert!(ps.f.functions[1].contains(&vec![2])); // only y_0 remains
     }
 }

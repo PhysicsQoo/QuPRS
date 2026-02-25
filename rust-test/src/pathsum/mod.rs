@@ -20,6 +20,7 @@ pub struct PathSum {
     pub p: PhasePolynomial,
     pub f: BooleanState,
     pub v: VariableManager,
+    pub auto_reduce: bool,
 }
 
 impl PathSum {
@@ -28,9 +29,15 @@ impl PathSum {
             p: PhasePolynomial::new(),
             f: BooleanState::new(num_qubits),
             v: VariableManager::new(num_qubits),
+            auto_reduce: true,
         }
     }
-
+    pub fn set_auto_reduce(&mut self, enable: bool) {
+        self.auto_reduce = enable;
+        if enable {
+            self.full_reduce();
+        }
+    }
     pub fn print_status(&self) {
         println!("=== PathSum State ===");
         

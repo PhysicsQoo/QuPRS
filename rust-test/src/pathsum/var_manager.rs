@@ -45,7 +45,18 @@ impl VariableManager {
             mono.iter()
                 .map(|&id| self.fmt_var(id))
                 .collect::<Vec<_>>()
-                .join("*")
+                .join(" * ")
         }
+    }
+    pub fn fmt_polynomial(&self, poly: &FxHashSet<Monomial>) -> String {
+        if poly.is_empty() {
+            return "0".to_string();
+        }
+        let mut terms: Vec<String> = poly.iter()
+            .map(|m| self.fmt_monomial(m))
+            .collect();
+
+        terms.sort(); 
+        terms.join(" ⊕ ")
     }
 }

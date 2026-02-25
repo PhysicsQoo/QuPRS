@@ -4,6 +4,7 @@
 mod rational;
 mod pathsum;
 mod gates;
+mod reduction;
 
 // 2. Import required items
 use pathsum::PathSum;
@@ -32,5 +33,13 @@ fn main() {
     // P should add (1/2)*(x1 ⊕ y0)*y1 = (1/2)x1*y1 + (1/2)y0*y1
     println!("\n[Step 3] Applying H(1)...");
     ps.apply_h(1);
+    ps.print_status();
+
+    println!("\n[Step 4] Applying H(0)...");
+    ps.apply_h(0);
+    ps.print_status();
+
+    println!("\n=== try_reduce_hh ===");
+    ps.full_reduce();
     ps.print_status();
 }

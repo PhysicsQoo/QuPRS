@@ -74,6 +74,15 @@ impl BooleanState {
         }
         None
     }
+    pub fn get_used_vars(&self) -> FxHashSet<u32> {
+        let mut used_vars = FxHashSet::default();
+        for poly in &self.functions {
+            for term in poly {
+                used_vars.extend(term.iter().copied());
+            }
+        }
+        used_vars
+    }
 
     /// Format a flat qubit index into its physical register name (e.g., "|ancilla_0>").
     pub fn format_qubit_name(&self, mut flat_index: usize) -> String {

@@ -6,15 +6,33 @@ use crate::rational::{PhaseCoeff, Rational};
 use num_traits::Zero;
 
 impl PathSum {
+    pub fn get_reducible_vars(&self) -> Vec<u32> {
+        let f_used_vars = self.f.get_used_vars();
+        let mut reducible_vars: Vec<u32> = self.v.path_vars.iter()
+            .copied()
+            .filter(|&v| (v as usize) >= self.v.num_qubits && !f_used_vars.contains(&v))
+            .collect();
+        
+        reducible_vars.sort_unstable_by(|a, b| b.cmp(a));
+        
+        reducible_vars
+    }
     pub fn full_reduce(&mut self) {
         let mut reduced = true;
         let mut iterations = 0;
 
         while reduced {
             reduced = false;
-            if self.try_reduce_elim() { reduced = true; iterations += 1; continue; }
-            if self.try_reduce_hh() { reduced = true; iterations += 1; continue; }
-            if self.try_reduce_omega() { reduced = true; iterations += 1; continue; }
+            
+            let reducible_vars = self.get_reducible_vars();
+
+            if reducible_vars.is_empty() {
+                break;
+            }
+
+            if self.try_reduce_elim(&reducible_vars) { reduced = true; iterations += 1; continue; }
+            if self.try_reduce_hh(&reducible_vars) { reduced = true; iterations += 1; continue; }
+            if self.try_reduce_omega(&reducible_vars) { reduced = true; iterations += 1; continue; }
 
             if iterations > 0 {
             println!(">> [Full Reduce] System converged after {} reduction steps.", iterations);
@@ -22,33 +40,17 @@ impl PathSum {
         }
     }
 
-    pub fn try_reduce_elim(&mut self) -> bool {
-        // 1. Collect all truly "active" variables in the system
-        let mut active_vars = rustc_hash::FxHashSet::default();
-
-        // Scan Boolean State (F)
-        for poly in &self.f.functions {
-            for term in poly {
-            active_vars.extend(term.iter().copied());
-            }
-        }
-
-        // Scan Phase Polynomial (P)
-        for mono in self.p.terms.keys() {
-            active_vars.extend(mono.iter().copied());
-        }
-
-        // 2. Find completely isolated internal variables (y_i)
+    pub fn try_reduce_elim(&mut self, reducible_vars: &[u32]) -> bool {
+        
+        // 1. Find completely isolated internal variables (y_i)
         let mut vars_to_remove = Vec::new();
-        for &var in &self.v.path_vars {
-            // Constraint 1: Only internal path variables (y_i, ID >= num_qubits) can be eliminated, not input variables (x_i)
-            // Constraint 2: The variable is not in the active_vars set
-            if (var as usize) >= self.v.num_qubits && !active_vars.contains(&var) {
-            vars_to_remove.push(var);
+        for &var in reducible_vars {
+            if !self.p.get_used_vars().contains(&var) {
+                vars_to_remove.push(var);
             }
         }
 
-        // 3. Perform elimination
+        // 2. Perform elimination
         if vars_to_remove.is_empty() {
             return false;
         }
@@ -64,171 +66,138 @@ impl PathSum {
     /// Attempt to execute HH Rule (Feynman path cancellation)
     /// Scan globally for isolated path variables and perform substitution.
     /// Return true if simplification was successful.
-    pub fn try_reduce_hh(&mut self) -> bool {
-        // ==========================================
-        // Step 1: Find all variables used in F
-        // ==========================================
-        let mut f_used_vars = FxHashSet::default();
-        for poly in &self.f.functions {
-            for term in poly {
-                f_used_vars.extend(term.iter().copied());
-            }
-        }
+    pub fn try_reduce_hh(&mut self, reducible_vars: &[u32]) -> bool {
+        for &var in reducible_vars {
+            // ==========================================
+            // Step 1: Extract Phi polynomial and verify coefficients
+            // ==========================================
+            let mut phi: FxHashSet<Monomial> = FxHashSet::default();
+            let mut is_valid_hh = true;
+            let mut y_terms_to_remove = Vec::new();
 
-        // ==========================================
-        // Step 2: Find isolated path variable y (not in F)
-        // To ensure deterministic behavior, check from the largest ID variable
-        // ==========================================
-        let mut target_y = None;
-        let mut sorted_vars: Vec<_> = self.v.path_vars.iter().copied().collect();
-        sorted_vars.sort_by(|a, b| b.cmp(a)); // Sort in descending order
-
-        for y in sorted_vars {
-            if (y as usize) >= self.v.num_qubits && !f_used_vars.contains(&y) {
-                target_y = Some(y);
-                break;
-            }
-        }
-
-        let y = match target_y {
-            Some(var) => var,
-            None => return false,
-        };
-
-        // ==========================================
-        // Step 3: Extract Phi polynomial and verify coefficients
-        // ==========================================
-        let mut phi: FxHashSet<Monomial> = FxHashSet::default();
-        let mut is_valid_hh = true;
-        let mut y_terms_to_remove = Vec::new();
-
-        for (mono, coeff) in &self.p.terms {
-            if mono.contains(&y) {
-                if !coeff.is_pure_half() {
-                    is_valid_hh = false;
-                    break;
-                }
-                y_terms_to_remove.push(mono.clone());
-                
-                let mut phi_term = mono.clone();
-                phi_term.retain(|&var| var != y);
-                
-                // Add to Phi using XOR logic
-                if phi.contains(&phi_term) {
-                    phi.remove(&phi_term);
-                } else {
-                    phi.insert(phi_term);
-                }
-            }
-        }
-
-        if !is_valid_hh || phi.is_empty() {
-            return false;
-        }
-
-        // ==========================================
-        // Step 4: Select substitution variable v from Phi
-        // Condition: Must be a linear term (len == 1), prioritize largest ID
-        // ==========================================
-        let mut target_v = None;
-        for term in &phi {
-            if term.len() == 1 {
-                let var = term[0];
-                match target_v {
-                    None => target_v = Some(var),
-                    Some(max_var) => {
-                        if var > max_var {
-                            target_v = Some(var);
-                        }
+            for (mono, coeff) in &self.p.terms {
+                if mono.contains(&var) {
+                    if !coeff.is_pure_half() {
+                        is_valid_hh = false;
+                        break;
+                    }
+                    y_terms_to_remove.push(mono.clone());
+                    
+                    let mut phi_term = mono.clone();
+                    phi_term.retain(|&v| v != var);
+                    
+                    // Add to Phi using XOR logic
+                    if phi.contains(&phi_term) {
+                        phi.remove(&phi_term);
+                    } else {
+                        phi.insert(phi_term);
                     }
                 }
             }
-        }
 
-        let v = match target_v {
-            Some(var) => var,
-            None => return false, // No linear variable in Phi, cannot perform substitution
-        };
+            if !is_valid_hh || phi.is_empty() {
+                continue;
+            }
 
-        // Substitution expression R = Phi \ {v}
-        let mut replacement = phi.clone();
-        replacement.remove(&vec![v]);
+            // ==========================================
+            // Step 2: Select substitution variable v from Phi
+            // Condition: Must be a linear term (len == 1), prioritize largest ID
+            // ==========================================
+            let mut target_v = None;
+            for term in &phi {
+                if term.len() == 1 {
+                    let var = term[0];
+                    if target_v.map_or(true, |max_v| var > max_v) {
+                        target_v = Some(var);
+                    }
+                }
+            }
 
-        println!(">> [HH Rule] Integrator y: {}, Target v: {} -> {}", 
-                 self.v.fmt_var(y), 
-                 self.v.fmt_var(v), 
-                 self.v.fmt_polynomial(&replacement)); // Brief output
+            let v = match target_v {
+                Some(var) => var,
+                None => continue, // No linear variable in Phi, cannot perform substitution
+            };
 
-        // ==========================================
-        // Step 5: Perform variable substitution (Substitution) v -> R
-        // ==========================================
+            // Substitution expression R = Phi \ {v}
+            let mut replacement = phi.clone();
+            replacement.remove(&vec![v]);
 
-        // 5a. Remove all terms containing y from P (path integral cancelled y)
-        for mono in &y_terms_to_remove {
-            self.p.terms.remove(mono);
-        }
+            println!(">> [HH Rule] Integrator y: {}, Target v: {} -> {}", 
+                    self.v.fmt_var(var), 
+                    self.v.fmt_var(v), 
+                    self.v.fmt_polynomial(&replacement)); // Brief output
 
-        // 5b. Substitute v in Boolean State (F)
-        for poly in &mut self.f.functions {
-            let mut new_poly = FxHashSet::default();
-            for term in poly.iter() {
-                if term.contains(&v) {
-                    // If term contains v, split as v * U and expand to R * U
-                    let mut u = term.clone();
+            // ==========================================
+            // Step 3: Perform variable substitution (Substitution) v -> R
+            // ==========================================
+
+            // 3a. Remove all terms containing y from P (path integral cancelled y)
+            for mono in &y_terms_to_remove {
+                self.p.terms.remove(mono);
+            }
+
+            // 3b. Substitute v in Boolean State (F)
+            for poly in &mut self.f.functions {
+                let mut new_poly = FxHashSet::default();
+                for term in poly.iter() {
+                    if term.contains(&v) {
+                        // If term contains v, split as v * U and expand to R * U
+                        let mut u = term.clone();
+                        u.retain(|&x| x != v);
+                        for r_term in &replacement {
+                            let new_term = mul_monomials(&u, r_term);
+                            if new_poly.contains(&new_term) {
+                                new_poly.remove(&new_term);
+                            } else {
+                                new_poly.insert(new_term);
+                            }
+                        }
+                    } else {
+                        // If v not present, keep directly (follow XOR logic)
+                        if new_poly.contains(term) {
+                            new_poly.remove(term);
+                        } else {
+                            new_poly.insert(term.clone());
+                        }
+                    }
+                }
+                *poly = new_poly;
+            }
+
+            // 3c. Substitute v in Phase Polynomial (P)
+            let mut p_additions = Vec::new();
+            let mut p_removals = Vec::new();
+
+            for (mono, coeff) in &self.p.terms {
+                if mono.contains(&v) {
+                    p_removals.push(mono.clone());
+                    let mut u = mono.clone();
                     u.retain(|&x| x != v);
                     for r_term in &replacement {
                         let new_term = mul_monomials(&u, r_term);
-                        if new_poly.contains(&new_term) {
-                            new_poly.remove(&new_term);
-                        } else {
-                            new_poly.insert(new_term);
-                        }
-                    }
-                } else {
-                    // If v not present, keep directly (follow XOR logic)
-                    if new_poly.contains(term) {
-                        new_poly.remove(term);
-                    } else {
-                        new_poly.insert(term.clone());
+                        p_additions.push((new_term, coeff.clone()));
                     }
                 }
             }
-            *poly = new_poly;
-        }
 
-        // 5c. Substitute v in Phase Polynomial (P)
-        let mut p_additions = Vec::new();
-        let mut p_removals = Vec::new();
-
-        for (mono, coeff) in &self.p.terms {
-            if mono.contains(&v) {
-                p_removals.push(mono.clone());
-                let mut u = mono.clone();
-                u.retain(|&x| x != v);
-                for r_term in &replacement {
-                    let new_term = mul_monomials(&u, r_term);
-                    p_additions.push((new_term, coeff.clone()));
-                }
+            for mono in &p_removals {
+                self.p.terms.remove(mono);
             }
-        }
+            for (mono, coeff) in p_additions {
+                self.p.add_term(mono, coeff); // Auto handles term merging and Modulo 1
+            }
 
-        for mono in &p_removals {
-            self.p.terms.remove(mono);
+            // ==========================================
+            // Step 4: Garbage Collection
+            // ==========================================
+            self.v.path_vars.remove(&var);
+            
+            if (v as usize) >= self.v.num_qubits {
+                self.v.path_vars.remove(&v);
+            }
+            return true;
         }
-        for (mono, coeff) in p_additions {
-            self.p.add_term(mono, coeff); // Auto handles term merging and Modulo 1
-        }
-
-        // ==========================================
-        // Step 6: Garbage Collection
-        // ==========================================
-        self.v.path_vars.remove(&y);
-        
-        if (v as usize) >= self.v.num_qubits {
-            self.v.path_vars.remove(&v);
-        }
-
-        true
+        false
     }
     fn check_omega_conditions(&self, y: u32) -> bool {
         let mut has_c0 = false;
@@ -253,26 +222,15 @@ impl PathSum {
     }
 
     /// Attempt to execute ω-rule (Phase Gadget simplification)
-    pub fn try_reduce_omega(&mut self) -> bool {
-        // 1. Extract variables used in F
-        let mut f_used_vars = rustc_hash::FxHashSet::default();
-        for poly in &self.f.functions {
-            for term in poly {
-                f_used_vars.extend(term.iter().copied());
-            }
-        }
-
-        // 2. Find isolated variable y that satisfies conditions
+    pub fn try_reduce_omega(&mut self, reducible_vars: &[u32]) -> bool {
         let mut target_y = None;
         let mut sorted_vars: Vec<_> = self.v.path_vars.iter().copied().collect();
         sorted_vars.sort_by(|a, b| b.cmp(a));
 
-        for y in sorted_vars {
-            if (y as usize) >= self.v.num_qubits && !f_used_vars.contains(&y) {
-                if self.check_omega_conditions(y) {
-                    target_y = Some(y);
-                    break;
-                }
+        for &var in reducible_vars {
+            if self.check_omega_conditions(var) {
+                target_y = Some(var);
+                break;
             }
         }
 
@@ -281,7 +239,7 @@ impl PathSum {
             None => return false,
         };
 
-        // 3. Extract Phi and constant c0
+        // 1. Extract Phi and constant c0
         let mut phi = rustc_hash::FxHashSet::default();
         let mut c0 = Rational::zero();
         let mut y_terms_to_remove = Vec::new();
@@ -304,12 +262,12 @@ impl PathSum {
             }
         }
 
-        // 4. Remove all terms containing y from P
+        // 2. Remove all terms containing y from P
         for mono in &y_terms_to_remove {
             self.p.terms.remove(mono);
         }
 
-        // 5. Compute new phase and apply to P using algebraic engine
+        // 3. Compute new phase and apply to P using algebraic engine
         // If y's coefficient is 1/4, new phase is -1/4 (i.e., 3/4)
         // If y's coefficient is 3/4, new phase is +1/4
         let (base_coeff, const_phase) = if c0.numer == 1 && c0.denom == 4 {
@@ -326,7 +284,7 @@ impl PathSum {
         self.p.add_term(vec![], const_phase);
         self.apply_boolean_phase(&phi, base_coeff);
 
-        // 6. Garbage collection
+        // 4. Garbage collection
         self.v.path_vars.remove(&y);
         println!(">> [Omega Rule] Integrated out variable: {} (generated Phase Gadget)", self.v.fmt_var(y));
 
@@ -357,7 +315,8 @@ mod tests {
         ps.v.path_vars.insert(999);
         
         // 2. Attempt to execute dead variable elimination
-        let reduced = ps.try_reduce_elim();
+        let reducible_vars = ps.get_reducible_vars();
+        let reduced = ps.try_reduce_elim(&reducible_vars);
         assert!(reduced, "Elimination rule should trigger for perfectly isolated variables");
         
         // 3. Verify garbage collection accuracy
@@ -381,7 +340,8 @@ mod tests {
         assert!(ps.v.path_vars.contains(&2), "y_1 should exist before reduction");
 
         // 2. Manually trigger HH Rule
-        let reduced = ps.try_reduce_hh();
+        let reducible_vars = ps.get_reducible_vars();
+        let reduced = ps.try_reduce_hh(&reducible_vars);
         assert!(reduced, "HH rule must successfully trigger on H-H circuit");
 
         // 3. Verify algebraic state returns perfectly to Identity (I)

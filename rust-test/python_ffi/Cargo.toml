@@ -1,0 +1,13 @@
+# rust-test/python_ffi/Cargo.toml
+[package]
+name = "quprs_python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "pathsum" 
+crate-type = ["cdylib"] 
+
+[dependencies]
+pyo3 = { version = "0.20", features = ["extension-module"] }
+pathsum = { path = "../pathsum" }

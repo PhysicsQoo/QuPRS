@@ -1,0 +1,14 @@
+[package]
+name = "pathsum"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pyo3="0.x"
+rustc-hash = "2.x"
+num-integer = "0.1"
+num-traits = "0.2"
+rand = "0.8"
+
+[dev-dependencies]
+proptest = "1.0"

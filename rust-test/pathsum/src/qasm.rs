@@ -58,7 +58,7 @@ impl PathSum {
 
             // Extract gate and target IDs
             let tokens: Vec<&str> = line
-                .split(&[' ', ',', ';', '[', ']'][..])
+                .split(&[' ', ',', ';', '[', ']', '(', ')'][..])
                 .filter(|s| !s.is_empty())
                 .collect();
 
@@ -94,6 +94,15 @@ impl PathSum {
                             "cz" => ps.apply_cz(ctrl, tgt),
                             _ => unreachable!(),
                         }
+                    }
+                }
+                // Triple-qubit gates (e.g., CCX)
+                "ccx" => {
+                    if tokens.len() >= 7 {
+                        let ctrl1 = tokens[2].parse::<usize>().map_err(|_| format!("Invalid control1 ID in line: {}", line))?;
+                        let ctrl2 = tokens[4].parse::<usize>().map_err(|_| format!("Invalid control2 ID in line: {}", line))?;
+                        let tgt = tokens[6].parse::<usize>().map_err(|_| format!("Invalid target ID in line: {}", line))?;
+                        ps.apply_ccx(ctrl1, ctrl2, tgt);
                     }
                 }
                 _ => return Err(format!("Unsupported gate: {}", gate)),

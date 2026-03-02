@@ -16,7 +16,8 @@ pub trait QuantumGates {
     fn apply_sdg(&mut self, qubit: usize);
     fn apply_cx(&mut self, control: usize, target: usize);
     fn apply_cz(&mut self, control: usize, target: usize);
-    
+    fn apply_ccx(&mut self, control1: usize, control2: usize, target: usize);
+
     // Non-Clifford Gates
     fn apply_t(&mut self, qubit: usize);
     fn apply_tdg(&mut self, qubit: usize);
@@ -105,6 +106,14 @@ impl QuantumGates for PathSum {
         }
     }
 
+    fn apply_s(&mut self, qubit: usize) {
+        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 4)));
+    }
+
+    fn apply_sdg(&mut self, qubit: usize) {
+        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(3, 4)));
+    }
+
     fn apply_cx(&mut self, control: usize, target: usize) {
         self.f.apply_xor(control, target);
         if self.auto_reduce {
@@ -120,13 +129,21 @@ impl QuantumGates for PathSum {
         let product_poly = pathsum::mul_boolean_polys(poly_c, poly_t);
         self.apply_phase_to_poly(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
     }
-    fn apply_s(&mut self, qubit: usize) {
-        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 4)));
+
+    fn apply_ccx(&mut self, control1: usize, control2: usize, target: usize) {
+        let poly_c1 = &self.f.functions[control1];
+        let poly_c2 = &self.f.functions[control2];
+
+        // Apply the Toffoli transformation: F[target] = F[target] XOR (F[ctrl1] AND F[ctrl2])
+        let product_poly = pathsum::mul_boolean_polys(poly_c1, poly_c2);
+
+        self.f.apply_xor_with_poly(target, &product_poly);
+
+        if self.auto_reduce {
+            self.full_reduce();
+        }
     }
 
-    fn apply_sdg(&mut self, qubit: usize) {
-        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(3, 4)));
-    }
     // ==========================================
     // T Gates
     // ==========================================
@@ -137,6 +154,9 @@ impl QuantumGates for PathSum {
     fn apply_tdg(&mut self, qubit: usize) {
         self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(7, 8)));
     }
+    // ==========================================
+    // Rotation Gates
+    // ==========================================
 }
 
 

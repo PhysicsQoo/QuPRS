@@ -49,18 +49,21 @@ impl BooleanState {
         Self::new_with_regs(&[Register::new("q", num_qubits)])
     }
 
+    pub fn apply_xor_with_poly(&mut self, target: usize, poly: &FxHashSet<Monomial>) {
+        let target_poly = &mut self.functions[target];
+        
+        for term in poly {
+            if target_poly.contains(term) {
+                target_poly.remove(term);
+            } else {
+                target_poly.insert(term.clone());
+            }
+        }
+    }
     /// Apply XOR logic for CNOT gates and pure boolean operations.
     pub fn apply_xor(&mut self, control: usize, target: usize) {
         let ctrl_poly = self.functions[control].clone();
-        let target_poly = &mut self.functions[target];
-        
-        for term in ctrl_poly {
-            if target_poly.contains(&term) {
-                target_poly.remove(&term);
-            } else {
-                target_poly.insert(term);
-            }
-        }
+        self.apply_xor_with_poly(target, &ctrl_poly);
     }
 
     /// Extract the variable ID if the boolean function is a single linear variable.

@@ -8,11 +8,30 @@ pub use phase_poly::{PhasePolynomial, Monomial};
 pub use boolean_state::{BooleanState, Register};
 pub use var_manager::VariableManager;
 
+use rustc_hash::FxHashSet; 
+
 pub fn mul_monomials(m1: &Monomial, m2: &Monomial) -> Monomial {
     let mut result = m1.clone();
     result.extend_from_slice(m2);
     result.sort_unstable(); 
     result.dedup();
+    result
+}
+
+pub fn mul_boolean_polys(poly1: &FxHashSet<Monomial>, poly2: &FxHashSet<Monomial>) -> FxHashSet<Monomial> {
+    let mut result = FxHashSet::default();
+    
+    for m1 in poly1 {
+        for m2 in poly2 {
+            let m = crate::pathsum::mul_monomials(m1, m2);
+            if result.contains(&m) {
+                result.remove(&m);
+            } else {
+                result.insert(m);
+            }
+        }
+    }
+    
     result
 }
 

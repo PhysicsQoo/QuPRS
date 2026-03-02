@@ -92,17 +92,13 @@ impl QuantumGates for PathSum {
         let new_var = self.v.get_fresh_var();
         let new_var_mono = vec![new_var];
 
-        let current_f_q = self.f.functions[qubit].clone();
-        let half = PhaseCoeff::new_constant(Rational::new(1, 2));
-        
-        for term in current_f_q {
-            let new_term = pathsum::mul_monomials(&term, &new_var_mono);
-            self.p.add_term(new_term, half.clone());
-        }
+        let mut y_poly = FxHashSet::default();
+        y_poly.insert(new_var_mono.clone());
+        // adds phase 1/2 * F_q * Y
+        let product_poly = pathsum::mul_boolean_polys(&self.f.functions[qubit], &y_poly);
+        self.apply_phase_to_poly(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
 
-        let mut new_poly = FxHashSet::default();
-        new_poly.insert(new_var_mono);
-        self.f.functions[qubit] = new_poly;
+        self.f.functions[qubit] = y_poly;
 
         if self.auto_reduce {
             self.full_reduce();
@@ -118,17 +114,10 @@ impl QuantumGates for PathSum {
 
     fn apply_cz(&mut self, control: usize, target: usize) {
         // CZ adds phase 1/2 * (F[ctrl] * F[tgt])
-        let mut product_poly = FxHashSet::default();
-        for m1 in &self.f.functions[control] {
-            for m2 in &self.f.functions[target] {
-                let m = pathsum::mul_monomials(m1, m2);
-                if product_poly.contains(&m) {
-                    product_poly.remove(&m);
-                } else {
-                    product_poly.insert(m);
-                }
-            }
-        }
+        let poly_c = &self.f.functions[control];
+        let poly_t = &self.f.functions[target];
+
+        let product_poly = pathsum::mul_boolean_polys(poly_c, poly_t);
         self.apply_phase_to_poly(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
     }
     fn apply_s(&mut self, qubit: usize) {

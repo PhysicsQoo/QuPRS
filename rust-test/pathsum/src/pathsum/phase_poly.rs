@@ -43,7 +43,43 @@ impl PhasePolynomial {
         used_vars
     }
 }
+impl AddAssign<PhaseCoeff> for PhasePolynomial {
+    fn add_assign(&mut self, rhs: PhaseCoeff) {
+        if !rhs.is_zero() {
+            self.add_term(vec![], rhs);
+        }
+    }
+}
 
+impl AddAssign<(&FxHashSet<Monomial>, PhaseCoeff)> for PhasePolynomial {
+    fn add_assign(&mut self, (poly, phase): (&FxHashSet<Monomial>, PhaseCoeff)) {
+        if poly.is_empty() || phase.is_zero() { return; }
+
+        let max_order = if !phase.symbols.is_empty() {
+            usize::MAX
+        } else {
+            let denom_u64 = phase.constant.denom as u64;
+            if denom_u64.is_power_of_two() {
+                denom_u64.trailing_zeros() as usize
+            } else {
+                usize::MAX
+            }
+        };
+
+        let arith_poly = expand_xor_to_arithmetic(poly, max_order);
+
+        for (term, coeff) in arith_poly {
+            let final_coeff = phase.clone() * coeff;
+            self.add_term(term, final_coeff); 
+        }
+    }
+}
+
+impl AddAssign<(Monomial, PhaseCoeff)> for PhasePolynomial {
+    fn add_assign(&mut self, (mono, coeff): (Monomial, PhaseCoeff)) {
+        self.add_term(mono, coeff); 
+    }
+}
 fn generate_combinations_dfs(
     repl: &[&Monomial],
     k: usize,

@@ -1,8 +1,9 @@
 // src/gates.rs
 use crate::pathsum::PathSum;
-use crate::rational::{Rational, FreeRational, PhaseCoeff};
-use crate::pathsum::{self, Monomial};
+use crate::rational::{Rational, PhaseCoeff};
+use crate::pathsum::{self};
 use rustc_hash::FxHashSet;
+use num_traits::Zero;
 
 pub trait QuantumGates {
     // Basic Pauli Gates
@@ -21,40 +22,11 @@ pub trait QuantumGates {
     // Non-Clifford Gates
     fn apply_t(&mut self, qubit: usize);
     fn apply_tdg(&mut self, qubit: usize);
-}
 
-impl PathSum {
-    pub(crate) fn add_global_phase(&mut self, phase: PhaseCoeff) {
-        if !phase.is_zero() {
-            self.p.add_term(vec![], phase);
-        }
-    }
-    pub(crate) fn apply_phase_to_poly(&mut self, poly: &FxHashSet<Monomial>, phase: PhaseCoeff) {
-        if poly.is_empty() { return; }
-
-        let denom_u64 = phase.constant.denom as u64;
-        let max_order = if !phase.symbols.is_empty() {
-            usize::MAX
-        } else {
-            if denom_u64.is_power_of_two() {
-                denom_u64.trailing_zeros() as usize
-            } else {
-                usize::MAX
-            }
-        };
-
-        let arith_poly = crate::pathsum::phase_poly::expand_xor_to_arithmetic(poly, max_order);
-
-        for (term, coeff) in arith_poly {
-            let final_coeff = phase.clone() * coeff;
-            self.p.add_term(term, final_coeff); 
-        }
-    }
-
-    pub(crate) fn apply_phase_gate(&mut self, qubit: usize, phase: PhaseCoeff) {
-        let poly = self.f.functions[qubit].clone();
-        self.apply_phase_to_poly(&poly, phase);
-    }
+    // Rotation Gates
+    fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff);
+    fn apply_p(&mut self, qubit: usize, phase: PhaseCoeff);
+    fn apply_u1(&mut self, qubit: usize, phase: PhaseCoeff);
 }
 
 impl QuantumGates for PathSum {
@@ -72,13 +44,13 @@ impl QuantumGates for PathSum {
     }
 
     fn apply_z(&mut self, qubit: usize) {
-        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 2)));
+        self.p += (&self.f.functions[qubit], PhaseCoeff::new_constant(Rational::new(1, 2)));
     }
 
     fn apply_y(&mut self, qubit: usize) {
         // Y = i * X * Z
         // 1. Add global phase i (i.e., 1/4)
-        self.add_global_phase(PhaseCoeff::new_constant(Rational::new(1, 4)));
+        self.p += PhaseCoeff::new_constant(Rational::new(1, 4));
         // 2. Apply Z and X in sequence
         self.apply_z(qubit);
         self.apply_x(qubit);
@@ -97,8 +69,8 @@ impl QuantumGates for PathSum {
         y_poly.insert(new_var_mono.clone());
         // adds phase 1/2 * F_q * Y
         let product_poly = pathsum::mul_boolean_polys(&self.f.functions[qubit], &y_poly);
-        self.apply_phase_to_poly(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
-
+        // self.apply_phase_to_poly(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
+        self.p += (&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
         self.f.functions[qubit] = y_poly;
 
         if self.auto_reduce {
@@ -107,11 +79,11 @@ impl QuantumGates for PathSum {
     }
 
     fn apply_s(&mut self, qubit: usize) {
-        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 4)));
+        self.p += (&self.f.functions[qubit], PhaseCoeff::new_constant(Rational::new(1, 4)));
     }
 
     fn apply_sdg(&mut self, qubit: usize) {
-        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(3, 4)));
+        self.p += (&self.f.functions[qubit], PhaseCoeff::new_constant(Rational::new(3, 4)));
     }
 
     fn apply_cx(&mut self, control: usize, target: usize) {
@@ -127,7 +99,7 @@ impl QuantumGates for PathSum {
         let poly_t = &self.f.functions[target];
 
         let product_poly = pathsum::mul_boolean_polys(poly_c, poly_t);
-        self.apply_phase_to_poly(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
+        self.p += (&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
     }
 
     fn apply_ccx(&mut self, control1: usize, control2: usize, target: usize) {
@@ -148,15 +120,32 @@ impl QuantumGates for PathSum {
     // T Gates
     // ==========================================
     fn apply_t(&mut self, qubit: usize) {
-        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 8)));
+        self.p += (&self.f.functions[qubit], PhaseCoeff::new_constant(Rational::new(1, 8)));
     }
 
     fn apply_tdg(&mut self, qubit: usize) {
-        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(7, 8)));
+        self.p += (&self.f.functions[qubit], PhaseCoeff::new_constant(Rational::new(7, 8)));
     }
     // ==========================================
     // Rotation Gates
     // ==========================================
+    fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff) {
+        // RZ(φ) = exp(-iφ/2) * P(φ)
+        
+        // Global Phase: - (phase / 2)
+        let zero_phase = PhaseCoeff::new_constant(Rational::zero());
+        self.p += zero_phase - (phase.clone() / 2);
+
+        // Relative Phase: P(φ)
+        self.p += (&self.f.functions[qubit], phase);
+    }
+    fn apply_p(&mut self, qubit: usize, phase: PhaseCoeff) {
+        self.p += (&self.f.functions[qubit], phase);
+    }
+
+    fn apply_u1(&mut self, qubit: usize, phase: PhaseCoeff) {
+        self.p += (&self.f.functions[qubit], phase);
+    }
 }
 
 
@@ -250,5 +239,71 @@ mod tests {
         let mut cross = vec![0, 1];
         cross.sort_unstable();
         assert!(ps.p.terms[&cross].is_pure_half(), "Cross term x_0*x_1 should have 1/2 phase (-1/2 mod 1)");
+    }
+    #[test]
+    fn test_apply_h() {
+        let mut ps = setup_test_env(1);
+        ps.apply_h(0);
+        
+        let new_var = 1;
+        let new_var_mono = vec![new_var];
+        
+        assert!(ps.f.functions[0].contains(&new_var_mono), "F[0] should contain the new path variable");
+        assert_eq!(ps.f.functions[0].len(), 1, "F[0] should ONLY contain the new path variable");
+
+        let mut cross_term = vec![0, new_var];
+        cross_term.sort_unstable();
+        assert!(ps.p.terms[&cross_term].is_pure_half(), "P should contain the 1/2 phase for (x0 * y)");
+    }
+
+    #[test]
+    fn test_apply_cx() {
+        let mut ps = setup_test_env(2);
+        ps.apply_cx(0, 1);
+        
+        assert!(ps.f.functions[1].contains(&vec![1]), "Target should still contain its original variable");
+        assert!(ps.f.functions[1].contains(&vec![0]), "Target should now contain the control variable");
+        assert_eq!(ps.f.functions[1].len(), 2, "Target F should be exactly x0 ⊕ x1");
+        
+        assert!(ps.p.terms.is_empty(), "CX gate should not add any phase to P");
+    }
+
+    #[test]
+    fn test_apply_ccx() {
+        let mut ps = setup_test_env(3);
+        ps.apply_ccx(0, 1, 2);
+        
+        assert!(ps.f.functions[2].contains(&vec![2]), "Target should contain its original variable x2");
+        
+        let mut cross = vec![0, 1];
+        cross.sort_unstable();
+        assert!(ps.f.functions[2].contains(&cross), "Target should contain the AND product of controls (x0 * x1)");
+        assert_eq!(ps.f.functions[2].len(), 2, "Target F should be exactly x2 ⊕ (x0 * x1)");
+        
+        assert!(ps.p.terms.is_empty(), "CCX gate should not add any phase to P");
+    }
+
+    #[test]
+    fn test_apply_p() {
+        let mut ps = setup_test_env(1);
+        
+        let phase = PhaseCoeff::new_constant(Rational::new(1, 4));
+        ps.apply_p(0, phase);
+        
+        assert!(ps.p.terms[&vec![0]].is_pure_quarter(), "P gate should add relative phase");
+        
+        assert!(!ps.p.terms.contains_key(&vec![]), "P gate MUST NOT add global phase");
+    }
+
+    #[test]
+    fn test_apply_rz() {
+        let mut ps = setup_test_env(1);
+        
+        let phase = PhaseCoeff::new_constant(Rational::new(1, 4));
+        ps.apply_rz(0, phase);
+        
+        assert!(ps.p.terms[&vec![0]].is_pure_quarter(), "RZ gate should add relative phase");
+        
+        assert!(ps.p.terms[&vec![]].is_pure_fraction(7, 8), "RZ gate MUST add -phase/2 global phase");
     }
 }

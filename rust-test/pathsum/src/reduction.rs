@@ -205,7 +205,8 @@ impl PathSum {
                 self.p.terms.remove(mono);
             }
             for (mono, coeff) in p_additions {
-                self.p.add_term(mono, coeff); // Auto handles term merging and Modulo 1
+                // self.p.add_term(mono, coeff); // Auto handles term merging and Modulo 1
+                self.p += (mono, coeff); 
             }
 
             // ==========================================
@@ -302,8 +303,8 @@ impl PathSum {
             PhaseCoeff::new_constant(Rational::new(7, 8))
             )
         };
-        self.add_global_phase(const_phase);
-        self.apply_phase_to_poly(&phi, base_coeff);
+        self.p += const_phase;
+        self.p += (&phi, base_coeff);
 
         // 4. Garbage collection
         self.v.path_vars.remove(&y);

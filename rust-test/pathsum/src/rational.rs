@@ -102,9 +102,35 @@ impl Mul<i64> for Rational {
     }
 }
 
+impl Div<i64> for Rational {
+    type Output = Self;
+    fn div(self, rhs: i64) -> Self {
+        if rhs == 0 { panic!("Division by zero in Rational"); }
+        
+        let mut new_numer = self.numer;
+        let mut new_denom = self.denom * rhs;
+
+        if new_denom < 0 {
+            new_numer = -new_numer;
+            new_denom = -new_denom;
+        }
+
+        let mod_numer = new_numer.rem_euclid(new_denom);
+        if mod_numer == 0 { return Rational::zero(); }
+
+        use num_integer::Integer;
+        let common = mod_numer.gcd(&new_denom);
+        Rational {
+            numer: mod_numer / common,
+            denom: new_denom / common,
+        }
+    }
+}
+
 impl AddAssign for Rational { fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; } }
 impl MulAssign<i64> for Rational { fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; } }
-
+impl DivAssign<i64> for Rational { fn div_assign(&mut self, rhs: i64) { *self = *self / rhs; }
+}
 // ==========================================
 // 2. FreeRational (Unrestricted for Symbolic Weights)
 // ==========================================
@@ -170,6 +196,33 @@ impl MulAssign<i64> for FreeRational {
     fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; }
 }
 
+impl Div<i64> for FreeRational {
+    type Output = Self;
+    fn div(self, rhs: i64) -> Self {
+        if rhs == 0 { panic!("Division by zero in FreeRational"); }
+        
+        let mut new_numer = self.numer;
+        let mut new_denom = self.denom * rhs;
+
+        if new_denom < 0 {
+            new_numer = -new_numer;
+            new_denom = -new_denom;
+        }
+
+        use num_integer::Integer;
+        let common = new_numer.gcd(&new_denom);
+        FreeRational {
+            numer: new_numer / common,
+            denom: new_denom / common,
+        }
+    }
+}
+
+impl DivAssign<i64> for FreeRational {
+    fn div_assign(&mut self, rhs: i64) {
+        *self = *self / rhs;
+    }
+}
 impl fmt::Display for FreeRational {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.denom == 1 { write!(f, "{}", self.numer) } 
@@ -316,5 +369,34 @@ impl Mul<PhaseCoeff> for i64 {
     type Output = PhaseCoeff;
     fn mul(self, rhs: PhaseCoeff) -> PhaseCoeff {
         rhs * self
+    }
+}
+
+impl Div<i64> for PhaseCoeff {
+    type Output = Self;
+    fn div(mut self, rhs: i64) -> Self {
+        if rhs == 0 { panic!("Division by zero in PhaseCoeff"); }
+
+        self.constant = self.constant / rhs;
+        
+        self.symbols.retain(|_, weight| {
+            *weight = *weight / rhs;
+            !weight.is_zero() 
+        });
+        
+        self
+    }
+}
+
+impl DivAssign<i64> for PhaseCoeff {
+    fn div_assign(&mut self, rhs: i64) {
+        if rhs == 0 { panic!("Division by zero in PhaseCoeff"); }
+
+        self.constant /= rhs;
+        
+        self.symbols.retain(|_, weight| {
+            *weight /= rhs;
+            !weight.is_zero()
+        });
     }
 }

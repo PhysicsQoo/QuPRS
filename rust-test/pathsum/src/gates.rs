@@ -1,6 +1,6 @@
 // src/gates.rs
 use crate::pathsum::PathSum;
-use crate::rational::{Rational, PhaseCoeff};
+use crate::rational::{Rational, FreeRational, PhaseCoeff};
 use crate::pathsum::{self, Monomial};
 use rustc_hash::FxHashSet;
 
@@ -23,61 +23,36 @@ pub trait QuantumGates {
 }
 
 impl PathSum {
-    /// Core algebraic engine: transforms c * (m_1 ⊕ m_2 ⊕ ... ⊕ m_k) exactly and adds to P.
-    /// Uses truncation modulo 1 to terminate polynomial expansion early, avoiding exponential blowup.
-    pub(crate) fn apply_boolean_phase(&mut self, poly: &FxHashSet<Monomial>, base_coeff: PhaseCoeff) {
-        let terms: Vec<Monomial> = poly.iter().cloned().collect();
-        let n = terms.len();
-        if n == 0 { return; }
+    pub(crate) fn add_global_phase(&mut self, phase: PhaseCoeff) {
+        if !phase.is_zero() {
+            self.p.add_term(vec![], phase);
+        }
+    }
+    pub(crate) fn apply_phase_to_poly(&mut self, poly: &FxHashSet<Monomial>, phase: PhaseCoeff) {
+        if poly.is_empty() { return; }
 
-        for degree in 1..=n {
-            // Calculate coefficient for this degree: base_coeff * (-1)^(degree-1) * 2^(degree-1)
-            let multiplier = if (degree - 1) % 2 == 0 {
-                1_i64 << (degree - 1)
+        let denom_u64 = phase.constant.denom as u64;
+        let max_order = if !phase.symbols.is_empty() {
+            usize::MAX
+        } else {
+            if denom_u64.is_power_of_two() {
+                denom_u64.trailing_zeros() as usize
             } else {
-                -(1_i64 << (degree - 1))
-            };
-            
-            let current_coeff = base_coeff.clone() * multiplier;
-            
-            // [Core Optimization] If coefficient is zeroed by Modulo 1, higher-degree terms are also 0, terminate expansion!
-            if current_coeff.is_zero() {
-                break;
+                usize::MAX
             }
+        };
 
-            // Generate all combinations of size degree (Combinations)
-            let mut combinations = Vec::new();
-            let mut current = Vec::new();
-            Self::generate_combinations(&terms, degree, 0, &mut current, &mut combinations);
+        let arith_poly = crate::pathsum::phase_poly::expand_xor_to_arithmetic(poly, max_order);
 
-            // Multiply monomials in each combination and add to P
-            for combo in combinations {
-                let mut merged_mono = vec![];
-                for m in combo {
-                    merged_mono = pathsum::mul_monomials(&merged_mono, &m);
-                }
-                self.p.add_term(merged_mono, current_coeff.clone());
-            }
+        for (term, coeff) in arith_poly {
+            let final_coeff = phase.clone() * coeff;
+            self.p.add_term(term, final_coeff); 
         }
     }
 
-    /// Helper function: recursively generate C(n, k) combinations of array
-    fn generate_combinations(
-        terms: &[Monomial],
-        degree: usize,
-        start: usize,
-        current: &mut Vec<Monomial>,
-        result: &mut Vec<Vec<Monomial>>
-    ) {
-        if current.len() == degree {
-            result.push(current.clone());
-            return;
-        }
-        for i in start..terms.len() {
-            current.push(terms[i].clone());
-            Self::generate_combinations(terms, degree, i + 1, current, result);
-            current.pop();
-        }
+    pub(crate) fn apply_phase_gate(&mut self, qubit: usize, phase: PhaseCoeff) {
+        let poly = self.f.functions[qubit].clone();
+        self.apply_phase_to_poly(&poly, phase);
     }
 }
 
@@ -96,15 +71,13 @@ impl QuantumGates for PathSum {
     }
 
     fn apply_z(&mut self, qubit: usize) {
-        // Z gate: add phase 1/2
-        let poly = self.f.functions[qubit].clone();
-        self.apply_boolean_phase(&poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
+        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 2)));
     }
 
     fn apply_y(&mut self, qubit: usize) {
         // Y = i * X * Z
         // 1. Add global phase i (i.e., 1/4)
-        self.p.add_term(vec![], PhaseCoeff::new_constant(Rational::new(1, 4)));
+        self.add_global_phase(PhaseCoeff::new_constant(Rational::new(1, 4)));
         // 2. Apply Z and X in sequence
         self.apply_z(qubit);
         self.apply_x(qubit);
@@ -156,28 +129,24 @@ impl QuantumGates for PathSum {
                 }
             }
         }
-        self.apply_boolean_phase(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
+        self.apply_phase_to_poly(&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
     }
     fn apply_s(&mut self, qubit: usize) {
-        let poly = self.f.functions[qubit].clone();
-        self.apply_boolean_phase(&poly, PhaseCoeff::new_constant(Rational::new(1, 4)));
+        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 4)));
     }
 
     fn apply_sdg(&mut self, qubit: usize) {
-        let poly = self.f.functions[qubit].clone();
-        self.apply_boolean_phase(&poly, PhaseCoeff::new_constant(Rational::new(3, 4)));
+        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(3, 4)));
     }
     // ==========================================
     // T Gates
     // ==========================================
     fn apply_t(&mut self, qubit: usize) {
-        let poly = self.f.functions[qubit].clone();
-        self.apply_boolean_phase(&poly, PhaseCoeff::new_constant(Rational::new(1, 8)));
+        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(1, 8)));
     }
 
     fn apply_tdg(&mut self, qubit: usize) {
-        let poly = self.f.functions[qubit].clone();
-        self.apply_boolean_phase(&poly, PhaseCoeff::new_constant(Rational::new(7, 8)));
+        self.apply_phase_gate(qubit, PhaseCoeff::new_constant(Rational::new(7, 8)));
     }
 }
 

@@ -7,7 +7,7 @@ use num_integer::Integer;
 use num_traits::Zero;
 
 // ==========================================
-// 1. Rational (restricted to [0, 1) interval)
+// 1. Rational (restricted to [0, 1) interval for Constants)
 // ==========================================
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rational {
@@ -17,7 +17,7 @@ pub struct Rational {
 
 impl Rational {
     pub fn new(numer: i64, denom: i64) -> Self {
-        if denom == 0 { panic!("Zero denominator"); }
+        if denom == 0 { panic!("Zero denominator in Rational"); }
         let mut n = numer;
         let mut d = denom;
 
@@ -30,7 +30,7 @@ impl Rational {
         // 2. Restrict value range to [0, 1) (Modulo 1)
         // Example: -1.rem_euclid(4) = 3
         n = n.rem_euclid(d);
-
+        
         // 3. Handle case where numerator is zero
         if n == 0 { return Rational { numer: 0, denom: 1 }; }
 
@@ -106,12 +106,84 @@ impl AddAssign for Rational { fn add_assign(&mut self, rhs: Self) { *self = *sel
 impl MulAssign<i64> for Rational { fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; } }
 
 // ==========================================
-// 2. PhaseCoeff
+// 2. FreeRational (Unrestricted for Symbolic Weights)
+// ==========================================
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FreeRational {
+    pub numer: i64,
+    pub denom: i64,
+}
+
+impl FreeRational {
+    pub fn new(numer: i64, denom: i64) -> Self {
+        if denom == 0 { panic!("Zero denominator in FreeRational"); }
+        let mut n = numer;
+        let mut d = denom;
+        
+        if d < 0 { n = -n; d = -d; }
+        if n == 0 { return FreeRational { numer: 0, denom: 1 }; }
+        
+        let common = n.gcd(&d);
+        FreeRational { numer: n / common, denom: d / common }
+    }
+    
+    pub fn zero() -> Self { FreeRational { numer: 0, denom: 1 } }
+    pub fn is_zero(&self) -> bool { self.numer == 0 }
+}
+
+impl Add for FreeRational {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        let new_numer = (self.numer as i128) * (rhs.denom as i128) + (rhs.numer as i128) * (self.denom as i128);
+        let new_denom = (self.denom as i128) * (rhs.denom as i128);
+        if new_numer == 0 { return FreeRational::zero(); }
+        let common = new_numer.gcd(&new_denom);
+        FreeRational { numer: (new_numer / common) as i64, denom: (new_denom / common) as i64 }
+    }
+}
+
+impl AddAssign for FreeRational {
+    fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; }
+}
+
+impl Sub for FreeRational {
+    type Output = Self;
+    fn sub(self, mut rhs: Self) -> Self {
+        rhs.numer = -rhs.numer;
+        self + rhs
+    }
+}
+
+impl SubAssign for FreeRational {
+    fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; }
+}
+
+impl Mul<i64> for FreeRational {
+    type Output = Self;
+    fn mul(self, rhs: i64) -> Self {
+        if rhs == 0 { return FreeRational::zero(); }
+        FreeRational::new(self.numer * rhs, self.denom)
+    }
+}
+
+impl MulAssign<i64> for FreeRational {
+    fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; }
+}
+
+impl fmt::Display for FreeRational {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.denom == 1 { write!(f, "{}", self.numer) } 
+        else { write!(f, "{}/{}", self.numer, self.denom) }
+    }
+}
+
+// ==========================================
+// 3. PhaseCoeff (Mixed Algebraic Structure)
 // ==========================================
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PhaseCoeff {
     pub constant: Rational,
-    pub symbols: FxHashMap<u32, Rational>,
+    pub symbols: FxHashMap<u32, FreeRational>,
 }
 
 impl PhaseCoeff {
@@ -119,7 +191,7 @@ impl PhaseCoeff {
         Self { constant, symbols: FxHashMap::default() }
     }
 
-    pub fn new_symbolic(symbol_id: u32, weight: Rational) -> Self {
+    pub fn new_symbolic(symbol_id: u32, weight: FreeRational) -> Self {
         let mut symbols = FxHashMap::default();
         symbols.insert(symbol_id, weight);
         Self { constant: Rational::zero(), symbols }
@@ -170,7 +242,7 @@ impl AddAssign for PhaseCoeff {
     fn add_assign(&mut self, rhs: Self) {
         self.constant += rhs.constant;
         for (sym_id, weight) in rhs.symbols {
-            let entry = self.symbols.entry(sym_id).or_insert_with(Rational::zero);
+            let entry = self.symbols.entry(sym_id).or_insert_with(FreeRational::zero);
             *entry += weight;
             
             // Remove the symbol if the weight becomes zero to maintain sparsity
@@ -193,8 +265,8 @@ impl SubAssign for PhaseCoeff {
     fn sub_assign(&mut self, rhs: Self) {
         self.constant = self.constant - rhs.constant;
         for (sym_id, weight) in rhs.symbols {
-            let entry = self.symbols.entry(sym_id).or_insert_with(Rational::zero);
-            *entry = *entry - weight;
+            let entry = self.symbols.entry(sym_id).or_insert_with(FreeRational::zero);
+            *entry -= weight;
             
             if entry.is_zero() {
                 self.symbols.remove(&sym_id);

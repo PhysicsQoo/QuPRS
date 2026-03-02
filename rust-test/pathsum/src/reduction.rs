@@ -165,6 +165,25 @@ impl PathSum {
             }
 
             // 3c. Substitute v in Phase Polynomial (P)
+            let mut max_order = 0;
+            for (mono, coeff) in &self.p.terms {
+                if mono.contains(&v) {
+                    if !coeff.symbols.is_empty() {
+                        max_order = usize::MAX;
+                        break;
+                    }
+                    let denom_u64 = coeff.constant.denom as u64;
+                    let order = if denom_u64.is_power_of_two() { 
+                        denom_u64.trailing_zeros() as usize 
+                    } else { 
+                        usize::MAX 
+                    };
+                    if order > max_order { max_order = order; }
+                }
+            }
+
+            let arith_r = crate::pathsum::phase_poly::expand_xor_to_arithmetic(&replacement, max_order);
+
             let mut p_additions = Vec::new();
             let mut p_removals = Vec::new();
 
@@ -173,9 +192,11 @@ impl PathSum {
                     p_removals.push(mono.clone());
                     let mut u = mono.clone();
                     u.retain(|&x| x != v);
-                    for r_term in &replacement {
-                        let new_term = mul_monomials(&u, r_term);
-                        p_additions.push((new_term, coeff.clone()));
+                    
+                    for (r_term, r_coeff) in &arith_r {
+                        let new_term = crate::pathsum::mul_monomials(&u, r_term);
+                        let new_coeff = coeff.clone() * (*r_coeff); 
+                        p_additions.push((new_term, new_coeff));
                     }
                 }
             }
@@ -281,8 +302,8 @@ impl PathSum {
             PhaseCoeff::new_constant(Rational::new(7, 8))
             )
         };
-        self.p.add_term(vec![], const_phase);
-        self.apply_boolean_phase(&phi, base_coeff);
+        self.add_global_phase(const_phase);
+        self.apply_phase_to_poly(&phi, base_coeff);
 
         // 4. Garbage collection
         self.v.path_vars.remove(&y);

@@ -1,7 +1,7 @@
 // src/qasm.rs
 use std::fs;
 use crate::pathsum::{PathSum, Register};
-use crate::gates::QuantumGates;
+use crate::gates::{QuantumGates, Side};
 
 impl PathSum {
     /// Load and initialize PathSum from an OpenQASM 2.0 file.
@@ -72,14 +72,14 @@ impl PathSum {
                     if tokens.len() >= 3 {
                         let target = tokens[2].parse::<usize>().map_err(|_| format!("Invalid qubit ID in line: {}", line))?;
                         match gate.as_str() {
-                            "x" => ps.apply_x(target),
-                            "y" => ps.apply_y(target),
-                            "z" => ps.apply_z(target),
-                            "h" => ps.apply_h(target),
-                            "s" => ps.apply_s(target),
-                            "sdg" => ps.apply_sdg(target),
-                            "t" => ps.apply_t(target),
-                            "tdg" => ps.apply_tdg(target),
+                            "x" => ps.apply_x(target, Side::Ket),
+                            "y" => ps.apply_y(target, Side::Ket),
+                            "z" => ps.apply_z(target, Side::Ket),
+                            "h" => ps.apply_h(target, Side::Ket),
+                            "s" => ps.apply_s(target, Side::Ket),
+                            "sdg" => ps.apply_sdg(target, Side::Ket),
+                            "t" => ps.apply_t(target, Side::Ket),
+                            "tdg" => ps.apply_tdg(target, Side::Ket),
                             _ => unreachable!(),
                         }
                     }
@@ -90,8 +90,8 @@ impl PathSum {
                         let ctrl = tokens[2].parse::<usize>().map_err(|_| format!("Invalid control ID in line: {}", line))?;
                         let tgt = tokens[4].parse::<usize>().map_err(|_| format!("Invalid target ID in line: {}", line))?;
                         match gate.as_str() {
-                            "cx" => ps.apply_cx(ctrl, tgt),
-                            "cz" => ps.apply_cz(ctrl, tgt),
+                            "cx" => ps.apply_cx(ctrl, tgt, Side::Ket),
+                            "cz" => ps.apply_cz(ctrl, tgt, Side::Ket),
                             _ => unreachable!(),
                         }
                     }
@@ -102,7 +102,7 @@ impl PathSum {
                         let ctrl1 = tokens[2].parse::<usize>().map_err(|_| format!("Invalid control1 ID in line: {}", line))?;
                         let ctrl2 = tokens[4].parse::<usize>().map_err(|_| format!("Invalid control2 ID in line: {}", line))?;
                         let tgt = tokens[6].parse::<usize>().map_err(|_| format!("Invalid target ID in line: {}", line))?;
-                        ps.apply_ccx(ctrl1, ctrl2, tgt);
+                        ps.apply_ccx(ctrl1, ctrl2, tgt, Side::Ket);
                     }
                 }
                 _ => return Err(format!("Unsupported gate: {}", gate)),

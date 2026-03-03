@@ -247,7 +247,7 @@ impl PathSum {
 #[cfg(test)] 
 mod tests {
     use super::*;
-    use crate::gates::QuantumGates;
+    use crate::gates::{QuantumGates, Side};
     use rustc_hash::FxHashSet;
 
     /// Set up test environment and disable auto-reduction, allowing us to inspect state
@@ -284,8 +284,8 @@ mod tests {
         
         // 1. Construct H-H circuit
         // Initial: F[0] = x_0 (ID: 0)
-        ps.apply_h(0); // Generate y_0 (ID: 1)
-        ps.apply_h(0); // Generate y_1 (ID: 2)
+        ps.apply_h(0, Side::Ket); // Generate y_0 (ID: 1)
+        ps.apply_h(0, Side::Ket); // Generate y_1 (ID: 2)
 
         // Before reduction: y_0 and y_1 must exist in the variable pool
         assert!(ps.v.path_vars.contains(&1), "y_0 should exist before reduction");
@@ -321,9 +321,9 @@ mod tests {
         let mut ps = PathSum::new(1);
         ps.set_auto_reduce(true);
 
-        ps.apply_h(0); // Produces y_0 (ID: 1)
-        ps.apply_s(0); 
-        ps.apply_h(0); // Produces y_1 (ID: 2)
+        ps.apply_h(0, Side::Ket); // Produces y_0 (ID: 1)
+        ps.apply_s(0, Side::Ket); 
+        ps.apply_h(0, Side::Ket); // Produces y_1 (ID: 2)
 
         // 1. Verify that y_0 (ID 1) has been successfully eliminated by Omega Rule
         assert!(!ps.v.path_vars.contains(&1), "y_0 should be eliminated by Omega Rule");

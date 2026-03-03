@@ -175,6 +175,59 @@ impl PathSum {
         sub_poly.insert(vec![new_var]);
         self.substitute_var_with_poly(old_var, &sub_poly);
     }
+
+    pub fn is_identity(&self) -> bool {
+        // Check if phase polynomial P is empty (phase is 0)
+        if !self.p.terms.is_empty() {
+            return false;
+        }
+
+        // Check if boolean state F is in trivial state
+        // Identity means each qubit i has F[i] = x_i (the input variable itself)
+        for (qubit_idx, poly) in self.f.functions.iter().enumerate() {
+            // Polynomial must contain exactly one term
+            if poly.len() != 1 {
+            return false;
+            }
+
+            // That term must be exactly the input variable x_i
+            let x_i = vec![qubit_idx as u32];
+            if !poly.contains(&x_i) {
+            return false;
+            }
+        }
+        
+        true
+    }
+    pub fn is_identity_up_to_phase(&self) -> bool {
+        for monomial in self.p.terms.keys() {
+            if !monomial.is_empty() {
+                return false; 
+            }
+        }
+
+        for (qubit_idx, poly) in self.f.functions.iter().enumerate() {
+            if poly.len() != 1 {
+                return false;
+            }
+            let x_i = vec![qubit_idx as u32];
+            if !poly.contains(&x_i) {
+                return false;
+            }
+        }
+        true
+    }
+    
+    pub fn get_global_phase(&self) -> Option<crate::rational::PhaseCoeff> {
+        if !self.is_identity_up_to_phase() {
+            return None;
+        }
+        self.p.terms.get(&vec![]).cloned().or_else(|| {
+            Some(crate::rational::PhaseCoeff::new_constant(
+                crate::rational::Rational::new(0, 1)
+            ))
+        })
+    }
     pub fn print_status(&self) {
         println!("=== PathSum State ===");
         

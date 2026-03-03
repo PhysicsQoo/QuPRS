@@ -30,9 +30,16 @@ pub trait QuantumGates {
     fn apply_tdg(&mut self, qubit: usize, side: Side);
 
     // Rotation Gates
-    fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff, side: Side);
     fn apply_p(&mut self, qubit: usize, phase: PhaseCoeff, side: Side);
+    fn apply_rx(&mut self, qubit: usize, theta: PhaseCoeff, side: Side);
+    fn apply_ry(&mut self, qubit: usize, theta: PhaseCoeff, side: Side);
+    fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff, side: Side);
+
     fn apply_u1(&mut self, qubit: usize, phase: PhaseCoeff, side: Side);
+    fn apply_u2(&mut self, qubit: usize, phi: PhaseCoeff, lam: PhaseCoeff, side: Side);
+    fn apply_u3(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side);
+    
+    fn apply_u(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side);
 }
 
 impl QuantumGates for PathSum {
@@ -259,6 +266,22 @@ impl QuantumGates for PathSum {
     // ==========================================
     // Rotation Gates
     // ==========================================
+    /// RX(theta) = U3(theta, -pi/2, pi/2)
+    fn apply_rx(&mut self, qubit: usize, theta: PhaseCoeff, side: Side) {
+        // phi = -pi/2 (-1/4 cycle)
+        let neg_pi_over_2 = PhaseCoeff::new_constant(Rational::new(-1, 4));
+        // lam = pi/2 (1/4 cycle)
+        let pi_over_2 = PhaseCoeff::new_constant(Rational::new(1, 4));
+        
+        self.apply_u(qubit, theta, neg_pi_over_2, pi_over_2, side);
+    }
+
+    /// RY(theta) = U3(theta, 0, 0)
+    fn apply_ry(&mut self, qubit: usize, theta: PhaseCoeff, side: Side) {
+        let zero = PhaseCoeff::new_constant(Rational::zero());
+        // phi = 0, lam = 0
+        self.apply_u(qubit, theta, zero.clone(), zero, side);
+    }
     fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff, side: Side) {
         // RZ(φ) = exp(-iφ/2) * P(φ)
         match side {
@@ -300,6 +323,86 @@ impl QuantumGates for PathSum {
                 let conj_phase = PhaseCoeff::new_constant(Rational::zero()) - phase;
                 self.p += (x_i, conj_phase);
             }
+        }
+    }
+    /// U2 Gate: X-Y plane rotation defined as U2(phi, lam) = U3(pi/2, phi, lam)
+    fn apply_u2(&mut self, qubit: usize, phi: PhaseCoeff, lam: PhaseCoeff, side: Side) {
+        // theta = pi/2 (即 1/4 cycle)
+        let pi_over_2 = PhaseCoeff::new_constant(Rational::new(1, 4));
+        self.apply_u(qubit, pi_over_2, phi, lam, side);
+    }
+    /// U3(theta, phi, lam)
+    fn apply_u3(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side) {
+        self.apply_u(qubit, theta, phi, lam, side);
+    }
+    fn apply_u(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side) {
+        // Generate two fresh path variables
+        let v0 = self.v.get_fresh_var();
+        let v1 = self.v.get_fresh_var();
+
+        // Pre-compute coefficient constants
+        let half = PhaseCoeff::new_constant(Rational::new(1, 2));
+        let quarter = PhaseCoeff::new_constant(Rational::new(1, 4));
+        let three_quarter = PhaseCoeff::new_constant(Rational::new(3, 4));
+        
+        let theta_term_v0 = theta.clone() / 2;
+        let theta_global = theta.clone() / -4;
+
+        match side {
+            Side::Ket => {
+                let x_i = &self.f.functions[qubit];
+                
+                let mut v0_poly = FxHashSet::default();
+                v0_poly.insert(vec![v0]);
+                let mut v1_poly = FxHashSet::default();
+                v1_poly.insert(vec![v1]);
+
+                // Add phase terms
+                self.p += (x_i, lam.clone() / 2);
+                self.p += (&v1_poly, phi.clone() / 2);
+                self.p += (&v0_poly, theta_term_v0);
+                self.p += theta_global;
+                self.p += (x_i, three_quarter);
+                self.p += (&v1_poly, quarter);
+
+                // Add cross terms
+                let cross_x_v0 = pathsum::mul_boolean_polys(x_i, &v0_poly);
+                self.p += (&cross_x_v0, half.clone());
+                
+                let mut cross_v0_v1 = vec![v0, v1];
+                cross_v0_v1.sort_unstable();
+                self.p += (cross_v0_v1, half);
+
+                // Update boolean state: x_i -> v1
+                self.f.functions[qubit] = v1_poly;
+            }
+            Side::Bra => {
+                let x_i_idx = qubit as u32;
+
+                // Substitute x_i -> v1
+                self.substitute_var(x_i_idx, v1);
+
+                // Add phase terms
+                self.p += (vec![x_i_idx], phi.clone() / -2);
+                self.p += (vec![v1], lam.clone() / -2);
+                self.p += (vec![v0], theta_term_v0);
+                self.p += theta_global;
+                self.p += (vec![x_i_idx], quarter);
+                self.p += (vec![v1], three_quarter);
+
+                // Add cross terms
+                let mut cross_x_v0 = vec![x_i_idx, v0];
+                cross_x_v0.sort_unstable();
+                self.p += (cross_x_v0, half.clone());
+
+                let mut cross_v0_v1 = vec![v0, v1];
+                cross_v0_v1.sort_unstable();
+                self.p += (cross_v0_v1, half);
+            }
+        }
+
+        if self.auto_reduce {
+            self.full_reduce();
         }
     }
 }

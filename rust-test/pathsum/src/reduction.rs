@@ -1,6 +1,6 @@
 // src/reduction.rs
 use rustc_hash::FxHashSet;
-use crate::pathsum::{PathSum, Monomial, mul_monomials};
+use crate::pathsum::{PathSum, Monomial};
 
 use crate::rational::{PhaseCoeff, Rational};
 use num_traits::Zero;
@@ -136,79 +136,9 @@ impl PathSum {
                 self.p.terms.remove(mono);
             }
 
-            // 3b. Substitute v in Boolean State (F)
-            for poly in &mut self.f.functions {
-                let mut new_poly = FxHashSet::default();
-                for term in poly.iter() {
-                    if term.contains(&v) {
-                        // If term contains v, split as v * U and expand to R * U
-                        let mut u = term.clone();
-                        u.retain(|&x| x != v);
-                        for r_term in &replacement {
-                            let new_term = mul_monomials(&u, r_term);
-                            if new_poly.contains(&new_term) {
-                                new_poly.remove(&new_term);
-                            } else {
-                                new_poly.insert(new_term);
-                            }
-                        }
-                    } else {
-                        // If v not present, keep directly (follow XOR logic)
-                        if new_poly.contains(term) {
-                            new_poly.remove(term);
-                        } else {
-                            new_poly.insert(term.clone());
-                        }
-                    }
-                }
-                *poly = new_poly;
-            }
-
-            // 3c. Substitute v in Phase Polynomial (P)
-            let mut max_order = 0;
-            for (mono, coeff) in &self.p.terms {
-                if mono.contains(&v) {
-                    if !coeff.symbols.is_empty() {
-                        max_order = usize::MAX;
-                        break;
-                    }
-                    let denom_u64 = coeff.constant.denom as u64;
-                    let order = if denom_u64.is_power_of_two() { 
-                        denom_u64.trailing_zeros() as usize 
-                    } else { 
-                        usize::MAX 
-                    };
-                    if order > max_order { max_order = order; }
-                }
-            }
-
-            let arith_r = crate::pathsum::phase_poly::expand_xor_to_arithmetic(&replacement, max_order);
-
-            let mut p_additions = Vec::new();
-            let mut p_removals = Vec::new();
-
-            for (mono, coeff) in &self.p.terms {
-                if mono.contains(&v) {
-                    p_removals.push(mono.clone());
-                    let mut u = mono.clone();
-                    u.retain(|&x| x != v);
-                    
-                    for (r_term, r_coeff) in &arith_r {
-                        let new_term = crate::pathsum::mul_monomials(&u, r_term);
-                        let new_coeff = coeff.clone() * (*r_coeff); 
-                        p_additions.push((new_term, new_coeff));
-                    }
-                }
-            }
-
-            for mono in &p_removals {
-                self.p.terms.remove(mono);
-            }
-            for (mono, coeff) in p_additions {
-                // self.p.add_term(mono, coeff); // Auto handles term merging and Modulo 1
-                self.p += (mono, coeff); 
-            }
-
+            // 3b. Substitute v in Boolean State (F) and Phase Polynomial (P)
+            self.substitute_var_with_poly(v, &replacement);
+            
             // ==========================================
             // Step 4: Garbage Collection
             // ==========================================

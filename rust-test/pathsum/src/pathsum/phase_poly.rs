@@ -42,6 +42,40 @@ impl PhasePolynomial {
         }
         used_vars
     }
+    pub fn substitute_var_with_poly(
+        &mut self, 
+        target_var: u32, 
+        sub_poly: &FxHashSet<Monomial>
+    ) {
+        let mut removals = Vec::new();
+        let mut additions = Vec::new();
+        
+        for (mono, coeff) in &self.terms {
+            if mono.contains(&target_var) {
+                removals.push(mono.clone());
+                
+                let mut rest = mono.clone();
+                rest.retain(|&x| x != target_var);
+                
+                let mut rest_poly = FxHashSet::default();
+                rest_poly.insert(rest);
+                
+                // Compute boolean product: rest * sub_poly
+                let boolean_product = crate::pathsum::mul_boolean_polys(&rest_poly, sub_poly);
+                
+                // Record the expanded boolean polynomial and corresponding coefficient
+                additions.push((boolean_product, coeff.clone()));
+            }
+        }
+        
+        // Remove terms containing the old variable
+        for m in removals { self.terms.remove(&m); }
+        
+        // Add back the expanded boolean polynomial to P (will automatically call AddAssign and convert to arithmetic polynomial)
+        for (b_poly, coeff) in additions {
+            *self += (&b_poly, coeff);
+        }
+    }
 }
 impl AddAssign<PhaseCoeff> for PhasePolynomial {
     fn add_assign(&mut self, rhs: PhaseCoeff) {

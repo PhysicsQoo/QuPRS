@@ -23,7 +23,7 @@ pub fn mul_boolean_polys(poly1: &FxHashSet<Monomial>, poly2: &FxHashSet<Monomial
     
     for m1 in poly1 {
         for m2 in poly2 {
-            let m = crate::pathsum::mul_monomials(m1, m2);
+            let m = mul_monomials(m1, m2);
             if result.contains(&m) {
                 result.remove(&m);
             } else {
@@ -160,6 +160,20 @@ impl PathSum {
             // Assumes self.p.add_term() correctly handles modulo 1 and merges like terms
             self.p.add_term(mono, coeff); 
         }
+    }
+    pub(crate) fn substitute_var_with_poly(
+        &mut self, 
+        target_var: u32, 
+        sub_poly: &rustc_hash::FxHashSet<crate::pathsum::Monomial>
+    ) {
+        self.f.substitute_var_with_poly(target_var, sub_poly);
+        self.p.substitute_var_with_poly(target_var, sub_poly);
+    }
+
+    pub(crate) fn substitute_var(&mut self, old_var: u32, new_var: u32) {
+        let mut sub_poly = rustc_hash::FxHashSet::default();
+        sub_poly.insert(vec![new_var]);
+        self.substitute_var_with_poly(old_var, &sub_poly);
     }
     pub fn print_status(&self) {
         println!("=== PathSum State ===");

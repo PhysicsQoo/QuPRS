@@ -48,7 +48,7 @@ fn run_straightforward(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumO
     for gate in gates1 {
         gate.apply(&mut ps, false);
     }
-    if ps.auto_reduce {
+    if ps.is_auto_reduce() {
         ps.full_reduce();
     }
     ps
@@ -73,7 +73,7 @@ fn run_naive(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> Pat
         }
     }
 
-    if ps.auto_reduce {
+    if ps.is_auto_reduce() {
         ps.full_reduce();
     }
     ps
@@ -150,7 +150,7 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
         }
     }
 
-    if ps.auto_reduce {
+    if ps.is_auto_reduce() {
         ps.full_reduce();
     }
     ps
@@ -158,12 +158,10 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
 
 // Use diff algorithm to identify and process only differing parts
 fn run_difference(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
-    // 🌟 修改：直接使用 Algorithm::Myers (不用 similar::)
     let diff_ops = similar::capture_diff_slices(Algorithm::Myers, gates1, gates2);
 
     for op in diff_ops {
         match op {
-            // 🌟 修改：直接使用 DiffOp::... (不用 similar::)
             DiffOp::Equal { old_index, new_index, len } => {
                 for i in 0..len {
                     gates1[old_index + i].apply(&mut ps, false);
@@ -191,7 +189,7 @@ fn run_difference(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -
         }
     }
 
-    if ps.auto_reduce {
+    if ps.is_auto_reduce() {
         ps.full_reduce();
     }
     ps

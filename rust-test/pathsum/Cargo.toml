@@ -10,6 +10,7 @@ num-integer = "0.1"
 num-traits = "0.2"
 rand = "0.8"
 similar = "2.4.0"
+log = "0.4"
 
 [dev-dependencies]
 proptest = "1.0"

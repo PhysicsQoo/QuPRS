@@ -22,7 +22,7 @@ fn main() {
     println!("\n[Step 2] Applying CX(0, 1)...");
     ps.apply_cx(0, 1, Side::Ket);
     ps.print_status();
-
+    
     // 3. Extra test: Apply H(1) again -> Generate path variable y1
     // This will be very complex because F[1] is (x1 ⊕ y0)
     // P should add (1/2)*(x1 ⊕ y0)*y1 = (1/2)x1*y1 + (1/2)y0*y1
@@ -34,7 +34,7 @@ fn main() {
     ps.apply_h(0, Side::Ket);
     ps.print_status();
 
-    println!("\n=== try_reduce_hh ===");
+    println!("\n=== Full Reduction ===");
     ps.full_reduce();
     ps.print_status();
 
@@ -49,17 +49,24 @@ fn main() {
         h q[0];
     "#;
 
-    println!("Loading circuit from QASM...");
-    PathSum::set_global_auto_reduce(false); 
-    match PathSum::load_from_qasm_str(qasm_string, None) {
-        Ok(mut ps) => {
+    println!("Loading circuit from QASM...");    
+    match pathsum::qasm::parse_qasm_str(qasm_string) {
+        Ok(ops) => {
+            let mut ps_qasm = PathSum::new(2);
+            ps_qasm.set_auto_reduce(false);
+
+            for op in ops {
+                op.apply(&mut ps_qasm, false);
+            }
+
             println!("Circuit loaded successfully!");
             println!("\n=== Before Reduction ===");
-            ps.print_status();
+            ps_qasm.print_status();
 
-            println!("\n=== Applying Full Reduction ===");
-            ps.full_reduce();
-            ps.print_status();
+            println!("\n=== After Full Reduction ===");
+            ps_qasm.set_auto_reduce(true);
+            ps_qasm.full_reduce();
+            ps_qasm.print_status();
         }
         Err(e) => {
             eprintln!("Error parsing QASM: {}", e);

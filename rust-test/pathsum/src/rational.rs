@@ -19,12 +19,12 @@ impl Rational {
         
         // 1. Normalize sign
         let (mut n, d) = if denom < 0 { (-numer, -denom) } else { (numer, denom) };
-
+        
         // 2. Modulo 1 restriction -> [0, d)
         n = n.rem_euclid(d);
         
         if n == 0 { return Rational { numer: 0, denom: 1 }; }
-
+        
         // 3. Reduce
         let common = gcd(n, d);
         Rational { numer: n / common, denom: d / common }
@@ -200,7 +200,6 @@ pub struct PhaseCoeff {
     pub symbols: BTreeMap<u32, FreeRational>,
 }
 
-/// 核心邏輯集中區
 impl PhaseCoeff {
     pub fn new_constant(constant: Rational) -> Self {
         Self { constant, symbols: BTreeMap::new() }
@@ -215,8 +214,6 @@ impl PhaseCoeff {
     pub fn is_zero(&self) -> bool {
         self.constant.is_zero() && self.symbols.is_empty()
     }
-
-    // --- Inspection Helpers (Missing in previous version) ---
 
     pub fn is_pure_half(&self) -> bool {
         self.constant.numer == 1 && self.constant.denom == 2 && self.symbols.is_empty()
@@ -234,8 +231,6 @@ impl PhaseCoeff {
         let target = Rational::new(numer, denom);
         self.constant == target && self.symbols.is_empty()
     }
-
-    // --- 運算邏輯 (Internal Logic) ---
 
     pub fn add_logic(&mut self, rhs: &Self) {
         self.constant += rhs.constant;
@@ -282,8 +277,6 @@ impl PhaseCoeff {
     }
 }
 
-// --- Trait Wiring ---
-
 impl AddAssign for PhaseCoeff { fn add_assign(&mut self, rhs: Self) { self.add_logic(&rhs); } }
 impl AddAssign<&PhaseCoeff> for PhaseCoeff { fn add_assign(&mut self, rhs: &Self) { self.add_logic(rhs); } }
 impl Add for PhaseCoeff { type Output = Self; fn add(mut self, rhs: Self) -> Self { self += rhs; self } }
@@ -298,8 +291,7 @@ impl Mul<i64> for PhaseCoeff { type Output = Self; fn mul(mut self, rhs: i64) ->
 impl DivAssign<i64> for PhaseCoeff { fn div_assign(&mut self, rhs: i64) { self.div_scalar_logic(rhs); } }
 impl Div<i64> for PhaseCoeff { type Output = Self; fn div(mut self, rhs: i64) -> Self { self /= rhs; self } }
 
-
-// Helper functions
+// Helper: greatest common divisor
 fn gcd(mut a: i64, mut b: i64) -> i64 {
     while b != 0 { let t = b; b = a % b; a = t; }
     a

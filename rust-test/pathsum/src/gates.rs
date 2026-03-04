@@ -125,7 +125,7 @@ impl QuantumGates for PathSum {
             }
         }
         
-        if self.auto_reduce {
+        if self.is_auto_reduce() {
             self.full_reduce();
         }
     }
@@ -400,7 +400,7 @@ impl QuantumGates for PathSum {
             }
         }
 
-        if self.auto_reduce {
+        if self.is_auto_reduce() {
             self.full_reduce();
         }
     }
@@ -414,7 +414,7 @@ mod tests {
     /// Helper function: creates a test PathSum with auto_reduce disabled to verify exact algebraic state
     fn setup_test_env(num_qubits: usize) -> PathSum {
         let mut ps = PathSum::new(num_qubits);
-        ps.auto_reduce = false; // Disable auto-reduce to inspect raw expansion state
+        ps.set_auto_reduce(false); // Disable auto-reduce to inspect raw expansion state
         ps
     }
 

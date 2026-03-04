@@ -9,6 +9,7 @@ pub use boolean_state::{BooleanState, Register};
 pub use var_manager::VariableManager;
 
 use rustc_hash::FxHashSet; 
+use crate::stats::StatisticsManager;
 
 pub fn mul_monomials(m1: &Monomial, m2: &Monomial) -> Monomial {
     let mut result = m1.clone();
@@ -35,13 +36,11 @@ pub fn mul_boolean_polys(poly1: &FxHashSet<Monomial>, poly2: &FxHashSet<Monomial
     result
 }
 
-use std::sync::atomic::{AtomicBool, Ordering};
-pub static GLOBAL_AUTO_REDUCE: AtomicBool = AtomicBool::new(true);
 pub struct PathSum {
     pub p: PhasePolynomial,
     pub f: BooleanState,
     pub v: VariableManager,
-    pub auto_reduce: bool,
+    pub stats: StatisticsManager,
 }
 
 impl PathSum {
@@ -50,17 +49,15 @@ impl PathSum {
             p: PhasePolynomial::new(),
             f: BooleanState::new(num_qubits),
             v: VariableManager::new(num_qubits),
-            auto_reduce: GLOBAL_AUTO_REDUCE.load(Ordering::Relaxed),
+            stats: StatisticsManager::new(),
         }
-    }
-    pub fn set_global_auto_reduce(enable: bool) {
-        GLOBAL_AUTO_REDUCE.store(enable, Ordering::Relaxed);
     }
     pub fn set_auto_reduce(&mut self, enable: bool) {
-        self.auto_reduce = enable;
-        if enable {
-            self.full_reduce();
-        }
+        self.stats.set_enabled(enable);
+    }
+
+    pub fn is_auto_reduce(&self) -> bool {
+        self.stats.is_enabled()
     }
     pub fn quantum_circuit(regs: &[Register], initial_state: Option<&[u8]>) -> Self {
         let total_qubits: usize = regs.iter().map(|r| r.size).sum();
@@ -69,7 +66,7 @@ impl PathSum {
             p: PhasePolynomial::new(),
             f: BooleanState::new_with_regs(regs),
             v: VariableManager::new(total_qubits),
-            auto_reduce: GLOBAL_AUTO_REDUCE.load(std::sync::atomic::Ordering::Relaxed),
+            stats: StatisticsManager::new(),
         };
 
         if let Some(state) = initial_state {
@@ -93,7 +90,7 @@ impl PathSum {
         }
 
         // Trigger full reduction to perform garbage collection on newly isolated internal variables.
-        if self.auto_reduce {
+        if self.is_auto_reduce() {
             self.full_reduce();
         }
     }

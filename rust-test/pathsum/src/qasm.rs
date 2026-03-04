@@ -173,7 +173,7 @@ impl PathSum {
             ps.set_initial_state(state);
         }
 
-        if ps.auto_reduce {
+        if ps.is_auto_reduce() {
             ps.full_reduce();
         }
 

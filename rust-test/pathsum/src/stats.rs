@@ -82,6 +82,13 @@ impl StatisticsManager {
             (total_successes as f64 / total_attempts as f64) * 100.0
         }
     }
+    pub fn total_attempts(&self) -> usize {
+        self.hh.attempts + self.omega.attempts + self.elim.attempts
+    }
+    pub fn total_successes(&self) -> usize {
+        self.hh.successes + self.omega.successes + self.elim.successes
+    }
+
 }
 
 impl Default for StatisticsManager {

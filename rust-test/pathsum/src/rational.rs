@@ -276,6 +276,20 @@ impl PhaseCoeff {
         });
     }
 }
+impl fmt::Display for PhaseCoeff {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.constant)?;
+        
+        for (var_id, weight) in &self.symbols {
+            if weight.numer > 0 {
+                write!(f, " + {}*var_{}", weight, var_id)?;
+            } else {
+                write!(f, " {}*var_{}", weight, var_id)?;
+            }
+        }
+        Ok(())
+    }
+}
 
 impl AddAssign for PhaseCoeff { fn add_assign(&mut self, rhs: Self) { self.add_logic(&rhs); } }
 impl AddAssign<&PhaseCoeff> for PhaseCoeff { fn add_assign(&mut self, rhs: &Self) { self.add_logic(rhs); } }

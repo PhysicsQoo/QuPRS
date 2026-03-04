@@ -1,15 +1,8 @@
 // src/main.rs
 #![allow(dead_code)]
-// 1. Declare modules
-mod rational;
-mod pathsum;
-mod gates;
-mod reduction;
-mod qasm;
 
-// 2. Import required items
 use pathsum::PathSum;
-use gates::{QuantumGates, Side}; // Must import Trait to use methods like apply_h
+use pathsum::gates::{QuantumGates, Side}; 
 
 fn main() {
     // Simulate circuit: H(0) -> CX(0, 1) -> T(1)

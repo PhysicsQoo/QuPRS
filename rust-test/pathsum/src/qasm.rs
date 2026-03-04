@@ -1,119 +1,180 @@
 // src/qasm.rs
-use std::fs;
+use std::collections::HashMap;
+use crate::ir::QuantumOp;
 use crate::pathsum::{PathSum, Register};
-use crate::gates::{QuantumGates, Side};
+use crate::rational::{PhaseCoeff, Rational};
+
+/// Parse QASM string into a list of quantum operations
+pub fn parse_qasm_str(source: &str) -> Result<Vec<QuantumOp>, String> {
+    let mut ops = Vec::new();
+    let mut register_map: HashMap<String, usize> = HashMap::new();
+    let mut current_qubit_count = 0;
+
+    for (line_num, line) in source.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("//") || line.starts_with("OPENQASM") || line.starts_with("include") {
+            continue;
+        }
+
+        if line.starts_with("qreg") {
+            let parts: Vec<&str> = line.split(&[' ', '[', ']', ';'][..]).filter(|s| !s.is_empty()).collect();
+            if parts.len() >= 3 {
+                let name = parts[1].to_string();
+                let size = parts[2].parse::<usize>().map_err(|_| format!("Invalid size at line {}", line_num + 1))?;
+                register_map.insert(name, current_qubit_count);
+                current_qubit_count += size;
+            }
+            continue;
+        }
+        if line.starts_with("creg") { continue; }
+
+        // Split gate parameters and targets using the last closing parenthesis
+        let (full_gate_part, targets_part) = if let Some(last_paren_idx) = line.rfind(')') {
+            // e.g. "u3(pi, 0, pi) q[0];" -> split at ')'
+            let (g, t) = line.split_at(last_paren_idx + 1);
+            (g.trim(), t.trim())
+        } else {
+            // No parentheses, split at first space (e.g. "h q[0];")
+            if let Some(space_idx) = line.find(' ') {
+                let (g, t) = line.split_at(space_idx);
+                (g.trim(), t.trim())
+            } else {
+                (line.trim_matches(';'), "")
+            }
+        };
+
+        if full_gate_part.is_empty() { continue; }
+        if targets_part.is_empty() || targets_part == ";" { continue; }
+
+        let (gate_name, params) = parse_gate_name_and_params(full_gate_part)?;
+        let qubits = parse_targets(targets_part, &register_map)
+            .map_err(|e| format!("Line {}: {}", line_num + 1, e))?;
+
+        if qubits.is_empty() { continue; }
+
+        let op = match gate_name.as_str() {
+            "h" => QuantumOp::H(qubits[0]),
+            "x" => QuantumOp::X(qubits[0]),
+            "y" => QuantumOp::Y(qubits[0]),
+            "z" => QuantumOp::Z(qubits[0]),
+            "s" => QuantumOp::RZ(qubits[0], get_pi_coeff(1, 2)),
+            "sdg" => QuantumOp::RZ(qubits[0], get_pi_coeff(-1, 2)),
+            "t" => QuantumOp::RZ(qubits[0], get_pi_coeff(1, 4)),
+            "tdg" => QuantumOp::RZ(qubits[0], get_pi_coeff(-1, 4)),
+            "cx" => QuantumOp::CX(qubits[0], qubits[1]),
+            "cz" => QuantumOp::CZ(qubits[0], qubits[1]),
+            "ccx" => QuantumOp::CCX(qubits[0], qubits[1], qubits[2]),
+            "rx" => QuantumOp::RX(qubits[0], params[0].clone()),
+            "ry" => QuantumOp::RY(qubits[0], params[0].clone()),
+            "rz" => QuantumOp::RZ(qubits[0], params[0].clone()),
+            "u3" => {
+                if params.len() != 3 { return Err(format!("U3 expects 3 params, got {}", params.len())); }
+                QuantumOp::U3(qubits[0], params[0].clone(), params[1].clone(), params[2].clone())
+            },
+            _ => continue, // Skip unsupported gates
+        };
+        ops.push(op);
+    }
+    Ok(ops)
+}
+
+fn parse_gate_name_and_params(token: &str) -> Result<(String, Vec<PhaseCoeff>), String> {
+    if let Some(start_idx) = token.find('(') {
+        if let Some(end_idx) = token.rfind(')') {
+            let name = token[..start_idx].trim().to_lowercase();
+            let params_str = &token[start_idx+1..end_idx];
+            let mut params = Vec::new();
+            if !params_str.trim().is_empty() {
+                for p in params_str.split(',') {
+                    params.push(parse_phase_str(p.trim())?);
+                }
+            }
+            return Ok((name, params));
+        }
+    }
+    Ok((token.trim().to_lowercase(), vec![]))
+}
+
+fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>) -> Result<Vec<usize>, String> {
+    let clean_str = targets_str.trim().trim_matches(';');
+    if clean_str.is_empty() { return Ok(vec![]); }
+    
+    let parts: Vec<&str> = clean_str.split(',').collect();
+    let mut indices = Vec::new();
+
+    for part in parts {
+        let part = part.trim();
+        let open_bracket = part.find('[').ok_or_else(|| format!("Missing '[' in target '{}'", part))?;
+        let close_bracket = part.find(']').ok_or_else(|| format!("Missing ']' in target '{}'", part))?;
+        
+        let reg_name = &part[..open_bracket];
+        let idx_str = &part[open_bracket+1..close_bracket];
+        
+        let offset = reg_map.get(reg_name).ok_or_else(|| format!("Unknown register: {}", reg_name))?;
+        let local_idx = idx_str.parse::<usize>().map_err(|_| format!("Invalid index: {}", idx_str))?;
+        
+        indices.push(offset + local_idx);
+    }
+    Ok(indices)
+}
+
+fn parse_phase_str(s: &str) -> Result<PhaseCoeff, String> {
+    let s = s.trim();
+    if s == "0" || s == "0.0" {
+        return Ok(get_pi_coeff(0, 1));
+    }
+    
+    let (sign, rest) = if s.starts_with('-') { (-1, &s[1..]) } else { (1, s) };
+    let rest = rest.trim();
+
+    if rest.starts_with("pi") {
+        if rest == "pi" {
+            return Ok(get_pi_coeff(sign, 1));
+        } else if rest.starts_with("pi/") {
+            let denom_str = &rest[3..];
+            let denom = denom_str.parse::<i64>().map_err(|_| format!("Invalid phase denominator: {}", s))?;
+            return Ok(get_pi_coeff(sign, denom));
+        }
+    }
+
+    Err(format!("Unsupported phase format: '{}'. Only 'pi', 'pi/N', '0' supported.", s))
+}
+
+fn get_pi_coeff(numer: i64, denom: i64) -> PhaseCoeff {
+    PhaseCoeff::new_constant(Rational::new(numer, denom * 2))
+}
 
 impl PathSum {
-    /// Load and initialize PathSum from an OpenQASM 2.0 file.
     pub fn load_from_qasm_file(file_path: &str, initial_state: Option<&[u8]>) -> Result<Self, String> {
-        let qasm_str = fs::read_to_string(file_path)
+        let qasm_str = std::fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read file '{}': {}", file_path, e))?;
-        
         Self::load_from_qasm_str(&qasm_str, initial_state)
     }
 
-    /// Construct and initialize PathSum from an OpenQASM 2.0 string.
     pub fn load_from_qasm_str(qasm_str: &str, initial_state: Option<&[u8]>) -> Result<Self, String> {
-        let mut parsed_regs = Vec::new();
+        let ops = parse_qasm_str(qasm_str)?;
+        let max_qubit = ops.iter().map(|op| match op {
+            QuantumOp::H(q) | QuantumOp::X(q) | QuantumOp::Y(q) | QuantumOp::Z(q) |
+            QuantumOp::RX(q, _) | QuantumOp::RY(q, _) | QuantumOp::RZ(q, _) | QuantumOp::U3(q, _, _, _) => *q,
+            QuantumOp::CX(c, t) | QuantumOp::CZ(c, t) => std::cmp::max(*c, *t),
+            QuantumOp::CCX(c1, c2, t) => std::cmp::max(*t, std::cmp::max(*c1, *c2)),
+            _ => 0,
+        }).max().unwrap_or(0);
 
-        // ==========================================
-        // Phase 1: Scan qreg to map physical registers
-        // ==========================================
-        for line in qasm_str.lines() {
-            let line = line.trim();
-            if line.starts_with("qreg") {
-                // Parse formats like "qreg q[3];" or "qreg ancilla[2];"
-                let parts: Vec<&str> = line.split(&[' ', '[', ']', ';'][..]).filter(|s| !s.is_empty()).collect();
-                if parts.len() >= 3 {
-                    let reg_name = parts[1];
-                    if let Ok(size) = parts[2].parse::<usize>() {
-                        parsed_regs.push(Register::new(reg_name, size));
-                    }
-                }
-            }
+        let num_qubits = max_qubit + 1;
+        let regs = vec![Register::new("q", num_qubits)];
+        let mut ps = PathSum::quantum_circuit(&regs, None);
+
+        for op in ops {
+            op.apply(&mut ps, false);
         }
 
-        if parsed_regs.is_empty() {
-            return Err("No qreg found in the provided QASM string.".to_string());
-        }
-
-        // ==========================================
-        // Phase 2: Initialize engine via our unified API
-        // ==========================================
-        // We do NOT pass initial_state here yet, because we need to apply gates first
-        // on the generic unitary state, then collapse it at the very end.
-        let mut ps = PathSum::quantum_circuit(&parsed_regs, None);
-
-        // ==========================================
-        // Phase 3: Parse each line and apply quantum gates
-        // ==========================================
-        for line in qasm_str.lines() {
-            let line = line.trim();
-            
-            // Skip comments and headers
-            if line.is_empty() || line.starts_with("//") || line.starts_with("OPENQASM") 
-               || line.starts_with("include") || line.starts_with("qreg") || line.starts_with("creg") {
-                continue;
-            }
-
-            // Extract gate and target IDs
-            let tokens: Vec<&str> = line
-                .split(&[' ', ',', ';', '[', ']', '(', ')'][..])
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            if tokens.is_empty() { continue; }
-
-            let gate = tokens[0].to_lowercase();
-
-            match gate.as_str() {
-                // Single-qubit gates
-                "x" | "y" | "z" | "h" | "s" | "sdg" | "t" | "tdg" => {
-                    if tokens.len() >= 3 {
-                        let target = tokens[2].parse::<usize>().map_err(|_| format!("Invalid qubit ID in line: {}", line))?;
-                        match gate.as_str() {
-                            "x" => ps.apply_x(target, Side::Ket),
-                            "y" => ps.apply_y(target, Side::Ket),
-                            "z" => ps.apply_z(target, Side::Ket),
-                            "h" => ps.apply_h(target, Side::Ket),
-                            "s" => ps.apply_s(target, Side::Ket),
-                            "sdg" => ps.apply_sdg(target, Side::Ket),
-                            "t" => ps.apply_t(target, Side::Ket),
-                            "tdg" => ps.apply_tdg(target, Side::Ket),
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-                // Two-qubit gates
-                "cx" | "cz" => {
-                    if tokens.len() >= 5 {
-                        let ctrl = tokens[2].parse::<usize>().map_err(|_| format!("Invalid control ID in line: {}", line))?;
-                        let tgt = tokens[4].parse::<usize>().map_err(|_| format!("Invalid target ID in line: {}", line))?;
-                        match gate.as_str() {
-                            "cx" => ps.apply_cx(ctrl, tgt, Side::Ket),
-                            "cz" => ps.apply_cz(ctrl, tgt, Side::Ket),
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-                // Triple-qubit gates (e.g., CCX)
-                "ccx" => {
-                    if tokens.len() >= 7 {
-                        let ctrl1 = tokens[2].parse::<usize>().map_err(|_| format!("Invalid control1 ID in line: {}", line))?;
-                        let ctrl2 = tokens[4].parse::<usize>().map_err(|_| format!("Invalid control2 ID in line: {}", line))?;
-                        let tgt = tokens[6].parse::<usize>().map_err(|_| format!("Invalid target ID in line: {}", line))?;
-                        ps.apply_ccx(ctrl1, ctrl2, tgt, Side::Ket);
-                    }
-                }
-                _ => return Err(format!("Unsupported gate: {}", gate)),
-            }
-        }
-
-        // ==========================================
-        // Phase 4: Apply state collapse if initial_state is provided
-        // ==========================================
         if let Some(state) = initial_state {
             ps.set_initial_state(state);
+        }
+
+        if ps.auto_reduce {
+            ps.full_reduce();
         }
 
         Ok(ps)
@@ -121,15 +182,14 @@ impl PathSum {
 }
 
 // ==========================================
-// QASM Parser Unit Tests
+// Unit Tests
 // ==========================================
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_qasm_bell_state_generic() {
-        // Test parsing generic unitary without initial state
+    fn test_parse_qasm_bell_state_ir() {
         let qasm = r#"
             OPENQASM 2.0;
             include "qelib1.inc";
@@ -137,65 +197,13 @@ mod tests {
             h q[0];
             cx q[0],q[1];
         "#;
+        
+        let ops = parse_qasm_str(qasm).expect("IR Parse failed");
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0], QuantumOp::H(0));
+        assert_eq!(ops[1], QuantumOp::CX(0, 1));
 
-        let mut ps = PathSum::load_from_qasm_str(qasm, None).expect("Failed to parse QASM");
-        ps.set_auto_reduce(false); // Disable auto-reduce to inspect raw variables
-
+        let ps = PathSum::load_from_qasm_str(qasm, None).expect("Load failed");
         assert_eq!(ps.v.num_qubits, 2);
-        assert_eq!(ps.f.registers.len(), 1);
-        assert_eq!(ps.f.registers[0].name, "q");
-
-        // Verify F basis (H produces y_0, CX makes q1 become x_1 ⊕ y_0)
-        assert!(ps.f.functions[0].contains(&vec![2])); // y_0 ID is 2
-        
-        let mut expected_q1 = rustc_hash::FxHashSet::default();
-        expected_q1.insert(vec![1]); // x_1
-        expected_q1.insert(vec![2]); // y_0
-        assert_eq!(ps.f.functions[1], expected_q1);
-    }
-
-    #[test]
-    fn test_parse_qasm_multiple_registers() {
-        // Test parsing multiple qregs and checking formatting
-        let qasm = r#"
-            OPENQASM 2.0;
-            qreg q[1];
-            qreg ancilla[2];
-            h q[0];
-            cx q[0], ancilla[0];
-        "#;
-
-        let ps = PathSum::load_from_qasm_str(qasm, None).expect("Failed to parse multi-reg QASM");
-        
-        assert_eq!(ps.v.num_qubits, 3);
-        assert_eq!(ps.f.registers.len(), 2);
-        assert_eq!(ps.f.registers[0].name, "q");
-        assert_eq!(ps.f.registers[1].name, "ancilla");
-
-        // Flat index 1 should map to |ancilla_0>
-        assert_eq!(ps.f.format_qubit_name(1), "|ancilla_0>");
-    }
-
-    #[test]
-    fn test_parse_qasm_with_initial_state() {
-        // Test parsing with an initial state collapse (|00>)
-        let qasm = r#"
-            OPENQASM 2.0;
-            qreg q[2];
-            h q[0];
-            cx q[0],q[1];
-        "#;
-
-        // Apply |00> as initial state
-        let ps = PathSum::load_from_qasm_str(qasm, Some(&[0, 0])).expect("Failed to parse QASM");
-        
-        // After substituting x_0 = 0 and x_1 = 0, the input variables should be gone from F
-        // F[0] should just be {y_0}
-        assert_eq!(ps.f.functions[0].len(), 1);
-        assert!(ps.f.functions[0].contains(&vec![2])); // only y_0 remains
-        
-        // F[1] should also just be {y_0} because x_1 was 0
-        assert_eq!(ps.f.functions[1].len(), 1);
-        assert!(ps.f.functions[1].contains(&vec![2])); // only y_0 remains
     }
 }

@@ -3,6 +3,7 @@
 pub mod pathsum; 
 pub mod gates;
 pub mod qasm;
+pub mod ir;
 pub mod rational;
 pub mod reduction;
 

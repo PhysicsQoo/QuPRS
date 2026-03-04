@@ -3,7 +3,6 @@ use crate::pathsum::PathSum;
 use crate::rational::{Rational, PhaseCoeff};
 use crate::pathsum::{self};
 use rustc_hash::FxHashSet;
-use num_traits::Zero;
 
 /// Defines the application direction of quantum gates
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

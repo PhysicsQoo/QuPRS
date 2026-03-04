@@ -1,10 +1,11 @@
+// src/ir.rs
 use crate::pathsum::PathSum;
 use crate::gates::{QuantumGates, Side};
 use crate::rational::PhaseCoeff;
 
 /// Intermediate Representation (IR) for quantum operations.
 /// Pure data structure containing operation definitions.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum QuantumOp {
     // Single Qubit Gates
     H(usize),

@@ -1,15 +1,13 @@
 // src/rational.rs
 #![allow(dead_code)]
-use rustc_hash::FxHashMap;
 use std::fmt;
 use std::ops::*;
-use num_integer::Integer;
-use num_traits::Zero;
+use std::collections::BTreeMap;
 
-// ==========================================
-// 1. Rational (restricted to [0, 1) interval for Constants)
-// ==========================================
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+// ============================================================================
+// 1. Rational (Phase Arithmetic: [0, 1) Interval)
+// ============================================================================
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Rational {
     pub numer: i64,
     pub denom: i64,
@@ -18,26 +16,22 @@ pub struct Rational {
 impl Rational {
     pub fn new(numer: i64, denom: i64) -> Self {
         if denom == 0 { panic!("Zero denominator in Rational"); }
-        let mut n = numer;
-        let mut d = denom;
+        
+        // 1. Normalize sign
+        let (mut n, d) = if denom < 0 { (-numer, -denom) } else { (numer, denom) };
 
-        // 1. Ensure denominator is positive
-        if d < 0 {
-            n = -n;
-            d = -d;
-        }
-
-        // 2. Restrict value range to [0, 1) (Modulo 1)
-        // Example: -1.rem_euclid(4) = 3
+        // 2. Modulo 1 restriction -> [0, d)
         n = n.rem_euclid(d);
         
-        // 3. Handle case where numerator is zero
         if n == 0 { return Rational { numer: 0, denom: 1 }; }
 
-        // 4. Reduce by GCD
-        let common = n.gcd(&d);
+        // 3. Reduce
+        let common = gcd(n, d);
         Rational { numer: n / common, denom: d / common }
     }
+
+    pub fn zero() -> Self { Self::new(0, 1) }
+    pub fn is_zero(&self) -> bool { self.numer == 0 }
 }
 
 impl fmt::Display for Rational {
@@ -47,10 +41,7 @@ impl fmt::Display for Rational {
     }
 }
 
-impl Zero for Rational {
-    fn zero() -> Self { Rational { numer: 0, denom: 1 } }
-    fn is_zero(&self) -> bool { self.numer == 0 }
-}
+// --- Rational Operators ---
 
 impl Add for Rational {
     type Output = Self;
@@ -58,15 +49,14 @@ impl Add for Rational {
         let n1 = self.numer as i128; let d1 = self.denom as i128;
         let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
         
-        let new_numer = n1 * d2 + n2 * d1;
-        let new_denom = d1 * d2;
+        let new_numer = (n1 * d2 + n2 * d1).rem_euclid(d1 * d2);
+        if new_numer == 0 { return Self::zero(); }
         
-        // Perform modulo 1 restriction in i128 space to prevent overflow
-        let mod_numer = new_numer.rem_euclid(new_denom);
-        if mod_numer == 0 { return Rational { numer: 0, denom: 1 }; }
-        
-        let common = mod_numer.gcd(&new_denom);
-        Rational { numer: (mod_numer / common) as i64, denom: (new_denom / common) as i64 }
+        let common = gcd_i128(new_numer, d1 * d2);
+        Rational { 
+            numer: (new_numer / common) as i64, 
+            denom: ((d1 * d2) / common) as i64 
+        }
     }
 }
 
@@ -76,65 +66,41 @@ impl Sub for Rational {
         let n1 = self.numer as i128; let d1 = self.denom as i128;
         let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
         
-        let new_numer = n1 * d2 - n2 * d1;
-        let new_denom = d1 * d2;
+        let new_numer = (n1 * d2 - n2 * d1).rem_euclid(d1 * d2);
+        if new_numer == 0 { return Self::zero(); }
         
-        let mod_numer = new_numer.rem_euclid(new_denom);
-        if mod_numer == 0 { return Rational { numer: 0, denom: 1 }; }
-        
-        let common = mod_numer.gcd(&new_denom);
-        Rational { numer: (mod_numer / common) as i64, denom: (new_denom / common) as i64 }
+        let common = gcd_i128(new_numer, d1 * d2);
+        Rational { 
+            numer: (new_numer / common) as i64, 
+            denom: ((d1 * d2) / common) as i64 
+        }
     }
 }
 
 impl Mul<i64> for Rational {
     type Output = Self;
     fn mul(self, rhs: i64) -> Self {
-        if rhs == 0 { return Rational { numer: 0, denom: 1 }; }
-        let new_numer = (self.numer as i128) * (rhs as i128);
-        let new_denom = self.denom as i128;
-
-        let mod_numer = new_numer.rem_euclid(new_denom);
-        if mod_numer == 0 { return Rational { numer: 0, denom: 1 }; }
-
-        let common = mod_numer.gcd(&new_denom);
-        Rational { numer: (mod_numer / common) as i64, denom: (new_denom / common) as i64 }
+        Self::new(self.numer * rhs, self.denom)
     }
 }
 
 impl Div<i64> for Rational {
     type Output = Self;
     fn div(self, rhs: i64) -> Self {
-        if rhs == 0 { panic!("Division by zero in Rational"); }
-        
-        let mut new_numer = self.numer;
-        let mut new_denom = self.denom * rhs;
-
-        if new_denom < 0 {
-            new_numer = -new_numer;
-            new_denom = -new_denom;
-        }
-
-        let mod_numer = new_numer.rem_euclid(new_denom);
-        if mod_numer == 0 { return Rational::zero(); }
-
-        use num_integer::Integer;
-        let common = mod_numer.gcd(&new_denom);
-        Rational {
-            numer: mod_numer / common,
-            denom: new_denom / common,
-        }
+        Self::new(self.numer, self.denom * rhs)
     }
 }
 
 impl AddAssign for Rational { fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; } }
+impl SubAssign for Rational { fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; } }
 impl MulAssign<i64> for Rational { fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; } }
-impl DivAssign<i64> for Rational { fn div_assign(&mut self, rhs: i64) { *self = *self / rhs; }
-}
-// ==========================================
-// 2. FreeRational (Unrestricted for Symbolic Weights)
-// ==========================================
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+impl DivAssign<i64> for Rational { fn div_assign(&mut self, rhs: i64) { *self = *self / rhs; } }
+
+
+// ============================================================================
+// 2. FreeRational (Unrestricted Standard Arithmetic)
+// ============================================================================
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FreeRational {
     pub numer: i64,
     pub denom: i64,
@@ -149,7 +115,7 @@ impl FreeRational {
         if d < 0 { n = -n; d = -d; }
         if n == 0 { return FreeRational { numer: 0, denom: 1 }; }
         
-        let common = n.gcd(&d);
+        let common = gcd(n.abs(), d);
         FreeRational { numer: n / common, denom: d / common }
     }
     
@@ -157,72 +123,6 @@ impl FreeRational {
     pub fn is_zero(&self) -> bool { self.numer == 0 }
 }
 
-impl Add for FreeRational {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        let new_numer = (self.numer as i128) * (rhs.denom as i128) + (rhs.numer as i128) * (self.denom as i128);
-        let new_denom = (self.denom as i128) * (rhs.denom as i128);
-        if new_numer == 0 { return FreeRational::zero(); }
-        let common = new_numer.gcd(&new_denom);
-        FreeRational { numer: (new_numer / common) as i64, denom: (new_denom / common) as i64 }
-    }
-}
-
-impl AddAssign for FreeRational {
-    fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; }
-}
-
-impl Sub for FreeRational {
-    type Output = Self;
-    fn sub(self, mut rhs: Self) -> Self {
-        rhs.numer = -rhs.numer;
-        self + rhs
-    }
-}
-
-impl SubAssign for FreeRational {
-    fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; }
-}
-
-impl Mul<i64> for FreeRational {
-    type Output = Self;
-    fn mul(self, rhs: i64) -> Self {
-        if rhs == 0 { return FreeRational::zero(); }
-        FreeRational::new(self.numer * rhs, self.denom)
-    }
-}
-
-impl MulAssign<i64> for FreeRational {
-    fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; }
-}
-
-impl Div<i64> for FreeRational {
-    type Output = Self;
-    fn div(self, rhs: i64) -> Self {
-        if rhs == 0 { panic!("Division by zero in FreeRational"); }
-        
-        let mut new_numer = self.numer;
-        let mut new_denom = self.denom * rhs;
-
-        if new_denom < 0 {
-            new_numer = -new_numer;
-            new_denom = -new_denom;
-        }
-
-        use num_integer::Integer;
-        let common = new_numer.gcd(&new_denom);
-        FreeRational {
-            numer: new_numer / common,
-            denom: new_denom / common,
-        }
-    }
-}
-
-impl DivAssign<i64> for FreeRational {
-    fn div_assign(&mut self, rhs: i64) {
-        *self = *self / rhs;
-    }
-}
 impl fmt::Display for FreeRational {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.denom == 1 { write!(f, "{}", self.numer) } 
@@ -230,173 +130,182 @@ impl fmt::Display for FreeRational {
     }
 }
 
-// ==========================================
-// 3. PhaseCoeff (Mixed Algebraic Structure)
-// ==========================================
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PhaseCoeff {
-    pub constant: Rational,
-    pub symbols: FxHashMap<u32, FreeRational>,
+// --- FreeRational Operators ---
+
+impl Add for FreeRational {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        let n1 = self.numer as i128; let d1 = self.denom as i128;
+        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
+        
+        let new_numer = n1 * d2 + n2 * d1;
+        let new_denom = d1 * d2;
+        
+        if new_numer == 0 { return Self::zero(); }
+        
+        let common = gcd_i128(new_numer.abs(), new_denom);
+        FreeRational { 
+            numer: (new_numer / common) as i64, 
+            denom: (new_denom / common) as i64 
+        }
+    }
 }
 
+impl Sub for FreeRational {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        let n1 = self.numer as i128; let d1 = self.denom as i128;
+        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
+        
+        let new_numer = n1 * d2 - n2 * d1;
+        let new_denom = d1 * d2;
+        
+        if new_numer == 0 { return Self::zero(); }
+        
+        let common = gcd_i128(new_numer.abs(), new_denom);
+        FreeRational { 
+            numer: (new_numer / common) as i64, 
+            denom: (new_denom / common) as i64 
+        }
+    }
+}
+
+impl Mul<i64> for FreeRational {
+    type Output = Self;
+    fn mul(self, rhs: i64) -> Self {
+        Self::new(self.numer * rhs, self.denom)
+    }
+}
+
+impl Div<i64> for FreeRational {
+    type Output = Self;
+    fn div(self, rhs: i64) -> Self {
+        if rhs == 0 { panic!("Division by zero"); }
+        Self::new(self.numer, self.denom * rhs)
+    }
+}
+
+impl AddAssign for FreeRational { fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; } }
+impl SubAssign for FreeRational { fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; } }
+impl MulAssign<i64> for FreeRational { fn mul_assign(&mut self, rhs: i64) { *self = *self * rhs; } }
+impl DivAssign<i64> for FreeRational { fn div_assign(&mut self, rhs: i64) { *self = *self / rhs; } }
+
+
+// ============================================================================
+// 3. PhaseCoeff (Mixed Algebraic Structure)
+// ============================================================================
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PhaseCoeff {
+    pub constant: Rational,
+    pub symbols: BTreeMap<u32, FreeRational>,
+}
+
+/// 核心邏輯集中區
 impl PhaseCoeff {
     pub fn new_constant(constant: Rational) -> Self {
-        Self { constant, symbols: FxHashMap::default() }
+        Self { constant, symbols: BTreeMap::new() }
     }
 
     pub fn new_symbolic(symbol_id: u32, weight: FreeRational) -> Self {
-        let mut symbols = FxHashMap::default();
+        let mut symbols = BTreeMap::new();
         symbols.insert(symbol_id, weight);
         Self { constant: Rational::zero(), symbols }
     }
 
     pub fn is_zero(&self) -> bool {
-        self.constant.is_zero() && self.symbols.values().all(|v| v.is_zero())
+        self.constant.is_zero() && self.symbols.is_empty()
     }
+
+    // --- Inspection Helpers (Missing in previous version) ---
 
     pub fn is_pure_half(&self) -> bool {
-        self.constant.numer == 1 && 
-        self.constant.denom == 2 && 
-        self.symbols.values().all(|v| v.is_zero())
+        self.constant.numer == 1 && self.constant.denom == 2 && self.symbols.is_empty()
     }
 
-    /// Checks if the coefficient is exactly 1/4 (e.g., T gate phase)
     pub fn is_pure_quarter(&self) -> bool {
-        self.constant.numer == 1 && 
-        self.constant.denom == 4 && 
-        self.symbols.values().all(|v| v.is_zero())
+        self.constant.numer == 1 && self.constant.denom == 4 && self.symbols.is_empty()
     }
 
-    /// Checks if the coefficient is exactly 3/4
     pub fn is_pure_three_quarters(&self) -> bool {
-        self.constant.numer == 3 && 
-        self.constant.denom == 4 && 
-        self.symbols.values().all(|v| v.is_zero())
+        self.constant.numer == 3 && self.constant.denom == 4 && self.symbols.is_empty()
     }
 
-    /// Checks if the coefficient is exactly -1/4 (e.g., Tdg gate phase).
-    /// Since Rational limits value to [0, 1), -1/4 is equivalent to 3/4.
-    pub fn is_pure_minus_quarter(&self) -> bool {
-        self.is_pure_three_quarters()
+    pub fn is_pure_fraction(&self, numer: i64, denom: i64) -> bool {
+        let target = Rational::new(numer, denom);
+        self.constant == target && self.symbols.is_empty()
     }
 
-    /// General function to check if it matches a specific pure fraction
-    pub fn is_pure_fraction(&self, target_numer: i64, target_denom: i64) -> bool {
-        let expected = Rational::new(target_numer, target_denom);
-        self.constant == expected && self.symbols.values().all(|v| v.is_zero())
-    }
-}
+    // --- 運算邏輯 (Internal Logic) ---
 
-// ==========================================
-// Algebraic Operators for PhaseCoeff
-// ==========================================
-
-impl AddAssign for PhaseCoeff {
-    fn add_assign(&mut self, rhs: Self) {
+    pub fn add_logic(&mut self, rhs: &Self) {
         self.constant += rhs.constant;
-        for (sym_id, weight) in rhs.symbols {
-            let entry = self.symbols.entry(sym_id).or_insert_with(FreeRational::zero);
-            *entry += weight;
-            
-            // Remove the symbol if the weight becomes zero to maintain sparsity
+        for (sym_id, weight) in &rhs.symbols {
+            let entry = self.symbols.entry(*sym_id).or_insert(FreeRational::zero());
+            *entry += *weight;
             if entry.is_zero() {
-                self.symbols.remove(&sym_id);
+                self.symbols.remove(sym_id);
             }
         }
     }
-}
 
-impl Add for PhaseCoeff {
-    type Output = Self;
-    fn add(mut self, rhs: Self) -> Self {
-        self += rhs;
-        self
-    }
-}
-
-impl SubAssign for PhaseCoeff {
-    fn sub_assign(&mut self, rhs: Self) {
-        self.constant = self.constant - rhs.constant;
-        for (sym_id, weight) in rhs.symbols {
-            let entry = self.symbols.entry(sym_id).or_insert_with(FreeRational::zero);
-            *entry -= weight;
-            
+    pub fn sub_logic(&mut self, rhs: &Self) {
+        self.constant -= rhs.constant;
+        for (sym_id, weight) in &rhs.symbols {
+            let entry = self.symbols.entry(*sym_id).or_insert(FreeRational::zero());
+            *entry -= *weight;
             if entry.is_zero() {
-                self.symbols.remove(&sym_id);
+                self.symbols.remove(sym_id);
             }
         }
     }
-}
 
-impl Sub for PhaseCoeff {
-    type Output = Self;
-    fn sub(mut self, rhs: Self) -> Self {
-        self -= rhs;
-        self
-    }
-}
-
-impl MulAssign<i64> for PhaseCoeff {
-    fn mul_assign(&mut self, rhs: i64) {
-        // If multiplied by 0, the entire phase becomes zero
+    pub fn mul_scalar_logic(&mut self, rhs: i64) {
         if rhs == 0 {
             self.constant = Rational::zero();
             self.symbols.clear();
             return;
         }
-
         self.constant *= rhs;
-        
-        // Multiply all symbolic weights by the scalar
-        // retain() will keep elements where the closure returns true
         self.symbols.retain(|_, weight| {
             *weight *= rhs;
             !weight.is_zero()
         });
     }
-}
 
-impl Mul<i64> for PhaseCoeff {
-    type Output = Self;
-    fn mul(mut self, rhs: i64) -> Self {
-        self *= rhs;
-        self
-    }
-}
-
-// Support commutative scalar multiplication (e.g., 2 * phase)
-impl Mul<PhaseCoeff> for i64 {
-    type Output = PhaseCoeff;
-    fn mul(self, rhs: PhaseCoeff) -> PhaseCoeff {
-        rhs * self
-    }
-}
-
-impl Div<i64> for PhaseCoeff {
-    type Output = Self;
-    fn div(mut self, rhs: i64) -> Self {
+    pub fn div_scalar_logic(&mut self, rhs: i64) {
         if rhs == 0 { panic!("Division by zero in PhaseCoeff"); }
-
-        self.constant = self.constant / rhs;
-        
-        self.symbols.retain(|_, weight| {
-            *weight = *weight / rhs;
-            !weight.is_zero() 
-        });
-        
-        self
-    }
-}
-
-impl DivAssign<i64> for PhaseCoeff {
-    fn div_assign(&mut self, rhs: i64) {
-        if rhs == 0 { panic!("Division by zero in PhaseCoeff"); }
-
         self.constant /= rhs;
-        
         self.symbols.retain(|_, weight| {
             *weight /= rhs;
             !weight.is_zero()
         });
     }
+}
+
+// --- Trait Wiring ---
+
+impl AddAssign for PhaseCoeff { fn add_assign(&mut self, rhs: Self) { self.add_logic(&rhs); } }
+impl AddAssign<&PhaseCoeff> for PhaseCoeff { fn add_assign(&mut self, rhs: &Self) { self.add_logic(rhs); } }
+impl Add for PhaseCoeff { type Output = Self; fn add(mut self, rhs: Self) -> Self { self += rhs; self } }
+
+impl SubAssign for PhaseCoeff { fn sub_assign(&mut self, rhs: Self) { self.sub_logic(&rhs); } }
+impl SubAssign<&PhaseCoeff> for PhaseCoeff { fn sub_assign(&mut self, rhs: &Self) { self.sub_logic(rhs); } }
+impl Sub for PhaseCoeff { type Output = Self; fn sub(mut self, rhs: Self) -> Self { self -= rhs; self } }
+
+impl MulAssign<i64> for PhaseCoeff { fn mul_assign(&mut self, rhs: i64) { self.mul_scalar_logic(rhs); } }
+impl Mul<i64> for PhaseCoeff { type Output = Self; fn mul(mut self, rhs: i64) -> Self { self *= rhs; self } }
+
+impl DivAssign<i64> for PhaseCoeff { fn div_assign(&mut self, rhs: i64) { self.div_scalar_logic(rhs); } }
+impl Div<i64> for PhaseCoeff { type Output = Self; fn div(mut self, rhs: i64) -> Self { self /= rhs; self } }
+
+
+// Helper functions
+fn gcd(mut a: i64, mut b: i64) -> i64 {
+    while b != 0 { let t = b; b = a % b; a = t; }
+    a
+}
+
+fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
+    while b != 0 { let t = b; b = a % b; a = t; }
+    a
 }

@@ -1,9 +1,11 @@
-# rust-test/cli/Cargo.toml
 [package]
 name = "QuPRS_cli"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+pathsum = { path = "../pathsum" } 
+
 clap = { version = "4.4", features = ["derive"] }
-pathsum = { path = "../pathsum" }
+anyhow = "1.0"
+colored = "2.0" 

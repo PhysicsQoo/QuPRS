@@ -3,7 +3,6 @@ use rustc_hash::FxHashSet;
 use crate::pathsum::{PathSum, Monomial};
 
 use crate::rational::{PhaseCoeff, Rational};
-use num_traits::Zero;
 
 impl PathSum {
     pub fn get_reducible_vars(&self) -> Vec<u32> {

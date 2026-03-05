@@ -1,13 +1,16 @@
 // rust-test/cli/src/main.rs
+
 use clap::{Parser, ValueEnum};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Instant;
 use anyhow::{Context, Result};
 use colored::*;
-use log::{info, LevelFilter};
+use log::LevelFilter;
 use env_logger::Builder;
 use indicatif::{ProgressBar, ProgressStyle};
 
+// Import core functionalities from the pathsum library
 use pathsum::{
     check_equivalence, 
     VerificationMethod, 
@@ -15,6 +18,7 @@ use pathsum::{
     EquivalenceStatus,
     ir::QuantumOp,
     qasm,
+    PathSum,
 };
 
 /// QuPRS: Quantum Path-sum Reduction System (Rust Core)
@@ -26,15 +30,15 @@ struct Cli {
     #[arg(value_name = "CIRCUIT_1")]
     file1: PathBuf,
 
-    /// Path to the second QASM circuit file
+    /// Path to the second QASM circuit file (Optional for single circuit mode)
     #[arg(value_name = "CIRCUIT_2")]
-    file2: PathBuf,
+    file2: Option<PathBuf>,
 
     /// Verification method (consistent with Python API)
     #[arg(short, long, value_enum, default_value_t = MethodArg::Hybrid)]
     method: MethodArg,
 
-    /// Interleaving strategy to maximize cancellation
+    /// Interleaving strategy to maximize cancellation (Dual-circuit mode only)
     #[arg(short, long, value_enum, default_value_t = StrategyMode::Difference)]
     strategy: StrategyMode,
 
@@ -46,11 +50,11 @@ struct Cli {
     #[arg(short, long, default_value_t = 600)]
     timeout: u64,
 
-    /// Verbosity level (-v, -vv, -vvv)
+    /// Verbosity level (-v: stats, -vv: debug state, -vvv: raw trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
     
-    /// Suppress all output except the final result
+    /// Suppress all output except the final verification result
     #[arg(short, long, conflicts_with = "verbose")]
     quiet: bool,
 }
@@ -73,7 +77,7 @@ enum StrategyMode {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logger
+    // 1. Initialize the logging system based on the verbosity level
     let log_level = if cli.quiet {
         LevelFilter::Off
     } else {
@@ -90,25 +94,14 @@ fn main() -> Result<()> {
         .format_timestamp(None)
         .init();
 
-    // Parse QASM files
     if !cli.quiet {
         println!("{}", ">> [QuPRS] Verification Engine Starting...".bold().cyan());
     }
 
+    // 2. Parse the primary circuit file (always required)
     let (ops1, num_qubits1) = parse_circuit(&cli.file1)?;
-    let (ops2, num_qubits2) = parse_circuit(&cli.file2)?;
 
-    info!("   ├─ Circuit 1: {} gates ({} qubits)", ops1.len(), num_qubits1);
-    info!("   └─ Circuit 2: {} gates ({} qubits)", ops2.len(), num_qubits2);
-
-    let system_qubits = cli.qubits.unwrap_or_else(|| std::cmp::max(num_qubits1, num_qubits2));
-    
-    if !cli.quiet {
-        println!("   ├─ Qubits:   {}", system_qubits.to_string().yellow());
-        println!("   ├─ Method:   {}", format!("{:?}", cli.method).yellow());
-        println!("   └─ Strategy: {}", format!("{:?}", cli.strategy).yellow());
-    }
-
+    // 3. Map CLI arguments to core library enums (HOISTED to be available in both modes)
     let method = match cli.method {
         MethodArg::Hybrid => VerificationMethod::Hybrid,
         MethodArg::ReductionRules => VerificationMethod::ReductionRules,
@@ -122,52 +115,119 @@ fn main() -> Result<()> {
         StrategyMode::Difference => VerificationStrategy::Difference,
     };
 
-    let pb = if !cli.quiet && cli.verbose == 0 {
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(ProgressStyle::default_spinner()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.green} {msg} [{elapsed_precise}]")
-            .unwrap());
-        pb.set_message("Computing quantum paths...");
-        pb.enable_steady_tick(std::time::Duration::from_millis(80)); 
-        Some(pb)
+    // 4. Determine execution mode based on the presence of the second file
+    if let Some(file2_path) = cli.file2 {
+        // ==========================================
+        // Mode A: Dual-Circuit Equivalence Checking
+        // ==========================================
+        let (ops2, num_qubits2) = parse_circuit(&file2_path)?;
+        
+        let system_qubits = cli.qubits.unwrap_or_else(|| std::cmp::max(num_qubits1, num_qubits2));
+        
+        if !cli.quiet {
+            println!("   ├─ Circuit 1: {} gates ({} qubits)", ops1.len(), num_qubits1);
+            println!("   ├─ Circuit 2: {} gates ({} qubits)", ops2.len(), num_qubits2);
+            println!("   ├─ Qubits:    {}", system_qubits.to_string().yellow());
+            println!("   ├─ Method:    {}", format!("{:?}", cli.method).yellow());
+            println!("   └─ Strategy:  {}", format!("{:?}", cli.strategy).yellow());
+        }
+
+        // Initialize progress bar for standard execution (level 0)
+        let pb = if !cli.quiet && cli.verbose == 0 {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(ProgressStyle::default_spinner()
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                .template("{spinner:.green} {msg} [{elapsed_precise}]")
+                .unwrap());
+            pb.set_message("Computing quantum paths...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(80)); 
+            Some(pb)
+        } else {
+            None
+        };
+
+        // Invoke the core equivalence checking engine
+        let result = check_equivalence(
+            system_qubits,
+            &ops1,
+            &ops2,
+            method,
+            strategy,
+            cli.timeout,
+        ).context("Core verification engine failed")?;
+
+        if let Some(pb) = pb {
+            pb.finish_and_clear();
+        }
+
+        let final_ps = &result.final_ps;
+        
+        // [-vv] Print the residual algebraic state at the fixed point
+        if cli.verbose >= 2 {
+            log::debug!(target: "pathsum", "Fixed-point reached. {}", final_ps.print_status());
+        }
+
+        // [-v] Print detailed reduction statistics
+        if cli.verbose >= 1 && !cli.quiet && final_ps.stats.total_attempts() > 0 {
+            println!("\n{}", ">> Reduction Statistics:".bold().cyan());
+            print_rule_stat("HH Rule", &final_ps.stats.hh);
+            print_rule_stat("Omega Rule", &final_ps.stats.omega);
+            print_rule_stat("Elim Rule", &final_ps.stats.elim);
+            println!(
+                "   └─ Total:      {} reductions", 
+                final_ps.stats.total_successes().to_string().bold()
+            );
+        }
+
+        // Display the final verification summary
+        display_summary(&result, cli.quiet);
+
     } else {
-        None
-    };
-    let result = check_equivalence(
-        system_qubits,
-        &ops1,
-        &ops2,
-        method,
-        strategy,
-        cli.timeout,
-    ).context("Core verification engine failed")?;
+        // ==========================================
+        // Mode B: Single Circuit Reduction
+        // ==========================================
+        let system_qubits = cli.qubits.unwrap_or(num_qubits1);
 
-    let final_ps = &result.final_ps;
-    if cli.verbose >= 1 && !cli.quiet && final_ps.stats.total_attempts() > 0 {
-        println!("\n{}", ">> Reduction Statistics:".bold().cyan());
-        print_rule_stat("HH Rule", &final_ps.stats.hh);
-        print_rule_stat("Omega Rule", &final_ps.stats.omega);
-        print_rule_stat("Elim Rule", &final_ps.stats.elim);
-        println!(
-            "   └─ Total:      {} reductions", 
-            final_ps.stats.total_successes().to_string().bold()
-        );
+        if !cli.quiet {
+            println!("   ├─ Circuit:   {} gates ({} qubits)", ops1.len(), num_qubits1);
+            println!("   └─ Mode:      {}", "Single Circuit Reduction".bold().magenta());
+        }
+
+        let start = Instant::now();
+        let mut ps = PathSum::new(system_qubits);
+        
+        // Enable automatic rule application
+        ps.set_auto_reduce(true);
+        
+        // By passing an empty slice `&[]` as the second circuit, the strategy 
+        // applies `ops1` forward (Side::Left) and skips the backward operations.
+        let mut ps = strategy.run(ps, &ops1, &[]);
+        
+        // Ensure the algebraic state reaches a strict fixed point
+        ps.full_reduce();
+        let duration = start.elapsed();
+
+        // In single-circuit mode, the residual state is the primary output.
+        println!("{}", "\n>> Reduced PathSum State:".bold().green());
+        println!("{}", ps.print_status());
+
+        // Print reduction statistics if applicable
+        if !cli.quiet && ps.stats.total_attempts() > 0 {
+            println!("\n{}", ">> Reduction Statistics:".bold().cyan());
+            print_rule_stat("HH Rule", &ps.stats.hh);
+            print_rule_stat("Omega Rule", &ps.stats.omega);
+            print_rule_stat("Elim Rule", &ps.stats.elim);
+            println!(
+                "   └─ Total:      {} reductions", 
+                ps.stats.total_successes().to_string().bold()
+            );
+            println!("   └─ Time:       {:.3} s", duration.as_secs_f64());
+        }
     }
-    
-    if cli.verbose >= 2 {
-        log::debug!(target: "pathsum", "Fixed-point reached. {}", final_ps.print_status());
-    }
-
-    if let Some(pb) = pb {
-        pb.finish_and_clear();
-    }
-
-    display_summary(&result, cli.quiet);
-
     Ok(())
 }
 
+/// Helper function to format and print individual reduction rule statistics
 fn print_rule_stat(name: &str, stats: &pathsum::stats::RuleStats) {
     let rate = if stats.attempts > 0 {
         (stats.successes as f64 / stats.attempts as f64) * 100.0
@@ -180,8 +240,10 @@ fn print_rule_stat(name: &str, stats: &pathsum::stats::RuleStats) {
     );
 }
 
+/// Helper function to display the final equivalence checking results
 fn display_summary(res: &pathsum::EquivalenceCheckResult, quiet: bool) {
     if quiet {
+        // Output strictly the enum variant string for parsing by external scripts
         println!("{}", res.status);
         return;
     }
@@ -197,6 +259,7 @@ fn display_summary(res: &pathsum::EquivalenceCheckResult, quiet: bool) {
     println!("   ├─ Total Time:     {:.3} s", res.verification_time);
     println!("   ├─ PathSum Time:   {:.3} s", res.pathsum_time);
 
+    // Display WMC metrics if the fallback solver was triggered
     if let Some(wmc_t) = res.wmc_time {
         println!("   ├─ WMC Total:      {:.3} s", wmc_t);
         println!("   │  ├─ DIMACS:      {:.3} s", res.to_dimacs_time.unwrap_or(0.0));
@@ -207,13 +270,15 @@ fn display_summary(res: &pathsum::EquivalenceCheckResult, quiet: bool) {
     println!();
 }
 
+/// Helper function to parse QASM strings and heuristically determine the required qubits
 fn parse_circuit(path: &PathBuf) -> Result<(Vec<QuantumOp>, usize)> {
     let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read file '{}'", path.display()))?;
+        .with_context(|| format!("Failed to read QASM file '{}'", path.display()))?;
     
     let ops = qasm::parse_qasm_str(&content)
         .map_err(|e| anyhow::anyhow!("QASM Parse Error in '{}': {}", path.display(), e))?;
 
+    // Find the maximum qubit index referenced in the quantum operations
     let max_idx = ops.iter().map(|op| match op {
         QuantumOp::H(q) | QuantumOp::X(q) | QuantumOp::Y(q) | QuantumOp::Z(q) | QuantumOp::S(q) | QuantumOp::T(q) |
         QuantumOp::SDG(q) | QuantumOp::TDG(q) |

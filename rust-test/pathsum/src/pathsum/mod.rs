@@ -6,6 +6,7 @@ pub mod var_manager;
 
 pub use phase_poly::{PhasePolynomial, Monomial};
 pub use boolean_state::{BooleanState, Register};
+pub use crate::rational::PhaseCoeff;
 pub use var_manager::VariableManager;
 
 use rustc_hash::FxHashSet; 
@@ -36,6 +37,7 @@ pub fn mul_boolean_polys(poly1: &FxHashSet<Monomial>, poly2: &FxHashSet<Monomial
     result
 }
 
+#[derive(Clone, Debug)]
 pub struct PathSum {
     pub p: PhasePolynomial,
     pub f: BooleanState,
@@ -136,7 +138,7 @@ impl PathSum {
         }
 
         // 2. Update Phase Polynomial (P): Down-degree monomials containing x_i
-        let mut additions = Vec::new();
+        let mut additions: Vec<(Monomial, PhaseCoeff)> = Vec::new();
         let mut removals = Vec::new();
         
         for (mono, coeff) in &self.p.terms {
@@ -225,8 +227,10 @@ impl PathSum {
             ))
         })
     }
-    pub fn print_status(&self) {
-        println!("=== PathSum State ===");
+
+    pub fn print_status(&self) -> String {
+        let mut out = String::new();
+        out.push_str("\n=== Residual PathSum State ===\n");
         
         let mut active_path_vars: Vec<u32> = self.v.path_vars.iter()
             .filter(|&&id| (id as usize) >= self.v.num_qubits)
@@ -234,34 +238,29 @@ impl PathSum {
             .collect();
         active_path_vars.sort_unstable();
 
-        print!("Active Path Vars: ");
+        out.push_str(&format!("Active Path Vars (Count: {}): ", active_path_vars.len()));
         if active_path_vars.is_empty() {
-            println!("None");
+            out.push_str("None\n");
         } else {
             let vars_str: Vec<String> = active_path_vars.iter()
                 .map(|&id| self.v.fmt_var(id))
                 .collect();
-            println!("{{ {} }}", vars_str.join(", "));
+            out.push_str(&format!("{{ {} }}\n", vars_str.join(", ")));
         }
 
-        println!("Phase Polynomial P:");
-        if self.p.terms.is_empty() { 
-            println!("  0"); 
+        out.push_str("Phase Polynomial P:\n  ");
+        if self.p.terms.is_empty() {
+            out.push_str("0\n");
         } else {
-            let mut keys: Vec<_> = self.p.terms.keys().collect();
-            keys.sort(); 
-            for mono in keys {
-                let coeff = &self.p.terms[mono];
-                println!("  + ({}) * [{}]", coeff.constant, self.v.fmt_monomial(mono));
-            }
+            out.push_str(&format!("+ {}\n", self.v.fmt_phase_poly(&self.p)));
         }
         
-        println!("Basis F:");
-        for (i, poly) in self.f.functions.iter().enumerate() {
+        out.push_str("Basis F:\n");
+        for (i, func) in self.f.functions.iter().enumerate() {
             let qubit_name = self.f.format_qubit_name(i); 
-            let poly_str = self.v.fmt_polynomial(poly);
-            println!("  {} = {}", qubit_name, poly_str);
+            out.push_str(&format!("  {} = {}\n", qubit_name, self.v.fmt_polynomial(func)));
         }
-        println!("=====================\n");
+        out.push_str("==============================");
+        out
     }
 }

@@ -32,7 +32,7 @@ impl PhasePolynomial {
     }
 
     pub fn extract_terms_with_var(&self, var_id: u32) -> Vec<(&Monomial, &PhaseCoeff)> {
-        self.terms.iter().filter(|(m, _)| m.contains(&var_id)).collect()
+        self.terms.iter().filter(|(m, _): &(&Vec<u32>, &PhaseCoeff)| m.contains(&var_id)).collect()
     }
 
     pub fn get_used_vars(&self) -> rustc_hash::FxHashSet<u32> {
@@ -48,7 +48,7 @@ impl PhasePolynomial {
         sub_poly: &FxHashSet<Monomial>
     ) {
         let mut removals = Vec::new();
-        let mut additions = Vec::new();
+        let mut additions: Vec<(FxHashSet<Monomial>, PhaseCoeff)> = Vec::new();
         
         for (mono, coeff) in &self.terms {
             if mono.contains(&target_var) {

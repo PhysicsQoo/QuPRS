@@ -119,25 +119,71 @@ fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>) -> Result<
 }
 
 fn parse_phase_str(s: &str) -> Result<PhaseCoeff, String> {
-    let s = s.trim();
-    if s == "0" || s == "0.0" {
-        return Ok(get_pi_coeff(0, 1));
-    }
+    // 1. Convert to lowercase and trim. This creates a new String.
+    let s_owned = s.trim().to_lowercase();
+    let s = s_owned.as_str(); // Use a slice reference for consistent types
     
-    let (sign, rest) = if s.starts_with('-') { (-1, &s[1..]) } else { (1, s) };
-    let rest = rest.trim();
-
-    if rest.starts_with("pi") {
-        if rest == "pi" {
-            return Ok(get_pi_coeff(sign, 1));
-        } else if rest.starts_with("pi/") {
-            let denom_str = &rest[3..];
-            let denom = denom_str.parse::<i64>().map_err(|_| format!("Invalid phase denominator: {}", s))?;
-            return Ok(get_pi_coeff(sign, denom));
-        }
+    if s == "0" || s == "0.0" {
+        return Ok(PhaseCoeff::new_constant(Rational::zero()));
     }
 
-    Err(format!("Unsupported phase format: '{}'. Only 'pi', 'pi/N', '0' supported.", s))
+    // 2. Extract sign and the rest of the string
+    // FIX: Ensure both branches return (bool, &str)
+    let (is_negative, rest) = if s.starts_with('-') {
+        (true, &s[1..])
+    } else {
+        (false, s) // 's' is already a &str here
+    };
+
+    // 3. Handle division (e.g., "3*pi / 4")
+    let multiplier: f64 = if rest.contains('/') {
+        let parts: Vec<&str> = rest.split('/').collect();
+        if parts.len() != 2 {
+            return Err(format!("Invalid division in phase: {}", s));
+        }
+        let num = eval_simple_expression(parts[0])?;
+        // Use parse::<f64>() directly on the slice
+        let den = parts[1].trim().parse::<f64>()
+            .map_err(|_| format!("Invalid denominator in phase: {}", s))?;
+        num / den
+    } else {
+        eval_simple_expression(rest)?
+    };
+
+    let final_val = if is_negative { -multiplier } else { multiplier };
+
+    // 4. Final conversion via Continued Fraction
+    Ok(PhaseCoeff::new_constant(Rational::from_f64(final_val)))
+}
+
+// Ensure these helpers are present as well
+fn eval_simple_expression(s: &str) -> Result<f64, String> {
+    let s = s.trim();
+    if s.is_empty() { return Ok(1.0); }
+
+    if s.contains('*') {
+        let parts: Vec<&str> = s.split('*').collect();
+        let mut res = 1.0;
+        for p in parts {
+            res *= parse_single_token(p)?;
+        }
+        Ok(res)
+    } else {
+        parse_single_token(s)
+    }
+}
+
+fn parse_single_token(s: &str) -> Result<f64, String> {
+    let s = s.trim();
+    if s == "pi" {
+        Ok(1.0)
+    } else if let Ok(val) = s.parse::<f64>() {
+        Ok(val)
+    } else if s.is_empty() {
+        Ok(1.0)
+    } else {
+        Err(format!("Invalid token in phase expression: '{}'", s))
+    }
 }
 
 fn get_pi_coeff(numer: i64, denom: i64) -> PhaseCoeff {

@@ -8,9 +8,16 @@ pyo3="0.x"
 rustc-hash = "2.x"
 num-integer = "0.1"
 num-traits = "0.2"
+num-complex = "0.4"
 rand = "0.8"
 similar = "2.4.0"
 log = "0.4"
+anyhow = "1.0"
+
+
+[build-dependencies]
+cmake = "0.1"
+pkg-config = "0.3"
 
 [dev-dependencies]
 proptest = "1.0"

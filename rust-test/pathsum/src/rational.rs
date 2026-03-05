@@ -32,6 +32,11 @@ impl Rational {
 
     pub fn zero() -> Self { Self::new(0, 1) }
     pub fn is_zero(&self) -> bool { self.numer == 0 }
+    pub fn from_f64(val: f64) -> Self {
+        let v = val.rem_euclid(1.0);
+        let (n, d) = float_to_rational_continued_fraction(v);
+        Self::new(n, d)
+    }
 }
 
 impl fmt::Display for Rational {
@@ -121,6 +126,12 @@ impl FreeRational {
     
     pub fn zero() -> Self { FreeRational { numer: 0, denom: 1 } }
     pub fn is_zero(&self) -> bool { self.numer == 0 }
+    pub fn from_f64(val: f64) -> Self {
+        let sign = if val < 0.0 { -1 } else { 1 };
+        let v = val.abs();
+        let (n, d) = float_to_rational_continued_fraction(v);
+        Self::new(n * sign, d)
+    }
 }
 
 impl fmt::Display for FreeRational {
@@ -305,6 +316,42 @@ impl Mul<i64> for PhaseCoeff { type Output = Self; fn mul(mut self, rhs: i64) ->
 impl DivAssign<i64> for PhaseCoeff { fn div_assign(&mut self, rhs: i64) { self.div_scalar_logic(rhs); } }
 impl Div<i64> for PhaseCoeff { type Output = Self; fn div(mut self, rhs: i64) -> Self { self /= rhs; self } }
 
+
+
+/// Converts a floating-point number into a rational approximation (n/d).
+/// Implements the Continued Fraction Algorithm for optimal precision.
+fn float_to_rational_continued_fraction(val: f64) -> (i64, i64) {
+    let epsilon = 1e-12;
+    let max_denom = 1_000_000_000;
+
+    if val.abs() < epsilon { return (0, 1); }
+
+    let mut x = val;
+    let mut n0 = 0; let mut n1 = 1;
+    let mut d0 = 1; let mut d1 = 0;
+
+    // Iteratively calculate the convergents h_n/k_n
+    loop {
+        let a = x.floor() as i64;
+        let n2 = a * n1 + n0;
+        let d2 = a * d1 + d0;
+
+        // Break if denominator exceeds safety limit
+        if d2 > max_denom { break; }
+
+        n0 = n1; n1 = n2;
+        d0 = d1; d1 = d2;
+
+        // Break if approximation is sufficiently close
+        if (val - (n1 as f64 / d1 as f64)).abs() < epsilon { break; }
+
+        let fractional = x - a as f64;
+        if fractional < epsilon { break; }
+        x = 1.0 / fractional;
+    }
+
+    (n1, d1)
+}
 // Helper: greatest common divisor
 fn gcd(mut a: i64, mut b: i64) -> i64 {
     while b != 0 { let t = b; b = a % b; a = t; }

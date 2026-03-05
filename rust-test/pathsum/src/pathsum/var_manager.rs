@@ -59,4 +59,22 @@ impl VariableManager {
         terms.sort(); 
         terms.join(" ⊕ ")
     }
+    pub fn fmt_phase_poly(&self, p: &super::phase_poly::PhasePolynomial) -> String {
+        if p.terms.is_empty() {
+            return "0".to_string();
+        }
+        
+        let mut terms_str = Vec::new();
+        for (mono, coeff) in &p.terms {
+            let mono_str = self.fmt_monomial(mono);
+            if mono_str == "1" {
+                terms_str.push(format!("{}", coeff));
+            } else {
+                terms_str.push(format!("({}) * [{}]", coeff, mono_str));
+            }
+        }
+        
+        terms_str.sort(); 
+        terms_str.join("\n  + ")
+    }
 }

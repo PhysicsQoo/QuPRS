@@ -279,7 +279,7 @@ impl QuantumGates for PathSum {
     fn apply_ry(&mut self, qubit: usize, theta: PhaseCoeff, side: Side) {
         let zero = PhaseCoeff::new_constant(Rational::zero());
         // phi = 0, lam = 0
-        self.apply_u(qubit, theta, zero.clone(), zero, side);
+        self.apply_u(qubit, theta, zero.clone(), zero.clone(), side);
     }
     fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff, side: Side) {
         // RZ(φ) = exp(-iφ/2) * P(φ)

@@ -1,38 +1,35 @@
 // src/wmc.rs
 use std::fs::File;
-use std::io::{Write};
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
 use log::{info, debug, trace};
-
 use num_complex::Complex;
 use anyhow::{Result, Context, anyhow};
 
-use crate::pathsum::{PathSum};
+use crate::pathsum::PathSum;
 use crate::pathsum::phase_poly::Monomial;
 
 pub struct WmcManager {
     clauses: Vec<Vec<i32>>,
-    weights: Vec<(i32, Complex<f64>)>,
-    var_map: HashMap<u32, i32>, // Maps PathSum variable ID to DIMACS variable ID
+    weights: HashMap<i32, Complex<f64>>, 
+    var_map: HashMap<u32, i32>,
     next_var_id: i32,
 }
 
 impl WmcManager {
-    pub fn new(ps: &PathSum) -> Self {
-        let mut manager = WmcManager {
+    pub fn new(_ps: &PathSum) -> Self {
+        let manager = WmcManager {
             clauses: Vec::new(),
-            weights: Vec::new(),
+            weights: HashMap::new(),
             var_map: HashMap::new(),
-            next_var_id: 1, // DIMACS variables are 1-based
+            next_var_id: 1, 
         };
-        manager.encode_pathsum(ps);
         manager
     }
 
-    /// Retrieve or create a DIMACS variable ID for a given PathSum variable
     fn get_dimacs_var(&mut self, ps_var: u32) -> i32 {
         if let Some(&id) = self.var_map.get(&ps_var) {
             id
@@ -40,152 +37,121 @@ impl WmcManager {
             let id = self.next_var_id;
             self.next_var_id += 1;
             self.var_map.insert(ps_var, id);
-            
-            // Default weight for boolean variables is 1.0 for both True and False
-            self.weights.push((id, Complex::new(1.0, 0.0)));
-            self.weights.push((-id, Complex::new(1.0, 0.0)));
             id
         }
     }
 
-    /// Encode the non-linear Phase Polynomial into CNF via Tseitin Transformation
-    fn encode_pathsum(&mut self, ps: &PathSum) {
+    fn encode_phase_polynomial(&mut self, ps: &PathSum) {
         for (mono, coeff) in &ps.p.terms {
-            // Calculate complex weight: e^{i * pi * (numer/denom)}
             let phase_val = (coeff.constant.numer as f64) / (coeff.constant.denom as f64);
-            let angle = phase_val * PI;
+            let angle = phase_val * 2.0 * PI;
             let weight = Complex::new(angle.cos(), angle.sin());
 
+            let z_i = self.next_var_id;
+            self.next_var_id += 1;
+            
+            self.weights.insert(z_i, weight);
+
             if mono.is_empty() {
-                // Global phase: multiply it directly to a dummy variable that is always true
-                let dummy_var = self.next_var_id;
-                self.next_var_id += 1;
-                self.clauses.push(vec![dummy_var]); // Unit clause forcing it to be true
-                self.weights.push((dummy_var, weight));
-                self.weights.push((-dummy_var, Complex::new(1.0, 0.0)));
-                continue;
-            }
-
-            // Map variables
-            let dimacs_lits: Vec<i32> = mono.iter().map(|&v| self.get_dimacs_var(v)).collect();
-
-            if dimacs_lits.len() == 1 {
-                // Linear term: apply weight directly to the variable
-                let var = dimacs_lits[0];
-                self.weights.push((var, weight));
-                // Negative literal weight remains 1.0 (already set in get_dimacs_var)
+                self.clauses.push(vec![z_i]);
             } else {
-                // Non-linear term (AND gate): introduce auxiliary variable y
-                let y = self.next_var_id;
-                self.next_var_id += 1;
+                let dimacs_lits: Vec<i32> = mono.iter().map(|&v| self.get_dimacs_var(v)).collect();
                 
-                // Assign weight to auxiliary variable
-                self.weights.push((y, weight));
-                self.weights.push((-y, Complex::new(1.0, 0.0)));
+                if dimacs_lits.len() == 1 {
+                    // z_i <-> x
+                    let x = dimacs_lits[0];
+                    self.clauses.push(vec![-z_i, x]);
+                    self.clauses.push(vec![-x, z_i]);
+                } else {
+                    // z_i <-> AND(x_1, x_2, ...)
+                    let mut long_clause = vec![z_i];
+                    for &lit in &dimacs_lits {
+                        self.clauses.push(vec![-z_i, lit]); // z_i -> lit
+                        long_clause.push(-lit);             // AND -> z_i
+                    }
+                    self.clauses.push(long_clause);
+                }
+            }
+        }
+    }
 
-                // Add CNF clauses for y <-> (x_1 AND x_2 AND ... AND x_n)
-                // 1. y -> (x_i)  ===  -y OR x_i
-                let mut long_clause = vec![y];
+    fn encode_anf(&mut self, anf: &[Monomial]) -> i32 {
+        if anf.is_empty() {
+            let f_var = self.next_var_id;
+            self.next_var_id += 1;
+            self.clauses.push(vec![-f_var]); 
+            return f_var;
+        }
+
+        let mut mono_vars = Vec::new();
+        for mono in anf {
+            let dimacs_lits: Vec<i32> = mono.iter().map(|&v| self.get_dimacs_var(v)).collect();
+            if dimacs_lits.is_empty() {
+                let t_var = self.next_var_id;
+                self.next_var_id += 1;
+                self.clauses.push(vec![t_var]); 
+                mono_vars.push(t_var);
+            } else if dimacs_lits.len() == 1 {
+                mono_vars.push(dimacs_lits[0]);
+            } else {
+                let and_var = self.next_var_id;
+                self.next_var_id += 1;
+                let mut long_clause = vec![and_var];
                 for &lit in &dimacs_lits {
-                    self.clauses.push(vec![-y, lit]);
-                    long_clause.push(-lit); // 2. (x_1 AND ... AND x_n) -> y
+                    self.clauses.push(vec![-and_var, lit]);
+                    long_clause.push(-lit);
                 }
                 self.clauses.push(long_clause);
+                mono_vars.push(and_var);
             }
         }
-        
-        // Note: F (Boolean State constraints) encoding should also be added here 
-        // to force the output basis state, depending on the equivalence miter definition.
-    }
-    fn get_monomial_literal(&mut self, mono: &Monomial) -> i32 {
-        if mono.is_empty() {
-            // Constant 1 (True). Introduce a dummy variable forced to True.
-            let dummy = self.next_var_id;
-            self.next_var_id += 1;
-            self.clauses.push(vec![dummy]);
-            // Neutral weight for structural variables
-            self.weights.push((dummy, Complex::new(1.0, 0.0)));
-            self.weights.push((-dummy, Complex::new(1.0, 0.0)));
-            return dummy;
+
+        if mono_vars.len() == 1 {
+            return mono_vars[0];
         }
 
-        let dimacs_lits: Vec<i32> = mono.iter().map(|&v| self.get_dimacs_var(v)).collect();
-        if dimacs_lits.len() == 1 {
-            return dimacs_lits[0];
-        }
-
-        // AND gate: y <-> (x_1 AND x_2 AND ... AND x_n)
-        let y = self.next_var_id;
-        self.next_var_id += 1;
-        self.weights.push((y, Complex::new(1.0, 0.0)));
-        self.weights.push((-y, Complex::new(1.0, 0.0)));
-
-        let mut long_clause = vec![y];
-        for &lit in &dimacs_lits {
-            self.clauses.push(vec![-y, lit]);
-            long_clause.push(-lit);
-        }
-        self.clauses.push(long_clause);
-
-        y
-    }
-
-    /// Enforce that a linear combination (XOR sum) of literals evaluates to False (0)
-    /// Uses a chained encoding to prevent exponential clause blowup: O(N) clauses
-    fn enforce_xor_sum_is_false(&mut self, literals: Vec<i32>) {
-        if literals.is_empty() {
-            return; // 0 == 0, trivially true
-        }
-        if literals.len() == 1 {
-            self.clauses.push(vec![-literals[0]]); // Must be False
-            return;
-        }
-        
-        let mut current_var = literals[0];
-        for i in 1..literals.len() - 1 {
-            let next_var = literals[i];
-            let aux = self.next_var_id;
+        // Xor : c <-> a Xor b
+        let mut current_var = mono_vars[0];
+        for i in 1..mono_vars.len() {
+            let next_var = mono_vars[i];
+            let c = self.next_var_id;
             self.next_var_id += 1;
             
-            // aux <-> current_var XOR next_var
-            self.clauses.push(vec![-aux, current_var, next_var]);
-            self.clauses.push(vec![-aux, -current_var, -next_var]);
-            self.clauses.push(vec![aux, -current_var, next_var]);
-            self.clauses.push(vec![aux, current_var, -next_var]);
+            //  Xor Tseitin 
+            self.clauses.push(vec![-current_var, -next_var, -c]); // Or(Not(a), Not(b), Not(c))
+            self.clauses.push(vec![current_var, next_var, -c]);   // Or(a, b, Not(c))
+            self.clauses.push(vec![current_var, -next_var, c]);   // Or(a, Not(b), c)
+            self.clauses.push(vec![-current_var, next_var, c]);   // Or(Not(a), b, c)
             
-            // Neutral weights for auxiliary variables
-            self.weights.push((aux, Complex::new(1.0, 0.0)));
-            self.weights.push((-aux, Complex::new(1.0, 0.0)));
-            
-            current_var = aux;
+            current_var = c;
         }
-        
-        // The final XOR must be false: current_var XOR last_var = 0  => current_var == last_var
-        let last_var = literals.last().unwrap();
-        self.clauses.push(vec![-current_var, *last_var]);
-        self.clauses.push(vec![current_var, -last_var]);
+        current_var
     }
 
-    /// Encode the Boolean state F to force output |0...0>
-    pub fn encode_boolean_state_to_zero(&mut self, ps: &PathSum) {
-        for poly in &ps.f.functions {
-            let mut literals = Vec::new();
-            for mono in poly {
-                literals.push(self.get_monomial_literal(mono));
-            }
-            self.enforce_xor_sum_is_false(literals);
+    pub fn encode_trace(&mut self, ps: &PathSum) {
+        self.encode_phase_polynomial(ps);
+
+        for i in 0..ps.v.num_qubits {
+            let a = self.get_dimacs_var(i as u32);
+            
+            let anf_vec: Vec<Monomial> = ps.f.functions[i].iter().cloned().collect();
+            let b = self.encode_anf(&anf_vec); 
+            
+            self.clauses.push(vec![-a, b]); // a -> b
+            self.clauses.push(vec![a, -b]); // b -> a
         }
     }
-    /// Export the state to a standard DIMACS string format
+
     pub fn to_dimacs_string(&self) -> String {
         let mut out = String::new();
         let num_vars = self.next_var_id - 1;
         let num_clauses = self.clauses.len();
 
-        out.push_str(&format!("p cnf {} {}\n", num_vars, num_clauses));
+        out.push_str(&format!("p cnf {} {}\nc t wmc\n", num_vars, num_clauses));
         
         for (var, weight) in &self.weights {
-            out.push_str(&format!("c w {} {:.9} {:.9}\n", var, weight.re, weight.im));
+            out.push_str(&format!("c p weight {} {:.9} {:.9} 0\n", var, weight.re, weight.im));
+            out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
         }
 
         for clause in &self.clauses {
@@ -194,7 +160,7 @@ impl WmcManager {
         }
         out
     }
-
+    
     pub fn solve_with_gpmc(&self) -> Result<Complex<f64>> {
         use std::io::Read;
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -243,11 +209,6 @@ impl WmcManager {
         let mut result_val = None;
 
         for line in stdout_str.lines() {
-            if line.contains("s UNSATISFIABLE") || line.contains("UNSAT") {
-                debug!(target: "wmc", "GPMC result: UNSATISFIABLE (Amplitude = 0)");
-                return Ok(Complex::new(0.0, 0.0));
-            }
-
             if line.starts_with("c s exact") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if let Some(token) = parts.last() {

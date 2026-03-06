@@ -15,10 +15,9 @@ pub use rational::{Rational, PhaseCoeff};
 pub use strategy::VerificationStrategy;
 use ir::QuantumOp;
 use wmc::WmcManager;
-use num_complex::Complex;
 use anyhow::Result;
 use std::time::Instant;
-
+use log::{info, debug};
 /// Verification Method Selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationMethod {
@@ -137,38 +136,41 @@ pub fn check_equivalence(
         let wmc_start = Instant::now();
         
         let mut wmc_mgr = WmcManager::new(&ps_miter);
-        wmc_mgr.encode_boolean_state_to_zero(&ps_miter);
+        
+        wmc_mgr.encode_trace(&ps_miter);
 
         let dimacs_start = Instant::now();
         let cnf_string = wmc_mgr.to_dimacs_string();
         to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
+        let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
+        let expected_log2 = (num_qubits as f64) + (num_active_vars as f64) / 2.0;
+
         let tool_start = Instant::now();
-        let raw_amplitude = if cnf_string.contains("p cnf 0 0") || ps_miter.v.path_vars.len() == num_qubits {
-            Complex::new(1.0, 0.0)
+        let raw_amplitude = if cnf_string.contains("p cnf 0 0") || num_active_vars == 0 {
+            num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0)
         } else {
             wmc_mgr.solve_with_gpmc()?
         };
         tool_time = Some(tool_start.elapsed().as_secs_f64());
 
-        // Normalize the raw amplitude from GPMC
-        let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-        let normalization_factor = 1.0 / 2.0_f64.powf((num_active_vars as f64) / 2.0);
+        let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
         let final_amplitude = raw_amplitude * normalization_factor;
-
+        info!(target: "wmc", "GPMC log2 result : {:.4}", raw_amplitude.norm().log2());
+        info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
-        // Amplitude validation
         let norm = final_amplitude.norm();
         if (norm - 1.0).abs() < 1e-6 {
-            // Check global phase theta
             let theta = final_amplitude.im.atan2(final_amplitude.re);
+            info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
             if theta.abs() < 1e-6 {
                 status = EquivalenceStatus::Equivalent;
             } else {
                 status = EquivalenceStatus::EquivalentUpToGlobalPhase;
             }
         } else {
+            debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
             status = EquivalenceStatus::NotEquivalent;
         }
     }

@@ -36,5 +36,5 @@ build_cpp/
 *.cnf
 
 # rust
-rust-test/target
-rust-test/**/*.rs.bk
+rust/target
+rust/**/*.rs.bk

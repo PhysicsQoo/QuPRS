@@ -1,13 +1,19 @@
-// rust-test/python_ffi/src/lib.rs
+// rust/python_ffi/src/lib.rs
+
+mod circuit;
+mod api;
+
 use pyo3::prelude::*;
+use api::check_equivalence;
 
-#[pyfunction]
-fn hello_from_quprs() -> PyResult<String> {
-    Ok("Hello from QuPRS Core Engine!".to_string())
-}
-
+/// The Python module initialization point.
+/// The function name must match the module name specified in Cargo.toml/pyproject.toml.
 #[pymodule]
-fn pathsum(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(hello_from_quprs, m)?)?;
+fn pathsum_rust(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Register the components from our submodules
+    m.add_class::<circuit::QuantumCircuit>()?;
+    m.add_class::<api::PathSum>()?;
+    m.add_function(wrap_pyfunction!(check_equivalence, m)?)?;
+    
     Ok(())
 }

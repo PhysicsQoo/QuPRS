@@ -82,7 +82,8 @@ pub fn check_equivalence(
     let global_start = Instant::now();
     
     // 1. Initialize PathSum state
-    let mut ps = PathSum::new(num_qubits);
+    let regs = vec![crate::pathsum::Register::new("q", num_qubits)];
+    let mut ps = PathSum::quantum_circuit(&regs, None);
     let reduction_enabled = method != VerificationMethod::WmcOnly;
     ps.set_auto_reduce(reduction_enabled);
 
@@ -93,12 +94,11 @@ pub fn check_equivalence(
     let mut ps_miter = strategy.run(ps, gates1, gates2);
     
     // Prepare the initial state |0...0> to form the transition amplitude <0|M|0>
-    let initial_state = vec![0; num_qubits];
-    ps_miter.set_initial_state(&initial_state);
     
     if reduction_enabled {
         ps_miter.full_reduce();
     }
+
     let ps_time = pathsum_start.elapsed().as_secs_f64();
     
     // 3. Reduction Rules Check
@@ -106,11 +106,14 @@ pub fn check_equivalence(
         if ps_miter.is_identity_up_to_phase() {
             if let Some(phase_coeff) = ps_miter.get_global_phase() {
                 let phase_val = (phase_coeff.constant.numer as f64) / (phase_coeff.constant.denom as f64);
-                // Check if phase is exactly 0 (modulo 2pi in physics, modulo 1 in our Rational)
-                if phase_coeff.is_zero() || phase_val.abs() < 1e-9 {
+                let angle = phase_val * std::f64::consts::PI; 
+                let cos_val = angle.cos();
+                let sin_val = angle.sin();
+                if (cos_val - 1.0).abs() < 1e-6 && sin_val.abs() < 1e-6 {
                     status = EquivalenceStatus::Equivalent;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
+                    log::debug!("Residual Global Phase detected: {} radians", angle);
                 }
             }
         } else {

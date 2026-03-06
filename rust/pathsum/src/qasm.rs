@@ -58,10 +58,10 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             "x" => QuantumOp::X(qubits[0]),
             "y" => QuantumOp::Y(qubits[0]),
             "z" => QuantumOp::Z(qubits[0]),
-            "s" => QuantumOp::RZ(qubits[0], get_pi_coeff(1, 2)),
-            "sdg" => QuantumOp::RZ(qubits[0], get_pi_coeff(-1, 2)),
-            "t" => QuantumOp::RZ(qubits[0], get_pi_coeff(1, 4)),
-            "tdg" => QuantumOp::RZ(qubits[0], get_pi_coeff(-1, 4)),
+            "s" => QuantumOp::S(qubits[0]),
+            "sdg" => QuantumOp::SDG(qubits[0]),
+            "t" => QuantumOp::T(qubits[0]),
+            "tdg" => QuantumOp::TDG(qubits[0]),
             "cx" => QuantumOp::CX(qubits[0], qubits[1]),
             "cz" => QuantumOp::CZ(qubits[0], qubits[1]),
             "ccx" => QuantumOp::CCX(qubits[0], qubits[1], qubits[2]),
@@ -168,9 +168,9 @@ fn parse_phase_str(s: &str) -> Result<PhaseCoeff, String> {
     };
 
     let final_val = if is_negative { -multiplier } else { multiplier };
-
+    let pi_multiplier = final_val / std::f64::consts::PI;
     // 4. Final conversion via Continued Fraction
-    Ok(PhaseCoeff::new_constant(Rational::from_f64(final_val)))
+    Ok(PhaseCoeff::new_constant(Rational::from_f64(pi_multiplier)))
 }
 
 
@@ -194,7 +194,7 @@ fn eval_simple_expression(s: &str) -> Result<f64, String> {
 fn parse_single_token(s: &str) -> Result<f64, String> {
     let s = s.trim();
     if s == "pi" {
-        Ok(1.0)
+        Ok(std::f64::consts::PI)
     } else if let Ok(val) = s.parse::<f64>() {
         Ok(val)
     } else if s.is_empty() {
@@ -204,9 +204,6 @@ fn parse_single_token(s: &str) -> Result<f64, String> {
     }
 }
 
-fn get_pi_coeff(numer: i64, denom: i64) -> PhaseCoeff {
-    PhaseCoeff::new_constant(Rational::new(numer, denom * 2))
-}
 
 impl PathSum {
     pub fn load_from_qasm_file(file_path: &str, initial_state: Option<&[u8]>) -> Result<Self, String> {

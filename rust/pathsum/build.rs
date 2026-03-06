@@ -25,6 +25,10 @@ fn main() {
         pkg_config::probe_library("mpfr").expect("MPFR library not found");
     }
 
+    if !gpmc_src.exists() {
+        panic!("FATAL: GPMC source directory not found at: {}. Current manifest: {}", 
+               gpmc_src.display(), manifest_dir.display());
+    }
    // 3. Compile GPMC using the cmake crate
     println!("cargo:warning=Building GPMC from: {}", gpmc_src.display());
     
@@ -44,9 +48,17 @@ fn main() {
         dst.join("build").join("Release").join(bin_name), // For Windows MSVC
     ];
 
-    let gpmc_bin_path = possible_paths.into_iter().find(|p: &PathBuf| p.exists())
-        .expect("GPMC binary was not found after compilation.");
-
+    let gpmc_bin_path = possible_paths.into_iter().find(|p| p.exists())
+        .unwrap_or_else(|| {
+            panic!("FATAL: GPMC binary not found! CMake output path: {}", dst.display());
+        });
+    
     // 5. Inject the absolute path as an environment variable
     println!("cargo:rustc-env=GPMC_BIN_PATH={}", gpmc_bin_path.display());
+}
+
+#[test]
+fn test_debug_path() {
+    let path = env!("GPMC_BIN_PATH");
+    println!("Current GPMC Path: {}", path);
 }

@@ -321,8 +321,8 @@ impl Div<i64> for PhaseCoeff { type Output = Self; fn div(mut self, rhs: i64) ->
 /// Converts a floating-point number into a rational approximation (n/d).
 /// Implements the Continued Fraction Algorithm for optimal precision.
 fn float_to_rational_continued_fraction(val: f64) -> (i64, i64) {
-    let epsilon = 1e-12;
-    let max_denom = 1_000_000_000;
+    let epsilon = 1e-10;
+    let max_denom = 1_000_000_000; // Safety limit to prevent overflow
 
     if val.abs() < epsilon { return (0, 1); }
 

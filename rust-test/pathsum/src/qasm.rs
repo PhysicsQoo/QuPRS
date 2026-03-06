@@ -1,11 +1,12 @@
 // src/qasm.rs
 use std::collections::HashMap;
+use std::path::Path;
 use crate::ir::QuantumOp;
 use crate::pathsum::{PathSum, Register};
 use crate::rational::{PhaseCoeff, Rational};
 
 /// Parse QASM string into a list of quantum operations
-pub fn parse_qasm_str(source: &str) -> Result<Vec<QuantumOp>, String> {
+pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
     let mut ops = Vec::new();
     let mut register_map: HashMap<String, usize> = HashMap::new();
     let mut current_qubit_count = 0;
@@ -75,9 +76,25 @@ pub fn parse_qasm_str(source: &str) -> Result<Vec<QuantumOp>, String> {
         };
         ops.push(op);
     }
-    Ok(ops)
-}
+    let final_qubit_count = if current_qubit_count > 0 {
+        current_qubit_count
+    } else if ops.is_empty() {
+        0
+    } else {
+        let max_idx = ops.iter().map(|op| op.max_qubit_idx()).max().unwrap_or(0);
+        max_idx + 1
+    };
 
+    Ok((ops, final_qubit_count))
+}
+/// Unified entry point for reading and parsing QASM files.
+pub fn parse_file(path: &Path) -> Result<(Vec<QuantumOp>, usize), String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read QASM file '{}': {}", path.display(), e))?;
+    
+    // Simply delegate to parse_qasm_str
+    parse_qasm_str(&content)
+}
 fn parse_gate_name_and_params(token: &str) -> Result<(String, Vec<PhaseCoeff>), String> {
     if let Some(start_idx) = token.find('(') {
         if let Some(end_idx) = token.rfind(')') {
@@ -156,6 +173,7 @@ fn parse_phase_str(s: &str) -> Result<PhaseCoeff, String> {
     Ok(PhaseCoeff::new_constant(Rational::from_f64(final_val)))
 }
 
+
 // Ensure these helpers are present as well
 fn eval_simple_expression(s: &str) -> Result<f64, String> {
     let s = s.trim();
@@ -198,16 +216,8 @@ impl PathSum {
     }
 
     pub fn load_from_qasm_str(qasm_str: &str, initial_state: Option<&[u8]>) -> Result<Self, String> {
-        let ops = parse_qasm_str(qasm_str)?;
-        let max_qubit = ops.iter().map(|op| match op {
-            QuantumOp::H(q) | QuantumOp::X(q) | QuantumOp::Y(q) | QuantumOp::Z(q) |
-            QuantumOp::RX(q, _) | QuantumOp::RY(q, _) | QuantumOp::RZ(q, _) | QuantumOp::U3(q, _, _, _) => *q,
-            QuantumOp::CX(c, t) | QuantumOp::CZ(c, t) => std::cmp::max(*c, *t),
-            QuantumOp::CCX(c1, c2, t) => std::cmp::max(*t, std::cmp::max(*c1, *c2)),
-            _ => 0,
-        }).max().unwrap_or(0);
+        let (ops, num_qubits) = parse_qasm_str(qasm_str)?;
 
-        let num_qubits = max_qubit + 1;
         let regs = vec![Register::new("q", num_qubits)];
         let mut ps = PathSum::quantum_circuit(&regs, None);
 
@@ -244,11 +254,12 @@ mod tests {
             cx q[0],q[1];
         "#;
         
-        let ops = parse_qasm_str(qasm).expect("IR Parse failed");
+        let (ops, num_qubits) = parse_qasm_str(qasm).expect("IR Parse failed");
         assert_eq!(ops.len(), 2);
         assert_eq!(ops[0], QuantumOp::H(0));
         assert_eq!(ops[1], QuantumOp::CX(0, 1));
-
+        assert_eq!(num_qubits, 2);
+        
         let ps = PathSum::load_from_qasm_str(qasm, None).expect("Load failed");
         assert_eq!(ps.v.num_qubits, 2);
     }

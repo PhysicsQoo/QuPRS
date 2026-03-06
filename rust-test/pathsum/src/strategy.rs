@@ -31,6 +31,9 @@ impl VerificationStrategy {
         gates1: &[QuantumOp],
         gates2: &[QuantumOp],
     ) -> PathSum {
+        if gates2.is_empty() {
+            return run_straightforward(ps, gates1, gates2);
+        }
         match self {
             Self::Naive => run_naive(ps, gates1, gates2),
             Self::Straightforward => run_straightforward(ps, gates1, gates2),

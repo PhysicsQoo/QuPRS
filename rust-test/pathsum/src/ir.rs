@@ -78,5 +78,17 @@ impl QuantumOp {
             Self::U(q, theta, phi, lam) => ps.apply_u(*q, theta.clone(), phi.clone(), lam.clone(), side)
         }
     }
+    pub fn max_qubit_idx(&self) -> usize {
+        match self {
+            Self::H(q) | Self::X(q) | Self::Y(q) | Self::Z(q) | 
+            Self::S(q) | Self::T(q) | Self::SDG(q) | Self::TDG(q) |
+            Self::RX(q, _) | Self::RY(q, _) | Self::RZ(q, _) | Self::P(q, _) |
+            Self::U3(q, _, _, _) => *q,
+            Self::CX(c, t) | Self::CZ(c, t) => std::cmp::max(*c, *t),
+            Self::CCX(c1, c2, t) => *t.max(c1).max(c2),
+            // Default to 0 for unsupported or global operations
+            _ => 0, 
+        }
+    }
 }
 

@@ -1,7 +1,7 @@
 // src/ir.rs
 use crate::pathsum::PathSum;
 use crate::gates::{QuantumGates, Side};
-use crate::rational::PhaseCoeff;
+use crate::rational::Angle;
 
 /// Intermediate Representation (IR) for quantum operations.
 /// Pure data structure containing operation definitions.
@@ -26,16 +26,16 @@ pub enum QuantumOp {
     CCX(usize, usize, usize), // Toffoli: Ctrl1, Ctrl2, Target
 
     // Parameterized Gates
-    P(usize, PhaseCoeff), // General phase gate
-    RX(usize, PhaseCoeff),
-    RY(usize, PhaseCoeff),
-    RZ(usize, PhaseCoeff),
+    P(usize, Angle), // General phase gate
+    RX(usize, Angle),
+    RY(usize, Angle),
+    RZ(usize, Angle),
     
     // Universal single qubit gate
-    U1(usize, PhaseCoeff), 
-    U2(usize, PhaseCoeff, PhaseCoeff), 
-    U3(usize, PhaseCoeff, PhaseCoeff, PhaseCoeff), // theta, phi, lam
-    U(usize, PhaseCoeff, PhaseCoeff, PhaseCoeff), // theta, phi, lam
+    U1(usize, Angle), 
+    U2(usize, Angle, Angle), 
+    U3(usize, Angle, Angle, Angle), // theta, phi, lam
+    U(usize, Angle, Angle, Angle), // theta, phi, lam
 }
 
 impl QuantumOp {

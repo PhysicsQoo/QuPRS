@@ -191,7 +191,7 @@ impl PathSum {
 
         // 1. Extract Phi and constant c0
         let mut phi = rustc_hash::FxHashSet::default();
-        let mut c0 = Rational::zero();
+        let mut c0 = Rational::ZERO;
         let mut y_terms_to_remove = Vec::new();
 
         for (mono, coeff) in &self.p.terms {

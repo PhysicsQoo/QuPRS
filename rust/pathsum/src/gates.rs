@@ -1,6 +1,6 @@
 // src/gates.rs
 use crate::pathsum::PathSum;
-use crate::rational::{Rational, PhaseCoeff};
+use crate::rational::{Rational, FreeRational, PhaseCoeff, Angle};
 use crate::pathsum::{self};
 use rustc_hash::FxHashSet;
 
@@ -29,16 +29,16 @@ pub trait QuantumGates {
     fn apply_tdg(&mut self, qubit: usize, side: Side);
 
     // Rotation Gates
-    fn apply_p(&mut self, qubit: usize, phase: PhaseCoeff, side: Side);
-    fn apply_rx(&mut self, qubit: usize, theta: PhaseCoeff, side: Side);
-    fn apply_ry(&mut self, qubit: usize, theta: PhaseCoeff, side: Side);
-    fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff, side: Side);
+    fn apply_p(&mut self, qubit: usize, phase: Angle, side: Side);
+    fn apply_rx(&mut self, qubit: usize, theta: Angle, side: Side);
+    fn apply_ry(&mut self, qubit: usize, theta: Angle, side: Side);
+    fn apply_rz(&mut self, qubit: usize, phase: Angle, side: Side);
 
-    fn apply_u1(&mut self, qubit: usize, phase: PhaseCoeff, side: Side);
-    fn apply_u2(&mut self, qubit: usize, phi: PhaseCoeff, lam: PhaseCoeff, side: Side);
-    fn apply_u3(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side);
+    fn apply_u1(&mut self, qubit: usize, phase: Angle, side: Side);
+    fn apply_u2(&mut self, qubit: usize, phi: Angle, lam: Angle, side: Side);
+    fn apply_u3(&mut self, qubit: usize, theta: Angle, phi: Angle, lam: Angle, side: Side);
     
-    fn apply_u(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side);
+    fn apply_u(&mut self, qubit: usize, theta: Angle, phi: Angle, lam: Angle, side: Side);
 }
 
 impl QuantumGates for PathSum {
@@ -136,7 +136,7 @@ impl QuantumGates for PathSum {
             Side::Ket => self.p += (&self.f.functions[qubit], phase),
             Side::Bra => {
                 let x_i = vec![qubit as u32];
-                let conj_phase = PhaseCoeff::new_constant(Rational::zero()) - phase;
+                let conj_phase = PhaseCoeff::ZERO - phase;
                 self.p += (x_i, conj_phase);
             }
         }
@@ -149,7 +149,7 @@ impl QuantumGates for PathSum {
             Side::Ket => self.p += (&self.f.functions[qubit], phase),
             Side::Bra => {
                 let x_i = vec![qubit as u32];
-                let conj_phase = PhaseCoeff::new_constant(Rational::zero()) - phase;
+                let conj_phase = PhaseCoeff::ZERO - phase;
                 self.p += (x_i, conj_phase);
             }
         }
@@ -185,22 +185,12 @@ impl QuantumGates for PathSum {
                 let poly_t = &self.f.functions[target];
 
                 let product_poly = pathsum::mul_boolean_polys(poly_c, poly_t);
-                self.p += (&product_poly, PhaseCoeff::new_constant(Rational::new(1, 2)));
+                self.p += (&product_poly, PhaseCoeff::HALF);
             }
             Side::Bra => {
-                // Bra: Substitute x_t -> x_t ⊕ (x_c * x_t)
-                let x_t = target as u32;
-                let x_c = control as u32;
-                
-                // Construct polynomial P = {x_t, x_c * x_t}
-                let mut sub_poly = FxHashSet::default();
-                sub_poly.insert(vec![x_t]);
-                
-                let mut cross_term = vec![x_c, x_t];
-                cross_term.sort_unstable();
-                sub_poly.insert(cross_term);
-                
-                self.substitute_var_with_poly(x_t, &sub_poly);
+                let mut term = vec![control as u32, target as u32];
+                term.sort_unstable();
+                self.p += (term, PhaseCoeff::HALF);
             }
         }
     }
@@ -245,7 +235,7 @@ impl QuantumGates for PathSum {
             Side::Ket => self.p += (&self.f.functions[qubit], phase),
             Side::Bra => {
                 let x_i = vec![qubit as u32];
-                let conj_phase = PhaseCoeff::new_constant(Rational::zero()) - phase;
+                let conj_phase = PhaseCoeff::ZERO - phase;
                 self.p += (x_i, conj_phase);
             }
         }
@@ -257,7 +247,7 @@ impl QuantumGates for PathSum {
             Side::Ket => self.p += (&self.f.functions[qubit], phase),
             Side::Bra => {
                 let x_i = vec![qubit as u32];
-                let conj_phase = PhaseCoeff::new_constant(Rational::zero()) - phase;
+                let conj_phase = PhaseCoeff::ZERO - phase;
                 self.p += (x_i, conj_phase);
             }
         }
@@ -266,137 +256,136 @@ impl QuantumGates for PathSum {
     // Rotation Gates
     // ==========================================
     /// RX(theta) = U3(theta, -pi/2, pi/2)
-    fn apply_rx(&mut self, qubit: usize, theta: PhaseCoeff, side: Side) {
+    fn apply_rx(&mut self, qubit: usize, theta: Angle, side: Side) {
         // phi = -pi/2 (-1/4 cycle)
-        let neg_pi_over_2 = PhaseCoeff::new_constant(Rational::new(-1, 4));
+        let neg_pi_over_2 = Angle::new_constant(FreeRational::new(-1, 2));
         // lam = pi/2 (1/4 cycle)
-        let pi_over_2 = PhaseCoeff::new_constant(Rational::new(1, 4));
-        
+        let pi_over_2 = Angle::new_constant(FreeRational::new(1, 2));
         self.apply_u(qubit, theta, neg_pi_over_2, pi_over_2, side);
+
     }
 
     /// RY(theta) = U3(theta, 0, 0)
-    fn apply_ry(&mut self, qubit: usize, theta: PhaseCoeff, side: Side) {
-        let zero = PhaseCoeff::new_constant(Rational::zero());
+    fn apply_ry(&mut self, qubit: usize, theta: Angle, side: Side) {
+        let zero = Angle::ZERO;
         // phi = 0, lam = 0
         self.apply_u(qubit, theta, zero.clone(), zero.clone(), side);
     }
-    fn apply_rz(&mut self, qubit: usize, phase: PhaseCoeff, side: Side) {
+    fn apply_rz(&mut self, qubit: usize, theta: Angle, side: Side) {
         // RZ(φ) = exp(-iφ/2) * P(φ)
         match side {
             Side::Ket => {
-                let zero = PhaseCoeff::new_constant(Rational::zero());
-                let global_correction = zero - (phase.clone() / 2);
-                self.p += global_correction;
+                let x_i = &self.f.functions[qubit];
+                self.p += (theta.clone()/-4).to_phase_coeff();
+                self.p += (x_i, (theta.clone() /2).to_phase_coeff());
+            }
+            Side::Bra => {
+                let x_i_idx = qubit as u32;
+                let mut x_i_poly = FxHashSet::default();
+                x_i_poly.insert(vec![x_i_idx]);
+                
+                self.p += (theta.clone() / 4).to_phase_coeff();
+                self.p += (&x_i_poly, (theta.clone() / -2).to_phase_coeff());
+                
+            }
+        }
+    }
+    fn apply_p(&mut self, qubit: usize, theta: Angle,side: Side) {
+         match side {
+            Side::Ket => {
+                let phase = theta.to_phase_coeff();
                 self.p += (&self.f.functions[qubit], phase);
             }
             Side::Bra => {
                 let x_i = vec![qubit as u32];
-                
-                let zero = PhaseCoeff::new_constant(Rational::zero());
-                let conj_phase = zero.clone() - phase;
-                
-                let global_correction = zero - (conj_phase.clone() / 2);
-                
-                self.p += global_correction;
-                self.p += (x_i, conj_phase);
-            }
-        }
-    }
-    fn apply_p(&mut self, qubit: usize, phase: PhaseCoeff,side: Side) {
-         match side {
-            Side::Ket => self.p += (&self.f.functions[qubit], phase),
-            Side::Bra => {
-                let x_i = vec![qubit as u32];
-                let conj_phase = PhaseCoeff::new_constant(Rational::zero()) - phase;
+                let conj_theta = Angle::ZERO - theta;
+                let conj_phase = conj_theta.to_phase_coeff();
                 self.p += (x_i, conj_phase);
             }
         }
     }
 
-    fn apply_u1(&mut self, qubit: usize, phase: PhaseCoeff, side: Side) {
-        match side {
-            Side::Ket => self.p += (&self.f.functions[qubit], phase),
-            Side::Bra => {
-                let x_i = vec![qubit as u32];
-                let conj_phase = PhaseCoeff::new_constant(Rational::zero()) - phase;
-                self.p += (x_i, conj_phase);
-            }
-        }
+    fn apply_u1(&mut self, qubit: usize, theta: Angle, side: Side) {
+        self.apply_p(qubit, theta, side);
     }
     /// U2 Gate: X-Y plane rotation defined as U2(phi, lam) = U3(pi/2, phi, lam)
-    fn apply_u2(&mut self, qubit: usize, phi: PhaseCoeff, lam: PhaseCoeff, side: Side) {
+    fn apply_u2(&mut self, qubit: usize, phi: Angle, lam: Angle, side: Side) {
         // theta = pi/2 (即 1/4 cycle)
-        let pi_over_2 = PhaseCoeff::new_constant(Rational::new(1, 4));
+        let pi_over_2 = Angle::QUARTER;
         self.apply_u(qubit, pi_over_2, phi, lam, side);
     }
     /// U3(theta, phi, lam)
-    fn apply_u3(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side) {
+    fn apply_u3(&mut self, qubit: usize, theta: Angle, phi: Angle, lam: Angle, side: Side) {
         self.apply_u(qubit, theta, phi, lam, side);
     }
-    fn apply_u(&mut self, qubit: usize, theta: PhaseCoeff, phi: PhaseCoeff, lam: PhaseCoeff, side: Side) {
+    fn apply_u(&mut self, qubit: usize, theta: Angle, phi: Angle, lam: Angle, side: Side) {
         // Generate two fresh path variables
         let v0 = self.v.get_fresh_var();
         let v1 = self.v.get_fresh_var();
 
-        // Pre-compute coefficient constants
-        let half = PhaseCoeff::new_constant(Rational::new(1, 2));
-        let quarter = PhaseCoeff::new_constant(Rational::new(1, 4));
-        let three_quarter = PhaseCoeff::new_constant(Rational::new(3, 4));
-        
-        let theta_term_v0 = theta.clone() / 2;
-        let theta_global = theta.clone() / -4;
+        let mut v0_poly = FxHashSet::default();
+        v0_poly.insert(vec![v0]);
+        let mut v1_poly = FxHashSet::default();
+        v1_poly.insert(vec![v1]);
 
+        // Pre-compute coefficient constants
+        let half = PhaseCoeff::HALF;
+        let quarter = PhaseCoeff::QUARTER;
+        let three_quarters = PhaseCoeff::THREE_QUARTERS;
         match side {
             Side::Ket => {
                 let x_i = &self.f.functions[qubit];
-                
-                let mut v0_poly = FxHashSet::default();
-                v0_poly.insert(vec![v0]);
-                let mut v1_poly = FxHashSet::default();
-                v1_poly.insert(vec![v1]);
+
+                let lam_coeff = (lam.clone() / 2).to_phase_coeff();
+                let phi_coeff = (phi.clone() / 2).to_phase_coeff();
+                let theta_coeff = (theta.clone() / 2).to_phase_coeff();
+                let global_coeff = (theta.clone() / -4).to_phase_coeff();
 
                 // Add phase terms
-                self.p += (x_i, lam.clone() / 2);
-                self.p += (&v1_poly, phi.clone() / 2);
-                self.p += (&v0_poly, theta_term_v0);
-                self.p += theta_global;
-                self.p += (x_i, three_quarter);
-                self.p += (&v1_poly, quarter);
+                self.p += (x_i, lam_coeff);
+                self.p += (&v1_poly, phi_coeff);
+                self.p += (&v0_poly, theta_coeff);
+                self.p += global_coeff;
+                self.p += (x_i, three_quarters.clone());
+                self.p += (&v1_poly, quarter.clone());
 
                 // Add cross terms
                 let cross_x_v0 = pathsum::mul_boolean_polys(x_i, &v0_poly);
                 self.p += (&cross_x_v0, half.clone());
                 
-                let mut cross_v0_v1 = vec![v0, v1];
-                cross_v0_v1.sort_unstable();
-                self.p += (cross_v0_v1, half);
+                let cross_v0_v1 = pathsum::mul_boolean_polys(&v0_poly, &v1_poly);
+                self.p += (&cross_v0_v1, half.clone());
 
                 // Update boolean state: x_i -> v1
                 self.f.functions[qubit] = v1_poly;
             }
             Side::Bra => {
                 let x_i_idx = qubit as u32;
+                let mut x_i_poly = FxHashSet::default();
+                x_i_poly.insert(vec![x_i_idx]);
+                
+                let lam_coeff = (lam.clone() / -2).to_phase_coeff();
+                let phi_coeff = (phi.clone() / -2).to_phase_coeff();
+                let theta_coeff = (theta.clone() / 2).to_phase_coeff();
+                let global_coeff = (theta.clone() / -4).to_phase_coeff();
 
                 // Substitute x_i -> v1
                 self.substitute_var(x_i_idx, v1);
 
                 // Add phase terms
-                self.p += (vec![x_i_idx], phi.clone() / -2);
-                self.p += (vec![v1], lam.clone() / -2);
-                self.p += (vec![v0], theta_term_v0);
-                self.p += theta_global;
-                self.p += (vec![x_i_idx], quarter);
-                self.p += (vec![v1], three_quarter);
+                self.p += (&x_i_poly, phi_coeff);
+                self.p += (&v1_poly, lam_coeff);
+                self.p += (&v0_poly, theta_coeff);
+                self.p += global_coeff;
+                self.p += (&x_i_poly, quarter.clone());
+                self.p += (&v1_poly, three_quarters.clone());
 
                 // Add cross terms
-                let mut cross_x_v0 = vec![x_i_idx, v0];
-                cross_x_v0.sort_unstable();
-                self.p += (cross_x_v0, half.clone());
+                let cross_x_v0 = pathsum::mul_boolean_polys(&x_i_poly, &v0_poly);
+                self.p += (&cross_x_v0, half.clone());
 
-                let mut cross_v0_v1 = vec![v0, v1];
-                cross_v0_v1.sort_unstable();
-                self.p += (cross_v0_v1, half);
+                let cross_v0_v1 = pathsum::mul_boolean_polys(&v0_poly, &v1_poly);
+                self.p += (&cross_v0_v1, half.clone());
             }
         }
 
@@ -549,7 +538,7 @@ mod tests {
     fn test_apply_p() {
         let mut ps = setup_test_env(1);
         
-        let phase = PhaseCoeff::new_constant(Rational::new(1, 4));
+        let phase = Angle::QUARTER;
         ps.apply_p(0, phase, Side::Ket);
         
         assert!(ps.p.terms[&vec![0]].is_pure_quarter(), "P gate should add relative phase");
@@ -561,10 +550,10 @@ mod tests {
     fn test_apply_rz() {
         let mut ps = setup_test_env(1);
         
-        let phase = PhaseCoeff::new_constant(Rational::new(1, 4));
+        let phase = Angle::HALF; 
         ps.apply_rz(0, phase, Side::Ket);
         
-        
+        println!("P terms after RZ: {:?}", ps.print_status());
         assert!(ps.p.terms[&vec![0]].is_pure_quarter(), "RZ gate should add relative phase");
         
         assert!(ps.p.terms[&vec![]].is_pure_fraction(7, 8), "RZ gate MUST add -phase/2 global phase");

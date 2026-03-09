@@ -1,12 +1,12 @@
 use pathsum::pathsum::PathSum;
 use pathsum::gates::{QuantumGates, Side};
-use pathsum::rational::{PhaseCoeff, Rational};
+use pathsum::rational::{Angle, FreeRational};
 
 // Helper function: create a PhaseCoeff as a fraction of PI
-fn pi_coeff(numer: i64, denom: i64) -> PhaseCoeff {
+fn pi_coeff(numer: i64, denom: i64) -> Angle {
     // 1 cycle = 2*PI, so PI = 1/2 cycle
     // (numer/denom) * PI = (numer/denom) * (1/2) cycle
-    PhaseCoeff::new_constant(Rational::new(numer, denom * 2))
+    Angle::new_constant(FreeRational::new(numer, denom * 2))
 }
 
 #[test]

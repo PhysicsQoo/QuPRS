@@ -14,7 +14,7 @@ pub struct Rational {
 }
 
 impl Rational {
-    pub fn new(numer: i64, denom: i64) -> Self {
+    pub const fn new(numer: i64, denom: i64) -> Self {
         if denom == 0 { panic!("Zero denominator in Rational"); }
         
         // 1. Normalize sign
@@ -30,7 +30,10 @@ impl Rational {
         Rational { numer: n / common, denom: d / common }
     }
 
-    pub fn zero() -> Self { Self::new(0, 1) }
+    pub const ZERO: Self = Self::new(0, 1);
+    pub const HALF: Self = Self::new(1, 2);
+    pub const QUARTER: Self = Self::new(1, 4);
+    pub const THREE_QUARTERS: Self = Self::new(3, 4);
     pub fn is_zero(&self) -> bool { self.numer == 0 }
     pub fn from_f64(val: f64) -> Self {
         let v = val.rem_euclid(1.0);
@@ -55,7 +58,7 @@ impl Add for Rational {
         let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
         
         let new_numer = (n1 * d2 + n2 * d1).rem_euclid(d1 * d2);
-        if new_numer == 0 { return Self::zero(); }
+        if new_numer == 0 { return Self::ZERO; }
         
         let common = gcd_i128(new_numer, d1 * d2);
         Rational { 
@@ -72,7 +75,7 @@ impl Sub for Rational {
         let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
         
         let new_numer = (n1 * d2 - n2 * d1).rem_euclid(d1 * d2);
-        if new_numer == 0 { return Self::zero(); }
+        if new_numer == 0 { return Self::ZERO; }
         
         let common = gcd_i128(new_numer, d1 * d2);
         Rational { 
@@ -112,7 +115,7 @@ pub struct FreeRational {
 }
 
 impl FreeRational {
-    pub fn new(numer: i64, denom: i64) -> Self {
+    pub const fn new(numer: i64, denom: i64) -> Self {
         if denom == 0 { panic!("Zero denominator in FreeRational"); }
         let mut n = numer;
         let mut d = denom;
@@ -124,7 +127,10 @@ impl FreeRational {
         FreeRational { numer: n / common, denom: d / common }
     }
     
-    pub fn zero() -> Self { FreeRational { numer: 0, denom: 1 } }
+    pub const ZERO: Self = Self::new(0, 1);
+    pub const HALF: Self = Self::new(1, 2);
+    pub const QUARTER: Self = Self::new(1, 4);
+    pub const THREE_QUARTERS: Self = Self::new(3, 4);
     pub fn is_zero(&self) -> bool { self.numer == 0 }
     pub fn from_f64(val: f64) -> Self {
         let sign = if val < 0.0 { -1 } else { 1 };
@@ -152,7 +158,7 @@ impl Add for FreeRational {
         let new_numer = n1 * d2 + n2 * d1;
         let new_denom = d1 * d2;
         
-        if new_numer == 0 { return Self::zero(); }
+        if new_numer == 0 { return Self::ZERO; }
         
         let common = gcd_i128(new_numer.abs(), new_denom);
         FreeRational { 
@@ -171,7 +177,7 @@ impl Sub for FreeRational {
         let new_numer = n1 * d2 - n2 * d1;
         let new_denom = d1 * d2;
         
-        if new_numer == 0 { return Self::zero(); }
+        if new_numer == 0 { return Self::ZERO; }
         
         let common = gcd_i128(new_numer.abs(), new_denom);
         FreeRational { 
@@ -212,15 +218,20 @@ pub struct PhaseCoeff {
 }
 
 impl PhaseCoeff {
-    pub fn new_constant(constant: Rational) -> Self {
+    pub const fn new_constant(constant: Rational) -> Self {
         Self { constant, symbols: BTreeMap::new() }
     }
 
     pub fn new_symbolic(symbol_id: u32, weight: FreeRational) -> Self {
         let mut symbols = BTreeMap::new();
         symbols.insert(symbol_id, weight);
-        Self { constant: Rational::zero(), symbols }
+        Self { constant: Rational::ZERO, symbols }
     }
+
+    pub const ZERO: Self = Self::new_constant(Rational::ZERO);
+    pub const HALF: Self = Self::new_constant(Rational::HALF);
+    pub const QUARTER: Self = Self::new_constant(Rational::QUARTER);
+    pub const THREE_QUARTERS: Self = Self::new_constant(Rational::THREE_QUARTERS);
 
     pub fn is_zero(&self) -> bool {
         self.constant.is_zero() && self.symbols.is_empty()
@@ -246,7 +257,7 @@ impl PhaseCoeff {
     pub fn add_logic(&mut self, rhs: &Self) {
         self.constant += rhs.constant;
         for (sym_id, weight) in &rhs.symbols {
-            let entry = self.symbols.entry(*sym_id).or_insert(FreeRational::zero());
+            let entry = self.symbols.entry(*sym_id).or_insert(FreeRational::ZERO);
             *entry += *weight;
             if entry.is_zero() {
                 self.symbols.remove(sym_id);
@@ -257,7 +268,7 @@ impl PhaseCoeff {
     pub fn sub_logic(&mut self, rhs: &Self) {
         self.constant -= rhs.constant;
         for (sym_id, weight) in &rhs.symbols {
-            let entry = self.symbols.entry(*sym_id).or_insert(FreeRational::zero());
+            let entry = self.symbols.entry(*sym_id).or_insert(FreeRational::ZERO);
             *entry -= *weight;
             if entry.is_zero() {
                 self.symbols.remove(sym_id);
@@ -267,7 +278,7 @@ impl PhaseCoeff {
 
     pub fn mul_scalar_logic(&mut self, rhs: i64) {
         if rhs == 0 {
-            self.constant = Rational::zero();
+            self.constant = Rational::ZERO;
             self.symbols.clear();
             return;
         }
@@ -353,12 +364,146 @@ fn float_to_rational_continued_fraction(val: f64) -> (i64, i64) {
     (n1, d1)
 }
 // Helper: greatest common divisor
-fn gcd(mut a: i64, mut b: i64) -> i64 {
+const fn gcd(mut a: i64, mut b: i64) -> i64 {
     while b != 0 { let t = b; b = a % b; a = t; }
     a
 }
 
-fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
+const fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
     while b != 0 { let t = b; b = a % b; a = t; }
     a
+}
+
+// ============================================================================
+// 4. Angle (Continuous Algebraic Structure for Input Rotations)
+// ============================================================================
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Angle {
+    pub constant: FreeRational,
+    pub symbols: BTreeMap<u32, FreeRational>,
+}
+
+impl Angle {
+    pub const fn new_constant(constant: FreeRational) -> Self {
+        Self { constant, symbols: BTreeMap::new() }
+    }
+
+    pub fn new_symbolic(symbol_id: u32, weight: FreeRational) -> Self {
+        let mut symbols = BTreeMap::new();
+        symbols.insert(symbol_id, weight);
+        Self { constant: FreeRational::ZERO, symbols }
+    }
+
+    pub const ZERO: Self = Self::new_constant(FreeRational::ZERO);
+    pub const HALF: Self = Self::new_constant(FreeRational::HALF);
+    pub const QUARTER: Self = Self::new_constant(FreeRational::QUARTER);
+    pub const THREE_QUARTERS: Self = Self::new_constant(FreeRational::THREE_QUARTERS);
+
+    pub fn to_phase_coeff(&self) -> PhaseCoeff {
+        let mod1_constant = Rational::new(self.constant.numer, self.constant.denom);
+        PhaseCoeff {
+            constant: mod1_constant,
+            symbols: self.symbols.clone(), 
+        }
+    }
+
+    pub fn from_qasm_str(s: &str) -> Result<Self, String> {
+        let s_owned = s.trim().to_lowercase();
+        let s = s_owned.as_str(); 
+        
+        if s == "0" || s == "0.0" {
+            return Ok(Angle::ZERO);
+        }
+
+        let (is_negative, rest) = if s.starts_with('-') {
+            (true, &s[1..])
+        } else {
+            (false, s) 
+        };
+
+        let multiplier: f64 = if rest.contains('/') {
+            let parts: Vec<&str> = rest.split('/').collect();
+            if parts.len() != 2 {
+                return Err(format!("Invalid division in phase: {}", s));
+            }
+            let num = Self::eval_simple_expression(parts[0])?;
+            let den = parts[1].trim().parse::<f64>()
+                .map_err(|_| format!("Invalid denominator in phase: {}", s))?;
+            num / den
+        } else {
+            Self::eval_simple_expression(rest)?
+        };
+
+        let final_val = if is_negative { -multiplier } else { multiplier };
+        let pi_multiplier = final_val / std::f64::consts::PI;
+        
+        Ok(Angle::new_constant(FreeRational::from_f64(pi_multiplier)))
+    }
+
+    fn eval_simple_expression(s: &str) -> Result<f64, String> {
+        let s = s.trim();
+        if s.is_empty() { return Ok(1.0); }
+
+        if s.contains('*') {
+            let parts: Vec<&str> = s.split('*').collect();
+            let mut res = 1.0;
+            for p in parts {
+                res *= Self::parse_single_token(p)?;
+            }
+            Ok(res)
+        } else {
+            Self::parse_single_token(s)
+        }
+    }
+
+    fn parse_single_token(s: &str) -> Result<f64, String> {
+        let s = s.trim();
+        if s == "pi" {
+            Ok(std::f64::consts::PI)
+        } else if let Ok(val) = s.parse::<f64>() {
+            Ok(val)
+        } else if s.is_empty() {
+            Ok(1.0)
+        } else {
+            Err(format!("Invalid token in phase expression: '{}'", s))
+        }
+    }
+}
+
+impl Mul<i64> for Angle {
+    type Output = Self;
+    fn mul(mut self, rhs: i64) -> Self {
+        self.constant *= rhs;
+        for weight in self.symbols.values_mut() {
+            *weight *= rhs;
+        }
+        self
+    }
+}
+
+impl std::ops::Sub for Angle {
+    type Output = Self;
+    fn sub(mut self, rhs: Self) -> Self {
+        self.constant = self.constant - rhs.constant;
+        for (sym_id, weight) in rhs.symbols {
+            let entry = self.symbols.entry(sym_id).or_insert(FreeRational::ZERO);
+            *entry = *entry - weight;
+            if entry.is_zero() {
+                self.symbols.remove(&sym_id);
+            }
+        }
+        self
+    }
+}
+
+impl Div<i64> for Angle {
+    type Output = Self;
+    fn div(mut self, rhs: i64) -> Self {
+        if rhs == 0 { panic!("Division by zero in Angle"); }
+        self.constant /= rhs;
+        for weight in self.symbols.values_mut() {
+            *weight /= rhs;
+        }
+        self
+    }
 }

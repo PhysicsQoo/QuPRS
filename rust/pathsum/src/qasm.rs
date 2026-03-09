@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use crate::ir::QuantumOp;
 use crate::pathsum::{PathSum, Register};
-use crate::rational::{PhaseCoeff, Rational};
+use crate::rational::{Angle};
 
 /// Parse QASM string into a list of quantum operations
 pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
@@ -95,7 +95,7 @@ pub fn parse_file(path: &Path) -> Result<(Vec<QuantumOp>, usize), String> {
     // Simply delegate to parse_qasm_str
     parse_qasm_str(&content)
 }
-fn parse_gate_name_and_params(token: &str) -> Result<(String, Vec<PhaseCoeff>), String> {
+fn parse_gate_name_and_params(token: &str) -> Result<(String, Vec<Angle>), String> {
     if let Some(start_idx) = token.find('(') {
         if let Some(end_idx) = token.rfind(')') {
             let name = token[..start_idx].trim().to_lowercase();
@@ -103,7 +103,7 @@ fn parse_gate_name_and_params(token: &str) -> Result<(String, Vec<PhaseCoeff>), 
             let mut params = Vec::new();
             if !params_str.trim().is_empty() {
                 for p in params_str.split(',') {
-                    params.push(parse_phase_str(p.trim())?);
+                    params.push(Angle::from_qasm_str(p.trim())?);
                 }
             }
             return Ok((name, params));
@@ -134,76 +134,6 @@ fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>) -> Result<
     }
     Ok(indices)
 }
-
-fn parse_phase_str(s: &str) -> Result<PhaseCoeff, String> {
-    // 1. Convert to lowercase and trim. This creates a new String.
-    let s_owned = s.trim().to_lowercase();
-    let s = s_owned.as_str(); // Use a slice reference for consistent types
-    
-    if s == "0" || s == "0.0" {
-        return Ok(PhaseCoeff::new_constant(Rational::zero()));
-    }
-
-    // 2. Extract sign and the rest of the string
-    // FIX: Ensure both branches return (bool, &str)
-    let (is_negative, rest) = if s.starts_with('-') {
-        (true, &s[1..])
-    } else {
-        (false, s) // 's' is already a &str here
-    };
-
-    // 3. Handle division (e.g., "3*pi / 4")
-    let multiplier: f64 = if rest.contains('/') {
-        let parts: Vec<&str> = rest.split('/').collect();
-        if parts.len() != 2 {
-            return Err(format!("Invalid division in phase: {}", s));
-        }
-        let num = eval_simple_expression(parts[0])?;
-        // Use parse::<f64>() directly on the slice
-        let den = parts[1].trim().parse::<f64>()
-            .map_err(|_| format!("Invalid denominator in phase: {}", s))?;
-        num / den
-    } else {
-        eval_simple_expression(rest)?
-    };
-
-    let final_val = if is_negative { -multiplier } else { multiplier };
-    let pi_multiplier = final_val / std::f64::consts::PI;
-    // 4. Final conversion via Continued Fraction
-    Ok(PhaseCoeff::new_constant(Rational::from_f64(pi_multiplier)))
-}
-
-
-// Ensure these helpers are present as well
-fn eval_simple_expression(s: &str) -> Result<f64, String> {
-    let s = s.trim();
-    if s.is_empty() { return Ok(1.0); }
-
-    if s.contains('*') {
-        let parts: Vec<&str> = s.split('*').collect();
-        let mut res = 1.0;
-        for p in parts {
-            res *= parse_single_token(p)?;
-        }
-        Ok(res)
-    } else {
-        parse_single_token(s)
-    }
-}
-
-fn parse_single_token(s: &str) -> Result<f64, String> {
-    let s = s.trim();
-    if s == "pi" {
-        Ok(std::f64::consts::PI)
-    } else if let Ok(val) = s.parse::<f64>() {
-        Ok(val)
-    } else if s.is_empty() {
-        Ok(1.0)
-    } else {
-        Err(format!("Invalid token in phase expression: '{}'", s))
-    }
-}
-
 
 impl PathSum {
     pub fn load_from_qasm_file(file_path: &str, initial_state: Option<&[u8]>) -> Result<Self, String> {

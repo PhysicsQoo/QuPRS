@@ -222,9 +222,7 @@ impl PathSum {
             return None;
         }
         self.p.terms.get(&vec![]).cloned().or_else(|| {
-            Some(crate::rational::PhaseCoeff::new_constant(
-                crate::rational::Rational::new(0, 1)
-            ))
+            Some(PhaseCoeff::ZERO)
         })
     }
 

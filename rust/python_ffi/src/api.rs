@@ -97,7 +97,18 @@ pub fn check_equivalence(
         dict.set_item("verification_time_sec", result.verification_time)?;
         dict.set_item("pathsum_time_sec", result.pathsum_time)?;
         
-        dict.set_item("final_ps_status", result.final_ps.print_status())?;
+        dict.set_item("final_ps", result.final_ps.print_status())?;
+        let stats_dict = PyDict::new_bound(py);
+        // -- Record reduction rule statistics
+        stats_dict.set_item("hh_hits", result.final_ps.stats.hh.successes)?;
+        stats_dict.set_item("hh_attempts", result.final_ps.stats.hh.attempts)?;
+        
+        stats_dict.set_item("omega_hits", result.final_ps.stats.omega.successes)?;
+        stats_dict.set_item("omega_attempts", result.final_ps.stats.omega.attempts)?;
+        
+        stats_dict.set_item("elim_hits", result.final_ps.stats.elim.successes)?;
+        stats_dict.set_item("elim_attempts", result.final_ps.stats.elim.attempts)?;
+        dict.set_item("stats", stats_dict)?;
         if let Some(wmc_time) = result.wmc_time {
             dict.set_item("wmc_time_sec", wmc_time)?;
             dict.set_item("wmc_dimacs_time_sec", result.to_dimacs_time.unwrap_or(0.0))?;

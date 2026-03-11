@@ -1,7 +1,7 @@
 // rust/python_ffi/src/circuit.rs
 
 use pyo3::prelude::*;
-use pathsum::{ir::QuantumOp, PathSum, rational::{PhaseCoeff, Rational}};
+use pathsum::{ir::QuantumOp, PathSum, rational::{Angle, FreeRational}};
 
 const PI: f64 = std::f64::consts::PI;
 /// A Python-facing class to build quantum circuits programmatically.
@@ -63,24 +63,24 @@ impl QuantumCircuit {
     // Parameterized Rotations
     // ==========================================
     pub fn rx(mut slf: PyRefMut<'_, Self>, q: usize, theta: f64) -> PyRefMut<'_, Self> {
-        let phase = PhaseCoeff::new_constant(Rational::from_f64(theta/PI));
+        let phase = Angle::new_constant(FreeRational::from_f64(theta/PI));
         slf.ops.push(QuantumOp::RX(q, phase));
         slf
     }
     pub fn ry(mut slf: PyRefMut<'_, Self>, q: usize, theta: f64) -> PyRefMut<'_, Self> {
-        let phase = PhaseCoeff::new_constant(Rational::from_f64(theta/PI));
+        let phase = Angle::new_constant(FreeRational::from_f64(theta/PI));
         slf.ops.push(QuantumOp::RY(q, phase));
         slf
     }
     pub fn rz(mut slf: PyRefMut<'_, Self>, q: usize, theta: f64) -> PyRefMut<'_, Self> {
-        let phase = PhaseCoeff::new_constant(Rational::from_f64(theta/PI));
+        let phase = Angle::new_constant(FreeRational::from_f64(theta/PI));
         slf.ops.push(QuantumOp::RZ(q, phase));
         slf
     }
     pub fn u3(mut slf: PyRefMut<'_, Self>, q: usize, theta: f64, phi: f64, lam: f64) -> PyRefMut<'_, Self> {
-        let p_theta = PhaseCoeff::new_constant(Rational::from_f64(theta/PI));
-        let p_phi = PhaseCoeff::new_constant(Rational::from_f64(phi/PI));
-        let p_lam = PhaseCoeff::new_constant(Rational::from_f64(lam/PI));
+        let p_theta = Angle::new_constant(FreeRational::from_f64(theta/PI));
+        let p_phi = Angle::new_constant(FreeRational::from_f64(phi/PI));
+        let p_lam = Angle::new_constant(FreeRational::from_f64(lam/PI));
         slf.ops.push(QuantumOp::U3(q, p_theta, p_phi, p_lam));
         slf
     }

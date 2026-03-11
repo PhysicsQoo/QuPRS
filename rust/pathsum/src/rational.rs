@@ -54,48 +54,36 @@ impl fmt::Display for Rational {
 impl Add for Rational {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
-        let n1 = self.numer as i128; let d1 = self.denom as i128;
-        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
-        
-        let new_numer = (n1 * d2 + n2 * d1).rem_euclid(d1 * d2);
-        if new_numer == 0 { return Self::ZERO; }
-        
-        let common = gcd_i128(new_numer, d1 * d2);
-        Rational { 
-            numer: (new_numer / common) as i64, 
-            denom: ((d1 * d2) / common) as i64 
-        }
+        let num = (self.numer as i128) * (rhs.denom as i128) + (rhs.numer as i128) * (self.denom as i128);
+        let den = (self.denom as i128) * (rhs.denom as i128);
+        let (n, d) = reduce_and_cap_i128(num, den);
+        Self::new(n, d) 
     }
 }
 
 impl Sub for Rational {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
-        let n1 = self.numer as i128; let d1 = self.denom as i128;
-        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
-        
-        let new_numer = (n1 * d2 - n2 * d1).rem_euclid(d1 * d2);
-        if new_numer == 0 { return Self::ZERO; }
-        
-        let common = gcd_i128(new_numer, d1 * d2);
-        Rational { 
-            numer: (new_numer / common) as i64, 
-            denom: ((d1 * d2) / common) as i64 
-        }
+        let num = (self.numer as i128) * (rhs.denom as i128) - (rhs.numer as i128) * (self.denom as i128);
+        let den = (self.denom as i128) * (rhs.denom as i128);
+        let (n, d) = reduce_and_cap_i128(num, den);
+        Self::new(n, d)
     }
 }
 
 impl Mul<i64> for Rational {
     type Output = Self;
     fn mul(self, rhs: i64) -> Self {
-        Self::new(self.numer * rhs, self.denom)
+        let (n, d) = reduce_and_cap_i128((self.numer as i128) * (rhs as i128), self.denom as i128);
+        Self::new(n, d)
     }
 }
 
 impl Div<i64> for Rational {
     type Output = Self;
     fn div(self, rhs: i64) -> Self {
-        Self::new(self.numer, self.denom * rhs)
+        let (n, d) = reduce_and_cap_i128(self.numer as i128, (self.denom as i128) * (rhs as i128));
+        Self::new(n, d)
     }
 }
 
@@ -152,45 +140,28 @@ impl fmt::Display for FreeRational {
 impl Add for FreeRational {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
-        let n1 = self.numer as i128; let d1 = self.denom as i128;
-        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
-        
-        let new_numer = n1 * d2 + n2 * d1;
-        let new_denom = d1 * d2;
-        
-        if new_numer == 0 { return Self::ZERO; }
-        
-        let common = gcd_i128(new_numer.abs(), new_denom);
-        FreeRational { 
-            numer: (new_numer / common) as i64, 
-            denom: (new_denom / common) as i64 
-        }
+        let num = (self.numer as i128) * (rhs.denom as i128) + (rhs.numer as i128) * (self.denom as i128);
+        let den = (self.denom as i128) * (rhs.denom as i128);
+        let (n, d) = reduce_and_cap_i128(num, den);
+        Self::new(n, d)
     }
 }
 
 impl Sub for FreeRational {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
-        let n1 = self.numer as i128; let d1 = self.denom as i128;
-        let n2 = rhs.numer as i128; let d2 = rhs.denom as i128;
-        
-        let new_numer = n1 * d2 - n2 * d1;
-        let new_denom = d1 * d2;
-        
-        if new_numer == 0 { return Self::ZERO; }
-        
-        let common = gcd_i128(new_numer.abs(), new_denom);
-        FreeRational { 
-            numer: (new_numer / common) as i64, 
-            denom: (new_denom / common) as i64 
-        }
+        let num = (self.numer as i128) * (rhs.denom as i128) - (rhs.numer as i128) * (self.denom as i128);
+        let den = (self.denom as i128) * (rhs.denom as i128);
+        let (n, d) = reduce_and_cap_i128(num, den);
+        Self::new(n, d)
     }
 }
 
 impl Mul<i64> for FreeRational {
     type Output = Self;
     fn mul(self, rhs: i64) -> Self {
-        Self::new(self.numer * rhs, self.denom)
+        let (n, d) = reduce_and_cap_i128((self.numer as i128) * (rhs as i128), self.denom as i128);
+        Self::new(n, d)
     }
 }
 
@@ -198,7 +169,8 @@ impl Div<i64> for FreeRational {
     type Output = Self;
     fn div(self, rhs: i64) -> Self {
         if rhs == 0 { panic!("Division by zero"); }
-        Self::new(self.numer, self.denom * rhs)
+        let (n, d) = reduce_and_cap_i128(self.numer as i128, (self.denom as i128) * (rhs as i128));
+        Self::new(n, d)
     }
 }
 
@@ -374,6 +346,27 @@ const fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
     a
 }
 
+fn reduce_and_cap_i128(n: i128, d: i128) -> (i64, i64) {
+    if n == 0 { return (0, 1); }
+    let mut num = n;
+    let mut den = d;
+    if den < 0 { num = -num; den = -den; }
+    
+    let common = gcd_i128(num.abs(), den);
+    num /= common;
+    den /= common;
+    
+    let max_safe = 100_000_000_000_000i128; 
+    
+    if num.abs() > max_safe || den > max_safe {
+        let val = (num as f64) / (den as f64);
+        let sign = if val < 0.0 { -1 } else { 1 };
+        let (n_approx, d_approx) = float_to_rational_continued_fraction(val.abs());
+        (n_approx * sign, d_approx)
+    } else {
+        (num as i64, den as i64)
+    }
+}
 // ============================================================================
 // 4. Angle (Continuous Algebraic Structure for Input Rotations)
 // ============================================================================

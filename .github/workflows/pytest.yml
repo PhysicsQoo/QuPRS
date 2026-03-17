@@ -12,7 +12,8 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/pytest.yml'
       - 'scripts/hatch_build.py'
-
+  workflow_dispatch:
+    
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

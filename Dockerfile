@@ -31,7 +31,7 @@ COPY . .
 
 RUN git submodule update --init --recursive
 
-RUN conda run -n base pip install wheel && \
+RUN conda run -n base pip install maturin && \
     conda run -n base pip wheel ".[dev]" --wheel-dir /wheels
 
 # Set environment variables

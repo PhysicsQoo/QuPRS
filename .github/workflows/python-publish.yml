@@ -61,8 +61,7 @@ jobs:
           CIBW_ARCHS: ${{ matrix.arch }}
 
           CIBW_TEST_REQUIRES: pytest
-          # Install dependencies from pyproject.toml, forcing binaries for deps but allowing source for the package itself
-          CIBW_BEFORE_TEST: "pip install --no-binary=QuPRS \".[dev]\""
+          CIBW_BEFORE_TEST: "pip install \".[dev]\""
           CIBW_TEST_COMMAND: pytest -n auto -k "not (Feynman or MQT)" {project}/test
 
       - name: Upload wheel artifacts (for all builds - general purpose)
@@ -86,10 +85,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          submodules: 'recursive'
           fetch-depth: 0
 
       - name: Install build tool
-        run: pip install build
+        run: pip install build maturin
 
       - name: Clean up existing dist directory
         run: rm -rf dist/

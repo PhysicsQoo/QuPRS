@@ -1,19 +1,22 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs", "cmake"]
-build-backend = "hatchling.build"
+# Use maturin as the build backend for Rust/Python integration
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "QuPRS"
+# Version is dynamically fetched from rust/python_ffi/Cargo.toml (Single Source of Truth)
+dynamic = ["version"]
 authors = [
     { name = "Wei-Jia Huang", email = "wei.jia.huang.physics@gmail.com" },
 ]
 description = "QuPRS: Quantum Path-sum Reduction and Solver" 
-keywords = ["pathsum", "weighted model counting", "quantum circuit", "equivalence checking", ]
+keywords = ["pathsum", "weighted model counting", "quantum circuit", "equivalence checking"]
 readme = "README.md"
 license-files  = ["LICENSE.md", "NOTICE.md"]
 requires-python = ">=3.11"
 classifiers = [
-    "Development Status :: 4 - Beta", # (Alpha, Beta, Production/Stable)
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
@@ -37,7 +40,7 @@ dependencies = [
     "qiskit-qasm3-import>=0.5.1",
     "psutil",
 ]
-dynamic = ["version"]
+
 [project.optional-dependencies]
 dev = [
     "ipykernel",
@@ -52,46 +55,43 @@ dev = [
     "pandas",
     "tqdm"
 ]
+
 [project.urls]
-Homepage = "https://github.com/PhysicsQoo/QuPRS" # GitHub link
+Homepage = "https://github.com/PhysicsQoo/QuPRS"
 PyPI = "https://pypi.org/project/QuPRS/"
-# (Optional) Other URLs related to your project
 "Bug Tracker" = "https://github.com/PhysicsQoo/QuPRS/issues"
 "Documentation" = "https://github.com/PhysicsQoo/QuPRS#readme"
 
-[tool.hatch.build.targets.wheel.hooks.custom]
-path = "scripts/hatch_build.py"
+# ==========================================
+# Maturin Specific Configuration
+# ==========================================
+[tool.maturin]
+# Path to the Cargo.toml that defines the Python FFI (cdylib)
+manifest-path = "rust/python_ffi/Cargo.toml"
 
-[tool.hatch.build.targets.wheel]
-artifacts = ["src/QuPRS/utils/wmc_tools/*"]
-packages = ["src/QuPRS"]
-pure = false
+# Directory where the Python package source resides
+python-source = "src/QuPRS"
 
-[tool.hatch.build.targets.sdist]
+# List of patterns to include in the Source Distribution (Sdist)
+# Essential for users building from source who need C++ code and build scripts
 include = [
-    "src",
-    "scripts",
-    "GPMC",
-    "ganak",
-    "LICENSE.md",
-    "NOTICE.md",
-    "README.md",
-    "pyproject.toml"
+    "GPMC/**/*",                   # C++ source for GPMC
+    "scripts/install_linux_deps.sh", # Environment setup script
+    "src/QuPRS/utils/wmc_tools/*", # Compiled binaries from build.rs
 ]
 
-[tool.hatch.version]
-source = "vcs"
-
-[tool.hatch.build.hooks.vcs]
-version-file = "src/QuPRS/_version.py"
-
+# ==========================================
+# cibuildwheel Configuration for Cross-Platform Builds
+# ==========================================
 [tool.cibuildwheel]
-# Skip PyPy, 32-bit, and musllinux builds
+# Skip specific platforms to save CI time
 skip = ["pp*", "*i686*", "*musllinux*", "cp314*"]
 build-frontend = "build"
 
 [tool.cibuildwheel.linux]
+# Ensure system libraries (GMP/MPFR) are installed in the Docker container before building
 before-all = "sh scripts/install_linux_deps.sh"
 
 [tool.cibuildwheel.macos]
-before-all = "brew install gmp mpfr zlib"
+# Install dependencies using Homebrew on macOS Runners
+before-all = "brew install gmp mpfr zlib cmake"

@@ -43,6 +43,7 @@ fn main() {
     
     // Inject environment variable for Rust code to use during development/testing
     println!("cargo:rustc-env=GANAK_BIN_PATH={}", ganak_dest.display());
+    println!("cargo:rerun-if-changed={}", ganak_dest.display());
 
     // ==========================================
     // 2. Compile GPMC
@@ -125,6 +126,7 @@ fn main() {
 
     // Inject environment variable for Rust code to use during development/testing
     println!("cargo:rustc-env=GPMC_BIN_PATH={}", gpmc_dest.display());
+    println!("cargo:rerun-if-changed={}", gpmc_dest.display());
 }
 
 /// Downloads the corresponding Ganak ZIP for the target platform and extracts it
@@ -203,4 +205,5 @@ fn download_and_extract_ganak(target_os: &str, target_arch: &str, dest_path: &Pa
         "cargo:warning=Successfully installed Ganak to {}",
         dest_path.display()
     );
+    
 }

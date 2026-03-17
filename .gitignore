@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.so
+*.dylib
 
 # Build and distribution directories
 build/
@@ -39,6 +41,4 @@ build_cpp/
 rust/target
 rust/**/*.rs.bk
 
-src/_pathsum_rust/*.so
-src/_pathsum_rust/*.dylib
-src/_pathsum_rust/*.pyd
+

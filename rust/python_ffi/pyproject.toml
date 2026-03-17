@@ -17,4 +17,4 @@ classifiers = [
 
 [tool.maturin]
 manifest-path = "Cargo.toml"
-module-name = "pathsum_rust"
+module-name = "_pathsum_rust"

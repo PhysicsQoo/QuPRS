@@ -71,7 +71,7 @@ manifest-path = "rust/python_ffi/Cargo.toml"
 
 # Directory where the Python package source resides
 python-source = "src"
-
+module-name = "QuPRS._pathsum_rust"
 # List of patterns to include in the Source Distribution (Sdist)
 # Essential for users building from source who need C++ code and build scripts
 include = [

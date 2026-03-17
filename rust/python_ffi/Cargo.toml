@@ -2,9 +2,10 @@
 
 [package]
 name = "quprs_python"   
-version = "0.1.0"
-edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish.workspace = true
 
 [lib]
 name = "pathsum_rust"   

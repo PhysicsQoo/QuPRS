@@ -1,3 +1,4 @@
+# rust/Cargo.toml
 [workspace]
 members = [
     "pathsum",
@@ -6,3 +7,24 @@ members = [
 ]
 
 resolver = "2"
+
+[workspace.package]
+version = "0.12.3"
+edition = "2021" 
+authors = ["Wei-Jia Huang <wei.jia.huang.physics@gmail.com>"]
+publish = false
+
+[workspace.metadata.release]
+shared-version = true    
+tag = true               
+tag-name = "v{{version}}"
+push = false             
+sign-commit = false      
+
+pre-release-commit-message = "chore: release v{{version}}"
+
+pre-release-replacements = [
+    # { file = "../../src/QuPRS/__init__.py", search = '__version__ = ".*"', replace = '__version__ = "{{version}}"' },
+    # { file = "../../pyproject.toml", search = 'version = ".*"', replace = 'version = "{{version}}"' },
+    # { file = "../../CITATION.cff", search = "version: .*", replace = "version: {{version}}" }
+]

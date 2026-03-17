@@ -160,7 +160,23 @@ impl WmcManager {
         }
         out
     }
-    
+    fn find_gpmc_path() -> String {
+        if let Ok(path) = std::env::var("QUPRS_GPMC_PATH") {
+            return path;
+        }
+
+        if let Some(compile_path) = option_env!("GPMC_BIN_PATH") {
+            if std::path::Path::new(compile_path).exists() {
+                return compile_path.to_string();
+            }
+        }
+
+        if cfg!(windows) {
+            "gpmc.exe".to_string()
+        } else {
+            "gpmc".to_string()
+        }
+    }
     pub fn solve_with_gpmc(&self) -> Result<Complex<f64>> {
         use std::io::Read;
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -175,7 +191,7 @@ impl WmcManager {
         let mut file = File::create(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
 
-        let gpmc_exe = env!("GPMC_BIN_PATH");
+        let gpmc_exe = Self::find_gpmc_path();
         
         debug!(target: "wmc", "Spawning GPMC solver: {} -mode=1 {}", gpmc_exe, temp_cnf_path.display());
 

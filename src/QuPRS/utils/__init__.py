@@ -1,8 +1,15 @@
+# src/QuPRS/utils/__init__.py
+
+import os
+import platform
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 from typing import Iterator
 
+def _get_binary_name(base_name: str) -> str:
+    """Helper to append .exe on Windows."""
+    return f"wmc_tools/{base_name}.exe" if platform.system() == "Windows" else f"wmc_tools/{base_name}"
 
 @contextmanager
 def get_gpmc_path() -> Iterator[Path]:
@@ -10,7 +17,7 @@ def get_gpmc_path() -> Iterator[Path]:
     Context manager to safely obtain the path to the packaged GPMC binary.
     """
     # Standardized binary name regardless of OS
-    binary_name = "wmc_tools/gpmc"
+    binary_name = _get_binary_name("gpmc")
 
     try:
         # 1. Locate the binary resource within the 'QuPRS.utils' submodule
@@ -34,14 +41,14 @@ def get_ganak_path() -> Iterator[Path]:
     Context manager to safely obtain the path to the packaged Ganak binary.
     """
     # Standardized binary name regardless of OS
-    binary_name = "wmc_tools/ganak"
+    binary_name = _get_binary_name("ganak")
 
     try:
         # 1. Locate the binary resource within the 'QuPRS.utils' submodule
-        gpmc_resource = resources.files("QuPRS.utils").joinpath(binary_name)
+        ganak_resource = resources.files("QuPRS.utils").joinpath(binary_name)
 
         # 2. Use as_file to ensure we get a real file system path
-        with resources.as_file(gpmc_resource) as path:
+        with resources.as_file(ganak_resource) as path:
             # 3. Yield the valid path to the context block
             yield path
 

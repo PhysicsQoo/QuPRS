@@ -24,15 +24,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# 3. Install Rust toolchain and add to PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PATH="/root/.cargo/bin:/opt/conda/bin:${PATH}"
 
 COPY . .
 
 RUN git submodule update --init --recursive
 
-RUN conda run -n base pip install maturin && \
-    conda run -n base pip wheel ".[dev]" --no-build-isolation --wheel-dir /wheels
+# 4. Build Python wheels (maturin as PEP 517 backend)
+RUN pip install maturin && \
+    pip wheel ".[dev]" --no-build-isolation --wheel-dir /wheels
 
 # Set environment variables
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
@@ -43,10 +45,10 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 # =================================================================
 FROM builder AS tester
 
-RUN conda run -n base pip install --no-index --find-links=/wheels "QuPRS[dev]"
+RUN pip install --no-index --find-links=/wheels "QuPRS[dev]"
 
 WORKDIR /tmp
-RUN conda run -n base pytest /app/test -n auto
+RUN pytest /app/test -n auto
 
 # =================================================================
 # Final Stage
@@ -69,7 +71,7 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 # Install the package (without development dependencies)
 COPY --from=builder /wheels /wheels
-RUN conda run -n base pip install --no-index --find-links=/wheels QuPRS && \
+RUN pip install --no-index --find-links=/wheels QuPRS && \
     rm -rf /wheels
 
 # Copy documentation and license files

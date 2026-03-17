@@ -7,16 +7,16 @@ on:
     paths:
       - 'src/**'
       - 'test/**'
+      - 'rust/**'
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
-      - 'scripts/hatch_build.py'
   pull_request:
     paths:
       - 'src/**'
       - 'test/**'
+      - 'rust/**'
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
-      - 'scripts/hatch_build.py'
   workflow_dispatch:
 
 permissions:

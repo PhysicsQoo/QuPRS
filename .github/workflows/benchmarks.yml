@@ -6,17 +6,19 @@ on:
     paths:
       - 'src/**'
       - 'test/**'
+      - 'rust/**'
       - 'pyproject.toml'
+      - 'Cargo.toml'
       - '.github/workflows/benchmarks.yml'
-      - 'scripts/hatch_build.py'
   pull_request:
     branches: [ main ]
     paths:
       - 'src/**'
       - 'test/**'
+      - 'rust/**'
       - 'pyproject.toml'
+      - 'Cargo.toml'
       - '.github/workflows/benchmarks.yml'
-      - 'scripts/hatch_build.py'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,10 +55,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+
+      # 🌟 新增：設定 Rust 環境與快取
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target"
+          key: ubuntu-latest-benchmark-cargo-v1
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
 
       - name: Cache Compiled Binaries (GPMC/Ganak)
         id: cache-wmc-tools
@@ -68,14 +80,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[dev]
+          pip install maturin
+          maturin develop --release -E dev
 
       - name: Run benchmark and save results as JSON
         run: pytest --benchmark-only --benchmark-json=output.json
 
       - name: Discard local changes to tracked files
         run: |
-          echo "Cleaning up modified files (like _version.py) to allow branch switching..."
+          echo "Cleaning up modified files to allow branch switching..."
           git checkout .
 
       - name: Process benchmark data (Generate Charts)
@@ -89,6 +102,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           save-data-file: true
           fail-on-alert: false
+
       - name: Push results to benchmarks branch
         run: |
             # Set Git identity
@@ -145,8 +159,20 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target"
+          key: ubuntu-latest-benchmark-cargo-v1
 
       # Step 2: Fetch baseline from main branch (Moved up)
       - name: Fetch baseline
@@ -159,10 +185,12 @@ jobs:
             echo "Baseline not found. Creating an empty baseline."
             echo "{}" > main_baseline.json
           fi
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get update && sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+
       - name: Cache Compiled Binaries (GPMC/Ganak)
         id: cache-wmc-tools
         uses: actions/cache@v4
@@ -172,8 +200,8 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install cibuildwheel
-          pip install .[dev]
+          pip install maturin
+          maturin develop --release -E dev
 
       # Step 4: Run benchmark on PR code (and compare if baseline exists)
       - name: Run and compare benchmarks
@@ -223,3 +251,4 @@ jobs:
             benchmark_report.md
             pr_benchmark.json
             main_baseline.json
+            

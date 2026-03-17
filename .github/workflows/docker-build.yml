@@ -20,17 +20,17 @@ on:
     paths:
       - 'src/**'
       - 'test/**'
+      - 'rust/**'
       - 'pyproject.toml'
       - '.github/workflows/docker-build.yml'
-      - 'scripts/hatch_build.py'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'src/**'
       - 'test/**'
+      - 'rust/**'
       - 'pyproject.toml'
       - '.github/workflows/docker-build.yml'
-      - 'scripts/hatch_build.py'
   workflow_dispatch:
     inputs:
       run_build_push:

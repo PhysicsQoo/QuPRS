@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 *.so
 *.dylib
+*.dSYM/
 
 # Build and distribution directories
 build/

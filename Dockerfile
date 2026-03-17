@@ -21,11 +21,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgmp-dev \
     libmpfr-dev \
     zlib1g-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 COPY . .
 
 RUN git submodule update --init --recursive
+
 RUN conda run -n base pip install wheel && \
     conda run -n base pip wheel ".[dev]" --wheel-dir /wheels
 
@@ -33,14 +38,19 @@ RUN conda run -n base pip install wheel && \
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
-
+# =================================================================
+# Tester Stage
+# =================================================================
 FROM builder AS tester
 
-# Run tests using pytest
 RUN conda run -n base pip install --no-index --find-links=/wheels "QuPRS[dev]"
-RUN conda run -n base pytest -n auto
 
+WORKDIR /tmp
+RUN conda run -n base pytest /app/test -n auto
 
+# =================================================================
+# Final Stage
+# =================================================================
 FROM continuumio/miniconda3 AS final
 WORKDIR /app
 
@@ -54,11 +64,8 @@ RUN conda update -n base -c defaults conda --yes && \
     zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
-
-
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
-
 
 # Install the package (without development dependencies)
 COPY --from=builder /wheels /wheels

@@ -11,7 +11,6 @@ on:
       - 'test/**'
       - 'rust/**'
       - 'pyproject.toml'
-      - 'Cargo.toml'
       - '.github/workflows/pytest.yml'
   workflow_dispatch:
 

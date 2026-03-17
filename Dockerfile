@@ -32,7 +32,7 @@ COPY . .
 RUN git submodule update --init --recursive
 
 RUN conda run -n base pip install maturin && \
-    conda run -n base pip wheel ".[dev]" --wheel-dir /wheels
+    conda run -n base pip wheel ".[dev]" --no-build-isolation --wheel-dir /wheels
 
 # Set environment variables
 ARG SETUPTOOLS_SCM_PRETEND_VERSION

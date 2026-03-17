@@ -238,7 +238,7 @@ jobs:
       # Step 6: Comment on PR with benchmark results
       - name: Post benchmark results
         if: success() || failure()
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           path: benchmark_report.md
           header: "🔍 Benchmark Comparison Report"

@@ -73,6 +73,7 @@ jobs:
               MPFR=$(brew --prefix mpfr)
               ZLIB=$(brew --prefix zlib) 
               echo "CFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> $GITHUB_ENV
+              echo "CXXFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> $GITHUB_ENV
               echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib -L$ZLIB/lib -Wl,-rpath,$ZLIB/lib" >> $GITHUB_ENV
               echo "DYLD_LIBRARY_PATH=$GMP/lib:$MPFR/lib:$ZLIB/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
 

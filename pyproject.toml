@@ -70,7 +70,7 @@ PyPI = "https://pypi.org/project/QuPRS/"
 manifest-path = "rust/python_ffi/Cargo.toml"
 
 # Directory where the Python package source resides
-python-source = "src/QuPRS"
+python-source = "src"
 
 # List of patterns to include in the Source Distribution (Sdist)
 # Essential for users building from source who need C++ code and build scripts
@@ -95,3 +95,10 @@ before-all = "sh scripts/install_linux_deps.sh"
 [tool.cibuildwheel.macos]
 # Install dependencies using Homebrew on macOS Runners
 before-all = "brew install gmp mpfr zlib cmake"
+
+# ==========================================
+# Pytest Configuration
+# ==========================================
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["test"]

@@ -38,3 +38,7 @@ build_cpp/
 # rust
 rust/target
 rust/**/*.rs.bk
+
+src/_pathsum_rust/*.so
+src/_pathsum_rust/*.dylib
+src/_pathsum_rust/*.pyd

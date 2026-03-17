@@ -119,13 +119,17 @@ jobs:
         run: | 
           python -m pip install --upgrade pip 
           pip install maturin
+          export VIRTUAL_ENV=$(dirname $(dirname $(which python)))
           maturin develop --release -E dev
       - name: Install and build (Windows)
         if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
+        shell: pwsh
         run: | 
           python -m pip install --upgrade pip 
           pip install maturin
+          $PYTHON_EXE = (Get-Command python).Source
+          $VENV_PATH = (Split-Path (Split-Path $PYTHON_EXE -Parent) -Parent)
+          $env:VIRTUAL_ENV = $VENV_PATH
           maturin develop --release -E dev
 
       # ==========================================

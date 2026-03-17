@@ -51,7 +51,6 @@ pub fn check_equivalence(
     timeout: u64,
     safe_mode: bool,
 ) -> PyResult<PyObject> {
-    let _ = tool_name;
     let _ = safe_mode;
 
     let (ops1, num_qubits1) = extract_circuit(circuit1)?;
@@ -73,9 +72,11 @@ pub fn check_equivalence(
         _ => return Err(PyValueError::new_err(format!("Unknown strategy: {}", strategy))),
     };
 
+    let tool_name_owned = tool_name.to_lowercase();
+
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
-            core_check_equivalence(system_qubits, &ops1, &ops2, rs_method, rs_strategy, timeout)
+            core_check_equivalence(system_qubits, &ops1, &ops2, rs_method, rs_strategy, &tool_name_owned, timeout)
         })
     }).map_err(|e| PyValueError::new_err(format!("Verification Engine Failed: {}", e)))?;
 

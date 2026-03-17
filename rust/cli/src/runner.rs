@@ -64,6 +64,7 @@ pub fn run_dual_circuit_mode(cli: &Cli, file2_path: &std::path::Path) -> Result<
         &ops2,
         method,
         strategy,
+        &cli.tool,
         cli.timeout,
     ).context("Core verification engine failed")?;
 

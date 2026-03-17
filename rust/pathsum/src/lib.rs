@@ -76,6 +76,7 @@ pub fn check_equivalence(
     gates2: &[QuantumOp],
     method: VerificationMethod,
     strategy: VerificationStrategy,
+    tool_name: &str,
     _timeout_secs: u64, // To be implemented with threads if strict abort is needed
 ) -> Result<EquivalenceCheckResult> {
     let global_start = Instant::now();
@@ -140,7 +141,7 @@ pub fn check_equivalence(
         wmc_mgr.encode_trace(&ps_miter);
 
         let dimacs_start = Instant::now();
-        let cnf_string = wmc_mgr.to_dimacs_string();
+        let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
         to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
         let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
@@ -150,13 +151,13 @@ pub fn check_equivalence(
         let raw_amplitude = if cnf_string.contains("p cnf 0 0") || num_active_vars == 0 {
             num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0)
         } else {
-            wmc_mgr.solve_with_gpmc()?
+            wmc_mgr.solve(tool_name)?
         };
         tool_time = Some(tool_start.elapsed().as_secs_f64());
 
         let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
         let final_amplitude = raw_amplitude * normalization_factor;
-        info!(target: "wmc", "GPMC log2 result : {:.4}", raw_amplitude.norm().log2());
+        info!(target: "wmc", "{} log2 result : {:.4}", tool_name, raw_amplitude.norm().log2());
         info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
@@ -189,7 +190,7 @@ pub fn check_equivalence(
         to_dimacs_time,
         tool_time,
         wmc_time,
-        tool_name: "gpmc".to_string(),
+        tool_name: tool_name.to_string(),
         final_ps: ps_miter,
     })
 }

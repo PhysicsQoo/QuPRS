@@ -11,7 +11,7 @@ path1 = Feynman_BENCH_ROOT
 path2 = Feynman_BENCH_ROOT / "h,y,z,t,tdg,cx"
 
 
-def generate_test(file_name, strategy="proportional", switch=False):
+def generate_test(file_name, strategy="proportional", switch=False, backend="python"):
     circuit1 = str(path1 / file_name)
     circuit2 = str(path2 / file_name)
     if switch:
@@ -26,11 +26,13 @@ def generate_test(file_name, strategy="proportional", switch=False):
         method="reduction_rules",
         strategy=strategy,
         timeout=REAL_TIMEOUT,
+        backend=backend,
     )
 
     return result
 
 
+@pytest.mark.parametrize("backend", ["python", "rust"])
 @pytest.mark.parametrize(
     "file_name, strategy, switch",
     [
@@ -41,12 +43,12 @@ def generate_test(file_name, strategy="proportional", switch=False):
         # ("new_benchmark_file.qasm", "new_strategy"),
     ],
 )
-def test_all_benchmarks(benchmark, file_name, strategy, switch):
+def test_all_benchmarks(benchmark, file_name, strategy, switch, backend):
     """
     A function to test all benchmark files.
     Pytest will execute this function once for each row in the parametrize list.
     """
-    result = benchmark(generate_test, file_name, strategy=strategy, switch=switch)
+    result = benchmark(generate_test, file_name, strategy=strategy, switch=switch, backend=backend)
 
     resource_limits = {"Timeout", "MemoryOut"}
     if result.equivalent in resource_limits:

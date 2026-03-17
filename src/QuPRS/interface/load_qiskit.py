@@ -135,6 +135,7 @@ def check_equivalence(
     tool_name: str = "gpmc",
     timeout: int = 600,
     safe_mode: bool = False,
+    backend: str = "python",
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -171,6 +172,63 @@ def check_equivalence(
         raise ValueError(
             "Invalid method parameter. Choose from 'hybrid', "
             "'reduction_rules', or 'wmc_only'."
+        )
+
+    if backend == "rust":
+        from QuPRS import _pathsum_rust
+        
+        # Load circuits as QASM strings to pass to Rust if they are QuantumCircuits
+        if isinstance(circuit1, QuantumCircuit):
+            c1_input = qasm3.dumps(circuit1) if "OPENQASM 3.0" in getattr(circuit1, 'qasm', lambda: '')() else qasm2.dumps(circuit1)
+        else:
+            c1_input = circuit1
+            
+        if isinstance(circuit2, QuantumCircuit):
+            c2_input = qasm3.dumps(circuit2) if "OPENQASM 3.0" in getattr(circuit2, 'qasm', lambda: '')() else qasm2.dumps(circuit2)
+        else:
+            c2_input = circuit2
+
+        rust_res = _pathsum_rust.check_equivalence(
+            c1_input,
+            c2_input,
+            method=method,
+            strategy=strategy,
+            tool_name=tool_name,
+            timeout=timeout,
+            safe_mode=safe_mode,
+        )
+        # Parse rust result dict into EquivalenceCheckResult
+        # Handle string mappings
+        equiv_map = {
+            "Equivalent": "equivalent",
+            "Equivalent (Up to Global Phase)": "equivalent*",
+            "Not Equivalent": "not_equivalent",
+        }
+        mapped_equiv = equiv_map.get(rust_res.get("status"), "unknown")
+        if rust_res.get("status") == "Unknown" and method == "reduction_rules":
+            mapped_equiv = "unknown"
+        elif rust_res.get("status") == "Unknown":
+            mapped_equiv = "unknown"
+            
+        return EquivalenceCheckResult(
+            qubit_num=rust_res.get("qubits", 0),
+            gate_num=rust_res.get("gates1", 0),
+            gate_num2=rust_res.get("gates2", 0),
+            method=method,
+            strategy=strategy,
+            equivalent=mapped_equiv,
+            verification_time=rust_res.get("verification_time_sec", 0.0),
+            pathsum_time=rust_res.get("pathsum_time_sec", 0.0),
+            final_pathsum=rust_res.get("final_ps", "N/A"),
+            progress="N/A",  # Not tracked same way in rust
+            Statistics=rust_res.get("stats", {}), # In python it's a StatisticsManager, but keeping dict for print compatibility
+            to_DIMACS_time=rust_res.get("wmc_dimacs_time_sec"),
+            tool_name=tool_name,
+            tool_time=rust_res.get("wmc_solver_time_sec"),
+            wmc_time=rust_res.get("wmc_time_sec"),
+            CNF=None,
+            expect=None,
+            log_wmc=None,
         )
     try:
         from QuPRS.utils.strategy import Strategy

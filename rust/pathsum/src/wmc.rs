@@ -142,7 +142,7 @@ impl WmcManager {
         }
     }
 
-    pub fn to_dimacs_string(&self) -> String {
+    pub fn to_dimacs_string(&self, tool_name: &str) -> String {
         let mut out = String::new();
         let num_vars = self.next_var_id - 1;
         let num_clauses = self.clauses.len();
@@ -150,8 +150,14 @@ impl WmcManager {
         out.push_str(&format!("p cnf {} {}\nc t wmc\n", num_vars, num_clauses));
         
         for (var, weight) in &self.weights {
-            out.push_str(&format!("c p weight {} {:.9} {:.9} 0\n", var, weight.re, weight.im));
-            out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
+            if tool_name == "gpmc" {
+                out.push_str(&format!("c p weight {} {:.9} {:.9} 0\n", var, weight.re, weight.im));
+                out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
+            } else {
+                let op = if weight.im >= 0.0 { "+" } else { "-" };
+                out.push_str(&format!("c p weight {} {:.9} {} {:.9}i 0\n", var, weight.re, op, weight.im.abs()));
+                out.push_str(&format!("c p weight -{} 1.0 + 0.0i 0\n", var));
+            }
         }
 
         for clause in &self.clauses {
@@ -177,7 +183,25 @@ impl WmcManager {
             "gpmc".to_string()
         }
     }
-    pub fn solve_with_gpmc(&self) -> Result<Complex<f64>> {
+    fn find_ganak_path() -> String {
+        if let Ok(path) = std::env::var("QUPRS_GANAK_PATH") {
+            return path;
+        }
+
+        if let Some(compile_path) = option_env!("GANAK_BIN_PATH") {
+            if std::path::Path::new(compile_path).exists() {
+                return compile_path.to_string();
+            }
+        }
+
+        if cfg!(windows) {
+            "ganak.exe".to_string()
+        } else {
+            "ganak".to_string()
+        }
+    }
+
+    pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
         use std::io::Read;
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -185,23 +209,29 @@ impl WmcManager {
         let pid = std::process::id();
         let temp_cnf_path = std::env::temp_dir().join(format!("temp_eqcheck_{}_{}.cnf", pid, timestamp));
         
-        let cnf_content = self.to_dimacs_string();
-        trace!(target: "wmc", "Generated CNF for GPMC:\n{}", cnf_content);
+        let cnf_content = self.to_dimacs_string(tool_name);
+        trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
         let mut file = File::create(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
 
-        let gpmc_exe = Self::find_gpmc_path();
+        let (exe_path, args) = if tool_name == "gpmc" {
+            (Self::find_gpmc_path(), vec!["-mode=1"])
+        } else if tool_name == "ganak" {
+            (Self::find_ganak_path(), vec!["--mode=6"])
+        } else {
+            return Err(anyhow!("Unsupported tool name: {}", tool_name));
+        };
         
-        debug!(target: "wmc", "Spawning GPMC solver: {} -mode=1 {}", gpmc_exe, temp_cnf_path.display());
+        debug!(target: "wmc", "Spawning {} solver: {} {:?} {}", tool_name, exe_path, args, temp_cnf_path.display());
 
-        let mut child = Command::new(gpmc_exe)
-            .arg("-mode=1")
+        let mut child = Command::new(&exe_path)
+            .args(&args)
             .arg(&temp_cnf_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .context("Failed to spawn GPMC process")?;
+            .context(format!("Failed to spawn {} process from path: {}", tool_name, exe_path))?;
 
         let mut stdout_str = String::new();
         let mut stderr_str = String::new();
@@ -215,9 +245,9 @@ impl WmcManager {
 
         child.wait()?;
 
-        trace!(target: "wmc", "GPMC raw stdout:\n{}", stdout_str);
+        trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
         if !stderr_str.is_empty() {
-            trace!(target: "wmc", "GPMC raw stderr:\n{}", stderr_str);
+            trace!(target: "wmc", "{} raw stderr:\n{}", tool_name, stderr_str);
         }
 
         let _ = std::fs::remove_file(&temp_cnf_path);
@@ -225,46 +255,58 @@ impl WmcManager {
         let mut result_val = None;
 
         for line in stdout_str.lines() {
-            if line.starts_with("c s exact") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(token) = parts.last() {
-                    let mut re = 0.0;
-                    let mut im = 0.0;
-                    let token_clean = token.trim();
-                    
-                    if token_clean.ends_with('i') {
-                        let s = &token_clean[..token_clean.len()-1];
-                        let mut split_idx = None;
-                        for (i, c) in s.char_indices().rev() {
-                            if (c == '+' || c == '-') && i > 0 {
-                                let prev_char = s.as_bytes()[i-1];
-                                if prev_char != b'e' && prev_char != b'E' {
-                                    split_idx = Some(i);
-                                    break;
-                                }
+            let mut prefix_len = 0;
+            if line.starts_with("c s exact double prec-sci") {
+                prefix_len = "c s exact double prec-sci".len();
+            } else if line.starts_with("c s exact arb cpx") {
+                prefix_len = "c s exact arb cpx".len();
+            } else if line.starts_with("c s exact quadruple float") {
+                prefix_len = "c s exact quadruple float".len();
+            } else if line.starts_with("c s exact") {
+                prefix_len = "c s exact".len();
+            }
+
+            if prefix_len > 0 {
+                let token_str = &line[prefix_len..];
+                let token_clean = token_str.trim().replace(" ", "").replace("+-", "-");
+                
+                let mut re = 0.0;
+                let mut im = 0.0;
+                
+                if token_clean.ends_with('i') {
+                    let s = &token_clean[..token_clean.len()-1];
+                    let mut split_idx = None;
+                    for (i, c) in s.char_indices().rev() {
+                        if (c == '+' || c == '-') && i > 0 {
+                            let prev_char = s.as_bytes()[i-1];
+                            // Avoid splitting on 'e'/'E' in scientific notation
+                            if prev_char != b'e' && prev_char != b'E' {
+                                split_idx = Some(i);
+                                break;
                             }
                         }
-
-                        if let Some(idx) = split_idx {
-                            re = s[..idx].parse().unwrap_or(0.0);
-                            let im_str = &s[idx..];
-                            im = if im_str == "+" { 1.0 } else if im_str == "-" { -1.0 } else { im_str.parse().unwrap_or(0.0) };
-                        } else {
-                            im = if s == "" { 1.0 } else if s == "-" { -1.0 } else { s.parse().unwrap_or(0.0) };
-                        }
-                    } else {
-                        re = token_clean.parse().unwrap_or(0.0);
                     }
-                    
-                    info!(target: "wmc", "GPMC result parsed: {} + {}i", re, im);
-                    result_val = Some(Complex::new(re, im));
+
+                    if let Some(idx) = split_idx {
+                        re = s[..idx].parse().unwrap_or(0.0);
+                        let im_str = &s[idx..];
+                        im = if im_str == "+" { 1.0 } else if im_str == "-" { -1.0 } else { im_str.parse().unwrap_or(0.0) };
+                    } else {
+                        im = if s == "" { 1.0 } else if s == "-" { -1.0 } else { s.parse().unwrap_or(0.0) };
+                    }
+                } else {
+                    re = token_clean.parse().unwrap_or(0.0);
                 }
+                
+                info!(target: "wmc", "{} result parsed: {} + {}i", tool_name, re, im);
+                result_val = Some(Complex::new(re, im));
             }
         }
 
         result_val.ok_or_else(|| {
             anyhow!(
-                "GPMC Error!\nCNF Path: {}\n--- STDOUT ---\n{}\n--- STDERR ---\n{}",
+                "{} Error!\nCNF Path: {}\n--- STDOUT ---\n{}\n--- STDERR ---\n{}",
+                tool_name,
                 temp_cnf_path.display(),
                 stdout_str,
                 stderr_str

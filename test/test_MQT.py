@@ -11,7 +11,7 @@ path1 = MQT_BENCH_ROOT
 path2 = MQT_BENCH_ROOT / "h,ry,rz,cx"
 
 
-def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=False):
+def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=False, backend="python"):
     circuit1 = str(path1 / file_name)
     circuit2 = str(path2 / file_name)
     if switch:
@@ -26,6 +26,7 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
             strategy=strategy,
             tool_name=tool_name,
             timeout=REAL_TIMEOUT,
+            backend=backend,
         )
     except Exception as e:
         error_msg = str(e)
@@ -36,6 +37,7 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
     return result
 
 
+@pytest.mark.parametrize("backend", ["python", "rust"])
 @pytest.mark.parametrize("tool_name", ["gpmc", "ganak"])
 @pytest.mark.parametrize(
     "file_name, strategy, switch",
@@ -53,7 +55,7 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
         # ("new_benchmark_file.qasm", "new_strategy"),
     ],
 )
-def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
+def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch, backend):
     """
     A function to test all benchmark files.
     Pytest will execute this function once for each row in the parametrize list.
@@ -65,6 +67,7 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch):
         strategy=strategy,
         tool_name=tool_name,
         switch=switch,
+        backend=backend,
     )
 
     is_ganak_format_error = tool_name == "ganak" and (

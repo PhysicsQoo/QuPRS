@@ -111,8 +111,22 @@ impl PathSum {
             for term in &phi {
                 if term.len() == 1 {
                     let var = term[0];
-                    if target_v.map_or(true, |max_v| var > max_v) {
-                        target_v = Some(var);
+                    
+                    // Validate: v cannot be present in other terms of phi.
+                    // If it is, `replacement` would depend on `v`, causing infinite recursion
+                    // or leaving `v` un-eliminated in F.
+                    let mut var_in_replacement = false;
+                    for other_term in &phi {
+                        if other_term != term && other_term.contains(&var) {
+                            var_in_replacement = true;
+                            break;
+                        }
+                    }
+                    
+                    if !var_in_replacement {
+                        if target_v.map_or(true, |max_v| var > max_v) {
+                            target_v = Some(var);
+                        }
                     }
                 }
             }

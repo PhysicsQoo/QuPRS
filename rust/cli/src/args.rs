@@ -35,6 +35,10 @@ pub struct Cli {
     /// Verbosity level (-v: stats, -vv: debug state, -vvv: raw trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// WMC Solver tool (gpmc or ganak)
+    #[arg(long, default_value = "gpmc")]
+    pub tool: String,
     
     /// Suppress all output except the final verification result
     #[arg(short, long, conflicts_with = "verbose")]

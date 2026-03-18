@@ -67,7 +67,7 @@ COPY --from=builder /wheels /wheels
 COPY . /app
 
 # Install the built wheel along with development dependencies for testing
-RUN pip install --no-cache-dir "/wheels/QuPRS[dev]"
+RUN pip install --no-cache-dir --find-links=/wheels "QuPRS[dev]"
 RUN pytest /app/test -n auto
 
 # =================================================================

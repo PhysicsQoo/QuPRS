@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.so
+*.dylib
+*.dSYM/
 
 # Build and distribution directories
 build/
@@ -34,3 +37,9 @@ htmlcov/
 # other
 build_cpp/
 *.cnf
+
+# rust
+rust/target
+rust/**/*.rs.bk
+
+

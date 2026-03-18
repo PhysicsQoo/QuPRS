@@ -5,7 +5,13 @@ from typing import Tuple, Union
 from QuPRS.interface.load_qiskit import check_equivalence
 
 try:
-    from ._version import __version__, __version_tuple__, version, version_tuple
+    # from ._version import __version__, __version_tuple__, version, version_tuple
+    from ._version import __version__
+    __version_tuple__: Tuple[Union[int, str], ...] = tuple(__version__.split("."))
+
+    version = __version__
+    version_tuple = __version_tuple__
+
 except ImportError:
     # Fallback for development mode or when setuptools_scm hasn't generated the file yet
     import warnings

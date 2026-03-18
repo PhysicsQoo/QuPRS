@@ -1,0 +1,27 @@
+# rust/pathsum/Cargo.toml
+
+[package]
+name = "pathsum"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+pyo3 = "0.21" 
+rustc-hash = "2.0"
+num-integer = "0.1"
+num-traits = "0.2"
+num-complex = "0.4"
+rand = "0.8"
+similar = "2.4.0"
+log = "0.4"
+anyhow = "1.0"
+
+[build-dependencies]
+cmake = "0.1"
+pkg-config = "0.3"
+reqwest = { version = "0.11", features = ["blocking"] } 
+zip = "0.6"
+
+[dev-dependencies]
+proptest = "1.0"

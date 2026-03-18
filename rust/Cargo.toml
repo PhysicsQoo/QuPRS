@@ -1,0 +1,28 @@
+# rust/Cargo.toml
+[workspace]
+members = [
+    "pathsum",
+    "cli",
+    "python_ffi",
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.12.3"
+edition = "2021" 
+authors = ["Wei-Jia Huang <wei.jia.huang.physics@gmail.com>"]
+publish = false
+
+[workspace.metadata.release]
+shared-version = true    
+consolidate-commits = true
+tag = true               
+tag-name = "v{{version}}"
+push = false             
+sign-commit = false      
+
+pre-release-commit-message = "chore: release v{{version}}"
+
+[profile.release]
+debug = 1 

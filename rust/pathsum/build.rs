@@ -72,42 +72,47 @@ fn main() {
     // These libraries are required to compile GPMC from source.
     let mut extra_include_dirs: Vec<String> = Vec::new();
     if target_os != "windows" {
-        let gmp = pkg_config::probe_library("gmp").unwrap_or_else(|_| panic!(
-            "\n\
-            ╔════════════════════════════════════════════════════════╗\n\
-            ║  Missing dependency: GMP (GNU Multiple Precision)      ║\n\
-            ╠════════════════════════════════════════════════════════╣\n\
-            ║  macOS (Homebrew):                                     ║\n\
-            ║    brew install gmp                                    ║\n\
-            ║                                                        ║\n\
-            ║  Linux (Debian/Ubuntu):                                ║\n\
-            ║    sudo apt install libgmp-dev                         ║\n\
-            ║                                                        ║\n\
-            ║  Linux (Fedora/RHEL):                                  ║\n\
-            ║    sudo dnf install gmp-devel                          ║\n\
-            ║                                                        ║\n\
-            ║  After installing, retry: cargo build                  ║\n\
-            ╚════════════════════════════════════════════════════════╝"
-        ));
-        let mpfr = pkg_config::probe_library("mpfr").unwrap_or_else(|_| panic!(
-            "\n\
-            ╔════════════════════════════════════════════════════════╗\n\
-            ║  Missing dependency: MPFR (Multiple Precision Float)   ║\n\
-            ╠════════════════════════════════════════════════════════╣\n\
-            ║  macOS (Homebrew):                                     ║\n\
-            ║    brew install mpfr                                   ║\n\
-            ║                                                        ║\n\
-            ║  Linux (Debian/Ubuntu):                                ║\n\
-            ║    sudo apt install libmpfr-dev                        ║\n\
-            ║                                                        ║\n\
-            ║  Linux (Fedora/RHEL):                                  ║\n\
-            ║    sudo dnf install mpfr-devel                         ║\n\
-            ║                                                        ║\n\
-            ║  After installing, retry: cargo build                  ║\n\
-            ╚════════════════════════════════════════════════════════╝"
-        ));
-        for path in gmp.include_paths.iter().chain(mpfr.include_paths.iter()) {
-            extra_include_dirs.push(path.to_string_lossy().into_owned());
+        // macOS Homebrew has keg-only libraries that NEED pkg-config to be found.
+        // Linux (especially RHEL/CentOS based manylinux) might not ship with .pc files,
+        // so we don't panic on Linux; CMake will just find them in /usr/include native paths.
+        let gmp_res = pkg_config::probe_library("gmp");
+        let mpfr_res = pkg_config::probe_library("mpfr");
+
+        if target_os == "macos" {
+            gmp_res.unwrap_or_else(|_| panic!(
+                "\n\
+                ╔════════════════════════════════════════════════════════╗\n\
+                ║  Missing dependency: GMP (GNU Multiple Precision)      ║\n\
+                ╠════════════════════════════════════════════════════════╣\n\
+                ║  macOS (Homebrew):                                     ║\n\
+                ║    brew install gmp                                    ║\n\
+                ║                                                        ║\n\
+                ║  After installing, retry: cargo build                  ║\n\
+                ╚════════════════════════════════════════════════════════╝"
+            ));
+            mpfr_res.unwrap_or_else(|_| panic!(
+                "\n\
+                ╔════════════════════════════════════════════════════════╗\n\
+                ║  Missing dependency: MPFR (Multiple Precision Float)   ║\n\
+                ╠════════════════════════════════════════════════════════╣\n\
+                ║  macOS (Homebrew):                                     ║\n\
+                ║    brew install mpfr                                   ║\n\
+                ║                                                        ║\n\
+                ║  After installing, retry: cargo build                  ║\n\
+                ╚════════════════════════════════════════════════════════╝"
+            ));
+        }
+
+        // If pkg-config succeeded (either on macOS or Linux), collect the paths
+        if let Ok(gmp) = pkg_config::probe_library("gmp") {
+            for path in gmp.include_paths {
+                extra_include_dirs.push(path.to_string_lossy().into_owned());
+            }
+        }
+        if let Ok(mpfr) = pkg_config::probe_library("mpfr") {
+            for path in mpfr.include_paths {
+                extra_include_dirs.push(path.to_string_lossy().into_owned());
+            }
         }
     }
 

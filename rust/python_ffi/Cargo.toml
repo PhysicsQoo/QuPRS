@@ -7,6 +7,11 @@ edition.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+
+[package.metadata.release]
+pre-release-replacements = [
+    { file = "../../src/QuPRS/_version.py", search = '__version__ = ".*"', replace = '__version__ = "{{version}}"' },
+]
 [lib]
 name = "_pathsum_rust"   
 crate-type = ["cdylib"] 

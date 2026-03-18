@@ -57,7 +57,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v0
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

@@ -16,6 +16,7 @@ publish = false
 
 [workspace.metadata.release]
 shared-version = true    
+consolidate-commits = true
 tag = true               
 tag-name = "v{{version}}"
 push = false             
@@ -23,8 +24,5 @@ sign-commit = false
 
 pre-release-commit-message = "chore: release v{{version}}"
 
-pre-release-replacements = [
-    # { file = "../../src/QuPRS/__init__.py", search = '__version__ = ".*"', replace = '__version__ = "{{version}}"' },
-    # { file = "../../pyproject.toml", search = 'version = ".*"', replace = 'version = "{{version}}"' },
-    # { file = "../../CITATION.cff", search = "version: .*", replace = "version: {{version}}" }
-]
+[profile.release]
+debug = 1 

@@ -118,6 +118,17 @@ fn main() {
 
     // --- Execute CMake ---
     println!("cargo:warning=Building GPMC from: {}", gpmc_src.display());
+    
+    // Provide a helpful hint for Linux users in case CMake fails due to missing headers
+    if target_os == "linux" {
+        println!("cargo:warning=---------------------------------------------------------");
+        println!("cargo:warning=If the C++ build fails on Linux, you likely need to install system dependencies:");
+        println!("cargo:warning=  Ubuntu/Debian: sudo apt install libgmp-dev libmpfr-dev zlib1g-dev libssl-dev cmake");
+        println!("cargo:warning=  Fedora/RHEL:   sudo dnf install gmp-devel mpfr-devel zlib-devel openssl-devel cmake");
+        println!("cargo:warning=  Or run:        sh scripts/install_linux_deps.sh");
+        println!("cargo:warning=---------------------------------------------------------");
+    }
+
     let mut config = cmake::Config::new(&gpmc_src);
     config
         .define("CMAKE_BUILD_TYPE", "Release")
@@ -135,7 +146,7 @@ fn main() {
         );
     }
 
-    if target_os == "linux" || target_os == "macos" {
+    if target_os == "macos" {
         config.define("GPMC_STATIC_BUILD", "ON");
     }
 

@@ -10,13 +10,13 @@ uname -a || true
 # Determine the package manager and install dependencies
 if command -v yum >/dev/null 2>&1; then
     echo "Using yum (RHEL/CentOS/manylinux)..."
-    yum install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconfig gmp-static mpfr-static zlib-static
+    yum install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconfig
 elif command -v dnf >/dev/null 2>&1; then
     echo "Using dnf (Fedora/AlmaLinux)..."
-    dnf install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconf gmp-static mpfr-static zlib-static
+    dnf install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconf
 elif command -v microdnf >/dev/null 2>&1; then
     echo "Using microdnf (Oracle Linux/minimal images)..."
-    microdnf install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconfig gmp-static mpfr-static zlib-static
+    microdnf install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconfig
 elif command -v apk >/dev/null 2>&1; then
     echo "Using apk (Alpine Linux/musllinux)..."
     apk add gmp-dev mpfr-dev zlib-dev openssl-dev cmake pkgconf

@@ -68,9 +68,47 @@ fn main() {
     );
 
     // --- Handle dependencies (GMP/MPFR) ---
+    // Collect include paths from pkg_config so we can forward them to cmake.
+    // These libraries are required to compile GPMC from source.
+    let mut extra_include_dirs: Vec<String> = Vec::new();
     if target_os != "windows" {
-        pkg_config::probe_library("gmp").expect("GMP library not found");
-        pkg_config::probe_library("mpfr").expect("MPFR library not found");
+        let gmp = pkg_config::probe_library("gmp").unwrap_or_else(|_| panic!(
+            "\n\
+            ╔════════════════════════════════════════════════════════╗\n\
+            ║  Missing dependency: GMP (GNU Multiple Precision)      ║\n\
+            ╠════════════════════════════════════════════════════════╣\n\
+            ║  macOS (Homebrew):                                     ║\n\
+            ║    brew install gmp                                    ║\n\
+            ║                                                        ║\n\
+            ║  Linux (Debian/Ubuntu):                                ║\n\
+            ║    sudo apt install libgmp-dev                         ║\n\
+            ║                                                        ║\n\
+            ║  Linux (Fedora/RHEL):                                  ║\n\
+            ║    sudo dnf install gmp-devel                          ║\n\
+            ║                                                        ║\n\
+            ║  After installing, retry: cargo build                  ║\n\
+            ╚════════════════════════════════════════════════════════╝"
+        ));
+        let mpfr = pkg_config::probe_library("mpfr").unwrap_or_else(|_| panic!(
+            "\n\
+            ╔════════════════════════════════════════════════════════╗\n\
+            ║  Missing dependency: MPFR (Multiple Precision Float)   ║\n\
+            ╠════════════════════════════════════════════════════════╣\n\
+            ║  macOS (Homebrew):                                     ║\n\
+            ║    brew install mpfr                                   ║\n\
+            ║                                                        ║\n\
+            ║  Linux (Debian/Ubuntu):                                ║\n\
+            ║    sudo apt install libmpfr-dev                        ║\n\
+            ║                                                        ║\n\
+            ║  Linux (Fedora/RHEL):                                  ║\n\
+            ║    sudo dnf install mpfr-devel                         ║\n\
+            ║                                                        ║\n\
+            ║  After installing, retry: cargo build                  ║\n\
+            ╚════════════════════════════════════════════════════════╝"
+        ));
+        for path in gmp.include_paths.iter().chain(mpfr.include_paths.iter()) {
+            extra_include_dirs.push(path.to_string_lossy().into_owned());
+        }
     }
 
     // --- Execute CMake ---
@@ -79,6 +117,18 @@ fn main() {
     config
         .define("CMAKE_BUILD_TYPE", "Release")
         .define("CMAKE_CXX_STANDARD", "11");
+
+    // Forward GMP/MPFR include paths to cmake so Homebrew keg-only headers are found
+    if !extra_include_dirs.is_empty() {
+        config.define(
+            "CMAKE_CXX_FLAGS",
+            extra_include_dirs
+                .iter()
+                .map(|d| format!("-I{}", d))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+    }
 
     if target_os == "linux" || target_os == "macos" {
         config.define("GPMC_STATIC_BUILD", "ON");
@@ -97,6 +147,7 @@ fn main() {
     }
 
     let dst = config.build_target("all").build();
+
 
     // --- Locate and copy the compiled GPMC executable ---
     let bin_name = if target_os == "windows" {

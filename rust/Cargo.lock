@@ -1164,7 +1164,6 @@ dependencies = [
  "num-traits",
  "pkg-config",
  "proptest",
- "pyo3",
  "rand 0.8.5",
  "reqwest",
  "rustc-hash",

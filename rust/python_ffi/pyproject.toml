@@ -1,12 +1,14 @@
 # rust/python_ffi/pyproject.toml
+# Standalone pyproject.toml for developing the FFI layer in isolation.
+# For full package builds, use the root QuPRS/pyproject.toml instead.
 
 [build-system]
-requires = ["maturin>=1.4,<2.0"]
+requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "pathsum_rust"
-version = "0.1.0"
+name = "quprs-python-ffi"
+dynamic = ["version"]
 description = "Rust-accelerated Quantum Path-sum Reduction System"
 requires-python = ">=3.8"
 classifiers = [

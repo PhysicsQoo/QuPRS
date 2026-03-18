@@ -7,7 +7,6 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-pyo3 = "0.21" 
 rustc-hash = "2.0"
 num-integer = "0.1"
 num-traits = "0.2"

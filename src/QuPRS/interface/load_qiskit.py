@@ -187,6 +187,13 @@ def check_equivalence(
             c2_input = qasm3.dumps(circuit2) if "OPENQASM 3.0" in getattr(circuit2, 'qasm', lambda: '')() else qasm2.dumps(circuit2)
         else:
             c2_input = circuit2
+        import os
+        from QuPRS.utils import WMC
+        with WMC(tool_name) as exe_path:
+            if tool_name == "gpmc":
+                os.environ["QUPRS_GPMC_PATH"] = str(exe_path)
+            elif tool_name == "ganak":
+                os.environ["QUPRS_GANAK_PATH"] = str(exe_path)
 
         rust_res = _pathsum_rust.check_equivalence(
             c1_input,

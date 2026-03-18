@@ -80,6 +80,10 @@ fn main() {
         .define("CMAKE_BUILD_TYPE", "Release")
         .define("CMAKE_CXX_STANDARD", "11");
 
+    if target_os == "linux" || target_os == "macos" {
+        config.define("GPMC_STATIC_BUILD", "ON");
+    }
+
     // If cross-compiling on macOS (e.g., x86_64 host compiling for aarch64 target)
     if target_os == "macos" {
         config.define(

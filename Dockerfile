@@ -59,7 +59,7 @@ WORKDIR /app
 
 # Install ONLY the required runtime system libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgmp10 libmpfr6 zlib1g libssl3 ca-certificates \
+    zlib1g libssl3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy built wheels and test files from the builder stage
@@ -78,7 +78,7 @@ WORKDIR /app
 
 # Install ONLY the required runtime system libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgmp10 libmpfr6 zlib1g libssl3 ca-certificates \
+    zlib1g libssl3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
     
 ARG SETUPTOOLS_SCM_PRETEND_VERSION

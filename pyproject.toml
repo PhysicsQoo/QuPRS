@@ -100,5 +100,4 @@ before-all = "brew install gmp mpfr zlib cmake"
 # Pytest Configuration
 # ==========================================
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["test"]

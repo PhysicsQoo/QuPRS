@@ -18,7 +18,7 @@ impl PathSum {
         reducible_vars
     }
 
-    pub fn full_reduce(&mut self) {
+    pub fn full_reduce(&mut self, deadline: Option<std::time::Instant>) {
         // Skip if stats disabled
         if !self.stats.is_enabled() {
             return;
@@ -28,6 +28,12 @@ impl PathSum {
         let mut iterations = 0;
 
         while reduced {
+            if let Some(d) = deadline {
+                if std::time::Instant::now() > d {
+                    debug!("[Full Reduce] Timeout reached. Aborting reduction.");
+                    break;
+                }
+            }
             reduced = false;
             
             let reducible_vars = self.get_reducible_vars();

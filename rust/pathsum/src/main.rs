@@ -35,7 +35,7 @@ fn main() {
     println!("{}", ps.print_status());
 
     println!("\n=== Full Reduction ===");
-    ps.full_reduce();
+    ps.full_reduce(None);
     println!("{}", ps.print_status());
 
     let qasm_string = r#"
@@ -64,7 +64,7 @@ fn main() {
             println!("{}", ps_qasm.print_status());
             println!("\n=== After Full Reduction ===");
             ps_qasm.set_auto_reduce(true);
-            ps_qasm.full_reduce();
+            ps_qasm.full_reduce(None);
             ps_qasm.print_status();
         }
         Err(e) => {

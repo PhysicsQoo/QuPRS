@@ -201,7 +201,7 @@ impl WmcManager {
         }
     }
 
-    pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
+    pub fn solve(&self, tool_name: &str, timeout: Option<std::time::Duration>) -> Result<Complex<f64>> {
         use std::io::Read;
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -215,13 +215,24 @@ impl WmcManager {
         let mut file = File::create(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
 
-        let (exe_path, args) = if tool_name == "gpmc" {
-            (Self::find_gpmc_path(), vec!["-mode=1"])
+        let (exe_path, mut args) = if tool_name == "gpmc" {
+            (Self::find_gpmc_path(), vec!["-mode=1".to_string()])
         } else if tool_name == "ganak" {
-            (Self::find_ganak_path(), vec!["--mode=6"])
+            (Self::find_ganak_path(), vec!["--mode=6".to_string()])
         } else {
             return Err(anyhow!("Unsupported tool name: {}", tool_name));
         };
+        
+        if let Some(t) = timeout {
+            let secs = std::cmp::max(1, t.as_secs());
+            if tool_name == "gpmc" {
+                args.push(format!("-cpu-lim={}", secs));
+            } else {
+                // ganak and others don't support -t or have unknown flags.
+                // We leave them for now to avoid errors, or implement 
+                // a manual process kill if strictly needed.
+            }
+        }
         
         debug!(target: "wmc", "Spawning {} solver: {} {:?} {}", tool_name, exe_path, args, temp_cnf_path.display());
 
@@ -243,7 +254,26 @@ impl WmcManager {
             err.read_to_string(&mut stderr_str)?;
         }
 
-        child.wait()?;
+        use wait_timeout::ChildExt;
+        
+        let exit_status = if let Some(t) = timeout {
+            match child.wait_timeout(t)? {
+                Some(status) => status,
+                None => {
+                    // Timeout occurred, kill the process
+                    child.kill()?;
+                    child.wait()?; // Reap the zombie
+                    return Err(anyhow!("{} solver timed out after {:?}", tool_name, t));
+                }
+            }
+        } else {
+            child.wait()?
+        };
+        
+        if !exit_status.success() {
+             // Handle non-zero exit code if needed, but we usually parse stdout anyway.
+             // However, if it failed without any output, it's an error.
+        }
 
         trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
         if !stderr_str.is_empty() {

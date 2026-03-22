@@ -157,7 +157,7 @@ impl PathSum {
         }
 
         if ps.is_auto_reduce() {
-            ps.full_reduce();
+            ps.full_reduce(None);
         }
 
         Ok(ps)

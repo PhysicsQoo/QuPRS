@@ -17,7 +17,8 @@ pub fn display_summary(res: &EquivalenceCheckResult, quiet: bool) {
         EquivalenceStatus::Equivalent => "✅ EQUIVALENT".bold().green(),
         EquivalenceStatus::EquivalentUpToGlobalPhase => "✅ EQUIVALENT (Up to Global Phase)".bold().green(),
         EquivalenceStatus::NotEquivalent => "❌ NOT EQUIVALENT".bold().red(),
-        _ => "❓ UNKNOWN / TIMEOUT".bold().yellow(),
+        EquivalenceStatus::Timeout => "⚠️  TIMEOUT".bold().yellow(),
+        _ => "❓ UNKNOWN".bold().yellow(),
     });
     
     println!("   ├─ Total Time:     {:.3} s", res.verification_time);

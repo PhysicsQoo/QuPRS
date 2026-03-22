@@ -37,7 +37,7 @@ impl QuantumCircuit {
         for op in &self.ops {
             op.apply(&mut ps, false);
         }
-        ps.full_reduce();
+        ps.full_reduce(None);
 
         format!(
             "QuantumCircuit(qubits={})\n------------------\n{}",

@@ -93,7 +93,7 @@ impl PathSum {
 
         // Trigger full reduction to perform garbage collection on newly isolated internal variables.
         if self.is_auto_reduce() {
-            self.full_reduce();
+            self.full_reduce(None);
         }
     }
 

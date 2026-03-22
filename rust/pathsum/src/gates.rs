@@ -126,7 +126,7 @@ impl QuantumGates for PathSum {
         }
         
         if self.is_auto_reduce() {
-            self.full_reduce();
+            self.full_reduce(None);
         }
     }
 
@@ -390,7 +390,7 @@ impl QuantumGates for PathSum {
         }
 
         if self.is_auto_reduce() {
-            self.full_reduce();
+            self.full_reduce(None);
         }
     }
 }

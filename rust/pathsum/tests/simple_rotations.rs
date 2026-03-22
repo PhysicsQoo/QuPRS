@@ -19,7 +19,7 @@ fn test_rx_annihilation() {
     ps.apply_rx(0, theta.clone(), Side::Ket);
     ps.apply_rx(0, theta.clone(), Side::Bra);
 
-    ps.full_reduce();
+    ps.full_reduce(None);
     
     if !ps.is_identity() {
         println!("!! RX Failed !! P terms: {:?}", ps.p.terms);
@@ -37,7 +37,7 @@ fn test_ry_annihilation() {
     ps.apply_ry(0, theta.clone(), Side::Ket);
     ps.apply_ry(0, theta.clone(), Side::Bra);
 
-    ps.full_reduce();
+    ps.full_reduce(None);
     
     assert!(ps.is_identity(), "RY(theta) should verify U†U = I");
 }
@@ -54,7 +54,7 @@ fn test_u3_annihilation() {
     ps.apply_u3(0, theta.clone(), phi.clone(), lam.clone(), Side::Ket);
     ps.apply_u3(0, theta.clone(), phi.clone(), lam.clone(), Side::Bra);
 
-    ps.full_reduce();
+    ps.full_reduce(None);
     ps.print_status();
     assert!(ps.is_identity(), "U3 should verify U†U = I");
 }
@@ -68,7 +68,7 @@ fn test_u3_is_identity_when_params_zero() {
     
     ps.apply_u3(0, zero.clone(), zero.clone(), zero.clone(), Side::Ket);
     
-    ps.full_reduce();
+    ps.full_reduce(None);
     
     assert!(ps.is_identity(), "U3(0,0,0) must be Identity");
 }
@@ -85,7 +85,7 @@ fn test_equivalence_z_vs_u3() {
     
     ps.apply_u3(0, theta, phi, lam, Side::Bra);
 
-    ps.full_reduce();
+    ps.full_reduce(None);
 
     if !ps.is_identity_up_to_phase() {
         println!("!! Check Failed !! P terms: {:?}", ps.p.terms);

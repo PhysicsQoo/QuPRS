@@ -87,6 +87,7 @@ pub fn check_equivalence(
             EquivalenceStatus::Equivalent => "Equivalent",
             EquivalenceStatus::EquivalentUpToGlobalPhase => "Equivalent (Up to Global Phase)",
             EquivalenceStatus::NotEquivalent => "Not Equivalent",
+            EquivalenceStatus::Timeout => "timeout",
             _ => "Unknown",
         };
 

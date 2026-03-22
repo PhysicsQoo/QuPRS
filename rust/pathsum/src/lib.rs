@@ -16,7 +16,7 @@ pub use strategy::VerificationStrategy;
 use ir::QuantumOp;
 use wmc::WmcManager;
 use anyhow::Result;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use log::{info, debug};
 /// Verification Method Selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +44,7 @@ impl std::fmt::Display for EquivalenceStatus {
             Self::EquivalentUpToGlobalPhase => "equivalent*",
             Self::NotEquivalent => "not_equivalent",
             Self::Unknown => "unknown",
-            Self::Timeout => "Timeout",
+            Self::Timeout => "timeout",
             Self::MemoryOut => "MemoryOut",
         };
         write!(f, "{}", s)
@@ -77,7 +77,7 @@ pub fn check_equivalence(
     method: VerificationMethod,
     strategy: VerificationStrategy,
     tool_name: &str,
-    _timeout_secs: u64, // To be implemented with threads if strict abort is needed
+    timeout_secs: u64,
 ) -> Result<EquivalenceCheckResult> {
     let global_start = Instant::now();
     
@@ -88,21 +88,25 @@ pub fn check_equivalence(
     ps.set_auto_reduce(reduction_enabled);
 
     let mut status = EquivalenceStatus::Unknown;
+    let deadline = global_start + Duration::from_secs(timeout_secs);
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
-    let mut ps_miter = strategy.run(ps, gates1, gates2);
+    let mut ps_miter = strategy.run(ps, gates1, gates2, Some(deadline));
     
-    // Prepare the initial state |0...0> to form the transition amplitude <0|M|0>
-    
-    if reduction_enabled {
-        ps_miter.full_reduce();
+    if Instant::now() > deadline {
+        status = EquivalenceStatus::Timeout;
+    } else if reduction_enabled {
+        ps_miter.full_reduce(Some(deadline));
+        if Instant::now() > deadline {
+            status = EquivalenceStatus::Timeout;
+        }
     }
 
     let ps_time = pathsum_start.elapsed().as_secs_f64();
     
     // 3. Reduction Rules Check
-    if method != VerificationMethod::WmcOnly {
+    if status == EquivalenceStatus::Unknown && method != VerificationMethod::WmcOnly {
         if ps_miter.is_identity_up_to_phase() {
             if let Some(phase_coeff) = ps_miter.get_global_phase() {
                 let phase_val = (phase_coeff.constant.numer as f64) / (phase_coeff.constant.denom as f64);
@@ -133,46 +137,53 @@ pub fn check_equivalence(
     let mut tool_time = None;
     let mut wmc_time = None;
 
-    if method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown) {
+    if status == EquivalenceStatus::Unknown && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
         let wmc_start = Instant::now();
-        
-        let mut wmc_mgr = WmcManager::new(&ps_miter);
-        
-        wmc_mgr.encode_trace(&ps_miter);
-
-        let dimacs_start = Instant::now();
-        let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
-        to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
-
-        let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-        let expected_log2 = (num_qubits as f64) + (num_active_vars as f64) / 2.0;
-
-        let tool_start = Instant::now();
-        let raw_amplitude = if cnf_string.contains("p cnf 0 0") || num_active_vars == 0 {
-            num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0)
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            status = EquivalenceStatus::Timeout;
         } else {
-            wmc_mgr.solve(tool_name)?
-        };
-        tool_time = Some(tool_start.elapsed().as_secs_f64());
+            let mut wmc_mgr = WmcManager::new(&ps_miter);
+            wmc_mgr.encode_trace(&ps_miter);
 
-        let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
-        let final_amplitude = raw_amplitude * normalization_factor;
-        info!(target: "wmc", "{} log2 result : {:.4}", tool_name, raw_amplitude.norm().log2());
-        info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
-        wmc_time = Some(wmc_start.elapsed().as_secs_f64());
+            let dimacs_start = Instant::now();
+            let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
+            to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
-        let norm = final_amplitude.norm();
-        if (norm - 1.0).abs() < 1e-6 {
-            let theta = final_amplitude.im.atan2(final_amplitude.re);
-            info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-            if theta.abs() < 1e-6 {
-                status = EquivalenceStatus::Equivalent;
+            let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
+            let expected_log2 = (num_qubits as f64) + (num_active_vars as f64) / 2.0;
+
+            let tool_start = Instant::now();
+            let raw_amplitude = if cnf_string.contains("p cnf 0 0") || num_active_vars == 0 {
+                num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0)
             } else {
-                status = EquivalenceStatus::EquivalentUpToGlobalPhase;
+                wmc_mgr.solve(tool_name, Some(remaining))?
+            };
+            tool_time = Some(tool_start.elapsed().as_secs_f64());
+
+            let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
+            let final_amplitude = raw_amplitude * normalization_factor;
+            info!(target: "wmc", "{} log2 result : {:.4}", tool_name, raw_amplitude.norm().log2());
+            info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
+            wmc_time = Some(wmc_start.elapsed().as_secs_f64());
+
+            let norm = final_amplitude.norm();
+            if (norm - 1.0).abs() < 1e-6 {
+                let theta = final_amplitude.im.atan2(final_amplitude.re);
+                info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
+                if theta.abs() < 1e-6 {
+                    status = EquivalenceStatus::Equivalent;
+                } else {
+                    status = EquivalenceStatus::EquivalentUpToGlobalPhase;
+                }
+            } else {
+                debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
+                status = EquivalenceStatus::NotEquivalent;
             }
-        } else {
-            debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
-            status = EquivalenceStatus::NotEquivalent;
+
+            if Instant::now() > deadline {
+                status = EquivalenceStatus::Timeout;
+            }
         }
     }
 

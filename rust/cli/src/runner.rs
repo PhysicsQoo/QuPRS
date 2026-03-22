@@ -113,12 +113,17 @@ pub fn run_single_circuit_mode(cli: &Cli) -> Result<()> {
     };
 
     let start = Instant::now();
+    let deadline = start + std::time::Duration::from_secs(cli.timeout);
     let mut ps = PathSum::new(system_qubits);
     ps.set_auto_reduce(true);
     
-    let mut ps = strategy.run(ps, &ops1, &[]);
-    ps.full_reduce();
+    let mut ps = strategy.run(ps, &ops1, &[], Some(deadline));
+    ps.full_reduce(Some(deadline));
     let duration = start.elapsed();
+
+    if duration >= std::time::Duration::from_secs(cli.timeout) {
+        println!("{}", "\n⚠️  WARNING: Reduction aborted due to timeout.".bold().yellow());
+    }
 
     println!("{}", "\n>> Reduced PathSum State:".bold().green());
     println!("{}", ps.print_status());

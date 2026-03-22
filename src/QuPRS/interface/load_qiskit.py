@@ -210,6 +210,7 @@ def check_equivalence(
             "Equivalent": "equivalent",
             "Equivalent (Up to Global Phase)": "equivalent*",
             "Not Equivalent": "not_equivalent",
+            "timeout": "timeout",
         }
         mapped_equiv = equiv_map.get(rust_res.get("status"), "unknown")
         if rust_res.get("status") == "Unknown" and method == "reduction_rules":
@@ -363,7 +364,7 @@ def check_equivalence(
 
     except TimeoutError:
         Time = f">{timeout}"
-        equivalent = "Timeout"
+        equivalent = "timeout"
         progress = f"{strategy_obj.count}/{l1 + l2}"
         signal.alarm(0)
     except MemoryError:

@@ -174,32 +174,6 @@ def check_equivalence(
             "'reduction_rules', or 'wmc_only'."
         )
 
-    # Load circuits from file, QASM string, or QuantumCircuit
-    qiskit_circuit1 = load_circuit(circuit1)
-    qiskit_circuit2 = load_circuit(circuit2)
-
-    if qiskit_circuit1.num_qubits != qiskit_circuit2.num_qubits:
-        return EquivalenceCheckResult(
-            qubit_num=max(qiskit_circuit1.num_qubits, qiskit_circuit2.num_qubits),
-            gate_num=len(qiskit_circuit1.data),
-            gate_num2=len(qiskit_circuit2.data),
-            method=method,
-            strategy=strategy,
-            equivalent="not_equivalent",
-            verification_time=0.0,
-            pathsum_time=0.0,
-            final_pathsum="N/A",
-            progress="0/0",
-            Statistics=StatisticsManager(),
-            to_DIMACS_time=None,
-            tool_name=tool_name,
-            tool_time=None,
-            wmc_time=None,
-            CNF=(None,),
-            expect=None,
-            log_wmc=None,
-        )
-
     if backend == "rust":
         from QuPRS import _pathsum_rust
         
@@ -273,6 +247,32 @@ def check_equivalence(
     tolerance = config.TOLERANCE
 
     start_time = time.time()
+
+    # Load circuits from file, QASM string, or QuantumCircuit
+    qiskit_circuit1 = load_circuit(circuit1)
+    qiskit_circuit2 = load_circuit(circuit2)
+
+    if qiskit_circuit1.num_qubits != qiskit_circuit2.num_qubits:
+        return EquivalenceCheckResult(
+            qubit_num=max(qiskit_circuit1.num_qubits, qiskit_circuit2.num_qubits),
+            gate_num=len(qiskit_circuit1.data),
+            gate_num2=len(qiskit_circuit2.data),
+            method=method,
+            strategy=strategy,
+            equivalent="not_equivalent",
+            verification_time=0.0,
+            pathsum_time=0.0,
+            final_pathsum="N/A",
+            progress="0/0",
+            Statistics=StatisticsManager(),
+            to_DIMACS_time=None,
+            tool_name=tool_name,
+            tool_time=None,
+            wmc_time=None,
+            CNF=(None,),
+            expect=None,
+            log_wmc=None,
+        )
 
     # Initialize PathSum circuit and reduction switch
     initial_state = initialize(qiskit_circuit1)

@@ -57,6 +57,21 @@ pub fn check_equivalence(
     let (ops2, num_qubits2) = extract_circuit(circuit2)?;
     let system_qubits = std::cmp::max(num_qubits1, num_qubits2);
 
+    if num_qubits1 != num_qubits2 {
+        return Python::with_gil(|py| {
+            let dict = PyDict::new_bound(py);
+            dict.set_item("status", "Not Equivalent")?;
+            dict.set_item("qubits", system_qubits)?;
+            dict.set_item("gates1", ops1.len())?;
+            dict.set_item("gates2", ops2.len())?;
+            dict.set_item("verification_time_sec", 0.0)?;
+            dict.set_item("pathsum_time_sec", 0.0)?;
+            dict.set_item("final_ps", "N/A")?;
+            dict.set_item("stats", PyDict::new_bound(py))?;
+            Ok(dict.to_object(py))
+        });
+    }
+
     let rs_method = match method.to_lowercase().as_str() {
         "hybrid" => VerificationMethod::Hybrid,
         "reduction_rules" => VerificationMethod::ReductionRules,

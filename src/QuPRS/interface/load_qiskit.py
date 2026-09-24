@@ -29,7 +29,7 @@ def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = 
         pathsum_circuit = gate_map(
             pathsum_circuit,
             gate[0],
-            [f"{item[0]}_{item[1]}" for item in gate[1]],
+            gate[1],
             gate[2],
         )
 
@@ -41,10 +41,11 @@ def initialize(circuit: QuantumCircuit, initial_state: bool | list | tuple = Non
     Construct initial PathSum and the name mapping.
     """
     qiskit_regs = circuit.qregs
-    regs = []
-    for reg in qiskit_regs:
-        regs.append(Register(reg.size, reg.name))
-
+    if not qiskit_regs:
+        return PathSum.QuantumCircuit(
+            Register(circuit.num_qubits, "q"), initial_state=initial_state
+        )
+    regs = [Register(reg.size, reg.name) for reg in qiskit_regs]
     return PathSum.QuantumCircuit(*regs, initial_state=initial_state)
 
 
@@ -55,8 +56,7 @@ def get_gate(circuit: QuantumCircuit, gate):
     qubits_old = gate.qubits
     qubits = []
     for qubit in qubits_old:
-        QuantumRegister = circuit.find_bit(qubit).registers
-        qubits.append((QuantumRegister[0][0].name, QuantumRegister[0][1]))
+        qubits.append(circuit.find_bit(qubit).index)
     return gate_name, tuple(qubits), tuple(gate_params)
 
 
@@ -76,7 +76,7 @@ def add_gate(
     pathsum_circuit = gate_map(
         pathsum_circuit,
         gate[0],
-        [f"{item[0]}_{item[1]}" for item in gate[1]],
+        gate[1],
         gate[2],
         is_bra,
     )
@@ -174,6 +174,32 @@ def check_equivalence(
             "'reduction_rules', or 'wmc_only'."
         )
 
+    # Load circuits from file, QASM string, or QuantumCircuit
+    qiskit_circuit1 = load_circuit(circuit1)
+    qiskit_circuit2 = load_circuit(circuit2)
+
+    if qiskit_circuit1.num_qubits != qiskit_circuit2.num_qubits:
+        return EquivalenceCheckResult(
+            qubit_num=max(qiskit_circuit1.num_qubits, qiskit_circuit2.num_qubits),
+            gate_num=len(qiskit_circuit1.data),
+            gate_num2=len(qiskit_circuit2.data),
+            method=method,
+            strategy=strategy,
+            equivalent="not_equivalent",
+            verification_time=0.0,
+            pathsum_time=0.0,
+            final_pathsum="N/A",
+            progress="0/0",
+            Statistics=StatisticsManager(),
+            to_DIMACS_time=None,
+            tool_name=tool_name,
+            tool_time=None,
+            wmc_time=None,
+            CNF=(None,),
+            expect=None,
+            log_wmc=None,
+        )
+
     if backend == "rust":
         from QuPRS import _pathsum_rust
         
@@ -245,10 +271,6 @@ def check_equivalence(
         raise e
 
     tolerance = config.TOLERANCE
-
-    # Load circuits from file or QASM string
-    qiskit_circuit1 = load_circuit(circuit1)
-    qiskit_circuit2 = load_circuit(circuit2)
 
     start_time = time.time()
 

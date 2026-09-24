@@ -30,8 +30,8 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.12"]
-        shard_id: [0, 1, 2, 3, 4] 
-        num_shards: [5]
+        shard_id: [0, 1, 2, 3, 4, 5, 6, 7] 
+        num_shards: [8]
     env:
       BINARY_DIR: src/QuPRS/utils
     steps:
@@ -73,5 +73,5 @@ jobs:
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v4
         with:
-          mode: simulation
+          mode: simulation,walltime
           run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }} || ( [ $? -eq 5 ] && exit 0 || exit $? )

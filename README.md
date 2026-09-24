@@ -1,4 +1,6 @@
-[![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
+[![Paper](https://img.shields.io/badge/TACAS'26-Paper-orange?style=flat-square)](https://doi.org/10.1007/978-3-032-22749-2_21)
+[![Paper DOI](https://img.shields.io/badge/DOI-10.1007%2F978--3--032--22749--2__21-blue?style=flat-square)](https://doi.org/10.1007/978-3-032-22749-2_21)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.15705190-blue.svg)](https://doi.org/10.5281/zenodo.15705190)
 [![PyPI version](https://img.shields.io/pypi/v/QuPRS?style=flat-square)](https://pypi.org/project/QuPRS/)
 [![Python Version](https://img.shields.io/pypi/pyversions/QuPRS?style=flat-square&logo=python&logoColor=white)](https://pypi.org/project/QuPRS/)
 [![codecov](https://codecov.io/gh/PhysicsQoo/QuPRS/graph/badge.svg?token=H9XIZF2EZ9)](https://codecov.io/gh/PhysicsQoo/QuPRS)
@@ -183,13 +185,33 @@ You can load circuits from QASM files or define them directly using Qiskit for c
   result = check_equivalence(circuit1, circuit2, method = "wmc_only",)
   ```
 ## Cite
-If you use `QuPRS` in your research, please consider citing it.
+If you use `QuPRS` in your research, please cite our paper:
 
-This code is associated with a forthcoming publication. Please cite this repository for now, and check back for the full paper citation.
+[![Paper](https://img.shields.io/badge/TACAS'26-Paper-orange?style=flat-square)](https://doi.org/10.1007/978-3-032-22749-2_21)
+[![Paper DOI](https://img.shields.io/badge/DOI-10.1007%2F978--3--032--22749--2__21-blue?style=flat-square)](https://doi.org/10.1007/978-3-032-22749-2_21)
 
-[![DOI](https://zenodo.org/badge/1000013052.svg)](https://doi.org/10.5281/zenodo.15705190)
+> **Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting**  
+> Wei-Jia Huang, Christophe Chareton, Yu-Fang Chen, Kai-Min Chung, Min-Hsiu Hsieh, Alfons Laarman, and Jingyi Mei.  
+> In *Tools and Algorithms for the Construction and Analysis of Systems (TACAS 2026)*, Lecture Notes in Computer Science, vol. 15668, pp. 419–439. Springer, 2026.  
+> DOI: [10.1007/978-3-032-22749-2_21](https://doi.org/10.1007/978-3-032-22749-2_21)
+
+```bibtex
+@inproceedings{huang2026equivalence,
+  author    = {Huang, Wei-Jia and Chareton, Christophe and Chen, Yu-Fang and Chung, Kai-Min and Hsieh, Min-Hsiu and Laarman, Alfons and Mei, Jingyi},
+  title     = {Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting},
+  booktitle = {Tools and Algorithms for the Construction and Analysis of Systems (TACAS 2026)},
+  series    = {Lecture Notes in Computer Science},
+  pages     = {419--439},
+  year      = {2026},
+  publisher = {Springer Nature Switzerland},
+  doi       = {10.1007/978-3-032-22749-2_21},
+  url       = {https://doi.org/10.1007/978-3-032-22749-2_21}
+}
 ```
-```
+
+You can also cite this software repository via Zenodo:
+
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.15705190-blue.svg)](https://doi.org/10.5281/zenodo.15705190)
 ## License Information
 
 - The original source code of this project is licensed under the **[MIT License](LICENSE.md)**.

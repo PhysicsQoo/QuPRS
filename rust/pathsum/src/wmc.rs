@@ -151,11 +151,11 @@ impl WmcManager {
         
         for (var, weight) in &self.weights {
             if tool_name == "gpmc" {
-                out.push_str(&format!("c p weight {} {:.9} {:.9} 0\n", var, weight.re, weight.im));
+                out.push_str(&format!("c p weight {} {:.17} {:.17} 0\n", var, weight.re, weight.im));
                 out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
             } else {
                 let op = if weight.im >= 0.0 { "+" } else { "-" };
-                out.push_str(&format!("c p weight {} {:.9} {} {:.9}i 0\n", var, weight.re, op, weight.im.abs()));
+                out.push_str(&format!("c p weight {} {:.17} {} {:.17}i 0\n", var, weight.re, op, weight.im.abs()));
                 out.push_str(&format!("c p weight -{} 1.0 + 0.0i 0\n", var));
             }
         }

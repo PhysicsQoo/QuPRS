@@ -53,7 +53,27 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
 
         if qubits.is_empty() { continue; }
 
+        let (arity, parameters) = match gate_name.as_str() {
+            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "id" | "sx" | "sxdg" => (1, 0),
+            "cx" | "cz" | "swap" => (2, 0),
+            "ccx" => (3, 0),
+            "p" | "u1" | "rx" | "ry" | "rz" => (1, 1),
+            "u2" => (1, 2),
+            "u" | "u3" => (1, 3),
+            "barrier" => continue,
+            _ => return Err(format!("Unsupported gate '{}' at line {}", gate_name, line_num + 1)),
+        };
+        if qubits.len() != arity || params.len() != parameters {
+            return Err(format!("Invalid operands for '{}' at line {}", gate_name, line_num + 1));
+        }
+        if gate_name == "sx" || gate_name == "sxdg" {
+            ops.push(QuantumOp::H(qubits[0]));
+            ops.push(if gate_name == "sx" { QuantumOp::S(qubits[0]) } else { QuantumOp::SDG(qubits[0]) });
+            ops.push(QuantumOp::H(qubits[0]));
+            continue;
+        }
         let op = match gate_name.as_str() {
+            "id" => continue,
             "h" => QuantumOp::H(qubits[0]),
             "x" => QuantumOp::X(qubits[0]),
             "y" => QuantumOp::Y(qubits[0]),
@@ -65,14 +85,17 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             "cx" => QuantumOp::CX(qubits[0], qubits[1]),
             "cz" => QuantumOp::CZ(qubits[0], qubits[1]),
             "ccx" => QuantumOp::CCX(qubits[0], qubits[1], qubits[2]),
+            "p" | "u1" => QuantumOp::P(qubits[0], params[0].clone()),
+            "swap" => QuantumOp::SWAP(qubits[0], qubits[1]),
+            "u2" => QuantumOp::U2(qubits[0], params[0].clone(), params[1].clone()),
             "rx" => QuantumOp::RX(qubits[0], params[0].clone()),
             "ry" => QuantumOp::RY(qubits[0], params[0].clone()),
             "rz" => QuantumOp::RZ(qubits[0], params[0].clone()),
-            "u3" => {
+            "u" | "u3" => {
                 if params.len() != 3 { return Err(format!("U3 expects 3 params, got {}", params.len())); }
                 QuantumOp::U3(qubits[0], params[0].clone(), params[1].clone(), params[2].clone())
             },
-            _ => continue, // Skip unsupported gates
+            _ => unreachable!(),
         };
         ops.push(op);
     }

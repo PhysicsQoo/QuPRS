@@ -293,13 +293,13 @@ impl QuantumGates for PathSum {
     fn apply_p(&mut self, qubit: usize, theta: Angle,side: Side) {
          match side {
             Side::Ket => {
-                let phase = theta.to_phase_coeff();
+                let phase = (theta / 2).to_phase_coeff();
                 self.p += (&self.f.functions[qubit], phase);
             }
             Side::Bra => {
                 let x_i = vec![qubit as u32];
                 let conj_theta = Angle::ZERO - theta;
-                let conj_phase = conj_theta.to_phase_coeff();
+                let conj_phase = (conj_theta / 2).to_phase_coeff();
                 self.p += (x_i, conj_phase);
             }
         }
@@ -541,7 +541,7 @@ mod tests {
         let phase = Angle::QUARTER;
         ps.apply_p(0, phase, Side::Ket);
         
-        assert!(ps.p.terms[&vec![0]].is_pure_quarter(), "P gate should add relative phase");
+        assert!(ps.p.terms[&vec![0]].is_pure_fraction(1, 8), "P(pi/4) should add 1/8 cycle phase");
         
         assert!(!ps.p.terms.contains_key(&vec![]), "P gate MUST NOT add global phase");
     }

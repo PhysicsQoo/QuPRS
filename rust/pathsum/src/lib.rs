@@ -66,6 +66,7 @@ pub struct EquivalenceCheckResult {
     pub tool_time: Option<f64>,
     pub wmc_time: Option<f64>,
     pub tool_name: String,
+    pub global_phase: Option<f64>,
     pub final_ps: PathSum, 
 }
 
@@ -88,6 +89,7 @@ pub fn check_equivalence(
     ps.set_auto_reduce(reduction_enabled);
 
     let mut status = EquivalenceStatus::Unknown;
+    let mut global_phase = None;
     let deadline = global_start + Duration::from_secs(timeout_secs);
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
@@ -110,10 +112,11 @@ pub fn check_equivalence(
         if ps_miter.is_identity_up_to_phase() {
             if let Some(phase_coeff) = ps_miter.get_global_phase() {
                 let phase_val = (phase_coeff.constant.numer as f64) / (phase_coeff.constant.denom as f64);
-                let angle = phase_val * std::f64::consts::PI; 
+                let angle = phase_val * 2.0 * std::f64::consts::PI;
+                global_phase = Some(angle);
                 let cos_val = angle.cos();
                 let sin_val = angle.sin();
-                if (cos_val - 1.0).abs() < 1e-6 && sin_val.abs() < 1e-6 {
+                if (cos_val - 1.0).abs() < 1e-10 && sin_val.abs() < 1e-10 {
                     status = EquivalenceStatus::Equivalent;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
@@ -154,7 +157,7 @@ pub fn check_equivalence(
             let expected_log2 = (num_qubits as f64) + (num_active_vars as f64) / 2.0;
 
             let tool_start = Instant::now();
-            let raw_amplitude = if cnf_string.contains("p cnf 0 0") || num_active_vars == 0 {
+            let raw_amplitude = if cnf_string.contains("p cnf 0 0") {
                 num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0)
             } else {
                 wmc_mgr.solve(tool_name, Some(remaining))?
@@ -168,10 +171,11 @@ pub fn check_equivalence(
             wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
             let norm = final_amplitude.norm();
-            if (norm - 1.0).abs() < 1e-6 {
+            if (norm - 1.0).abs() < 1e-10 {
                 let theta = final_amplitude.im.atan2(final_amplitude.re);
+                global_phase = Some(theta);
                 info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-                if theta.abs() < 1e-6 {
+                if theta.abs() < 1e-10 {
                     status = EquivalenceStatus::Equivalent;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
@@ -202,6 +206,7 @@ pub fn check_equivalence(
         tool_time,
         wmc_time,
         tool_name: tool_name.to_string(),
+        global_phase,
         final_ps: ps_miter,
     })
 }

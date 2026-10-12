@@ -23,7 +23,8 @@ fn test_h_h_is_identity() {
         &gates2, 
         VerificationMethod::Hybrid,          
         VerificationStrategy::Difference,    
-        0                                    
+        "gpmc",
+        10
     ).unwrap();
     
     assert_eq!(result.status, EquivalenceStatus::Equivalent, "H*H should equal Identity");
@@ -48,7 +49,8 @@ fn test_cx_equivalence() {
         &gates2, 
         VerificationMethod::Hybrid, 
         VerificationStrategy::Difference, 
-        0
+        "gpmc",
+        10
     ).unwrap();
 
     assert_eq!(result.status, EquivalenceStatus::Equivalent, "CX should equal (I⊗H) CZ (I⊗H)");
@@ -69,7 +71,8 @@ fn test_non_equivalent_circuits() {
         &gates2, 
         VerificationMethod::Hybrid, 
         VerificationStrategy::Difference, 
-        0
+        "gpmc",
+        10
     ).unwrap();
     
     assert_eq!(result.status, EquivalenceStatus::NotEquivalent, "Identity should NOT equal X");

@@ -127,7 +127,7 @@ def load_circuit(circuit: str) -> QuantumCircuit:
 # =============================================================================
 
 
-def check_equivalence(
+def _check_equivalence(
     circuit1: str | QuantumCircuit,
     circuit2: str | QuantumCircuit,
     method: str = "hybrid",
@@ -263,6 +263,7 @@ def check_equivalence(
             CNF=None,
             expect=None,
             log_wmc=None,
+            global_phase_rad=rust_res.get("global_phase_rad"),
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -274,6 +275,7 @@ def check_equivalence(
     tolerance = config.TOLERANCE
 
     start_time = time.time()
+
 
     # Initialize PathSum circuit and reduction switch
     initial_state = initialize(qiskit_circuit1)
@@ -336,7 +338,6 @@ def check_equivalence(
         # If reduction is incomplete or WMC-only, run weighted model counting
         if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.util import get_theta
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -365,10 +366,8 @@ def check_equivalence(
                 complex_number = run_wmc(temp_name, tool_name)
                 tool_time = round(time.time() - tool_start_time, 3)
                 abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
-                log_wmc = round(np.log2(abs_num), 3)
-                theta = get_theta(
-                    complex_number[1] / abs_num, complex_number[0] / abs_num
-                )
+                log_wmc = np.log2(abs_num) if abs_num > 0 else -np.inf
+                theta = np.arctan2(complex_number[1], complex_number[0])
                 if abs(log_wmc - expect) < tolerance:
                     if abs(theta) < tolerance * 2 * np.pi:
                         equivalent = "equivalent"
@@ -426,8 +425,37 @@ def check_equivalence(
         CNF=CNF,
         expect=expect,
         log_wmc=log_wmc,
+        global_phase_rad=(theta if wmc_time is not None else
+                          float(pathsum_circuit.P) * 2 * np.pi)
+        if equivalent in ("equivalent", "equivalent*") else None,
     )
     return Result
+
+
+def check_equivalence(
+    circuit1: str | QuantumCircuit, circuit2: str | QuantumCircuit,
+    method="hybrid", strategy="Difference",
+    tool_name="gpmc", timeout=600, safe_mode=False, backend="python",
+):
+    """Check circuit equivalence, including explicit Qiskit global phases."""
+    c1, c2 = load_circuit(circuit1).copy(), load_circuit(circuit2).copy()
+    phase_delta = float(c1.global_phase) - float(c2.global_phase)
+    c1.global_phase = c2.global_phase = 0
+    result = _check_equivalence(
+        c1, c2, method, strategy, tool_name, timeout, safe_mode, backend
+    )
+    if result.equivalent in ("equivalent", "equivalent*") and phase_delta:
+        # The constant term in the residual miter is measured in cycles.
+        residual_phase = result.global_phase_rad
+        if residual_phase is not None:
+            angle = residual_phase + phase_delta
+            result.equivalent = (
+                "equivalent" if abs(np.angle(np.exp(1j * angle))) < config.TOLERANCE * 2 * np.pi
+                else "equivalent*"
+            )
+        else:
+            result.equivalent = "equivalent*"
+    return result
 
 
 @dataclass(repr=False)
@@ -476,6 +504,7 @@ class EquivalenceCheckResult:
     CNF: Optional[str] = None
     expect: Optional[float] = None
     log_wmc: Optional[float] = None
+    global_phase_rad: Optional[float] = None
 
     @staticmethod
     def _fmt(val: float | str | None) -> str:

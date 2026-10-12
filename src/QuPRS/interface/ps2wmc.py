@@ -152,12 +152,13 @@ def anf_to_cnf(anf):
 def P_to_wlogi(P):
     if P == 0:
         return []
+    P = se.sympify(P)
     args = P.as_coefficients_dict()
     output = [
         (
             (v, algebraic_to_logical(k))
             if v != 0 and v != 1
-            else (k, algebraic_to_logical(v))
+            else (k, algebraic_to_logical(se.sympify(v)))
         )
         for k, v in args.items()
         if v != 0

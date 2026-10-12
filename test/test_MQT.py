@@ -78,7 +78,7 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch, backe
         benchmark.extra_info["status"] = f"[Ganak Format Error] {file_name}: {result}"
         pytest.skip(f"\n::[Ganak Format Error] {file_name}: {result}")
 
-    resource_limits = {"Timeout", "MemoryOut"}
+    resource_limits = {"timeout", "Timeout", "MemoryOut"}
     if result.equivalent in resource_limits:
         benchmark.extra_info["status"] = (
             f"Skipped due to resource limit: {result.equivalent}"

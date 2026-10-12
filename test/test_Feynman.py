@@ -50,7 +50,7 @@ def test_all_benchmarks(benchmark, file_name, strategy, switch, backend):
     """
     result = benchmark(generate_test, file_name, strategy=strategy, switch=switch, backend=backend)
 
-    resource_limits = {"Timeout", "MemoryOut"}
+    resource_limits = {"timeout", "Timeout", "MemoryOut"}
     if result.equivalent in resource_limits:
         benchmark.extra_info["status"] = (
             f"Skipped due to resource limit: {result.equivalent}"

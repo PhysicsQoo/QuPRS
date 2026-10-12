@@ -189,6 +189,14 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
   result = check_equivalence(circuit1, circuit2, method = "wmc_only",)
   ```
+### Weighted model counting solvers
+
+GPMC and Ganak run independently. Ganak uses mode 2 to return exact rational
+components instead of mode 6's nine-significant-digit output. QuPRS converts
+the final count to floating point for its configured equivalence tolerance;
+this does not make the entire verification pipeline exact. Solver arguments
+and result formats are defined in `QuPRS.utils.wmc_solvers`.
+
 ## Cite
 If you use `QuPRS` in your research, please cite our paper:
 

@@ -1,7 +1,9 @@
 // rust/pathsum/build.rs
 use std::env;
 use std::fs;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
+#[path = "src/ganak_distribution.rs"]
+mod ganak_distribution;
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -32,15 +34,17 @@ fn main() {
         "ganak"
     });
     
-    if !ganak_dest.exists() {
+    println!("cargo:rerun-if-changed=../../src/QuPRS/utils/ganak-release.txt");
+    println!("cargo:rerun-if-changed=src/ganak_distribution.rs");
+    // Always hash cached bytes; mere file existence is not release identity.
+    let valid = fs::read(&ganak_dest).ok()
+        .and_then(|b| ganak_distribution::validate(&b, &target_os, &target_arch).ok());
+    if valid.is_none() {
         download_and_extract_ganak(&target_os, &target_arch, &ganak_dest);
-    } else {
-        println!(
-            "cargo:warning=Ganak binary found at {}. Skipping download.",
-            ganak_dest.display()
-        );
     }
-    
+    println!("cargo:warning=Ganak {} sha256={}", ganak_distribution::VERSION,
+        ganak_distribution::validate(&fs::read(&ganak_dest).unwrap(), &target_os, &target_arch).unwrap());
+
     // Inject environment variable for Rust code to use during development/testing
     println!("cargo:rustc-env=GANAK_BIN_PATH={}", ganak_dest.display());
     println!("cargo:rerun-if-changed={}", ganak_dest.display());
@@ -200,81 +204,58 @@ fn main() {
     println!("cargo:rerun-if-changed={}", gpmc_dest.display());
 }
 
-/// Downloads the corresponding Ganak ZIP for the target platform and extracts it
+/// Verify the official archive before extracting only its executable.
 fn download_and_extract_ganak(target_os: &str, target_arch: &str, dest_path: &Path) {
-    let os_str = match target_os {
-        "linux" => "linux",
-        "macos" => "mac",
+    let fields = ganak_distribution::asset(target_os, target_arch).unwrap_or_else(|e| panic!("{e}"));
+    let filename = fields[2];
+    let url = format!("https://github.com/meelgroup/ganak/releases/download/release/v{}/{}",
+        ganak_distribution::VERSION, filename);
+    // A content-verified archive cache also supports reproducible offline rebuilds.
+    let cache = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../target/ganak-release-cache").join(filename);
+    let bytes = match fs::read(&cache) {
+        Ok(b) if ganak_distribution::fingerprint(&b) == fields[3] => b,
         _ => {
-            println!(
-                "cargo:warning=Unsupported OS for Ganak download: {}. Skipping.",
-                target_os
-            );
-            return;
+            println!("cargo:warning=Downloading Ganak from {url}");
+            let b = reqwest::blocking::get(&url).expect("Ganak download failed")
+                .error_for_status().expect("Ganak HTTP error")
+                .bytes().expect("Failed to read Ganak archive").to_vec();
+            assert_eq!(ganak_distribution::fingerprint(&b), fields[3], "Ganak archive SHA256 mismatch");
+            fs::create_dir_all(cache.parent().unwrap()).unwrap();
+            fs::write(&cache, &b).unwrap();
+            b
         }
     };
-
-    let arch_str = match target_arch {
-        "x86_64" => {
-            if os_str == "mac" {
-                "x86_64"
-            } else {
-                "amd64"
+    assert_eq!(ganak_distribution::fingerprint(&bytes), fields[3], "Ganak archive SHA256 mismatch");
+    let mut executable = Vec::new();
+    if filename.ends_with(".zip") {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("Invalid Ganak ZIP");
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).unwrap();
+            if Path::new(entry.name()).file_name().and_then(|s| s.to_str()) == Some("ganak.exe") {
+                entry.read_to_end(&mut executable).unwrap();
+                break;
             }
         }
-        "aarch64" => "arm64",
-        _ => {
-            println!(
-                "cargo:warning=Unsupported architecture for Ganak: {}. Skipping.",
-                target_arch
-            );
-            return;
-        }
-    };
-
-    let filename = format!("ganak-{}-{}.zip", os_str, arch_str);
-    let url = format!(
-        "https://github.com/meelgroup/ganak/releases/download/release/2.5.2/{}",
-        filename
-    );
-    println!("cargo:warning=Downloading Ganak from {}", url);
-
-    // Send HTTP GET request
-    let response = reqwest::blocking::get(&url)
-        .unwrap_or_else(|e| panic!("Failed to download Ganak: {}", e));
-    let bytes = response.bytes().expect("Failed to read response bytes");
-
-    // Extract ZIP
-    let reader = Cursor::new(bytes);
-    let mut zip = zip::ZipArchive::new(reader).expect("Failed to read Ganak ZIP archive");
-
-    // Look for the file named ganak
-    let mut found = false;
-    for i in 0..zip.len() {
-        let mut file = zip.by_index(i).unwrap();
-        if file.name().ends_with("ganak") || file.name().ends_with("ganak.exe") {
-            let mut out_file = fs::File::create(dest_path).unwrap();
-            std::io::copy(&mut file, &mut out_file).unwrap();
-
-            // Grant execution permissions (Unix)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = fs::metadata(dest_path).unwrap().permissions();
-                perms.set_mode(0o755);
-                fs::set_permissions(dest_path, perms).unwrap();
-            }
-            found = true;
-            break;
-        }
+    } else {
+        // Unix release archives have a root-level ganak executable. Use the
+        // platform tar rather than add another archive implementation.
+        let archive_path = dest_path.with_extension("tar.gz");
+        fs::write(&archive_path, bytes).unwrap();
+        let output = std::process::Command::new("tar")
+            .args(["-xOzf"]).arg(&archive_path).arg("ganak").output()
+            .expect("tar is required to extract the Ganak Unix release");
+        let _ = fs::remove_file(archive_path);
+        assert!(output.status.success(), "Ganak tar extraction failed: {}", String::from_utf8_lossy(&output.stderr));
+        executable = output.stdout;
     }
-
-    if !found {
-        panic!("Could not find 'ganak' binary inside downloaded zip.");
+    ganak_distribution::validate(&executable, target_os, target_arch).unwrap_or_else(|e| panic!("{e}"));
+    let temporary = dest_path.with_extension("installing");
+    fs::write(&temporary, &executable).unwrap();
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o755)).unwrap();
     }
-    println!(
-        "cargo:warning=Successfully installed Ganak to {}",
-        dest_path.display()
-    );
-    
+    // Windows cannot replace an existing file with rename.
+    if dest_path.exists() { fs::remove_file(dest_path).unwrap(); }
+    fs::rename(temporary, dest_path).unwrap();
 }

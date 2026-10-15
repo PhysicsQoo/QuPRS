@@ -25,6 +25,8 @@ def test_invalid_count_is_not_silently_zero(line):
 
 def test_ganak_runs_independently(monkeypatch):
     import QuPRS.interface.ps2wmc as module
+    import QuPRS.utils.ganak_distribution as distribution
+    monkeypatch.setattr(distribution, "binary_diagnostics", lambda *args: {})
     calls = []
     @contextmanager
     def executable(name):
@@ -37,3 +39,11 @@ def test_ganak_runs_independently(monkeypatch):
     monkeypatch.setattr(module.subprocess, 'run', run)
     assert run_wmc('test.cnf', 'ganak') == (1.5, .25)
     assert calls == [['/solvers/ganak', *SOLVER_ARGUMENTS['ganak'], 'test.cnf']]
+
+def test_benchmark_does_not_skip_a_ganak_crash(monkeypatch):
+    import test_MQT as benchmark_module
+    def crash(*args, **kwargs):
+        raise RuntimeError('solver exited with signal')
+    monkeypatch.setattr(benchmark_module, 'check_equivalence', crash)
+    with pytest.raises(RuntimeError, match='signal'):
+        benchmark_module.generate_test('fixture.qasm', tool_name='ganak')

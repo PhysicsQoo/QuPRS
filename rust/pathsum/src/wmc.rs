@@ -245,6 +245,11 @@ impl WmcManager {
             "ganak" => Self::find_ganak_path(),
             _ => return Err(anyhow!("Unsupported tool name: {}", tool_name)),
         };
+        if tool_name == "ganak" {
+            let provenance = crate::ganak_distribution::diagnostics(std::path::Path::new(&exe_path),
+                std::env::var_os("QUPRS_GANAK_PATH").is_some()).map_err(|e| anyhow!(e))?;
+            info!(target: "wmc", "{}", provenance);
+        }
         let mut args: Vec<String> = solver_arguments(tool_name)?.iter().map(|arg| arg.to_string()).collect();
 
         if let Some(t) = timeout {
@@ -295,8 +300,9 @@ impl WmcManager {
         };
         
         if !exit_status.success() {
-             // Handle non-zero exit code if needed, but we usually parse stdout anyway.
-             // However, if it failed without any output, it's an error.
+            let _ = std::fs::remove_file(&temp_cnf_path);
+            return Err(anyhow!("{} failed: status={}, command={} {:?}, stdout={}, stderr={}",
+                tool_name, exit_status, exe_path, args, stdout_str, stderr_str));
         }
 
         trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
@@ -400,4 +406,35 @@ mod count_parser_tests {
         assert!(parse_real_count("1/0").is_err());
         assert!(parse_real_count("inf").is_err());
     }
+    #[test]
+    fn ganak_exact_complex_counts_match_hand_computed_models() {
+        use super::*;
+        for (re, im) in [(1.5, 0.25), (-1.5, -0.25), (0.0, 1.0), (0.0, 0.0), (1e-5, -2.5e-6)] {
+            let mut manager = WmcManager::new(&PathSum::new(0));
+            manager.next_var_id = 2;
+            manager.clauses.push(vec![1]);
+            manager.weights.insert(1, Complex::new(re, im));
+            assert_eq!(manager.solve("ganak", Some(std::time::Duration::from_secs(10))).unwrap(), Complex::new(re, im));
+        }
+        let mut manager = WmcManager::new(&PathSum::new(0));
+        manager.next_var_id = 2;
+        manager.weights.insert(1, Complex::new(-1.0, 0.0));
+        assert_eq!(manager.solve("ganak", None).unwrap(), Complex::new(0.0, 0.0));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn nonzero_solver_exit_cannot_become_a_weighted_count() {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("quprs-failed-gpmc-{}", std::process::id()));
+        std::fs::write(&path, "#!/bin/sh\necho 'c s exact arb frac 999'\nexit 7\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("QUPRS_GPMC_PATH", &path);
+        let result = WmcManager::new(&PathSum::new(0)).solve("gpmc", None);
+        std::env::remove_var("QUPRS_GPMC_PATH");
+        std::fs::remove_file(path).unwrap();
+        assert!(result.unwrap_err().to_string().contains("status="));
+    }
+
 }

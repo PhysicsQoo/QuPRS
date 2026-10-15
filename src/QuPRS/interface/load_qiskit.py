@@ -215,21 +215,30 @@ def _check_equivalence(
             c2_input = circuit2
         import os
         from QuPRS.utils import WMC
+        environment_key = f"QUPRS_{tool_name.upper()}_PATH"
+        previous_path = os.environ.get(environment_key)
         with WMC(tool_name) as exe_path:
-            if tool_name == "gpmc":
-                os.environ["QUPRS_GPMC_PATH"] = str(exe_path)
-            elif tool_name == "ganak":
-                os.environ["QUPRS_GANAK_PATH"] = str(exe_path)
-
-        rust_res = _pathsum_rust.check_equivalence(
-            c1_input,
-            c2_input,
-            method=method,
-            strategy=strategy,
-            tool_name=tool_name,
-            timeout=timeout,
-            safe_mode=safe_mode,
-        )
+            if tool_name == "ganak":
+                from QuPRS.utils.ganak_distribution import binary_diagnostics
+                binary_diagnostics(exe_path, previous_path is not None)
+            # Keep resource extraction alive and do not turn this internal path
+            # into a persistent user override for later backend calls.
+            os.environ[environment_key] = str(exe_path)
+            try:
+                rust_res = _pathsum_rust.check_equivalence(
+                    c1_input,
+                    c2_input,
+                    method=method,
+                    strategy=strategy,
+                    tool_name=tool_name,
+                    timeout=timeout,
+                    safe_mode=safe_mode,
+                )
+            finally:
+                if previous_path is None:
+                    os.environ.pop(environment_key, None)
+                else:
+                    os.environ[environment_key] = previous_path
         # Parse rust result dict into EquivalenceCheckResult
         # Handle string mappings
         equiv_map = {

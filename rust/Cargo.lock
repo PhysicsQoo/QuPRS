@@ -1189,6 +1189,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "rustc-hash",
+ "sha2",
  "similar",
  "wait-timeout",
  "zip",

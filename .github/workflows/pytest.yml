@@ -69,7 +69,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
-          key: ${{ matrix.os }}-${{ matrix.arch }}-cargo-v1
+          key: ${{ matrix.os }}-${{ matrix.arch }}-ganak-2.8.0-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
 
       # ==========================================
       # System Dependencies Installation
@@ -111,7 +111,7 @@ jobs:
         uses: actions/cache@v4
         with:
            path: ${{ env.BINARY_DIR }}/wmc_tools
-           key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v0
+           key: ${{ matrix.os }}-${{ matrix.arch }}-ganak-2.8.0-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
 
       - name: Install and build (Unix)
         if: matrix.os != 'windows-latest'
@@ -137,6 +137,7 @@ jobs:
       - name: Run tests (Unix)
         if: matrix.os != 'windows-latest'
         run: |
+          python -m QuPRS.utils.ganak_distribution
           pytest -n auto -v -ra \
           --junitxml=pytest-results.xml \
           --html=pytest-results.html --self-contained-html \

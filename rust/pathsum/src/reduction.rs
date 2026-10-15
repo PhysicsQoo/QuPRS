@@ -24,6 +24,9 @@ impl PathSum {
             return;
         }
 
+        #[cfg(test)]
+        crate::strategy::tests::REDUCTION_STARTS.with(|starts| starts.borrow_mut().push(self.v.next_id));
+
         let mut reduced = true;
         let mut iterations = 0;
 

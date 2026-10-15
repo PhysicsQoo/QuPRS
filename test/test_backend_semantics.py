@@ -49,3 +49,25 @@ def test_rust_parser_rejects_invalid_gates(source):
     from QuPRS import _pathsum_rust
     with pytest.raises(ValueError):
         _pathsum_rust.check_equivalence(source, source, method='reduction_rules')
+
+
+@pytest.mark.parametrize('strategy', STRATEGIES)
+@pytest.mark.parametrize('method', ['hybrid', 'reduction_rules', 'wmc_only'])
+@pytest.mark.parametrize('case', ['exact', 'phase', 'different'])
+def test_reduction_scheduling_backend_parity(strategy, method, case):
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    for _ in range(26):
+        a.h(0)
+    for _ in range(6):
+        b.h(0)
+    if case == 'phase':
+        a.x(0)
+        a.z(0)
+        a.x(0)
+        a.z(0)
+    elif case == 'different':
+        a.x(0)
+    results = [check_equivalence(a, b, backend=backend, method=method,
+               strategy=strategy, tool_name='gpmc', timeout=10)
+               for backend in ['python', 'rust']]
+    assert [result.equivalent for result in results] == [expected(a, b)] * 2

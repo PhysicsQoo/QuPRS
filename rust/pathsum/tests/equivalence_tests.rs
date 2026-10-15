@@ -77,3 +77,27 @@ fn test_non_equivalent_circuits() {
     
     assert_eq!(result.status, EquivalenceStatus::NotEquivalent, "Identity should NOT equal X");
 }
+#[test]
+fn scheduling_preserves_status_and_timeout_for_all_strategies() {
+    for strategy in [VerificationStrategy::Naive, VerificationStrategy::Straightforward,
+        VerificationStrategy::Proportional, VerificationStrategy::Difference] {
+        for (tail, expected) in [
+            (vec![], EquivalenceStatus::Equivalent),
+            (vec![QuantumOp::X(0), QuantumOp::Z(0), QuantumOp::X(0), QuantumOp::Z(0)],
+                EquivalenceStatus::EquivalentUpToGlobalPhase),
+            (vec![QuantumOp::X(0)], EquivalenceStatus::NotEquivalent),
+        ] {
+            let mut a = vec![QuantumOp::H(0); 26];
+            a.extend(tail);
+            let b = vec![QuantumOp::H(0); 6];
+            let result = check_equivalence(1, &a, &b, VerificationMethod::ReductionRules,
+                strategy, "gpmc", 10).unwrap();
+            assert_eq!(result.status, expected, "{strategy:?}");
+            for method in [VerificationMethod::Hybrid, VerificationMethod::ReductionRules,
+                VerificationMethod::WmcOnly] {
+                let result = check_equivalence(1, &a, &b, method, strategy, "gpmc", 0).unwrap();
+                assert_eq!(result.status, EquivalenceStatus::Timeout, "{strategy:?}, {method:?}");
+            }
+        }
+    }
+}

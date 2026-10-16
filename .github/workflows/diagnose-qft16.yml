@@ -1,0 +1,47 @@
+name: Diagnostic Ganak QFT16 Version and Mode
+
+on:
+  pull_request:
+    branches: [fix/ganak-2.8.0-clean]
+    paths:
+      - 'rust/pathsum/src/wmc.rs'
+      - 'scripts/diagnose_ganak_qft16.py'
+      - '.github/workflows/diagnose-qft16.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qft16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target"
+      - name: Install QuPRS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --upgrade pip maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(which python)")")"
+          maturin develop --release -E dev
+      - name: Compare four solver configurations with identical CNF
+        run: |
+          mkdir -p qft16-diagnostics
+          python scripts/diagnose_ganak_qft16.py --samples 5 --timeout 45 --output qft16-diagnostics/report.json
+      - name: Upload CNF, hashes and timed observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qft16-ganak-four-way
+          path: qft16-diagnostics/
+          if-no-files-found: warn

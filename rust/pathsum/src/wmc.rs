@@ -239,6 +239,16 @@ impl WmcManager {
 
         let mut file = File::create(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
+        // Optional diagnostics only: capture the exact solver input.
+        if tool_name == "ganak" {
+            if let Some(root) = std::env::var_os("QUPRS_WMC_DIAGNOSTICS_DIR") {
+                let dir = std::path::PathBuf::from(root);
+                std::fs::create_dir_all(&dir)?;
+                let captured = dir.join(format!("ganak_{}_{}.cnf", pid, timestamp));
+                std::fs::copy(&temp_cnf_path, &captured)?;
+                eprintln!("QUPRS_WMC_CAPTURE={}", captured.display());
+            }
+        }
 
         let exe_path = match tool_name {
             "gpmc" => Self::find_gpmc_path(),

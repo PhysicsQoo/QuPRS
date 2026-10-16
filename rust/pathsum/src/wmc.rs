@@ -412,7 +412,9 @@ mod count_parser_tests {
     #[test]
     fn floating_solvers_match_complex_and_cancellation_fixtures() {
         use super::*;
-        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap();
+        // Preserve failure isolation: a preceding assertion may poison this
+        // lock, but does not change the solver override in that fixture.
+        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         for positive in [
             Complex::new(1.23456789123, -2.34567891234),
             Complex::new(1e-12, -2.5e-11),
@@ -450,7 +452,9 @@ mod count_parser_tests {
         use super::*;
         use std::os::unix::fs::PermissionsExt;
         let path = std::env::temp_dir().join(format!("quprs-failed-gpmc-{}", std::process::id()));
-        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap();
+        // Preserve failure isolation: a preceding assertion may poison this
+        // lock, but does not change the solver override in that fixture.
+        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         let previous = std::env::var_os("QUPRS_GPMC_PATH");
         for (body, message) in [
             ("echo 'c s exact quadruple float 999'; exit 7", "status="),

@@ -129,6 +129,33 @@ def test_python_dimacs_weights_do_not_truncate_before_solver(solver):
     assert len(re) >= 17  # at least binary64 round-trip precision
 
 
+
+@pytest.mark.parametrize('fraction', [
+    se.Rational(1, 7), se.Rational(1, 13), se.Rational(9, 37),
+])
+def test_python_113_bit_weights_match_independent_oracle(fraction):
+    # The original length/f64 checks cannot tell a genuine 113-bit result
+    # from a padded 53-bit intermediate. mpmath provides an independent
+    # 80-decimal-digit reference, with no binary64 cast on either side.
+    from mpmath import mp
+
+    phase = 2 * se.pi * fraction
+    actual_real = se.cos(phase).evalf(113)
+    actual_imag = se.sin(phase).evalf(113)
+    with mp.workdps(80):
+        angle = 2 * mp.pi * mp.mpf(str(fraction.p)) / mp.mpf(str(fraction.q))
+        ref_real, ref_imag = mp.cos(angle), mp.sin(angle)
+        error = max(
+            abs(mp.mpf(str(actual_real)) - ref_real),
+            abs(mp.mpf(str(actual_imag)) - ref_imag),
+        )
+        # 113 binary bits ~= 34 decimal digits. Allow representation and
+        # decimal-print conversion noise but reject silent f64 fallback.
+        assert error < mp.mpf("1e-29"), (
+            f"113-bit SymEngine phase={fraction} has error={mp.nstr(error, 12)}; "
+            f"real={actual_real}, imag={actual_imag}"
+        )
+
 def test_python_wmc_count_classification_is_stable_for_extremes():
     kwargs = dict(magnitude_tolerance=1e-6, phase_tolerance=1e-6)
     status, log_value = classify_weighted_count(1e300, 0.0, math.log2(1e300), **kwargs)

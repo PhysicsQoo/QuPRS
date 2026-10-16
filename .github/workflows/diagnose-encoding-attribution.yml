@@ -1,0 +1,49 @@
+name: Diagnose Ganak encoding vs wrapper overhead
+
+on:
+  pull_request:
+    branches: [fix/ganak-2.8.0-clean]
+    paths:
+      - "rust/pathsum/src/wmc.rs"
+      - "scripts/diagnose_encoding_attribution.py"
+      - ".github/workflows/diagnose-encoding-attribution.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout pinned QuPRS and GPMC
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --upgrade pip maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(which python)")")"
+          maturin develop --release -E dev
+      - name: Fixed Ganak 2.8.0 and alternating CNF experiments
+        run: |
+          mkdir -p attribution-report
+          python -u scripts/diagnose_encoding_attribution.py \
+            --samples 5 --timeout 40 --capture-timeout 90 \
+            --output attribution-report/report.json
+      - name: Upload complete CNFs, comparison, version, and timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ganak-encoding-attribution
+          path: attribution-report/
+          if-no-files-found: warn

@@ -202,7 +202,13 @@ impl WmcManager {
                 out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
             } else {
                 let op = if weight.im >= 0.0 { "+" } else { "-" };
-                out.push_str(&format!("c p weight {} {:.17} {} {:.17}i 0\n", var, weight.re, op, weight.im.abs()));
+                // Diagnostic-only opt-in: reproduce the main branch's 9-decimal
+                // Ganak weights without changing the default 17-decimal policy.
+                if std::env::var("QUPRS_DIAG_GANAK_DECIMALS").as_deref() == Ok("9") {
+                    out.push_str(&format!("c p weight {} {:.9} {} {:.9}i 0\n", var, weight.re, op, weight.im.abs()));
+                } else {
+                    out.push_str(&format!("c p weight {} {:.17} {} {:.17}i 0\n", var, weight.re, op, weight.im.abs()));
+                }
                 out.push_str(&format!("c p weight -{} 1.0 + 0.0i 0\n", var));
             }
         }
@@ -260,6 +266,22 @@ impl WmcManager {
 
         let mut file = File::create(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
+
+        // These opt-in switches exist only on this diagnostics branch.
+        // Capture the actual generated solver input and stop before invoking
+        // Ganak, so CNF generation can be tested without solver runtime.
+        if tool_name == "ganak" {
+            if let Some(folder) = std::env::var_os("QUPRS_DIAG_CAPTURE_DIR") {
+                let directory = std::path::PathBuf::from(folder);
+                std::fs::create_dir_all(&directory)?;
+                let captured = directory.join(format!("ganak_{}_{}.cnf", pid, timestamp));
+                std::fs::write(&captured, cnf_content.as_bytes())?;
+                if std::env::var_os("QUPRS_DIAG_CAPTURE_ONLY").is_some() {
+                    let _ = std::fs::remove_file(&temp_cnf_path);
+                    return Err(anyhow!("DIAGNOSTIC_CAPTURE_COMPLETE: {}", captured.display()));
+                }
+            }
+        }
 
         let exe_path = match tool_name {
             "gpmc" => Self::find_gpmc_path(),

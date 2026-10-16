@@ -36,6 +36,16 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def cpu_model():
+    if sys.platform.startswith("linux"):
+        cpuinfo = Path("/proc/cpuinfo")
+        if cpuinfo.is_file():
+            for line in cpuinfo.read_text(errors="replace").splitlines():
+                if line.lower().startswith(("model name", "hardware")) and ":" in line:
+                    return line.split(":", 1)[1].strip()
+    return platform.processor() or platform.uname().processor or None
+
+
 def run():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -58,6 +68,13 @@ def run():
         "python_implementation": platform.python_implementation(),
         "platform": platform.platform(),
         "machine": platform.machine(),
+        "cpu_model": cpu_model(),
+        "cpu_count": os.cpu_count(),
+        "runner_os": os.environ.get("RUNNER_OS"),
+        "runner_arch": os.environ.get("RUNNER_ARCH"),
+        "runner_image": os.environ.get("ImageOS"),
+        "runner_image_version": os.environ.get("ImageVersion"),
+        "gpmc_submodule_sha": git("rev-parse", "HEAD:GPMC"),
         "rustc": version("rustc", "--version"),
         "solver_binaries": tools,
         "ganak_release_manifest_sha256": sha256(
@@ -82,6 +99,11 @@ def run():
               != tools["ganak"]["sha256"]):
             print("::notice::Benchmark binary differs between main and PR as expected for "
                   "a solver upgrade. Compare walltimes using an identical input CNF.")
+        elif (previous.get("gpmc_submodule_sha") and
+              previous.get("gpmc_submodule_sha") != record["gpmc_submodule_sha"]):
+            print("::warning::Pinned GPMC submodule differs from baseline.")
+        elif (previous.get("cpu_model") and previous.get("cpu_model") != record["cpu_model"]):
+            print("::warning::CPU model differs from baseline; walltime may not be comparable.")
         else:
             print("Baseline main SHA matches currently fetched main. "
                   "Runner characteristics are still potentially different.")

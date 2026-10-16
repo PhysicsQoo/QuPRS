@@ -23,6 +23,7 @@ fn test_h_h_is_identity() {
         &gates2, 
         VerificationMethod::Hybrid,          
         VerificationStrategy::Difference,    
+        "gpmc",
         0                                    
     ).unwrap();
     
@@ -48,6 +49,7 @@ fn test_cx_equivalence() {
         &gates2, 
         VerificationMethod::Hybrid, 
         VerificationStrategy::Difference, 
+        "gpmc",
         0
     ).unwrap();
 
@@ -69,6 +71,7 @@ fn test_non_equivalent_circuits() {
         &gates2, 
         VerificationMethod::Hybrid, 
         VerificationStrategy::Difference, 
+        "gpmc",
         0
     ).unwrap();
     

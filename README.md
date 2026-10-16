@@ -217,6 +217,32 @@ If you use `QuPRS` in your research, please cite our paper:
 You can also cite this software repository via Zenodo:
 
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.15705190-blue.svg)](https://doi.org/10.5281/zenodo.15705190)
+## Floating weighted counts
+
+Ganak 2.8.0 uses `--mode=6`; GPMC uses `-mode=1`. Both operate on
+floating-point encodings of the path sum. Ganak mode 6 prints rounded complex
+counts (nine significant digits in the pinned release). Neither solver is an
+exact-arithmetic certificate for the original circuit. Ganak's pinned version,
+archive/executable SHA256 and architecture checks still apply.
+
+Count fixtures compare against hand-computed complex sums and the other solver
+using relative error `1e-8` and absolute error `1e-12`. Rust GPMC's existing
+nine-decimal input encoding additionally permits `2e-9` absolute input error in
+its small fixtures. These are fixture budgets, not universal error bounds under
+cancellation and not replacements for equivalence tolerances.
+
+Python retains its existing comparison of the log2 count rounded to three
+decimal places against its configurable tolerance (default `1e-10`). Thus its
+effective log2 decision resolution is approximately `0.0005`, not `1e-10`.
+Rust retains its existing `1e-6` normalized-magnitude/phase thresholds. This
+mode change does not unify those backend decision policies. Boundary fixtures
+exercise both contracts, including large normalization counts whose printed
+precision is coarser than the configured Python tolerance.
+Results closer to a decision boundary than encoding or printed-count
+error should be checked independently; agreement between two solvers alone does
+not establish exact equivalence. Nonzero exits, crashes, missing results and
+malformed/non-finite counts are failures, without cross-solver fallback.
+
 ## License Information
 
 - The original source code of this project is licensed under the **[MIT License](LICENSE.md)**.

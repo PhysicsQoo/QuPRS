@@ -6,12 +6,17 @@ name: Build and Publish Python Package
 # 1. Push a v* tag: verify tag/version/main SHA, build wheels and sdist,
 #    then automatically publish to PyPI and create a public GitHub Release.
 # 2. workflow_dispatch: build and test the selected branch (packaging dry-run),
-#    upload artifacts, and never publish. Ordinary branch pushes/PRs do not run.
+#    upload artifacts, and never publish.
+# 3. PRs changing this workflow: run only a low-cost version/ref preflight.
+#    Ordinary branch pushes do not run the release workflow.
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/python-publish.yml'
 
 jobs:
   verify_release_ref:
@@ -56,8 +61,10 @@ jobs:
                       f"Tag {actual_tag!r} != expected {expected_tag!r}"
                   )
               print(f"Release version verified: {expected_tag}")
-          else:
+          elif os.environ["RELEASE_EVENT"] == "workflow_dispatch":
               print(f"Packaging dry-run for version {workspace_version}; no publishing")
+          else:
+              print(f"PR-only preflight for version {workspace_version}; no build or publish")
           PY
 
           if [[ "$RELEASE_EVENT" == "push" ]]; then
@@ -79,6 +86,7 @@ jobs:
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
     needs: verify_release_ref
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -151,6 +159,7 @@ jobs:
   build_sdist:
     name: Build source distribution
     needs: verify_release_ref
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

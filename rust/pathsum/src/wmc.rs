@@ -252,17 +252,32 @@ impl WmcManager {
     }
 
     pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
+        use std::fs::OpenOptions;
+        use std::sync::atomic::{AtomicU64, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
 
+        // SystemTime alone is not an exclusive identifier when Rust tests
+        // spawn multiple solver processes concurrently (particularly on
+        // macOS). Never truncate a different solver call's live CNF.
+        static NEXT_CNF_ID: AtomicU64 = AtomicU64::new(0);
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let pid = std::process::id();
-        let temp_cnf_path = std::env::temp_dir().join(format!("temp_eqcheck_{}_{}.cnf", pid, timestamp));
-        
+        let nonce = NEXT_CNF_ID.fetch_add(1, Ordering::Relaxed);
+        let temp_cnf_path = std::env::temp_dir()
+            .join(format!("temp_eqcheck_{}_{}_{}.cnf", pid, timestamp, nonce));
+
         let cnf_content = self.to_dimacs_string(tool_name);
         trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
-        let mut file = File::create(&temp_cnf_path)?;
+        // create_new is atomic; in the exceptionally unlikely event that
+        // another process owns this exact path, return an error instead of
+        // silently overwriting its CNF and returning a wrong count.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
+        drop(file); // release the file before launching either solver
 
         let exe_path = match tool_name {
             "gpmc" => Self::find_gpmc_path(),
@@ -385,6 +400,51 @@ mod count_parser_tests {
         manager.next_var_id = 2;
         manager.weights.insert(1, Complex::new(-1.0, 0.0));
         assert_eq!(manager.solve("ganak").unwrap(), Complex::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn concurrent_ganak_fixtures_keep_their_own_weights() {
+        use super::*;
+        use std::sync::{Arc, Barrier};
+
+        // Reproduce the parallel cargo-test pattern that can otherwise
+        // attribute the answer for a different CNF to this fixture. Include
+        // both forced and free variables, which have different exact counts.
+        let fixtures = [
+            (Complex::new(1.5, 0.25), true),
+            (Complex::new(-1.5, -0.25), true),
+            (Complex::new(0.0, 1.0), true),
+            (Complex::new(0.5, -0.125), true),
+            (Complex::new(0.25, 0.75), false),
+            (Complex::new(-0.5, 0.5), false),
+            (Complex::new(0.0, -1.0), false),
+            (Complex::new(1.25, -0.25), false),
+        ];
+        let barrier = Arc::new(Barrier::new(fixtures.len()));
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = fixtures.into_iter().map(|(weight, forced)| {
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    let mut manager = WmcManager::new(&PathSum::new(0));
+                    manager.next_var_id = 2;
+                    if forced {
+                        manager.clauses.push(vec![1]);
+                    }
+                    manager.weights.insert(1, weight);
+                    barrier.wait();
+                    let actual = manager.solve("ganak").unwrap();
+                    let expected = if forced { weight } else { weight + Complex::new(1.0, 0.0) };
+                    let error = (actual - expected).norm();
+                    assert!(
+                        error <= 1e-8 * expected.norm() + 1e-10,
+                        "Cross-fixture solver result: forced={forced}, weight={weight:?}, expected={expected:?}, actual={actual:?}, error={error:e}"
+                    );
+                })
+            }).collect();
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
     }
 
     #[test]

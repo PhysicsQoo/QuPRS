@@ -77,6 +77,7 @@ module-name = "QuPRS._pathsum_rust"
 include = [
     "GPMC/**/*",                   # C++ source for GPMC
     "scripts/install_linux_deps.sh", # Environment setup script
+    "src/QuPRS/utils/ganak-release.txt",
     "src/QuPRS/utils/wmc_tools/*", # Compiled binaries from build.rs
 ]
 

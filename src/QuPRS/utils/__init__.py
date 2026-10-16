@@ -40,6 +40,10 @@ def get_ganak_path() -> Iterator[Path]:
     """
     Context manager to safely obtain the path to the packaged Ganak binary.
     """
+    override = os.environ.get("QUPRS_GANAK_PATH")
+    if override:
+        yield Path(override)
+        return
     # Standardized binary name regardless of OS
     binary_name = _get_binary_name("ganak")
 
@@ -49,7 +53,8 @@ def get_ganak_path() -> Iterator[Path]:
 
         # 2. Use as_file to ensure we get a real file system path
         with resources.as_file(ganak_resource) as path:
-            # 3. Yield the valid path to the context block
+            from .ganak_distribution import binary_diagnostics
+            binary_diagnostics(path)
             yield path
 
     except FileNotFoundError:

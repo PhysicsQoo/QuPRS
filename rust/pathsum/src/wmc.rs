@@ -7,10 +7,35 @@ use std::f64::consts::PI;
 
 use log::{info, debug, trace};
 use num_complex::Complex;
+use num_rational::BigRational;
+use num_traits::ToPrimitive;
 use anyhow::{Result, Context, anyhow};
 
 use crate::pathsum::PathSum;
 use crate::pathsum::phase_poly::Monomial;
+
+fn solver_arguments(tool_name: &str) -> Result<&'static [&'static str]> {
+    match tool_name {
+        "gpmc" => Ok(&["-mode=1"]),
+        "ganak" => Ok(&["--mode=2"]),
+        _ => Err(anyhow!("Unsupported tool name: {}", tool_name)),
+    }
+}
+
+// BigRational conversion handles ratios whose individual components exceed f64.
+fn parse_real_count(value: &str) -> Result<f64> {
+    let result = if value.contains('/') {
+        value.parse::<BigRational>()
+            .map_err(|e| anyhow!("Invalid rational count: {}", e))?
+            .to_f64().ok_or_else(|| anyhow!("Count outside f64 range"))?
+    } else {
+        value.parse::<f64>().map_err(|e| anyhow!("Invalid decimal count: {}", e))?
+    };
+    if !result.is_finite() {
+        return Err(anyhow!("Non-finite weighted count"));
+    }
+    Ok(result)
+}
 
 pub struct WmcManager {
     clauses: Vec<Vec<i32>>,
@@ -155,7 +180,7 @@ impl WmcManager {
                 out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
             } else {
                 let op = if weight.im >= 0.0 { "+" } else { "-" };
-                out.push_str(&format!("c p weight {} {:.9} {} {:.9}i 0\n", var, weight.re, op, weight.im.abs()));
+                out.push_str(&format!("c p weight {} {:.17} {} {:.17}i 0\n", var, weight.re, op, weight.im.abs()));
                 out.push_str(&format!("c p weight -{} 1.0 + 0.0i 0\n", var));
             }
         }
@@ -215,14 +240,18 @@ impl WmcManager {
         let mut file = File::create(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
 
-        let (exe_path, args) = if tool_name == "gpmc" {
-            (Self::find_gpmc_path(), vec!["-mode=1"])
-        } else if tool_name == "ganak" {
-            (Self::find_ganak_path(), vec!["--mode=6"])
-        } else {
-            return Err(anyhow!("Unsupported tool name: {}", tool_name));
+        let exe_path = match tool_name {
+            "gpmc" => Self::find_gpmc_path(),
+            "ganak" => Self::find_ganak_path(),
+            _ => return Err(anyhow!("Unsupported tool name: {}", tool_name)),
         };
-        
+        if tool_name == "ganak" {
+            let provenance = crate::ganak_distribution::diagnostics(std::path::Path::new(&exe_path),
+                std::env::var_os("QUPRS_GANAK_PATH").is_some()).map_err(|e| anyhow!(e))?;
+            info!(target: "wmc", "{}", provenance);
+        }
+        let args: Vec<String> = solver_arguments(tool_name)?.iter().map(|arg| arg.to_string()).collect();
+
         debug!(target: "wmc", "Spawning {} solver: {} {:?} {}", tool_name, exe_path, args, temp_cnf_path.display());
 
         let mut child = Command::new(&exe_path)
@@ -243,7 +272,13 @@ impl WmcManager {
             err.read_to_string(&mut stderr_str)?;
         }
 
-        child.wait()?;
+        let exit_status = child.wait()?;
+
+        if !exit_status.success() {
+            let _ = std::fs::remove_file(&temp_cnf_path);
+            return Err(anyhow!("{} failed: status={}, command={} {:?}, stdout={}, stderr={}",
+                tool_name, exit_status, exe_path, args, stdout_str, stderr_str));
+        }
 
         trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
         if !stderr_str.is_empty() {
@@ -262,6 +297,8 @@ impl WmcManager {
                 prefix_len = "c s exact arb cpx".len();
             } else if line.starts_with("c s exact quadruple float") {
                 prefix_len = "c s exact quadruple float".len();
+            } else if line.starts_with("c s exact arb frac") {
+                prefix_len = "c s exact arb frac".len();
             } else if line.starts_with("c s exact") {
                 prefix_len = "c s exact".len();
             }
@@ -288,14 +325,14 @@ impl WmcManager {
                     }
 
                     if let Some(idx) = split_idx {
-                        re = s[..idx].parse().unwrap_or(0.0);
+                        re = parse_real_count(&s[..idx])?;
                         let im_str = &s[idx..];
-                        im = if im_str == "+" { 1.0 } else if im_str == "-" { -1.0 } else { im_str.parse().unwrap_or(0.0) };
+                        im = if im_str == "+" { 1.0 } else if im_str == "-" { -1.0 } else { parse_real_count(im_str)? };
                     } else {
-                        im = if s == "" { 1.0 } else if s == "-" { -1.0 } else { s.parse().unwrap_or(0.0) };
+                        im = if s == "" { 1.0 } else if s == "-" { -1.0 } else { parse_real_count(s)? };
                     }
                 } else {
-                    re = token_clean.parse().unwrap_or(0.0);
+                    re = parse_real_count(&token_clean)?;
                 }
                 
                 info!(target: "wmc", "{} result parsed: {} + {}i", tool_name, re, im);
@@ -313,4 +350,66 @@ impl WmcManager {
             )
         })
     }
+}
+#[cfg(test)]
+mod count_parser_tests {
+    use super::{parse_real_count, solver_arguments};
+
+    #[test]
+    fn ganak_uses_its_own_exact_rational_mode() {
+        assert_eq!(solver_arguments("ganak").unwrap(), &["--mode=2"]);
+        assert_eq!(solver_arguments("gpmc").unwrap(), &["-mode=1"]);
+        assert!(solver_arguments("unsupported").is_err());
+    }
+
+
+    #[test]
+    fn parses_exact_fraction_and_scientific_notation() {
+        assert_eq!(parse_real_count("-3/2").unwrap(), -1.5);
+        assert_eq!(parse_real_count("1.25e-10").unwrap(), 1.25e-10);
+    }
+
+    #[test]
+    fn parses_fraction_with_components_larger_than_f64() {
+        let value = format!("1{}", "0".repeat(5000));
+        assert_eq!(parse_real_count(&format!("{}/{}", value, value)).unwrap(), 1.0);
+    }
+
+    #[test]
+    fn rejects_invalid_counts_instead_of_returning_zero() {
+        assert!(parse_real_count("malformed").is_err());
+        assert!(parse_real_count("1/0").is_err());
+        assert!(parse_real_count("inf").is_err());
+    }
+    #[test]
+    fn ganak_exact_complex_counts_match_hand_computed_models() {
+        use super::*;
+        for (re, im) in [(1.5, 0.25), (-1.5, -0.25), (0.0, 1.0), (0.0, 0.0), (1e-5, -2.5e-6)] {
+            let mut manager = WmcManager::new(&PathSum::new(0));
+            manager.next_var_id = 2;
+            manager.clauses.push(vec![1]);
+            manager.weights.insert(1, Complex::new(re, im));
+            assert_eq!(manager.solve("ganak").unwrap(), Complex::new(re, im));
+        }
+        let mut manager = WmcManager::new(&PathSum::new(0));
+        manager.next_var_id = 2;
+        manager.weights.insert(1, Complex::new(-1.0, 0.0));
+        assert_eq!(manager.solve("ganak").unwrap(), Complex::new(0.0, 0.0));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn nonzero_solver_exit_cannot_become_a_weighted_count() {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("quprs-failed-gpmc-{}", std::process::id()));
+        std::fs::write(&path, "#!/bin/sh\necho 'c s exact arb frac 999'\nexit 7\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("QUPRS_GPMC_PATH", &path);
+        let result = WmcManager::new(&PathSum::new(0)).solve("gpmc");
+        std::env::remove_var("QUPRS_GPMC_PATH");
+        std::fs::remove_file(path).unwrap();
+        assert!(result.unwrap_err().to_string().contains("status="));
+    }
+
 }

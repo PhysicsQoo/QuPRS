@@ -75,7 +75,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v0
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt') }}
 
       - name: Install dependencies
         run: |
@@ -85,7 +85,9 @@ jobs:
           maturin develop --release -E dev
 
       - name: Run benchmark and save results as JSON
-        run: pytest --benchmark-only --benchmark-json=output.json
+        run: |
+          pytest --benchmark-only --benchmark-json=output.json
+          python scripts/benchmark_provenance.py --output main_baseline.provenance.json
 
       - name: Discard local changes to tracked files
         run: |
@@ -110,6 +112,7 @@ jobs:
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
             cp output.json "$RUNNER_TEMP/main_baseline.json"
+            cp main_baseline.provenance.json "$RUNNER_TEMP/main_baseline.provenance.json"
             
             git clean -fdx
             git checkout .
@@ -127,9 +130,10 @@ jobs:
             git rm -rf --ignore-unmatch GPMC
 
             cp "$RUNNER_TEMP/main_baseline.json" .
+            cp "$RUNNER_TEMP/main_baseline.provenance.json" .
             
             # Stage the baseline JSON
-            git add main_baseline.json
+            git add main_baseline.json main_baseline.provenance.json
             
             if git diff --staged --quiet; then
               echo "No changes to commit."
@@ -187,6 +191,15 @@ jobs:
             echo "{}" > main_baseline.json
           fi
 
+      - name: Fetch baseline provenance (legacy baseline may not contain it)
+        run: |
+          if git checkout benchmarks -- main_baseline.provenance.json; then
+            echo "Baseline provenance found."
+          else
+            echo "::warning::No baseline provenance; old benchmark baseline cannot be authenticated."
+            echo '{}' > main_baseline.provenance.json
+          fi
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -197,13 +210,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: ${{ matrix.os }}-${{ matrix.arch }}-wmc-tools-v0
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt') }}
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install maturin
           export VIRTUAL_ENV=$(dirname $(dirname $(which python)))
           maturin develop --release -E dev
+
+      - name: Inspect baseline provenance
+        run: |
+          python scripts/benchmark_provenance.py --output pr_benchmark.provenance.json \
+            --baseline main_baseline.provenance.json \
+            --expected-main-sha "$(git rev-parse origin/main)"
 
       # Step 4: Run benchmark on PR code (and compare if baseline exists)
       - name: Run and compare benchmarks
@@ -253,3 +272,5 @@ jobs:
             benchmark_report.md
             pr_benchmark.json
             main_baseline.json
+            main_baseline.provenance.json
+            pr_benchmark.provenance.json

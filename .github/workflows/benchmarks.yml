@@ -214,9 +214,14 @@ jobs:
           
           # If baseline exists and is not empty, add comparison args
           if [ -s "main_baseline.json" ] && [ "$(cat main_baseline.json)" != "{}" ]; then
-            echo "Baseline detected. Enabling comparison."
+            echo "Baseline detected. Comparing for reporting only."
             echo "comparison_performed=true" >> $GITHUB_OUTPUT
-            CMD="$CMD --benchmark-compare=main_baseline.json --benchmark-compare-fail=mean:10%"
+            # A fixed 10% wall-clock fail threshold across shared GitHub-hosted
+            # runners can report regressions even for unchanged source code.
+            # Retain the baseline comparison and the explicit report warnings;
+            # pytest must still fail if a benchmark test itself crashes.
+            CMD="$CMD --benchmark-compare=main_baseline.json"
+            echo "::warning::Benchmark deltas are informational; review the full comparison and CodSpeed. Shared-runner walltime is not a release correctness gate."
           else
             echo "Baseline missing or empty. Running without comparison."
             echo "comparison_performed=false" >> $GITHUB_OUTPUT

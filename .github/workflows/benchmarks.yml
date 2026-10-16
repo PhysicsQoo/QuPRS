@@ -205,6 +205,14 @@ jobs:
           export VIRTUAL_ENV=$(dirname $(dirname $(which python)))
           maturin develop --release -E dev
 
+      # Low-cost, observational precision profile; reuses this runner rather
+      # than starting a new matrix. Timings are intentionally not a hard gate.
+      - name: Profile WMC Python weight precision
+        run: |
+          python scripts/profile_wmc_weight_precision.py \
+            --samples 96 --repeats 5 --warmups 2 \
+            --json-file python_wmc_precision_profile.json
+
       # Step 4: Run benchmark on PR code (and compare if baseline exists)
       - name: Run and compare benchmarks
         id: benchmark_step 
@@ -253,3 +261,4 @@ jobs:
             benchmark_report.md
             pr_benchmark.json
             main_baseline.json
+            python_wmc_precision_profile.json

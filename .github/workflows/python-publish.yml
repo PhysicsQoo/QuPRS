@@ -105,7 +105,7 @@ jobs:
           - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-14    # M1/M2 Mac (ARM64)
+          - os: macos-15    # ARM64; bundled Ganak 2.8.0 requires macOS >= 15
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
 
@@ -122,11 +122,9 @@ jobs:
           GMP=$(brew --prefix gmp)
           MPFR=$(brew --prefix mpfr)
           
-          if [[ "${{ matrix.os }}" == "macos-14" ]]; then
-            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=14.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
-          else
-            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
-          fi          
+          # Ganak 2.8.0 ARM64 has a macOS 15.0 binary minimum.
+          # Do not advertise macOS 14 support in the repaired wheel.
+            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV          
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.3.1

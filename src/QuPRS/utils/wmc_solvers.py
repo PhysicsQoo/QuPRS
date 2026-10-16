@@ -53,3 +53,36 @@ def parse_count_line(line):
     if imaginary in ("", "+", "-"):
         imaginary += "1"
     return complex(parse_real(real), parse_real(imaginary))
+
+
+def classify_weighted_count(real, imag, expected_log2, *, magnitude_tolerance, phase_tolerance):
+    """Classify a WMC result without rounding or squaring its components.
+
+    The magnitude policy matches Rust's normalized-amplitude threshold.
+    This operates on solver output, *not* on the reducer's symbolic tolerance.
+    Global phases outside the zero-phase tolerance remain equivalent*.
+    """
+    if not all(math.isfinite(v) for v in (real, imag, expected_log2)):
+        raise ValueError("Non-finite weighted count or normalization")
+    if magnitude_tolerance <= 0 or phase_tolerance <= 0:
+        raise ValueError("Weighted-count tolerances must be positive")
+
+    scale = max(abs(real), abs(imag))
+    if scale == 0.0:
+        return "not_equivalent", float("-inf")
+
+    # log(hypot) without overflowing real**2 + imag**2 or a large norm.
+    log_count = math.log2(scale) + math.log2(
+        math.hypot(real / scale, imag / scale)
+    )
+    log_difference = log_count - expected_log2
+
+    # expm1 is accurate near zero; the upper guard avoids overflow when the
+    # expected count is far smaller than the observed finite count.
+    if log_difference > 2 or abs(math.expm1(log_difference * math.log(2))) >= magnitude_tolerance:
+        return "not_equivalent", log_count
+
+    phase = math.atan2(imag, real)  # [-pi, pi], including phases just below 2*pi
+    if abs(phase) < phase_tolerance:
+        return "equivalent", log_count
+    return "equivalent*", log_count

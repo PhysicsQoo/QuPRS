@@ -197,12 +197,15 @@ impl WmcManager {
         out.push_str(&format!("p cnf {} {}\nc t wmc\n", num_vars, num_clauses));
         
         for (var, weight) in &self.weights {
+            // Round-trip every finite f64 component rather than quantizing to
+            // a fixed number of decimal places before MPFR-based counting.
+            // 16 digits after the leading digit = 17 significant digits.
             if tool_name == "gpmc" {
-                out.push_str(&format!("c p weight {} {:.9} {:.9} 0\n", var, weight.re, weight.im));
+                out.push_str(&format!("c p weight {} {:.16e} {:.16e} 0\n", var, weight.re, weight.im));
                 out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
             } else {
                 let op = if weight.im >= 0.0 { "+" } else { "-" };
-                out.push_str(&format!("c p weight {} {:.17} {} {:.17}i 0\n", var, weight.re, op, weight.im.abs()));
+                out.push_str(&format!("c p weight {} {:.16e} {} {:.16e}i 0\n", var, weight.re, op, weight.im.abs()));
                 out.push_str(&format!("c p weight -{} 1.0 + 0.0i 0\n", var));
             }
         }
@@ -385,9 +388,33 @@ mod count_parser_tests {
     }
 
     #[test]
+    fn solver_inputs_preserve_f64_roundtrip_precision() {
+        use super::*;
+        let re = -1.0 + 1e-12;
+        let im = -2.5e-11;
+        let mut manager = WmcManager::new(&PathSum::new(0));
+        manager.next_var_id = 2;
+        manager.weights.insert(1, Complex::new(re, im));
+        for solver in ["ganak", "gpmc"] {
+            let text = manager.to_dimacs_string(solver);
+            let line = text.lines().find(|l| l.starts_with("c p weight 1 ")).unwrap();
+            let fields: Vec<_> = line.split_whitespace().collect();
+            assert_eq!(fields[4].parse::<f64>().unwrap().to_bits(), re.to_bits(), "{solver}: {line}");
+            if solver == "gpmc" {
+                assert_eq!(fields[5].parse::<f64>().unwrap().to_bits(), im.to_bits(), "{line}");
+            } else {
+                assert_eq!(fields[6].trim_end_matches('i').parse::<f64>().unwrap().to_bits(), im.abs().to_bits(), "{line}");
+                assert_eq!(fields[5], "-");
+            }
+        }
+    }
+
+    #[test]
     fn floating_solvers_match_complex_and_cancellation_fixtures() {
         use super::*;
-        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap();
+        // Preserve failure isolation: a preceding assertion may poison this
+        // lock, but does not change the solver override in that fixture.
+        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         for positive in [
             Complex::new(1.23456789123, -2.34567891234),
             Complex::new(1e-12, -2.5e-11),
@@ -400,11 +427,22 @@ mod count_parser_tests {
             manager.weights.insert(1, positive);
             let ganak = manager.solve("ganak").unwrap();
             let gpmc = manager.solve("gpmc").unwrap();
-            // The GPMC encoder writes nine decimal places; include its input budget.
-            for value in [ganak, gpmc] {
-                assert!((value - expected).norm() <= 1e-8 * expected.norm() + 2e-9);
+            // Keep solver-specific diagnostics: a failing numerical fixture
+            // must identify which executable/weight/count breached the budget.
+            let tolerance = 1e-8 * expected.norm() + 2e-9;
+            for (solver, value) in [("ganak", ganak), ("gpmc", gpmc)] {
+                let error = (value - expected).norm();
+                assert!(
+                    error <= tolerance,
+                    "solver={solver}, input={positive:?}, expected={expected:?}, actual={value:?}, error={error:e}, tolerance={tolerance:e}, cnf={} ",
+                    manager.to_dimacs_string(solver),
+                );
             }
-            assert!((ganak - gpmc).norm() <= 1e-8 * expected.norm() + 2e-9);
+            let cross_error = (ganak - gpmc).norm();
+            assert!(
+                cross_error <= tolerance,
+                "ganak={ganak:?}, gpmc={gpmc:?}, input={positive:?}, cross_error={cross_error:e}, tolerance={tolerance:e}",
+            );
         }
     }
 
@@ -414,7 +452,9 @@ mod count_parser_tests {
         use super::*;
         use std::os::unix::fs::PermissionsExt;
         let path = std::env::temp_dir().join(format!("quprs-failed-gpmc-{}", std::process::id()));
-        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap();
+        // Preserve failure isolation: a preceding assertion may poison this
+        // lock, but does not change the solver override in that fixture.
+        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         let previous = std::env::var_os("QUPRS_GPMC_PATH");
         for (body, message) in [
             ("echo 'c s exact quadruple float 999'; exit 7", "status="),

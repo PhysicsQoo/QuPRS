@@ -196,8 +196,12 @@ def wlogi_to_clauses(wlogi_list, symbols_map, tool_name="gpmc"):
     for symbol in z:
         extend_symbols_map(symbols_map, symbol)
     for i, (w, logi) in enumerate(wlogi_list):
-        real = se.cos(2 * se.pi * w).evalf()
-        imag = se.sin(2 * se.pi * w).evalf()
+        # SymEngine evalf() takes precision in *bits*, not decimal digits.
+        # 113 bits retain approximately 34 significant decimal digits where
+        # MPFR is available, avoiding an unnecessary 53-bit intermediate
+        # before the solver parses the complex weights.
+        real = se.cos(2 * se.pi * w).evalf(113)
+        imag = se.sin(2 * se.pi * w).evalf(113)
 
         if tool_name == "gpmc":
             weight_str = f"{real} {imag} 0"

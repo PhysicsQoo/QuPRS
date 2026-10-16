@@ -29,6 +29,22 @@ def load_benchmark_data(file_path: Path) -> Dict[str, Dict]:
     return benchmark_map
 
 
+def read_machine_summary(file_path: Path) -> dict:
+    """Read bounded provenance fields without treating CPU IDs as comparable."""
+    try:
+        with file_path.open("r", encoding="utf-8") as stream:
+            info = json.load(stream).get("machine_info", {})
+            cpu = info.get("cpu", {})
+            return {
+                "cpu": cpu.get("brand_raw"),
+                "python": info.get("python_version"),
+                "system": info.get("system"),
+                "machine": info.get("machine"),
+            }
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: str):
     """
     Generates a markdown report.
@@ -51,7 +67,39 @@ def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: s
 
     markdown_lines = [
         "### 🔬 Benchmark Report\n",
+        "> **Informational performance comparison:** the 10% line flags"
+        " possible regressions for review but does not fail PR correctness"
+        " CI on shared GitHub-hosted runners. A red percentage is not"
+        " independently confirmed evidence of a code regression.\n",
     ]
+
+    if has_baseline:
+        current_machine = read_machine_summary(pr_file)
+        baseline_machine = read_machine_summary(main_file)
+        if not current_machine or not baseline_machine:
+            markdown_lines.append(
+                "> ⚠️ **Runner provenance incomplete** in one or both benchmark"
+                " files. Do not interpret the baseline as a matched-hardware"
+                " comparison without independent verification.\n"
+            )
+        else:
+            changed = [
+                key for key in ("cpu", "python", "system", "machine")
+                if baseline_machine.get(key) != current_machine.get(key)
+            ]
+            if changed:
+                fields = ", ".join(changed)
+                markdown_lines.append(
+                    f"> ⚠️ **Benchmark environment differs:** {fields}."
+                    " CPU and toolchain-dependent wall times are not directly"
+                    " comparable across unmatched runners.\n"
+                )
+            else:
+                markdown_lines.append(
+                    "> Runner CPU/Python/system fields match, but shared-runner"
+                    " load and baseline source provenance still require"
+                    " independent verification.\n"
+                )
 
     if not has_baseline:
         markdown_lines.append(

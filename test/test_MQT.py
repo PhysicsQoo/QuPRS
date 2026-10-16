@@ -18,21 +18,15 @@ def generate_test(file_name, strategy="proportional", tool_name="gpmc", switch=F
         circuit1, circuit2 = circuit2, circuit1
     IS_CODSPEED = os.getenv("CODSPEED_ENV") is not None
     REAL_TIMEOUT = 60 if not IS_CODSPEED else 999999
-    try:
-        result = check_equivalence(
-            circuit1,
-            circuit2,
-            method="hybrid",
-            strategy=strategy,
-            tool_name=tool_name,
-            timeout=REAL_TIMEOUT,
-            backend=backend,
-        )
-    except Exception as e:
-        error_msg = str(e)
-        if tool_name == "ganak":
-            pytest.skip(f"\n::[Ganak Crash] {file_name}: {error_msg}")
-        raise e
+    result = check_equivalence(
+        circuit1,
+        circuit2,
+        method="hybrid",
+        strategy=strategy,
+        tool_name=tool_name,
+        timeout=REAL_TIMEOUT,
+        backend=backend,
+    )
 
     return result
 
@@ -76,7 +70,7 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch, backe
     )
     if is_ganak_format_error:
         benchmark.extra_info["status"] = f"[Ganak Format Error] {file_name}: {result}"
-        pytest.skip(f"\n::[Ganak Format Error] {file_name}: {result}")
+        pytest.fail(f"\n::[Ganak Format Error] {file_name}: {result}")
 
     resource_limits = {"Timeout", "MemoryOut"}
     if result.equivalent in resource_limits:

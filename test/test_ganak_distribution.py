@@ -52,7 +52,7 @@ def test_packaged_binary_provenance(monkeypatch):
 
 
 @pytest.mark.parametrize('stdout,status', [
-    ('c s exact arb frac 999', 7), ('no count', 0),
+    ('c s exact arb frac 999', 7), ('c s exact quadruple float 999', -11), ('no count', 0),
     ('c s exact arb frac malformed', 0), ('c s exact arb frac 1/0', 0),
     ('c s exact arb frac NaN', 0), ('c s exact unsupported 0', 0),
 ])

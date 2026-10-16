@@ -5,7 +5,10 @@ import pytest
 from qiskit import QuantumCircuit
 
 from QuPRS import check_equivalence, config
-from QuPRS.interface.ps2wmc import run_wmc
+from QuPRS.interface.ps2wmc import run_wmc, wlogi_to_clauses
+from QuPRS.utils.wmc_solvers import classify_weighted_count
+import symengine as se
+import sympy as sp
 
 
 # Mode 6 prints nine significant digits. This is a fixture comparison budget,
@@ -39,13 +42,13 @@ def test_floating_counts_match_hand_computed_models(tmp_path, positive, negative
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
-@pytest.mark.parametrize('log_offset,expected', [(0.00049, 'equivalent'), (0.00051, 'not_equivalent')])
-def test_python_existing_rounded_log_boundary(monkeypatch, solver, log_offset, expected):
+@pytest.mark.parametrize('fraction,expected', [(0.99, 'equivalent'), (1.01, 'not_equivalent')])
+def test_python_normalized_magnitude_boundary(monkeypatch, solver, fraction, expected):
     import QuPRS.interface.ps2wmc as adapter
-    # H H leaves two path variables when reduction is disabled: expected log2=2.
-    count = 2 ** (2 + log_offset)
+    # HH yields expected log2=2; compare normalized amplitude without
+    # rounding log2 to three decimal places (the old Python-only behavior).
+    count = 4 * (1 - fraction * config.WMC_MAGNITUDE_TOLERANCE)
     monkeypatch.setattr(adapter, 'run_wmc', lambda *args: (count, 0.0))
-    monkeypatch.setattr(config, 'TOLERANCE', 1e-10)
     identity = QuantumCircuit(1)
     hh = QuantumCircuit(1)
     hh.h(0)
@@ -56,12 +59,12 @@ def test_python_existing_rounded_log_boundary(monkeypatch, solver, log_offset, e
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
 @pytest.mark.parametrize('backend,angle,accepted', [
-    ('python', 0.0, True), ('python', 0.05, True), ('python', 0.06, False),
+    ('python', 0.0, True), ('python', 0.0026, True), ('python', 0.003, False),
     ('rust', 0.0, True), ('rust', 0.0026, True), ('rust', 0.003, False),
 ])
 def test_real_solvers_near_existing_decision_boundaries(backend, solver, angle, accepted):
-    # |tr(RZ(angle))|/2 = cos(angle/2). Exercise the existing Python rounded-log
-    # boundary (~0.0005) and Rust normalized-magnitude boundary (1e-6).
+    # |tr(RZ(angle))|/2 = cos(angle/2). Both Python and Rust now use
+    # the same normalized-magnitude boundary of 1e-6.
     identity = QuantumCircuit(1)
     circuit = QuantumCircuit(1)
     circuit.h(0)
@@ -89,8 +92,7 @@ def test_large_normalization_identity_with_real_solver(solver):
 @pytest.mark.parametrize('fraction,expected', [(0.99, 'equivalent'), (1.01, 'equivalent*')])
 def test_phase_boundary_with_real_floating_counts(tmp_path, monkeypatch, solver, fraction, expected):
     import QuPRS.interface.ps2wmc as adapter
-    monkeypatch.setattr(config, 'TOLERANCE', 1e-10)
-    phase = fraction * 2 * math.pi * config.TOLERANCE
+    phase = fraction * config.WMC_PHASE_TOLERANCE
     count = 4 * cmath.exp(1j * phase)
     if solver == 'ganak':
         weight = f'{count.real:.17g} + {count.imag:.17g}i'
@@ -112,3 +114,29 @@ def test_phase_boundary_with_real_floating_counts(tmp_path, monkeypatch, solver,
     hh.h(0)
     result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
     assert result.equivalent == expected
+
+
+@pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
+def test_python_dimacs_weights_do_not_truncate_before_solver(solver):
+    # A non-Clifford symbolic phase should preserve substantially more than
+    # the nine digits formerly written by Rust's GPMC adapter.
+    weights, _, _ = wlogi_to_clauses(
+        [(se.Rational(1, 7), sp.true)], {}, tool_name=solver,
+    )
+    fields = weights[0].split()
+    re = fields[4]
+    assert abs(float(re) - math.cos(2 * math.pi / 7)) < 1e-15
+    assert len(re) >= 17  # at least binary64 round-trip precision
+
+
+def test_python_wmc_count_classification_is_stable_for_extremes():
+    kwargs = dict(magnitude_tolerance=1e-6, phase_tolerance=1e-6)
+    status, log_value = classify_weighted_count(1e300, 0.0, math.log2(1e300), **kwargs)
+    assert status == 'equivalent'
+    assert math.isfinite(log_value)
+
+    assert classify_weighted_count(0.0, 0.0, 2.0, **kwargs)[0] == 'not_equivalent'
+    assert classify_weighted_count(4.0, -1.9e-6, 2.0, **kwargs)[0] == 'equivalent'
+    assert classify_weighted_count(0.0, 4.0, 2.0, **kwargs)[0] == 'equivalent*'
+    with pytest.raises(ValueError, match='Non-finite'):
+        classify_weighted_count(math.inf, 0.0, 2.0, **kwargs)

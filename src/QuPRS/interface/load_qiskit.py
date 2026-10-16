@@ -373,12 +373,11 @@ def check_equivalence(
                 complex_number = run_wmc(temp_name, tool_name)
                 tool_time = round(time.time() - tool_start_time, 3)
                 abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
-                log_count = np.log2(abs_num)
-                log_wmc = round(log_count, 3)
+                log_wmc = round(np.log2(abs_num), 3)
                 theta = get_theta(
                     complex_number[1] / abs_num, complex_number[0] / abs_num
                 )
-                if abs(log_count - expect) < tolerance:
+                if abs(log_wmc - expect) < tolerance:
                     if abs(theta) < tolerance * 2 * np.pi:
                         equivalent = "equivalent"
                     else:

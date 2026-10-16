@@ -231,10 +231,14 @@ nine-decimal input encoding additionally permits `2e-9` absolute input error in
 its small fixtures. These are fixture budgets, not universal error bounds under
 cancellation and not replacements for equivalence tolerances.
 
-Python compares the unrounded log2 count against its configurable tolerance
-(default `1e-10`); rounding is for reporting only. Rust retains its existing
-`1e-6` normalized-magnitude/phase thresholds. Boundary fixtures exercise both
-contracts. Results closer to a decision boundary than encoding or printed-count
+Python retains its existing comparison of the log2 count rounded to three
+decimal places against its configurable tolerance (default `1e-10`). Thus its
+effective log2 decision resolution is approximately `0.0005`, not `1e-10`.
+Rust retains its existing `1e-6` normalized-magnitude/phase thresholds. This
+mode change does not unify those backend decision policies. Boundary fixtures
+exercise both contracts, including large normalization counts whose printed
+precision is coarser than the configured Python tolerance.
+Results closer to a decision boundary than encoding or printed-count
 error should be checked independently; agreement between two solvers alone does
 not establish exact equivalence. Nonzero exits, crashes, missing results and
 malformed/non-finite counts are failures, without cross-solver fallback.

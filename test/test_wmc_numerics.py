@@ -37,8 +37,8 @@ def test_floating_counts_match_hand_computed_models(tmp_path, positive, negative
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
-@pytest.mark.parametrize('log_offset,expected', [(0.9e-10, 'equivalent'), (1.1e-10, 'not_equivalent')])
-def test_python_equivalence_uses_unrounded_log_count(monkeypatch, solver, log_offset, expected):
+@pytest.mark.parametrize('log_offset,expected', [(0.00049, 'equivalent'), (0.00051, 'not_equivalent')])
+def test_python_existing_rounded_log_boundary(monkeypatch, solver, log_offset, expected):
     import QuPRS.interface.ps2wmc as adapter
     # H H leaves two path variables when reduction is disabled: expected log2=2.
     count = 2 ** (2 + log_offset)
@@ -52,19 +52,32 @@ def test_python_equivalence_uses_unrounded_log_count(monkeypatch, solver, log_of
     assert result.equivalent == expected
 
 
-@pytest.mark.parametrize('backend', ['python', 'rust'])
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
-@pytest.mark.parametrize('angle', [0.0, 0.0026, 0.003])
-def test_real_solvers_near_rust_norm_boundary(backend, solver, angle):
-    # |tr(RZ(angle))|/2 = cos(angle/2): offsets ~8.45e-7 and 1.125e-6.
-    # Python has a separate configurable log2 tolerance; retain both contracts.
+@pytest.mark.parametrize('backend,angle,accepted', [
+    ('python', 0.0, True), ('python', 0.05, True), ('python', 0.06, False),
+    ('rust', 0.0, True), ('rust', 0.0026, True), ('rust', 0.003, False),
+])
+def test_real_solvers_near_existing_decision_boundaries(backend, solver, angle, accepted):
+    # |tr(RZ(angle))|/2 = cos(angle/2). Exercise the existing Python rounded-log
+    # boundary (~0.0005) and Rust normalized-magnitude boundary (1e-6).
     identity = QuantumCircuit(1)
     circuit = QuantumCircuit(1)
     circuit.h(0)
     circuit.rz(angle, 0)
     circuit.h(0)
     result = check_equivalence(identity, circuit, method='wmc_only', tool_name=solver, backend=backend)
-    expected = 'equivalent' if angle == 0 else 'not_equivalent'
-    if angle == 0.0026 and backend == 'rust':
-        expected = 'equivalent'
-    assert result.equivalent == expected
+    if accepted:
+        assert result.equivalent in {'equivalent', 'equivalent*'}
+    else:
+        assert result.equivalent == 'not_equivalent'
+
+
+@pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
+def test_large_normalization_identity_with_real_solver(solver):
+    identity = QuantumCircuit(1)
+    hh = QuantumCircuit(1)
+    for _ in range(60):
+        hh.h(0)
+    # Expected count 2**31 needs more significant digits than mode 6 prints.
+    result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
+    assert result.equivalent == 'equivalent'

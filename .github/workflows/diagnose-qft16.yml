@@ -6,6 +6,7 @@ on:
     paths:
       - 'rust/pathsum/src/wmc.rs'
       - 'scripts/diagnose_ganak_qft16.py'
+      - 'scripts/diagnose_ganak_mpfr.py'
       - '.github/workflows/diagnose-qft16.yml'
 
 permissions:
@@ -38,6 +39,9 @@ jobs:
         run: |
           mkdir -p qft16-diagnostics
           python scripts/diagnose_ganak_qft16.py --samples 5 --timeout 45 --output qft16-diagnostics/report.json
+          python scripts/diagnose_ganak_mpfr.py --samples 3 \
+            --report qft16-diagnostics/report.json \
+            --output qft16-diagnostics/mpfr-precision.json
       - name: Upload CNF, hashes and timed observations
         if: always()
         uses: actions/upload-artifact@v4

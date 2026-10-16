@@ -226,18 +226,23 @@ exact-arithmetic certificate for the original circuit. Ganak's pinned version,
 archive/executable SHA256 and architecture checks still apply.
 
 Count fixtures compare against hand-computed complex sums and the other solver
-using relative error `1e-8` and absolute error `1e-12`. Rust GPMC's existing
-nine-decimal input encoding additionally permits `2e-9` absolute input error in
-its small fixtures. These are fixture budgets, not universal error bounds under
-cancellation and not replacements for equivalence tolerances.
+using relative error `1e-8` and absolute error `1e-12`; individual Rust
+solver-integration fixtures use a documented `2e-9` absolute budget. These are
+fixture budgets, not universal error bounds under cancellation. Rust serializes
+both solver inputs with 17 significant decimal digits in scientific notation
+(enough to round-trip binary64 weights). Python evaluates symbolic weights at
+113 bits where supported and writes their decimal form without an arbitrary
+nine-decimal quantization. Input precision cannot exceed the information in
+the original circuit parameters or the numerical type used upstream.
 
-Python retains its existing comparison of the log2 count rounded to three
-decimal places against its configurable tolerance (default `1e-10`). Thus its
-effective log2 decision resolution is approximately `0.0005`, not `1e-10`.
-Rust retains its existing `1e-6` normalized-magnitude/phase thresholds. This
-mode change does not unify those backend decision policies. Boundary fixtures
-exercise both contracts, including large normalization counts whose printed
-precision is coarser than the configured Python tolerance.
+Both Python and Rust WMC backends classify the unrounded, normalized complex
+count using `1e-6` magnitude and phase thresholds. Python exposes these as
+`config.WMC_MAGNITUDE_TOLERANCE` and `config.WMC_PHASE_TOLERANCE`;
+`config.TOLERANCE` remains the independent symbolic-reduction tolerance
+(default `1e-10`). Nonzero global phase gives `equivalent*` when the count
+magnitude passes the threshold. Python uses a scaled log-magnitude and signed
+`atan2`, avoiding overflow, zero-count division, and negative phases wrapping
+to nearly `2*pi`.
 Results closer to a decision boundary than encoding or printed-count
 error should be checked independently; agreement between two solvers alone does
 not establish exact equivalence. Nonzero exits, crashes, missing results and

@@ -87,8 +87,11 @@ def classify(case, rounds):
     all_samples = samples["enabled"] + samples["disabled"]
     if any(s["status"] not in ("equivalent", "equivalent*") for s in all_samples):
         raise RuntimeError("Hybrid equivalence result changed")
-    if any(s["python_binary_diagnostics_calls"] != 1 for s in all_samples):
-        raise RuntimeError("Expected one Python packaged Ganak diagnostics call")
+    # Some hybrid paths return before a packaged-solver validation call; never
+    # assume one invocation. The zero/two-call case is an actual finding.
+    diagnostic_calls = [s["python_binary_diagnostics_calls"] for s in all_samples]
+    print(f"{case[0]}: diagnostics call counts={diagnostic_calls}; "
+          f"WMC times={[s['wmc_time'] for s in all_samples]}", flush=True)
     return {
         "samples": samples,
         "wmc_called": any(s["wmc_time"] is not None for s in all_samples),
@@ -98,6 +101,7 @@ def classify(case, rounds):
         },
         "median_diagnostics_ms": statistics.median(
             s["python_binary_diagnostics_ms"] for s in samples["enabled"]),
+        "diagnostics_call_counts": diagnostic_calls,
     }
 
 

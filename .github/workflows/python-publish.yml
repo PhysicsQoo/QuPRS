@@ -13,11 +13,6 @@ on:
   push:
     tags:
       - 'v*'
-    # Temporary one-shot ARM64 packaging validation, removed after triggering.
-    branches:
-      - 'ci/release-wheel-tag-preflight-20261016'
-    paths:
-      - '.github/workflows/python-publish.yml'
   workflow_dispatch:
   pull_request:
     paths:
@@ -101,6 +96,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - os: ubuntu-latest
+            arch: x86_64
+            name: "Linux x86_64"
+          - os: ubuntu-24.04-arm   # ARM64 Linux
+            arch: aarch64
+            name: "Linux ARM64"
+          - os: macos-15-intel    # Intel Mac (x86_64)
+            arch: "x86_64"  # Build only x86_64
+            name: "macOS Intel"
           - os: macos-15    # ARM64; bundled Ganak 2.8.0 requires macOS >= 15
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
@@ -157,8 +161,7 @@ jobs:
   build_sdist:
     name: Build source distribution
     needs: verify_release_ref
-    # sdist already passed in the full dry-run; skip this on one-shot branch push.
-    if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

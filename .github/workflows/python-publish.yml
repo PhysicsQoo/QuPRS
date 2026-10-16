@@ -13,6 +13,11 @@ on:
   push:
     tags:
       - 'v*'
+    # Temporary branch-only packaging dry-run trigger. Remove after this run.
+    branches:
+      - 'ci/release-wheel-tag-preflight-20261016'
+    paths:
+      - '.github/workflows/python-publish.yml'
   workflow_dispatch:
   pull_request:
     paths:
@@ -35,6 +40,7 @@ jobs:
         env:
           RELEASE_EVENT: ${{ github.event_name }}
           RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -53,7 +59,7 @@ jobs:
                   f"{match.group(1) if match else '<missing>'}"
               )
 
-          if os.environ["RELEASE_EVENT"] == "push":
+          if os.environ["RELEASE_EVENT"] == "push" and os.environ["RELEASE_REF_TYPE"] == "tag":
               expected_tag = f"v{workspace_version}"
               actual_tag = os.environ["RELEASE_REF_NAME"]
               if actual_tag != expected_tag:
@@ -61,13 +67,16 @@ jobs:
                       f"Tag {actual_tag!r} != expected {expected_tag!r}"
                   )
               print(f"Release version verified: {expected_tag}")
-          elif os.environ["RELEASE_EVENT"] == "workflow_dispatch":
+          elif os.environ["RELEASE_EVENT"] == "workflow_dispatch" or (
+              os.environ["RELEASE_EVENT"] == "push"
+              and os.environ["RELEASE_REF_TYPE"] == "branch"
+          ):
               print(f"Packaging dry-run for version {workspace_version}; no publishing")
           else:
               print(f"PR-only preflight for version {workspace_version}; no build or publish")
           PY
 
-          if [[ "$RELEASE_EVENT" == "push" ]]; then
+          if [[ "$RELEASE_EVENT" == "push" && "$RELEASE_REF_TYPE" == "tag" ]]; then
             # Tag must point to latest protected main commit, not a feature
             # branch or an outdated main ancestor.
             git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main

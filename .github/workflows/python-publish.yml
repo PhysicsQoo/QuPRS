@@ -13,11 +13,6 @@ on:
   push:
     tags:
       - 'v*'
-    # Temporary branch-only packaging dry-run trigger. Remove after this run.
-    branches:
-      - 'ci/release-wheel-tag-preflight-20261016'
-    paths:
-      - '.github/workflows/python-publish.yml'
   workflow_dispatch:
   pull_request:
     paths:

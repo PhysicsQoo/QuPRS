@@ -188,13 +188,14 @@ def check_equivalence(
         else:
             c2_input = circuit2
         import os
-        from QuPRS.utils import WMC
+        from QuPRS.utils import WMC, get_ganak_path
         environment_key = f"QUPRS_{tool_name.upper()}_PATH"
         previous_path = os.environ.get(environment_key)
-        with WMC(tool_name) as exe_path:
-            if tool_name == "ganak":
-                from QuPRS.utils.ganak_distribution import binary_diagnostics
-                binary_diagnostics(exe_path, previous_path is not None)
+        # Rust's WmcManager::solve validates Ganak before spawning it.
+        # Do not perform expensive duplicate Python validations when a
+        # reduction-only or hybrid check completes without invoking WMC.
+        resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
+        with resource as exe_path:
             # Keep resource extraction alive and do not turn this internal path
             # into a persistent user override for later backend calls.
             os.environ[environment_key] = str(exe_path)

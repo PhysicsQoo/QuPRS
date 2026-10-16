@@ -36,9 +36,13 @@ def get_gpmc_path() -> Iterator[Path]:
 
 
 @contextmanager
-def get_ganak_path() -> Iterator[Path]:
+def get_ganak_path(*, verify: bool = True) -> Iterator[Path]:
     """
-    Context manager to safely obtain the path to the packaged Ganak binary.
+    Resolve Ganak's executable resource for the duration of a context.
+
+    By default, validate the packaged executable before yielding it.
+    The Rust backend can defer validation until its WMC solve() path,
+    which performs its own SHA256/architecture/version checks before spawn.
     """
     override = os.environ.get("QUPRS_GANAK_PATH")
     if override:
@@ -53,8 +57,9 @@ def get_ganak_path() -> Iterator[Path]:
 
         # 2. Use as_file to ensure we get a real file system path
         with resources.as_file(ganak_resource) as path:
-            from .ganak_distribution import binary_diagnostics
-            binary_diagnostics(path)
+            if verify:
+                from .ganak_distribution import binary_diagnostics
+                binary_diagnostics(path)
             yield path
 
     except FileNotFoundError:

@@ -253,9 +253,9 @@ malformed/non-finite counts are failures, without cross-solver fallback.
 Use the deterministic microbenchmark to compare 53-bit and 113-bit phase
 weight evaluation on the same machine:
 
-\`\`\`bash
+```bash
 python scripts/profile_wmc_weight_precision.py --samples 96 --repeats 5 --warmups 2 --json-file python_wmc_precision_profile.json
-\`\`\`
+```
 
 Its JSON report includes distinct and repeated phases, normalized timing, and
 platform metadata. Cache timings are experimental only, not enabled in

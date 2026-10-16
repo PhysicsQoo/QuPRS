@@ -11,7 +11,7 @@ on:
       - 'Cargo.toml'
       - '.github/workflows/benchmarks.yml'
   pull_request:
-    branches: [ main, fix/ganak-2.8.0-clean ]
+    branches: [ main ]
     paths:
       - 'src/**'
       - 'test/**'

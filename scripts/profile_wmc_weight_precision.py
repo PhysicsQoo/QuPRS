@@ -76,6 +76,41 @@ def measure(fn, warmups: int, repeats: int, samples: int) -> dict:
     }
 
 
+def precision_oracle(phases: list) -> dict:
+    """Compare against independent 80-digit mpmath trig (never through f64).
+
+    Oracle measurements are separate from the timed region.
+    """
+    from mpmath import mp
+
+    max_error = {"53": mp.mpf("0"), "113": mp.mpf("0")}
+    max_delta = mp.mpf("0")
+    with mp.workdps(80):
+        for phase in dict.fromkeys(phases):
+            angle = 2 * mp.pi * mp.mpf(str(phase.p)) / mp.mpf(str(phase.q))
+            reference = (mp.cos(angle), mp.sin(angle))
+            evaluated = {}
+            for bits in (53, 113):
+                re, im = generate_weight(phase, bits)
+                actual = (mp.mpf(str(re)), mp.mpf(str(im)))
+                evaluated[bits] = actual
+                error = max(abs(a - b) for a, b in zip(actual, reference))
+                name = str(bits)
+                max_error[name] = max(max_error[name], error)
+            max_delta = max(
+                max_delta,
+                max(abs(a - b) for a, b in zip(evaluated[53], evaluated[113])),
+            )
+        return {
+            "oracle_decimal_digits": 80,
+            "oracle": "mpmath cos/sin of rational * 2*pi",
+            "max_abs_component_error": {
+                bits: mp.nstr(val, 14) for bits, val in max_error.items()
+            },
+            "max_abs_component_delta_53_to_113": mp.nstr(max_delta, 14),
+        }
+
+
 def run_profile(samples: int, warmups: int, repeats: int) -> dict:
     corpus = {}
     for name, distinct in [("distinct", True), ("repeated", False)]:
@@ -107,6 +142,7 @@ def run_profile(samples: int, warmups: int, repeats: int) -> dict:
         corpus[name] = {
             "unique_phases": samples if distinct else min(8, samples),
             "phase_sha256": digest,
+            "accuracy": precision_oracle(phases),
             "measurements": measurements,
             "ratio_113_to_53": ratio,
             "cache_is_prototype_only": True,
@@ -132,6 +168,7 @@ def run_profile(samples: int, warmups: int, repeats: int) -> dict:
             "Measures phase conversion, SymEngine cos/sin evaluation, and string serialization.",
             "Both precision modes use identical preconstructed rational phases.",
             "Warm-cache timings are hypothetical: no application cache is enabled.",
+            "Accuracy uses an independent 80-digit mpmath reference outside timed regions.",
             "Times are local to this runner; cross-runner absolute comparisons are invalid.",
             "Precision bits do not establish an exact-arithmetic circuit certificate.",
         ],

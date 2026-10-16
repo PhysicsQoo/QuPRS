@@ -1,0 +1,58 @@
+name: Ganak mode 6 QFT16 walltime
+
+on:
+  pull_request:
+    branches: [fix/ganak-2.8.0-clean]
+    paths: ['src/**', 'rust/**', 'test/**', '.github/workflows/ganak-mode6.yml']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  qft16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [base, head]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.revision == 'base' && github.event.pull_request.base.sha || github.event.pull_request.head.sha }}
+          submodules: recursive
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Install QuPRS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --upgrade pip maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(which python)")")"
+          maturin develop --release -E dev
+      - name: Record revision and solver identity
+        run: |
+          git rev-parse HEAD
+          python -m QuPRS.utils.ganak_distribution
+          sha256sum src/QuPRS/utils/wmc_tools/ganak src/QuPRS/utils/wmc_tools/gpmc
+      - name: Label the mode 2 baseline separately
+        run: |
+          if [ '${{ matrix.revision }}' = 'base' ]; then
+            cp test/test_MQT.py test/test_MQT_mode2_base.py
+            echo 'QFT16_TEST=test/test_MQT_mode2_base.py' >> "$GITHUB_ENV"
+          else
+            echo 'QFT16_TEST=test/test_MQT.py' >> "$GITHUB_ENV"
+          fi
+      - name: QFT16 Python and Rust, Ganak and GPMC
+        uses: CodSpeedHQ/action@v4
+        with:
+          mode: walltime
+          run: pytest "$QFT16_TEST" -k qft --codspeed

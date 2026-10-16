@@ -138,6 +138,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           python -m QuPRS.utils.ganak_distribution
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum
           pytest -n auto -v -ra \
           --junitxml=pytest-results.xml \
           --html=pytest-results.html --self-contained-html \

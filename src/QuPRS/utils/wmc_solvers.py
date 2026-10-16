@@ -5,9 +5,8 @@ import re
 
 SOLVER_ARGUMENTS = {
     "gpmc": ("-mode=1",),
-    # Mode 2 emits exact rational components. Mode 6's nine-digit
-    # floating-point output is insufficient for the default tolerance.
-    "ganak": ("--mode=2",),
+    # Both solvers count floating weights; mode 6 emits rounded complex values.
+    "ganak": ("--mode=6",),
 }
 RESULT_PREFIXES = (
     "c s exact double prec-sci",
@@ -36,7 +35,8 @@ def parse_real(component):
 
 def parse_count_line(line):
     """Return a complex count, or None for a non-result line."""
-    prefix = next((p for p in RESULT_PREFIXES if line.startswith(p)), None)
+    prefix = next((p for p in RESULT_PREFIXES
+                   if line == p or (line.startswith(p) and line[len(p):len(p) + 1].isspace())), None)
     if prefix is None:
         return None
     value = re.sub(r"\s+", "", line[len(prefix):]).replace("+-", "-")

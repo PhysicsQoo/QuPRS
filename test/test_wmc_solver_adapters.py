@@ -45,19 +45,20 @@ def test_invalid_count_is_not_silently_zero(line):
     with pytest.raises((ValueError, ArithmeticError)):
         parse_count_line(line)
 
-def test_ganak_runs_independently(monkeypatch):
+@pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
+def test_solver_runs_independently(monkeypatch, solver):
     import QuPRS.interface.ps2wmc as module
     import QuPRS.utils.ganak_distribution as distribution
     monkeypatch.setattr(distribution, "binary_diagnostics", lambda *args: {})
     calls = []
     @contextmanager
     def executable(name):
-        assert name == 'ganak'
-        yield '/solvers/ganak'
+        assert name == solver
+        yield '/solvers/' + solver
     def run(command, **kwargs):
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout='c s exact arb frac 3/2 + 1/4i', stderr='')
     monkeypatch.setattr(module, 'WMC', executable)
     monkeypatch.setattr(module.subprocess, 'run', run)
-    assert run_wmc('test.cnf', 'ganak') == (1.5, .25)
-    assert calls == [['/solvers/ganak', *SOLVER_ARGUMENTS['ganak'], 'test.cnf']]
+    assert run_wmc('test.cnf', solver) == (1.5, .25)
+    assert calls == [['/solvers/' + solver, *SOLVER_ARGUMENTS[solver], 'test.cnf']]

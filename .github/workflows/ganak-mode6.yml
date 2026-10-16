@@ -43,8 +43,16 @@ jobs:
           git rev-parse HEAD
           python -m QuPRS.utils.ganak_distribution
           sha256sum src/QuPRS/utils/wmc_tools/ganak src/QuPRS/utils/wmc_tools/gpmc
+      - name: Label the mode 2 baseline separately
+        run: |
+          if [ '${{ matrix.revision }}' = 'base' ]; then
+            cp test/test_MQT.py test/test_MQT_mode2_base.py
+            echo 'QFT16_TEST=test/test_MQT_mode2_base.py' >> "$GITHUB_ENV"
+          else
+            echo 'QFT16_TEST=test/test_MQT.py' >> "$GITHUB_ENV"
+          fi
       - name: QFT16 Python and Rust, Ganak and GPMC
         uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
-          run: pytest test/test_MQT.py -k qft --codspeed
+          run: pytest "$QFT16_TEST" -k qft --codspeed

@@ -1,4 +1,6 @@
 """Floating WMC acceptance fixtures, independent of solver implementation."""
+import cmath
+import math
 import pytest
 from qiskit import QuantumCircuit
 
@@ -81,3 +83,32 @@ def test_large_normalization_identity_with_real_solver(solver):
     # Expected count 2**31 needs more significant digits than mode 6 prints.
     result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
     assert result.equivalent == 'equivalent'
+
+
+@pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
+@pytest.mark.parametrize('fraction,expected', [(0.99, 'equivalent'), (1.01, 'equivalent*')])
+def test_phase_boundary_with_real_floating_counts(tmp_path, monkeypatch, solver, fraction, expected):
+    import QuPRS.interface.ps2wmc as adapter
+    monkeypatch.setattr(config, 'TOLERANCE', 1e-10)
+    phase = fraction * 2 * math.pi * config.TOLERANCE
+    count = 4 * cmath.exp(1j * phase)
+    if solver == 'ganak':
+        weight = f'{count.real:.17g} + {count.imag:.17g}i'
+        negative = '1 + 0i'
+    else:
+        weight = f'{count.real:.17g} {count.imag:.17g}'
+        negative = '1 0'
+    cnf = tmp_path / 'phase.cnf'
+    cnf.write_text(f'p cnf 1 1\nc t wmc\nc p weight 1 {weight} 0\n'
+                   f'c p weight -1 {negative} 0\n1 0\n')
+    real_count = run_wmc(str(cnf), solver)
+    assert complex(*real_count) == pytest.approx(count, rel=COUNT_REL_TOL, abs=COUNT_ABS_TOL)
+    # Inject only the analytically defined count: the real solver and parser
+    # above run unchanged; this isolates the public Python decision boundary.
+    monkeypatch.setattr(adapter, 'run_wmc', lambda *args: real_count)
+    identity = QuantumCircuit(1)
+    hh = QuantumCircuit(1)
+    hh.h(0)
+    hh.h(0)
+    result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
+    assert result.equivalent == expected

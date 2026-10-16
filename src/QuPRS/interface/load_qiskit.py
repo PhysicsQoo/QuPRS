@@ -345,7 +345,7 @@ def check_equivalence(
         # If reduction is incomplete or WMC-only, run weighted model counting
         if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.util import get_theta
+            from QuPRS.utils.wmc_solvers import classify_weighted_count
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -373,18 +373,11 @@ def check_equivalence(
                 tool_start_time = time.time()
                 complex_number = run_wmc(temp_name, tool_name)
                 tool_time = round(time.time() - tool_start_time, 3)
-                abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
-                log_wmc = round(np.log2(abs_num), 3)
-                theta = get_theta(
-                    complex_number[1] / abs_num, complex_number[0] / abs_num
+                equivalent, log_wmc = classify_weighted_count(
+                    complex_number[0], complex_number[1], expect,
+                    magnitude_tolerance=config.WMC_MAGNITUDE_TOLERANCE,
+                    phase_tolerance=config.WMC_PHASE_TOLERANCE,
                 )
-                if abs(log_wmc - expect) < tolerance:
-                    if abs(theta) < tolerance * 2 * np.pi:
-                        equivalent = "equivalent"
-                    else:
-                        equivalent = "equivalent*"
-                else:
-                    equivalent = "not_equivalent"
                 wmc_time = tool_time + to_DIMACS_time
                 # Clean up temporary CNF file
                 if temp_name and os.path.exists(temp_name):

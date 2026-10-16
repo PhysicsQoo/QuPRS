@@ -248,6 +248,21 @@ error should be checked independently; agreement between two solvers alone does
 not establish exact equivalence. Nonzero exits, crashes, missing results and
 malformed/non-finite counts are failures, without cross-solver fallback.
 
+### Python WMC precision profiling
+
+Use the deterministic microbenchmark to compare 53-bit and 113-bit phase
+weight evaluation on the same machine:
+
+\`\`\`bash
+python scripts/profile_wmc_weight_precision.py --samples 96 --repeats 5 --warmups 2 --json-file python_wmc_precision_profile.json
+\`\`\`
+
+Its JSON report includes distinct and repeated phases, normalized timing, and
+platform metadata. Cache timings are experimental only, not enabled in
+production. The PR benchmark workflow records the report as an artifact.
+Absolute timings across different CI runners are not directly comparable.
+This profile is observational and does not introduce a new release gate.
+
 ## License Information
 
 - The original source code of this project is licensed under the **[MIT License](LICENSE.md)**.

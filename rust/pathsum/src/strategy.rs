@@ -1,8 +1,9 @@
 // src/strategy.rs
-use crate::pathsum::PathSum;
 use crate::ir::QuantumOp;
-use std::cmp;
+use crate::pathsum::PathSum;
 use similar::{Algorithm, DiffOp};
+use std::cmp;
+use std::num::NonZeroUsize;
 
 /// Verification strategy enum
 /// Determines how to interleave operations from two circuits to maximize cancellation
@@ -19,76 +20,136 @@ pub enum VerificationStrategy {
 }
 
 impl VerificationStrategy {
-    /// Execute the selected strategy
-    /// 
-    /// # Arguments
-    /// * `ps` - Initial PathSum state
-    /// * `gates1` - Circuit 1 operations (reference/Ket)
-    /// * `gates2` - Circuit 2 operations (verification/Bra, treated as Inverse)
-    pub fn run(
+    /// Interleave both circuits and reduce after every ten logical gates.
+    pub fn run(&self, ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
+        self.run_with_interval(ps, gates1, gates2, NonZeroUsize::new(10).unwrap())
+    }
+
+    fn run_with_interval(
         &self,
-        ps: PathSum, 
+        ps: PathSum,
         gates1: &[QuantumOp],
         gates2: &[QuantumOp],
+        interval: NonZeroUsize,
     ) -> PathSum {
+        let mut checkpoint = ReductionCheckpoint::new(ps, interval);
         if gates2.is_empty() {
-            return run_straightforward(ps, gates1, gates2);
+            run_straightforward(&mut checkpoint, gates1, gates2);
+        } else {
+            match self {
+                Self::Naive => run_naive(&mut checkpoint, gates1, gates2),
+                Self::Straightforward => run_straightforward(&mut checkpoint, gates1, gates2),
+                Self::Proportional => run_proportional(&mut checkpoint, gates1, gates2),
+                Self::Difference => run_difference(&mut checkpoint, gates1, gates2),
+            }
         }
-        match self {
-            Self::Naive => run_naive(ps, gates1, gates2),
-            Self::Straightforward => run_straightforward(ps, gates1, gates2),
-            Self::Proportional => run_proportional(ps, gates1, gates2),
-            Self::Difference => run_difference(ps, gates1, gates2),
+        checkpoint.finish()
+    }
+}
+
+// Own reduction timing for one entire strategy, including batches and tails.
+struct ReductionCheckpoint {
+    ps: PathSum,
+    enabled: bool,
+    interval: NonZeroUsize,
+    pending: usize,
+    dirty: bool,
+}
+
+impl ReductionCheckpoint {
+    fn new(mut ps: PathSum, interval: NonZeroUsize) -> Self {
+        let enabled = ps.is_auto_reduce();
+        ps.set_auto_reduce(false);
+        // Even an empty gate stream may receive an unreduced PathSum.
+        Self {
+            ps,
+            enabled,
+            interval,
+            pending: 0,
+            dirty: true,
         }
+    }
+
+    fn apply(&mut self, gate: &QuantumOp, is_bra: bool) {
+        gate.apply(&mut self.ps, is_bra);
+        self.pending += 1;
+        self.dirty = true;
+        if self.pending == self.interval.get() {
+            if self.enabled {
+                self.reduce();
+            } else {
+                self.pending = 0;
+            }
+        }
+    }
+
+    fn reduce(&mut self) {
+        // full_reduce itself checks this flag; suppression alone is insufficient.
+        self.ps.set_auto_reduce(true);
+        self.ps.full_reduce();
+        self.ps.set_auto_reduce(false);
+        self.pending = 0;
+        self.dirty = false;
+    }
+
+    fn finish(mut self) -> PathSum {
+        if self.enabled && self.dirty {
+            self.reduce();
+        }
+        self.ps.set_auto_reduce(self.enabled);
+        self.ps
     }
 }
 
 // Apply all gates2 as Bra, then all gates1 as Ket
-fn run_straightforward(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
+fn run_straightforward(
+    checkpoint: &mut ReductionCheckpoint,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+) {
     for gate in gates2 {
-        gate.apply(&mut ps, true);
+        checkpoint.apply(gate, true);
     }
     for gate in gates1 {
-        gate.apply(&mut ps, false);
+        checkpoint.apply(gate, false);
     }
-    if ps.is_auto_reduce() {
-        ps.full_reduce();
-    }
-    ps
 }
 
 // Interleave gates until the shorter sequence ends, then apply remaining
-fn run_naive(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
+fn run_naive(checkpoint: &mut ReductionCheckpoint, gates1: &[QuantumOp], gates2: &[QuantumOp]) {
     let min_len = cmp::min(gates1.len(), gates2.len());
-    
+
     for i in 0..min_len {
-        gates1[i].apply(&mut ps, false);
-        gates2[i].apply(&mut ps, true);
+        checkpoint.apply(&gates1[i], false);
+        checkpoint.apply(&gates2[i], true);
     }
-    
+
     if gates1.len() > gates2.len() {
         for i in min_len..gates1.len() {
-            gates1[i].apply(&mut ps, false);
+            checkpoint.apply(&gates1[i], false);
         }
     } else if gates2.len() > gates1.len() {
         for i in min_len..gates2.len() {
-            gates2[i].apply(&mut ps, true);
+            checkpoint.apply(&gates2[i], true);
         }
     }
-
-    if ps.is_auto_reduce() {
-        ps.full_reduce();
-    }
-    ps
 }
 
 // Mix operations based on length ratio between circuits
-fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
+fn run_proportional(
+    checkpoint: &mut ReductionCheckpoint,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+) {
     let l1 = gates1.len();
     let l2 = gates2.len();
-    
-    if l1 == 0 && l2 == 0 { return ps; }
-    if l1 == 0 || l2 == 0 { return run_straightforward(ps, gates1, gates2); }
+
+    if l1 == 0 && l2 == 0 {
+        return;
+    }
+    if l1 == 0 || l2 == 0 {
+        return run_straightforward(checkpoint, gates1, gates2);
+    }
 
     let min_len = cmp::min(l1, l2);
     let diff = (l1 as isize) - (l2 as isize);
@@ -96,17 +157,17 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
 
     if r == 1 {
         for i in 0..min_len {
-            gates1[i].apply(&mut ps, false);
-            gates2[i].apply(&mut ps, true);
+            checkpoint.apply(&gates1[i], false);
+            checkpoint.apply(&gates2[i], true);
         }
-        
+
         if diff > 0 {
             for i in 0..(diff as usize) {
-                gates1[min_len + i].apply(&mut ps, false);
+                checkpoint.apply(&gates1[min_len + i], false);
             }
         } else if diff < 0 {
             for i in 0..(diff.abs() as usize) {
-                gates2[min_len + i].apply(&mut ps, true);
+                checkpoint.apply(&gates2[min_len + i], true);
             }
         }
     } else if diff > 0 {
@@ -114,19 +175,19 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
         for i in 0..l2 {
             for j in 0..r {
                 let idx = i * r + j;
-                if idx < l1 { 
-                    gates1[idx].apply(&mut ps, false); 
+                if idx < l1 {
+                    checkpoint.apply(&gates1[idx], false);
                 }
             }
-            gates2[i].apply(&mut ps, true);
+            checkpoint.apply(&gates2[i], true);
         }
-        
+
         let d2 = l1 - r * l2;
         if d2 > 0 {
             let start_idx = l2 * r;
             for i in 0..d2 {
                 if start_idx + i < l1 {
-                    gates1[start_idx + i].apply(&mut ps, false);
+                    checkpoint.apply(&gates1[start_idx + i], false);
                 }
             }
         }
@@ -135,65 +196,75 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
         for i in 0..l1 {
             for j in 0..r {
                 let idx = i * r + j;
-                if idx < l2 { 
-                    gates2[idx].apply(&mut ps, true); 
+                if idx < l2 {
+                    checkpoint.apply(&gates2[idx], true);
                 }
             }
-            gates1[i].apply(&mut ps, false);
+            checkpoint.apply(&gates1[i], false);
         }
-        
+
         let d2 = l2 - r * l1;
         if d2 > 0 {
             let start_idx = l1 * r;
             for i in 0..d2 {
                 if start_idx + i < l2 {
-                    gates2[start_idx + i].apply(&mut ps, true);
+                    checkpoint.apply(&gates2[start_idx + i], true);
                 }
             }
         }
     }
-
-    if ps.is_auto_reduce() {
-        ps.full_reduce();
-    }
-    ps
 }
 
 // Use diff algorithm to identify and process only differing parts
-fn run_difference(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
+fn run_difference(
+    checkpoint: &mut ReductionCheckpoint,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+) {
     let diff_ops = similar::capture_diff_slices(Algorithm::Myers, gates1, gates2);
 
     for op in diff_ops {
         match op {
-            DiffOp::Equal { old_index, new_index, len } => {
+            DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } => {
                 for i in 0..len {
-                    gates1[old_index + i].apply(&mut ps, false);
-                    gates2[new_index + i].apply(&mut ps, true);
+                    checkpoint.apply(&gates1[old_index + i], false);
+                    checkpoint.apply(&gates2[new_index + i], true);
                 }
-            },
-            DiffOp::Delete { old_index, old_len, .. } => {
+            }
+            DiffOp::Delete {
+                old_index, old_len, ..
+            } => {
                 for i in 0..old_len {
-                    gates1[old_index + i].apply(&mut ps, false);
+                    checkpoint.apply(&gates1[old_index + i], false);
                 }
-            },
-            DiffOp::Insert { new_index, new_len, .. } => {
+            }
+            DiffOp::Insert {
+                new_index, new_len, ..
+            } => {
                 for i in 0..new_len {
-                    gates2[new_index + i].apply(&mut ps, true);
+                    checkpoint.apply(&gates2[new_index + i], true);
                 }
-            },
-            DiffOp::Replace { old_index, old_len, new_index, new_len } => {
+            }
+            DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
                 for i in 0..old_len {
-                    gates1[old_index + i].apply(&mut ps, false);
+                    checkpoint.apply(&gates1[old_index + i], false);
                 }
                 for i in 0..new_len {
-                    gates2[new_index + i].apply(&mut ps, true);
+                    checkpoint.apply(&gates2[new_index + i], true);
                 }
-            },
+            }
         }
     }
-
-    if ps.is_auto_reduce() {
-        ps.full_reduce();
-    }
-    ps
 }
+
+#[cfg(test)]
+pub(crate) mod periodic_red_tests;

@@ -45,6 +45,8 @@ impl QuantumOp {
     /// * `ps` - Target PathSum circuit
     /// * `is_bra` - If true, apply as adjoint (Bra-side) operation
     pub fn apply(&self, ps: &mut PathSum, is_bra: bool) {
+        #[cfg(test)]
+        let _gate_scope = crate::strategy::periodic_red_tests::gate_enter(self, is_bra);
         let side = if is_bra { Side::Bra } else { Side::Ket };
 
         match self {

@@ -91,13 +91,11 @@ pub fn check_equivalence(
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
-    let mut ps_miter = strategy.run(ps, gates1, gates2);
+    let ps_miter = strategy.run(ps, gates1, gates2);
     
     // Prepare the initial state |0...0> to form the transition amplitude <0|M|0>
     
-    if reduction_enabled {
-        ps_miter.full_reduce();
-    }
+    // The strategy owns checkpoint and final reduction timing.
 
     let ps_time = pathsum_start.elapsed().as_secs_f64();
     

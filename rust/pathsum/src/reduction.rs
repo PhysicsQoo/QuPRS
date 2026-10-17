@@ -19,10 +19,15 @@ impl PathSum {
     }
 
     pub fn full_reduce(&mut self) {
+        #[cfg(test)]
+        crate::strategy::periodic_red_tests::reduction_attempt(self.stats.is_enabled());
         // Skip if stats disabled
         if !self.stats.is_enabled() {
             return;
         }
+
+        #[cfg(test)]
+        crate::strategy::periodic_red_tests::reduction_start();
 
         let mut reduced = true;
         let mut iterations = 0;

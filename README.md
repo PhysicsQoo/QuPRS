@@ -217,6 +217,52 @@ If you use `QuPRS` in your research, please cite our paper:
 You can also cite this software repository via Zenodo:
 
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.15705190-blue.svg)](https://doi.org/10.5281/zenodo.15705190)
+## Floating weighted counts
+
+Ganak 2.8.0 uses `--mode=6`; GPMC uses `-mode=1`. Both operate on
+floating-point encodings of the path sum. Ganak mode 6 prints rounded complex
+counts (nine significant digits in the pinned release). Neither solver is an
+exact-arithmetic certificate for the original circuit. Ganak's pinned version,
+archive/executable SHA256 and architecture checks still apply.
+
+Count fixtures compare against hand-computed complex sums and the other solver
+using relative error `1e-8` and absolute error `1e-12`; individual Rust
+solver-integration fixtures use a documented `2e-9` absolute budget. These are
+fixture budgets, not universal error bounds under cancellation. Rust serializes
+both solver inputs with 17 significant decimal digits in scientific notation
+(enough to round-trip binary64 weights). Python evaluates symbolic weights at
+113 bits where supported and writes their decimal form without an arbitrary
+nine-decimal quantization. Input precision cannot exceed the information in
+the original circuit parameters or the numerical type used upstream.
+
+Both Python and Rust WMC backends classify the unrounded, normalized complex
+count using `1e-6` magnitude and phase thresholds. Python exposes these as
+`config.WMC_MAGNITUDE_TOLERANCE` and `config.WMC_PHASE_TOLERANCE`;
+`config.TOLERANCE` remains the independent symbolic-reduction tolerance
+(default `1e-10`). Nonzero global phase gives `equivalent*` when the count
+magnitude passes the threshold. Python uses a scaled log-magnitude and signed
+`atan2`, avoiding overflow, zero-count division, and negative phases wrapping
+to nearly `2*pi`.
+Results closer to a decision boundary than encoding or printed-count
+error should be checked independently; agreement between two solvers alone does
+not establish exact equivalence. Nonzero exits, crashes, missing results and
+malformed/non-finite counts are failures, without cross-solver fallback.
+
+### Python WMC precision profiling
+
+Use the deterministic microbenchmark to compare 53-bit and 113-bit phase
+weight evaluation on the same machine:
+
+```bash
+python scripts/profile_wmc_weight_precision.py --samples 96 --repeats 5 --warmups 2 --json-file python_wmc_precision_profile.json
+```
+
+Its JSON report includes distinct and repeated phases, normalized timing, and
+platform metadata. Cache timings are experimental only, not enabled in
+production. The PR benchmark workflow records the report as an artifact.
+Absolute timings across different CI runners are not directly comparable.
+This profile is observational and does not introduce a new release gate.
+
 ## License Information
 
 - The original source code of this project is licensed under the **[MIT License](LICENSE.md)**.

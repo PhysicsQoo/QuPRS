@@ -114,6 +114,7 @@ def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: s
     if not pr_benchmarks:
         with report_file.open("w", encoding="utf-8") as f:
             f.write("### ❌ Error Generating Report\n\n")
+            f.write("> **Performance interpretation: UNVERIFIED — NOT A PASS.**\n\n")
             f.write("Could not find or load benchmark data from the PR run.\n")
         print(f"❌ Error: Could not load data from {pr_file}")
         exit(1)

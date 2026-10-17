@@ -1,16 +1,63 @@
 // src/wmc.rs
 use std::fs::File;
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
 use log::{info, debug, trace};
 use num_complex::Complex;
+use num_rational::BigRational;
+use num_traits::ToPrimitive;
 use anyhow::{Result, Context, anyhow};
 
 use crate::pathsum::PathSum;
 use crate::pathsum::phase_poly::Monomial;
+
+fn solver_arguments(tool_name: &str) -> Result<&'static [&'static str]> {
+    match tool_name {
+        "gpmc" => Ok(&["-mode=1"]),
+        "ganak" => Ok(&["--mode=6"]),
+        _ => Err(anyhow!("Unsupported tool name: {}", tool_name)),
+    }
+}
+
+// BigRational conversion handles ratios whose individual components exceed f64.
+fn parse_real_count(value: &str) -> Result<f64> {
+    let result = if value.contains('/') {
+        value.parse::<BigRational>()
+            .map_err(|e| anyhow!("Invalid rational count: {}", e))?
+            .to_f64().ok_or_else(|| anyhow!("Count outside f64 range"))?
+    } else {
+        value.parse::<f64>().map_err(|e| anyhow!("Invalid decimal count: {}", e))?
+    };
+    if !result.is_finite() {
+        return Err(anyhow!("Non-finite weighted count"));
+    }
+    Ok(result)
+}
+
+fn parse_count_line(line: &str) -> Result<Option<Complex<f64>>> {
+    let prefixes = ["c s exact double prec-sci", "c s exact arb cpx",
+        "c s exact quadruple float", "c s exact arb frac"];
+    let Some(value) = prefixes.iter().find_map(|prefix| {
+        line.strip_prefix(prefix).filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+    }) else { return Ok(None); };
+    let clean = value.chars().filter(|c| !c.is_whitespace()).collect::<String>().replace("+-", "-");
+    let Some(value) = clean.strip_suffix('i') else {
+        return Ok(Some(Complex::new(parse_real_count(&clean)?, 0.0)));
+    };
+    let split = value.char_indices().rev().find(|&(i, c)| {
+        i > 0 && (c == '+' || c == '-') && !matches!(value.as_bytes()[i - 1], b'e' | b'E')
+    }).map(|(i, _)| i);
+    let (real, imaginary) = split.map(|i| (&value[..i], &value[i..])).unwrap_or(("0", value));
+    let im = match imaginary {
+        "" | "+" => 1.0,
+        "-" => -1.0,
+        _ => parse_real_count(imaginary)?,
+    };
+    Ok(Some(Complex::new(parse_real_count(real)?, im)))
+}
 
 pub struct WmcManager {
     clauses: Vec<Vec<i32>>,
@@ -150,12 +197,15 @@ impl WmcManager {
         out.push_str(&format!("p cnf {} {}\nc t wmc\n", num_vars, num_clauses));
         
         for (var, weight) in &self.weights {
+            // Round-trip every finite f64 component rather than quantizing to
+            // a fixed number of decimal places before MPFR-based counting.
+            // 16 digits after the leading digit = 17 significant digits.
             if tool_name == "gpmc" {
-                out.push_str(&format!("c p weight {} {:.9} {:.9} 0\n", var, weight.re, weight.im));
+                out.push_str(&format!("c p weight {} {:.16e} {:.16e} 0\n", var, weight.re, weight.im));
                 out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
             } else {
                 let op = if weight.im >= 0.0 { "+" } else { "-" };
-                out.push_str(&format!("c p weight {} {:.9} {} {:.9}i 0\n", var, weight.re, op, weight.im.abs()));
+                out.push_str(&format!("c p weight {} {:.16e} {} {:.16e}i 0\n", var, weight.re, op, weight.im.abs()));
                 out.push_str(&format!("c p weight -{} 1.0 + 0.0i 0\n", var));
             }
         }
@@ -202,48 +252,62 @@ impl WmcManager {
     }
 
     pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
-        use std::io::Read;
+        use std::fs::OpenOptions;
+        use std::sync::atomic::{AtomicU64, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
 
+        // SystemTime alone is not an exclusive identifier when Rust tests
+        // spawn multiple solver processes concurrently (particularly on
+        // macOS). Never truncate a different solver call's live CNF.
+        static NEXT_CNF_ID: AtomicU64 = AtomicU64::new(0);
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let pid = std::process::id();
-        let temp_cnf_path = std::env::temp_dir().join(format!("temp_eqcheck_{}_{}.cnf", pid, timestamp));
-        
+        let nonce = NEXT_CNF_ID.fetch_add(1, Ordering::Relaxed);
+        let temp_cnf_path = std::env::temp_dir()
+            .join(format!("temp_eqcheck_{}_{}_{}.cnf", pid, timestamp, nonce));
+
         let cnf_content = self.to_dimacs_string(tool_name);
         trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
-        let mut file = File::create(&temp_cnf_path)?;
+        // create_new is atomic; in the exceptionally unlikely event that
+        // another process owns this exact path, return an error instead of
+        // silently overwriting its CNF and returning a wrong count.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_cnf_path)?;
         file.write_all(cnf_content.as_bytes())?;
+        drop(file); // release the file before launching either solver
 
-        let (exe_path, args) = if tool_name == "gpmc" {
-            (Self::find_gpmc_path(), vec!["-mode=1"])
-        } else if tool_name == "ganak" {
-            (Self::find_ganak_path(), vec!["--mode=6"])
-        } else {
-            return Err(anyhow!("Unsupported tool name: {}", tool_name));
+        let exe_path = match tool_name {
+            "gpmc" => Self::find_gpmc_path(),
+            "ganak" => Self::find_ganak_path(),
+            _ => return Err(anyhow!("Unsupported tool name: {}", tool_name)),
         };
-        
+        if tool_name == "ganak" {
+            let provenance = crate::ganak_distribution::diagnostics(std::path::Path::new(&exe_path),
+                std::env::var_os("QUPRS_GANAK_PATH").is_some()).map_err(|e| anyhow!(e))?;
+            info!(target: "wmc", "{}", provenance);
+        }
+        let args: Vec<String> = solver_arguments(tool_name)?.iter().map(|arg| arg.to_string()).collect();
+
         debug!(target: "wmc", "Spawning {} solver: {} {:?} {}", tool_name, exe_path, args, temp_cnf_path.display());
 
-        let mut child = Command::new(&exe_path)
+        let output = Command::new(&exe_path)
             .args(&args)
             .arg(&temp_cnf_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+            .output()
             .context(format!("Failed to spawn {} process from path: {}", tool_name, exe_path))?;
 
-        let mut stdout_str = String::new();
-        let mut stderr_str = String::new();
-        
-        if let Some(mut out) = child.stdout.take() {
-            out.read_to_string(&mut stdout_str)?;
-        }
-        if let Some(mut err) = child.stderr.take() {
-            err.read_to_string(&mut stderr_str)?;
-        }
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        let exit_status = output.status;
 
-        child.wait()?;
+        if !exit_status.success() {
+            let _ = std::fs::remove_file(&temp_cnf_path);
+            return Err(anyhow!("{} failed: status={}, command={} {:?}, stdout={}, stderr={}",
+                tool_name, exit_status, exe_path, args, stdout_str, stderr_str));
+        }
 
         trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
         if !stderr_str.is_empty() {
@@ -255,51 +319,9 @@ impl WmcManager {
         let mut result_val = None;
 
         for line in stdout_str.lines() {
-            let mut prefix_len = 0;
-            if line.starts_with("c s exact double prec-sci") {
-                prefix_len = "c s exact double prec-sci".len();
-            } else if line.starts_with("c s exact arb cpx") {
-                prefix_len = "c s exact arb cpx".len();
-            } else if line.starts_with("c s exact quadruple float") {
-                prefix_len = "c s exact quadruple float".len();
-            } else if line.starts_with("c s exact") {
-                prefix_len = "c s exact".len();
-            }
-
-            if prefix_len > 0 {
-                let token_str = &line[prefix_len..];
-                let token_clean = token_str.trim().replace(" ", "").replace("+-", "-");
-                
-                let mut re = 0.0;
-                let mut im = 0.0;
-                
-                if token_clean.ends_with('i') {
-                    let s = &token_clean[..token_clean.len()-1];
-                    let mut split_idx = None;
-                    for (i, c) in s.char_indices().rev() {
-                        if (c == '+' || c == '-') && i > 0 {
-                            let prev_char = s.as_bytes()[i-1];
-                            // Avoid splitting on 'e'/'E' in scientific notation
-                            if prev_char != b'e' && prev_char != b'E' {
-                                split_idx = Some(i);
-                                break;
-                            }
-                        }
-                    }
-
-                    if let Some(idx) = split_idx {
-                        re = s[..idx].parse().unwrap_or(0.0);
-                        let im_str = &s[idx..];
-                        im = if im_str == "+" { 1.0 } else if im_str == "-" { -1.0 } else { im_str.parse().unwrap_or(0.0) };
-                    } else {
-                        im = if s == "" { 1.0 } else if s == "-" { -1.0 } else { s.parse().unwrap_or(0.0) };
-                    }
-                } else {
-                    re = token_clean.parse().unwrap_or(0.0);
-                }
-                
-                info!(target: "wmc", "{} result parsed: {} + {}i", tool_name, re, im);
-                result_val = Some(Complex::new(re, im));
+            if let Some(count) = parse_count_line(line)? {
+                info!(target: "wmc", "{} result parsed: {}", tool_name, count);
+                result_val = Some(count);
             }
         }
 
@@ -313,4 +335,205 @@ impl WmcManager {
             )
         })
     }
+}
+#[cfg(test)]
+mod count_parser_tests {
+    use super::{parse_real_count, solver_arguments};
+    static GPMC_OVERRIDE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn solvers_use_independent_floating_modes() {
+        assert_eq!(solver_arguments("ganak").unwrap(), &["--mode=6"]);
+        assert_eq!(solver_arguments("gpmc").unwrap(), &["-mode=1"]);
+        assert!(solver_arguments("unsupported").is_err());
+    }
+
+    #[test]
+    fn mode6_complex_scientific_output() {
+        use super::*;
+        for (value, expected) in [
+            ("9.28154511e-01 + 2.42960040e+10i", Complex::new(0.928154511, 2.42960040e10)),
+            ("-1.25E+03 - 2.5E-11i", Complex::new(-1250.0, -2.5e-11)),
+            ("1e-12 + -2e+03i", Complex::new(1e-12, -2000.0)),
+            ("+i", Complex::new(0.0, 1.0)),
+            ("-i", Complex::new(0.0, -1.0)),
+            ("1\t+\t2i", Complex::new(1.0, 2.0)),
+        ] {
+            assert_eq!(parse_count_line(&format!("c s exact quadruple float {value}")).unwrap(), Some(expected));
+        }
+        assert!(parse_count_line("c s exact quadruple floating 1").unwrap().is_none());
+        for value in ["nan", "inf", "1e999", "1 + infi", "1e-2-3e+i"] {
+            assert!(parse_count_line(&format!("c s exact quadruple float {value}")).is_err());
+        }
+    }
+
+
+    #[test]
+    fn parses_exact_fraction_and_scientific_notation() {
+        assert_eq!(parse_real_count("-3/2").unwrap(), -1.5);
+        assert_eq!(parse_real_count("1.25e-10").unwrap(), 1.25e-10);
+    }
+
+    #[test]
+    fn parses_fraction_with_components_larger_than_f64() {
+        let value = format!("1{}", "0".repeat(5000));
+        assert_eq!(parse_real_count(&format!("{}/{}", value, value)).unwrap(), 1.0);
+    }
+
+    #[test]
+    fn rejects_invalid_counts_instead_of_returning_zero() {
+        assert!(parse_real_count("malformed").is_err());
+        assert!(parse_real_count("1/0").is_err());
+        assert!(parse_real_count("inf").is_err());
+    }
+    #[test]
+    fn ganak_exact_complex_counts_match_hand_computed_models() {
+        use super::*;
+        for (re, im) in [(1.5, 0.25), (-1.5, -0.25), (0.0, 1.0), (0.0, 0.0), (1e-5, -2.5e-6)] {
+            let mut manager = WmcManager::new(&PathSum::new(0));
+            manager.next_var_id = 2;
+            manager.clauses.push(vec![1]);
+            manager.weights.insert(1, Complex::new(re, im));
+            assert_eq!(manager.solve("ganak").unwrap(), Complex::new(re, im));
+        }
+        let mut manager = WmcManager::new(&PathSum::new(0));
+        manager.next_var_id = 2;
+        manager.weights.insert(1, Complex::new(-1.0, 0.0));
+        assert_eq!(manager.solve("ganak").unwrap(), Complex::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn concurrent_ganak_fixtures_keep_their_own_weights() {
+        use super::*;
+        use std::sync::{Arc, Barrier};
+
+        // Reproduce the parallel cargo-test pattern that can otherwise
+        // attribute the answer for a different CNF to this fixture. Include
+        // both forced and free variables, which have different exact counts.
+        let fixtures = [
+            (Complex::new(1.5, 0.25), true),
+            (Complex::new(-1.5, -0.25), true),
+            (Complex::new(0.0, 1.0), true),
+            (Complex::new(0.5, -0.125), true),
+            (Complex::new(0.25, 0.75), false),
+            (Complex::new(-0.5, 0.5), false),
+            (Complex::new(0.0, -1.0), false),
+            (Complex::new(1.25, -0.25), false),
+        ];
+        let barrier = Arc::new(Barrier::new(fixtures.len()));
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = fixtures.into_iter().map(|(weight, forced)| {
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    let mut manager = WmcManager::new(&PathSum::new(0));
+                    manager.next_var_id = 2;
+                    if forced {
+                        manager.clauses.push(vec![1]);
+                    }
+                    manager.weights.insert(1, weight);
+                    barrier.wait();
+                    let actual = manager.solve("ganak").unwrap();
+                    let expected = if forced { weight } else { weight + Complex::new(1.0, 0.0) };
+                    let error = (actual - expected).norm();
+                    assert!(
+                        error <= 1e-8 * expected.norm() + 1e-10,
+                        "Cross-fixture solver result: forced={forced}, weight={weight:?}, expected={expected:?}, actual={actual:?}, error={error:e}"
+                    );
+                })
+            }).collect();
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn solver_inputs_preserve_f64_roundtrip_precision() {
+        use super::*;
+        let re = -1.0 + 1e-12;
+        let im = -2.5e-11;
+        let mut manager = WmcManager::new(&PathSum::new(0));
+        manager.next_var_id = 2;
+        manager.weights.insert(1, Complex::new(re, im));
+        for solver in ["ganak", "gpmc"] {
+            let text = manager.to_dimacs_string(solver);
+            let line = text.lines().find(|l| l.starts_with("c p weight 1 ")).unwrap();
+            let fields: Vec<_> = line.split_whitespace().collect();
+            assert_eq!(fields[4].parse::<f64>().unwrap().to_bits(), re.to_bits(), "{solver}: {line}");
+            if solver == "gpmc" {
+                assert_eq!(fields[5].parse::<f64>().unwrap().to_bits(), im.to_bits(), "{line}");
+            } else {
+                assert_eq!(fields[6].trim_end_matches('i').parse::<f64>().unwrap().to_bits(), im.abs().to_bits(), "{line}");
+                assert_eq!(fields[5], "-");
+            }
+        }
+    }
+
+    #[test]
+    fn floating_solvers_match_complex_and_cancellation_fixtures() {
+        use super::*;
+        // Preserve failure isolation: a preceding assertion may poison this
+        // lock, but does not change the solver override in that fixture.
+        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        for positive in [
+            Complex::new(1.23456789123, -2.34567891234),
+            Complex::new(1e-12, -2.5e-11),
+            Complex::new(-1.0, 0.0),
+            Complex::new(-1.0 + 1e-8, 0.0),
+        ] {
+            let expected = positive + Complex::new(1.0, 0.0);
+            let mut manager = WmcManager::new(&PathSum::new(0));
+            manager.next_var_id = 2;
+            manager.weights.insert(1, positive);
+            let ganak = manager.solve("ganak").unwrap();
+            let gpmc = manager.solve("gpmc").unwrap();
+            // Keep solver-specific diagnostics: a failing numerical fixture
+            // must identify which executable/weight/count breached the budget.
+            let tolerance = 1e-8 * expected.norm() + 2e-9;
+            for (solver, value) in [("ganak", ganak), ("gpmc", gpmc)] {
+                let error = (value - expected).norm();
+                assert!(
+                    error <= tolerance,
+                    "solver={solver}, input={positive:?}, expected={expected:?}, actual={value:?}, error={error:e}, tolerance={tolerance:e}, cnf={} ",
+                    manager.to_dimacs_string(solver),
+                );
+            }
+            let cross_error = (ganak - gpmc).norm();
+            assert!(
+                cross_error <= tolerance,
+                "ganak={ganak:?}, gpmc={gpmc:?}, input={positive:?}, cross_error={cross_error:e}, tolerance={tolerance:e}",
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn nonzero_solver_exit_cannot_become_a_weighted_count() {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("quprs-failed-gpmc-{}", std::process::id()));
+        // Preserve failure isolation: a preceding assertion may poison this
+        // lock, but does not change the solver override in that fixture.
+        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let previous = std::env::var_os("QUPRS_GPMC_PATH");
+        for (body, message) in [
+            ("echo 'c s exact quadruple float 999'; exit 7", "status="),
+            ("echo 'c s exact quadruple float 999'; kill -TERM $$", "status="),
+            ("echo 'no count'", "Error!"),
+            ("echo 'c s exact quadruple float nan'", "Non-finite"),
+            ("echo 'c s exact quadruple float malformed'", "Invalid decimal"),
+        ] {
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::env::set_var("QUPRS_GPMC_PATH", &path);
+            let result = WmcManager::new(&PathSum::new(0)).solve("gpmc");
+            match &previous {
+                Some(value) => std::env::set_var("QUPRS_GPMC_PATH", value),
+                None => std::env::remove_var("QUPRS_GPMC_PATH"),
+            }
+            assert!(result.unwrap_err().to_string().contains(message));
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
 }

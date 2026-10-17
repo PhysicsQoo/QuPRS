@@ -188,22 +188,32 @@ def check_equivalence(
         else:
             c2_input = circuit2
         import os
-        from QuPRS.utils import WMC
-        with WMC(tool_name) as exe_path:
-            if tool_name == "gpmc":
-                os.environ["QUPRS_GPMC_PATH"] = str(exe_path)
-            elif tool_name == "ganak":
-                os.environ["QUPRS_GANAK_PATH"] = str(exe_path)
-
-        rust_res = _pathsum_rust.check_equivalence(
-            c1_input,
-            c2_input,
-            method=method,
-            strategy=strategy,
-            tool_name=tool_name,
-            timeout=timeout,
-            safe_mode=safe_mode,
-        )
+        from QuPRS.utils import WMC, get_ganak_path
+        environment_key = f"QUPRS_{tool_name.upper()}_PATH"
+        previous_path = os.environ.get(environment_key)
+        # Rust's WmcManager::solve validates Ganak before spawning it.
+        # Do not perform expensive duplicate Python validations when a
+        # reduction-only or hybrid check completes without invoking WMC.
+        resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
+        with resource as exe_path:
+            # Keep resource extraction alive and do not turn this internal path
+            # into a persistent user override for later backend calls.
+            os.environ[environment_key] = str(exe_path)
+            try:
+                rust_res = _pathsum_rust.check_equivalence(
+                    c1_input,
+                    c2_input,
+                    method=method,
+                    strategy=strategy,
+                    tool_name=tool_name,
+                    timeout=timeout,
+                    safe_mode=safe_mode,
+                )
+            finally:
+                if previous_path is None:
+                    os.environ.pop(environment_key, None)
+                else:
+                    os.environ[environment_key] = previous_path
         # Parse rust result dict into EquivalenceCheckResult
         # Handle string mappings
         equiv_map = {
@@ -335,7 +345,7 @@ def check_equivalence(
         # If reduction is incomplete or WMC-only, run weighted model counting
         if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.util import get_theta
+            from QuPRS.utils.wmc_solvers import classify_weighted_count
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -363,18 +373,11 @@ def check_equivalence(
                 tool_start_time = time.time()
                 complex_number = run_wmc(temp_name, tool_name)
                 tool_time = round(time.time() - tool_start_time, 3)
-                abs_num = np.sqrt(complex_number[0] ** 2 + complex_number[1] ** 2)
-                log_wmc = round(np.log2(abs_num), 3)
-                theta = get_theta(
-                    complex_number[1] / abs_num, complex_number[0] / abs_num
+                equivalent, log_wmc = classify_weighted_count(
+                    complex_number[0], complex_number[1], expect,
+                    magnitude_tolerance=config.WMC_MAGNITUDE_TOLERANCE,
+                    phase_tolerance=config.WMC_PHASE_TOLERANCE,
                 )
-                if abs(log_wmc - expect) < tolerance:
-                    if abs(theta) < tolerance * 2 * np.pi:
-                        equivalent = "equivalent"
-                    else:
-                        equivalent = "equivalent*"
-                else:
-                    equivalent = "not_equivalent"
                 wmc_time = tool_time + to_DIMACS_time
                 # Clean up temporary CNF file
                 if temp_name and os.path.exists(temp_name):

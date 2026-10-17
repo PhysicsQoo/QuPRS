@@ -279,6 +279,17 @@ jobs:
           path: benchmark_report.md
           header: "🔍 Benchmark Comparison Report"
 
+      # Observation only: run *after* the release benchmark gate to avoid
+      # changing its cache/CPU state. Do not run on cancelled workflows.
+      # The profile can still be reported if the benchmark comparison fails.
+      - name: Profile WMC Python weight precision
+        if: ${{ success() || failure() }}
+        continue-on-error: true
+        run: |
+          python scripts/profile_wmc_weight_precision.py \
+            --samples 96 --repeats 5 --warmups 2 \
+            --json-file python_wmc_precision_profile.json
+
       # Step 7: Upload artifacts for debugging
       - name: Upload artifacts
         if: always()
@@ -291,3 +302,4 @@ jobs:
             main_baseline.json
             main_baseline.provenance.json
             pr_benchmark.provenance.json
+            python_wmc_precision_profile.json

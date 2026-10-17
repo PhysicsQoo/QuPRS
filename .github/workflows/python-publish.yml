@@ -3,21 +3,94 @@
 name: Build and Publish Python Package
 
 # Workflow Triggers:
-# 1. On push to any branch (e.g., main, feature/xyz): triggers build.
-# 2. On push of tags starting with 'v' (e.g., v1.2.3): triggers build and publish.
-# 3. On pull request to main branch: triggers build.
-# 4. Manual trigger via GitHub Actions UI.
+# 1. Push a v* tag: verify tag/version/main SHA, build wheels and sdist,
+#    then automatically publish to PyPI and create a public GitHub Release.
+# 2. workflow_dispatch: build and test the selected branch (packaging dry-run),
+#    upload artifacts, and never publish.
+# 3. PRs changing this workflow: run only a low-cost version/ref preflight.
+#    Ordinary branch pushes do not run the release workflow.
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/python-publish.yml'
 
 jobs:
+  verify_release_ref:
+    name: Verify version and release ref
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source for verification
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Cargo/Python version and tagged main commit
+        shell: bash
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          cargo = tomllib.loads(Path("rust/Cargo.toml").read_text())
+          workspace_version = cargo["workspace"]["package"]["version"]
+          version_module = Path("src/QuPRS/_version.py").read_text()
+          match = re.search(r'^__version__\s*=\s*"([^"]+)"', version_module, re.MULTILINE)
+          if not match or match.group(1) != workspace_version:
+              raise SystemExit(
+                  f"Cargo version {workspace_version} != Python version "
+                  f"{match.group(1) if match else '<missing>'}"
+              )
+
+          if os.environ["RELEASE_EVENT"] == "push" and os.environ["RELEASE_REF_TYPE"] == "tag":
+              expected_tag = f"v{workspace_version}"
+              actual_tag = os.environ["RELEASE_REF_NAME"]
+              if actual_tag != expected_tag:
+                  raise SystemExit(
+                      f"Tag {actual_tag!r} != expected {expected_tag!r}"
+                  )
+              print(f"Release version verified: {expected_tag}")
+          elif os.environ["RELEASE_EVENT"] == "workflow_dispatch" or (
+              os.environ["RELEASE_EVENT"] == "push"
+              and os.environ["RELEASE_REF_TYPE"] == "branch"
+          ):
+              print(f"Packaging dry-run for version {workspace_version}; no publishing")
+          else:
+              print(f"PR-only preflight for version {workspace_version}; no build or publish")
+          PY
+
+          if [[ "$RELEASE_EVENT" == "push" && "$RELEASE_REF_TYPE" == "tag" ]]; then
+            # Tag must point to latest protected main commit, not a feature
+            # branch or an outdated main ancestor.
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            tag_commit="$(git rev-parse HEAD)"
+            main_commit="$(git rev-parse refs/remotes/origin/main)"
+            echo "Release tag commit: $tag_commit"
+            echo "Current main commit: $main_commit"
+            if [[ "$tag_commit" != "$main_commit" ]]; then
+              echo "::error::Release tag must point at the current main HEAD"
+              exit 1
+            fi
+          fi
+
   # --- Job 1: Build Cross-Platform Wheels ---
   # This job runs on all triggers and builds binary wheels for multiple platforms.
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
+    needs: verify_release_ref
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -32,7 +105,7 @@ jobs:
           - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-14    # M1/M2 Mac (ARM64)
+          - os: macos-15    # ARM64; bundled Ganak 2.8.0 requires macOS >= 15
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
 
@@ -49,26 +122,32 @@ jobs:
           GMP=$(brew --prefix gmp)
           MPFR=$(brew --prefix mpfr)
           
-          if [[ "${{ matrix.os }}" == "macos-14" ]]; then
-            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=14.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
-          else
-            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV
-          fi          
+          # Ganak 2.8.0 ARM64 has a macOS 15.0 binary minimum.
+          # Do not advertise macOS 14 support in the repaired wheel.
+            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV          
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.3.1
         env:
           CIBW_ARCHS: ${{ matrix.arch }}
 
-          CIBW_TEST_REQUIRES: pytest
-          CIBW_BEFORE_TEST: "pip install \".[dev]\""
-          CIBW_TEST_COMMAND: pytest -n auto -k "not (Feynman or MQT)" {project}/test
+          # Install the built wheel with its dev extras, not the source tree.
+          CIBW_TEST_EXTRAS: dev
+          CIBW_TEST_COMMAND: >-
+            python -c "from pathlib import Path; from importlib.metadata import distribution, version;
+            import QuPRS; import QuPRS._pathsum_rust as ext; from QuPRS._version import __version__;
+            root = Path(distribution('QuPRS').locate_file('')).resolve();
+            assert Path(QuPRS.__file__).resolve().is_relative_to(root), QuPRS.__file__;
+            assert Path(ext.__file__).resolve().is_relative_to(root), ext.__file__;
+            assert version('QuPRS') == __version__"
+            && pytest -n auto -k "not (Feynman or MQT)" {project}/test
 
       - name: Upload wheel artifacts (for all builds - general purpose)
         uses: actions/upload-artifact@v4
         with:
           name: all-builds-dist-wheels-${{ matrix.os }}
           path: ./wheelhouse/*.whl
+          if-no-files-found: error
 
       - name: Upload wheel artifacts (for PyPI release - only on tags)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -76,10 +155,13 @@ jobs:
         with:
           name: pypi-release-wheels-${{ matrix.os }}
           path: ./wheelhouse/*.whl
+          if-no-files-found: error
   # --- Job 2: Build Source Distribution (Sdist) ---
   # This job runs on all triggers and builds the source distribution.
   build_sdist:
     name: Build source distribution
+    needs: verify_release_ref
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -102,6 +184,7 @@ jobs:
         with:
           name: all-builds-dist-sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
 
       - name: Upload sdist artifact (for PyPI release - only on tags)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -109,6 +192,7 @@ jobs:
         with:
           name: pypi-release-sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
 
 
   # --- Job 3: Publish to PyPI and Create GitHub Release ---

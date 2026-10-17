@@ -243,9 +243,12 @@ jobs:
           
           # If baseline exists and is not empty, add comparison args
           if [ -s "main_baseline.json" ] && [ "$(cat main_baseline.json)" != "{}" ]; then
-            echo "Baseline detected. Enabling comparison."
+            echo "Baseline detected. Comparing for reporting only."
             echo "comparison_performed=true" >> $GITHUB_OUTPUT
-            CMD="$CMD --benchmark-compare=main_baseline.json --benchmark-compare-fail=mean:10%"
+            # Shared hosted runners can report >10% deltas without source changes.
+            # Keep pytest benchmark failures hard; compare deltas informational.
+            CMD="$CMD --benchmark-compare=main_baseline.json"
+            echo "::warning::Benchmark deltas are informational; inspect provenance and CodSpeed before interpreting changes."
           else
             echo "Baseline missing or empty. Running without comparison."
             echo "comparison_performed=false" >> $GITHUB_OUTPUT

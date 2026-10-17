@@ -87,26 +87,53 @@ def run():
     if args.baseline is not None:
         try:
             previous = json.loads(args.baseline.read_text())
-        except (ValueError, FileNotFoundError):
+        except (ValueError, OSError):
             previous = {}
+        if not isinstance(previous, dict):
+            previous = {}
+
         expected = args.expected_main_sha
         base = previous.get("source_sha")
         if not base or not expected or base != expected:
             print("::warning::Benchmark main_baseline provenance missing/stale: "
                   f"recorded={base!r}; current_main={expected!r}. "
                   "Do not regard regression results as same-commit comparisons.")
-        elif (previous.get("solver_binaries", {}).get("ganak", {}).get("sha256")
-              != tools["ganak"]["sha256"]):
-            print("::notice::Benchmark binary differs between main and PR as expected for "
-                  "a solver upgrade. Compare walltimes using an identical input CNF.")
-        elif (previous.get("gpmc_submodule_sha") and
-              previous.get("gpmc_submodule_sha") != record["gpmc_submodule_sha"]):
-            print("::warning::Pinned GPMC submodule differs from baseline.")
-        elif (previous.get("cpu_model") and previous.get("cpu_model") != record["cpu_model"]):
-            print("::warning::CPU model differs from baseline; walltime may not be comparable.")
         else:
-            print("Baseline main SHA matches currently fetched main. "
-                  "Runner characteristics are still potentially different.")
+            print("Baseline source SHA matches current main; runtime and "
+                  "hardware identities must still be checked.")
+
+        # Report identity differences independently. An if/elif chain would
+        # suppress CPU/GPMC changes whenever Ganak differs as well.
+        baseline_tools = previous.get("solver_binaries")
+        if not isinstance(baseline_tools, dict):
+            baseline_tools = {}
+        for name in ("ganak", "gpmc"):
+            prior = baseline_tools.get(name)
+            prior_sha = prior.get("sha256") if isinstance(prior, dict) else None
+            current_sha = tools[name]["sha256"]
+            if not prior_sha or not current_sha:
+                print(f"::warning::{name} binary SHA256 missing from baseline "
+                      "or current benchmark; solver identity is unverified.")
+            elif prior_sha != current_sha:
+                print(f"::warning::{name} solver binary differs from baseline; "
+                      "compare using matched binary and input CNF before "
+                      "attributing a runtime difference.")
+
+        for field, label in (
+            ("gpmc_submodule_sha", "GPMC submodule"),
+            ("cpu_model", "CPU model"),
+            ("runner_image", "Runner image"),
+            ("runner_image_version", "Runner image version"),
+            ("python_version", "Python version"),
+        ):
+            prior = previous.get(field)
+            current = record.get(field)
+            if not prior or not current:
+                print(f"::warning::{label} provenance missing in baseline "
+                      "or current run; matched-environment comparison unverified.")
+            elif prior != current:
+                print(f"::warning::{label} differs: "
+                      f"baseline={prior!r}, current={current!r}.")
 
 
 if __name__ == "__main__":

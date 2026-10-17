@@ -45,7 +45,65 @@ def read_machine_summary(file_path: Path) -> dict:
         return {}
 
 
-def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: str):
+
+def assess_provenance(baseline_file: Path, pr_file: Path, expected_main_sha: str):
+    """Return all material differences; an incomplete comparison is never a pass."""
+    problems = []
+
+    def read_record(path, label):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (OSError, ValueError):
+            pass
+        problems.append(f"{label} provenance missing, invalid or not a JSON object")
+        return {}
+
+    baseline = read_record(baseline_file, "Baseline")
+    current = read_record(pr_file, "PR")
+    if not expected_main_sha:
+        problems.append("Expected current main SHA is unavailable")
+    elif baseline.get("source_sha") != expected_main_sha:
+        problems.append("Baseline source SHA is absent or differs from current main")
+    if not current.get("source_sha") or not current.get("checkout_sha"):
+        problems.append("PR source or checkout SHA is missing")
+
+    for solver in ("ganak", "gpmc"):
+        baseline_tools = baseline.get("solver_binaries")
+        pr_tools = current.get("solver_binaries")
+        base_entry = baseline_tools.get(solver) if isinstance(baseline_tools, dict) else None
+        pr_entry = pr_tools.get(solver) if isinstance(pr_tools, dict) else None
+        old_sha = base_entry.get("sha256") if isinstance(base_entry, dict) else None
+        new_sha = pr_entry.get("sha256") if isinstance(pr_entry, dict) else None
+        if not old_sha or not new_sha:
+            problems.append(f"{solver} binary SHA256 missing; solver identity unverified")
+        elif old_sha != new_sha:
+            problems.append(f"{solver} binary SHA256 differs between baseline and PR")
+
+    for field, label in (
+        ("gpmc_submodule_sha", "GPMC submodule"),
+        ("cpu_model", "CPU model"),
+        ("runner_os", "Runner OS"),
+        ("runner_arch", "Runner architecture"),
+        ("runner_image", "Runner image"),
+        ("runner_image_version", "Runner image version"),
+        ("python_version", "Python version"),
+        ("rustc", "Rust compiler"),
+    ):
+        previous = baseline.get(field)
+        actual = current.get(field)
+        if not previous or not actual:
+            problems.append(f"{label} identity missing")
+        elif previous != actual:
+            problems.append(f"{label} differs between baseline and PR")
+    return problems
+
+def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: str,
+                    baseline_provenance: Path = Path("main_baseline.provenance.json"),
+                    pr_provenance: Path = Path("pr_benchmark.provenance.json"),
+                    expected_main_sha: str = "",
+                    benchmark_outcome: str = "unknown"):
     """
     Generates a markdown report.
     If main_file is empty/missing, it treats all tests as new.
@@ -56,6 +114,7 @@ def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: s
     if not pr_benchmarks:
         with report_file.open("w", encoding="utf-8") as f:
             f.write("### ❌ Error Generating Report\n\n")
+            f.write("> **Performance interpretation: UNVERIFIED — NOT A PASS.**\n\n")
             f.write("Could not find or load benchmark data from the PR run.\n")
         print(f"❌ Error: Could not load data from {pr_file}")
         exit(1)
@@ -101,9 +160,37 @@ def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: s
                     " independent verification.\n"
                 )
 
+    # The benchmark result and provenance must be included in the posted Markdown,
+    # not merely printed to the Actions log.
+    problems = assess_provenance(baseline_provenance, pr_provenance, expected_main_sha)
+    if not has_baseline:
+        problems.append("A comparable baseline is absent or comparison was not performed")
+    if benchmark_outcome != "success":
+        problems.append(f"Benchmark job outcome was {benchmark_outcome!r}; results may be partial")
+    if has_baseline:
+        missing = set(main_benchmarks) - set(pr_benchmarks)
+        extra = set(pr_benchmarks) - set(main_benchmarks)
+        if missing or extra:
+            problems.append(
+                f"Benchmark case coverage differs (baseline-only={len(missing)}, PR-only={len(extra)})"
+            )
+    if problems:
+        markdown_lines.append(
+            "> ⚠️ **Performance interpretation: UNVERIFIED — NOT A PASS.**"
+            " The following source, environment or execution conditions prevent"
+            " an authenticated like-for-like performance conclusion.\n"
+        )
+        for problem in problems:
+            markdown_lines.append(f"> - {problem}")
+    else:
+        markdown_lines.append(
+            "> **Performance interpretation: report-only.** Recorded source and"
+            " environment identifiers match, but shared-runner load can still differ."
+        )
+
     if not has_baseline:
         markdown_lines.append(
-            "> ⚠️ **Note:** No baseline found (first run or branch mismatch). Displaying PR results only.\n"
+            "> ⚠️ **No comparable baseline:** Displaying PR results only.\n"
         )
 
     # --- Step 3: Process data and compare ---
@@ -161,7 +248,14 @@ def generate_report(main_file: Path, pr_file: Path, report_file: Path, status: s
     if has_baseline:
         markdown_lines.append(f"#### 📈 Executive Summary")
         if regressions == 0 and improvements == 0:
-            markdown_lines.append("No significant performance changes detected.")
+            if problems:
+                markdown_lines.append(
+                    "No >10% mean change among available cases; **NOT a validated performance pass**."
+                )
+            else:
+                markdown_lines.append(
+                    "No >10% change in recorded means (informational only, not a performance gate)."
+                )
         else:
             if regressions > 0:
                 markdown_lines.append(
@@ -195,6 +289,10 @@ if __name__ == "__main__":
     parser.add_argument("--pr-file", type=Path, default=Path("pr_benchmark.json"))
     parser.add_argument("--report-file", type=Path, default=Path("benchmark_report.md"))
     parser.add_argument("--comparison-status", type=str, default="false")
+    parser.add_argument("--baseline-provenance", type=Path, default=Path("main_baseline.provenance.json"))
+    parser.add_argument("--pr-provenance", type=Path, default=Path("pr_benchmark.provenance.json"))
+    parser.add_argument("--expected-main-sha", type=str, default="")
+    parser.add_argument("--benchmark-outcome", type=str, default="unknown")
     args = parser.parse_args()
 
     generate_report(
@@ -202,4 +300,8 @@ if __name__ == "__main__":
         pr_file=args.pr_file,
         report_file=args.report_file,
         status=args.comparison_status,
+        baseline_provenance=args.baseline_provenance,
+        pr_provenance=args.pr_provenance,
+        expected_main_sha=args.expected_main_sha,
+        benchmark_outcome=args.benchmark_outcome,
     )

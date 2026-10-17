@@ -265,6 +265,10 @@ jobs:
             --comparison-status ${{ steps.benchmark_step.outputs.comparison_performed }} \
             --main-file main_baseline.json \
             --pr-file pr_benchmark.json \
+            --baseline-provenance main_baseline.provenance.json \
+            --pr-provenance pr_benchmark.provenance.json \
+            --expected-main-sha "$(git rev-parse origin/main)" \
+            --benchmark-outcome "${{ steps.benchmark_step.outcome }}" \
             --report-file benchmark_report.md
 
       # Step 6: Comment on PR with benchmark results

@@ -1,0 +1,82 @@
+name: Controlled Periodic Reduction Attribution
+on:
+  push:
+    branches: [diagnostics/periodic-attribution-20261017]
+    paths: ['.diagnostics/phase3c/**', '.github/workflows/periodic-attribution.yml']
+permissions:
+  contents: read
+jobs:
+  same-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      QUPRS_ATTR_ROOT: ${{ github.workspace }}/attribution
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      RUSTFLAGS: '-C debuginfo=0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin Rust and dependencies
+        run: |
+          rustup toolchain install 1.93.0 --profile minimal
+          rustup default 1.93.0
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev libssl-dev cmake pkg-config time
+          python -m pip install qiskit==1.4.6 numpy==2.2.6 sympy==1.14.0 symengine==0.13.0 qiskit-qasm3-import==0.6.0 psutil==7.0.0
+      - name: Export immutable revisions
+        run: |
+          mkdir -p "$QUPRS_ATTR_ROOT"
+          cp -R .diagnostics/phase3c "$QUPRS_ATTR_ROOT/harness"
+          bash "$QUPRS_ATTR_ROOT/harness/export.sh"
+          {
+            uname -a
+            lscpu
+            rustc -Vv
+            cargo -V
+            python -VV
+            python -m pip freeze
+            gcc --version
+            cmake --version
+            git ls-tree cc9c537 GPMC
+            git ls-tree c833607 GPMC
+            env | sort | grep -E '^(Image|RUNNER_OS|RUNNER_ARCH|RUSTFLAGS|OMP_|OPENBLAS_)'
+          } > "$QUPRS_ATTR_ROOT/results/toolchain-manifest.txt"
+      - name: Build independent plain and diagnostic executables
+        run: bash "$QUPRS_ATTR_ROOT/harness/build.sh"
+      - name: Five interleaved paired blocks on one CPU
+        run: |
+          export QUPRS_GPMC_PATH="$QUPRS_ATTR_ROOT/solvers/gpmc"
+          export QUPRS_GANAK_PATH="$QUPRS_ATTR_ROOT/solvers/ganak"
+          export QUPRS_CASE_ROOT="$QUPRS_ATTR_ROOT/work/A/benchmarks/MQTBench"
+          python "$QUPRS_ATTR_ROOT/harness/measure.py" --binary-dir "$QUPRS_ATTR_ROOT/results/bin" --output "$QUPRS_ATTR_ROOT/results/plain" --case-root "$QUPRS_CASE_ROOT" --blocks 5 --warmups 1
+      - name: Diagnostic workload traces and Python parity
+        run: |
+          export QUPRS_GPMC_PATH="$QUPRS_ATTR_ROOT/solvers/gpmc"
+          export QUPRS_GANAK_PATH="$QUPRS_ATTR_ROOT/solvers/ganak"
+          export QUPRS_CASE_ROOT="$QUPRS_ATTR_ROOT/work/A/benchmarks/MQTBench"
+          python "$QUPRS_ATTR_ROOT/harness/diagnose.py"
+          PYTHONPATH="$QUPRS_ATTR_ROOT/work/A/src" python "$QUPRS_ATTR_ROOT/harness/python_parity.py" > "$QUPRS_ATTR_ROOT/results/python-parity.log" 2>&1
+      - name: Preserve source patches and checksums
+        if: always()
+        run: |
+          cd "$QUPRS_ATTR_ROOT"
+          mkdir -p results/source
+          for v in A B1 B3 B5 B10 B20; do
+            if [ -d "work/$v/rust/pathsum/src" ]; then
+              tar czf "results/source/$v-src.tar.gz" -C "work/$v" rust/pathsum/src rust/pathsum/examples
+            fi
+          done
+          cp -R harness results/harness
+          find results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > results/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controlled-attribution
+          path: attribution/results/
+          retention-days: 30

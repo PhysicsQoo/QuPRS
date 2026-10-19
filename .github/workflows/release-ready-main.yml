@@ -16,12 +16,10 @@ jobs:
   source-correctness:
     name: Source correctness
     uses: ./.github/workflows/pytest.yml
-    secrets: inherit
 
   installed-artifacts:
     name: Installed artifacts
     uses: ./.github/workflows/release-artifact-ci.yml
-    secrets: inherit
 
   release-parity:
     name: Release builder/drift parity

@@ -274,17 +274,17 @@ def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0):
     try:
         if time.monotonic() - started >= float(timeout):
             raise SolverTimeout("SolverTimeout: budget exhausted before solver launch")
-            with WMC(tool_name) as executable:
-                if tool_name == "ganak":
-                    from QuPRS.utils.ganak_distribution import binary_diagnostics
-                    binary_diagnostics(
-                        executable, bool(os.environ.get("QUPRS_GANAK_PATH")),
-                        max(0.0, min(10.0, float(timeout) - (time.monotonic() - started))),
-                    )
-                command = [str(executable), *SOLVER_ARGUMENTS[tool_name], file]
-                result = run_solver(
-                    command, timeout=max(0.0, float(timeout) - (time.monotonic() - started))
+        with WMC(tool_name) as executable:
+            if tool_name == "ganak":
+                from QuPRS.utils.ganak_distribution import binary_diagnostics
+                binary_diagnostics(
+                    executable, bool(os.environ.get("QUPRS_GANAK_PATH")),
+                    max(0.0, min(10.0, float(timeout) - (time.monotonic() - started))),
                 )
+            command = [str(executable), *SOLVER_ARGUMENTS[tool_name], file]
+            result = run_solver(
+                command, timeout=max(0.0, float(timeout) - (time.monotonic() - started))
+            )
     finally:
         SOLVER_ENV_LOCK.release()
     if result.returncode != 0:

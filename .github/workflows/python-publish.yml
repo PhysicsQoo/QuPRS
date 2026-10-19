@@ -110,7 +110,7 @@ jobs:
           - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-15    # ARM64; bundled Ganak 2.8.0 requires macOS >= 15
+          - os: macos-15    # ARM64 release wheels target macOS 15+; source smoke is separate
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
 
@@ -127,8 +127,8 @@ jobs:
           GMP=$(brew --prefix gmp)
           MPFR=$(brew --prefix mpfr)
           
-          # Ganak 2.8.0 ARM64 has a macOS 15.0 binary minimum.
-          # Do not advertise macOS 14 support in the repaired wheel.
+          # Release wheel deployment minimum is macOS 15.0.
+          # A macOS 14 sdist smoke is not evidence of macOS 14 wheel compatibility.
             echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV          
 
       - name: Build wheels

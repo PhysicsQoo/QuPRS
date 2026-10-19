@@ -70,8 +70,9 @@ QuPRS provides pre-built wheels for the following operating systems and architec
 | **macOS** | Intel (x86_64) | ✅ Supported | macOS 15+ |
 | **macOS** | Apple Silicon (M1/M2/M3) | ✅ Supported | macOS 15+ |
 
-The published macOS wheels for QuPRS v0.13.2 are tagged `macosx_15_0_*` and require macOS 15 or later. On macOS 14 these **prebuilt wheels** are not compatible. An installer may attempt a source distribution (sdist) build instead; macOS 14 source-build and bundled native-solver runtime compatibility have **not** been validated and are not part of the supported installation matrix. If you require v0.13.2 on macOS, use macOS 15 or later.
 | **Windows** | x86_64 / ARM64 | ⚠️ **WSL2 Only** | Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) |
+
+The published macOS wheels for QuPRS v0.13.2 are tagged `macosx_15_0_*` and require macOS 15 or later. On macOS 14 these **prebuilt wheels** are not compatible. An installer may attempt a source distribution (sdist) build instead; macOS 14 source-build and bundled native-solver runtime compatibility have **not** been validated and are not part of the supported installation matrix. If you require v0.13.2 on macOS, use macOS 15 or later.
 
 
 ## Using QuPRS

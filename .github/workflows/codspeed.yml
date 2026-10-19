@@ -10,6 +10,7 @@ on:
       - 'rust/**'
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
+      - 'scripts/check_codspeed_shards.py'
   pull_request:
     paths:
       - 'src/**'
@@ -17,6 +18,7 @@ on:
       - 'rust/**'
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
+      - 'scripts/check_codspeed_shards.py'
   workflow_dispatch:
 
 permissions:
@@ -24,8 +26,37 @@ permissions:
   id-token: write
 
 jobs:
+  verify_shard_coverage:
+    name: Verify CodSpeed five-shard coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout benchmark sources
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install same collection environment as CodSpeed
+        run: |
+          python -m pip install --upgrade pip maturin
+          export VIRTUAL_ENV=$(dirname $(dirname $(which python)))
+          maturin develop --release -E dev
+          python -m pip install pytest-shard
+      - name: Prove shard union, disjointness and nonempty collection
+        run: python scripts/check_codspeed_shards.py
+
   codspeed:
     name: Run benchmarks
+    needs: verify_shard_coverage
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -74,4 +105,4 @@ jobs:
         uses: CodSpeedHQ/action@v4
         with:
           mode: simulation
-          run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }} || ( [ $? -eq 5 ] && exit 0 || exit $? )
+          run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }}

@@ -1,0 +1,119 @@
+# Main release acceptance. The stable final job is the only required-check candidate.
+# Ruleset activation is a separate, maintainer-controlled step after positive and negative tests.
+name: Release-Ready Main
+
+on:
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+# Never publish on this workflow. Called package builder publishes only on v* tag pushes.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-correctness:
+    name: Source correctness
+    uses: ./.github/workflows/pytest.yml
+
+  installed-artifacts:
+    name: Installed artifacts
+    uses: ./.github/workflows/release-artifact-ci.yml
+
+  release-parity:
+    name: Release builder/drift parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify matching build/smoke job definitions and intentional failure
+        run: |
+          python3 scripts/verify_release_artifact_workflow_parity.py --self-test
+          python3 scripts/verify_release_artifact_workflow_parity.py
+
+  policy-negative-tests:
+    name: Release policy negative tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute actual aggregator under valid and invalid PR/job fixtures
+        run: node scripts/test_release_ready_policy.js
+
+  release-ready:
+    name: Release-Ready / Required
+    if: ${{ always() }}
+    needs: [source-correctness, installed-artifacts, release-parity, policy-negative-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check branch provenance and exact complete successful job matrix
+        uses: actions/github-script@v7
+        env:
+          SOURCE_RESULT: ${{ needs.source-correctness.result }}
+          ARTIFACT_RESULT: ${{ needs.installed-artifacts.result }}
+          PARITY_RESULT: ${{ needs.release-parity.result }}
+          NEGATIVE_RESULT: ${{ needs.policy-negative-tests.result }}
+        with:
+          script: |
+            const failures = [];
+            const source = process.env.SOURCE_RESULT;
+            const artifact = process.env.ARTIFACT_RESULT;
+            const parity = process.env.PARITY_RESULT;
+            const negative = process.env.NEGATIVE_RESULT;
+            if (source !== 'success') failures.push(`Source correctness workflow: ${source}`);
+            if (artifact !== 'success') failures.push(`Installed artifacts workflow: ${artifact}`);
+            if (parity !== 'success') failures.push(`Release builder parity: ${parity}`);
+            if (negative !== 'success') failures.push(`Release negative tests: ${negative}`);
+
+            // A release PR must originate from this repo's integration branch.
+            // Other dev PRs can use this workflow as a fail-closed integration smoke.
+            if (context.eventName === 'pull_request') {
+              const pull = context.payload.pull_request;
+              if (pull.base.ref === 'main') {
+                const expectedRepo = `${context.repo.owner}/${context.repo.repo}`;
+                if (pull.head.ref !== 'dev' || pull.head.repo.full_name !== expectedRepo) {
+                  failures.push(
+                    `Only ${expectedRepo}:dev may target main; got ${pull.head.repo.full_name}:${pull.head.ref}`
+                  );
+                }
+              }
+            }
+
+            // Important: success of a reusable workflow alone does NOT prove its
+            // internal jobs ran. In particular, packaging jobs used to be skipped
+            // on pull_request, while the reusable workflow still appeared green.
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              filter: 'latest',
+              per_page: 100
+            });
+            const requirements = [
+              ['Source correctness / build (', 12],
+              ['Installed artifacts / Verify version and release ref', 1],
+              ['Installed artifacts / Build wheels on ', 4],
+              ['Installed artifacts / Build source distribution', 1],
+              ['Installed artifacts / Wheel smoke (', 12],
+              ['Installed artifacts / Sdist smoke (', 2]
+            ];
+            for (const [token, expected] of requirements) {
+              const found = jobs.filter(job => job.name.includes(token));
+              const invalid = found.filter(job =>
+                job.status !== 'completed' || job.conclusion !== 'success'
+              );
+              core.info(`${token}: ${found.length}/${expected}; failed_or_skipped=${invalid.length}`);
+              if (found.length !== expected) {
+                failures.push(`Expected ${expected} jobs containing "${token}", found ${found.length}`);
+              }
+              for (const job of invalid) {
+                failures.push(`${job.name}: ${job.status}/${job.conclusion}`);
+              }
+            }
+            if (failures.length) {
+              core.setFailed('Release-Ready FAIL-CLOSED:\n' + failures.join('\n'));
+            } else {
+              core.info('Release-Ready complete: exact source and installed artifact matrices passed.');
+            }

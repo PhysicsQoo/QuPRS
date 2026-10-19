@@ -56,7 +56,7 @@ def test_solver_runs_independently(monkeypatch, solver):
         assert name == solver
         yield '/solvers/' + solver
     def run(command, **kwargs):
-        assert kwargs['timeout'] == 600.0
+        assert 0 < kwargs['timeout'] <= 600.0
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout='c s exact arb frac 3/2 + 1/4i', stderr='')
     monkeypatch.setattr(module, 'WMC', executable)

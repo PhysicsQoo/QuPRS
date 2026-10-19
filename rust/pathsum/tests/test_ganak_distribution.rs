@@ -1,3 +1,9 @@
+// The shared distribution module is included as a source module here. It
+// refers to crate::solver_process, so the integration test needs the same
+// companion module as the library and the build script.
+#[path = "../src/solver_process.rs"]
+mod solver_process;
+
 #[path = "../src/ganak_distribution.rs"]
 mod distribution;
 

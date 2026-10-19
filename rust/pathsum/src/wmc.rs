@@ -532,6 +532,40 @@ mod count_parser_tests {
 
     #[test]
     #[cfg(unix)]
+    fn timed_out_gpmc_solver_is_not_a_weighted_count() {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{Duration, Instant};
+
+        let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let path = std::env::temp_dir().join(format!(
+            "quprs-timeout-gpmc-{}",
+            std::process::id(),
+        ));
+        std::fs::write(&path, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let previous = std::env::var_os("QUPRS_GPMC_PATH");
+        std::env::set_var("QUPRS_GPMC_PATH", &path);
+
+        let started = Instant::now();
+        let result = WmcManager::new(&PathSum::new(0)).solve_with_deadline(
+            "gpmc",
+            Some(started + Duration::from_millis(250)),
+        );
+        match previous {
+            Some(old) => std::env::set_var("QUPRS_GPMC_PATH", old),
+            None => std::env::remove_var("QUPRS_GPMC_PATH"),
+        }
+        std::fs::remove_file(&path).unwrap();
+
+        let error = result.expect_err("hanging solver must not yield a count");
+        assert!(error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some(),
+            "{error:#}");
+        assert!(started.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn nonzero_solver_exit_cannot_become_a_weighted_count() {
         use super::*;
         use std::os::unix::fs::PermissionsExt;

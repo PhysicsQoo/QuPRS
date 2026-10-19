@@ -77,9 +77,12 @@ pub fn check_equivalence(
     method: VerificationMethod,
     strategy: VerificationStrategy,
     tool_name: &str,
-    _timeout_secs: u64, // To be implemented with threads if strict abort is needed
+    timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
     let global_start = Instant::now();
+    let deadline = if timeout_secs == 0 { None } else {
+        global_start.checked_add(std::time::Duration::from_secs(timeout_secs))
+    };
     
     // 1. Initialize PathSum state
     let regs = vec![crate::pathsum::Register::new("q", num_qubits)];
@@ -128,12 +131,17 @@ pub fn check_equivalence(
         }
     }
 
+    // A strategy may overrun its budget; it must never launch an unbounded solver.
+    if deadline.is_some_and(|limit| Instant::now() >= limit) {
+        status = EquivalenceStatus::Timeout;
+    }
+
     // 4. WMC Fallback (if method is wmc_only, or hybrid returned unknown)
     let mut to_dimacs_time = None;
     let mut tool_time = None;
     let mut wmc_time = None;
 
-    if method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown) {
+    if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
         let wmc_start = Instant::now();
         
         let mut wmc_mgr = WmcManager::new(&ps_miter);
@@ -149,12 +157,20 @@ pub fn check_equivalence(
 
         let tool_start = Instant::now();
         let raw_amplitude = if cnf_string.contains("p cnf 0 0") || num_active_vars == 0 {
-            num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0)
+            Some(num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0))
         } else {
-            wmc_mgr.solve(tool_name)?
+            match wmc_mgr.solve_with_deadline(tool_name, deadline) {
+                Ok(value) => Some(value),
+                Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
+                    status = EquivalenceStatus::Timeout;
+                    None
+                }
+                Err(error) => return Err(error),
+            }
         };
         tool_time = Some(tool_start.elapsed().as_secs_f64());
 
+        if let Some(raw_amplitude) = raw_amplitude {
         let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
         let final_amplitude = raw_amplitude * normalization_factor;
         info!(target: "wmc", "{} log2 result : {:.4}", tool_name, raw_amplitude.norm().log2());
@@ -173,6 +189,7 @@ pub fn check_equivalence(
         } else {
             debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
             status = EquivalenceStatus::NotEquivalent;
+        }
         }
     }
 
@@ -195,3 +212,4 @@ pub fn check_equivalence(
     })
 }
 mod ganak_distribution;
+mod solver_process;

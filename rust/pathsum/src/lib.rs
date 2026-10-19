@@ -160,7 +160,10 @@ pub fn check_equivalence(
         let expected_log2 = (num_qubits as f64) + (num_active_vars as f64) / 2.0;
 
         let tool_start = Instant::now();
-        let raw_amplitude = if cnf_string.contains("p cnf 0 0") || num_active_vars == 0 {
+        // No extra path variables does NOT imply the trace is tautologically
+        // satisfiable: e.g. Tr(X) = 0 imposes contradictory CNF clauses.
+        // Bypass the solver only for a genuinely empty zero-variable CNF.
+        let raw_amplitude = if cnf_string.contains("p cnf 0 0") {
             Some(num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0))
         } else {
             match wmc_mgr.solve_with_deadline(tool_name, deadline) {

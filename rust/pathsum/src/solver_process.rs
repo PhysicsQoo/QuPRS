@@ -15,6 +15,17 @@ const MAX_STREAM_BYTES: usize = 1024 * 1024;
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const PIPE_CLOSE_GRACE: Duration = Duration::from_millis(500);
 
+/// Internal, typed deadline signal. Higher layers map this to the public
+/// Timeout result without mistaking it for circuit inequivalence.
+#[derive(Debug)]
+pub(crate) struct SolverTimeout;
+impl std::fmt::Display for SolverTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SolverTimeout: subprocess deadline exceeded")
+    }
+}
+impl std::error::Error for SolverTimeout {}
+
 pub(crate) struct SolverOutput {
     pub status: ExitStatus,
     pub stdout: Vec<u8>,
@@ -67,7 +78,7 @@ fn terminate_tree(child: &mut Child) {
 
 pub(crate) fn run(command: &mut Command, deadline: Option<Instant>) -> Result<SolverOutput> {
     if deadline.is_some_and(|limit| Instant::now() >= limit) {
-        return Err(anyhow!("SolverTimeout: deadline exceeded before spawn"));
+        return Err(anyhow!(SolverTimeout));
     }
     #[cfg(unix)]
     {
@@ -95,7 +106,7 @@ pub(crate) fn run(command: &mut Command, deadline: Option<Instant>) -> Result<So
             terminate_tree(&mut child);
             let _ = out_handle.join();
             let _ = err_handle.join();
-            return Err(anyhow!("SolverTimeout: subprocess deadline exceeded"));
+            return Err(anyhow!(SolverTimeout));
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,

@@ -38,7 +38,20 @@ def binary_diagnostics(path, overridden=False, timeout=10.0):
     packaged = Path(__file__).with_name('wmc_tools') / ('ganak.exe' if platform.system() == 'Windows' else 'ganak')
     overridden = overridden and path != packaged.resolve()
     stat = path.stat()
-    return _binary_diagnostics(str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, overridden, float(timeout))
+    # Remaining budgets vary by milliseconds. Use a conservative integral
+    # second bucket for >=1s to retain the provenance cache without exceeding
+    # the caller's budget; keep sub-second precision for urgent deadlines.
+    budget = float(timeout)
+    if budget <= 0:
+        from QuPRS.utils.solver_process import SolverTimeout
+        raise SolverTimeout("SolverTimeout: no budget for Ganak provenance")
+    budget = min(10.0, budget)
+    if budget >= 1.0:
+        budget = float(int(budget))
+    return _binary_diagnostics(
+        str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns,
+        overridden, budget,
+    )
 
 
 @lru_cache(maxsize=16)

@@ -33,6 +33,7 @@ def one(args):
             a, b = b, a
         if not a.is_file() or not b.is_file():
             raise RuntimeError("Fixture missing: " + str((a, b)))
+        a, b = str(a), str(b)
         expected = "equivalent"
         kwargs = dict(method="hybrid", strategy=strategy)
     t = time.perf_counter_ns()

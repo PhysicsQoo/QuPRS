@@ -209,3 +209,60 @@ def test_python_cnf_removed_even_when_solver_times_out(tmp_path, monkeypatch):
     )
     assert result.equivalent == "Timeout"
     assert not list(tmp_path.glob("*.cnf"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Fake POSIX solver script")
+@pytest.mark.parametrize("failure", ["timeout", "nonzero"])
+def test_rust_public_api_keeps_solver_failure_distinct(monkeypatch, tmp_path, failure):
+    """Exercise the actual Rust FFI and status mapping, not just WmcManager."""
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+    import QuPRS.utils as resources
+
+    fake = tmp_path / "fake-gpmc"
+    if failure == "timeout":
+        fake.write_text("#!/bin/sh\nsleep 30\n")
+    else:
+        fake.write_text("#!/bin/sh\necho 'c s exact quadruple float 999'\nexit 7\n")
+    fake.chmod(0o700)
+
+    @contextmanager
+    def fake_resource(tool_name):
+        assert tool_name == "gpmc"
+        yield fake
+
+    monkeypatch.setattr(resources, "WMC", fake_resource)
+    identity = QuantumCircuit(1)
+    hh = QuantumCircuit(1)
+    hh.h(0)
+    hh.h(0)
+    if failure == "timeout":
+        result = check_equivalence(
+            identity, hh, backend="rust", method="wmc_only",
+            tool_name="gpmc", timeout=2,
+        )
+        assert result.equivalent == "Timeout", result.equivalent
+    else:
+        with pytest.raises(ValueError, match="Verification Engine Failed"):
+            check_equivalence(
+                identity, hh, backend="rust", method="wmc_only",
+                tool_name="gpmc", timeout=2,
+            )
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+def test_reduction_incomplete_is_unknown_not_solver_failure(backend):
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+
+    identity = QuantumCircuit(1)
+    hadamard = QuantumCircuit(1)
+    hadamard.h(0)
+    result = check_equivalence(
+        identity, hadamard, backend=backend,
+        method="reduction_rules", timeout=15,
+    )
+    assert result.equivalent == "unknown", (
+        f"backend={backend}, returned {result.equivalent} "
+        "for intentionally incomplete reduction"
+    )

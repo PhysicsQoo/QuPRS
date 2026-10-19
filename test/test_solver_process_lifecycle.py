@@ -266,3 +266,21 @@ def test_reduction_incomplete_is_unknown_not_solver_failure(backend):
         f"backend={backend}, returned {result.equivalent} "
         "for intentionally incomplete reduction"
     )
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+def test_proven_inequivalence_is_not_unknown_timeout_or_solver_error(backend):
+    """A reversible X on |0> changes the operator; reduction is decisive."""
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+
+    identity = QuantumCircuit(1)
+    not_identity = QuantumCircuit(1)
+    not_identity.x(0)
+    result = check_equivalence(
+        identity, not_identity, backend=backend,
+        method="reduction_rules", timeout=15,
+    )
+    assert result.equivalent == "not_equivalent", (
+        f"backend={backend} misclassified an analytically nonidentity circuit"
+    )

@@ -92,7 +92,7 @@ jobs:
       - name: Run benchmark and save results as JSON
         run: |
           pytest --benchmark-only --benchmark-json=output.json
-          python scripts/benchmark_provenance.py --output main_baseline.provenance.json
+          python scripts/benchmark_provenance.py --output "$RUNNER_TEMP/main_baseline.provenance.json"
 
       - name: Discard local changes to tracked files
         run: |
@@ -117,7 +117,6 @@ jobs:
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
             cp output.json "$RUNNER_TEMP/main_baseline.json"
-            cp main_baseline.provenance.json "$RUNNER_TEMP/main_baseline.provenance.json"
             
             git clean -fdx
             git checkout .

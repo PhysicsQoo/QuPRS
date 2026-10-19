@@ -2,15 +2,24 @@
 
 import tempfile
 import unittest
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from zipfile import ZipFile
 
-from scripts.verify_macos_wheel_support import (
-    documented_minimums,
-    release_deployment,
-    validate_policy,
-    validate_wheels,
+# pytest-xdist may import test modules without the repo root on sys.path.
+# Load this offline release validator by location rather than as a package.
+_SPEC = spec_from_file_location(
+    "quprs_macos_wheel_validator",
+    Path(__file__).resolve().parents[1] / "scripts/verify_macos_wheel_support.py",
 )
+assert _SPEC is not None and _SPEC.loader is not None
+_VALIDATOR = module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_VALIDATOR)
+
+documented_minimums = _VALIDATOR.documented_minimums
+release_deployment = _VALIDATOR.release_deployment
+validate_policy = _VALIDATOR.validate_policy
+validate_wheels = _VALIDATOR.validate_wheels
 
 
 class MacOSWheelSupportTests(unittest.TestCase):

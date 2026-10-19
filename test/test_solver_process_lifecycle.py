@@ -101,25 +101,51 @@ def test_python_malformed_output_is_not_a_count(monkeypatch, solver):
         wmc.run_wmc("test.cnf", solver, timeout=1)
 
 
-def _assert_no_live_posix_pids(pids):
-    """A zombie has stopped executing; its final reap belongs to its adopter."""
+def _pid_execution_state(pid):
+    """Return a process state without depending on procps inside Docker.
+
+    Linux /proc is available in the project's slim test container. On macOS,
+    /proc is absent and the native ps command provides the state instead.
+    Return None only when the process no longer exists.
+    """
+    if sys.platform.startswith("linux"):
+        from pathlib import Path
+
+        stat_path = Path("/proc") / str(pid) / "stat"
+        try:
+            stat_line = stat_path.read_text()
+        except FileNotFoundError:
+            return None
+        # /proc/PID/stat encloses the command name in parentheses; split at
+        # the last ')' to avoid interpreting spaces in a process name.
+        return stat_line.rsplit(")", 1)[-1].strip().split()[0]
+
     import subprocess
 
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "stat="],
+        capture_output=True, text=True, check=False, timeout=3,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _assert_no_live_posix_pids(pids):
+    """A zombie has stopped executing; its final reap belongs to its adopter."""
     deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        living = []
-        for pid in pids:
-            result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "stat="],
-                capture_output=True, text=True, check=False, timeout=3,
-            )
-            state = result.stdout.strip()
-            if result.returncode == 0 and state and not state.startswith("Z"):
-                living.append((pid, state))
+    while True:
+        living = [
+            (pid, state)
+            for pid in pids
+            if (state := _pid_execution_state(pid)) is not None
+            and not state.startswith(("Z", "X"))
+        ]
         if not living:
             return
+        if time.monotonic() >= deadline:
+            pytest.fail(f"live subprocess descendants left behind: {living}")
         time.sleep(0.04)
-    pytest.fail(f"live subprocess descendants left behind: {living}")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group lifecycle contract")

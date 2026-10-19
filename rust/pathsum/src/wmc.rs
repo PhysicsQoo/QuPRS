@@ -254,7 +254,10 @@ impl WmcManager {
     /// Backward-compatible entrypoint for callers that do not own a deadline.
     /// The public verification path uses solve_with_deadline instead.
     pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
-        self.solve_with_deadline(tool_name, None)
+        self.solve_with_deadline(
+            tool_name,
+            std::time::Instant::now().checked_add(std::time::Duration::from_secs(600)),
+        )
     }
 
     pub fn solve_with_deadline(
@@ -302,10 +305,13 @@ impl WmcManager {
                 _ => return Err(anyhow!("Unsupported tool name: {}", tool_name)),
             };
             if tool_name == "ganak" {
-                let provenance = crate::ganak_distribution::diagnostics(
+                let provenance = crate::ganak_distribution::diagnostics_with_deadline(
                     std::path::Path::new(&exe_path),
                     std::env::var_os("QUPRS_GANAK_PATH").is_some(),
-                ).map_err(|e| anyhow!(e))?;
+                    deadline,
+                ).map_err(|e| if e.starts_with("SolverTimeout:") {
+                    anyhow!(crate::solver_process::SolverTimeout)
+                } else { anyhow!(e) })?;
                 info!(target: "wmc", "{}", provenance);
             }
             let args: Vec<String> = solver_arguments(tool_name)?

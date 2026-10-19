@@ -56,6 +56,13 @@ class MacOSWheelSupportTests(unittest.TestCase):
             wheel = self._wheel(directory, "macosx_15_0_arm64")
             validate_wheels([wheel], {"arm64": (15, 0)}, "arm64")
 
+    def test_intel_wheel_tag_and_embedded_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            wheel = self._wheel(directory, "macosx_15_0_x86_64")
+            validate_wheels([wheel], {"x86_64": (15, 0)}, "x86_64")
+            with self.assertRaisesRegex(ValueError, "unexpected arch"):
+                validate_wheels([wheel], {"arm64": (15, 0)}, "arm64")
+
     def test_old_and_mismatched_wheel_tags_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             wrong_min = self._wheel(directory, "macosx_14_0_arm64")

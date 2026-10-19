@@ -303,16 +303,17 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
-          mapfile -t SDISTS < <(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f)
-          if [[ "${#SDISTS[@]}" -ne 1 ]]; then
-            echo "::error::Expected one release source archive, got ${#SDISTS[@]}"
+          SDIST_COUNT="$(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')"
+          if [[ "$SDIST_COUNT" -ne 1 ]]; then
+            echo "::error::Expected one release source archive, got $SDIST_COUNT"
             exit 1
           fi
+          SDIST="$(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f -print -quit)"
           python -m venv "$RUNNER_TEMP/quprs-sdist-env"
           source "$RUNNER_TEMP/quprs-sdist-env/bin/activate"
           python -m pip install --upgrade pip
           cd "$RUNNER_TEMP"
-          python -m pip install --no-cache-dir "${SDISTS[0]}"
+          python -m pip install --no-cache-dir "$SDIST"
           python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$VERSION"
 
   # --- Job 3: Publish to PyPI and Create GitHub Release ---

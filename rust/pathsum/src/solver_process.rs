@@ -153,8 +153,11 @@ mod tests {
 
     #[test]
     fn hanging_child_expires_and_is_reaped() {
-        let mut cmd = Command::new("sh");
-        cmd.args(["-c", "echo started; sleep 5"]);
+        // Exercise a genuinely hung direct child; shell descendants and
+        // inherited pipe handles are covered independently below. This keeps
+        // process termination separate from shell execution details on Darwin.
+        let mut cmd = Command::new("sleep");
+        cmd.arg("5");
         let before = Instant::now();
         let err = run(&mut cmd, Some(before + Duration::from_millis(120)))
             .err().expect("hang must time out");
@@ -174,8 +177,11 @@ mod tests {
 
     #[test]
     fn oversized_stdout_stops_solver_early() {
+        // Emit a definite 2 MiB payload through the pipe in a few writes.
+        // A shell printf loop is CPU/scheduler dependent on macOS Intel and
+        // can time out before ever producing the 1 MiB that this test asserts.
         let mut cmd = Command::new("sh");
-        cmd.args(["-c", "while :; do printf '0123456789abcdef'; done"]);
+        cmd.args(["-c", "dd if=/dev/zero bs=8192 count=256 2>/dev/null; sleep 5"]);
         let err = run(&mut cmd, Some(Instant::now() + Duration::from_secs(3)))
             .err().expect("unbounded output must be rejected");
         assert!(err.to_string().contains("SolverOutputLimit"), "{err:#}");

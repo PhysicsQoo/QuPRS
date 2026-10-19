@@ -229,7 +229,7 @@ mod tests {
         // process group created by solver_process::run.
         cmd.args([
             "-c",
-            "sleep 30 & echo \"$ $!\" > \"$1\"; wait",
+            "sleep 30 & echo \"$$ $!\" > \"$1\"; wait",
             "quprs-test",
             marker.to_str().expect("UTF-8 temporary directory"),
         ]);

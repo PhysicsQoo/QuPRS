@@ -169,8 +169,8 @@ def test_python_wmc_count_classification_is_stable_for_extremes():
         classify_weighted_count(math.inf, 0.0, 2.0, **kwargs)
 
 
-// Regression: zero path variables may still encode an unsatisfiable
-// trace (e.g., identity versus X). Never shortcut such a CNF to count 2^n.
+# Regression: zero path variables may still encode an unsatisfiable
+# trace (e.g., identity versus X). Never shortcut such a CNF to count 2^n.
 @pytest.mark.parametrize("solver", ["ganak", "gpmc"])
 @pytest.mark.parametrize("backend", ["python", "rust"])
 @pytest.mark.parametrize("gate, expected", [

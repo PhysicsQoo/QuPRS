@@ -33,10 +33,18 @@ jobs:
           python3 scripts/verify_release_artifact_workflow_parity.py --self-test
           python3 scripts/verify_release_artifact_workflow_parity.py
 
+  policy-negative-tests:
+    name: Release policy negative tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute actual aggregator under valid and invalid PR/job fixtures
+        run: node scripts/test_release_ready_policy.js
+
   release-ready:
     name: Release-Ready / Required
     if: ${{ always() }}
-    needs: [source-correctness, installed-artifacts, release-parity]
+    needs: [source-correctness, installed-artifacts, release-parity, policy-negative-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,15 +56,18 @@ jobs:
           SOURCE_RESULT: ${{ needs.source-correctness.result }}
           ARTIFACT_RESULT: ${{ needs.installed-artifacts.result }}
           PARITY_RESULT: ${{ needs.release-parity.result }}
+          NEGATIVE_RESULT: ${{ needs.policy-negative-tests.result }}
         with:
           script: |
             const failures = [];
             const source = process.env.SOURCE_RESULT;
             const artifact = process.env.ARTIFACT_RESULT;
             const parity = process.env.PARITY_RESULT;
+            const negative = process.env.NEGATIVE_RESULT;
             if (source !== 'success') failures.push(`Source correctness workflow: ${source}`);
             if (artifact !== 'success') failures.push(`Installed artifacts workflow: ${artifact}`);
             if (parity !== 'success') failures.push(`Release builder parity: ${parity}`);
+            if (negative !== 'success') failures.push(`Release negative tests: ${negative}`);
 
             // A release PR must originate from this repo's integration branch.
             // Other dev PRs can use this workflow as a fail-closed integration smoke.

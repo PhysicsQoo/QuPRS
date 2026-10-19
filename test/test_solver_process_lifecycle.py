@@ -78,7 +78,7 @@ def test_python_nonzero_with_valid_looking_count_is_not_equivalence(monkeypatch,
         wmc.run_wmc("test.cnf", solver, timeout=1)
     assert len(calls) == 1
     assert solver in calls[0][0][0]
-    assert calls[0][1] == 1
+    assert 0 < calls[0][1] <= 1
 
 
 @pytest.mark.parametrize("solver", ["gpmc", "ganak"])

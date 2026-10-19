@@ -68,8 +68,19 @@ QuPRS provides pre-built wheels for the following operating systems and architec
 | **Linux** | x86_64 | ✅ Supported | Tested on Ubuntu |
 | **Linux** | ARM64 (aarch64) | ✅ Supported | Tested on Ubuntu |
 | **macOS** | Intel (x86_64) | ✅ Supported | macOS 15+ |
-| **macOS** | Apple Silicon (M1/M2/M3) | ✅ Supported | macOS 14+ |
+| **macOS** | Apple Silicon (M1/M2/M3) | ✅ Supported | macOS 15+ |
 | **Windows** | x86_64 / ARM64 | ⚠️ **WSL2 Only** | Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) |
+
+The published macOS wheels for QuPRS v0.13.2 are tagged `macosx_15_0_*` and require **macOS 15+**. On macOS 14, pip cannot use these prebuilt wheels but can attempt to build the source distribution (sdist). A [macOS 14.8.9 / Apple Silicon / Python 3.12.10 smoke test](https://github.com/PhysicsQoo/QuPRS/actions/runs/39217598481) successfully installed v0.13.2 from sdist with Homebrew build dependencies and ran a basic Ganak-backed equivalence check. This is **limited source-install evidence**, not a guarantee for every macOS 14 configuration, Python version, or solver feature.
+
+For the tested macOS 14 ARM64 source-build path (rather than a prebuilt wheel):
+
+```bash
+brew install cmake gmp mpfr zlib
+python -m pip install --no-binary=quprs 'QuPRS==0.13.2'
+```
+
+For the **supported prebuilt-wheel installation path**, use macOS 15 or later.
 
 
 ## Using QuPRS

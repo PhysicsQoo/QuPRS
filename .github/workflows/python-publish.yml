@@ -85,6 +85,11 @@ jobs:
             fi
           fi
 
+      - name: Check platform support statements against deployment policy
+        run: |
+          python scripts/verify_macos_wheel_support.py
+          python -m unittest discover -s test -p 'test_macos_wheel_support.py'
+
   # --- Job 1: Build Cross-Platform Wheels ---
   # This job runs on all triggers and builds binary wheels for multiple platforms.
   build_wheels:
@@ -105,7 +110,7 @@ jobs:
           - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-15    # ARM64; bundled Ganak 2.8.0 requires macOS >= 15
+          - os: macos-15    # ARM64 release wheels target macOS 15+; source smoke is separate
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
 
@@ -122,8 +127,8 @@ jobs:
           GMP=$(brew --prefix gmp)
           MPFR=$(brew --prefix mpfr)
           
-          # Ganak 2.8.0 ARM64 has a macOS 15.0 binary minimum.
-          # Do not advertise macOS 14 support in the repaired wheel.
+          # Release wheel deployment minimum is macOS 15.0.
+          # A macOS 14 sdist smoke is not evidence of macOS 14 wheel compatibility.
             echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV          
 
       - name: Build wheels
@@ -141,6 +146,10 @@ jobs:
             assert Path(ext.__file__).resolve().is_relative_to(root), ext.__file__;
             assert version('QuPRS') == __version__"
             && pytest -n auto -k "not (Feynman or MQT)" {project}/test
+
+      - name: Validate built macOS wheel tags and metadata
+        if: runner.os == 'macOS'
+        run: python scripts/verify_macos_wheel_support.py --wheel-dir wheelhouse --arch "${{ matrix.arch }}"
 
       - name: Upload wheel artifacts (for all builds - general purpose)
         uses: actions/upload-artifact@v4

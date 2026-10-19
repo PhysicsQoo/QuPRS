@@ -85,6 +85,11 @@ jobs:
             fi
           fi
 
+      - name: Check platform support statements against deployment policy
+        run: |
+          python scripts/verify_macos_wheel_support.py
+          python -m unittest discover -s test -p 'test_macos_wheel_support.py'
+
   # --- Job 1: Build Cross-Platform Wheels ---
   # This job runs on all triggers and builds binary wheels for multiple platforms.
   build_wheels:
@@ -141,6 +146,10 @@ jobs:
             assert Path(ext.__file__).resolve().is_relative_to(root), ext.__file__;
             assert version('QuPRS') == __version__"
             && pytest -n auto -k "not (Feynman or MQT)" {project}/test
+
+      - name: Validate built macOS wheel tags and metadata
+        if: runner.os == 'macOS'
+        run: python scripts/verify_macos_wheel_support.py --wheel-dir wheelhouse --arch "${{ matrix.arch }}"
 
       - name: Upload wheel artifacts (for all builds - general purpose)
         uses: actions/upload-artifact@v4

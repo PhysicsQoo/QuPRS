@@ -33,16 +33,16 @@ def architecture_matches(data, system, machine):
     return False
 
 
-def binary_diagnostics(path, overridden=False):
+def binary_diagnostics(path, overridden=False, timeout=10.0):
     path = Path(path).resolve()
     packaged = Path(__file__).with_name('wmc_tools') / ('ganak.exe' if platform.system() == 'Windows' else 'ganak')
     overridden = overridden and path != packaged.resolve()
     stat = path.stat()
-    return _binary_diagnostics(str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, overridden)
+    return _binary_diagnostics(str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, overridden, float(timeout))
 
 
 @lru_cache(maxsize=16)
-def _binary_diagnostics(path, size, mtime, ctime, overridden):
+def _binary_diagnostics(path, size, mtime, ctime, overridden, timeout):
     fields = release_asset()
     data = Path(path).read_bytes()
     fingerprint = hashlib.sha256(data).hexdigest()
@@ -54,7 +54,7 @@ def _binary_diagnostics(path, size, mtime, ctime, overridden):
     # The version check is a subprocess too; supervise its output, deadline,
     # and descendants rather than leaving a separate unsafe launch path.
     from QuPRS.utils.solver_process import run as run_solver
-    output = run_solver([path, '--version'], timeout=10)
+    output = run_solver([path, '--version'], timeout=timeout)
     if output.returncode != 0:
         raise RuntimeError(f'Ganak --version failed: status={output.returncode}')
     embedded = next((line for line in output.stdout.splitlines() if 'Ganak SHA1:' in line), 'unknown')

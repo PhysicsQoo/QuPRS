@@ -24,7 +24,7 @@ fn test_h_h_is_identity() {
         VerificationMethod::Hybrid,          
         VerificationStrategy::Difference,    
         "gpmc",
-        0                                    
+        600 // Explicit finite test budget; zero is an invalid public timeout.
     ).unwrap();
     
     assert_eq!(result.status, EquivalenceStatus::Equivalent, "H*H should equal Identity");
@@ -50,7 +50,7 @@ fn test_cx_equivalence() {
         VerificationMethod::Hybrid, 
         VerificationStrategy::Difference, 
         "gpmc",
-        0
+        600 // Explicit finite test budget; zero is an invalid public timeout.
     ).unwrap();
 
     assert_eq!(result.status, EquivalenceStatus::Equivalent, "CX should equal (I⊗H) CZ (I⊗H)");
@@ -72,8 +72,22 @@ fn test_non_equivalent_circuits() {
         VerificationMethod::Hybrid, 
         VerificationStrategy::Difference, 
         "gpmc",
-        0
+        600 // Explicit finite test budget; zero is an invalid public timeout.
     ).unwrap();
     
     assert_eq!(result.status, EquivalenceStatus::NotEquivalent, "Identity should NOT equal X");
+}
+#[test]
+fn test_zero_timeout_rejected_explicitly() {
+    let no_gates: Vec<QuantumOp> = vec![];
+    let result = check_equivalence(
+        1,
+        &no_gates,
+        &no_gates,
+        VerificationMethod::Hybrid,
+        VerificationStrategy::Difference,
+        "gpmc",
+        0,
+    );
+    assert!(result.is_err(), "zero must not silently disable the deadline");
 }

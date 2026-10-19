@@ -23,10 +23,20 @@ jobs:
     uses: ./.github/workflows/release-artifact-ci.yml
     secrets: inherit
 
+  release-parity:
+    name: Release builder/drift parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify matching build/smoke job definitions and intentional failure
+        run: |
+          python3 scripts/verify_release_artifact_workflow_parity.py --self-test
+          python3 scripts/verify_release_artifact_workflow_parity.py
+
   release-ready:
     name: Release-Ready / Required
     if: ${{ always() }}
-    needs: [source-correctness, installed-artifacts]
+    needs: [source-correctness, installed-artifacts, release-parity]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,13 +47,16 @@ jobs:
         env:
           SOURCE_RESULT: ${{ needs.source-correctness.result }}
           ARTIFACT_RESULT: ${{ needs.installed-artifacts.result }}
+          PARITY_RESULT: ${{ needs.release-parity.result }}
         with:
           script: |
             const failures = [];
             const source = process.env.SOURCE_RESULT;
             const artifact = process.env.ARTIFACT_RESULT;
+            const parity = process.env.PARITY_RESULT;
             if (source !== 'success') failures.push(`Source correctness workflow: ${source}`);
             if (artifact !== 'success') failures.push(`Installed artifacts workflow: ${artifact}`);
+            if (parity !== 'success') failures.push(`Release builder parity: ${parity}`);
 
             // A release PR must originate from this repo's integration branch.
             // Other dev PRs can use this workflow as a fail-closed integration smoke.

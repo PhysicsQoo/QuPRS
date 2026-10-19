@@ -1,22 +1,22 @@
-//! Bounded subprocess supervision for external weighted model counters.
+//! POSIX solver subprocess lifecycle supervisor.
 //!
-//! A separate process group/session keeps timeout cancellation from leaving
-//! descendants behind. Both output pipes are drained concurrently; memory is
-//! bounded even when a faulty solver produces unbounded diagnostics.
+//! stdout/stderr are redirected to private temporary files instead of pipes:
+//! a detached descendant holding an inherited descriptor cannot stall cleanup
+//! in a blocking reader thread. Disk growth is checked between polls and may
+//! temporarily exceed the 1 MiB per-stream in-memory result limit.
 use anyhow::{anyhow, Context, Result};
-use std::io::{self, Read};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom};
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_STREAM_BYTES: usize = 1024 * 1024;
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
-const PIPE_CLOSE_GRACE: Duration = Duration::from_millis(500);
+static NEXT_CAPTURE_ID: AtomicU64 = AtomicU64::new(0);
 
-/// Internal, typed deadline signal. Higher layers map this to the public
-/// Timeout result without mistaking it for circuit inequivalence.
 #[derive(Debug)]
 pub(crate) struct SolverTimeout;
 impl std::fmt::Display for SolverTimeout {
@@ -32,40 +32,67 @@ pub(crate) struct SolverOutput {
     pub stderr: Vec<u8>,
 }
 
-fn drain<R: Read>(mut pipe: R, exceeded: Arc<AtomicBool>) -> io::Result<Vec<u8>> {
-    let mut kept = Vec::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = pipe.read(&mut buf)?;
-        if n == 0 {
-            break;
+/// Only this scope owns the temporary output file and removes its directory
+/// entry on all return paths, including spawn, wait, deadline and parse errors.
+struct CaptureFile {
+    path: PathBuf,
+    file: File,
+}
+impl CaptureFile {
+    fn new(stream: &str) -> Result<Self> {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let sequence = NEXT_CAPTURE_ID.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "quprs-solver-{}-{stamp}-{sequence}-{stream}.tmp",
+            std::process::id()
+        ));
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
-        let remaining = MAX_STREAM_BYTES.saturating_sub(kept.len());
-        kept.extend_from_slice(&buf[..n.min(remaining)]);
-        if n > remaining {
-            exceeded.store(true, Ordering::Relaxed);
-        }
+        let file = options.open(&path).context("SolverProcessError: capture creation")?;
+        Ok(Self { path, file })
     }
-    Ok(kept)
+
+    fn exceeds_limit(&self) -> Result<bool> {
+        Ok(self.file.metadata()?.len() > MAX_STREAM_BYTES as u64)
+    }
+
+    fn read_bounded(&mut self) -> Result<Vec<u8>> {
+        self.file.seek(SeekFrom::Start(0))?;
+        let mut bytes = Vec::new();
+        (&mut self.file)
+            .take((MAX_STREAM_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_STREAM_BYTES {
+            return Err(anyhow!("SolverOutputLimit: stdout/stderr exceeded 1 MiB per stream"));
+        }
+        Ok(bytes)
+    }
+}
+impl Drop for CaptureFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
+/// Kill the private POSIX process group even after a successful leader exit,
+/// so members inheriting capture file handles are not left running.
 fn terminate_tree(child: &mut Child) {
     #[cfg(unix)]
     {
-        // CommandExt::process_group(0) places the child in a private group.
-        // Kill the group rather than only its leader.
         unsafe extern "C" {
             fn kill(pid: i32, sig: i32) -> i32;
         }
-        if let Ok(pgid) = i32::try_from(child.id()) {
-            unsafe { kill(-pgid, 9); } // POSIX SIGKILL
+        if let Ok(group_id) = i32::try_from(child.id()) {
+            unsafe { kill(-group_id, 9); }
         }
     }
     #[cfg(windows)]
     {
-        // /T also terminates descendants; fall back to direct child.kill()
-        // when taskkill is unavailable (such a failure is not silently ignored
-        // by the strict descendant tests on supported runners).
         let _ = Command::new("taskkill")
             .args(["/T", "/F", "/PID", &child.id().to_string()])
             .stdout(Stdio::null())
@@ -76,74 +103,54 @@ fn terminate_tree(child: &mut Child) {
     let _ = child.wait();
 }
 
+/// The deadline is for the external child, not in-process Reduction/CNF work.
 pub(crate) fn run(command: &mut Command, deadline: Option<Instant>) -> Result<SolverOutput> {
     if deadline.is_some_and(|limit| Instant::now() >= limit) {
         return Err(anyhow!(SolverTimeout));
     }
+    let mut stdout = CaptureFile::new("stdout")?;
+    let mut stderr = CaptureFile::new("stderr")?;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command.stdin(Stdio::null())
+        .stdout(Stdio::from(stdout.file.try_clone()?))
+        .stderr(Stdio::from(stderr.file.try_clone()?));
     let mut child = command.spawn().context("SolverUnavailable: failed to spawn solver")?;
-    let stdout = child.stdout.take().expect("stdout configured");
-    let stderr = child.stderr.take().expect("stderr configured");
-    let exceeded = Arc::new(AtomicBool::new(false));
-    let out_limit = Arc::clone(&exceeded);
-    let err_limit = Arc::clone(&exceeded);
-    let out_handle = thread::spawn(move || drain(stdout, out_limit));
-    let err_handle = thread::spawn(move || drain(stderr, err_limit));
 
-    let status = loop {
-        if exceeded.load(Ordering::Relaxed) {
-            terminate_tree(&mut child);
-            let _ = out_handle.join();
-            let _ = err_handle.join();
-            return Err(anyhow!("SolverOutputLimit: stdout/stderr exceeded 1 MiB per stream"));
+    // No pipe reader threads and no unbounded join(), including on failures.
+    let outcome: Result<ExitStatus> = loop {
+        match (stdout.exceeds_limit(), stderr.exceeds_limit()) {
+            (Ok(a), Ok(b)) if a || b => {
+                break Err(anyhow!("SolverOutputLimit: stdout/stderr exceeded 1 MiB per stream"));
+            }
+            (Err(error), _) | (_, Err(error)) => {
+                break Err(error.context("SolverProcessError: capture metadata"));
+            }
+            _ => {}
         }
         if deadline.is_some_and(|limit| Instant::now() >= limit) {
-            terminate_tree(&mut child);
-            let _ = out_handle.join();
-            let _ = err_handle.join();
-            return Err(anyhow!(SolverTimeout));
+            break Err(anyhow!(SolverTimeout));
         }
         match child.try_wait() {
-            Ok(Some(status)) => break status,
+            Ok(Some(status)) => break Ok(status),
             Ok(None) => thread::sleep(POLL_INTERVAL),
-            Err(error) => {
-                terminate_tree(&mut child);
-                let _ = out_handle.join();
-                let _ = err_handle.join();
-                return Err(error).context("SolverProcessError: wait failed");
-            }
+            Err(error) => break Err(error).context("SolverProcessError: wait failed"),
         }
     };
-
-    // A child that exits but leaves grandchildren holding inherited stdout or
-    // stderr open must not cause an unbounded join of the reader threads.
-    let close_deadline = Instant::now() + PIPE_CLOSE_GRACE;
-    while !out_handle.is_finished() || !err_handle.is_finished() {
-        if Instant::now() >= close_deadline
-            || deadline.is_some_and(|limit| Instant::now() >= limit)
-        {
-            terminate_tree(&mut child);
-            let _ = out_handle.join();
-            let _ = err_handle.join();
-            return Err(anyhow!("SolverProcessError: output pipes not closed by descendants"));
-        }
-        thread::sleep(POLL_INTERVAL);
-    }
-    let stdout = out_handle.join()
-        .map_err(|_| anyhow!("SolverProcessError: stdout reader panicked"))?
-        .context("SolverProcessError: stdout read failed")?;
-    let stderr = err_handle.join()
-        .map_err(|_| anyhow!("SolverProcessError: stderr reader panicked"))?
-        .context("SolverProcessError: stderr read failed")?;
-    if exceeded.load(Ordering::Relaxed) {
+    // Cleanup is unconditional, including a successful parent process.
+    terminate_tree(&mut child);
+    let status = outcome?;
+    if stdout.exceeds_limit()? || stderr.exceeds_limit()? {
         return Err(anyhow!("SolverOutputLimit: stdout/stderr exceeded 1 MiB per stream"));
     }
-    Ok(SolverOutput { status, stdout, stderr })
+    Ok(SolverOutput {
+        status,
+        stdout: stdout.read_bounded()?,
+        stderr: stderr.read_bounded()?,
+    })
 }
 
 #[cfg(test)]
@@ -248,13 +255,14 @@ mod tests {
     }
 
     #[test]
-    fn descendants_holding_pipes_cannot_hang_parent() {
+    fn descendants_inheriting_output_file_cannot_block_parent_exit() {
         let mut cmd = Command::new("sh");
-        cmd.args(["-c", "sleep 5 & exit 0"]);
+        cmd.args(["-c", "sleep 5 & echo ready; exit 0"]);
         let before = Instant::now();
-        let err = run(&mut cmd, Some(before + Duration::from_secs(2)))
-            .err().expect("unclosed inherited pipes must be rejected");
-        assert!(err.to_string().contains("SolverProcessError"), "{err:#}");
+        let output = run(&mut cmd, Some(before + Duration::from_secs(2)))
+            .expect("file-backed capture cannot wait for descendant pipe EOF");
+        assert!(output.status.success());
+        assert!(output.stdout.starts_with(b"ready"));
         assert!(before.elapsed() < Duration::from_secs(3));
     }
 }

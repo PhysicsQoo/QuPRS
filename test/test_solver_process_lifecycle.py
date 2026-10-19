@@ -310,3 +310,67 @@ def test_proven_inequivalence_is_not_unknown_timeout_or_solver_error(backend):
     assert result.equivalent == "not_equivalent", (
         f"backend={backend} misclassified an analytically nonidentity circuit"
     )
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+def test_public_api_rejects_zero_timeout_before_spawning_solver(backend):
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+
+    circuit = QuantumCircuit(1)
+    with pytest.raises(ValueError, match="timeout must be a positive"):
+        check_equivalence(
+            circuit, circuit, backend=backend,
+            method="wmc_only", timeout=0,
+        )
+
+
+def test_parallel_rust_solver_resource_override_is_serialized(monkeypatch, tmp_path):
+    """A Rust invocation cannot observe a different concurrent solver path."""
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    import threading
+    import time
+
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence, _pathsum_rust
+    import QuPRS.utils as resources
+
+    key = "QUPRS_GPMC_PATH"
+    previous = os.environ.get(key)
+    barrier = threading.Barrier(2)
+    active = [0]
+    observed = []
+    counter_lock = threading.Lock()
+
+    @contextmanager
+    def resource(tool_name):
+        assert tool_name == "gpmc"
+        yield tmp_path / ("solver-" + threading.current_thread().name)
+
+    def fake_rust(*args, **kwargs):
+        with counter_lock:
+            active[0] += 1
+            observed.append((threading.current_thread().name, os.environ.get(key)))
+            assert active[0] == 1, "parallel Rust invocations raced on os.environ"
+        time.sleep(0.04)
+        with counter_lock:
+            active[0] -= 1
+        return {"status": "Unknown"}
+
+    monkeypatch.setattr(resources, "WMC", resource)
+    monkeypatch.setattr(_pathsum_rust, "check_equivalence", fake_rust)
+
+    def check():
+        barrier.wait(timeout=5)
+        q = QuantumCircuit(1)
+        return check_equivalence(
+            q, q, method="reduction_rules", backend="rust", timeout=5
+        ).equivalent
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert list(pool.map(lambda _: check(), range(2))) == ["unknown", "unknown"]
+    assert len(observed) == 2
+    for name, path in observed:
+        assert path is not None and path.endswith("solver-" + name)
+    assert os.environ.get(key) == previous

@@ -173,6 +173,8 @@ def check_equivalence(
         EquivalenceCheckResult: An object containing the result dictionary and the
             final PathSum circuit object.
     """
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+        raise ValueError("timeout must be a positive integer number of seconds")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -195,31 +197,33 @@ def check_equivalence(
             c2_input = circuit2
         import os
         from QuPRS.utils import WMC, get_ganak_path
+        from QuPRS.utils.solver_process import SOLVER_ENV_LOCK
         environment_key = f"QUPRS_{tool_name.upper()}_PATH"
-        previous_path = os.environ.get(environment_key)
-        # Rust's WmcManager::solve validates Ganak before spawning it.
-        # Do not perform expensive duplicate Python validations when a
-        # reduction-only or hybrid check completes without invoking WMC.
-        resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
-        with resource as exe_path:
-            # Keep resource extraction alive and do not turn this internal path
-            # into a persistent user override for later backend calls.
-            os.environ[environment_key] = str(exe_path)
-            try:
-                rust_res = _pathsum_rust.check_equivalence(
-                    c1_input,
-                    c2_input,
-                    method=method,
-                    strategy=strategy,
-                    tool_name=tool_name,
-                    timeout=timeout,
-                    safe_mode=safe_mode,
-                )
-            finally:
-                if previous_path is None:
-                    os.environ.pop(environment_key, None)
-                else:
-                    os.environ[environment_key] = previous_path
+        with SOLVER_ENV_LOCK:
+            previous_path = os.environ.get(environment_key)
+            # Rust's WmcManager::solve validates Ganak before spawning it.
+            # Do not perform expensive duplicate Python validations when a
+            # reduction-only or hybrid check completes without invoking WMC.
+            resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
+            with resource as exe_path:
+                # Keep resource extraction alive and do not turn this internal path
+                # into a persistent user override for later backend calls.
+                os.environ[environment_key] = str(exe_path)
+                try:
+                    rust_res = _pathsum_rust.check_equivalence(
+                        c1_input,
+                        c2_input,
+                        method=method,
+                        strategy=strategy,
+                        tool_name=tool_name,
+                        timeout=timeout,
+                        safe_mode=safe_mode,
+                    )
+                finally:
+                    if previous_path is None:
+                        os.environ.pop(environment_key, None)
+                    else:
+                        os.environ[environment_key] = previous_path
         # Parse rust result dict into EquivalenceCheckResult
         # Handle string mappings
         equiv_map = {

@@ -10,9 +10,13 @@ import os
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 
+SOLVER_ENV_LOCK = threading.RLock()
+# Serializes QuPRS-managed solver resource resolution and Rust environment
+# overrides until the Rust FFI accepts an explicit per-invocation path.
 MAX_STREAM_BYTES = 1024 * 1024
 _POLL_SECONDS = 0.02
 

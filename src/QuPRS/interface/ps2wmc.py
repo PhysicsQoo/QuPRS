@@ -261,23 +261,24 @@ def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0):
     invocation uses the same 600-second default as check_equivalence().
     """
     from QuPRS.utils.wmc_solvers import SOLVER_ARGUMENTS, parse_count_line
-    from QuPRS.utils.solver_process import run as run_solver
+    from QuPRS.utils.solver_process import run as run_solver, SOLVER_ENV_LOCK
 
     if tool_name not in SOLVER_ARGUMENTS:
         raise ValueError(f"Unsupported solver: {tool_name}")
     import time
     started = time.monotonic()
-    with WMC(tool_name) as executable:
-        if tool_name == "ganak":
-            from QuPRS.utils.ganak_distribution import binary_diagnostics
-            binary_diagnostics(
-                executable, bool(os.environ.get("QUPRS_GANAK_PATH")),
-                max(0.0, min(10.0, float(timeout) - (time.monotonic() - started))),
+    with SOLVER_ENV_LOCK:
+        with WMC(tool_name) as executable:
+            if tool_name == "ganak":
+                from QuPRS.utils.ganak_distribution import binary_diagnostics
+                binary_diagnostics(
+                    executable, bool(os.environ.get("QUPRS_GANAK_PATH")),
+                    max(0.0, min(10.0, float(timeout) - (time.monotonic() - started))),
+                )
+            command = [str(executable), *SOLVER_ARGUMENTS[tool_name], file]
+            result = run_solver(
+                command, timeout=max(0.0, float(timeout) - (time.monotonic() - started))
             )
-        command = [str(executable), *SOLVER_ARGUMENTS[tool_name], file]
-        result = run_solver(
-            command, timeout=max(0.0, float(timeout) - (time.monotonic() - started))
-        )
     if result.returncode != 0:
         raise RuntimeError(
             f"{tool_name} failed: status={result.returncode}, "

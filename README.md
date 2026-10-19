@@ -203,9 +203,10 @@ appear as a zombie while its adoptive process reaps it; it is no longer
 executing. Native Windows is not supported; use WSL2.
 
 Each subprocess has a **1 MiB per-stream diagnostic output limit**.
-Python captures streams in temporary files (which can briefly grow
-past the threshold between checks); Rust drains both pipes concurrently
-while retaining bounded excerpts. Temporary circuit-CNF files are removed
+Both Python and Rust capture streams in private temporary files; files can
+briefly grow past the threshold between checks, but returned diagnostic
+buffers are limited to 1 MiB each. Unlike pipe readers, this design does
+not wait on inherited pipe descriptors held by detached descendants. Temporary circuit-CNF files are removed
 on success and failure by default. Rust can explicitly retain a failed CNF
 for diagnosis with `QUPRS_KEEP_FAILED_CNF=1`; such files may contain
 sensitive circuit details.
@@ -227,6 +228,12 @@ classification; `not_equivalent` is an actual negative result;
 deadline expired. Solver launch failures, output overflow, nonzero exits,
 malformed counts and other solver errors **raise an exception** rather
 than returning `not_equivalent` or silently switching to another solver.
+QuPRS-managed solver dispatch currently uses one process-wide lock because
+the Rust FFI resolves executable overrides via environment variables; this
+prioritizes correctness over concurrent WMC throughput. Unrelated threads
+that modify these environment variables directly remain outside this guarantee.
+The public API requires a positive integer timeout in seconds (zero is invalid).
+
 The Python backend exposes solver-related Python exceptions directly;
 the Rust FFI currently wraps external solver failures as a Python
 `ValueError` prefixed `Verification Engine Failed`. Use distinct handling

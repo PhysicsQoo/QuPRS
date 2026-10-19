@@ -80,9 +80,13 @@ pub fn check_equivalence(
     timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
     let global_start = Instant::now();
-    let deadline = if timeout_secs == 0 { None } else {
+    if timeout_secs == 0 {
+        return Err(anyhow::anyhow!("timeout must be a positive number of seconds"));
+    }
+    let deadline = Some(
         global_start.checked_add(std::time::Duration::from_secs(timeout_secs))
-    };
+            .ok_or_else(|| anyhow::anyhow!("timeout duration cannot be represented"))?
+    );
     
     // 1. Initialize PathSum state
     let regs = vec![crate::pathsum::Register::new("q", num_qubits)];

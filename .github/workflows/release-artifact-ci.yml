@@ -1,0 +1,301 @@
+# Reusable, read-only validation of actual candidate wheel/sdist archives.
+# Intentionally contains NO release or PyPI publishing job, permission or trigger.
+# Keep smoke acceptance in sync with the tag-time python-publish.yml workflow.
+name: Release Artifact Validation
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+jobs:
+  verify_release_ref:
+    name: Verify version and release ref
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source for verification
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Cargo/Python version and tagged main commit
+        shell: bash
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          cargo = tomllib.loads(Path("rust/Cargo.toml").read_text())
+          workspace_version = cargo["workspace"]["package"]["version"]
+          version_module = Path("src/QuPRS/_version.py").read_text()
+          match = re.search(r'^__version__\s*=\s*"([^"]+)"', version_module, re.MULTILINE)
+          if not match or match.group(1) != workspace_version:
+              raise SystemExit(
+                  f"Cargo version {workspace_version} != Python version "
+                  f"{match.group(1) if match else '<missing>'}"
+              )
+
+          if os.environ["RELEASE_EVENT"] == "push" and os.environ["RELEASE_REF_TYPE"] == "tag":
+              expected_tag = f"v{workspace_version}"
+              actual_tag = os.environ["RELEASE_REF_NAME"]
+              if actual_tag != expected_tag:
+                  raise SystemExit(
+                      f"Tag {actual_tag!r} != expected {expected_tag!r}"
+                  )
+              print(f"Release version verified: {expected_tag}")
+          elif os.environ["RELEASE_EVENT"] == "workflow_dispatch" or (
+              os.environ["RELEASE_EVENT"] == "push"
+              and os.environ["RELEASE_REF_TYPE"] == "branch"
+          ):
+              print(f"Packaging dry-run for version {workspace_version}; no publishing")
+          else:
+              print(f"PR-only preflight for version {workspace_version}; no build or publish")
+          PY
+
+          if [[ "$RELEASE_EVENT" == "push" && "$RELEASE_REF_TYPE" == "tag" ]]; then
+            # Tag must point to latest protected main commit, not a feature
+            # branch or an outdated main ancestor.
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            tag_commit="$(git rev-parse HEAD)"
+            main_commit="$(git rev-parse refs/remotes/origin/main)"
+            echo "Release tag commit: $tag_commit"
+            echo "Current main commit: $main_commit"
+            if [[ "$tag_commit" != "$main_commit" ]]; then
+              echo "::error::Release tag must point at the current main HEAD"
+              exit 1
+            fi
+          fi
+
+      - name: Check platform support statements against deployment policy
+        run: |
+          python scripts/verify_macos_wheel_support.py
+          python -m unittest discover -s test -p 'test_macos_wheel_support.py'
+
+  # --- Job 1: Build Cross-Platform Wheels ---
+  # This job runs on all triggers and builds binary wheels for multiple platforms.
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    needs: verify_release_ref
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            name: "Linux x86_64"
+          - os: ubuntu-24.04-arm   # ARM64 Linux
+            arch: aarch64
+            name: "Linux ARM64"
+          - os: macos-15-intel    # Intel Mac (x86_64)
+            arch: "x86_64"  # Build only x86_64
+            name: "macOS Intel"
+          - os: macos-15    # ARM64 release wheels target macOS 15+; source smoke is separate
+            arch: "arm64"   # Build only arm64
+            name: "macOS Silicon"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: 0
+
+      - name: Export Compiler Paths (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          GMP=$(brew --prefix gmp)
+          MPFR=$(brew --prefix mpfr)
+          
+          # Release wheel deployment minimum is macOS 15.0.
+          # A macOS 14 sdist smoke is not evidence of macOS 14 wheel compatibility.
+            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV          
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.3.1
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+
+          # Install the built wheel with its dev extras, not the source tree.
+          CIBW_TEST_EXTRAS: dev
+          CIBW_TEST_COMMAND: >-
+            python -c "from pathlib import Path; from importlib.metadata import distribution, version;
+            import QuPRS; import QuPRS._pathsum_rust as ext; from QuPRS._version import __version__;
+            root = Path(distribution('QuPRS').locate_file('')).resolve();
+            assert Path(QuPRS.__file__).resolve().is_relative_to(root), QuPRS.__file__;
+            assert Path(ext.__file__).resolve().is_relative_to(root), ext.__file__;
+            assert version('QuPRS') == __version__"
+            && pytest -n auto -k "not (Feynman or MQT)" {project}/test
+
+      - name: Validate built macOS wheel tags and metadata
+        if: runner.os == 'macOS'
+        run: python scripts/verify_macos_wheel_support.py --wheel-dir wheelhouse --arch "${{ matrix.arch }}"
+
+      - name: Upload wheel artifacts (for all builds - general purpose)
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-builds-dist-wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+          if-no-files-found: error
+
+      - name: Upload wheel artifacts (for PyPI release - only on tags)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-release-wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+          if-no-files-found: error
+  # --- Job 2: Build Source Distribution (Sdist) ---
+  # This job runs on all triggers and builds the source distribution.
+  build_sdist:
+    name: Build source distribution
+    needs: verify_release_ref
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: 0
+
+      - name: Install build tool
+        run: pip install build maturin
+
+      - name: Clean up existing dist directory
+        run: rm -rf dist/
+
+      - name: Build sdist with build module
+        run: python -m build --sdist
+
+      - name: Upload sdist artifact (for all builds - general purpose)
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-builds-dist-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload sdist artifact (for PyPI release - only on tags)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-release-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+
+  # --- Release candidate gate: install actual archives, not a source editable build. ---
+  artifact_install:
+    name: Wheel smoke (${{ matrix.os }}, py${{ matrix.python-version }})
+    needs: [verify_release_ref, build_wheels]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install native runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install gmp mpfr zlib
+          else
+            sudo apt-get update
+            sudo apt-get install -y libgmp10 libmpfr6 zlib1g
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: all-builds-dist-wheels-*
+          path: ${{ runner.temp }}/candidate-wheels
+          merge-multiple: true
+      - name: Install compatible wheel from this run, never PyPI QuPRS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip packaging
+          export WHEEL_DIR="$RUNNER_TEMP/candidate-wheels"
+          export QU_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          export LOCAL_WHEEL="$(python - <<'PY'
+          import os
+          from pathlib import Path
+          from packaging.tags import sys_tags
+          from packaging.utils import parse_wheel_filename
+          candidates = []
+          supported = set(sys_tags())
+          for wheel in sorted(Path(os.environ["WHEEL_DIR"]).glob("*.whl")):
+              name, version, _, tags = parse_wheel_filename(wheel.name)
+              if str(name) == "quprs" and str(version) == os.environ["QU_VERSION"] and (tags & supported):
+                  candidates.append(wheel)
+          if len(candidates) != 1:
+              raise SystemExit(f"Expected one compatible current-build QuPRS wheel, got {candidates}")
+          print(candidates[0])
+          PY
+          )"
+          python -m pip install "$LOCAL_WHEEL"
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$QU_VERSION"
+
+  sdist_install:
+    name: Sdist smoke (${{ matrix.os }}, py3.12)
+    needs: [verify_release_ref, build_sdist]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native source-build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install cmake gmp mpfr zlib
+          else
+            sudo apt-get update
+            sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: all-builds-dist-sdist
+          path: ${{ runner.temp }}/candidate-sdist
+      - name: Install the candidate source archive into a clean environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          SDIST_COUNT="$(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')"
+          if [[ "$SDIST_COUNT" -ne 1 ]]; then
+            echo "::error::Expected one release source archive, got $SDIST_COUNT"
+            exit 1
+          fi
+          SDIST="$(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f -print -quit)"
+          python -m venv "$RUNNER_TEMP/quprs-sdist-env"
+          source "$RUNNER_TEMP/quprs-sdist-env/bin/activate"
+          python -m pip install --upgrade pip
+          cd "$RUNNER_TEMP"
+          python -m pip install --no-cache-dir "$SDIST"
+          python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$VERSION"
+

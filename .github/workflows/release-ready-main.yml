@@ -20,7 +20,7 @@ jobs:
 
   installed-artifacts:
     name: Installed artifacts
-    uses: ./.github/workflows/python-publish.yml
+    uses: ./.github/workflows/release-artifact-ci.yml
     secrets: inherit
 
   release-ready:

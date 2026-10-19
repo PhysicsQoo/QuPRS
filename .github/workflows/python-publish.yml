@@ -10,7 +10,6 @@ name: Build and Publish Python Package
 # 3. PRs changing this workflow: run only a low-cost version/ref preflight.
 #    Ordinary branch pushes do not run the release workflow.
 on:
-  workflow_call:
   push:
     tags:
       - 'v*'

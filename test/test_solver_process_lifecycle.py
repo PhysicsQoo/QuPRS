@@ -101,26 +101,96 @@ def test_python_malformed_output_is_not_a_count(monkeypatch, solver):
         wmc.run_wmc("test.cnf", solver, timeout=1)
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Linux /proc needed for descendant liveness")
-def test_python_timeout_stops_process_descendants(tmp_path):
-    marker = tmp_path / "descendant.pid"
-    script = (
-        "import subprocess, sys, time; "
-        "p=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
-        f"open({str(marker)!r}, 'w').write(str(p.pid)); "
-        "time.sleep(30)"
-    )
-    with pytest.raises(SolverTimeout):
-        run(command(script), timeout=0.5)
-    pid = int(marker.read_text())
-    deadline = time.monotonic() + 2
+def _assert_no_live_posix_pids(pids):
+    """A zombie has stopped executing; its final reap belongs to its adopter."""
+    import subprocess
+
+    deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
-        stat = f"/proc/{pid}/stat"
-        if not os.path.exists(stat) or open(stat).read().split()[2] == "Z":
-            break
-        time.sleep(0.02)
+        living = []
+        for pid in pids:
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "stat="],
+                capture_output=True, text=True, check=False, timeout=3,
+            )
+            state = result.stdout.strip()
+            if result.returncode == 0 and state and not state.startswith("Z"):
+                living.append((pid, state))
+        if not living:
+            return
+        time.sleep(0.04)
+    pytest.fail(f"live subprocess descendants left behind: {living}")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group lifecycle contract")
+@pytest.mark.parametrize("exit_kind", ["timeout", "success"])
+def test_python_solver_process_tree_has_no_live_descendants(tmp_path, exit_kind):
+    """Check actual solver and grandchild PIDs on both Linux and macOS."""
+    marker = tmp_path / f"{exit_kind}.pids"
+    script = (
+        "import os, pathlib, subprocess, sys, time; "
+        "p=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
+        f"pathlib.Path({str(marker)!r}).write_text(str(os.getpid())+' '+str(p.pid)); "
+        + ("time.sleep(30)" if exit_kind == "timeout" else "print('ready', flush=True)")
+    )
+    if exit_kind == "timeout":
+        with pytest.raises(SolverTimeout):
+            run(command(script), timeout=2)
     else:
-        pytest.fail("solver grandchild remained alive after timeout")
+        result = run(command(script), timeout=5)
+        assert result.returncode == 0
+        assert "ready" in result.stdout
+
+    assert marker.exists(), "fake solver must record its live descendant before exit"
+    pids = [int(value) for value in marker.read_text().split()]
+    assert len(pids) == 2
+    _assert_no_live_posix_pids(pids)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_exception"),
+    [
+        ("nonzero", RuntimeError),
+        ("malformed", ValueError),
+        ("output_limit", SolverOutputLimitError),
+        ("timeout", None),
+    ],
+)
+def test_python_public_api_keeps_solver_outcomes_distinct(
+    monkeypatch, tmp_path, outcome, expected_exception,
+):
+    """A broken solver is never allowed to mean circuit inequivalence."""
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+    import QuPRS.interface.ps2wmc as wmc
+
+    def simulated_solver(*_args, **_kwargs):
+        if outcome == "timeout":
+            raise SolverTimeout("SolverTimeout: fake deadline")
+        if outcome == "output_limit":
+            raise SolverOutputLimitError("SolverOutputLimit: fake overflow")
+        if outcome == "nonzero":
+            raise RuntimeError("GPMC failed: status=7, valid-looking count rejected")
+        raise ValueError("WMC output format error")
+
+    monkeypatch.setattr(wmc, "run_wmc", simulated_solver)
+    # H followed by H has a nontrivial WMC encoding but is mathematically the
+    # identity. Do not reinterpret a solver failure as NotEquivalent.
+    identity = QuantumCircuit(1)
+    hh = QuantumCircuit(1)
+    hh.h(0)
+    hh.h(0)
+    if expected_exception is None:
+        result = check_equivalence(
+            identity, hh, method="wmc_only", backend="python", timeout=5
+        )
+        assert result.equivalent == "Timeout"
+    else:
+        with pytest.raises(expected_exception):
+            check_equivalence(
+                identity, hh, method="wmc_only", backend="python", timeout=5
+            )
+
 
 
 def test_python_cnf_removed_even_when_solver_times_out(tmp_path, monkeypatch):

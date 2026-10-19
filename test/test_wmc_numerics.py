@@ -167,3 +167,33 @@ def test_python_wmc_count_classification_is_stable_for_extremes():
     assert classify_weighted_count(0.0, 4.0, 2.0, **kwargs)[0] == 'equivalent*'
     with pytest.raises(ValueError, match='Non-finite'):
         classify_weighted_count(math.inf, 0.0, 2.0, **kwargs)
+
+
+// Regression: zero path variables may still encode an unsatisfiable
+// trace (e.g., identity versus X). Never shortcut such a CNF to count 2^n.
+@pytest.mark.parametrize("solver", ["ganak", "gpmc"])
+@pytest.mark.parametrize("backend", ["python", "rust"])
+@pytest.mark.parametrize("gate, expected", [
+    ("id", "equivalent"),
+    ("x", "not_equivalent"),
+    ("z", "not_equivalent"),
+])
+def test_zero_path_variable_wmc_never_forces_equivalence(solver, backend, gate, expected):
+    from qiskit.quantum_info import Operator
+
+    identity = QuantumCircuit(1)
+    target = QuantumCircuit(1)
+    if gate != "id":
+        getattr(target, gate)(0)
+    oracle = Operator(identity).equiv(Operator(target))
+    assert oracle == (expected == "equivalent")
+    outcome = check_equivalence(
+        identity, target,
+        method="wmc_only", backend=backend, tool_name=solver, timeout=60,
+    )
+    assert outcome.equivalent == expected, (
+        f"Expected {expected} by Qiskit Operator for {gate}, "
+        f"got {outcome.equivalent} with {backend}/{solver}"
+    )
+    assert outcome.tool_name == solver
+    assert outcome.tool_time is not None

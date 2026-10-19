@@ -11,11 +11,13 @@ from QuPRS import config
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 from QuPRS.pathsum.statistics import StatisticsManager
+from QuPRS.utils.verification_timeout import VerificationTimeout
+from QuPRS.utils.solver_process import SolverTimeout
 from QuPRS.utils.util import set_safe_memory_limit
 
 
 def timeout_handler(signum, frame):
-    raise TimeoutError("Operation timed out")
+    raise VerificationTimeout("Operation timed out")
 
 
 
@@ -404,7 +406,7 @@ def check_equivalence(
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
-                raise TimeoutError("Timeout before WMC")
+                raise VerificationTimeout("Timeout before WMC")
             if use_alarm:
                 signal.alarm(int(timeout - current_elapsed + 1))
             temp_name = None
@@ -447,7 +449,7 @@ def check_equivalence(
                     signal.alarm(0)
         Time = round(time.time() - start_time, 3)
 
-    except TimeoutError:
+    except (VerificationTimeout, SolverTimeout):
         Time = f">{timeout}"
         equivalent = "Timeout"
         progress = f"{strategy_obj.count}/{l1 + l2}"

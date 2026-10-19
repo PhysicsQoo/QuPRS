@@ -9,6 +9,7 @@ import psutil
 
 from QuPRS.interface.load_qiskit import add_gate
 from QuPRS.pathsum import PathSum
+from QuPRS.utils.verification_timeout import VerificationTimeout
 
 
 class Strategy(ABC):
@@ -106,7 +107,7 @@ class Strategy(ABC):
         if p.is_alive():
             p.terminate()
             p.join()
-            raise TimeoutError("Strategy execution timed out.")
+            raise VerificationTimeout("Strategy execution timed out.")
 
         # Handle crashes
         if p.exitcode != 0:

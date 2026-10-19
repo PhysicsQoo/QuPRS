@@ -467,3 +467,106 @@ def test_python_wmc_lock_wait_expires_without_spawning(monkeypatch):
             future = executor.submit(wmc.run_wmc, "dummy.cnf", "gpmc", 0.15)
             with pytest.raises(SolverTimeout, match="solver lock"):
                 future.result(timeout=4)
+
+
+@pytest.mark.skipif(
+    not (hasattr(signal, "setitimer") and hasattr(signal, "pause")),
+    reason="Real host SIGALRM expiry is POSIX only",
+)
+def test_real_external_alarm_timeout_error_propagates(monkeypatch):
+    """A host-owned, actually expiring SIGALRM is not a QuPRS result."""
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+    from QuPRS.utils.strategy import Strategy
+
+    prior_handler = signal.getsignal(signal.SIGALRM)
+    prior_timer = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
+    triggered = []
+    entered = []
+
+    def host_handler(_signum, _frame):
+        triggered.append(True)
+        raise TimeoutError("host-owned alarm expired")
+
+    class StrategyWaitingForHostAlarm:
+        count = 0
+
+        def run(self, _pathsum, _gates1, _gates2):
+            entered.append(True)
+            assert signal.getsignal(signal.SIGALRM) is host_handler
+            assert signal.getitimer(signal.ITIMER_REAL)[0] > 0
+            # Rearm the EXISTING host timer while inside the strategy so
+            # the signal expires in the exception handler under review.
+            signal.setitimer(signal.ITIMER_REAL, 0.08)
+            signal.pause()
+            pytest.fail("host SIGALRM did not interrupt the strategy")
+
+    fake_strategy = StrategyWaitingForHostAlarm()
+    monkeypatch.setattr(
+        Strategy, "get", classmethod(lambda _cls, _name: fake_strategy)
+    )
+
+    signal.signal(signal.SIGALRM, host_handler)
+    signal.setitimer(signal.ITIMER_REAL, 30.0)
+    try:
+        circuit = QuantumCircuit(1)
+        with pytest.raises(TimeoutError, match="host-owned alarm expired"):
+            check_equivalence(
+                circuit, circuit, method="reduction_rules",
+                backend="python", timeout=5,
+            )
+        assert entered == [True]
+        assert triggered == [True], "host alarm must actually fire"
+        assert signal.getsignal(signal.SIGALRM) is host_handler
+        assert signal.getitimer(signal.ITIMER_REAL)[0] == 0
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prior_handler)
+        if prior_timer[0] > 0:
+            elapsed = time.monotonic() - started
+            signal.setitimer(
+                signal.ITIMER_REAL,
+                max(0.001, prior_timer[0] - elapsed),
+                prior_timer[1],
+            )
+
+
+def test_quprs_owned_strategy_timeout_remains_a_timeout_result(monkeypatch):
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+    from QuPRS.utils.strategy import Strategy
+    from QuPRS.utils.verification_timeout import VerificationTimeout
+
+    class ExpiredStrategy:
+        count = 0
+
+        def safe_run(self, *_args, **_kwargs):
+            raise VerificationTimeout("Strategy execution timed out.")
+
+    monkeypatch.setattr(
+        Strategy, "get", classmethod(lambda _cls, _name: ExpiredStrategy())
+    )
+    circuit = QuantumCircuit(1)
+    result = check_equivalence(
+        circuit, circuit, method="reduction_rules",
+        backend="python", safe_mode=True, timeout=5,
+    )
+    assert result.equivalent == "Timeout"
+
+
+def test_non_quprs_timeout_from_solver_callback_is_not_swallowed(monkeypatch):
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+    import QuPRS.interface.ps2wmc as wmc
+
+    def external_failure(*_args, **_kwargs):
+        raise TimeoutError("external caller deadline")
+
+    monkeypatch.setattr(wmc, "run_wmc", external_failure)
+    circuit = QuantumCircuit(1)
+    with pytest.raises(TimeoutError, match="external caller deadline"):
+        check_equivalence(
+            circuit, circuit, method="wmc_only",
+            backend="python", timeout=5,
+        )

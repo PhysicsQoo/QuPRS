@@ -1,4 +1,5 @@
 import signal
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -16,8 +17,6 @@ from QuPRS.utils.util import set_safe_memory_limit
 def timeout_handler(signum, frame):
     raise TimeoutError("Operation timed out")
 
-
-signal.signal(signal.SIGALRM, timeout_handler)
 
 
 def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
@@ -257,6 +256,7 @@ def check_equivalence(
     tolerance = config.TOLERANCE
 
     start_time = time.time()
+    deadline = time.monotonic() + timeout
 
     # Load circuits from file, QASM string, or QuantumCircuit
     qiskit_circuit1 = load_circuit(circuit1)
@@ -298,7 +298,12 @@ def check_equivalence(
     gates2 = get_gates(qiskit_circuit2)
 
     set_safe_memory_limit()
-    signal.alarm(timeout)
+    # SIGALRM is Unix/main-thread only; subprocess supervision works on all
+    # supported platforms and is independent from the strategy-stage alarm.
+    use_alarm = hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    if use_alarm:
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout)
 
     try:
         to_DIMACS_time = None
@@ -350,7 +355,9 @@ def check_equivalence(
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
                 raise TimeoutError("Timeout before WMC")
-            signal.alarm(int(timeout - current_elapsed + 1))
+            if use_alarm:
+                signal.alarm(int(timeout - current_elapsed + 1))
+            temp_name = None
             try:
                 to_DIMACS_time = f">{timeout - pathsum_time}"
                 log_wmc = None
@@ -371,7 +378,9 @@ def check_equivalence(
                 # Run weighted model counting (WMC)
                 tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
                 tool_start_time = time.time()
-                complex_number = run_wmc(temp_name, tool_name)
+                complex_number = run_wmc(
+                    temp_name, tool_name, timeout=max(0.0, deadline - time.monotonic())
+                )
                 tool_time = round(time.time() - tool_start_time, 3)
                 equivalent, log_wmc = classify_weighted_count(
                     complex_number[0], complex_number[1], expect,
@@ -379,30 +388,36 @@ def check_equivalence(
                     phase_tolerance=config.WMC_PHASE_TOLERANCE,
                 )
                 wmc_time = tool_time + to_DIMACS_time
-                # Clean up temporary CNF file
+            finally:
+                # Always clean up the CNF even on solver timeout/error or
+                # malformed output. Full CNF retention is not the default.
                 if temp_name and os.path.exists(temp_name):
                     os.remove(temp_name)
-            finally:
-                signal.alarm(0)
+                if use_alarm:
+                    signal.alarm(0)
         Time = round(time.time() - start_time, 3)
 
     except TimeoutError:
         Time = f">{timeout}"
         equivalent = "Timeout"
         progress = f"{strategy_obj.count}/{l1 + l2}"
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
     except MemoryError:
         Time = round(time.time() - start_time, 3)
         if pathsum_time == f">{timeout}":
             pathsum_time = Time
         equivalent = "MemoryOut"
         progress = f"{strategy_obj.count}/{l1 + l2}"
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
     except Exception as e:
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
         raise e
     finally:
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
 
     # Return result as a dataclass object
     Result = EquivalenceCheckResult(

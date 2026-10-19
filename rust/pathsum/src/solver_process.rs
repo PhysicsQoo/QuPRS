@@ -187,6 +187,66 @@ mod tests {
         assert!(err.to_string().contains("SolverOutputLimit"), "{err:#}");
     }
 
+    fn still_executing(pid: u32) -> bool {
+        // POSIX 'ps' works on both Darwin and Linux. A zombie is no longer
+        // executing; its final reaping belongs to its adoptive parent.
+        let result = Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "stat="])
+            .output()
+            .expect("ps must be available on supported POSIX runners");
+        if !result.status.success() {
+            return false;
+        }
+        let output = String::from_utf8_lossy(&result.stdout);
+        let state = output.trim();
+        !state.is_empty() && !state.starts_with('Z')
+    }
+
+    fn assert_all_stopped(pids: &[u32]) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let active: Vec<u32> = pids.iter().copied().filter(|p| still_executing(*p)).collect();
+            if active.is_empty() {
+                return;
+            }
+            if Instant::now() >= deadline {
+                panic!("live solver descendants after process-group cancellation: {active:?}");
+            }
+            thread::sleep(Duration::from_millis(40));
+        }
+    }
+
+    #[test]
+    fn posix_timeout_kills_direct_child_and_grandchild() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let marker = std::env::temp_dir().join(format!(
+            "quprs-process-tree-{}-{suffix}.pid", std::process::id()
+        ));
+        let mut cmd = Command::new("sh");
+        // Both the direct solver and background process inherit the fresh
+        // process group created by solver_process::run.
+        cmd.args([
+            "-c",
+            "sleep 30 & echo \"$ $!\" > \"$1\"; wait",
+            "quprs-test",
+            marker.to_str().expect("UTF-8 temporary directory"),
+        ]);
+        let begin = Instant::now();
+        let result = run(&mut cmd, Some(begin + Duration::from_secs(3)));
+        let err = result.err().expect("hung process tree must time out");
+        assert!(err.downcast_ref::<SolverTimeout>().is_some(), "{err:#}");
+        let pids: Vec<u32> = std::fs::read_to_string(&marker)
+            .expect("solver must record its own PID and grandchild PID")
+            .split_whitespace()
+            .map(|x| x.parse().unwrap())
+            .collect();
+        let _ = std::fs::remove_file(&marker);
+        assert_eq!(pids.len(), 2);
+        assert_all_stopped(&pids);
+    }
+
     #[test]
     fn descendants_holding_pipes_cannot_hang_parent() {
         let mut cmd = Command::new("sh");

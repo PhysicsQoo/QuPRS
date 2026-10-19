@@ -303,8 +303,10 @@ def check_equivalence(
     # SIGALRM is Unix/main-thread only; subprocess supervision works on all
     # supported platforms and is independent from the strategy-stage alarm.
     use_alarm = hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    previous_alarm_handler = None
     if use_alarm:
-        signal.signal(signal.SIGALRM, timeout_handler)
+        # Do not permanently replace an embedding application's SIGALRM handler.
+        previous_alarm_handler = signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(timeout)
 
     try:
@@ -420,6 +422,7 @@ def check_equivalence(
     finally:
         if use_alarm:
             signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous_alarm_handler)
 
     # Return result as a dataclass object
     Result = EquivalenceCheckResult(

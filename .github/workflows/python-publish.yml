@@ -7,7 +7,8 @@ name: Build and Publish Python Package
 #    then automatically publish to PyPI and create a public GitHub Release.
 # 2. workflow_dispatch: build and test the selected branch (packaging dry-run),
 #    upload artifacts, and never publish.
-# 3. PRs changing this workflow: run only a low-cost version/ref preflight.
+# 3. PRs changing packaging/release gate inputs: build nonpublishing wheels and
+#    sdist and verify clean artifact installations on the supported matrix.
 #    Ordinary branch pushes do not run the release workflow.
 on:
   push:
@@ -17,6 +18,12 @@ on:
   pull_request:
     paths:
       - '.github/workflows/python-publish.yml'
+      - 'scripts/release_artifact_smoke.py'
+      - 'scripts/verify_macos_wheel_support.py'
+      - 'test/test_macos_wheel_support.py'
+      - 'rust/Cargo.toml'
+      - 'src/QuPRS/_version.py'
+      - 'pyproject.toml'
 
 jobs:
   verify_release_ref:
@@ -95,7 +102,6 @@ jobs:
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
     needs: verify_release_ref
-    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -170,7 +176,6 @@ jobs:
   build_sdist:
     name: Build source distribution
     needs: verify_release_ref
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -204,13 +209,119 @@ jobs:
           if-no-files-found: error
 
 
+  # --- Release candidate gate: install actual archives, not a source editable build. ---
+  artifact_install:
+    name: Wheel smoke (${{ matrix.os }}, py${{ matrix.python-version }})
+    needs: [verify_release_ref, build_wheels]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install native runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install gmp mpfr zlib
+          else
+            sudo apt-get update
+            sudo apt-get install -y libgmp10 libmpfr6 zlib1g
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: all-builds-dist-wheels-*
+          path: ${{ runner.temp }}/candidate-wheels
+          merge-multiple: true
+      - name: Install compatible wheel from this run, never PyPI QuPRS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip packaging
+          export WHEEL_DIR="$RUNNER_TEMP/candidate-wheels"
+          export QU_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          export LOCAL_WHEEL="$(python - <<'PY'
+          import os
+          from pathlib import Path
+          from packaging.tags import sys_tags
+          from packaging.utils import parse_wheel_filename
+          candidates = []
+          supported = set(sys_tags())
+          for wheel in sorted(Path(os.environ["WHEEL_DIR"]).glob("*.whl")):
+              name, version, _, tags = parse_wheel_filename(wheel.name)
+              if str(name) == "quprs" and str(version) == os.environ["QU_VERSION"] and (tags & supported):
+                  candidates.append(wheel)
+          if len(candidates) != 1:
+              raise SystemExit(f"Expected one compatible current-build QuPRS wheel, got {candidates}")
+          print(candidates[0])
+          PY
+          )"
+          python -m pip install "$LOCAL_WHEEL"
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$QU_VERSION"
+
+  sdist_install:
+    name: Sdist smoke (${{ matrix.os }}, py3.12)
+    needs: [verify_release_ref, build_sdist]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native source-build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install cmake gmp mpfr zlib
+          else
+            sudo apt-get update
+            sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: all-builds-dist-sdist
+          path: ${{ runner.temp }}/candidate-sdist
+      - name: Install the candidate source archive into a clean environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          mapfile -t SDISTS < <(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f)
+          if [[ "${#SDISTS[@]}" -ne 1 ]]; then
+            echo "::error::Expected one release source archive, got ${#SDISTS[@]}"
+            exit 1
+          fi
+          python -m venv "$RUNNER_TEMP/quprs-sdist-env"
+          source "$RUNNER_TEMP/quprs-sdist-env/bin/activate"
+          python -m pip install --upgrade pip
+          cd "$RUNNER_TEMP"
+          python -m pip install --no-cache-dir "${SDISTS[0]}"
+          python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$VERSION"
+
   # --- Job 3: Publish to PyPI and Create GitHub Release ---
   # This job runs only when a 'v*' tag is pushed.
   # It publishes all built artifacts to PyPI and creates a GitHub Release.
   publish:
     name: Publish to PyPI and Create Release
     # 'needs' ensures this job runs only after all build jobs succeed.
-    needs: [build_wheels, build_sdist]
+    needs: [build_wheels, build_sdist, artifact_install, sdist_install]
     # Condition: Only run when a 'v*' tag is pushed.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest

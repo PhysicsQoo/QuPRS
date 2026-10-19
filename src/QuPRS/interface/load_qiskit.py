@@ -183,6 +183,8 @@ def check_equivalence(
         )
 
     if backend == "rust":
+        request_started = time.monotonic()
+        request_deadline = request_started + timeout
         from QuPRS import _pathsum_rust
         
         # Load circuits as QASM strings to pass to Rust if they are QuantumCircuits
@@ -199,31 +201,58 @@ def check_equivalence(
         from QuPRS.utils import WMC, get_ganak_path
         from QuPRS.utils.solver_process import SOLVER_ENV_LOCK
         environment_key = f"QUPRS_{tool_name.upper()}_PATH"
-        with SOLVER_ENV_LOCK:
-            previous_path = os.environ.get(environment_key)
-            # Rust's WmcManager::solve validates Ganak before spawning it.
-            # Do not perform expensive duplicate Python validations when a
-            # reduction-only or hybrid check completes without invoking WMC.
-            resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
-            with resource as exe_path:
-                # Keep resource extraction alive and do not turn this internal path
-                # into a persistent user override for later backend calls.
-                os.environ[environment_key] = str(exe_path)
-                try:
-                    rust_res = _pathsum_rust.check_equivalence(
-                        c1_input,
-                        c2_input,
-                        method=method,
-                        strategy=strategy,
-                        tool_name=tool_name,
-                        timeout=timeout,
-                        safe_mode=safe_mode,
-                    )
-                finally:
-                    if previous_path is None:
-                        os.environ.pop(environment_key, None)
-                    else:
-                        os.environ[environment_key] = previous_path
+        # Account for time spent serializing QASM AND waiting on the global
+        # executable-override lock. A queued request must never get a fresh
+        # full timeout budget after another verification finishes.
+        acquired = SOLVER_ENV_LOCK.acquire(
+            timeout=max(0.0, request_deadline - time.monotonic())
+        )
+        if not acquired:
+            rust_res = {
+                "status": "Timeout",
+                "verification_time_sec": time.monotonic() - request_started,
+            }
+        else:
+            try:
+                # Rust core accepts whole seconds. Floor rather than round up
+                # so that acquiring the lock does not extend the deadline.
+                remaining = int(request_deadline - time.monotonic())
+                if remaining < 1:
+                    rust_res = {
+                        "status": "Timeout",
+                        "verification_time_sec": time.monotonic() - request_started,
+                    }
+                else:
+                    previous_path = os.environ.get(environment_key)
+                    # Keep resource extraction alive and never leak a temporary
+                    # executable path into a later independent verification.
+                    resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
+                    with resource as exe_path:
+                        os.environ[environment_key] = str(exe_path)
+                        try:
+                            remaining = int(request_deadline - time.monotonic())
+                            if remaining < 1:
+                                rust_res = {
+                                    "status": "Timeout",
+                                    "verification_time_sec": time.monotonic() - request_started,
+                                }
+                            else:
+                                rust_res = _pathsum_rust.check_equivalence(
+                                    c1_input,
+                                    c2_input,
+                                    method=method,
+                                    strategy=strategy,
+                                    tool_name=tool_name,
+                                    timeout=remaining,
+                                    safe_mode=safe_mode,
+                                )
+                        finally:
+                            if previous_path is None:
+                                os.environ.pop(environment_key, None)
+                            else:
+                                os.environ[environment_key] = previous_path
+            finally:
+                SOLVER_ENV_LOCK.release()
         # Parse rust result dict into EquivalenceCheckResult
         # Handle string mappings
         equiv_map = {
@@ -311,12 +340,18 @@ def check_equivalence(
     gates2 = get_gates(qiskit_circuit2)
 
     set_safe_memory_limit()
-    # SIGALRM is Unix/main-thread only; subprocess supervision works on all
-    # supported platforms and is independent from the strategy-stage alarm.
-    use_alarm = hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    # SIGALRM and ITIMER_REAL belong to the entire process, not QuPRS.
+    # If an embedding application (or an outer nested check) has an active
+    # timer, leave BOTH its handler and its countdown entirely untouched.
+    # The solver subprocess still has its independent monotonic deadline.
+    use_alarm = (
+        hasattr(signal, "SIGALRM")
+        and hasattr(signal, "getitimer")
+        and threading.current_thread() is threading.main_thread()
+        and signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+    )
     previous_alarm_handler = None
     if use_alarm:
-        # Do not permanently replace an embedding application's SIGALRM handler.
         previous_alarm_handler = signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(timeout)
 

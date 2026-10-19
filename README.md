@@ -230,8 +230,14 @@ malformed counts and other solver errors **raise an exception** rather
 than returning `not_equivalent` or silently switching to another solver.
 QuPRS-managed solver dispatch currently uses one process-wide lock because
 the Rust FFI resolves executable overrides via environment variables; this
-prioritizes correctness over concurrent WMC throughput. Unrelated threads
-that modify these environment variables directly remain outside this guarantee.
+prioritizes correctness over concurrent WMC throughput. Waiting for this lock
+consumes the request's remaining monotonic budget; an expired request does
+not launch a solver. The Rust FFI currently accepts integer-second timeouts,
+so the remaining duration is rounded down. Unrelated threads that modify
+these environment variables directly remain outside this guarantee.
+Python does not replace an embedding application's active SIGALRM timer or
+handler; when such a timer already exists, QuPRS relies on subprocess
+deadlines and does not install its own in-process strategy alarm.
 The public API requires a positive integer timeout in seconds (zero is invalid).
 
 The Python backend exposes solver-related Python exceptions directly;

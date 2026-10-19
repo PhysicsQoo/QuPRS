@@ -81,26 +81,66 @@ impl Drop for CaptureFile {
 
 /// Kill the private POSIX process group even after a successful leader exit,
 /// so members inheriting capture file handles are not left running.
-fn terminate_tree(child: &mut Child) {
+fn terminate_tree(child: &mut Child) -> Result<()> {
+    let mut group_error: Option<anyhow::Error> = None;
     #[cfg(unix)]
     {
         unsafe extern "C" {
             fn kill(pid: i32, sig: i32) -> i32;
         }
         if let Ok(group_id) = i32::try_from(child.id()) {
-            unsafe { kill(-group_id, 9); }
+            if unsafe { kill(-group_id, 9) } != 0 {
+                let error = std::io::Error::last_os_error();
+                // ESRCH (3 on Linux and macOS) is expected when the whole
+                // process group has already finished and been reaped.
+                if error.raw_os_error() != Some(3) {
+                    group_error = Some(anyhow!(
+                        "SolverProcessError: failed to terminate solver group: {error}"
+                    ));
+                }
+            }
+        } else {
+            group_error = Some(anyhow!("SolverProcessError: invalid solver process ID"));
         }
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
+        // Native Windows is outside the supported QuPRS platform matrix.
+        if let Err(error) = Command::new("taskkill")
             .args(["/T", "/F", "/PID", &child.id().to_string()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .status()
+        {
+            group_error = Some(anyhow!("SolverProcessError: taskkill failed: {error}"));
+        }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+
+    // If the leader was already reaped by try_wait(), kill() can fail with
+    // InvalidInput/ESRCH; this is not a cleanup failure.
+    let direct_kill = child.kill();
+    let direct_error = match direct_kill {
+        Err(error) if error.kind() != std::io::ErrorKind::InvalidInput
+            && error.raw_os_error() != Some(3) => {
+            Some(anyhow!("SolverProcessError: failed to kill solver child: {error}"))
+        }
+        _ => None,
+    };
+    // If neither signal reached a live child, waiting could block forever.
+    if group_error.is_some() && direct_error.is_some() {
+        return Err(anyhow!(
+            "SolverProcessError: could not signal solver group or child: {}; {}",
+            group_error.unwrap(), direct_error.unwrap()
+        ));
+    }
+    child.wait().context("SolverProcessError: failed to reap solver child")?;
+    if let Some(error) = group_error {
+        return Err(error);
+    }
+    if let Some(error) = direct_error {
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// The deadline is for the external child, not in-process Reduction/CNF work.
@@ -141,7 +181,7 @@ pub(crate) fn run(command: &mut Command, deadline: Option<Instant>) -> Result<So
         }
     };
     // Cleanup is unconditional, including a successful parent process.
-    terminate_tree(&mut child);
+    terminate_tree(&mut child)?;
     let status = outcome?;
     if stdout.exceeds_limit()? || stderr.exceeds_limit()? {
         return Err(anyhow!("SolverOutputLimit: stdout/stderr exceeded 1 MiB per stream"));

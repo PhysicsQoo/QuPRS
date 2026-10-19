@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import time
 from contextlib import contextmanager
@@ -374,3 +375,95 @@ def test_parallel_rust_solver_resource_override_is_serialized(monkeypatch, tmp_p
     for name, path in observed:
         assert path is not None and path.endswith("solver-" + name)
     assert os.environ.get(key) == previous
+
+
+
+@pytest.mark.skipif(
+    not (hasattr(signal, "setitimer") and hasattr(signal, "SIGALRM")),
+    reason="POSIX SIGALRM only",
+)
+@pytest.mark.parametrize("failure", [False, True])
+def test_existing_host_sigalrm_timer_is_never_replaced(monkeypatch, failure):
+    """Nested/library use must not reset an already scheduled host alarm."""
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence
+
+    import QuPRS.interface.ps2wmc as wmc
+    original_handler = signal.getsignal(signal.SIGALRM)
+    original_timer = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
+
+    def host_handler(_signum, _frame):
+        raise RuntimeError("host SIGALRM fired")
+
+    def fail_solver(*_args, **_kwargs):
+        raise RuntimeError("intentional solver failure")
+
+    if failure:
+        monkeypatch.setattr(wmc, "run_wmc", fail_solver)
+    signal.signal(signal.SIGALRM, host_handler)
+    signal.setitimer(signal.ITIMER_REAL, 30)
+    try:
+        circuit = QuantumCircuit(1)
+        if failure:
+            with pytest.raises(RuntimeError, match="intentional solver failure"):
+                check_equivalence(circuit, circuit, method="wmc_only", timeout=5)
+        else:
+            result = check_equivalence(
+                circuit, circuit, method="reduction_rules", timeout=5
+            )
+            assert result.equivalent == "equivalent"
+        assert signal.getsignal(signal.SIGALRM) is host_handler
+        remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+        assert interval == 0
+        assert 0 < remaining <= 30
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, original_handler)
+        if original_timer[0] > 0:
+            elapsed = time.monotonic() - started
+            signal.setitimer(
+                signal.ITIMER_REAL, max(0.001, original_timer[0] - elapsed),
+                original_timer[1],
+            )
+
+
+def test_rust_backend_lock_wait_uses_request_timeout(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from qiskit import QuantumCircuit
+    from QuPRS import check_equivalence, _pathsum_rust
+    from QuPRS.utils.solver_process import SOLVER_ENV_LOCK
+
+    spawned = []
+    monkeypatch.setattr(
+        _pathsum_rust, "check_equivalence",
+        lambda *_a, **_k: spawned.append(True) or {"status": "Unknown"},
+    )
+
+    def queued():
+        circuit = QuantumCircuit(1)
+        return check_equivalence(
+            circuit, circuit, backend="rust", method="reduction_rules", timeout=1
+        )
+
+    with SOLVER_ENV_LOCK:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(queued).result(timeout=4)
+    assert result.equivalent == "Timeout"
+    assert not spawned, "timed-out queued request must not reach Rust FFI"
+
+
+def test_python_wmc_lock_wait_expires_without_spawning(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import QuPRS.interface.ps2wmc as wmc
+    from QuPRS.utils.solver_process import SOLVER_ENV_LOCK, SolverTimeout
+
+    def should_not_resolve(_name):
+        raise AssertionError("expired request must not resolve a solver executable")
+
+    monkeypatch.setattr(wmc, "WMC", should_not_resolve)
+    with SOLVER_ENV_LOCK:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(wmc.run_wmc, "dummy.cnf", "gpmc", 0.15)
+            with pytest.raises(SolverTimeout, match="solver lock"):
+                future.result(timeout=4)

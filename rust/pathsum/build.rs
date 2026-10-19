@@ -4,6 +4,9 @@ use std::fs;
 use std::io::{Cursor, Read};
 #[path = "src/ganak_distribution.rs"]
 mod ganak_distribution;
+// The distribution validator is also compiled as part of the build script.
+#[path = "src/solver_process.rs"]
+mod solver_process;
 use std::path::{Path, PathBuf};
 
 fn main() {

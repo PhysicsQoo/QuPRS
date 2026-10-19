@@ -68,7 +68,8 @@ def test_solver_failure_is_not_a_count(monkeypatch, stdout, status, solver):
         yield '/test/selected-solver'
     monkeypatch.setattr(module, 'WMC', executable)
     monkeypatch.setattr(distribution, 'binary_diagnostics', lambda *args: {})
-    monkeypatch.setattr(module.subprocess, 'run', lambda *a, **k: SimpleNamespace(
+    import QuPRS.utils.solver_process as process
+    monkeypatch.setattr(process, 'run', lambda *a, **k: SimpleNamespace(
         stdout=stdout, stderr='diagnostic', returncode=status))
     with pytest.raises((ValueError, RuntimeError, ArithmeticError)):
         run_wmc('fixture.cnf', solver)

@@ -43,6 +43,14 @@ pub fn validate(bytes: &[u8], os: &str, arch: &str) -> Result<String, String> {
 }
 
 pub fn diagnostics(path: &Path, overridden: bool) -> Result<String, String> {
+    diagnostics_with_deadline(path, overridden, None)
+}
+
+pub fn diagnostics_with_deadline(
+    path: &Path,
+    overridden: bool,
+    deadline: Option<std::time::Instant>,
+) -> Result<String, String> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
     static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
@@ -62,12 +70,12 @@ pub fn diagnostics(path: &Path, overridden: bool) -> Result<String, String> {
     let key = format!("{}:{:?}:{:?}:{}:{overridden}", path.display(), metadata.modified(), change_time, metadata.len());
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(info) = cache.lock().unwrap().get(&key) { return Ok(info.clone()); }
-    let info = uncached_diagnostics(path, overridden)?;
+    let info = uncached_diagnostics(path, overridden, deadline)?;
     cache.lock().unwrap().insert(key, info.clone());
     Ok(info)
 }
 
-fn uncached_diagnostics(path: &Path, overridden: bool) -> Result<String, String> {
+fn uncached_diagnostics(path: &Path, overridden: bool, deadline: Option<std::time::Instant>) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Ganak {}: {e}", path.display()))?;
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -75,7 +83,16 @@ fn uncached_diagnostics(path: &Path, overridden: bool) -> Result<String, String>
     if !architecture(&bytes, os, arch) { return Err(format!("Wrong Ganak architecture: {os}/{arch}, sha256={hash}")); }
     let pinned = validate(&bytes, os, arch).is_ok();
     if !overridden && !pinned { return Err(format!("Unverified packaged Ganak: sha256={hash}; rebuild QuPRS")); }
-    let output = std::process::Command::new(path).arg("--version").output().map_err(|e| e.to_string())?;
+    // Ganak provenance is also a subprocess. Never bypass the bounded
+    // cancellation policy through the --version preflight.
+    let version_timeout = std::time::Instant::now()
+        .checked_add(std::time::Duration::from_secs(10))
+        .unwrap();
+    let limit = deadline.map_or(version_timeout, |d| d.min(version_timeout));
+    let mut command = std::process::Command::new(path);
+    command.arg("--version");
+    let output = crate::solver_process::run(&mut command, Some(limit))
+        .map_err(|e| e.to_string())?;
     if !output.status.success() { return Err(format!("Ganak --version failed: {}", output.status)); }
     let version = String::from_utf8_lossy(&output.stdout).lines().find(|s| s.contains("Ganak SHA1:")).unwrap_or("Ganak version unknown").to_owned();
     if pinned && !version.contains(UPSTREAM_SHA) { return Err(format!("Ganak embedded version mismatch: {version}")); }

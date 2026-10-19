@@ -48,7 +48,7 @@ def test_python_normalized_magnitude_boundary(monkeypatch, solver, fraction, exp
     # HH yields expected log2=2; compare normalized amplitude without
     # rounding log2 to three decimal places (the old Python-only behavior).
     count = 4 * (1 - fraction * config.WMC_MAGNITUDE_TOLERANCE)
-    monkeypatch.setattr(adapter, 'run_wmc', lambda *args: (count, 0.0))
+    monkeypatch.setattr(adapter, 'run_wmc', lambda *args, **kwargs: (count, 0.0))
     identity = QuantumCircuit(1)
     hh = QuantumCircuit(1)
     hh.h(0)
@@ -107,7 +107,7 @@ def test_phase_boundary_with_real_floating_counts(tmp_path, monkeypatch, solver,
     assert complex(*real_count) == pytest.approx(count, rel=COUNT_REL_TOL, abs=COUNT_ABS_TOL)
     # Inject only the analytically defined count: the real solver and parser
     # above run unchanged; this isolates the public Python decision boundary.
-    monkeypatch.setattr(adapter, 'run_wmc', lambda *args: real_count)
+    monkeypatch.setattr(adapter, 'run_wmc', lambda *args, **kwargs: real_count)
     identity = QuantumCircuit(1)
     hh = QuantumCircuit(1)
     hh.h(0)

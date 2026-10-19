@@ -33,16 +33,29 @@ def architecture_matches(data, system, machine):
     return False
 
 
-def binary_diagnostics(path, overridden=False):
+def binary_diagnostics(path, overridden=False, timeout=10.0):
     path = Path(path).resolve()
     packaged = Path(__file__).with_name('wmc_tools') / ('ganak.exe' if platform.system() == 'Windows' else 'ganak')
     overridden = overridden and path != packaged.resolve()
     stat = path.stat()
-    return _binary_diagnostics(str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, overridden)
+    # Remaining budgets vary by milliseconds. Use a conservative integral
+    # second bucket for >=1s to retain the provenance cache without exceeding
+    # the caller's budget; keep sub-second precision for urgent deadlines.
+    budget = float(timeout)
+    if budget <= 0:
+        from QuPRS.utils.solver_process import SolverTimeout
+        raise SolverTimeout("SolverTimeout: no budget for Ganak provenance")
+    budget = min(10.0, budget)
+    if budget >= 1.0:
+        budget = float(int(budget))
+    return _binary_diagnostics(
+        str(path), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns,
+        overridden, budget,
+    )
 
 
 @lru_cache(maxsize=16)
-def _binary_diagnostics(path, size, mtime, ctime, overridden):
+def _binary_diagnostics(path, size, mtime, ctime, overridden, timeout):
     fields = release_asset()
     data = Path(path).read_bytes()
     fingerprint = hashlib.sha256(data).hexdigest()
@@ -51,7 +64,12 @@ def _binary_diagnostics(path, size, mtime, ctime, overridden):
     pinned = fingerprint == fields[4]
     if not overridden and not pinned:
         raise RuntimeError(f'Unverified packaged Ganak: sha256={fingerprint}; rebuild QuPRS')
-    output = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=10, check=True)
+    # The version check is a subprocess too; supervise its output, deadline,
+    # and descendants rather than leaving a separate unsafe launch path.
+    from QuPRS.utils.solver_process import run as run_solver
+    output = run_solver([path, '--version'], timeout=timeout)
+    if output.returncode != 0:
+        raise RuntimeError(f'Ganak --version failed: status={output.returncode}')
     embedded = next((line for line in output.stdout.splitlines() if 'Ganak SHA1:' in line), 'unknown')
     if pinned and UPSTREAM_SHA not in embedded:
         raise RuntimeError(f'Ganak embedded version mismatch: {embedded}')

@@ -1,4 +1,5 @@
 import signal
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -10,14 +11,14 @@ from QuPRS import config
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 from QuPRS.pathsum.statistics import StatisticsManager
+from QuPRS.utils.verification_timeout import VerificationTimeout
+from QuPRS.utils.solver_process import SolverTimeout
 from QuPRS.utils.util import set_safe_memory_limit
 
 
 def timeout_handler(signum, frame):
-    raise TimeoutError("Operation timed out")
+    raise VerificationTimeout("Operation timed out")
 
-
-signal.signal(signal.SIGALRM, timeout_handler)
 
 
 def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
@@ -159,7 +160,14 @@ def check_equivalence(
             - 'Proportional': Uses a proportional strategy.
             - 'Naive': Uses a naive strategy.
             - 'Straightforward': Uses a straightforward strategy.
-        timeout (int, optional): Timeout in seconds for the operation. Default is 600.
+        timeout (int, optional): Requested deadline in seconds (default 600).
+            The external WMC subprocess consumes only the remaining monotonic
+            budget. This is NOT a strict end-to-end wall-clock timeout for Rust
+            in-process reduction/encoding or Python symbolic work on a
+            non-main POSIX thread. Timeout returns a distinct "Timeout" status;
+            solver process/parse failures raise exceptions and do not imply
+            circuit inequivalence. See README "Solver subprocess reliability
+            and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
 
@@ -167,6 +175,8 @@ def check_equivalence(
         EquivalenceCheckResult: An object containing the result dictionary and the
             final PathSum circuit object.
     """
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+        raise ValueError("timeout must be a positive integer number of seconds")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -175,6 +185,8 @@ def check_equivalence(
         )
 
     if backend == "rust":
+        request_started = time.monotonic()
+        request_deadline = request_started + timeout
         from QuPRS import _pathsum_rust
         
         # Load circuits as QASM strings to pass to Rust if they are QuantumCircuits
@@ -189,37 +201,68 @@ def check_equivalence(
             c2_input = circuit2
         import os
         from QuPRS.utils import WMC, get_ganak_path
+        from QuPRS.utils.solver_process import SOLVER_ENV_LOCK
         environment_key = f"QUPRS_{tool_name.upper()}_PATH"
-        previous_path = os.environ.get(environment_key)
-        # Rust's WmcManager::solve validates Ganak before spawning it.
-        # Do not perform expensive duplicate Python validations when a
-        # reduction-only or hybrid check completes without invoking WMC.
-        resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
-        with resource as exe_path:
-            # Keep resource extraction alive and do not turn this internal path
-            # into a persistent user override for later backend calls.
-            os.environ[environment_key] = str(exe_path)
+        # Account for time spent serializing QASM AND waiting on the global
+        # executable-override lock. A queued request must never get a fresh
+        # full timeout budget after another verification finishes.
+        acquired = SOLVER_ENV_LOCK.acquire(
+            timeout=max(0.0, request_deadline - time.monotonic())
+        )
+        if not acquired:
+            rust_res = {
+                "status": "Timeout",
+                "verification_time_sec": time.monotonic() - request_started,
+            }
+        else:
             try:
-                rust_res = _pathsum_rust.check_equivalence(
-                    c1_input,
-                    c2_input,
-                    method=method,
-                    strategy=strategy,
-                    tool_name=tool_name,
-                    timeout=timeout,
-                    safe_mode=safe_mode,
-                )
-            finally:
-                if previous_path is None:
-                    os.environ.pop(environment_key, None)
+                # Rust core accepts whole seconds. Floor rather than round up
+                # so that acquiring the lock does not extend the deadline.
+                remaining = int(request_deadline - time.monotonic())
+                if remaining < 1:
+                    rust_res = {
+                        "status": "Timeout",
+                        "verification_time_sec": time.monotonic() - request_started,
+                    }
                 else:
-                    os.environ[environment_key] = previous_path
+                    previous_path = os.environ.get(environment_key)
+                    # Keep resource extraction alive and never leak a temporary
+                    # executable path into a later independent verification.
+                    resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
+                    with resource as exe_path:
+                        os.environ[environment_key] = str(exe_path)
+                        try:
+                            remaining = int(request_deadline - time.monotonic())
+                            if remaining < 1:
+                                rust_res = {
+                                    "status": "Timeout",
+                                    "verification_time_sec": time.monotonic() - request_started,
+                                }
+                            else:
+                                rust_res = _pathsum_rust.check_equivalence(
+                                    c1_input,
+                                    c2_input,
+                                    method=method,
+                                    strategy=strategy,
+                                    tool_name=tool_name,
+                                    timeout=remaining,
+                                    safe_mode=safe_mode,
+                                )
+                        finally:
+                            if previous_path is None:
+                                os.environ.pop(environment_key, None)
+                            else:
+                                os.environ[environment_key] = previous_path
+            finally:
+                SOLVER_ENV_LOCK.release()
         # Parse rust result dict into EquivalenceCheckResult
         # Handle string mappings
         equiv_map = {
             "Equivalent": "equivalent",
             "Equivalent (Up to Global Phase)": "equivalent*",
             "Not Equivalent": "not_equivalent",
+            "Timeout": "Timeout",
+            "MemoryOut": "MemoryOut",
         }
         mapped_equiv = equiv_map.get(rust_res.get("status"), "unknown")
         if rust_res.get("status") == "Unknown" and method == "reduction_rules":
@@ -257,6 +300,7 @@ def check_equivalence(
     tolerance = config.TOLERANCE
 
     start_time = time.time()
+    deadline = time.monotonic() + timeout
 
     # Load circuits from file, QASM string, or QuantumCircuit
     qiskit_circuit1 = load_circuit(circuit1)
@@ -298,7 +342,20 @@ def check_equivalence(
     gates2 = get_gates(qiskit_circuit2)
 
     set_safe_memory_limit()
-    signal.alarm(timeout)
+    # SIGALRM and ITIMER_REAL belong to the entire process, not QuPRS.
+    # If an embedding application (or an outer nested check) has an active
+    # timer, leave BOTH its handler and its countdown entirely untouched.
+    # The solver subprocess still has its independent monotonic deadline.
+    use_alarm = (
+        hasattr(signal, "SIGALRM")
+        and hasattr(signal, "getitimer")
+        and threading.current_thread() is threading.main_thread()
+        and signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+    )
+    previous_alarm_handler = None
+    if use_alarm:
+        previous_alarm_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout)
 
     try:
         to_DIMACS_time = None
@@ -349,8 +406,10 @@ def check_equivalence(
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
-                raise TimeoutError("Timeout before WMC")
-            signal.alarm(int(timeout - current_elapsed + 1))
+                raise VerificationTimeout("Timeout before WMC")
+            if use_alarm:
+                signal.alarm(int(timeout - current_elapsed + 1))
+            temp_name = None
             try:
                 to_DIMACS_time = f">{timeout - pathsum_time}"
                 log_wmc = None
@@ -371,7 +430,9 @@ def check_equivalence(
                 # Run weighted model counting (WMC)
                 tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
                 tool_start_time = time.time()
-                complex_number = run_wmc(temp_name, tool_name)
+                complex_number = run_wmc(
+                    temp_name, tool_name, timeout=max(0.0, deadline - time.monotonic())
+                )
                 tool_time = round(time.time() - tool_start_time, 3)
                 equivalent, log_wmc = classify_weighted_count(
                     complex_number[0], complex_number[1], expect,
@@ -379,30 +440,37 @@ def check_equivalence(
                     phase_tolerance=config.WMC_PHASE_TOLERANCE,
                 )
                 wmc_time = tool_time + to_DIMACS_time
-                # Clean up temporary CNF file
+            finally:
+                # Always clean up the CNF even on solver timeout/error or
+                # malformed output. Full CNF retention is not the default.
                 if temp_name and os.path.exists(temp_name):
                     os.remove(temp_name)
-            finally:
-                signal.alarm(0)
+                if use_alarm:
+                    signal.alarm(0)
         Time = round(time.time() - start_time, 3)
 
-    except TimeoutError:
+    except (VerificationTimeout, SolverTimeout):
         Time = f">{timeout}"
         equivalent = "Timeout"
         progress = f"{strategy_obj.count}/{l1 + l2}"
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
     except MemoryError:
         Time = round(time.time() - start_time, 3)
         if pathsum_time == f">{timeout}":
             pathsum_time = Time
         equivalent = "MemoryOut"
         progress = f"{strategy_obj.count}/{l1 + l2}"
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
     except Exception as e:
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
         raise e
     finally:
-        signal.alarm(0)
+        if use_alarm:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous_alarm_handler)
 
     # Return result as a dataclass object
     Result = EquivalenceCheckResult(

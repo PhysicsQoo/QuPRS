@@ -189,6 +189,49 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
   result = check_equivalence(circuit1, circuit2, method = "wmc_only",)
   ```
+### Solver subprocess reliability and timeout limits
+
+On **Linux** and **macOS**, both backends supervise each invocation of the
+selected external weighted model counter (Ganak or GPMC). The solver gets
+the **remaining** monotonic time budget; Ganak's `--version` provenance
+check has its own shorter cap within that budget. When the budget is
+exhausted, the supervisor terminates the solver's POSIX process group,
+waits for the directly owned child, and closes captured output. Children
+that deliberately detach into a different session/process group are
+**not** covered by this guarantee. A terminated grandchild may temporarily
+appear as a zombie while its adoptive process reaps it; it is no longer
+executing. Native Windows is not supported; use WSL2.
+
+Each subprocess has a **1 MiB per-stream diagnostic output limit**.
+Python captures streams in temporary files (which can briefly grow
+past the threshold between checks); Rust drains both pipes concurrently
+while retaining bounded excerpts. Temporary circuit-CNF files are removed
+on success and failure by default. Rust can explicitly retain a failed CNF
+for diagnosis with `QUPRS_KEEP_FAILED_CNF=1`; such files may contain
+sensitive circuit details.
+
+**Important: `timeout` is not currently a strict wall-clock limit for
+every part of `check_equivalence()`.** Rust's in-process circuit
+construction/Reduction and CNF encoding are not forcibly interrupted
+by the solver subprocess supervisor. On POSIX, Python uses `SIGALRM`
+for a cooperative request-level limit **only on the main thread**; the
+same alarm cannot protect non-main-thread calls, and a Python strategy
+`safe_mode` worker timeout does not supervise later work by itself.
+A solver invocation is bounded by its own remaining-budget deadline;
+long-running in-process work can still exceed the requested overall
+time. Do not rely on this API as a hard end-to-end kill switch.
+
+The result status `equivalent` / `equivalent*` is a verified equivalence
+classification; `not_equivalent` is an actual negative result;
+`unknown` means reduction alone was inconclusive; `Timeout` means a
+deadline expired. Solver launch failures, output overflow, nonzero exits,
+malformed counts and other solver errors **raise an exception** rather
+than returning `not_equivalent` or silently switching to another solver.
+The Python backend exposes solver-related Python exceptions directly;
+the Rust FFI currently wraps external solver failures as a Python
+`ValueError` prefixed `Verification Engine Failed`. Use distinct handling
+for exceptions, timeouts and mathematical results.
+
 ## Cite
 If you use `QuPRS` in your research, please cite our paper:
 

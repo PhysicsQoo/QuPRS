@@ -2,6 +2,23 @@
 
 Significant user-facing changes to QuPRS are summarized here. See [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases) for published packages and release dates.
 
+## 0.13.3 — Release candidate
+
+### Fixed
+- Correct Rust `wmc_only` equivalence decisions when a constrained trace CNF contains no additional path variables. These cases must still be solved: the prior shortcut could incorrectly report an inequivalent pair (for example, Identity versus X) as equivalent.
+- Preserve independent Ganak/GPMC solver execution and typed Timeout/SolverError/Unknown results, with bounded external solver subprocess cleanup on supported POSIX systems.
+- Handle disappearing Linux `/proc` tasks during solver process-tree inspection without weakening the assertions about surviving descendants.
+- Align the documented minimum supported **macOS binary wheel** deployment target with actual artifact tags (macOS 15+); distinguish the macOS 14 source-build test evidence from wheel compatibility.
+
+### Validation and release infrastructure
+- Build and actually install candidate wheels on Linux x86_64/ARM64 and macOS Intel/Apple Silicon with Python 3.11–3.13, plus clean sdist installations on Linux and macOS. Check native-extension imports, package version, Ganak/GPMC independence and circuit-equivalence oracles on the installed archives.
+- Verify benchmark shard completeness and integrity, including nonempty five-way CodSpeed coverage, and record provenance for benchmark reports.
+- Run Python/Rust WMC regression tests across Ganak and GPMC, including equivalence, global phase, inequivalence, and failure handling. No solver fallback or relaxation of numerical correctness thresholds is introduced.
+- Introduce a release candidate approval process that verifies required source/installed-artifact CI before authorizing a versioned `dev → main` Release PR, Annotated Tag and publication. The exact protection settings and CI evidence must be confirmed at publication time.
+
+### Performance evidence
+- Before integrating the WMC correctness fix to `dev`, same-runner paired ABBA measurements across QFT16, Grover4 and QAOA7 (Ganak/GPMC, Rust and selected Python cases) reported no significant unrelated regression among eight measured workloads. This does **not** establish a universal no-regression guarantee across other circuits, hosts or solvers; refer to the release acceptance record.
+
 ## 0.13.2
 
 ### Changed

@@ -11,7 +11,7 @@ on:
       - 'Cargo.toml'
       - '.github/workflows/benchmarks.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
     paths:
       - 'src/**'
       - 'test/**'

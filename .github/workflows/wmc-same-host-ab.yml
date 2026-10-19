@@ -1,0 +1,90 @@
+name: WMC Same-host A/B Acceptance
+
+on:
+  push:
+    branches: [ci/wmc-same-host-ab-20261019]
+    paths:
+      - ".github/workflows/wmc-same-host-ab.yml"
+      - "scripts/wmc_same_host_ab.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  same-runner-ab:
+    name: WMC actual wall-time, matched-host ABBA
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BASE_SHA: 253f5f7221962611e102db826d4b64a3d87ca5f7
+      CANDIDATE_SHA: 39a1b4a013a64c70e74e804b1d7d48d09ce2153a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up pinned common system dependencies and host metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+          uname -a
+          lscpu | head -n 30
+      - name: Create exact-commit worktrees on the SAME runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_SHA" "$CANDIDATE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/quprs-A" "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/quprs-B" "$CANDIDATE_SHA"
+          for name in A B; do
+            git -C "$RUNNER_TEMP/quprs-$name" submodule update --init --recursive
+            git -C "$RUNNER_TEMP/quprs-$name" rev-parse HEAD
+            git -C "$RUNNER_TEMP/quprs-$name" submodule status
+          done
+      - name: Build both versions with common toolchain, separate virtual environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in A B; do
+            path="$RUNNER_TEMP/quprs-$name"
+            python -m venv "$RUNNER_TEMP/env-$name"
+            source "$RUNNER_TEMP/env-$name/bin/activate"
+            python -m pip install --upgrade pip
+            python -m pip install 'maturin>=1.5,<2'
+            (
+              cd "$path"
+              export VIRTUAL_ENV="$RUNNER_TEMP/env-$name"
+              maturin develop --release -E dev
+            )
+            python -m QuPRS.utils.ganak_distribution
+            python -m pip freeze > "$RUNNER_TEMP/lock-$name.txt"
+            printf "%s: " "$name"; maturin --version; rustc --version
+            deactivate
+          done
+          diff -u "$RUNNER_TEMP/lock-A.txt" "$RUNNER_TEMP/lock-B.txt" || true
+      - name: Matched actual solver and end-to-end walltime, pinned CPU set
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/wmc_same_host_ab.py \
+            --base-python "$RUNNER_TEMP/env-A/bin/python" \
+            --head-python "$RUNNER_TEMP/env-B/bin/python" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/wmc-same-host-ab.json"
+      - name: Save exact source provenance and paired raw report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wmc-same-host-ab-evidence
+          path: |
+            ${{ runner.temp }}/wmc-same-host-ab.json
+            ${{ runner.temp }}/lock-A.txt
+            ${{ runner.temp }}/lock-B.txt
+          if-no-files-found: warn

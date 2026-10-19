@@ -219,6 +219,8 @@ def check_equivalence(
             "Equivalent": "equivalent",
             "Equivalent (Up to Global Phase)": "equivalent*",
             "Not Equivalent": "not_equivalent",
+            "Timeout": "Timeout",
+            "MemoryOut": "MemoryOut",
         }
         mapped_equiv = equiv_map.get(rust_res.get("status"), "unknown")
         if rust_res.get("status") == "Unknown" and method == "reduction_rules":

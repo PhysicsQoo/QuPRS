@@ -51,7 +51,12 @@ def _binary_diagnostics(path, size, mtime, ctime, overridden):
     pinned = fingerprint == fields[4]
     if not overridden and not pinned:
         raise RuntimeError(f'Unverified packaged Ganak: sha256={fingerprint}; rebuild QuPRS')
-    output = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=10, check=True)
+    # The version check is a subprocess too; supervise its output, deadline,
+    # and descendants rather than leaving a separate unsafe launch path.
+    from QuPRS.utils.solver_process import run as run_solver
+    output = run_solver([path, '--version'], timeout=10)
+    if output.returncode != 0:
+        raise RuntimeError(f'Ganak --version failed: status={output.returncode}')
     embedded = next((line for line in output.stdout.splitlines() if 'Ganak SHA1:' in line), 'unknown')
     if pinned and UPSTREAM_SHA not in embedded:
         raise RuntimeError(f'Ganak embedded version mismatch: {embedded}')

@@ -254,19 +254,28 @@ def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
     return DIMACS_text
 
 
-def run_wmc(file="wmc.cnf", tool_name="gpmc"):
+def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0):
+    """Invoke exactly the selected WMC solver under a bounded subprocess deadline.
+
+    `timeout` is the *remaining* budget allocated by the caller. A direct
+    invocation uses the same 600-second default as check_equivalence().
+    """
     from QuPRS.utils.wmc_solvers import SOLVER_ARGUMENTS, parse_count_line
+    from QuPRS.utils.solver_process import run as run_solver
 
     if tool_name not in SOLVER_ARGUMENTS:
-        raise ValueError(f"Unsupported tool name: {tool_name}")
+        raise ValueError(f"Unsupported solver: {tool_name}")
     with WMC(tool_name) as executable:
         if tool_name == "ganak":
             from QuPRS.utils.ganak_distribution import binary_diagnostics
             binary_diagnostics(executable, bool(os.environ.get("QUPRS_GANAK_PATH")))
         command = [str(executable), *SOLVER_ARGUMENTS[tool_name], file]
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = run_solver(command, timeout=float(timeout))
     if result.returncode != 0:
-        raise RuntimeError(f"{tool_name} failed: status={result.returncode}, command={command!r}\nstdout={result.stdout}\nstderr={result.stderr}")
+        raise RuntimeError(
+            f"{tool_name} failed: status={result.returncode}, "
+            f"command={command!r}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
     for line in result.stdout.splitlines():
         count = parse_count_line(line)
         if count is not None:

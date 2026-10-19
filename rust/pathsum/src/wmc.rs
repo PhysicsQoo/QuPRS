@@ -251,90 +251,108 @@ impl WmcManager {
         }
     }
 
+    /// Backward-compatible entrypoint for callers that do not own a deadline.
+    /// The public verification path uses solve_with_deadline instead.
     pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
+        self.solve_with_deadline(tool_name, None)
+    }
+
+    pub fn solve_with_deadline(
+        &self,
+        tool_name: &str,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Complex<f64>> {
         use std::fs::OpenOptions;
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        // SystemTime alone is not an exclusive identifier when Rust tests
-        // spawn multiple solver processes concurrently (particularly on
-        // macOS). Never truncate a different solver call's live CNF.
+        struct TempCnf {
+            path: std::path::PathBuf,
+            preserve: bool,
+        }
+        impl Drop for TempCnf {
+            fn drop(&mut self) {
+                if !self.preserve {
+                    let _ = std::fs::remove_file(&self.path);
+                }
+            }
+        }
+
         static NEXT_CNF_ID: AtomicU64 = AtomicU64::new(0);
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
         let pid = std::process::id();
         let nonce = NEXT_CNF_ID.fetch_add(1, Ordering::Relaxed);
         let temp_cnf_path = std::env::temp_dir()
             .join(format!("temp_eqcheck_{}_{}_{}.cnf", pid, timestamp, nonce));
-
         let cnf_content = self.to_dimacs_string(tool_name);
         trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
-        // create_new is atomic; in the exceptionally unlikely event that
-        // another process owns this exact path, return an error instead of
-        // silently overwriting its CNF and returning a wrong count.
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&temp_cnf_path)?;
+        let mut artifact = TempCnf { path: temp_cnf_path.clone(), preserve: false };
         file.write_all(cnf_content.as_bytes())?;
-        drop(file); // release the file before launching either solver
+        drop(file);
 
-        let exe_path = match tool_name {
-            "gpmc" => Self::find_gpmc_path(),
-            "ganak" => Self::find_ganak_path(),
-            _ => return Err(anyhow!("Unsupported tool name: {}", tool_name)),
-        };
-        if tool_name == "ganak" {
-            let provenance = crate::ganak_distribution::diagnostics(std::path::Path::new(&exe_path),
-                std::env::var_os("QUPRS_GANAK_PATH").is_some()).map_err(|e| anyhow!(e))?;
-            info!(target: "wmc", "{}", provenance);
-        }
-        let args: Vec<String> = solver_arguments(tool_name)?.iter().map(|arg| arg.to_string()).collect();
-
-        debug!(target: "wmc", "Spawning {} solver: {} {:?} {}", tool_name, exe_path, args, temp_cnf_path.display());
-
-        let output = Command::new(&exe_path)
-            .args(&args)
-            .arg(&temp_cnf_path)
-            .output()
-            .context(format!("Failed to spawn {} process from path: {}", tool_name, exe_path))?;
-
-        let stdout_str = String::from_utf8_lossy(&output.stdout);
-        let stderr_str = String::from_utf8_lossy(&output.stderr);
-        let exit_status = output.status;
-
-        if !exit_status.success() {
-            let _ = std::fs::remove_file(&temp_cnf_path);
-            return Err(anyhow!("{} failed: status={}, command={} {:?}, stdout={}, stderr={}",
-                tool_name, exit_status, exe_path, args, stdout_str, stderr_str));
-        }
-
-        trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
-        if !stderr_str.is_empty() {
-            trace!(target: "wmc", "{} raw stderr:\n{}", tool_name, stderr_str);
-        }
-
-        let _ = std::fs::remove_file(&temp_cnf_path);
-
-        let mut result_val = None;
-
-        for line in stdout_str.lines() {
-            if let Some(count) = parse_count_line(line)? {
-                info!(target: "wmc", "{} result parsed: {}", tool_name, count);
-                result_val = Some(count);
+        let result = (|| -> Result<Complex<f64>> {
+            let exe_path = match tool_name {
+                "gpmc" => Self::find_gpmc_path(),
+                "ganak" => Self::find_ganak_path(),
+                _ => return Err(anyhow!("Unsupported tool name: {}", tool_name)),
+            };
+            if tool_name == "ganak" {
+                let provenance = crate::ganak_distribution::diagnostics(
+                    std::path::Path::new(&exe_path),
+                    std::env::var_os("QUPRS_GANAK_PATH").is_some(),
+                ).map_err(|e| anyhow!(e))?;
+                info!(target: "wmc", "{}", provenance);
             }
-        }
+            let args: Vec<String> = solver_arguments(tool_name)?
+                .iter().map(|arg| arg.to_string()).collect();
+            debug!(target: "wmc", "Spawning {} solver: {} {:?} {}",
+                tool_name, exe_path, args, temp_cnf_path.display());
+            let mut command = Command::new(&exe_path);
+            command.args(&args).arg(&temp_cnf_path);
+            let output = crate::solver_process::run(&mut command, deadline)
+                .with_context(|| format!("{} solver executable {}", tool_name, exe_path))?;
 
-        result_val.ok_or_else(|| {
-            anyhow!(
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            let stderr_str = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                return Err(anyhow!(
+                    "{} failed: status={}, command={} {:?}, stdout={}, stderr={}",
+                    tool_name, output.status, exe_path, args, stdout_str, stderr_str
+                ));
+            }
+            trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
+            if !stderr_str.is_empty() {
+                trace!(target: "wmc", "{} raw stderr:\n{}", tool_name, stderr_str);
+            }
+
+            let mut result_val = None;
+            for line in stdout_str.lines() {
+                if let Some(count) = parse_count_line(line)? {
+                    info!(target: "wmc", "{} result parsed: {}", tool_name, count);
+                    result_val = Some(count);
+                }
+            }
+            result_val.ok_or_else(|| anyhow!(
                 "{} Error!\nCNF Path: {}\n--- STDOUT ---\n{}\n--- STDERR ---\n{}",
-                tool_name,
-                temp_cnf_path.display(),
-                stdout_str,
-                stderr_str
-            )
-        })
+                tool_name, temp_cnf_path.display(), stdout_str, stderr_str
+            ))
+        })();
+
+        // Sensitive circuit data is removed on all paths by default. Preserve
+        // only on an explicit opt-in failure, never for successful solves.
+        if result.is_err() && std::env::var("QUPRS_KEEP_FAILED_CNF").as_deref() == Ok("1") {
+            artifact.preserve = true;
+            log::warn!(target: "wmc", "Retained failed solver CNF by explicit opt-in: {}",
+                artifact.path.display());
+        }
+        result
     }
+
 }
 #[cfg(test)]
 mod count_parser_tests {

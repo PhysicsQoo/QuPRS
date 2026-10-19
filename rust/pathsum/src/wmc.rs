@@ -290,10 +290,16 @@ impl WmcManager {
         let cnf_content = self.to_dimacs_string(tool_name);
         trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_cnf_path)?;
+        let mut cnf_options = OpenOptions::new();
+        cnf_options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            // A CNF can encode a user's circuit. Restrict temporary files to
+            // the current user regardless of the host process umask.
+            use std::os::unix::fs::OpenOptionsExt;
+            cnf_options.mode(0o600);
+        }
+        let mut file = cnf_options.open(&temp_cnf_path)?;
         let mut artifact = TempCnf { path: temp_cnf_path.clone(), preserve: false };
         file.write_all(cnf_content.as_bytes())?;
         drop(file);

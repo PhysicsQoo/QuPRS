@@ -1,0 +1,75 @@
+# One-off diagnostic on the released package; remove before merging the PR.
+name: macOS 14 released-package install diagnostic
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/macos14-install-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  macos14-release-probe:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Record host and install build prerequisites
+        run: |
+          sw_vers
+          uname -m
+          python --version
+          brew install cmake gmp mpfr zlib
+      - name: Probe published wheel resolver and sdist runtime
+        shell: bash
+        run: |
+          set +e
+          python -m pip install --upgrade pip > "$RUNNER_TEMP/pip-setup.log" 2>&1
+          mkdir -p "$RUNNER_TEMP/binary-wheel"
+          python -m pip download --no-deps --only-binary=:all: \
+            --dest "$RUNNER_TEMP/binary-wheel" 'QuPRS==0.13.2' \
+            > "$RUNNER_TEMP/binary-wheel-resolver.log" 2>&1
+          binary_rc=$?
+          python -m pip install --no-cache-dir --no-binary=quprs \
+            'QuPRS==0.13.2' > "$RUNNER_TEMP/sdist-install.log" 2>&1
+          sdist_rc=$?
+          smoke_rc=not_run
+          if [[ "$sdist_rc" == 0 ]]; then
+            python - <<'PY' > "$RUNNER_TEMP/native-solver-smoke.log" 2>&1
+          from qiskit import QuantumCircuit
+          from QuPRS import check_equivalence
+          c = QuantumCircuit(1)
+          result = check_equivalence(
+              c, c, method="wmc_only", backend="python",
+              tool_name="ganak", timeout=20,
+          )
+          print("result", result.equivalent)
+          assert result.equivalent in {"equivalent", "equivalent*"}
+          PY
+            smoke_rc=$?
+          fi
+          {
+            echo "os=$(sw_vers -productVersion)"
+            echo "arch=$(uname -m)"
+            echo "python=$(python --version 2>&1)"
+            echo "wheel_only_resolver_exit=$binary_rc"
+            echo "sdist_install_exit=$sdist_rc"
+            echo "ganak_runtime_smoke_exit=$smoke_rc"
+          } | tee "$RUNNER_TEMP/macos14-summary.txt"
+          echo "Diagnostic outcomes are in the artifact, not the job status."
+          exit 0
+      - name: Archive diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos14-install-probe
+          path: |
+            ${{ runner.temp }}/macos14-summary.txt
+            ${{ runner.temp }}/binary-wheel-resolver.log
+            ${{ runner.temp }}/sdist-install.log
+            ${{ runner.temp }}/native-solver-smoke.log
+            ${{ runner.temp }}/pip-setup.log
+          if-no-files-found: warn

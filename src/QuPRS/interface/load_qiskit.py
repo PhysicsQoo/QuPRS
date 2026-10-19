@@ -158,7 +158,14 @@ def check_equivalence(
             - 'Proportional': Uses a proportional strategy.
             - 'Naive': Uses a naive strategy.
             - 'Straightforward': Uses a straightforward strategy.
-        timeout (int, optional): Timeout in seconds for the operation. Default is 600.
+        timeout (int, optional): Requested deadline in seconds (default 600).
+            The external WMC subprocess consumes only the remaining monotonic
+            budget. This is NOT a strict end-to-end wall-clock timeout for Rust
+            in-process reduction/encoding or Python symbolic work on a
+            non-main POSIX thread. Timeout returns a distinct "Timeout" status;
+            solver process/parse failures raise exceptions and do not imply
+            circuit inequivalence. See README "Solver subprocess reliability
+            and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
 

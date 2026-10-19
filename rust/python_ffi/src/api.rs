@@ -102,7 +102,9 @@ pub fn check_equivalence(
             EquivalenceStatus::Equivalent => "Equivalent",
             EquivalenceStatus::EquivalentUpToGlobalPhase => "Equivalent (Up to Global Phase)",
             EquivalenceStatus::NotEquivalent => "Not Equivalent",
-            _ => "Unknown",
+            EquivalenceStatus::Unknown => "Unknown",
+            EquivalenceStatus::Timeout => "Timeout",
+            EquivalenceStatus::MemoryOut => "MemoryOut",
         };
 
         dict.set_item("status", status_str)?;

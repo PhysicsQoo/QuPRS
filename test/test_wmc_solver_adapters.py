@@ -56,9 +56,11 @@ def test_solver_runs_independently(monkeypatch, solver):
         assert name == solver
         yield '/solvers/' + solver
     def run(command, **kwargs):
+        assert kwargs['timeout'] == 600.0
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout='c s exact arb frac 3/2 + 1/4i', stderr='')
     monkeypatch.setattr(module, 'WMC', executable)
-    monkeypatch.setattr(module.subprocess, 'run', run)
+    import QuPRS.utils.solver_process as process
+    monkeypatch.setattr(process, 'run', run)
     assert run_wmc('test.cnf', solver) == (1.5, .25)
     assert calls == [['/solvers/' + solver, *SOLVER_ARGUMENTS[solver], 'test.cnf']]

@@ -115,7 +115,8 @@ def _pid_execution_state(pid):
         stat_path = Path("/proc") / str(pid) / "stat"
         try:
             stat_line = stat_path.read_text()
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
+            # /proc/<pid>/stat can race with task exit and report ESRCH.
             return None
         # /proc/PID/stat encloses the command name in parentheses; split at
         # the last ')' to avoid interpreting spaces in a process name.
@@ -130,6 +131,27 @@ def _pid_execution_state(pid):
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not os.path.isfile("/proc/self/stat"),
+    reason="Linux procfs process-exit race",
+)
+def test_disappearing_proc_stat_does_not_fail_lifecycle_assertion(monkeypatch):
+    # A process exiting between procfs lookup and read raises ESRCH on some
+    # Linux kernels; this must not be mistaken for a surviving descendant.
+    from pathlib import Path
+
+    original = Path.read_text
+
+    def disappearing(self, *args, **kwargs):
+        if str(self) == f"/proc/{os.getpid()}/stat":
+            raise ProcessLookupError(3, "No such process")
+        return original(self, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_text", disappearing)
+        assert _pid_execution_state(os.getpid()) is None
 
 
 def _assert_no_live_posix_pids(pids):

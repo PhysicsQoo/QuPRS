@@ -7,7 +7,7 @@ out.mkdir(parents=True,exist_ok=True)
 os.sched_setaffinity(0,{min(os.sched_getaffinity(0))})
 for case in ("qft16","qaoa7","ghz32","graphstate16","grover4"):
     for solver in ("gpmc","ganak"):
-        for variant in ("A","AH","B10","BH"):
+        for variant in ("A","AH"):
             stem=f"{case}-{solver}-{variant}"
             env=os.environ.copy()
             env["QUPRS_TRACE_PATH"]=str(out/(stem+".jsonl"))

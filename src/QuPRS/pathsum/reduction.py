@@ -51,10 +51,14 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
                 new_pathsum
             )  # Recursive call to apply further reductions
 
-        # Try omega rule
+        # Omega and HH inspect the same immutable phase expression. Expand
+        # once after Elim fails, and share it within this reduction attempt.
+        # Recursive reductions use a new phase and recompute their own view.
         pathvar_as_tuple = tuple(pathsum.pathvar)
+        expanded_P = new_P.expand()
         yo_val, Q_val, R_val, return_flag = match_omega(
-            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits
+            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits,
+            expanded_P=expanded_P,
         )
         if yo_val is not None:
             new_pathsum = omega_reduction(pathsum, yo_val, Q_val, R_val, return_flag)
@@ -64,7 +68,8 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
 
         # Try HH rule
         yo_val, yi_val, Q_val, R_val = match_HH(
-            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits
+            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits,
+            expanded_P=expanded_P,
         )
         if yo_val is not None:
             new_pathsum = HH_reduction(pathsum, yo_val, yi_val, Q_val, R_val)

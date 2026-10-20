@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Paired same-host 2x2 reduction-hoist counterfactual, plain Release only."""
+"""Paired same-host current-dev vs exact candidate, plain Release only."""
 import argparse, hashlib, json, os, pathlib, platform, statistics, subprocess, time
 
-PAIRS = [("A", "AH", "main-hoist"), ("B10", "BH", "pr-hoist"),
-         ("A", "B10", "scheduler-original"), ("AH", "BH", "scheduler-hoisted")]
+PAIRS = [("A", "AH", "current-dev-to-hoist")]
 CASES = ["qft16", "qaoa7", "ghz32", "graphstate16", "grover4"]
 SOLVERS = ["gpmc", "ganak"]
 FIELDS = ["strategy_seconds", "engine_total_seconds", "outer_seconds",
@@ -40,7 +39,7 @@ def main():
     env.update(QUPRS_CASE_ROOT=str(args.case_root.resolve()), OMP_NUM_THREADS="1",
                OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
     env.pop("QUPRS_TRACE_PATH", None)
-    variants = ["A", "AH", "B10", "BH"]
+    variants = ["A", "AH"]
     binaries = {v: (args.binary_dir / v).resolve() for v in variants}
     solvers = {}
     for solver in SOLVERS:
@@ -88,7 +87,7 @@ def main():
                                 raise RuntimeError("Equivalence failure "+str(data))
                         if len({x["status"] for x in group})!=1:
                             raise RuntimeError("A/B status mismatch "+str(group))
-                        if label in ("main-hoist","pr-hoist"):
+                        if label == "current-dev-to-hoist":
                             if len({(x["final_path_vars"],x["final_terms"]) for x in group})!=1:
                                 raise RuntimeError("Hoist changed final state "+str(group))
                         print(case,solver,label,block+1,"/",args.blocks,flush=True)

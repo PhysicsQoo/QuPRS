@@ -5,6 +5,13 @@ use std::io::{Cursor, Read};
 #[path = "src/ganak_distribution.rs"]
 mod ganak_distribution;
 // The distribution validator is also compiled as part of the build script.
+// Build-time Ganak validation reuses solver_process.rs, but it must never
+// enable runtime QuPRS verification profiling. Supply a no-op recorder only
+// in this build-script crate, which has a different crate root than pathsum.
+mod diagnostics {
+    pub(crate) fn span(_stage: &'static str) -> Option<()> { None }
+    pub(crate) fn child_spawned() {}
+}
 #[path = "src/solver_process.rs"]
 mod solver_process;
 use std::path::{Path, PathBuf};

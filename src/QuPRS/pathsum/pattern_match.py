@@ -19,8 +19,8 @@ def match_Elim(P, reducible_vars):
     return None
 
 
-def match_HH(P, reducible_vars, pathvar, bits):
-    P_expanded = P.expand()
+def match_HH(P, reducible_vars, pathvar, bits, *, expanded_P=None):
+    P_expanded = P.expand() if expanded_P is None else expanded_P
     valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
 
     for yo_val in reducible_vars:
@@ -45,9 +45,9 @@ def match_HH(P, reducible_vars, pathvar, bits):
     return None, None, None, None
 
 
-def match_omega(P, reducible_vars, pathvar, bits):
+def match_omega(P, reducible_vars, pathvar, bits, *, expanded_P=None):
     tolerance = config.TOLERANCE
-    P_expanded = P.expand()
+    P_expanded = P.expand() if expanded_P is None else expanded_P
     valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
     for yo_val in reducible_vars:
         coeff = P_expanded.coeff(yo_val)

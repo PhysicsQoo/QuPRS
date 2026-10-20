@@ -90,8 +90,10 @@ def main():
     root = Path.cwd().resolve()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    py = {"baseline": args.baseline_python.resolve(),
-          "candidate": args.candidate_python.resolve()}
+    # IMPORTANT: venv/bin/python is usually a symlink to the hosted interpreter.
+    # .resolve() escapes the venv and loses its site-packages.
+    py = {"baseline": Path(os.path.abspath(args.baseline_python)),
+          "candidate": Path(os.path.abspath(args.candidate_python))}
     for binary in py.values():
         if not binary.exists():
             raise FileNotFoundError(binary)

@@ -18,7 +18,7 @@ import time
 
 CASES = ("qaoa7", "grover4")
 VARIANTS = ("baseline", "candidate")
-BLOCKS = 3
+BLOCKS = 8
 DEADLINE = 60
 OUTER_TIMEOUT = 90
 
@@ -198,7 +198,7 @@ def main():
     (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     markdown = [
         "# Shared Omega/HH coeff-reuse A/B",
-        "Same host, separate baseline/candidate installations, 3 ABBA/BAAB blocks each.",
+        "Same host, separate baseline/candidate installations, 8 ABBA/BAAB blocks each.",
         "",
         "| Case | Status | Samples | Baseline median (s) | Candidate median (s) | Paired ratio | MAD |",
         "|---|---|---:|---:|---:|---:|---:|",

@@ -9,9 +9,7 @@ import collections
 import contextlib
 import functools
 import json
-import os
 from pathlib import Path
-import statistics
 import time
 
 import QuPRS.pathsum.reduction as red
@@ -59,9 +57,8 @@ def instrument():
         (match, "reduce_expression"),
     ]
     originals = [(module, attr, getattr(module, attr)) for module, attr in targets]
-    # Wrap the free_symbols getter on SymEngine types only if its descriptor is writable.
-    # This is deliberately NOT attempted: native extension types are often immutable.
-    # Instead attribute its cost as an explicit stage in a separately measured diagnostic.
+    # SymEngine extension types are not patched; free_symbols gets explicit
+    # call-site attribution through the isolated source profiler in a later pass.
     try:
         for module, attr, func in originals:
             label = ("pattern_" if module is match else "reduction_") + attr
@@ -78,7 +75,8 @@ def main():
     parser.add_argument("--case-root", type=Path, required=True)
     parser.add_argument("--cases", nargs="+", default=["qft16", "qaoa7", "grover4"])
     parser.add_argument("--solver", choices=["ganak", "gpmc"], default="gpmc")
-    parser.add_argument("--timeout", type=int, default=200)
+    parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--profile", action="store_true", help="Enable function timers; default measures uninstrumented baseline")
     args = parser.parse_args()
     from qiskit import qasm2
     from QuPRS import check_equivalence
@@ -90,7 +88,7 @@ def main():
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     cases = []
-    with instrument():
+    with (instrument() if args.profile else contextlib.nullcontext()):
         for case in args.cases:
             if case not in filenames:
                 raise ValueError(f"Unsupported benchmark: {case}")
@@ -110,7 +108,7 @@ def main():
             cases.append({"case": case, "status": status, "elapsed_seconds": elapsed})
             print(case, status, f"{elapsed:.3f}s", flush=True)
     payload = {
-        "schema": 1, "backend": "python", "solver": args.solver,
+        "schema": 1, "backend": "python", "solver": args.solver, "instrumented": args.profile,
         "cases": cases, "recursion": DEPTH,
         "timings": dict(COUNTERS),
         "notes": [

@@ -9,6 +9,8 @@ pub mod reduction;
 pub mod strategy;
 pub mod stats;    
 pub mod wmc;
+mod diagnostics;
+pub use diagnostics::ExclusiveLedger;
 
 pub use pathsum::PathSum;
 pub use rational::{Rational, PhaseCoeff};
@@ -67,6 +69,8 @@ pub struct EquivalenceCheckResult {
     pub wmc_time: Option<f64>,
     pub tool_name: String,
     pub final_ps: PathSum, 
+    /// Present only when QUPRS_STAGE_LEDGER=1, never populated in ordinary runs.
+    pub stage_ledger: Option<ExclusiveLedger>,
 }
 
 /// Main entry point for equivalence checking with strategy optimization and WMC fallback
@@ -80,6 +84,7 @@ pub fn check_equivalence(
     timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
     let global_start = Instant::now();
+    let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
         return Err(anyhow::anyhow!("timeout must be a positive number of seconds"));
     }
@@ -146,11 +151,15 @@ pub fn check_equivalence(
     let mut wmc_time = None;
 
     if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
+        let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
         
         let mut wmc_mgr = WmcManager::new(&ps_miter);
         
-        wmc_mgr.encode_trace(&ps_miter);
+        {
+            let _encode_scope = diagnostics::span("cnf_encode");
+            wmc_mgr.encode_trace(&ps_miter);
+        }
 
         let dimacs_start = Instant::now();
         let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
@@ -178,6 +187,7 @@ pub fn check_equivalence(
         tool_time = Some(tool_start.elapsed().as_secs_f64());
 
         if let Some(raw_amplitude) = raw_amplitude {
+        let _classification_scope = diagnostics::span("classification");
         let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
         let final_amplitude = raw_amplitude * normalization_factor;
         info!(target: "wmc", "{} log2 result : {:.4}", tool_name, raw_amplitude.norm().log2());
@@ -216,6 +226,7 @@ pub fn check_equivalence(
         wmc_time,
         tool_name: tool_name.to_string(),
         final_ps: ps_miter,
+        stage_ledger: stage_session.as_ref().map(|session| session.snapshot(total_time, ps_time)),
     })
 }
 mod ganak_distribution;

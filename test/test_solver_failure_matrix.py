@@ -13,13 +13,25 @@ from QuPRS import check_equivalence
 from QuPRS.utils.solver_process import SolverProcessError
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Controlled POSIX solver executable")
-@pytest.mark.parametrize("backend", ["python", "rust"])
-@pytest.mark.parametrize("solver", ["ganak", "gpmc"])
-@pytest.mark.parametrize(
-    "failure",
-    ["timeout", "nonzero", "malformed", "nonfinite", "missing"],
+# Rust validates Ganak's native executable architecture and --version before
+# launching it. An injected shell script cannot exercise the solver failure
+# modes in that path; do not bypass or mock away the safety/provenance gate.
+# Keep those fault-injection cases on Python/Ganak and both GPMC backends;
+# Rust/Ganak missing-executable is separately observable at the public API.
+FAILURE_CASES = (
+    "timeout", "nonzero", "malformed", "nonfinite", "missing",
 )
+PROCESS_SCENARIOS = [
+    (backend, solver, failure)
+    for backend, solver in (
+        ("python", "ganak"), ("python", "gpmc"), ("rust", "gpmc")
+    )
+    for failure in FAILURE_CASES
+] + [("rust", "ganak", "missing")]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Controlled POSIX solver executable")
+@pytest.mark.parametrize("backend,solver,failure", PROCESS_SCENARIOS)
 def test_public_wmc_solver_failure_is_never_inequivalence(
     tmp_path, monkeypatch, backend, solver, failure
 ):
@@ -82,3 +94,34 @@ def test_public_wmc_solver_failure_is_never_inequivalence(
     with pytest.raises(expected_error) as error:
         invoke()
     assert "not_equivalent" not in str(error.value).lower()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Controlled POSIX solver executable")
+def test_rust_ganak_rejects_non_native_override_before_solver_launch(
+    tmp_path, monkeypatch,
+):
+    """Architecture/provenance verification must reject shell fault injectors."""
+    import QuPRS.utils as resources
+
+    fake = tmp_path / "not-a-native-ganak"
+    fake.write_text("#!/bin/sh\nsleep 30\n")
+    fake.chmod(0o700)
+
+    @contextmanager
+    def selected_resource(name):
+        assert name == "ganak"
+        yield fake
+
+    monkeypatch.setattr(
+        resources, "get_ganak_path",
+        lambda verify=False: selected_resource("ganak"),
+    )
+    identity, hh = QuantumCircuit(1), QuantumCircuit(1)
+    hh.h(0)
+    hh.h(0)
+
+    with pytest.raises(ValueError, match="Wrong Ganak architecture"):
+        check_equivalence(
+            identity, hh, backend="rust", method="wmc_only",
+            tool_name="ganak", timeout=4,
+        )

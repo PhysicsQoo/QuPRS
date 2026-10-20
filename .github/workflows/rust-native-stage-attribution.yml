@@ -1,18 +1,6 @@
 name: Rust Native Stage Attribution Pilot
 
 on:
-  push:
-    branches: [diagnostics/rust-exclusive-stages-20261020]
-    paths:
-      - '.github/workflows/rust-native-stage-attribution.yml'
-      - '.diagnostics/rust_stage_ledger/**'
-      - 'rust/pathsum/src/diagnostics.rs'
-      - 'rust/pathsum/build.rs'
-      - 'rust/pathsum/src/lib.rs'
-      - 'rust/pathsum/src/reduction.rs'
-      - 'rust/pathsum/src/wmc.rs'
-      - 'rust/pathsum/src/solver_process.rs'
-      - 'rust/python_ffi/src/api.rs'
   workflow_dispatch:
 
 permissions:

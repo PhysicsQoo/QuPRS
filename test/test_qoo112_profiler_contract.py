@@ -66,3 +66,39 @@ def test_reduction_recursion_depth(profile_module):
     assert profiler.DEPTH["max"] == 4
     assert profiler.DEPTH["current"] == 0
     assert not profiler.STACK
+
+
+def test_free_symbols_timed_at_actual_matcher_callsite(profile_module):
+    import symengine as se
+    import QuPRS.pathsum.reduction as reduction
+
+    y, z = se.symbols("qoo112_y qoo112_z")
+    original = reduction.match_Elim
+    with profile_module.instrument():
+        assert reduction.match_Elim(y, (y, z)) == z
+        assert profile_module.COUNTERS["free_symbols.phase"]["calls"] == 1
+        assert profile_module.COUNTERS["reduction_match_Elim"]["calls"] == 1
+        assert not profile_module.STACK
+    assert reduction.match_Elim is original
+    assert "_qoo112_timed_symbols" not in reduction.__dict__
+
+
+def test_output_free_symbols_and_elim_preserve_pathsum(profile_module):
+    import symengine as se
+    import QuPRS.pathsum.reduction as reduction
+    from QuPRS.pathsum.core import PathSum
+
+    baseline = PathSum.QuantumCircuit(1)
+    y = se.Symbol("qoo112_unused_y")
+    ps = PathSum(se.S.Zero, baseline.f, frozenset({y}))
+    original = reduction.apply_reduction
+    expected = reduction.apply_reduction(ps)
+    with profile_module.instrument():
+        actual = reduction.apply_reduction(ps)
+        assert actual == expected
+        assert profile_module.COUNTERS["free_symbols.output"]["calls"] >= 1
+        assert profile_module.COUNTERS["free_symbols.phase"]["calls"] >= 1
+        assert profile_module.DEPTH["calls"] >= 2
+        assert profile_module.DEPTH["current"] == 0
+        assert not profile_module.STACK
+    assert reduction.apply_reduction is original

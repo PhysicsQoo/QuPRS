@@ -1,0 +1,65 @@
+name: Python Reduction Profile Paired A/B
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-reduction-profile-paired-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  profile-python:
+    name: Same-host QAOA7 and Grover4 profiling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install scientific toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --upgrade pip
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -c 'import QuPRS, qiskit, symengine; print("QuPRS", QuPRS.__version__, "Qiskit", qiskit.__version__, "SymEngine", symengine.__version__)'
+
+      - name: Run one representative, bounded same-host Python A/B
+        run: |
+          python -u .diagnostics/python_reduction/paired_profile.py
+
+      - name: Seal environment and raw JSON artifacts
+        if: always()
+        run: |
+          mkdir -p python-reduction-profile-results
+          git rev-parse HEAD > python-reduction-profile-results/checked-out-sha.txt
+          find python-reduction-profile-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > python-reduction-profile-results/SHA256SUMS
+
+      - name: Upload raw source-pinned measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-reduction-profile-paired
+          path: python-reduction-profile-results/
+          if-no-files-found: error
+          retention-days: 30

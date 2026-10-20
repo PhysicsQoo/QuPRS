@@ -18,7 +18,7 @@ from QuPRS.pathsum.pattern_match import match_HH, match_omega
     lambda y, z: (y + 1) * (z + se.Rational(3, 4)),
 ])
 def test_shared_coefficient_cache_preserves_matcher_results(phase):
-    y, z = se.symbols("qoo112_yo qoo112_yi")
+    y, z = se.symbols("phase_coeff_yo phase_coeff_yi")
     P = phase(y, z)
     reducible = (y, z)
     omega_plain = match_omega(P, reducible, reducible, ())
@@ -36,7 +36,7 @@ def test_shared_coefficient_cache_preserves_matcher_results(phase):
 
 
 def test_hh_full_cache_skips_expensive_coefficient_lookups():
-    y, z = se.symbols("qoo112_yo qoo112_yi")
+    y, z = se.symbols("phase_coeff_yo phase_coeff_yi")
 
     class NoCoeffCalls:
         def expand(self):
@@ -54,7 +54,7 @@ def test_hh_full_cache_skips_expensive_coefficient_lookups():
 
 
 def test_fresh_cache_per_reduction_attempt(monkeypatch):
-    y, z = se.symbols("qoo112_yo qoo112_yi")
+    y, z = se.symbols("phase_coeff_yo phase_coeff_yi")
     base = PathSum.QuantumCircuit(1)
     ps = PathSum(y * z / 2, base.f, frozenset({y, z}))
     seen = []

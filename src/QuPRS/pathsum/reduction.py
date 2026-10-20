@@ -51,10 +51,13 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
                 new_pathsum
             )  # Recursive call to apply further reductions
 
-        # Try omega rule
+        # Reuse immutable phase coefficients within this single attempt only.
+        # A recursive reduction creates a fresh cache for its new phase.
         pathvar_as_tuple = tuple(pathsum.pathvar)
+        coeff_cache = {}
         yo_val, Q_val, R_val, return_flag = match_omega(
-            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits
+            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits,
+            coeff_cache=coeff_cache,
         )
         if yo_val is not None:
             new_pathsum = omega_reduction(pathsum, yo_val, Q_val, R_val, return_flag)
@@ -64,7 +67,8 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
 
         # Try HH rule
         yo_val, yi_val, Q_val, R_val = match_HH(
-            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits
+            new_P, reducible_vars, pathvar_as_tuple, pathsum.bits,
+            coeff_cache=coeff_cache,
         )
         if yo_val is not None:
             new_pathsum = HH_reduction(pathsum, yo_val, yi_val, Q_val, R_val)

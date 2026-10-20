@@ -19,12 +19,18 @@ def match_Elim(P, reducible_vars):
     return None
 
 
-def match_HH(P, reducible_vars, pathvar, bits):
+def match_HH(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
     P_expanded = P.expand()
     valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
 
     for yo_val in reducible_vars:
-        P_coeff = P_expanded.coeff(yo_val)
+        # Use only coefficients of the *same* phase, recorded earlier by Omega.
+        # Direct matcher calls retain their original standalone behavior.
+        P_coeff = (
+            coeff_cache[yo_val]
+            if coeff_cache is not None and yo_val in coeff_cache
+            else P_expanded.coeff(yo_val)
+        )
         possible_yi = [
             yi_val
             for yi_val in P_coeff.free_symbols
@@ -45,12 +51,14 @@ def match_HH(P, reducible_vars, pathvar, bits):
     return None, None, None, None
 
 
-def match_omega(P, reducible_vars, pathvar, bits):
+def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
     tolerance = config.TOLERANCE
     P_expanded = P.expand()
     valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
     for yo_val in reducible_vars:
         coeff = P_expanded.coeff(yo_val)
+        if coeff_cache is not None:
+            coeff_cache[yo_val] = coeff
         for term in coeff.args:
             if isinstance(term, se.Rational):
                 if abs(term - se.Rational(1, 4)) <= tolerance:

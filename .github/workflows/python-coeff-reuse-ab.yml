@@ -1,0 +1,109 @@
+name: Controlled Python Coefficient Reuse A/B
+
+on:
+  push:
+    branches: [perf/python-reuse-omega-coeff-20261020]
+    paths:
+      - '.github/workflows/python-coeff-reuse-ab.yml'
+      - '.diagnostics/qoo112/coeff_reuse_*.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-coeff-reuse-ab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  same-host-paired:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      BASE_SHA: c93fcf93a874690cc189b988b05bed261e454ada
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+      RUSTFLAGS: '-C debuginfo=0'
+    steps:
+      - name: Checkout candidate with source provenance
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin Python version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install system and Python build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev pkg-config
+          python -m pip install 'maturin>=1.5,<2' qiskit==1.4.6 symengine==0.13.0 numpy==2.2.6 sympy==1.14.0 psutil==7.0.0 qiskit-qasm3-import==0.6.0
+          rustc -Vv
+          python -VV
+
+      - name: Materialize exact baseline with identical source GPMC
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/quprs_phase_base" "$BASE_SHA"
+          git -C "$RUNNER_TEMP/quprs_phase_base" submodule update --init --recursive
+          test "$(git -C "$RUNNER_TEMP/quprs_phase_base" rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "baseline GPMC $(git -C "$RUNNER_TEMP/quprs_phase_base" rev-parse HEAD:GPMC)"
+          echo "candidate GPMC $(git rev-parse HEAD:GPMC)"
+          test "$(git -C "$RUNNER_TEMP/quprs_phase_base" rev-parse HEAD:GPMC)" = "$(git rev-parse HEAD:GPMC)"
+
+      - name: Build isolated baseline and candidate Python installations
+        run: |
+          python -m venv --system-site-packages "$RUNNER_TEMP/phase_base_venv"
+          python -m venv --system-site-packages "$RUNNER_TEMP/phase_candidate_venv"
+          (
+            cd "$RUNNER_TEMP/quprs_phase_base"
+            export VIRTUAL_ENV="$RUNNER_TEMP/phase_base_venv"
+            export PATH="$VIRTUAL_ENV/bin:$PATH"
+            maturin develop --release -E dev
+          )
+          (
+            export VIRTUAL_ENV="$RUNNER_TEMP/phase_candidate_venv"
+            export PATH="$VIRTUAL_ENV/bin:$PATH"
+            maturin develop --release -E dev
+          )
+          "$RUNNER_TEMP/phase_base_venv/bin/python" -c 'import QuPRS; print("BASE",QuPRS.__version__,QuPRS.__file__)'
+          "$RUNNER_TEMP/phase_candidate_venv/bin/python" -c 'import QuPRS; print("CANDIDATE",QuPRS.__version__,QuPRS.__file__)'
+
+      - name: Validate independent Operator semantics and shared expansion tests
+        run: |
+          "$RUNNER_TEMP/phase_candidate_venv/bin/python" -m pytest -q \
+            test/test_shared_coefficient_cache.py test/test_backend_semantics.py
+
+      - name: Pilot expand/coeff costs and compare unprofiled A/B
+        run: |
+          python -u .diagnostics/qoo112/coeff_reuse_ab.py \
+            --baseline-python "$RUNNER_TEMP/phase_base_venv/bin/python" \
+            --candidate-python "$RUNNER_TEMP/phase_candidate_venv/bin/python" \
+            --baseline-sha "$BASE_SHA" \
+            --candidate-sha "$GITHUB_SHA" \
+            --output qoo112-coeff-reuse-results
+
+      - name: Seal raw evidence
+        if: always()
+        run: |
+          mkdir -p qoo112-coeff-reuse-results
+          printf '%s\n' "$GITHUB_SHA" > qoo112-coeff-reuse-results/source-head.txt
+          printf '%s\n' "$BASE_SHA" > qoo112-coeff-reuse-results/source-baseline.txt
+          find qoo112-coeff-reuse-results -type f ! -name SHA256SUMS -print0 \
+            | sort -z | xargs -0 -r sha256sum > qoo112-coeff-reuse-results/SHA256SUMS
+
+      - name: Upload scientific evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo112-python-coeff-reuse-ab
+          path: qoo112-coeff-reuse-results/
+          if-no-files-found: error
+          retention-days: 30

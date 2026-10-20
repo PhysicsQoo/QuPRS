@@ -144,10 +144,12 @@ def main():
     from qiskit import qasm2
     from QuPRS import check_equivalence
 
+    # Match the independently validated test_MQT.py pair ordering; some
+    # equivalent transformations require swapping the reference and variant.
     filenames = {
-        "qft16": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
-        "qaoa7": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
-        "grover4": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "qft16": ("qft_nativegates_ibm_qiskit_opt0_16.qasm", True),
+        "qaoa7": ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", False),
+        "grover4": ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", True),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     cases = []
@@ -157,11 +159,13 @@ def main():
             DEPTH.update(current=0, max=0, calls=0)
             if case not in filenames:
                 raise ValueError(f"Unsupported benchmark: {case}")
-            filename = filenames[case]
+            filename, switch = filenames[case]
             left = args.case_root / filename
             right = args.case_root / "h,ry,rz,cx" / filename
             if not left.is_file() or not right.is_file():
                 raise FileNotFoundError(f"Missing exact pair: {left}, {right}")
+            if switch:
+                left, right = right, left
             a, b = qasm2.load(str(left)), qasm2.load(str(right))
             start = time.perf_counter()
             result = check_equivalence(
@@ -171,6 +175,8 @@ def main():
             elapsed = time.perf_counter() - start
             status = result.equivalent
             cases.append({"case": case, "status": status, "elapsed_seconds": elapsed,
+                          "inputs": [str(left), str(right)],
+                          "gate_counts": [len(a.data), len(b.data)],
                           "timings": {key: dict(value) for key, value in COUNTERS.items()},
                           "recursion": dict(DEPTH)})
             print(case, status, f"{elapsed:.3f}s", flush=True)

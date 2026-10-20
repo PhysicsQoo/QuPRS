@@ -24,8 +24,8 @@ MODES = ("off", "on")
 BLOCKS = 2
 TIMEOUT = 65
 SUBPROCESS_TIMEOUT = 85
-OUTPUT = Path("qoo112-profile-results").resolve()
-SCRIPT = Path(".diagnostics/qoo112/python_reduction_profile.py").resolve()
+OUTPUT = Path("python-reduction-profile-results").resolve()
+SCRIPT = Path(".diagnostics/python_reduction/profile.py").resolve()
 CASES_ROOT = Path("benchmarks/MQTBench").resolve()
 
 

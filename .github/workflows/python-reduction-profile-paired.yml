@@ -1,10 +1,6 @@
 name: Python Reduction Profile Paired A/B
 
 on:
-  push:
-    branches: [diagnostics/qoo-112-python-reduction-profile-20261020]
-    paths:
-      - '.github/workflows/python-reduction-profile-paired.yml'
   workflow_dispatch:
 
 permissions:
@@ -50,20 +46,20 @@ jobs:
 
       - name: Run one representative, bounded same-host Python A/B
         run: |
-          python -u .diagnostics/qoo112/paired_profile.py
+          python -u .diagnostics/python_reduction/paired_profile.py
 
       - name: Seal environment and raw JSON artifacts
         if: always()
         run: |
-          mkdir -p qoo112-profile-results
-          git rev-parse HEAD > qoo112-profile-results/checked-out-sha.txt
-          find qoo112-profile-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > qoo112-profile-results/SHA256SUMS
+          mkdir -p python-reduction-profile-results
+          git rev-parse HEAD > python-reduction-profile-results/checked-out-sha.txt
+          find python-reduction-profile-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > python-reduction-profile-results/SHA256SUMS
 
       - name: Upload raw source-pinned measurements
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: python-reduction-profile-paired
-          path: qoo112-profile-results/
+          path: python-reduction-profile-results/
           if-no-files-found: error
           retention-days: 30

@@ -8,8 +8,8 @@ import pytest
 
 @pytest.fixture
 def profile_module():
-    path = Path(__file__).resolve().parents[1] / ".diagnostics/qoo112/python_reduction_profile.py"
-    spec = importlib.util.spec_from_file_location("qoo112_profile", path)
+    path = Path(__file__).resolve().parents[1] / ".diagnostics/python_reduction/profile.py"
+    spec = importlib.util.spec_from_file_location("quprs_profiler_profile", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module.COUNTERS.clear()
@@ -72,7 +72,7 @@ def test_free_symbols_timed_at_actual_matcher_callsite(profile_module):
     import symengine as se
     import QuPRS.pathsum.reduction as reduction
 
-    y, z = se.symbols("qoo112_y qoo112_z")
+    y, z = se.symbols("quprs_profiler_y quprs_profiler_z")
     original = reduction.match_Elim
     with profile_module.instrument():
         assert reduction.match_Elim(y, (y, z)) == z
@@ -80,7 +80,7 @@ def test_free_symbols_timed_at_actual_matcher_callsite(profile_module):
         assert profile_module.COUNTERS["reduction_match_Elim"]["calls"] == 1
         assert not profile_module.STACK
     assert reduction.match_Elim is original
-    assert "_qoo112_timed_symbols" not in reduction.__dict__
+    assert "_quprs_profiler_timed_symbols" not in reduction.__dict__
 
 
 def test_output_free_symbols_and_elim_preserve_pathsum(profile_module):
@@ -89,7 +89,7 @@ def test_output_free_symbols_and_elim_preserve_pathsum(profile_module):
     from QuPRS.pathsum.core import PathSum
 
     baseline = PathSum.QuantumCircuit(1)
-    y = se.Symbol("qoo112_unused_y")
+    y = se.Symbol("quprs_profiler_unused_y")
     ps = PathSum(se.S.Zero, baseline.f, frozenset({y}))
     original = reduction.apply_reduction
     expected = reduction.apply_reduction(ps)

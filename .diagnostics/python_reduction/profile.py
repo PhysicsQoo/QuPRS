@@ -64,7 +64,7 @@ class FreeSymbolsProbe(ast.NodeTransformer):
         if node.attr != "free_symbols" or not isinstance(node.ctx, ast.Load):
             return node
         call = ast.Call(
-            func=ast.Name(id="_qoo112_timed_symbols", ctx=ast.Load()),
+            func=ast.Name(id="_quprs_profiler_timed_symbols", ctx=ast.Load()),
             args=[ast.Constant(self.category), node.value],
             keywords=[],
         )
@@ -82,7 +82,7 @@ def probe_function(func, category):
     ast.fix_missing_locations(tree)
     namespace = {}
     exec(
-        compile(tree, inspect.getsourcefile(func) or "<qoo112>", "exec"),
+        compile(tree, inspect.getsourcefile(func) or "<quprs_profiler>", "exec"),
         func.__globals__, namespace,
     )
     return namespace[func.__name__]
@@ -103,7 +103,7 @@ def instrument():
     originals = [(module, attr, getattr(module, attr)) for module, attr in targets]
     sentinel = object()
     hook_globals = [red.__dict__, match.__dict__]
-    old_hooks = [(g, g.get("_qoo112_timed_symbols", sentinel)) for g in hook_globals]
+    old_hooks = [(g, g.get("_quprs_profiler_timed_symbols", sentinel)) for g in hook_globals]
     free_symbols_functions = {
         "apply_reduction": "output",
         "match_Elim": "phase",
@@ -114,7 +114,7 @@ def instrument():
     }
     try:
         for g in hook_globals:
-            g["_qoo112_timed_symbols"] = timed_free_symbols
+            g["_quprs_profiler_timed_symbols"] = timed_free_symbols
         for module, attr, func in originals:
             if attr in free_symbols_functions:
                 # Function globals are its original module; read symbols there.
@@ -127,9 +127,9 @@ def instrument():
             setattr(module, attr, func)
         for g, original in old_hooks:
             if original is sentinel:
-                g.pop("_qoo112_timed_symbols", None)
+                g.pop("_quprs_profiler_timed_symbols", None)
             else:
-                g["_qoo112_timed_symbols"] = original
+                g["_quprs_profiler_timed_symbols"] = original
 
 
 def main():

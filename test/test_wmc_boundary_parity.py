@@ -18,10 +18,17 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Operator
 
 from QuPRS import check_equivalence, config
+from QuPRS.utils.util import algebraic_to_logical
 
 
 BACKENDS = ("python", "rust")
 SOLVERS = ("ganak", "gpmc")
+
+
+@pytest.mark.parametrize("coefficient,logical", [(0, False), (1, True), (-1, False)])
+def test_plain_integer_coefficients_are_valid_logical_inputs(coefficient, logical):
+    """Regression: SXSX constant phase previously crashed before invoking WMC."""
+    assert bool(algebraic_to_logical(coefficient)) is logical
 
 
 @pytest.mark.parametrize(

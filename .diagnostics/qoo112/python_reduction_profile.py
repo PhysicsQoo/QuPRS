@@ -29,7 +29,7 @@ def wrapped(name, func):
         start = time.perf_counter_ns()
         frame = [name, start, 0]
         STACK.append(frame)
-        if name == "apply_reduction":
+        if name == "apply_reduction" or name == "reduction_apply_reduction":
             DEPTH["current"] += 1
             DEPTH["calls"] += 1
             DEPTH["max"] = max(DEPTH["max"], DEPTH["current"])
@@ -44,7 +44,7 @@ def wrapped(name, func):
             rec["exclusive_ns"] += max(0, elapsed - children)
             if STACK:
                 STACK[-1][2] += elapsed
-            if name == "apply_reduction":
+            if name == "apply_reduction" or name == "reduction_apply_reduction":
                 DEPTH["current"] -= 1
     return inner
 

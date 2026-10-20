@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: python-phase-expand-ab-\${{ github.ref }}
+  group: python-phase-expand-ab-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

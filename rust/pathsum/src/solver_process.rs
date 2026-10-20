@@ -145,6 +145,7 @@ fn terminate_tree(child: &mut Child) -> Result<()> {
 
 /// The deadline is for the external child, not in-process Reduction/CNF work.
 pub(crate) fn run(command: &mut Command, deadline: Option<Instant>) -> Result<SolverOutput> {
+    let _timed_supervision = crate::diagnostics::span("solver_supervision");
     if deadline.is_some_and(|limit| Instant::now() >= limit) {
         return Err(anyhow!(SolverTimeout));
     }
@@ -159,6 +160,7 @@ pub(crate) fn run(command: &mut Command, deadline: Option<Instant>) -> Result<So
         .stdout(Stdio::from(stdout.file.try_clone()?))
         .stderr(Stdio::from(stderr.file.try_clone()?));
     let mut child = command.spawn().context("SolverUnavailable: failed to spawn solver")?;
+    crate::diagnostics::child_spawned();
 
     // No pipe reader threads and no unbounded join(), including on failures.
     let outcome: Result<ExitStatus> = loop {

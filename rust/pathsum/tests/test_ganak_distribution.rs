@@ -1,6 +1,13 @@
 // The shared distribution module is included as a source module here. It
 // refers to crate::solver_process, so the integration test needs the same
 // companion module as the library and the build script.
+// This integration test compiles solver_process.rs into its own crate.
+// Match build.rs: the runtime timing hooks are intentionally no-ops here;
+// the real opt-in recorder belongs only to the pathsum library crate.
+mod diagnostics {
+    pub(crate) fn span(_stage: &'static str) -> Option<()> { None }
+    pub(crate) fn child_spawned() {}
+}
 #[path = "../src/solver_process.rs"]
 mod solver_process;
 

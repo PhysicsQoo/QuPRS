@@ -132,6 +132,26 @@ pub fn check_equivalence(
             dict.set_item("wmc_dimacs_time_sec", result.to_dimacs_time.unwrap_or(0.0))?;
             dict.set_item("wmc_solver_time_sec", result.tool_time.unwrap_or(0.0))?;
         }
+        if let Some(ledger) = &result.stage_ledger {
+            let diagnostic = PyDict::new_bound(py);
+            diagnostic.set_item("schema", ledger.schema)?;
+            diagnostic.set_item("total_native_wall_seconds", ledger.total_native_wall_seconds)?;
+            diagnostic.set_item("solver_child_spawns", ledger.solver_child_spawns)?;
+            diagnostic.set_item("reduction_max_depth", ledger.reduction_max_depth)?;
+            diagnostic.set_item("closure_error_seconds", ledger.closure_error_seconds)?;
+            diagnostic.set_item("has_stage_overlap", ledger.has_stage_overlap)?;
+            let seconds = PyDict::new_bound(py);
+            for (name, value) in &ledger.seconds {
+                seconds.set_item(*name, *value)?;
+            }
+            diagnostic.set_item("exclusive_seconds", seconds)?;
+            let calls = PyDict::new_bound(py);
+            for (name, count) in &ledger.calls {
+                calls.set_item(*name, *count)?;
+            }
+            diagnostic.set_item("stage_calls", calls)?;
+            dict.set_item("stage_ledger", diagnostic)?;
+        }
 
         Ok(dict.to_object(py))
     })

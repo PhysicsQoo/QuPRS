@@ -190,6 +190,7 @@ impl WmcManager {
     }
 
     pub fn to_dimacs_string(&self, tool_name: &str) -> String {
+        let _timed_serialize = crate::diagnostics::span("cnf_serialize");
         let mut out = String::new();
         let num_vars = self.next_var_id - 1;
         let num_clauses = self.clauses.len();
@@ -290,6 +291,7 @@ impl WmcManager {
         let cnf_content = self.to_dimacs_string(tool_name);
         trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
+        let _timed_write = crate::diagnostics::span("cnf_file_write");
         let mut cnf_options = OpenOptions::new();
         cnf_options.write(true).create_new(true);
         #[cfg(unix)]
@@ -303,6 +305,7 @@ impl WmcManager {
         let mut artifact = TempCnf { path: temp_cnf_path.clone(), preserve: false };
         file.write_all(cnf_content.as_bytes())?;
         drop(file);
+        drop(_timed_write);
 
         let result = (|| -> Result<Complex<f64>> {
             let exe_path = match tool_name {

@@ -19,6 +19,7 @@ impl PathSum {
     }
 
     pub fn full_reduce(&mut self) {
+        let _timed_reduction = crate::diagnostics::span("reduction");
         // Skip if stats disabled
         if !self.stats.is_enabled() {
             return;

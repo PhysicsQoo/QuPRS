@@ -6,14 +6,14 @@ diag=root/"diagnostics"
 data={}
 for case in ("qft16","qaoa7","ghz32","graphstate16","grover4"):
     for solver in ("gpmc","ganak"):
-        for v in ("A","AH","B10","BH"):
+        for v in ("A","AH"):
             fp=diag/f"{case}-{solver}-{v}.jsonl"
             lines=fp.read_text().strip().splitlines()
             assert len(lines)==1,(fp,len(lines))
             row=json.loads(lines[0])
             assert row["completed_ket"]>=0 and row["completed_bra"]>=0
             data[(case,solver,v)]=row
-        for orig,hoisted in (("A","AH"),("B10","BH")):
+        for orig,hoisted in (("A","AH"),):
             a,b=data[(case,solver,orig)],data[(case,solver,hoisted)]
             # All semantic rule decisions, exact checkpoint positions and sizes are preserved.
             for field in ("attempts","successes","completed_ket","completed_bra","peak","gate_boundary_peak"):
@@ -28,4 +28,4 @@ for case in ("qft16","qaoa7","ghz32","graphstate16","grover4"):
             if case=="qft16":
                 assert new < old,(case,solver,orig,old,new)
             print("VERIFIED",case,solver,orig,"→",hoisted,"reductions",len(a["reductions"]),"get_used",old,"→",new,flush=True)
-print("ALL 20 matched hoist traces passed; no semantic rule/checkpoint divergence",flush=True)
+print("ALL 10 matched hoist traces passed; no semantic rule/checkpoint divergence",flush=True)

@@ -65,6 +65,11 @@ def logical_to_algebraic(expr, max_order=None):
 
 @tracked_lru_cache(maxsize=2048)
 def algebraic_to_logical(expr: sp.Expr | se.Expr) -> sp.Expr:
+    # SymEngine's coefficient dictionaries may expose plain Python scalar
+    # coefficients (e.g. 1 for a constant global phase). Preserve existing
+    # symbolic expressions; normalize only scalars before inspecting flags.
+    if isinstance(expr, (int, float)) and not isinstance(expr, bool):
+        expr = se.sympify(expr)
     if expr.is_Add:
         factors = [algebraic_to_logical(arg) for arg in expr.args]
         expr = sp.Xor(*factors)

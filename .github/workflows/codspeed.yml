@@ -1,21 +1,30 @@
 name: CodSpeed
 
 on:
+  # Retain baselines on both maintained branches: the default release branch
+  # and the integration branch used as the target for feature/fix PRs.
   push:
     branches:
       - main
+      - dev
     paths:
       - 'src/**'
       - 'test/**'
       - 'rust/**'
+      - 'GPMC'           # Solver submodule revision affects measured workloads.
+      - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - 'scripts/check_codspeed_shards.py'
+  # Run on code-affecting PRs, including feat/fix -> dev and dev -> main.
+  # No hard percentage regression gate: CI job success is not no-regression proof.
   pull_request:
     paths:
       - 'src/**'
       - 'test/**'
       - 'rust/**'
+      - 'GPMC'           # Solver submodule revision affects measured workloads.
+      - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - 'scripts/check_codspeed_shards.py'

@@ -53,8 +53,11 @@ impl PathSum {
 
         // Find completely isolated internal variables
         let mut vars_to_remove = Vec::new();
+        // The phase polynomial is unchanged while scanning candidates.
+        // Build the used-variable set once per Elim attempt, not once per variable.
+        let used_vars = self.p.get_used_vars();
         for &var in reducible_vars {
-            if !self.p.get_used_vars().contains(&var) {
+            if !used_vars.contains(&var) {
                 vars_to_remove.push(var);
             }
         }

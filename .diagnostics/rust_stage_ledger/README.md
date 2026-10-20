@@ -59,11 +59,38 @@ proof of complete causal attribution.
 ### Known limits
 
 The experiment does not yet separate each individual Elim, HH and Omega
-rule's exclusive time, record K/L/V/D/W_redundant structural counters,
+rule's exclusive time, or fit structural counters to measured costs,
 or include native FFI/QASM parsing inside the engine timer. Likewise,
 Python and Rust have different internal reduction orders and cost
 representations; per-stage causality cannot yet be compared one-to-one.
 Profiling itself can perturb short-latency runs.
+
+## Opt-in Elim structural records
+
+`stage_ledger.structural_elim_attempts` is a list of **pre-mutation**
+snapshots, one for each actual `try_reduce_elim` call. A normal
+`full_reduce` call with no candidates skips Elim and emits no records;
+an explicit `try_reduce_elim(&[])` records a valid `k_r=0` sample.
+
+| Field | Meaning |
+|---|---|
+| `k_r` | Number of candidates passed to Elim |
+| `l_r` | Sum of monomial lengths across all stored phase terms |
+| `v_r` | Number of currently active internal path IDs >= num_qubits |
+| `d_r` | Number of phase polynomial terms |
+| `w_redundant_estimated` | Saturating `max(k_r - 1, 0) * l_r` |
+
+The final field estimates redundant phase scanning in the **historical
+pre-Hoist Elim** implementation. It is not a measured operation count,
+CPU/wall time, or verified speedup. Samples are collected before Elim
+mutates its PhasePolynomial or variable set, and an attempt is recorded
+whether or not elimination succeeds. WMC-only yields an empty list.
+
+When `QUPRS_STAGE_LEDGER` is unset, the whole `stage_ledger` FFI
+object is absent and no additional phase scans or sample allocations
+are performed. Opt-in detailed records may grow large on long runs.
+Rule-level exclusive timing and a predictive cost model remain future
+experiments.
 
 ## Initial evidence
 

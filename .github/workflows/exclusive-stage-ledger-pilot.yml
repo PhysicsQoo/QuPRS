@@ -1,10 +1,6 @@
 name: Exclusive Reduction Stage Ledger Pilot
 
 on:
-  push:
-    branches: [diagnostics/exclusive-stage-ledger-20261020]
-    paths:
-      - '.github/workflows/exclusive-stage-ledger-pilot.yml'
   workflow_dispatch:
 
 permissions:

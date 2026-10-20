@@ -5,6 +5,7 @@ on:
     branches: [perf/python-shared-phase-expand-20261020]
     paths:
       - '.github/workflows/python-phase-expand-ab.yml'
+      - '.diagnostics/qoo112/phase_expand_*.py'
   workflow_dispatch:
 
 permissions:

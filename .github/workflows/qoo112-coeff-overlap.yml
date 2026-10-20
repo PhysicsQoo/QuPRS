@@ -1,0 +1,64 @@
+name: QOO-112 Omega HH Coefficient Overlap
+
+on:
+  push:
+    branches: [diagnostics/qoo-112-coeff-overlap-20261020]
+    paths: ['.github/workflows/qoo112-coeff-overlap.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout pinned original dev with GPMC submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install and build unmodified QuPRS
+        run: |
+          test "$(git rev-parse HEAD^{tree})" = "$(git rev-parse HEAD^{tree})"
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2.0'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -c 'import QuPRS, qiskit, symengine; print("PYTHON",QuPRS.__version__,QuPRS.__file__)'
+
+      - name: Execute read-only same-attempt coefficient overlap
+        run: python -u .diagnostics/qoo112/coeff_overlap_pair.py
+
+      - name: Seal source and measurements
+        if: always()
+        run: |
+          mkdir -p qoo112-coeff-overlap-results
+          git rev-parse HEAD > qoo112-coeff-overlap-results/source-sha.txt
+          git rev-parse HEAD:GPMC > qoo112-coeff-overlap-results/solver-source-sha.txt
+          find qoo112-coeff-overlap-results -type f ! -name SHA256SUMS -print0 \
+            | sort -z | xargs -0 -r sha256sum > qoo112-coeff-overlap-results/SHA256SUMS
+
+      - name: Archive measured samples even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo112-readonly-coeff-overlap
+          path: qoo112-coeff-overlap-results/
+          retention-days: 30
+          if-no-files-found: error

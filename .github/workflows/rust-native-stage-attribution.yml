@@ -1,0 +1,69 @@
+name: Rust Native Stage Attribution Pilot
+
+on:
+  push:
+    branches: [diagnostics/rust-exclusive-stages-20261020]
+    paths:
+      - '.github/workflows/rust-native-stage-attribution.yml'
+      - '.diagnostics/rust_stage_ledger/**'
+      - 'rust/pathsum/src/diagnostics.rs'
+      - 'rust/pathsum/src/lib.rs'
+      - 'rust/pathsum/src/reduction.rs'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'rust/pathsum/src/solver_process.rs'
+      - 'rust/python_ffi/src/api.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-stage-pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout pinned Rust/Python source and GPMC
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Build native Rust and scientific Python package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -c 'import QuPRS, qiskit, symengine; print(QuPRS.__version__, qiskit.__version__, symengine.__version__)'
+      - name: Verify Rust stage session and exclusive ledger tests
+        run: |
+          cargo test --manifest-path rust/Cargo.toml -p pathsum --lib diagnostics::tests -- --nocapture
+      - name: Run real native GPMC and Operator parity diagnostics
+        run: |
+          python -u .diagnostics/rust_stage_ledger/run.py
+      - name: Seal source and raw evidence
+        if: always()
+        run: |
+          mkdir -p rust-native-stage-results
+          git rev-parse HEAD > rust-native-stage-results/checked-out-sha.txt
+          git rev-parse HEAD:GPMC > rust-native-stage-results/gpmc-gitlink.txt
+          find rust-native-stage-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > rust-native-stage-results/SHA256SUMS
+      - name: Upload original native result and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-native-exclusive-stage-pilot
+          path: rust-native-stage-results/
+          if-no-files-found: error
+          retention-days: 30

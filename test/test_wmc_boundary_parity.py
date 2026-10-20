@@ -5,10 +5,9 @@ Two explicitly separate kinds of evidence:
 * Controlled external GPMC stdout to isolate the Python/Rust FLOATING COUNT
   classification boundary. A substituted WMC count is NOT a physics oracle.
 
-No solver, reduction rule, public tolerance, or production behavior is changed.
+Only native-scalar normalization is fixed; solver policies, reduction rules,\nand numerical tolerances are unchanged.
 """
 from contextlib import contextmanager
-import math
 import os
 
 import numpy as np

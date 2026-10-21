@@ -136,6 +136,21 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 ```
 
 ## Equivalence Checking
+
+> **Known research-verified correctness limits (2026-10-22):**
+> On tested current development source, the floating WMC normalized-trace
+> acceptance band can label genuinely inequivalent near-identity rotations
+> `Equivalent` (both Rust/Python, both Ganak/GPMC), while the Rust QASM
+> decimal-radian reduction path can label genuinely globally-phase-equivalent
+> circuits `Not Equivalent`. These are distinct outstanding scientific bugs,
+> **not** evidence that the circuits satisfy the opposite mathematical relation.
+> A finite-tolerance solver verdict alone must not be treated as an exact
+> equivalence certificate. See the
+> [formal semantics](docs/development/equivalence-semantics.md),
+> [WMC certification boundary](docs/development/wmc-certification.md),
+> [angle-domain design](docs/development/exact-angle-representation.md),
+> [WMC audit](https://github.com/PhysicsQoo/QuPRS/pull/77), and
+> [native RED regression](https://github.com/PhysicsQoo/QuPRS/pull/74).
 `QuPRS` provides tools for checking the equivalence of two quantum circuits, potentially imported from Qiskit or QASM files.
 
 Importing Circuits for Equivalence Checking
@@ -233,8 +248,9 @@ A solver invocation is bounded by its own remaining-budget deadline;
 long-running in-process work can still exceed the requested overall
 time. Do not rely on this API as a hard end-to-end kill switch.
 
-The result status `equivalent` / `equivalent*` is a verified equivalence
-classification; `not_equivalent` is an actual negative result;
+The result statuses `equivalent` / `equivalent*` are **intended** as verified
+equivalence classifications, and `not_equivalent` as an actual negative
+result; known exceptions on current development builds are documented above.
 `unknown` means reduction alone was inconclusive; `Timeout` means a
 deadline expired. Solver launch failures, output overflow, nonzero exits,
 malformed counts and other solver errors **raise an exception** rather

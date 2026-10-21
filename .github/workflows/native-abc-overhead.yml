@@ -1,0 +1,107 @@
+name: QuPRS Research - A/B/C Structural Probe Overhead
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/native-abc-overhead.yml'
+      - '.diagnostics/native_abc_overhead/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-pinned-abc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Experimental noise/timeout must not become a production merge gate.
+    continue-on-error: true
+    env:
+      PYTHONHASHSEED: '0'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Checkout source and all submodules (no credentials)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install same Python packages and native build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2' 'qiskit>=1,<2' numpy sympy symengine 'qiskit-qasm3-import>=0.5.1' psutil
+      - name: Resolve pinned A and B worktrees and GPMC gitlinks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/quprs-abc-A" e84f909b08e42872421a4a0b5835c44faf812384
+          git worktree add --detach "$RUNNER_TEMP/quprs-abc-B" 8ce78bd95e9548a4efcdb17852c7b882a5ca2ce1
+          git -C "$RUNNER_TEMP/quprs-abc-A" submodule update --init --recursive GPMC
+          git -C "$RUNNER_TEMP/quprs-abc-B" submodule update --init --recursive GPMC
+          test "$(git -C "$RUNNER_TEMP/quprs-abc-A" rev-parse HEAD)" = e84f909b08e42872421a4a0b5835c44faf812384
+          test "$(git -C "$RUNNER_TEMP/quprs-abc-B" rev-parse HEAD)" = 8ce78bd95e9548a4efcdb17852c7b882a5ca2ce1
+          test "$(git -C "$RUNNER_TEMP/quprs-abc-A" rev-parse HEAD:GPMC)" = "$(git -C "$RUNNER_TEMP/quprs-abc-B" rev-parse HEAD:GPMC)"
+      - name: Build both original source revisions into isolated release wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wheels-A" "$RUNNER_TEMP/wheels-B"
+          (cd "$RUNNER_TEMP/quprs-abc-A" && maturin build --release --interpreter "$(command -v python)" --out "$RUNNER_TEMP/wheels-A")
+          (cd "$RUNNER_TEMP/quprs-abc-B" && maturin build --release --interpreter "$(command -v python)" --out "$RUNNER_TEMP/wheels-B")
+          python -m venv --system-site-packages "$RUNNER_TEMP/venv-A"
+          python -m venv --system-site-packages "$RUNNER_TEMP/venv-B"
+          "$RUNNER_TEMP/venv-A/bin/pip" install --no-deps "$RUNNER_TEMP"/wheels-A/*.whl
+          "$RUNNER_TEMP/venv-B/bin/pip" install --no-deps "$RUNNER_TEMP"/wheels-B/*.whl
+          (cd /tmp && "$RUNNER_TEMP/venv-A/bin/python" -c 'from QuPRS import _pathsum_rust; print(_pathsum_rust.__file__)')
+          (cd /tmp && "$RUNNER_TEMP/venv-B/bin/python" -c 'from QuPRS import _pathsum_rust; print(_pathsum_rust.__file__)')
+          mkdir -p native-abc-results
+          sha256sum "$RUNNER_TEMP"/wheels-A/*.whl "$RUNNER_TEMP"/wheels-B/*.whl > native-abc-results/wheel-sha256.txt
+      - name: Fix the exact same GPMC executable for A B and C
+        shell: bash
+        run: |
+          set -euo pipefail
+          GPMC="$(cd /tmp && "$RUNNER_TEMP/venv-B/bin/python" -c 'from importlib import resources; print(resources.files("QuPRS.utils").joinpath("wmc_tools/gpmc"))')"
+          test -x "$GPMC"
+          echo "NATIVE_ABC_GPMC=$GPMC" >> "$GITHUB_ENV"
+          echo "$GPMC" > native-abc-results/gpmc-path.txt
+          sha256sum "$GPMC" > native-abc-results/gpmc-sha256.txt
+      - name: Run paired, interleaved A B C requests and write every raw JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/native_abc_overhead/run.py \
+            --source-a "$RUNNER_TEMP/quprs-abc-A" \
+            --source-b "$RUNNER_TEMP/quprs-abc-B" \
+            --checkout "$GITHUB_WORKSPACE" \
+            --python-a "$RUNNER_TEMP/venv-A/bin/python" \
+            --python-b "$RUNNER_TEMP/venv-B/bin/python" \
+            --solver "$NATIVE_ABC_GPMC" \
+            --bench "$RUNNER_TEMP/quprs-abc-B/benchmarks/MQTBench" \
+            --out native-abc-results \
+            --rounds 30 --warmup 2 --hard-timeout 95 --case-budget 1080
+      - name: Seal SHA256 manifest of partial or complete experimental evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p native-abc-results
+          git rev-parse HEAD > native-abc-results/runner-head.txt
+          git rev-parse HEAD:GPMC > native-abc-results/runner-gpmc-gitlink.txt
+          find native-abc-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > native-abc-results/SHA256SUMS
+      - name: Archive exact individual observations even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-abc-overhead-raw
+          path: native-abc-results/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,68 @@
+name: Rust Matched Elim Success Failure Fixtures
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rust-elim-success-fixtures.yml'
+      - '.diagnostics/elim_success_fixture/**'
+      - 'rust/pathsum/src/diagnostics.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-elim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      RUST_TEST_THREADS: '1'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Collect 1728 release-mode matched Elim rule observations
+        run: |
+          set -euo pipefail
+          mkdir -p elim-fixture-results
+          CPU="$(python -c 'import os; print(min(os.sched_getaffinity(0)))')"
+          taskset -c "$CPU" cargo test --locked --release --manifest-path rust/Cargo.toml \
+            -p pathsum --lib diagnostics::tests::controlled_elim_success_failure_cost_matrix \
+            -- --exact --nocapture --test-threads=1 2>&1 |
+            tee elim-fixture-results/rust-test.log
+      - name: Validate every structural record, success and failed outcome
+        if: always()
+        run: |
+          if test -s elim-fixture-results/rust-test.log; then
+            python .diagnostics/elim_success_fixture/analyze.py
+          else
+            echo "Missing raw log" > elim-fixture-results/MISSING_LOG.txt
+            exit 2
+          fi
+      - name: Seal original evidence with SHA256 even on failure
+        if: always()
+        run: |
+          mkdir -p elim-fixture-results
+          git rev-parse HEAD > elim-fixture-results/source-sha.txt
+          find elim-fixture-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > elim-fixture-results/SHA256SUMS
+      - name: Upload raw reproducible fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-elim-success-failure-paired
+          path: elim-fixture-results/
+          if-no-files-found: error
+          retention-days: 30

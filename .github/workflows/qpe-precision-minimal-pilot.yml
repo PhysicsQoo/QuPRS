@@ -1,0 +1,57 @@
+name: QPE Decimal-Angle Minimal Counterexample Pilot
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qpe-precision-minimal-pilot.yml'
+      - '.diagnostics/qpe_precision_minimal/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one-qubit-source-pinned-counterexamples:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout exact research source and packaged GPMC submodule
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile exact-source Rust backend and research dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Compare genuine one-qubit operator controls and minimal angle identities
+        run: python -u .diagnostics/qpe_precision_minimal/probe.py
+      - name: Seal original successes and failures with SHA256
+        if: always()
+        run: |
+          mkdir -p angle-minimal-counterexample-results
+          git rev-parse HEAD > angle-minimal-counterexample-results/source-sha.txt
+          find angle-minimal-counterexample-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > angle-minimal-counterexample-results/SHA256SUMS
+      - name: Preserve source-pinned raw evidence even if semantic checks fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpe-angle-minimal-counterexample
+          path: angle-minimal-counterexample-results/
+          retention-days: 30
+          if-no-files-found: error

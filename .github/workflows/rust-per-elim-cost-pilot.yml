@@ -1,0 +1,62 @@
+name: Rust Per-Elim Cost Six-Family Pilot
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rust-per-elim-cost-pilot.yml'
+      - '.diagnostics/elim_timing/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  six-family-pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Rust native FFI and install scientific dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Confirm focused Rust Elim timing and native FFI tests
+        run: |
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib diagnostics::tests
+          python -m pytest -q test/test_rust_structural_probe_ffi.py
+      - name: Six-family same-CPU raw Elim cost collection
+        run: |
+          python -u .diagnostics/elim_timing/pilot.py
+      - name: Seal raw source-pinned evidence on pass or failure
+        if: always()
+        run: |
+          mkdir -p rust-elim-cost-pilot-results
+          git rev-parse HEAD > rust-elim-cost-pilot-results/source-sha.txt
+          find rust-elim-cost-pilot-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > rust-elim-cost-pilot-results/SHA256SUMS
+      - name: Upload original per-Elim data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-elim-six-family-cost
+          path: rust-elim-cost-pilot-results/
+          if-no-files-found: error
+          retention-days: 30

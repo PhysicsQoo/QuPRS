@@ -227,9 +227,13 @@ def main():
                         if d["mode"] != mode or d["case"] != case or d["validation_errors"]:
                             errors.append({"case": case, "mode": mode, "round": r,
                                            "error": "INVALID_NATIVE_RECORD"})
-                        if mode == "A" and args.python_a.resolve().parts[0] not in Path(d["module_path"]).parts:
-                            # Module location is already preserved in every raw sample.
-                            pass
+                        expected_env = Path(p).absolute().parent.parent
+                        module_path = Path(d["module_path"]).resolve()
+                        if not module_path.is_relative_to(expected_env):
+                            errors.append({"case": case, "mode": mode, "round": r,
+                                           "error": "NATIVE_EXTENSION_NOT_FROM_EXPECTED_VENV",
+                                           "observed_path": str(module_path),
+                                           "expected_venv": str(expected_env)})
                     fp.write(json.dumps(row, sort_keys=True) + "\n")
                     samples.append(row)
                     print("OBS", case, r, mode, row.get("returncode"),

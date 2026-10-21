@@ -586,5 +586,98 @@ mod tests {
         assert!(Session::start_with_rule_timing(false, false, true).is_none());
         assert!(time_rule("candidate_discovery", 0).is_none());
     }
+    /// Synthetic rule-only fixture: controlled K, D and degree, with fixed V.
+    /// The success/failure pair has identical K/L/V/D and differs only in
+    /// whether the last candidate occurs in the phase polynomial.
+    /// Production reduction scheduling is NOT exercised by these fixtures.
+    #[test]
+    fn controlled_elim_success_failure_cost_matrix() {
+        use crate::pathsum::PathSum;
+        use crate::rational::{PhaseCoeff, Rational};
+        use rand::seq::SliceRandom;
+        use rand::{rngs::StdRng, SeedableRng};
+
+        fn controlled_state(k: usize, d: usize, degree: usize, expected_success: bool)
+            -> (PathSum, Vec<u32>)
+        {
+            assert!(k >= 1 && k <= 8 && d >= k && d <= 32);
+            assert!([1, 2, 4].contains(&degree));
+            let mut ps = PathSum::new(1);
+            ps.set_auto_reduce(false);
+            // Always 64 live internal variables, including all candidates.
+            ps.v.path_vars.extend(1000_u32..1064_u32);
+            let candidates: Vec<u32> = (1000_u32..(1000 + k as u32)).collect();
+
+            for i in 0..d {
+                // First D heads are unique; the success fixture substitutes
+                // a different, unused (but still active) path variable.
+                let head = if expected_success && i == k - 1 {
+                    1063_u32
+                } else {
+                    1000_u32 + i as u32
+                };
+                let mut mono = vec![head];
+                // These fillers are never candidates or heads. Fixed degree
+                // makes L = D * degree exact independently of K.
+                mono.extend_from_slice(&[1048_u32, 1049_u32, 1050_u32][..degree-1]);
+                ps.p.add_term(mono, PhaseCoeff::new_constant(Rational::new(1, 2)));
+            }
+            assert_eq!(ps.p.terms.len(), d, "deduplicated phase terms");
+            assert_eq!(ps.p.terms.keys().map(|m| m.len()).sum::<usize>(), d*degree);
+            assert_eq!(ps.v.path_vars.iter()
+                .filter(|&&id| (id as usize) >= ps.v.num_qubits).count(), 64);
+            (ps, candidates)
+        }
+
+        let mut combinations = Vec::new();
+        for k in [1_usize, 2, 4, 8] {
+            for d in [8_usize, 16, 32] {
+                for degree in [1_usize, 2, 4] {
+                    for expected_success in [false, true] {
+                        combinations.push((k, d, degree, expected_success));
+                    }
+                }
+            }
+        }
+        // One test thread, deterministic shuffled trial order limits drift.
+        let mut rng = StdRng::seed_from_u64(112_061);
+        const ROUNDS: usize = 24;
+        for round in 0..ROUNDS {
+            combinations.shuffle(&mut rng);
+            for &(k, d, degree, expected_success) in &combinations {
+                let (mut ps, candidates) =
+                    controlled_state(k, d, degree, expected_success);
+                let before = ps.v.path_vars.len();
+                let session = Session::start_with_elim_timing(true, true).unwrap();
+                let success = ps.try_reduce_elim(&candidates);
+                let sample = session.snapshot(1.0, 0.1);
+                drop(session);
+                assert_eq!(success, expected_success);
+                assert_eq!(before - ps.v.path_vars.len(), usize::from(success));
+                assert_eq!(ps.stats.elim.attempts, 1);
+                assert_eq!(ps.stats.elim.successes, usize::from(success));
+                assert_eq!(sample.structural_elim_attempts.len(), 1);
+                assert_eq!(sample.elim_attempt_timings.len(), 1);
+                let structural = sample.structural_elim_attempts[0];
+                let measured = &sample.elim_attempt_timings[0];
+                assert_eq!(measured.structural_index, 0);
+                assert_eq!(measured.success, expected_success);
+                assert_eq!(structural.k_r, k);
+                assert_eq!(structural.l_r, d*degree);
+                assert_eq!(structural.v_r, 64);
+                assert_eq!(structural.d_r, d);
+                assert_eq!(structural.w_redundant_estimated,
+                           (k-1).saturating_mul(d*degree));
+                // Parseable machine evidence. No solver, no Python FFI, no
+                // repeated trials misrepresented as independent structures.
+                println!(
+                    "ELIM_FIXTURE_JSON {{\"round\":{},\"k\":{},\"d\":{},\"degree\":{},\"l\":{},\"v\":{},\"success\":{},\"removed\":{},\"elapsed_ns\":{},\"w_est\":{}}}",
+                    round, k, d, degree, d*degree, 64,
+                    success, before-ps.v.path_vars.len(),
+                    measured.elapsed_ns, structural.w_redundant_estimated
+                );
+            }
+        }
+    }
 
 }

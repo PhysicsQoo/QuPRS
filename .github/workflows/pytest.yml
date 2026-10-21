@@ -2,15 +2,18 @@
 
 name: Python Pytest CI
 
-# Trigger this workflow on push or pull request to main branch
+# Full cross-platform integration coverage for dev/main pushes and explicit reusable/manual invocations.
 on:
   workflow_call:
   push:
-    branches: "**"
+    branches: [main, dev]
     paths:
       - 'src/**'
       - 'test/**'
+      - 'benchmarks/**'
       - 'rust/**'
+      - 'GPMC'        # Solver submodule pointer affects native CI coverage.
+      - '.gitmodules' # Solver submodule URL/config affects native CI setup.
       - 'pyproject.toml'
       - '.github/workflows/pytest.yml'
   workflow_dispatch:

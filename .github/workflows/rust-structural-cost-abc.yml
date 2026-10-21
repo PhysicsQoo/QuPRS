@@ -1,0 +1,99 @@
+name: Rust Structural Counter Same-Host A/B/C
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rust-structural-cost-abc.yml'
+      - '.diagnostics/rust_structural_cost/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-structural-abc-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  same-host-abc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - name: Checkout exact experiment PR source and full git history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: false
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2.0'
+
+      - name: Materialize source-pinned A and B worktrees
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/quprs-A" e84f909b08e42872421a4a0b5835c44faf812384
+          git worktree add --detach "$RUNNER_TEMP/quprs-B" 8ce78bd95e9548a4efcdb17852c7b882a5ca2ce1
+          git -C "$RUNNER_TEMP/quprs-A" submodule update --init --recursive
+          git -C "$RUNNER_TEMP/quprs-B" submodule update --init --recursive
+          test "$(git -C "$RUNNER_TEMP/quprs-A" rev-parse HEAD:GPMC)" = "$(git -C "$RUNNER_TEMP/quprs-B" rev-parse HEAD:GPMC)"
+          python -m venv "$RUNNER_TEMP/py-A"
+          python -m venv "$RUNNER_TEMP/py-B"
+          mkdir -p "$RUNNER_TEMP/wheels-A" "$RUNNER_TEMP/wheels-B"
+
+      - name: Build release Rust native wheels for both immutable commits
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/quprs-A" && maturin build --release --interpreter "$RUNNER_TEMP/py-A/bin/python" --out "$RUNNER_TEMP/wheels-A")
+          (cd "$RUNNER_TEMP/quprs-B" && maturin build --release --interpreter "$RUNNER_TEMP/py-B/bin/python" --out "$RUNNER_TEMP/wheels-B")
+          "$RUNNER_TEMP/py-A/bin/python" -m pip install "$RUNNER_TEMP/wheels-A/"*.whl
+          "$RUNNER_TEMP/py-A/bin/python" -m pip list --format=freeze | grep -iv '^quprs==' > "$RUNNER_TEMP/requirements-frozen.txt"
+          "$RUNNER_TEMP/py-B/bin/python" -m pip install -r "$RUNNER_TEMP/requirements-frozen.txt"
+          "$RUNNER_TEMP/py-B/bin/python" -m pip install --no-deps "$RUNNER_TEMP/wheels-B/"*.whl
+          mkdir -p rust-structural-abc-results
+          sha256sum "$RUNNER_TEMP/wheels-A/"*.whl "$RUNNER_TEMP/wheels-B/"*.whl > rust-structural-abc-results/native-wheels-sha256.txt
+          cp "$RUNNER_TEMP/requirements-frozen.txt" rust-structural-abc-results/requirements-frozen.txt
+
+      - name: Collect interleaved QAOA7/QFT16 original JSON and descriptive bootstrap
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/rust_structural_cost/runner.py \
+            --source-a "$RUNNER_TEMP/quprs-A" --source-b "$RUNNER_TEMP/quprs-B" \
+            --python-a "$RUNNER_TEMP/py-A/bin/python" --python-b "$RUNNER_TEMP/py-B/bin/python" \
+            --rounds 30 --warmups 3 --timeout 60 --hard-timeout 90 \
+            --out rust-structural-abc-results
+
+      - name: Seal evidence and make SHA256 manifest even on failure
+        if: always()
+        run: |
+          mkdir -p rust-structural-abc-results
+          git rev-parse HEAD > rust-structural-abc-results/experiment-source-sha.txt
+          find rust-structural-abc-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > rust-structural-abc-results/SHA256SUMS
+
+      - name: Upload raw source-pinned evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-structural-cost-same-host-abc
+          path: rust-structural-abc-results/
+          if-no-files-found: error
+          retention-days: 30

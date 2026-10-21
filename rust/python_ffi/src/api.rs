@@ -5,6 +5,7 @@ use pyo3::exceptions::{PyValueError, PyTypeError};
 use pyo3::types::{PyDict, PyList};
 
 use std::path::Path;
+use std::time::Instant;
 
 use pathsum::{
     check_equivalence as core_check_equivalence,
@@ -53,8 +54,15 @@ pub fn check_equivalence(
 ) -> PyResult<PyObject> {
     let _ = safe_mode;
 
+    // Diagnostics-only FFI phase clock: default results are unchanged.
+    // This is an extra opt-in and deliberately does not affect solver timing.
+    let ffi_clock_enabled = std::env::var("QUPRS_FFI_PHASE_TIMING")
+        .ok().as_deref() == Some("1");
+    let total_ffi_start = ffi_clock_enabled.then(Instant::now);
+    let parse_start = ffi_clock_enabled.then(Instant::now);
     let (ops1, num_qubits1) = extract_circuit(circuit1)?;
     let (ops2, num_qubits2) = extract_circuit(circuit2)?;
+    let qasm_extract_ns = parse_start.map(|start| start.elapsed().as_nanos() as u64);
     let system_qubits = std::cmp::max(num_qubits1, num_qubits2);
 
     if num_qubits1 != num_qubits2 {
@@ -89,13 +97,16 @@ pub fn check_equivalence(
 
     let tool_name_owned = tool_name.to_lowercase();
 
+    let native_bridge_start = ffi_clock_enabled.then(Instant::now);
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
             core_check_equivalence(system_qubits, &ops1, &ops2, rs_method, rs_strategy, &tool_name_owned, timeout)
         })
     }).map_err(|e| PyValueError::new_err(format!("Verification Engine Failed: {}", e)))?;
+    let native_bridge_ns = native_bridge_start.map(|start| start.elapsed().as_nanos() as u64);
 
     Python::with_gil(|py| {
+        let dict_build_start = ffi_clock_enabled.then(Instant::now);
         let dict = PyDict::new_bound(py);
         
         let status_str = match result.status {
@@ -132,7 +143,9 @@ pub fn check_equivalence(
             dict.set_item("wmc_dimacs_time_sec", result.to_dimacs_time.unwrap_or(0.0))?;
             dict.set_item("wmc_solver_time_sec", result.tool_time.unwrap_or(0.0))?;
         }
+        let mut stage_materialize_ns = None;
         if let Some(ledger) = &result.stage_ledger {
+            let stage_build_start = ffi_clock_enabled.then(Instant::now);
             let diagnostic = PyDict::new_bound(py);
             diagnostic.set_item("schema", ledger.schema)?;
             diagnostic.set_item("total_native_wall_seconds", ledger.total_native_wall_seconds)?;
@@ -188,6 +201,28 @@ pub fn check_equivalence(
                 diagnostic.set_item("other_rule_timings", records)?;
             }
             dict.set_item("stage_ledger", diagnostic)?;
+            stage_materialize_ns = stage_build_start
+                .map(|start| start.elapsed().as_nanos() as u64);
+        }
+
+        // This stamp is taken before materializing the phase metadata so that
+        // the diagnostic dictionary does not inflate the conversion estimate.
+        if let Some(total_start) = total_ffi_start {
+            let dict_build_ns = dict_build_start
+                .expect("FFI phase clock implies dictionary clock")
+                .elapsed().as_nanos() as u64;
+            // Sample the outer clock BEFORE emitting its own metadata.
+            // Otherwise this value incorrectly includes phase dict insertion.
+            let ffi_pre_metadata_ns = total_start.elapsed().as_nanos() as u64;
+            let phase = PyDict::new_bound(py);
+            phase.set_item("schema", "quprs-rust-ffi-phase-v1")?;
+            phase.set_item("qasm_extract_ns", qasm_extract_ns.unwrap_or(0))?;
+            phase.set_item("native_bridge_ns", native_bridge_ns.unwrap_or(0))?;
+            phase.set_item("python_dict_build_ns", dict_build_ns)?;
+            phase.set_item("stage_ledger_materialize_ns", stage_materialize_ns.unwrap_or(0))?;
+            phase.set_item("ffi_elapsed_excluding_phase_metadata_ns",
+                           ffi_pre_metadata_ns)?;
+            dict.set_item("ffi_phase_timings", phase)?;
         }
 
         Ok(dict.to_object(py))

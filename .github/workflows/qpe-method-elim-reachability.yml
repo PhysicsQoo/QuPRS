@@ -1,0 +1,99 @@
+name: QPEexact8 Method Parity and Legal-Gate Elim Reachability
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qpe-method-elim-reachability.yml'
+      - '.diagnostics/qpe_method_reachability/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qpe-three-method-backend-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned native and Python research environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Record QPE method backend and strategy with independent unitary oracle
+        run: python -u .diagnostics/qpe_method_reachability/isolate.py
+      - name: Hash exact original QPE records on all outcomes
+        if: always()
+        run: |
+          mkdir -p qpe-method-isolation-results
+          git rev-parse HEAD > qpe-method-isolation-results/source-sha.txt
+          find qpe-method-isolation-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > qpe-method-isolation-results/SHA256SUMS
+      - name: Preserve scientifically blocked QPE evidence too
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpe-method-backend-isolation
+          path: qpe-method-isolation-results/
+          if-no-files-found: error
+          retention-days: 30
+  valid-quantum-gate-elim-reachability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install identical native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Search Qiskit-certified gate sequences for native Elim success
+        run: python -u .diagnostics/qpe_method_reachability/gate_search.py
+      - name: Hash original gate-level QASM witnesses on all outcomes
+        if: always()
+        run: |
+          mkdir -p qasm-gate-elim-reachability-results
+          git rev-parse HEAD > qasm-gate-elim-reachability-results/source-sha.txt
+          find qasm-gate-elim-reachability-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > qasm-gate-elim-reachability-results/SHA256SUMS
+      - name: Preserve original legal-gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: genuine-gate-qasm-elim-reachability
+          path: qasm-gate-elim-reachability-results/
+          if-no-files-found: error
+          retention-days: 30

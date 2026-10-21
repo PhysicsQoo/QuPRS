@@ -1,0 +1,56 @@
+name: Rust Elim Cost Family-Held-Out Model Audit
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rust-elim-cost-model-audit.yml'
+      - '.diagnostics/cost_model_lofo/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-pinned-model-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only the offline analysis dependency
+        run: python -m pip install 'numpy>=1.26,<3'
+      - name: Retrieve original accepted six-family native timing artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p original-elim
+          gh run download 39528135089 --repo PhysicsQoo/QuPRS \
+            --name rust-elim-six-family-cost --dir original-elim
+          (cd original-elim && zip -q -r ../original-elim.zip .)
+          # The source download from gh is decompressed; the archived ZIP
+          # byte hash differs from the initial GitHub archive, but every
+          # original internal SHA256SUMS entry must still verify.
+      - name: Audit hashes and evaluate entire held-out circuit families
+        run: |
+          python -u .diagnostics/cost_model_lofo/validate.py \
+            --artifact original-elim.zip --out cost-model-lofo-results
+      - name: Seal source and analytical output
+        if: always()
+        run: |
+          mkdir -p cost-model-lofo-results
+          git rev-parse HEAD > cost-model-lofo-results/analysis-head-sha.txt
+          find cost-model-lofo-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > cost-model-lofo-results/SHA256SUMS
+      - name: Upload auditable LOFO result even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-elim-family-heldout-model-audit
+          path: cost-model-lofo-results/
+          retention-days: 30

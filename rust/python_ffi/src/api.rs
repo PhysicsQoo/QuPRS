@@ -161,6 +161,19 @@ pub fn check_equivalence(
                 probes.append(item)?;
             }
             diagnostic.set_item("structural_elim_attempts", probes)?;
+            // Preserve the v0 Stage Ledger JSON shape when the second opt-in
+            // QUPRS_ELIM_TIMING flag is not explicitly set.
+            if ledger.elim_timing_enabled {
+                let timings = PyList::empty_bound(py);
+                for sample in &ledger.elim_attempt_timings {
+                    let item = PyDict::new_bound(py);
+                    item.set_item("structural_index", sample.structural_index)?;
+                    item.set_item("elapsed_ns", sample.elapsed_ns)?;
+                    item.set_item("success", sample.success)?;
+                    timings.append(item)?;
+                }
+                diagnostic.set_item("elim_attempt_timings", timings)?;
+            }
             dict.set_item("stage_ledger", diagnostic)?;
         }
 

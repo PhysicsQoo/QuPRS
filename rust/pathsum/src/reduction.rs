@@ -51,7 +51,7 @@ impl PathSum {
 
     pub fn try_reduce_elim(&mut self, reducible_vars: &[u32]) -> bool {
         self.stats.record_attempt(RuleType::Elim);
-        crate::diagnostics::observe_elim_attempt(|| {
+        let mut timed_elim = crate::diagnostics::observe_elim_attempt(|| {
             let k_r = reducible_vars.len();
             let d_r = self.p.terms.len();
             let l_r = self.p.terms.keys().map(|mono| mono.len()).sum();
@@ -83,6 +83,9 @@ impl PathSum {
         }
 
         self.stats.record_success(RuleType::Elim);
+        if let Some(timer) = timed_elim.as_mut() {
+            timer.mark_success();
+        }
         true
     }
 

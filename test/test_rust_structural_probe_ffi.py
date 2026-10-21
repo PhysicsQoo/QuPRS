@@ -43,6 +43,7 @@ def test_rust_structural_probe_ffi_is_opt_in_and_semantically_neutral(monkeypatc
     assert abs(sum(stage["exclusive_seconds"].values())
                - stage["total_native_wall_seconds"]) < 1e-6
 
+    assert "elim_attempt_timings" not in stage
     records = stage["structural_elim_attempts"]
     assert records, "H/H circuit should exercise actual native Elim attempts"
     expected_keys = {"k_r", "l_r", "v_r", "d_r", "w_redundant_estimated"}
@@ -56,8 +57,27 @@ def test_rust_structural_probe_ffi_is_opt_in_and_semantically_neutral(monkeypatc
         )
     assert any(sample["k_r"] > 0 for sample in records)
 
+    # Timing is explicitly opt-in on top of the already opt-in stage ledger.
+    monkeypatch.setenv("QUPRS_ELIM_TIMING", "1")
+    timed = check()
+    assert timed["status"] == unprofiled["status"]
+    assert timed["stats"] == unprofiled["stats"]
+    timed_stage = timed["stage_ledger"]
+    assert timed_stage["structural_elim_attempts"] == records
+    elapsed = timed_stage["elim_attempt_timings"]
+    assert len(elapsed) == len(records)
+    assert [x["structural_index"] for x in elapsed] == list(range(len(records)))
+    assert all(type(x["success"]) is bool
+               and type(x["elapsed_ns"]) is int and x["elapsed_ns"] >= 0
+               for x in elapsed)
+    # All Elim calls in this fixture occur within full_reduce() spans.
+    assert sum(x["elapsed_ns"] for x in elapsed) / 1e9 <= (
+        timed_stage["exclusive_seconds"]["reduction"] + 1e-6
+    )
+
     monkeypatch.delenv("QUPRS_STAGE_LEDGER", raising=False)
     after = check()
     assert "stage_ledger" not in after
     assert after["status"] == unprofiled["status"]
     assert after["stats"] == unprofiled["stats"]
+    monkeypatch.delenv("QUPRS_ELIM_TIMING", raising=False)

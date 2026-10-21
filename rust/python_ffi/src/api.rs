@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyValueError, PyTypeError};
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 use std::path::Path;
 
@@ -150,6 +150,17 @@ pub fn check_equivalence(
                 calls.set_item(*name, *count)?;
             }
             diagnostic.set_item("stage_calls", calls)?;
+            let probes = PyList::empty_bound(py);
+            for sample in &ledger.structural_elim_attempts {
+                let item = PyDict::new_bound(py);
+                item.set_item("k_r", sample.k_r)?;
+                item.set_item("l_r", sample.l_r)?;
+                item.set_item("v_r", sample.v_r)?;
+                item.set_item("d_r", sample.d_r)?;
+                item.set_item("w_redundant_estimated", sample.w_redundant_estimated)?;
+                probes.append(item)?;
+            }
+            diagnostic.set_item("structural_elim_attempts", probes)?;
             dict.set_item("stage_ledger", diagnostic)?;
         }
 

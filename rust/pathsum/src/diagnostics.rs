@@ -15,6 +15,7 @@ struct Recorder {
     reduction_depth: u32,
     max_reduction_depth: u32,
     solver_spawns: u64,
+    structural_elim_attempts: Vec<ElimStructuralSample>,
 }
 
 thread_local! {
@@ -109,6 +110,37 @@ pub(crate) fn child_spawned() {
     });
 }
 
+/// Observations at entry to Elim, before it mutates PathSum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ElimStructuralSample {
+    pub k_r: usize,
+    pub l_r: usize,
+    pub v_r: usize,
+    pub d_r: usize,
+    pub w_redundant_estimated: usize,
+}
+
+/// The closure is never called without an explicitly enabled TLS session.
+pub(crate) fn observe_elim_attempt<F>(measure: F)
+where
+    F: FnOnce() -> (usize, usize, usize, usize),
+{
+    if !RECORDER.with(|cell| cell.borrow().is_some()) {
+        return;
+    }
+    let (k_r, l_r, v_r, d_r) = measure();
+    let sample = ElimStructuralSample {
+        k_r, l_r, v_r, d_r,
+        // Historical pre-Hoist redundant scan proxy; never measured time.
+        w_redundant_estimated: k_r.saturating_sub(1).saturating_mul(l_r),
+    };
+    RECORDER.with(|cell| {
+        if let Some(recorder) = cell.borrow_mut().as_mut() {
+            recorder.structural_elim_attempts.push(sample);
+        }
+    });
+}
+
 #[derive(Debug, Clone)]
 pub struct ExclusiveLedger {
     pub schema: &'static str,
@@ -117,6 +149,7 @@ pub struct ExclusiveLedger {
     pub calls: BTreeMap<&'static str, u64>,
     pub solver_child_spawns: u64,
     pub reduction_max_depth: u32,
+    pub structural_elim_attempts: Vec<ElimStructuralSample>,
     pub closure_error_seconds: f64,
     pub has_stage_overlap: bool,
 }
@@ -164,6 +197,7 @@ impl Recorder {
             calls: self.calls,
             solver_child_spawns: self.solver_spawns,
             reduction_max_depth: self.max_reduction_depth,
+            structural_elim_attempts: self.structural_elim_attempts,
             closure_error_seconds: closure,
             has_stage_overlap: overlap,
         }
@@ -221,4 +255,76 @@ mod tests {
         assert!(span("wmc_total").is_none());
         child_spawned();
     }
+    #[test]
+    fn zero_candidates_do_not_enter_elim_unless_explicitly_called() {
+        use crate::pathsum::PathSum;
+        let session = Session::start(true).unwrap();
+        let mut ps = PathSum::new(1);
+        ps.full_reduce();
+        assert!(session.snapshot(1.0, 0.1).structural_elim_attempts.is_empty());
+        assert!(!ps.try_reduce_elim(&[]));
+        assert_eq!(session.snapshot(1.0, 0.1).structural_elim_attempts,
+            vec![ElimStructuralSample {
+                k_r: 0, l_r: 0, v_r: 0, d_r: 0, w_redundant_estimated: 0,
+            }]);
+    }
+
+    #[test]
+    fn multiple_candidates_and_elim_success_capture_pre_mutation_work() {
+        use crate::pathsum::PathSum;
+        use crate::rational::{PhaseCoeff, Rational};
+        let session = Session::start(true).unwrap();
+        let mut ps = PathSum::new(1);
+        ps.v.path_vars.extend([2, 3, 4]);
+        ps.p.add_term(vec![2, 3], PhaseCoeff::new_constant(Rational::new(1, 2)));
+        let vars = ps.get_reducible_vars();
+        assert_eq!(vars.len(), 3);
+        assert!(ps.try_reduce_elim(&vars));
+        assert!(!ps.v.path_vars.contains(&4));
+        assert!(ps.v.path_vars.contains(&2));
+        assert!(ps.v.path_vars.contains(&3));
+        assert_eq!(session.snapshot(1.0, 0.1).structural_elim_attempts,
+            vec![ElimStructuralSample {
+                k_r: 3, l_r: 2, v_r: 3, d_r: 1, w_redundant_estimated: 4,
+            }]);
+    }
+
+    #[test]
+    fn empty_phase_means_zero_redundant_scan_proxy() {
+        use crate::pathsum::PathSum;
+        let session = Session::start(true).unwrap();
+        let mut ps = PathSum::new(1);
+        ps.v.path_vars.extend([5, 6]);
+        assert!(ps.p.terms.is_empty());
+        let vars = ps.get_reducible_vars();
+        assert_eq!(vars.len(), 2);
+        assert!(ps.try_reduce_elim(&vars));
+        assert!(!ps.v.path_vars.contains(&5));
+        assert!(!ps.v.path_vars.contains(&6));
+        assert_eq!(session.snapshot(1.0, 0.1).structural_elim_attempts,
+            vec![ElimStructuralSample {
+                k_r: 2, l_r: 0, v_r: 2, d_r: 0, w_redundant_estimated: 0,
+            }]);
+    }
+
+    #[test]
+    fn default_off_does_not_change_elim_outcome_or_leak_samples() {
+        use crate::pathsum::PathSum;
+        let mut off = PathSum::new(1);
+        off.v.path_vars.insert(9);
+        let mut on = off.clone();
+        assert!(Session::start(false).is_none());
+        let vars = off.get_reducible_vars();
+        let original = off.try_reduce_elim(&vars);
+        let session = Session::start(true).unwrap();
+        let vars = on.get_reducible_vars();
+        assert_eq!(original, on.try_reduce_elim(&vars));
+        assert_eq!(off.v.path_vars, on.v.path_vars);
+        assert_eq!(off.stats.elim.attempts, on.stats.elim.attempts);
+        assert_eq!(off.stats.elim.successes, on.stats.elim.successes);
+        assert_eq!(session.snapshot(1.0, 0.1).structural_elim_attempts.len(), 1);
+        drop(session);
+        assert!(span("reduction").is_none());
+    }
+
 }

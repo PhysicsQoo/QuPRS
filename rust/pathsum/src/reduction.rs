@@ -51,6 +51,16 @@ impl PathSum {
 
     pub fn try_reduce_elim(&mut self, reducible_vars: &[u32]) -> bool {
         self.stats.record_attempt(RuleType::Elim);
+        crate::diagnostics::observe_elim_attempt(|| {
+            let k_r = reducible_vars.len();
+            let d_r = self.p.terms.len();
+            let l_r = self.p.terms.keys().map(|mono| mono.len()).sum();
+            // Count live internal IDs directly; total set size can shrink.
+            let v_r = self.v.path_vars.iter()
+                .filter(|&&id| (id as usize) >= self.v.num_qubits)
+                .count();
+            (k_r, l_r, v_r, d_r)
+        });
 
         // Find completely isolated internal variables
         let mut vars_to_remove = Vec::new();

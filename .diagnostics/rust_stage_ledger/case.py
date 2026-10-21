@@ -57,6 +57,14 @@ def main():
             assert stage["stage_calls"].get(name,0) > 0, name
         if args.case == "qaoa7":
             assert stage["stage_calls"].get("reduction",0) > 0
+        probes = stage["structural_elim_attempts"]
+        assert isinstance(probes, list)
+        if args.case == "ghz4":
+            assert not probes, "WMC-only must not attempt Reduction"
+        for probe in probes:
+            assert set(probe) == {"k_r", "l_r", "v_r", "d_r", "w_redundant_estimated"}
+            assert probe["w_redundant_estimated"] == max(probe["k_r"] - 1, 0) * probe["l_r"]
+            assert 0 <= probe["k_r"] <= probe["v_r"]
     result={"case":args.case,"profile":args.profile,"status":status,"oracle":oracle,"qasm_sha256":[hashlib.sha256(s.encode()).hexdigest() for s in qasm],"wrapper_wall_seconds":wall,"native":{k:raw.get(k) for k in ("status","verification_time_sec","pathsum_time_sec","wmc_time_sec","wmc_dimacs_time_sec","wmc_solver_time_sec","stage_ledger")},"environment":{"python":platform.python_version(),"platform":platform.platform()}}
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n")

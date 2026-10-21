@@ -152,6 +152,18 @@ class ProportionalStrategy(Strategy):
         """
         l1 = len(gates1)
         l2 = len(gates2)
+        # A zero-length side has no valid proportional ratio. Follow the
+        # native Rust strategy: apply Bra gates first, then Ket gates.
+        if l1 == 0 or l2 == 0:
+            for gate in gates2:
+                pathsum_circuit, self.count = add_gate(
+                    pathsum_circuit, gate, count=self.count, is_bra=True
+                )
+            for gate in gates1:
+                pathsum_circuit, self.count = add_gate(
+                    pathsum_circuit, gate, count=self.count
+                )
+            return pathsum_circuit.reduction()
         min_length = min(l1, l2)
         d = l1 - l2
         r = int(l1 / l2) if d > 0 else int(l2 / l1)

@@ -211,6 +211,9 @@ pub fn check_equivalence(
             let dict_build_ns = dict_build_start
                 .expect("FFI phase clock implies dictionary clock")
                 .elapsed().as_nanos() as u64;
+            // Sample the outer clock BEFORE emitting its own metadata.
+            // Otherwise this value incorrectly includes phase dict insertion.
+            let ffi_pre_metadata_ns = total_start.elapsed().as_nanos() as u64;
             let phase = PyDict::new_bound(py);
             phase.set_item("schema", "quprs-rust-ffi-phase-v1")?;
             phase.set_item("qasm_extract_ns", qasm_extract_ns.unwrap_or(0))?;
@@ -218,7 +221,7 @@ pub fn check_equivalence(
             phase.set_item("python_dict_build_ns", dict_build_ns)?;
             phase.set_item("stage_ledger_materialize_ns", stage_materialize_ns.unwrap_or(0))?;
             phase.set_item("ffi_elapsed_excluding_phase_metadata_ns",
-                           total_start.elapsed().as_nanos() as u64)?;
+                           ffi_pre_metadata_ns)?;
             dict.set_item("ffi_phase_timings", phase)?;
         }
 

@@ -26,10 +26,14 @@ on:
   pull_request:
     branches: [ "main", "dev" ]
     paths:
+      - 'Dockerfile'
       - 'src/**'
-      - 'test/**'
       - 'rust/**'
+      - 'GPMC'
+      - '.gitmodules'
       - 'pyproject.toml'
+      - 'MANIFEST.in'
+      - 'scripts/install_linux_deps.sh'
       - '.github/workflows/docker-build.yml'
   workflow_dispatch:
     inputs:

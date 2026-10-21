@@ -9,7 +9,9 @@ on:
       - dev
     paths:
       - 'src/**'
-      - 'test/**'
+      - 'test/test_Feynman.py'
+      - 'test/test_MQT.py'
+      - 'test/conftest.py'
       - 'rust/**'
       - 'GPMC'           # Solver submodule revision affects measured workloads.
       - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
@@ -21,7 +23,9 @@ on:
   pull_request:
     paths:
       - 'src/**'
-      - 'test/**'
+      - 'test/test_Feynman.py'
+      - 'test/test_MQT.py'
+      - 'test/conftest.py'
       - 'rust/**'
       - 'GPMC'           # Solver submodule revision affects measured workloads.
       - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.

@@ -2,15 +2,17 @@
 
 name: Python Pytest CI
 
-# Full cross-platform test matrix for main pushes and explicit reusable/manual invocations.
+# Full cross-platform integration coverage for dev/main pushes and explicit reusable/manual invocations.
 on:
   workflow_call:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'src/**'
       - 'test/**'
       - 'rust/**'
+      - 'GPMC'        # Solver submodule pointer affects native CI coverage.
+      - '.gitmodules' # Solver submodule URL/config affects native CI setup.
       - 'pyproject.toml'
       - '.github/workflows/pytest.yml'
   workflow_dispatch:

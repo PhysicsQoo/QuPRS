@@ -113,8 +113,10 @@ def oracle(case):
     U=Operator(qasm2.loads(left)).data
     V=Operator(qasm2.loads(right)).data
     z=np.vdot(V.reshape(-1),U.reshape(-1))
-    if abs(z)<1e-14:raise RuntimeError("no global phase estimate")
-    ph=z/abs(z)
+    # Orthogonal unitaries have no best-fit global phase. That is a
+    # definitive inequivalence control (e.g. I vs X), NOT an oracle error.
+    # For nonzero overlap, infer the phase normally.
+    ph=(z/abs(z)) if abs(z)>=1e-14 else complex(1.0,0.0)
     err=float(np.max(np.abs(U-ph*V)))
     rel=float(np.linalg.norm(U-ph*V)/np.linalg.norm(U))
     truth=("equivalent" if err<1e-10 and rel<1e-10 else "not_equivalent")

@@ -1,0 +1,60 @@
+name: WMC Near-Unity Numerical Decision Audit
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wmc-near-unity-audit.yml'
+      - '.diagnostics/wmc_numeric_decision/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wmc-numeric-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-pinned-solver-specific-numeric-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 42
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install exact source with both independent solver resources
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Collect independent oracle and actual GPMC/Ganak records
+        run: python -u .diagnostics/wmc_numeric_decision/audit.py
+      - name: Seal partial and complete evidence with SHA256
+        if: always()
+        run: |
+          mkdir -p wmc-numerical-policy-results
+          git rev-parse HEAD > wmc-numerical-policy-results/source-sha.txt
+          find wmc-numerical-policy-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > wmc-numerical-policy-results/SHA256SUMS
+      - name: Preserve raw scientific failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wmc-near-unity-solver-audit
+          path: wmc-numerical-policy-results/
+          if-no-files-found: error
+          retention-days: 30

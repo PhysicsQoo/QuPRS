@@ -7,6 +7,7 @@ use crate::stats::RuleType;
 
 impl PathSum {
     pub fn get_reducible_vars(&self) -> Vec<u32> {
+        let mut timer = crate::diagnostics::time_rule("candidate_discovery", 0);
         let f_used_vars = self.f.get_used_vars();
         let mut reducible_vars: Vec<u32> = self.v.path_vars.iter()
             .copied()
@@ -14,7 +15,10 @@ impl PathSum {
             .collect();
         
         reducible_vars.sort_unstable_by(|a, b| b.cmp(a));
-        
+        if let Some(clock) = timer.as_mut() {
+            clock.set_candidates(reducible_vars.len());
+            if !reducible_vars.is_empty() { clock.mark_success(); }
+        }
         reducible_vars
     }
 
@@ -92,6 +96,7 @@ impl PathSum {
     /// Attempt to execute HH Rule (Feynman path cancellation)
     pub fn try_reduce_hh(&mut self, reducible_vars: &[u32]) -> bool {
         self.stats.record_attempt(RuleType::HH);
+        let mut timer = crate::diagnostics::time_rule("hh", reducible_vars.len());
 
         for &var in reducible_vars {
             // Step 1: Extract Phi polynomial and verify coefficients
@@ -177,6 +182,7 @@ impl PathSum {
             }
             
             self.stats.record_success(RuleType::HH);
+            if let Some(clock) = timer.as_mut() { clock.mark_success(); }
             return true;
         }
         false
@@ -205,6 +211,7 @@ impl PathSum {
     /// Attempt to execute ω-rule (Phase Gadget simplification)
     pub fn try_reduce_omega(&mut self, reducible_vars: &[u32]) -> bool {
         self.stats.record_attempt(RuleType::Omega);
+        let mut timer = crate::diagnostics::time_rule("omega", reducible_vars.len());
 
         let mut target_y = None;
         
@@ -268,6 +275,7 @@ impl PathSum {
         debug!("[Omega Rule] Integrated out variable: {} (generated Phase Gadget)", self.v.fmt_var(y));
 
         self.stats.record_success(RuleType::Omega);
+        if let Some(clock) = timer.as_mut() { clock.mark_success(); }
         true
     }
 }

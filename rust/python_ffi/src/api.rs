@@ -174,6 +174,19 @@ pub fn check_equivalence(
                 }
                 diagnostic.set_item("elim_attempt_timings", timings)?;
             }
+            if ledger.other_rule_timing_enabled {
+                let records = PyList::empty_bound(py);
+                for sample in &ledger.other_rule_timings {
+                    let item = PyDict::new_bound(py);
+                    item.set_item("rule", sample.rule)?;
+                    item.set_item("elapsed_ns", sample.elapsed_ns)?;
+                    item.set_item("success", sample.success)?;
+                    item.set_item("candidate_count", sample.candidate_count)?;
+                    item.set_item("within_reduction", sample.within_reduction)?;
+                    records.append(item)?;
+                }
+                diagnostic.set_item("other_rule_timings", records)?;
+            }
             dict.set_item("stage_ledger", diagnostic)?;
         }
 

@@ -2,11 +2,11 @@
 
 name: Python Pytest CI
 
-# Trigger this workflow on push or pull request to main branch
+# Full cross-platform test matrix for main pushes and explicit reusable/manual invocations.
 on:
   workflow_call:
   push:
-    branches: "**"
+    branches: [main]
     paths:
       - 'src/**'
       - 'test/**'

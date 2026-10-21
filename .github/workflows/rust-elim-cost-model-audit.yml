@@ -32,7 +32,7 @@ jobs:
           mkdir -p original-elim
           gh run download 39528135089 --repo PhysicsQoo/QuPRS \
             --name rust-elim-six-family-cost --dir original-elim
-          (cd original-elim && zip -q -r ../original-elim.zip .)
+          (cd original-elim && zip -q -r ../original-elim.zip *)
           # The source download from gh is decompressed; the archived ZIP
           # byte hash differs from the initial GitHub archive, but every
           # original internal SHA256SUMS entry must still verify.

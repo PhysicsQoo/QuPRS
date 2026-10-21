@@ -194,28 +194,45 @@ def experiment():
   with (OUT/"samples.jsonl").open("w",buffering=1) as fp:
    for index,(family,strategy) in enumerate(schedule):
     path=OUT/"individual"/f"{index:02d}_{family}_{strategy}.json"
-    p=subprocess.run([sys.executable,"-u",str(Path(__file__).resolve()),
-                     "--one","--family",family,"--strategy",strategy],
-                     capture_output=True,text=True,timeout=40,env=os.environ.copy())
     row={"family":family,"strategy":strategy,"idx":index,
-         "raw_file":str(path.relative_to(OUT)),"returncode":p.returncode,
-         "stderr":p.stderr[-4000:]}
-    if p.returncode==0:
+         "raw_file":str(path.relative_to(OUT))}
+    try:
+     p=subprocess.run([sys.executable,"-u",str(Path(__file__).resolve()),
+                      "--one","--family",family,"--strategy",strategy],
+                      capture_output=True,text=True,timeout=40,env=os.environ.copy())
+     row["returncode"]=p.returncode
+     row["stderr"]=p.stderr[-4000:]
+     row["stdout"]=p.stdout[-4000:]
+     # Even failure-exit native results are valuable evidence; retain JSON.
      try:
       data=json.loads(p.stdout)
       row["data"]=data
       write(path,data)
-      if data["errors"]:errors.append({"idx":index,"errors":data["errors"]})
-     except ValueError as e:
-      errors.append({"idx":index,"error":repr(e)})
-    else:
-     # Native timeout/unknown is INCONCLUSIVE, not a fabricated success,
-     # but a subprocess crash or invalid JSON is a hard collection error.
-     errors.append({"idx":index,"error":"PROCESS_FAILURE","stderr":row["stderr"]})
+      if data["errors"]:
+       errors.append({"idx":index,"family":family,"strategy":strategy,
+                      "error":"NATIVE_SCIENTIFIC_VALIDATION",
+                      "status":data["status"],"details":data["errors"]})
+     except ValueError:
+      errors.append({"idx":index,"family":family,"strategy":strategy,
+                     "error":"INVALID_OR_MISSING_JSON",
+                     "returncode":p.returncode,"stderr":row["stderr"],
+                     "stdout":row["stdout"]})
+     if p.returncode!=0:
+      errors.append({"idx":index,"family":family,"strategy":strategy,
+                     "error":"NONZERO_NATIVE_EXIT","returncode":p.returncode,
+                     "status":row.get("data",{}).get("status"),
+                     "stderr":row["stderr"]})
+    except subprocess.TimeoutExpired as exc:
+     row["returncode"]=None
+     row["stderr"]=repr(exc)
+     errors.append({"idx":index,"family":family,"strategy":strategy,
+                    "error":"HARD_PROCESS_TIMEOUT","details":repr(exc)})
     fp.write(json.dumps(row,sort_keys=True)+"\n")
     observed.append(row)
-    print("DISCOVERY",index,family,strategy,row["returncode"],flush=True)
-    if errors:break
+    print("DISCOVERY",index,family,strategy,row.get("returncode"),
+          row.get("data",{}).get("status"),flush=True)
+    # Do not stop at a failed family; coverage of the remaining independent
+    # circuits is necessary to distinguish a local error from global failure.
   data=[x["data"] for x in observed if "data" in x]
   qualified=[x for x in data if x["status"].startswith("Equivalent")]
   coverage={r:{
@@ -237,8 +254,10 @@ def experiment():
                     "failed_only":models(qualified,rule,0)}
   summary={"schema":manifest["schema"],
    "status":"PASS_DISCOVERY_NO_SUCCESSFUL_ELIM" if not success_families and not errors
-      else "PASS_DISCOVERY_WITH_SUCCESSFUL_ELIM" if not errors else "INCOMPLETE",
-   "samples":len(observed),"equivalent_samples":len(qualified),
+      else "PASS_DISCOVERY_WITH_SUCCESSFUL_ELIM" if not errors
+      else "INCOMPLETE_WITH_PRESERVED_ALL_CASES",
+   "samples":len(observed),"expected_samples":len(schedule),
+   "equivalent_samples":len(qualified),
    "families":list(FAMILIES),"genuine_successful_elim_families":success_families,
    "coverage":coverage,"comparisons":analysis,"errors":errors,
    "limits":["Only genuine existing MQTBench QASM pair tests (no synthetic PathSum fixtures).",

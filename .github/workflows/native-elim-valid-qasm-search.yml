@@ -1,0 +1,56 @@
+name: Valid Quantum Gate QASM Native Elim Reachability
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/native-elim-valid-qasm-search.yml'
+      - '.diagnostics/valid_gate_elim/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actual-quantum-gate-search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build source-pinned Rust engine plus Qiskit oracle
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2' 'qiskit>=2,<3' 'numpy>=1.26,<3'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Search independently Qiskit-certified physical gate circuits
+        run: python -u .diagnostics/valid_gate_elim/search.py
+      - name: Seal QASM evidence and exact source SHA on pass or failure
+        if: always()
+        run: |
+          mkdir -p real-gate-elim-search-results
+          git rev-parse HEAD > real-gate-elim-search-results/source-sha.txt
+          python -m pip freeze > real-gate-elim-search-results/packages.txt
+          find real-gate-elim-search-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > real-gate-elim-search-results/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validated-gate-circuit-elim-reachability
+          path: real-gate-elim-search-results/
+          retention-days: 30
+          if-no-files-found: error

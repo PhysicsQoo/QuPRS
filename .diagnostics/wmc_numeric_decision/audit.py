@@ -100,17 +100,20 @@ def one(case,backend,solver):
                                  backend=backend,tool_name=solver,timeout=60)
         normalized_count=None
         if captures and backend=="python":
+            # Ganak first invokes a distribution/version diagnostic. That is
+            # NOT a WMC count. Parse only the actual selected solver call
+            # that operated on the CNF (the most recent captured invocation).
+            final_count_call = captures[-1]
             count_lines=[]
-            for line in captures[0]["solver_stdout"].splitlines():
+            for line in final_count_call["solver_stdout"].splitlines():
                 c=parse_count_line(line)
                 if c is not None: count_lines.append({"raw":line,"real":c.real,"imag":c.imag})
             if len(count_lines)==1 and result.expect is not None:
-                normalized_count=math.ldexp(abs(complex(count_lines[0]["real"],count_lines[0]["imag"])),
-                                            -int(result.expect)) if float(result.expect).is_integer() else (
-                    abs(complex(count_lines[0]["real"],count_lines[0]["imag"])) /
-                    (2**result.expect)
-                )
-            captures[0]["parsed_count_lines"]=count_lines
+                normalized_count=abs(complex(count_lines[0]["real"],count_lines[0]["imag"])) / (2**result.expect)
+            final_count_call["parsed_count_lines"]=count_lines
+            final_count_call["role"]="solver_count"
+            for prior in captures[:-1]:
+                prior["role"]="solver_preflight_not_count"
         record={"case":case,"backend":backend,"solver":solver,
                 "source_oracle":oracle,"outcome":result.equivalent,
                 "solver_info":solver_info,"solver_child_capture":captures,

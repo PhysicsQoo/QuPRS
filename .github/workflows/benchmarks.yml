@@ -5,19 +5,35 @@ on:
     branches: [ main ]
     paths:
       - 'src/**'
-      - 'test/**'
+      - 'test/test_Feynman.py'
+      - 'test/test_MQT.py'
+      - 'test/conftest.py'
+      - 'test/test_benchmark_*.py'
       - 'rust/**'
       - 'pyproject.toml'
-      - 'Cargo.toml'
+      - 'GPMC'
+      - '.gitmodules'
+      - 'benchmarks/**'
+      - 'scripts/benchmark_provenance.py'
+      - 'scripts/generate_benchmark_report.py'
+      - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
   pull_request:
     branches: [ main, dev ]
     paths:
       - 'src/**'
-      - 'test/**'
+      - 'test/test_Feynman.py'
+      - 'test/test_MQT.py'
+      - 'test/conftest.py'
+      - 'test/test_benchmark_*.py'
       - 'rust/**'
       - 'pyproject.toml'
-      - 'Cargo.toml'
+      - 'GPMC'
+      - '.gitmodules'
+      - 'benchmarks/**'
+      - 'scripts/benchmark_provenance.py'
+      - 'scripts/generate_benchmark_report.py'
+      - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
 
 concurrency:

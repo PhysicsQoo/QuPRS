@@ -123,6 +123,35 @@ same binary and host to assess timing perturbation; evaluate family-grouped
 generalization on *distinct circuits*, never count repeated runs of the same
 structure as independent predictor training data.
 
+
+## Optional candidate discovery / HH / Omega rule clocks
+
+Set **both** `QUPRS_STAGE_LEDGER=1` and
+`QUPRS_OTHER_RULE_TIMING=1` to add the independent
+`stage_ledger.other_rule_timings` list. Normal runs and Stage-Ledger-only
+runs have no new FFI keys or rule timers. `QUPRS_ELIM_TIMING` remains an
+independent second opt-in specifically for Elim.
+
+Each rule record contains `{rule, elapsed_ns, success, candidate_count,
+within_reduction}`, where `rule` is one of `candidate_discovery`,
+`hh`, `omega`. For discovery, `success` means at least one candidate
+was returned; for HH/Omega it means that rule actually reduced a variable.
+The `candidate_count` for discovery is **the returned count**, whereas
+for HH/Omega it is the input candidate count. `within_reduction` captures
+whether the guard began inside an active `full_reduce` root span; direct
+rule calls outside this root remain visible but are not incorrectly added
+to root reduction attribution.
+
+All these clocks measure their own instrumented rule bodies and are
+**nested in**, not additive to, the root Reduction wall. They include
+clock/RAII overhead and exclude other rules. Together with opt-in
+`elim_attempt_timings`, the observer can separate candidate discovery,
+HH/Omega and Elim, but any residual root Reduction span also includes loop,
+branch selection and dispatch. Do not treat independently activated timer
+modes as exact uninstrumented counterfactuals. The enabled mode must be
+benchmarked against matched Stage-Ledger-only mode on the same binary and
+hardware before deciding if per-rule timer perturbation is acceptable.
+
 ## Initial evidence
 
 The first successful native stage experiment is source-pinned at

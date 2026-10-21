@@ -44,6 +44,7 @@ def test_rust_structural_probe_ffi_is_opt_in_and_semantically_neutral(monkeypatc
                - stage["total_native_wall_seconds"]) < 1e-6
 
     assert "elim_attempt_timings" not in stage
+    assert "other_rule_timings" not in stage
     records = stage["structural_elim_attempts"]
     assert records, "H/H circuit should exercise actual native Elim attempts"
     expected_keys = {"k_r", "l_r", "v_r", "d_r", "w_redundant_estimated"}
@@ -75,9 +76,26 @@ def test_rust_structural_probe_ffi_is_opt_in_and_semantically_neutral(monkeypatc
         timed_stage["exclusive_seconds"]["reduction"] + 1e-6
     )
 
+    monkeypatch.setenv("QUPRS_OTHER_RULE_TIMING", "1")
+    separate = check()
+    assert separate["status"] == unprofiled["status"]
+    assert separate["stats"] == unprofiled["stats"]
+    other = separate["stage_ledger"]["other_rule_timings"]
+    assert other
+    assert any(x["rule"] == "candidate_discovery" for x in other)
+    assert all(set(x) == {"rule", "elapsed_ns", "success", "candidate_count",
+                          "within_reduction"} for x in other)
+    assert all(x["elapsed_ns"] >= 0 and type(x["elapsed_ns"]) is int
+               and type(x["success"]) is bool
+               and type(x["within_reduction"]) is bool for x in other)
+    assert sum(x["elapsed_ns"] for x in other if x["within_reduction"]) / 1e9 <= (
+        separate["stage_ledger"]["exclusive_seconds"]["reduction"] + 1e-5
+    )
+
     monkeypatch.delenv("QUPRS_STAGE_LEDGER", raising=False)
     after = check()
     assert "stage_ledger" not in after
     assert after["status"] == unprofiled["status"]
     assert after["stats"] == unprofiled["stats"]
     monkeypatch.delenv("QUPRS_ELIM_TIMING", raising=False)
+    monkeypatch.delenv("QUPRS_OTHER_RULE_TIMING", raising=False)

@@ -18,6 +18,8 @@ struct Recorder {
     structural_elim_attempts: Vec<ElimStructuralSample>,
     elim_timing_enabled: bool,
     elim_attempt_timings: Vec<ElimAttemptTiming>,
+    other_rule_timing_enabled: bool,
+    other_rule_timings: Vec<RuleTimingSample>,
 }
 
 thread_local! {
@@ -34,20 +36,29 @@ impl Session {
         // Timing is a second, independent opt-in: no timing allocations or
         // Instant reads if only the ordinary stage ledger is enabled.
         let timing_enabled = std::env::var("QUPRS_ELIM_TIMING").ok().as_deref() == Some("1");
-        Self::start_with_elim_timing(enabled, timing_enabled)
+        let other_timing_enabled = enabled &&
+            std::env::var("QUPRS_OTHER_RULE_TIMING").ok().as_deref() == Some("1");
+        Self::start_with_rule_timing(enabled, timing_enabled, other_timing_enabled)
     }
 
     fn start(enabled: bool) -> Option<Self> {
-        Self::start_with_elim_timing(enabled, false)
+        Self::start_with_rule_timing(enabled, false, false)
     }
 
     fn start_with_elim_timing(enabled: bool, timing_enabled: bool) -> Option<Self> {
+        Self::start_with_rule_timing(enabled, timing_enabled, false)
+    }
+
+    fn start_with_rule_timing(
+        enabled: bool, elim_timing_enabled: bool, other_rule_timing_enabled: bool
+    ) -> Option<Self> {
         if !enabled {
             return None;
         }
         let previous = RECORDER.with(|cell| {
             cell.replace(Some(Recorder {
-                elim_timing_enabled: timing_enabled,
+                elim_timing_enabled,
+                other_rule_timing_enabled,
                 ..Recorder::default()
             }))
         });
@@ -134,6 +145,71 @@ pub struct ElimStructuralSample {
     pub w_redundant_estimated: usize,
 }
 
+/// Rule discovery/HH/Omega timing is a third, independent opt-in stream.
+/// These clocks are nested in the root Reduction wall and never added to it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleTimingSample {
+    pub rule: &'static str,
+    pub elapsed_ns: u64,
+    pub success: bool,
+    pub candidate_count: usize,
+    pub within_reduction: bool,
+}
+
+pub(crate) struct RuleTimingGuard {
+    rule: &'static str,
+    started: Instant,
+    success: bool,
+    candidate_count: usize,
+    within_reduction: bool,
+}
+
+impl RuleTimingGuard {
+    pub(crate) fn mark_success(&mut self) { self.success = true; }
+    pub(crate) fn set_candidates(&mut self, count: usize) {
+        self.candidate_count = count;
+    }
+}
+
+impl Drop for RuleTimingGuard {
+    fn drop(&mut self) {
+        let elapsed_ns = self.started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+        RECORDER.with(|cell| {
+            if let Some(recorder) = cell.borrow_mut().as_mut() {
+                if recorder.other_rule_timing_enabled {
+                    recorder.other_rule_timings.push(RuleTimingSample {
+                        rule: self.rule,
+                        elapsed_ns,
+                        success: self.success,
+                        candidate_count: self.candidate_count,
+                        within_reduction: self.within_reduction,
+                    });
+                }
+            }
+        });
+    }
+}
+
+/// No Instant read or allocation when no active session or the third flag
+/// QUPRS_OTHER_RULE_TIMING is absent. The label is restricted to known stages.
+pub(crate) fn time_rule(
+    rule: &'static str, candidate_count: usize
+) -> Option<RuleTimingGuard> {
+    debug_assert!(matches!(rule, "candidate_discovery" | "hh" | "omega"));
+    let within_reduction = RECORDER.with(|cell| {
+        let borrow = cell.borrow();
+        let recorder = borrow.as_ref()?;
+        recorder.other_rule_timing_enabled.then_some(recorder.reduction_depth > 0)
+    })?;
+    Some(RuleTimingGuard {
+        rule,
+        started: Instant::now(),
+        success: false,
+        candidate_count,
+        within_reduction,
+    })
+}
+
 /// A dedicated elapsed clock for the Elim rule body, excluding structural
 /// snapshot scans. Each timing references the corresponding structural sample.
 pub(crate) struct ElimAttemptGuard {
@@ -212,6 +288,8 @@ pub struct ExclusiveLedger {
     pub structural_elim_attempts: Vec<ElimStructuralSample>,
     pub elim_timing_enabled: bool,
     pub elim_attempt_timings: Vec<ElimAttemptTiming>,
+    pub other_rule_timing_enabled: bool,
+    pub other_rule_timings: Vec<RuleTimingSample>,
     pub closure_error_seconds: f64,
     pub has_stage_overlap: bool,
 }
@@ -262,6 +340,8 @@ impl Recorder {
             structural_elim_attempts: self.structural_elim_attempts,
             elim_timing_enabled: self.elim_timing_enabled,
             elim_attempt_timings: self.elim_attempt_timings,
+            other_rule_timing_enabled: self.other_rule_timing_enabled,
+            other_rule_timings: self.other_rule_timings,
             closure_error_seconds: closure,
             has_stage_overlap: overlap,
         }
@@ -447,6 +527,64 @@ mod tests {
         });
         assert!(guard.is_none());
         assert!(!invoked.get());
+    }
+
+    #[test]
+    fn independent_rule_timers_cover_discovery_hh_and_omega_with_nested_scope() {
+        use crate::pathsum::PathSum;
+        use crate::rational::{PhaseCoeff, Rational};
+        use crate::gates::{QuantumGates, Side};
+        let session = Session::start_with_rule_timing(true, true, true).unwrap();
+
+        let mut ps = PathSum::new(1);
+        ps.v.path_vars.insert(9);
+        {
+            let _root = span("reduction");
+            let vars = ps.get_reducible_vars();
+            assert_eq!(vars, vec![9]);
+        }
+
+        let mut hh = PathSum::new(1);
+        hh.set_auto_reduce(false);
+        hh.apply_h(0, Side::Ket);
+        hh.apply_h(0, Side::Ket);
+        let hh_candidates = hh.get_reducible_vars();
+        assert!(hh.try_reduce_hh(&hh_candidates));
+        assert!(!hh.try_reduce_hh(&[]));
+
+        let mut omega = PathSum::new(1);
+        omega.v.path_vars.insert(7);
+        omega.p.add_term(vec![7], PhaseCoeff::new_constant(Rational::new(1, 4)));
+        assert!(omega.try_reduce_omega(&[7]));
+        assert!(!omega.try_reduce_omega(&[]));
+
+        let ledger = session.snapshot(1.0, 0.5);
+        assert!(ledger.other_rule_timing_enabled);
+        assert!(ledger.other_rule_timings.iter().any(|t|
+            t.rule == "candidate_discovery" && t.candidate_count == 1
+            && t.success && t.within_reduction));
+        assert!(ledger.other_rule_timings.iter().any(|t| t.rule == "hh" && t.success));
+        assert!(ledger.other_rule_timings.iter().any(|t| t.rule == "hh" && !t.success));
+        assert!(ledger.other_rule_timings.iter().any(|t| t.rule == "omega" && t.success));
+        assert!(ledger.other_rule_timings.iter().any(|t| t.rule == "omega" && !t.success));
+        for t in &ledger.other_rule_timings {
+            assert!(t.elapsed_ns > 0);
+            assert!(matches!(t.rule, "candidate_discovery" | "hh" | "omega"));
+        }
+        drop(session);
+        assert!(time_rule("hh", 0).is_none());
+    }
+
+    #[test]
+    fn rule_timing_without_active_opt_in_does_not_emit_any_record() {
+        let session = Session::start_with_rule_timing(true, false, false).unwrap();
+        assert!(time_rule("omega", 5).is_none());
+        let ledger = session.snapshot(1.0, 0.1);
+        assert!(!ledger.other_rule_timing_enabled);
+        assert!(ledger.other_rule_timings.is_empty());
+        drop(session);
+        assert!(Session::start_with_rule_timing(false, false, true).is_none());
+        assert!(time_rule("candidate_discovery", 0).is_none());
     }
 
 }

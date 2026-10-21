@@ -92,6 +92,37 @@ are performed. Opt-in detailed records may grow large on long runs.
 Rule-level exclusive timing and a predictive cost model remain future
 experiments.
 
+
+## Optional per-Elim rule-body clock (separate opt-in)
+
+To compare pre-Elim `K/L/V/D/W_redundant_estimated` structure with individual
+Elim operation time, enable **both** `QUPRS_STAGE_LEDGER=1` and
+`QUPRS_ELIM_TIMING=1`. This adds an optional
+`stage_ledger.elim_attempt_timings` array. Ordinary results and the existing
+Stage Ledger JSON schema are unchanged when the second flag is unset.
+
+Each timing record is `{structural_index, elapsed_ns, success}`. Indices refer
+to `structural_elim_attempts`, success indicates whether Elim removed any
+variable, and the monotonic Rust timer starts **after** structural feature
+extraction and ends at the end of the Elim rule body (including its actual
+phase-used-vars scan, candidate scan, mutation and bookkeeping). Thus
+`elapsed_ns` excludes the extra `K/L/V/D` feature scans but includes
+the timer's own `Instant` call overhead. This is a *perturbed measurement*,
+not the uninstrumented counterfactual cost.
+
+The sum of per-Elim times for nested `full_reduce` calls is contained within
+the existing non-overlapping root-level `reduction` time; **do not add it**
+to the root stage time. If a direct `try_reduce_elim` is called outside
+`full_reduce`, its timer correctly exists but need not belong to any root
+Reduction span. Timing outcomes are recorded both for successful and
+unsuccessful attempts, with original sample ordering retained.
+
+This remains a diagnostic-only research feature, not an adaptive scheduler or
+a speedup claim. Compare off / structural-only / timed instrumentation on the
+same binary and host to assess timing perturbation; evaluate family-grouped
+generalization on *distinct circuits*, never count repeated runs of the same
+structure as independent predictor training data.
+
 ## Initial evidence
 
 The first successful native stage experiment is source-pinned at

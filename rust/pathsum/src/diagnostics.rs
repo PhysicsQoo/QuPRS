@@ -16,6 +16,8 @@ struct Recorder {
     max_reduction_depth: u32,
     solver_spawns: u64,
     structural_elim_attempts: Vec<ElimStructuralSample>,
+    elim_timing_enabled: bool,
+    elim_attempt_timings: Vec<ElimAttemptTiming>,
 }
 
 thread_local! {
@@ -29,14 +31,26 @@ pub(crate) struct Session {
 impl Session {
     pub(crate) fn from_environment() -> Option<Self> {
         let enabled = std::env::var("QUPRS_STAGE_LEDGER").ok().as_deref() == Some("1");
-        Self::start(enabled)
+        // Timing is a second, independent opt-in: no timing allocations or
+        // Instant reads if only the ordinary stage ledger is enabled.
+        let timing_enabled = std::env::var("QUPRS_ELIM_TIMING").ok().as_deref() == Some("1");
+        Self::start_with_elim_timing(enabled, timing_enabled)
     }
 
     fn start(enabled: bool) -> Option<Self> {
+        Self::start_with_elim_timing(enabled, false)
+    }
+
+    fn start_with_elim_timing(enabled: bool, timing_enabled: bool) -> Option<Self> {
         if !enabled {
             return None;
         }
-        let previous = RECORDER.with(|cell| cell.replace(Some(Recorder::default())));
+        let previous = RECORDER.with(|cell| {
+            cell.replace(Some(Recorder {
+                elim_timing_enabled: timing_enabled,
+                ..Recorder::default()
+            }))
+        });
         Some(Self { previous })
     }
 
@@ -120,25 +134,71 @@ pub struct ElimStructuralSample {
     pub w_redundant_estimated: usize,
 }
 
-/// The closure is never called without an explicitly enabled TLS session.
-pub(crate) fn observe_elim_attempt<F>(measure: F)
+/// A dedicated elapsed clock for the Elim rule body, excluding structural
+/// snapshot scans. Each timing references the corresponding structural sample.
+pub(crate) struct ElimAttemptGuard {
+    structural_index: usize,
+    started: Instant,
+    success: bool,
+}
+
+impl ElimAttemptGuard {
+    pub(crate) fn mark_success(&mut self) {
+        self.success = true;
+    }
+}
+
+impl Drop for ElimAttemptGuard {
+    fn drop(&mut self) {
+        let elapsed_ns = self.started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+        RECORDER.with(|cell| {
+            if let Some(recorder) = cell.borrow_mut().as_mut() {
+                if recorder.elim_timing_enabled {
+                    recorder.elim_attempt_timings.push(ElimAttemptTiming {
+                        structural_index: self.structural_index,
+                        elapsed_ns,
+                        success: self.success,
+                    });
+                }
+            }
+        });
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ElimAttemptTiming {
+    pub structural_index: usize,
+    pub elapsed_ns: u64,
+    pub success: bool,
+}
+
+/// The closure is never called unless an explicit stage-ledger session exists.
+/// The rule-body clock starts only *after* pre-Elim feature extraction.
+pub(crate) fn observe_elim_attempt<F>(measure: F) -> Option<ElimAttemptGuard>
 where
     F: FnOnce() -> (usize, usize, usize, usize),
 {
-    if !RECORDER.with(|cell| cell.borrow().is_some()) {
-        return;
-    }
+    let timing_enabled = RECORDER.with(|cell| {
+        cell.borrow().as_ref().map(|r| r.elim_timing_enabled)
+    })?;
     let (k_r, l_r, v_r, d_r) = measure();
     let sample = ElimStructuralSample {
         k_r, l_r, v_r, d_r,
         // Historical pre-Hoist redundant scan proxy; never measured time.
         w_redundant_estimated: k_r.saturating_sub(1).saturating_mul(l_r),
     };
-    RECORDER.with(|cell| {
-        if let Some(recorder) = cell.borrow_mut().as_mut() {
-            recorder.structural_elim_attempts.push(sample);
-        }
+    let structural_index = RECORDER.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let recorder = borrow.as_mut().expect("active Elim stage recorder");
+        let index = recorder.structural_elim_attempts.len();
+        recorder.structural_elim_attempts.push(sample);
+        index
     });
+    timing_enabled.then(|| ElimAttemptGuard {
+        structural_index,
+        started: Instant::now(),
+        success: false,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +210,8 @@ pub struct ExclusiveLedger {
     pub solver_child_spawns: u64,
     pub reduction_max_depth: u32,
     pub structural_elim_attempts: Vec<ElimStructuralSample>,
+    pub elim_timing_enabled: bool,
+    pub elim_attempt_timings: Vec<ElimAttemptTiming>,
     pub closure_error_seconds: f64,
     pub has_stage_overlap: bool,
 }
@@ -198,6 +260,8 @@ impl Recorder {
             solver_child_spawns: self.solver_spawns,
             reduction_max_depth: self.max_reduction_depth,
             structural_elim_attempts: self.structural_elim_attempts,
+            elim_timing_enabled: self.elim_timing_enabled,
+            elim_attempt_timings: self.elim_attempt_timings,
             closure_error_seconds: closure,
             has_stage_overlap: overlap,
         }
@@ -325,6 +389,64 @@ mod tests {
         assert_eq!(session.snapshot(1.0, 0.1).structural_elim_attempts.len(), 1);
         drop(session);
         assert!(span("reduction").is_none());
+    }
+
+    #[test]
+    fn elim_body_timing_indices_and_success_outcomes_are_separate_from_features() {
+        use crate::pathsum::PathSum;
+        use crate::rational::{PhaseCoeff, Rational};
+        let session = Session::start_with_elim_timing(true, true).unwrap();
+        let mut success = PathSum::new(1);
+        success.v.path_vars.insert(7);
+        let candidates = success.get_reducible_vars();
+        assert!(success.try_reduce_elim(&candidates));
+
+        let mut failure = PathSum::new(1);
+        failure.v.path_vars.insert(9);
+        failure.p.add_term(vec![9], PhaseCoeff::new_constant(Rational::new(1, 2)));
+        let candidates = failure.get_reducible_vars();
+        assert!(!failure.try_reduce_elim(&candidates));
+        assert!(!failure.try_reduce_elim(&[]));
+
+        let ledger = session.snapshot(1.0, 0.2);
+        assert!(ledger.elim_timing_enabled);
+        assert_eq!(ledger.structural_elim_attempts.len(), 3);
+        assert_eq!(ledger.elim_attempt_timings.len(), 3);
+        for (index, sample) in ledger.elim_attempt_timings.iter().enumerate() {
+            assert_eq!(sample.structural_index, index);
+        }
+        assert_eq!(ledger.elim_attempt_timings.iter().map(|t| t.success)
+            .collect::<Vec<_>>(), vec![true, false, false]);
+        drop(session);
+        assert!(span("reduction").is_none());
+    }
+
+    #[test]
+    fn ordinary_stage_ledger_has_no_elim_body_clocks() {
+        use crate::pathsum::PathSum;
+        let session = Session::start(true).unwrap();
+        let mut ps = PathSum::new(1);
+        ps.v.path_vars.insert(9);
+        let candidates = ps.get_reducible_vars();
+        assert!(ps.try_reduce_elim(&candidates));
+        let ledger = session.snapshot(1.0, 0.1);
+        assert!(!ledger.elim_timing_enabled);
+        assert!(ledger.elim_attempt_timings.is_empty());
+        assert_eq!(ledger.structural_elim_attempts.len(), 1);
+    }
+
+    #[test]
+    fn timing_flag_without_stage_session_never_scans_or_records() {
+        use std::cell::Cell;
+        let invoked = Cell::new(false);
+        let session = Session::start_with_elim_timing(false, true);
+        assert!(session.is_none());
+        let guard = observe_elim_attempt(|| {
+            invoked.set(true);
+            (1, 1, 1, 1)
+        });
+        assert!(guard.is_none());
+        assert!(!invoked.get());
     }
 
 }

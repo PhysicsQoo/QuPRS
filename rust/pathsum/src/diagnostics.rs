@@ -427,7 +427,8 @@ mod tests {
         let session = Session::start(true).unwrap();
         let mut ps = PathSum::new(1);
         ps.v.path_vars.insert(9);
-        assert!(ps.try_reduce_elim(&ps.get_reducible_vars()));
+        let candidates = ps.get_reducible_vars();
+        assert!(ps.try_reduce_elim(&candidates));
         let ledger = session.snapshot(1.0, 0.1);
         assert!(!ledger.elim_timing_enabled);
         assert!(ledger.elim_attempt_timings.is_empty());

@@ -43,7 +43,7 @@ permissions:
 jobs:
   verify_shard_coverage:
     name: Verify CodSpeed five-shard coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout benchmark sources
         uses: actions/checkout@v4
@@ -74,7 +74,7 @@ jobs:
   codspeed:
     name: Run benchmarks
     needs: verify_shard_coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.12"]

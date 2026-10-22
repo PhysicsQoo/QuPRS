@@ -61,7 +61,7 @@ jobs:
   # ====================================================================
   build-and-save-baseline:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.12"]
@@ -87,7 +87,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
-          key: ubuntu-latest-benchmark-cargo-v1
+          key: ubuntu-24.04-benchmark-cargo-v1
 
       - name: Install system dependencies
         run: |
@@ -197,7 +197,7 @@ jobs:
     permissions:
       actions: read  # Required for accessing workflow history.
       pull-requests: write  # Needed for commenting on PRs.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.12"]
@@ -223,7 +223,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
-          key: ubuntu-latest-benchmark-cargo-v1
+          key: ubuntu-24.04-benchmark-cargo-v1
 
       # Step 2: Fetch baseline from main branch (Moved up)
       - name: Fetch baseline

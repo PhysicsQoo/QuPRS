@@ -78,6 +78,12 @@ jobs:
           python -m pytest -q \
             .diagnostics/exact_angle_native/test_native_red.py::test_native_control_semantics_remain_green \
             --junitxml=exact-angle-native-results/control-junit.xml
+      - name: Enforce no WMC near-unity strict equivalence false positives
+        run: |
+          python -m pytest -q \
+            .diagnostics/exact_angle_native/test_native_red.py::test_native_wmc_near_unity_is_not_exact_proof \
+            .diagnostics/exact_angle_native/test_native_red.py::test_native_qpe_hybrid_does_not_manufacture_equivalence \
+            --junitxml=exact-angle-native-results/wmc-strict-safety-junit.xml
       - name: Validate native Graphstate16 strict source negative against Arb witness
         run: |
           python -m pytest -q \

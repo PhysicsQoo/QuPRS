@@ -105,6 +105,34 @@ def test_native_source_exact_contract_red(case, method, strategy):
         )
 
 
+@pytest.mark.parametrize("solver", ["gpmc", "ganak"])
+@pytest.mark.parametrize("delta", ["0.001", "0.000001"])
+def test_native_wmc_near_unity_is_not_exact_proof(solver, delta):
+    # Real native solver calls, not monkeypatched counts. A count printed
+    # close to one is never an equivalence certificate.
+    result = _pathsum_rust.check_equivalence(
+        QASM_HEADER, rz(delta), method="wmc_only", strategy="Naive",
+        tool_name=solver, timeout=30,
+    )
+    assert result["status"] == "Unknown", (solver, delta, result["status"])
+    assert result.get("wmc_solver_time_sec") is not None
+
+
+@pytest.mark.parametrize("solver", ["gpmc", "ganak"])
+@pytest.mark.parametrize("strategy", ["Naive", "Proportional"])
+def test_native_qpe_hybrid_does_not_manufacture_equivalence(solver, strategy):
+    lhs, rhs = qpe()
+    result = _pathsum_rust.check_equivalence(
+        lhs, rhs, method="hybrid", strategy=strategy,
+        tool_name=solver, timeout=30,
+    )
+    # The independent Arb source proof is negative. A full native negative
+    # certificate is still missing, so Unknown is sound but incomplete.
+    assert result["status"] in {"Unknown", "Not Equivalent"}, (
+        solver, strategy, result["status"],
+    )
+
+
 GRAPH = (
     "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
     "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",

@@ -145,6 +145,128 @@ def certify_clifford_tableau_difference(circuit1, circuit2):
     return "not_equivalent" if a != b else None
 
 
+
+def _source_rz_delta_vector(circuit1, circuit2):
+    """Reconstruct exact binary-rational angle differences for certificate verification."""
+    if not _source_quantum_circuits(circuit1, circuit2):
+        return None
+    totals = [Fraction(0) for _ in range(circuit1.num_qubits)]
+    for sign, circuit in ((1, circuit1), (-1, circuit2)):
+        for instruction in circuit.data:
+            if instruction.operation.name != "rz":
+                return None
+            if len(instruction.qubits) != 1 or len(instruction.operation.params) != 1:
+                return None
+            angle = instruction.operation.params[0]
+            if isinstance(angle, bool) or type(angle) not in (int, float):
+                return None
+            try:
+                exact = Fraction(angle)
+            except (ValueError, OverflowError, TypeError):
+                return None
+            if exact.numerator.bit_length() > 512 or exact.denominator.bit_length() > 512:
+                return None
+            bit = circuit.find_bit(instruction.qubits[0]).index
+            totals[bit] += sign * exact
+            if (totals[bit].numerator.bit_length() > 1024
+                    or totals[bit].denominator.bit_length() > 1024):
+                return None
+    return totals
+
+
+def make_source_witness_certificate(circuit1, circuit2):
+    """Produce a portable small witness without exposing solver numerics as proof.
+
+    Certificates are meaningful only with the original Qiskit inputs and
+    should be checked with verify_source_witness_certificate before use.
+    """
+    deltas = _source_rz_delta_vector(circuit1, circuit2)
+    if deltas is not None:
+        if all(delta == 0 for delta in deltas):
+            return {
+                "schema": "quprs-source-certificate-v1",
+                "kind": "rz-exact-cancellation",
+                "status": "equivalent",
+                "provenance": "qiskit-typed-binary-rational-parameters",
+            }
+        for bit, delta in enumerate(deltas):
+            if 0 < abs(delta) < 6:
+                return {
+                    "schema": "quprs-source-certificate-v1",
+                    "kind": "rz-basis-inequality",
+                    "status": "not_equivalent",
+                    "qubit": bit,
+                    "numerator": str(delta.numerator),
+                    "denominator": str(delta.denominator),
+                    "provenance": "qiskit-typed-binary-rational-parameters",
+                }
+        return None
+    if certify_clifford_tableau_difference(circuit1, circuit2) != "not_equivalent":
+        return None
+    from qiskit.quantum_info import Clifford
+    a = Clifford(circuit1).tableau
+    b = Clifford(circuit2).tableau
+    for row in range(a.shape[0]):
+        for col in range(a.shape[1]):
+            if a[row, col] != b[row, col]:
+                return {
+                    "schema": "quprs-source-certificate-v1",
+                    "kind": "clifford-tableau-inequality",
+                    "status": "not_equivalent",
+                    "row": row,
+                    "column": col,
+                    "left": int(a[row, col]),
+                    "right": int(b[row, col]),
+                    "provenance": "exact-qiskit-clifford-tableau",
+                }
+    return None
+
+
+def verify_source_witness_certificate(circuit1, circuit2, certificate):
+    """Verifier independent of Ganak, GPMC, threshold decisions, and Rust IR."""
+    if not isinstance(certificate, dict):
+        return False
+    if certificate.get("schema") != "quprs-source-certificate-v1":
+        return False
+    kind, status = certificate.get("kind"), certificate.get("status")
+    if kind in ("rz-exact-cancellation", "rz-basis-inequality"):
+        deltas = _source_rz_delta_vector(circuit1, circuit2)
+        if deltas is None:
+            return False
+        if kind == "rz-exact-cancellation":
+            return status == "equivalent" and all(d == 0 for d in deltas)
+        bit = certificate.get("qubit")
+        if type(bit) is not int or bit < 0 or bit >= len(deltas):
+            return False
+        try:
+            num, den = int(certificate["numerator"]), int(certificate["denominator"])
+            claimed = Fraction(num, den)
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            return False
+        return (status == "not_equivalent"
+                and claimed == deltas[bit] and 0 < abs(claimed) < 6)
+    if kind != "clifford-tableau-inequality" or status != "not_equivalent":
+        return False
+    if not _source_quantum_circuits(circuit1, circuit2):
+        return False
+    if any(i.operation.name not in _CLIFFORD_GATES
+           for circuit in (circuit1, circuit2) for i in circuit.data):
+        return False
+    row, col = certificate.get("row"), certificate.get("column")
+    if type(row) is not int or type(col) is not int:
+        return False
+    from qiskit.quantum_info import Clifford
+    try:
+        a, b = Clifford(circuit1).tableau, Clifford(circuit2).tableau
+        if (row < 0 or row >= a.shape[0] or col < 0 or col >= a.shape[1]):
+            return False
+        return (int(a[row, col]) == certificate.get("left")
+                and int(b[row, col]) == certificate.get("right")
+                and a[row, col] != b[row, col])
+    except (ValueError, TypeError, NotImplementedError):
+        return False
+
+
 def certify_source_witness(circuit1, circuit2):
     """Narrow solver-independent source witness; no positive WMC claims."""
     proof = certify_rz_basis_witness(circuit1, circuit2)

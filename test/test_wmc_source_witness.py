@@ -7,6 +7,8 @@ from QuPRS.utils.wmc_certificates import (
     certify_source_witness,
     certify_rz_basis_witness,
     certify_clifford_tableau_difference,
+    make_source_witness_certificate,
+    verify_source_witness_certificate,
 )
 
 
@@ -63,3 +65,30 @@ def test_multiqubit_basis_witness_is_local_and_exact():
     b.rz(0.125, 0)
     b.rz(-0.2, 2)
     assert certify_rz_basis_witness(a, b) == "not_equivalent"
+
+def test_independent_rz_certificate_can_be_rechecked_and_detects_tampering():
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    b.rz(0.001, 0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["kind"] == "rz-basis-inequality"
+    assert verify_source_witness_certificate(a, b, certificate)
+    changed = dict(certificate, numerator="0")
+    assert not verify_source_witness_certificate(a, b, changed)
+
+
+def test_independent_clifford_certificate_can_be_rechecked_and_detects_tampering():
+    a, b = QuantumCircuit(2), QuantumCircuit(2)
+    b.cx(1, 0)
+    b.sx(0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["kind"] == "clifford-tableau-inequality"
+    assert verify_source_witness_certificate(a, b, certificate)
+    corrupted = dict(certificate, left=certificate["right"])
+    assert not verify_source_witness_certificate(a, b, corrupted)
+
+
+def test_equal_tableau_does_not_forge_strict_certificate():
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    b.z(0)
+    b.z(0)
+    assert make_source_witness_certificate(a, b) is None

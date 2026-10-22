@@ -184,3 +184,20 @@ def test_early_worker_exit_does_not_leave_mock_solver_behind(tmp_path):
         time.sleep(0.02)
     else:
         pytest.fail("Mock native solver remained alive after wrapper exit")
+
+
+def test_normal_worker_exit_requires_no_cleanup():
+    """A clean trial must remain admissible after Linux subreaper supervision."""
+    import sys
+    import pytest
+
+    if sys.platform != "linux":
+        pytest.skip("Subreaper supervision requires Linux")
+    outcome = module.run_bounded_trial(
+        [sys.executable, "-c", "print('done')"], 5.0
+    )
+    assert outcome["exit_code"] == 0
+    assert outcome["outer_timed_out"] is False
+    assert outcome["cleanup_needed"] is False
+    assert outcome["cleanup_error"] is None
+    assert outcome["stdout_tail"].strip() == "done"

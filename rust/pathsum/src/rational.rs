@@ -3,6 +3,28 @@
 use std::fmt;
 use std::ops::*;
 use std::collections::BTreeMap;
+use std::cell::Cell;
+
+// The old path-sum coefficient representation uses i64 numerators and
+// denominators. Exact arithmetic can exceed that domain even for valid
+// circuits. The legacy bounded approximation is allowed only as a diagnostic
+// placeholder, never as evidence for a certified equivalence status.
+// Each independent verification resets/reads this thread-local taint.
+thread_local! {
+    static LOST_EXACT_PHASE: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn reset_exact_phase_status() {
+    LOST_EXACT_PHASE.with(|flag| flag.set(false));
+}
+
+pub fn exact_phase_was_lost() -> bool {
+    LOST_EXACT_PHASE.with(Cell::get)
+}
+
+fn flag_uncertifiable_phase() {
+    LOST_EXACT_PHASE.with(|flag| flag.set(true));
+}
 
 // ============================================================================
 // 1. Rational (Phase Arithmetic: [0, 1) Interval)
@@ -55,14 +77,22 @@ impl fmt::Display for Rational {
 /// angles, a finite discrete phase certificate cannot tolerate silent
 /// continued-fraction replacement. Reject unrepresentable denominators.
 fn exact_rational_mod_i128(num: i128, den: i128) -> Rational {
-    assert_ne!(den, 0, "Zero denominator in exact phase arithmetic");
+    if den == 0 {
+        // A malformed division is uncertifiable, not a valid zero phase.
+        flag_uncertifiable_phase();
+        return Rational::ZERO;
+    }
     let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
     let remainder = num.rem_euclid(den);
     let common = gcd_i128(remainder, den);
     let n = remainder / common;
     let d = den / common;
-    assert!(n <= i64::MAX as i128 && d <= i64::MAX as i128,
-        "Exact discrete phase exceeded the i64 rational domain");
+    if n > i64::MAX as i128 || d > i64::MAX as i128 {
+        // Do not panic at the PyO3 boundary or silently certify a rounded
+        // coefficient. The caller must return Unknown without invoking WMC.
+        flag_uncertifiable_phase();
+        return Rational::from_f64((n as f64) / (d as f64));
+    }
     Rational::new(n as i64, d as i64)
 }
 
@@ -82,8 +112,7 @@ impl Sub for Rational {
     fn sub(self, rhs: Self) -> Self {
         let num = (self.numer as i128) * (rhs.denom as i128) - (rhs.numer as i128) * (self.denom as i128);
         let den = (self.denom as i128) * (rhs.denom as i128);
-        let (n, d) = reduce_and_cap_i128(num, den);
-        Self::new(n, d)
+        exact_rational_mod_i128(num, den)
     }
 }
 
@@ -532,5 +561,36 @@ mod exact_discrete_phase_certificate_tests {
         let factor: i64 = 1_000_000_000_000_000_001;
         assert_eq!((half * factor) + half, Rational::ZERO);
         assert_eq!((half * factor) - half, Rational::ZERO);
+    }
+
+    #[test]
+    fn oversized_coprime_denominators_fail_closed_without_panic() {
+        use super::{exact_phase_was_lost, reset_exact_phase_status};
+        reset_exact_phase_status();
+        let a = Rational::new(1, 4_294_967_291);
+        let b = Rational::new(1, 4_294_967_279);
+        let _ = a + b;
+        assert!(exact_phase_was_lost(), "unrepresentable exact phase must taint verdict");
+        reset_exact_phase_status();
+        assert!(!exact_phase_was_lost());
+    }
+
+    #[test]
+    fn oversized_subtraction_is_also_uncertifiable() {
+        use super::{exact_phase_was_lost, reset_exact_phase_status};
+        reset_exact_phase_status();
+        let a = Rational::new(1, 4_294_967_291);
+        let b = Rational::new(1, 4_294_967_279);
+        let _ = a - b;
+        assert!(exact_phase_was_lost());
+    }
+
+    #[test]
+    fn exactly_representable_large_modular_products_remain_certifiable() {
+        use super::{exact_phase_was_lost, reset_exact_phase_status};
+        reset_exact_phase_status();
+        let x = Rational::new(2, 7);
+        assert_eq!(x * i64::MAX, Rational::new(2 * (i64::MAX % 7), 7));
+        assert!(!exact_phase_was_lost());
     }
 }

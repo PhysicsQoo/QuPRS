@@ -87,6 +87,13 @@ def certify_rz_basis_witness(circuit1, circuit2):
     """
     if not _source_quantum_circuits(circuit1, circuit2):
         return None
+    # This witness proves *strict* equality when all RZ deltas cancel.
+    # A Qiskit circuit can carry an explicit global phase with no gates;
+    # omitting that state would manufacture a false positive.
+    for circuit in (circuit1, circuit2):
+        phase = circuit.global_phase
+        if type(phase) not in (int, float) or phase != 0:
+            return None
     totals = [Fraction(0) for _ in range(circuit1.num_qubits)]
     for sign, circuit in ((1, circuit1), (-1, circuit2)):
         for instruction in circuit.data:
@@ -150,6 +157,13 @@ def _source_rz_delta_vector(circuit1, circuit2):
     """Reconstruct exact binary-rational angle differences for certificate verification."""
     if not _source_quantum_circuits(circuit1, circuit2):
         return None
+    # This witness proves *strict* equality when all RZ deltas cancel.
+    # A Qiskit circuit can carry an explicit global phase with no gates;
+    # omitting that state would manufacture a false positive.
+    for circuit in (circuit1, circuit2):
+        phase = circuit.global_phase
+        if type(phase) not in (int, float) or phase != 0:
+            return None
     totals = [Fraction(0) for _ in range(circuit1.num_qubits)]
     for sign, circuit in ((1, circuit1), (-1, circuit2)):
         for instruction in circuit.data:

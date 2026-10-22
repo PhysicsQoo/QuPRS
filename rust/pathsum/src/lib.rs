@@ -84,6 +84,8 @@ pub fn check_equivalence(
     timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
     let global_start = Instant::now();
+    // A previous call on this thread must never taint an independent proof.
+    rational::reset_exact_phase_status();
     let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
         return Err(anyhow::anyhow!("timeout must be a positive number of seconds"));
@@ -150,7 +152,13 @@ pub fn check_equivalence(
     let mut tool_time = None;
     let mut wmc_time = None;
 
-    if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
+    // Once any phase exceeds the exact i64 representation, reduction and
+    // generated CNF cannot serve as evidence. Do not run a solver on a
+    // potentially rounded polynomial. Return explicit inconclusive status.
+    if status != EquivalenceStatus::Timeout
+        && !rational::exact_phase_was_lost()
+        && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown))
+    {
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
         
@@ -256,6 +264,12 @@ pub fn check_equivalence(
         }
     }
 
+    if rational::exact_phase_was_lost() && status != EquivalenceStatus::Timeout {
+        log::warn!(
+            "Exact phase outgrew the legacy i64 coefficient domain; refusing any equivalence certificate"
+        );
+        status = EquivalenceStatus::Unknown;
+    }
     let total_time = global_start.elapsed().as_secs_f64();
 
     Ok(EquivalenceCheckResult {

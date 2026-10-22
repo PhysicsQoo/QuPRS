@@ -514,3 +514,23 @@ impl Div<i64> for Angle {
         self
     }
 }
+#[cfg(test)]
+mod exact_discrete_phase_certificate_tests {
+    use super::Rational;
+
+    #[test]
+    fn discrete_phase_modulo_does_not_pass_through_binary64() {
+        let factor: i64 = 1_000_000_000_000_000_000;
+        let rational = Rational::new(1, 7);
+        assert_eq!(rational * factor, Rational::new(factor % 7, 7));
+        assert_eq!(rational * -factor, Rational::new(-(factor % 7), 7));
+    }
+
+    #[test]
+    fn repeated_large_phase_arithmetic_is_exact_modulo_one() {
+        let half = Rational::HALF;
+        let factor: i64 = 1_000_000_000_000_000_001;
+        assert_eq!((half * factor) + half, Rational::ZERO);
+        assert_eq!((half * factor) - half, Rational::ZERO);
+    }
+}

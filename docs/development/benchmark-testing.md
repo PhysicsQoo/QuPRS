@@ -27,11 +27,31 @@ MQT Table 2 separate from the Feynman comparator and extra inputs. The paper
 prose/table row-count discrepancy is recorded, not silently fixed.
 
 The helper in `test/_benchmark_outcomes.py` is deliberately called
-**outside** `benchmark(generate_test, ...)`. It keeps status handling
-consistent without changing measured code. `Timeout` and `MemoryOut` fail the individual benchmark execution, both
-under correctness CI and `--benchmark-only`, with an explicit resource-limit
-reason; they are never reported as skips or equivalence successes. Separate
-small fail-closed tests still provide independent semantic controls.
+**outside** `benchmark(generate_test, ...)`; measured code is unchanged.
+A benchmark `Timeout` or `MemoryOut` is **INCONCLUSIVE_RESOURCE**, never
+an equivalence proof, a valid timing sample, or proven code regression.
+Pytest transports this outcome with a distinctive skip reason prefixed
+`INCONCLUSIVE_RESOURCE`, which the JUnit auditor distinguishes from
+a normal `SKIP` for an intentionally unsupported/not-applicable test.
+
+`scripts/check_benchmark_evidence.py` validates all **32** historical
+benchmark node IDs, flags absent/duplicated identities and definitive
+failures, and exports a JSON report with completed, inconclusive and
+ordinary-skipped counts plus host/source provenance. A single
+resource-inconclusive case is reported, not automatically blamed on code
+or made a required CI failure. At least **one successfully completed case
+per MQT/Feynman cohort** is mandatory: if all cases in a cohort are skipped
+or inconclusive, coverage is BLOCKED rather than falsely called verified.
+Small deterministic semantic controls remain strict and independent.
+
+On main baseline publication, an incomplete sample must not be written
+into `benchmarks` branch history; all 32 cases are required for publication.
+The main baseline update is withheld on incomplete evidence without
+converting that shared-runner event into a new algorithm regression.
+For PRs, the independent coverage section shows partial/inconclusive
+cases even if the pytest job ends successfully. For evidence requiring
+a performance decision, repeat under matched runner conditions with
+a separate bounded trial; do not retry inside a CodSpeed timed function.
 
 ## Memory and time
 

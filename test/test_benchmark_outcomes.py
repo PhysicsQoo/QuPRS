@@ -14,6 +14,7 @@ def _result(status):
 def test_positive_benchmark_statuses(status):
     record = SimpleNamespace(extra_info={})
     assert_benchmark_result(_result(status), benchmark=record, file_name="example.qasm")
+    assert record.extra_info["verification_status"] == "PASS"
 
 
 @pytest.mark.parametrize("status", ["not_equivalent", "Unknown", "solver_error"])
@@ -24,12 +25,17 @@ def test_unexpected_benchmark_status_fails(status):
 
 
 @pytest.mark.parametrize("status", ["Timeout", "MemoryOut"])
-def test_resource_limits_fail_ci_instead_of_skipping(status):
+def test_resource_limits_are_inconclusive_not_proved(status):
     record = SimpleNamespace(extra_info={})
-    with pytest.raises(pytest.fail.Exception, match="Resource limited"):
-        assert_benchmark_result(_result(status), benchmark=record, file_name="example.qasm")
-    assert "not correctness pass" in record.extra_info["status"]
-    assert status in record.extra_info["status"]
+    with pytest.raises(pytest.skip.Exception, match="INCONCLUSIVE_RESOURCE"):
+        assert_benchmark_result(_result(status), benchmark=record,
+                                file_name="example.qasm", tool_name="gpmc",
+                                backend="rust")
+    assert record.extra_info["verification_status"] == "INCONCLUSIVE_RESOURCE"
+    assert record.extra_info["raw_status"] == status
+    assert record.extra_info["case"] == "example.qasm"
+    assert record.extra_info["solver"] == "gpmc"
+    assert record.extra_info["backend"] == "rust"
 
 
 def test_ganak_format_error_is_failure():

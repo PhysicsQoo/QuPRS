@@ -12,6 +12,7 @@ on:
       - 'test/**'
       - 'benchmarks/**'
       - 'scripts/paper_corpus_audit.py'
+      - 'scripts/check_benchmark_evidence.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'rust/**'
       - 'GPMC'        # Solver submodule pointer affects native CI coverage.
@@ -158,6 +159,10 @@ jobs:
           --html=pytest-results.html --self-contained-html 
           --cov=src/QuPRS --cov-report=xml --cov-report=html
 
+      - name: Audit representative benchmark outcomes
+        if: ${{ always() && !cancelled() }}
+        run: python scripts/check_benchmark_evidence.py --junit pytest-results.xml --json benchmark-evidence.json
+
       # ==========================================
       # Artifact Uploads
       # ==========================================
@@ -173,7 +178,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pytest-results-xml-${{ matrix.os }}-${{ matrix.python-version }}
-          path: pytest-results.xml
+          path: |
+            pytest-results.xml
+            benchmark-evidence.json
           
       - name: Upload coverage XML report  
         if: always()

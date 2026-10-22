@@ -47,5 +47,6 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch, backe
         backend=backend,
     )
     assert_benchmark_result(
-        result, benchmark=benchmark, file_name=file_name, tool_name=tool_name
+        result, benchmark=benchmark, file_name=file_name, tool_name=tool_name,
+        backend=backend,
     )

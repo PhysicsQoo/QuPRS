@@ -41,4 +41,5 @@ def test_all_benchmarks(benchmark, file_name, strategy, switch, backend):
     result = benchmark(
         generate_test, file_name, strategy=strategy, switch=switch, backend=backend
     )
-    assert_benchmark_result(result, benchmark=benchmark, file_name=file_name)
+    assert_benchmark_result(result, benchmark=benchmark, file_name=file_name,
+                            backend=backend)

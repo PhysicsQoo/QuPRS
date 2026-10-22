@@ -18,6 +18,7 @@ on:
       - 'scripts/benchmark_provenance.py'
       - 'scripts/generate_benchmark_report.py'
       - 'scripts/paper_corpus_audit.py'
+      - 'scripts/check_benchmark_evidence.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
@@ -38,6 +39,7 @@ on:
       - 'scripts/benchmark_provenance.py'
       - 'scripts/generate_benchmark_report.py'
       - 'scripts/paper_corpus_audit.py'
+      - 'scripts/check_benchmark_evidence.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
@@ -113,11 +115,23 @@ jobs:
 
       - name: Run benchmark and save results as JSON
         run: |
-          pytest --benchmark-only --benchmark-json=output.json
+          pytest --benchmark-only --benchmark-json=output.json --junitxml=main-benchmark-junit.xml
           python scripts/benchmark_provenance.py --output "$RUNNER_TEMP/main_baseline.provenance.json"
 
       - name: Verify benchmark input integrity
         run: python scripts/paper_corpus_audit.py --json "$RUNNER_TEMP/paper_corpus_sha256.json"
+
+      - name: Require complete evidence for baseline publication
+        id: baseline_coverage
+        continue-on-error: true
+        run: |
+          python scripts/check_benchmark_evidence.py \
+            --junit main-benchmark-junit.xml \
+            --json main-benchmark-evidence.json --require-complete
+
+      - name: Report withheld incomplete baseline
+        if: steps.baseline_coverage.outcome != 'success'
+        run: echo "::warning::No baseline update: benchmark evidence is incomplete."
 
       - name: Discard local changes to tracked files
         run: |
@@ -125,6 +139,7 @@ jobs:
           git checkout .
 
       - name: Process benchmark data (Generate Charts)
+        if: steps.baseline_coverage.outcome == 'success'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: QuPRS Benchmark History
@@ -137,6 +152,7 @@ jobs:
           fail-on-alert: false
 
       - name: Push results to benchmarks branch
+        if: steps.baseline_coverage.outcome == 'success'
         run: |
             # Set Git identity
             git config --global user.name 'github-actions[bot]'
@@ -263,7 +279,7 @@ jobs:
         id: benchmark_step 
         run: |
           # Default command: just run and save JSON
-          CMD="pytest --benchmark-only --benchmark-json=pr_benchmark.json"
+          CMD="pytest --benchmark-only --benchmark-json=pr_benchmark.json --junitxml=pr-benchmark-junit.xml"
           
           # If baseline exists and is not empty, add comparison args
           if [ -s "main_baseline.json" ] && [ "$(cat main_baseline.json)" != "{}" ]; then
@@ -284,6 +300,14 @@ jobs:
       - name: Verify benchmark input integrity
         run: python scripts/paper_corpus_audit.py --json paper_corpus_sha256.json
 
+      - name: Classify benchmark evidence for the PR
+        if: success() || failure()
+        run: |
+          python scripts/check_benchmark_evidence.py \
+            --junit pr-benchmark-junit.xml \
+            --json pr-benchmark-evidence.json \
+            --markdown pr-benchmark-evidence.md
+
       # Step 5: Generate benchmark report
       - name: Generate benchmark report
         if: success() || failure()
@@ -297,6 +321,13 @@ jobs:
             --expected-main-sha "$(git rev-parse origin/main)" \
             --benchmark-outcome "${{ steps.benchmark_step.outcome }}" \
             --report-file benchmark_report.md
+
+      - name: Include completeness classification in PR report
+        if: success() || failure()
+        run: |
+          if [ -f pr-benchmark-evidence.md ]; then
+            cat pr-benchmark-evidence.md >> benchmark_report.md
+          fi
 
       # Step 6: Comment on PR with benchmark results
       - name: Post benchmark results
@@ -331,3 +362,6 @@ jobs:
             pr_benchmark.provenance.json
             python_wmc_precision_profile.json
             paper_corpus_sha256.json
+            pr-benchmark-junit.xml
+            pr-benchmark-evidence.json
+            pr-benchmark-evidence.md

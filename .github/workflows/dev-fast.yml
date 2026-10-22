@@ -11,6 +11,7 @@ on:
       - 'rust/**'
       - 'benchmarks/**'
       - 'scripts/paper_corpus_audit.py'
+      - 'scripts/check_benchmark_evidence.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'GPMC'
       - '.gitmodules'
@@ -87,13 +88,25 @@ jobs:
         run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum
 
       - name: Run all Python correctness tests without report/coverage duplication
+        id: python_correctness
         run: python -m pytest -n auto -q -ra --junitxml=dev-fast-pytest.xml
+
+      - name: Audit representative benchmark outcomes
+        if: ${{ !cancelled() && steps.python_correctness.outcome != 'skipped' }}
+        run: |
+          python scripts/check_benchmark_evidence.py \
+            --junit dev-fast-pytest.xml \
+            --json dev-fast-benchmark-evidence.json \
+            --markdown dev-fast-benchmark-evidence.md
 
       - name: Upload Python test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dev-fast-pytest
-          path: dev-fast-pytest.xml
+          path: |
+            dev-fast-pytest.xml
+            dev-fast-benchmark-evidence.json
+            dev-fast-benchmark-evidence.md
           if-no-files-found: ignore
           retention-days: 14

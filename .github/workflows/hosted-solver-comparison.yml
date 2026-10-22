@@ -1,0 +1,110 @@
+name: Opt-in Hosted Solver Resource Comparison
+
+# One-shot research-branch workflow. Neither dev/main baseline nor status gates change.
+on:
+  push:
+    branches:
+      - research/fixed-host-resources-20261022
+    paths:
+      - '.github/workflows/hosted-solver-comparison.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-solver-comparison-research-20261022
+  cancel-in-progress: false
+
+jobs:
+  within-job-solver-comparison:
+    name: Hosted / GPMC Ganak Python Rust Walltime and sampled RSS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 155
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Check out exact source and bundled solver submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: hosted-solver-comparison-exploratory-v1
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Build exact-source Python and Rust backends
+        run: |
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+
+      - name: Record environment and paper QASM integrity
+        run: |
+          mkdir -p hosted-solver-evidence
+          git rev-parse HEAD > hosted-solver-evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > hosted-solver-evidence/source-tree.txt
+          cat /etc/os-release > hosted-solver-evidence/os-release.txt
+          uname -a > hosted-solver-evidence/kernel.txt
+          lscpu > hosted-solver-evidence/lscpu.txt
+          cat /proc/self/cgroup > hosted-solver-evidence/cgroup.txt
+          cat /proc/self/status > hosted-solver-evidence/process-status.txt
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > hosted-solver-evidence/start-utc.txt
+          rustc --version > hosted-solver-evidence/rustc.txt
+          python --version > hosted-solver-evidence/python-version.txt 2>&1
+          python -m pip freeze > hosted-solver-evidence/python-packages.txt
+          python scripts/paper_corpus_audit.py \
+            --json hosted-solver-evidence/paper-qasm-audit.json
+          if test -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; then
+            cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor \
+              > hosted-solver-evidence/cpu-governor-observed.txt
+          fi
+
+      - name: Run interleaved same-VM native solver resource observations
+        run: |
+          python -u scripts/hosted_solver_comparison.py \
+            --case grover4 --case qaoa7 --case qft16 \
+            --warmups 1 --repeats 4 \
+            --walltime 90 --solver-timeout 45 \
+            --rss-limit-mib 3072 --sample-ms 50 \
+            --total-budget-minutes 130 \
+            --output-dir hosted-solver-evidence/trials
+
+      - name: Seal raw environment and trial observations
+        if: always()
+        run: |
+          mkdir -p hosted-solver-evidence
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > hosted-solver-evidence/end-utc.txt
+          find hosted-solver-evidence -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > hosted-solver-evidence/SHA256SUMS
+
+      - name: Upload complete and incomplete scientific diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-solver-comparison-raw
+          path: hosted-solver-evidence/
+          if-no-files-found: error
+          retention-days: 90

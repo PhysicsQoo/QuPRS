@@ -36,6 +36,7 @@ _CASE_NAMES = {
     "qaoa7": ("mqt", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
     "qft16": ("mqt", "qft_nativegates_ibm_qiskit_opt0_16.qasm"),
     "vqe4": ("mqt", "vqe_nativegates_ibm_qiskit_opt0_4.qasm"),
+    "graphstate16": ("mqt", "graphstate_nativegates_ibm_qiskit_opt0_16.qasm"),
     "tof3": ("feynman", "tof_3.qasm"),
 }
 

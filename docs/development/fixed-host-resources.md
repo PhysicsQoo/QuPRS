@@ -121,3 +121,33 @@ python scripts/hosted_solver_comparison.py \
 The original `scripts/fixed_host_resource_repeats.py` and optional
 `quprs-research` self-hosted job remain available for a distinct
 controlled-environment study.
+
+
+## Additional paper cases: native solver eligibility (opt-in)
+
+The original three-case exploratory cohort remains the default. A separate,
+non-baseline `Opt-in Additional Solver Case Coverage` workflow first tests
+two additional **existing** MQT pairs, VQE4 and Graphstate16. The profiling
+resolver obtains the original method, strategy, source/transpiled order and
+QASM paths from `test/_benchmark_cases.py`; no algorithm or gate is changed.
+
+The native preflight runs outside every timed region and uses `strace` to
+verify a successful `execve` of the selected packaged GPMC or Ganak
+executable. For each candidate, both Python and Rust must independently
+show real solver launch and a positive equivalence result. A case with
+partial native coverage, a failed equivalence verdict or a missing native
+`execve` is explicitly **ineligible** for solver-comparison timing, even
+if reduction-only results otherwise appear equivalent. This prevents
+equating Path-sum Reduction performance with GPMC/Ganak execution.
+
+Only eligible cases are passed to the interleaved hosted resource observer
+with the unchanged warmup, four measured repeats, identical time/RSS
+limits, original QASM hashes and all raw evidence. The preflight may
+legitimately select zero cases; the workflow then reports an inconclusive
+experiment and uploads the negative eligibility evidence without quietly
+substituting another circuit. Such an outcome is informative and must not
+be relabelled as a solver performance result.
+
+The new cases are optional and are not appended to every existing
+CodSpeed/Pytest regression suite, so they do not expand the maintained
+baseline or introduce runtime-derived CI percentage gates.

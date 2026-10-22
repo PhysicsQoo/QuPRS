@@ -408,7 +408,7 @@ pub struct Angle {
 
 impl Angle {
     pub const fn new_constant(constant: FreeRational) -> Self {
-        Self { constant, symbols: BTreeMap::new() }
+        Self { constant, radians: None, symbols: BTreeMap::new() }
     }
 
     pub fn new_symbolic(symbol_id: u32, weight: FreeRational) -> Self {

@@ -87,11 +87,15 @@ def test_independent_clifford_certificate_can_be_rechecked_and_detects_tampering
     assert not verify_source_witness_certificate(a, b, corrupted)
 
 
-def test_equal_tableau_does_not_forge_strict_certificate():
+def test_equal_tableau_requires_exact_operator_for_strict_certificate():
     a, b = QuantumCircuit(1), QuantumCircuit(1)
     b.z(0)
     b.z(0)
-    assert make_source_witness_certificate(a, b) is None
+    assert certify_clifford_tableau_difference(a, b) is None
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["kind"] == "cyclotomic-operator-full"
+    assert certificate["status"] == "equivalent"
+    assert verify_source_witness_certificate(a, b, certificate)
 
 def test_rz_strict_equality_does_not_ignore_qiskit_global_phase():
     a, b = QuantumCircuit(1), QuantumCircuit(1)
@@ -130,3 +134,78 @@ def test_clifford_witness_rejects_modified_input_circuit():
     certificate = make_source_witness_certificate(a, b)
     assert verify_source_witness_certificate(a, b, certificate)
     assert not verify_source_witness_certificate(a, QuantumCircuit(2), certificate)
+
+
+
+def test_cyclotomic_hadamard_involution_strict_identity():
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    b.h(0)
+    b.h(0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["kind"] == "cyclotomic-operator-full"
+    assert certificate["status"] == "equivalent"
+    assert verify_source_witness_certificate(a, b, certificate)
+
+
+def test_cyclotomic_t_squared_equals_s_with_exact_eighth_root():
+    a, b = QuantumCircuit(2), QuantumCircuit(2)
+    a.t(1)
+    a.t(1)
+    b.s(1)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["status"] == "equivalent"
+    assert verify_source_witness_certificate(a, b, certificate)
+
+
+def test_cyclotomic_proves_nonclifford_relative_phase():
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    b.t(0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["kind"] == "cyclotomic-operator-minor"
+    assert certificate["status"] == "not_equivalent"
+    assert verify_source_witness_certificate(a, b, certificate)
+    assert not verify_source_witness_certificate(a, b, dict(certificate, anchor=[0, 1]))
+
+
+def test_cyclotomic_distinguishes_global_phase_from_strict_equality():
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    for name in ("s", "x", "s", "x"):
+        getattr(b, name)(0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["kind"] == "cyclotomic-operator-full"
+    assert certificate["status"] == "equivalent*"
+    assert verify_source_witness_certificate(a, b, certificate)
+
+
+def test_cyclotomic_handles_toffoli_and_disjoint_qubits():
+    a, b = QuantumCircuit(3), QuantumCircuit(3)
+    a.ccx(0, 1, 2)
+    b.ccx(0, 1, 2)
+    b.x(2)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["status"] == "not_equivalent"
+    assert verify_source_witness_certificate(a, b, certificate)
+
+
+def test_cyclotomic_source_mutations_invalidate_certificate():
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    b.h(0)
+    b.t(0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["status"] == "not_equivalent"
+    mutated = QuantumCircuit(1)
+    mutated.h(0)
+    mutated.tdg(0)
+    assert not verify_source_witness_certificate(a, mutated, certificate)
+
+
+def test_cyclotomic_out_of_scope_is_fail_closed():
+    a, b = QuantumCircuit(5), QuantumCircuit(5)
+    b.t(0)
+    assert make_source_witness_certificate(a, b) is None
+    a1, b1 = QuantumCircuit(1), QuantumCircuit(1)
+    b1.rx(0.125, 0)
+    assert make_source_witness_certificate(a1, b1) is None
+    b1 = QuantumCircuit(1)
+    b1.global_phase = 0.01
+    assert make_source_witness_certificate(a1, b1) is None

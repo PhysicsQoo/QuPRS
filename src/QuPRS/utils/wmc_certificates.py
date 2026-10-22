@@ -216,7 +216,10 @@ def make_source_witness_certificate(circuit1, circuit2):
                 }
         return None
     if certify_clifford_tableau_difference(circuit1, circuit2) != "not_equivalent":
-        return None
+        # A bounded complete exact Clifford+T replay also certifies positive
+        # (strict/global-phase) cases which a tableau cannot distinguish.
+        from QuPRS.utils.exact_cyclotomic import make_cyclotomic_certificate
+        return make_cyclotomic_certificate(circuit1, circuit2)
     from qiskit.quantum_info import Clifford
     a = Clifford(circuit1).tableau
     b = Clifford(circuit2).tableau
@@ -259,6 +262,9 @@ def verify_source_witness_certificate(circuit1, circuit2, certificate):
             return False
         return (status == "not_equivalent"
                 and claimed == deltas[bit] and 0 < abs(claimed) < 6)
+    if kind in ("cyclotomic-operator-minor", "cyclotomic-operator-full"):
+        from QuPRS.utils.exact_cyclotomic import verify_cyclotomic_certificate
+        return verify_cyclotomic_certificate(circuit1, circuit2, certificate)
     if kind != "clifford-tableau-inequality" or status != "not_equivalent":
         return False
     if not _source_quantum_circuits(circuit1, circuit2):
@@ -282,8 +288,8 @@ def verify_source_witness_certificate(circuit1, circuit2, certificate):
 
 
 def certify_source_witness(circuit1, circuit2):
-    """Narrow solver-independent source witness; no positive WMC claims."""
-    proof = certify_rz_basis_witness(circuit1, circuit2)
-    if proof is not None:
-        return proof
-    return certify_clifford_tableau_difference(circuit1, circuit2)
+    """Return only recheckable strict source-level conclusions, never WMC heuristics."""
+    certificate = make_source_witness_certificate(circuit1, circuit2)
+    if certificate and verify_source_witness_certificate(circuit1, circuit2, certificate):
+        return certificate["status"]
+    return None

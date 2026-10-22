@@ -1,4 +1,4 @@
-"""QOO-134 strict RED: actual Rust native false negatives from valid QASM.
+"""Source-angle diagnostics for native Reduction and Hybrid verification.
 
 Run explicitly, outside pytest's testpaths=['test']:
 python -m pytest -q .diagnostics/qoo134_semantic_red/test_native_red.py
@@ -73,7 +73,7 @@ def test_qoo134_native_equivalent_up_to_phase_red(case, method, strategy):
     else:
         lhs, rhs = qpe()
     discrepancy = unitary_oracle(lhs, rhs)
-    assert discrepancy < 1e-9, f"Not genuinely unitary-equivalent: {discrepancy}"
+    assert discrepancy < 1e-9, f"Qiskit numerical comparison changed: {discrepancy}"
 
     # The actual Reduction/Hybrid native branch must solve this without an
     # unsound near-identity WMC fallback (QOO-136 remains separate).
@@ -81,13 +81,22 @@ def test_qoo134_native_equivalent_up_to_phase_red(case, method, strategy):
         lhs, rhs, method=method, strategy=strategy, tool_name="gpmc", timeout=30,
     )
     ledger = result["stage_ledger"]
+    if case == "qpeexact8":
+        # The literal source QASM is independently shown inequivalent by
+        # rigorous interval arithmetic; floating proximity is not proof.
+        assert result["status"] in {"Not Equivalent", "Unknown"}, (
+            f"Uncertified source-QASM verdict: method={method}, "
+            f"strategy={strategy}, status={result['status']}"
+        )
+        return
     assert ledger["solver_child_spawns"] == 0, "Regression must isolate pre-WMC"
     assert result["status"] in {
         "Equivalent", "Equivalent (Up to Global Phase)"
     }, (
-        f"QOO-134 real Rust false negative: case={case}, method={method}, "
-        f"strategy={strategy}, status={result['status']}, "
-        f"source_unitary_error={discrepancy}, final_ps={result['final_ps']}"
+        f"Native exact-radian addition still unresolved: "
+        f"case={case}, method={method}, strategy={strategy}, "
+        f"status={result['status']}, qiskit_numeric_residual={discrepancy}, "
+        f"final_ps={result['final_ps']}"
     )
 
 

@@ -9,6 +9,7 @@ on:
       - 'test/test_MQT.py'
       - 'test/conftest.py'
       - 'test/test_benchmark_*.py'
+      - 'test/_benchmark_*.py'
       - 'rust/**'
       - 'pyproject.toml'
       - 'GPMC'
@@ -16,6 +17,8 @@ on:
       - 'benchmarks/**'
       - 'scripts/benchmark_provenance.py'
       - 'scripts/generate_benchmark_report.py'
+      - 'scripts/paper_corpus_audit.py'
+      - 'docs/development/paper-corpus-manifest.json'
       - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
   pull_request:
@@ -26,6 +29,7 @@ on:
       - 'test/test_MQT.py'
       - 'test/conftest.py'
       - 'test/test_benchmark_*.py'
+      - 'test/_benchmark_*.py'
       - 'rust/**'
       - 'pyproject.toml'
       - 'GPMC'
@@ -33,6 +37,8 @@ on:
       - 'benchmarks/**'
       - 'scripts/benchmark_provenance.py'
       - 'scripts/generate_benchmark_report.py'
+      - 'scripts/paper_corpus_audit.py'
+      - 'docs/development/paper-corpus-manifest.json'
       - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
 
@@ -109,6 +115,9 @@ jobs:
         run: |
           pytest --benchmark-only --benchmark-json=output.json
           python scripts/benchmark_provenance.py --output "$RUNNER_TEMP/main_baseline.provenance.json"
+
+      - name: Verify benchmark input integrity
+        run: python scripts/paper_corpus_audit.py --json "$RUNNER_TEMP/paper_corpus_sha256.json"
 
       - name: Discard local changes to tracked files
         run: |
@@ -272,6 +281,9 @@ jobs:
           echo "Executing: $CMD"
           $CMD
 
+      - name: Verify benchmark input integrity
+        run: python scripts/paper_corpus_audit.py --json paper_corpus_sha256.json
+
       # Step 5: Generate benchmark report
       - name: Generate benchmark report
         if: success() || failure()
@@ -318,3 +330,4 @@ jobs:
             main_baseline.provenance.json
             pr_benchmark.provenance.json
             python_wmc_precision_profile.json
+            paper_corpus_sha256.json

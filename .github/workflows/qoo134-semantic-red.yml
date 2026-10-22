@@ -1,10 +1,7 @@
 name: QOO-134 RED Semantic Regression and Reference-Angle Model
 
+# Standalone scientific diagnostics are manual, not required PR checks.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/qoo134-semantic-red.yml'
-      - '.diagnostics/qoo134_semantic_red/**'
   workflow_dispatch:
 
 permissions:

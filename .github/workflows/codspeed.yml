@@ -119,7 +119,13 @@ jobs:
           pip install pytest-shard
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v4
+        uses: CodSpeedHQ/action@v5
         with:
           mode: simulation
+          # v5 estimates CPU cycles rather than the pre-v5 simulation metric.
+          # Do not compare v5 reports against pre-v5 measurements.
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          # Evaluate solver subprocess instrumentation independently.
+          simulation-track-subprocess: 'false'
           run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }}

@@ -93,6 +93,23 @@ hosted runners must not be compared as if they were identical hardware.
 The benchmark comparison remains report-only for timing regressions on shared
 runners. Numerical or resource uncertainty must not be converted into a
 positive semantic verdict.
+## CodSpeed v5 measurement boundary
+
+CodSpeed v5 Simulation estimates CPU cycles; it is **not directly comparable**
+with pre-v5 Simulation output. Preserve earlier CodSpeed v4 run links,
+benchmark identities, benchmark inputs, and source/runner metadata. The first
+accepted v5 run on `dev` and then on `main` starts a **new instrument-specific
+baseline**, not a percentage regression against v4. Cross-instrument
+comparisons are **N/A**, not improvements or regressions.
+
+Keep `ubuntu-latest`, Python 3.12, all five nonempty shards and the
+pre-existing benchmark set. v5 initially retains allocator time and leaves
+Simulation subprocess tracking disabled. Test the optional subprocess feature
+separately against actual GPMC/Ganak execution and provenance before enabling
+it: selecting a solver does not prove the benchmarked process actually
+invoked that external binary. Do not treat modeled CPU cycles as complete
+solver Walltime, process-tree RSS, or an equivalence certificate.
+
 ## Legacy performance history during workflow migration
 
 The `benchmarks` branch and its `main_baseline.json` / `main_baseline.provenance.json`

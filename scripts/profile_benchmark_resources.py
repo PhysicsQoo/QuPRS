@@ -97,9 +97,9 @@ def run_limited(command: list[str], *, deadline: float, rss_cap: int,
     if deadline <= 0 or rss_cap <= 0 or sample_seconds <= 0:
         raise ValueError("Resource limits and sample interval must be positive")
     with tempfile.TemporaryFile(mode="w+t") as stdout, tempfile.TemporaryFile(mode="w+t") as stderr:
+        begin = time.monotonic()
         process = subprocess.Popen(command, cwd=ROOT, stdout=stdout, stderr=stderr,
                                    start_new_session=os.name == "posix")
-        begin = time.monotonic()
         max_rss = 0
         reason = None
         try:

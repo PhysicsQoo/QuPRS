@@ -6,6 +6,7 @@ on:
       - research/fixed-host-resources-20261022
     paths:
       - '.github/workflows/fixed-host-solver-validation.yml'
+      - 'scripts/validate_native_solver_actions.py'
   workflow_dispatch:
     inputs:
       mode:

@@ -390,25 +390,28 @@ const fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
 }
 
 fn reduce_and_cap_i128(n: i128, d: i128) -> (i64, i64) {
+    // Exact when the normalized result fits the current domain. The old
+    // arbitrary 1e14 cap silently replaced *representable* rationals with
+    // continued-fraction guesses. That is unsound for any proof-bearing path.
+    if d == 0 || n == i128::MIN || d == i128::MIN {
+        flag_uncertifiable_phase();
+        return (0, 1);
+    }
     if n == 0 { return (0, 1); }
-    let mut num = n;
-    let mut den = d;
+    let (mut num, mut den) = (n, d);
     if den < 0 { num = -num; den = -den; }
-    
     let common = gcd_i128(num.abs(), den);
     num /= common;
     den /= common;
-    
-    let max_safe = 100_000_000_000_000i128; 
-    
-    if num.abs() > max_safe || den > max_safe {
-        let val = (num as f64) / (den as f64);
-        let sign = if val < 0.0 { -1 } else { 1 };
-        let (n_approx, d_approx) = float_to_rational_continued_fraction(val.abs());
-        (n_approx * sign, d_approx)
-    } else {
-        (num as i64, den as i64)
+    if num < i64::MIN as i128 || num > i64::MAX as i128
+        || den > i64::MAX as i128
+    {
+        // Placeholder value is *never* a certificate. Verification must
+        // return Unknown, not use rounded coefficients as a WMC encoding.
+        flag_uncertifiable_phase();
+        return (0, 1);
     }
+    (num as i64, den as i64)
 }
 // ============================================================================
 // 4. Angle (Continuous Algebraic Structure for Input Rotations)
@@ -561,6 +564,28 @@ mod exact_discrete_phase_certificate_tests {
         let factor: i64 = 1_000_000_000_000_000_001;
         assert_eq!((half * factor) + half, Rational::ZERO);
         assert_eq!((half * factor) - half, Rational::ZERO);
+    }
+
+    #[test]
+    fn large_but_representable_free_rational_does_not_round_to_zero() {
+        use super::{FreeRational, exact_phase_was_lost, reset_exact_phase_status};
+        reset_exact_phase_status();
+        let denom = 100_000_000_000_001_i64;
+        let x = FreeRational::new(1, denom);
+        assert_eq!(x + FreeRational::ZERO, x);
+        assert_eq!(x * denom, FreeRational::new(1, 1));
+        assert!(!exact_phase_was_lost());
+    }
+
+    #[test]
+    fn free_rational_overflow_is_explicitly_uncertifiable() {
+        use super::{FreeRational, exact_phase_was_lost, reset_exact_phase_status};
+        reset_exact_phase_status();
+        let a = FreeRational::new(1, 4_294_967_291);
+        let b = FreeRational::new(1, 4_294_967_279);
+        let _ = a + b;
+        assert!(exact_phase_was_lost(), "silent rational approximation must not be proof");
+        reset_exact_phase_status();
     }
 
     #[test]

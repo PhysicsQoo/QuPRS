@@ -9,6 +9,10 @@ on:
       - 'scripts/probe_wmc_dispatch_controls.py'
       - 'test/test_wmc_dispatch_trace_classifier.py'
 
+concurrency:
+  group: qft-native-reduction-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   id-token: write

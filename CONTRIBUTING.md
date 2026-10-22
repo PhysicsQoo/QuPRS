@@ -12,6 +12,19 @@ The `CodSpeed` workflow tracks **Simulation** benchmarks on both `main` and
 `dev` pushes, and on affected PRs. It checks five complete, nonempty shards,
 but a green CI result by itself **does not prove there is no regression**.
 
+## Platform support and release packaging
+
+Regular development CI verifies affected source and solver correctness.
+The protected `dev` → `main` release acceptance is where the existing
+supported-platform matrix runs **before** building candidate distribution
+archives. Candidate wheels and sdists are then installed and tested as
+**actual artifacts**, not treated as validated from a source build alone.
+
+Use [release compatibility and packaging acceptance](docs/development/release-compatibility.md)
+for the three-stage gate, the Linux/macOS support boundaries, and the
+required evidence. Do not add duplicate OS/Python matrices to ordinary PRs
+merely to recheck packaging compatibility.
+
 ## Performance review for feat/fix -> dev
 
 For changes to quantum-circuit reductions, circuit encodings, Rust/Python

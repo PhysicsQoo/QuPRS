@@ -19,6 +19,8 @@ jobs:
 
   installed-artifacts:
     name: Installed artifacts
+    # Complete the supported source/solver matrix before building release archives.
+    needs: source-correctness
     uses: ./.github/workflows/release-artifact-ci.yml
 
   release-parity:

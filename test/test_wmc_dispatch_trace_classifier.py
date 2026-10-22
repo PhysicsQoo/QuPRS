@@ -34,3 +34,40 @@ def test_mismatched_binary_or_failed_exec_is_not_model_counting():
         '501 execve("/tmp/ganak", ["/tmp/ganak", "--mode=6", "/tmp/input.cnf"], 0x1) = -1 ENOENT'
     )
     assert module.native_solver_work_execve(trace, "/tmp/ganak", "ganak") is False
+
+
+def test_successful_hybrid_equivalence_without_wmc_is_valid_for_any_case():
+    # QFT can also become RR-only after valid reductions. Its name must never
+    # force a native WMC process.
+    report = module.classify_hybrid_execution(
+        "equivalent*", None, "", "/tmp/gpmc", "gpmc"
+    )
+    assert report["execution_path"] == "rr_only"
+    assert report["native_model_count_execve"] is False
+    assert report["tool_time_numeric"] is False
+    assert report["native_time_consistent"] is True
+
+
+def test_hybrid_native_work_is_observed_not_presumed():
+    trace = '501 execve("/tmp/ganak", ["/tmp/ganak", "--mode=6", "/tmp/input.cnf"], 0x1) = 0'
+    report = module.classify_hybrid_execution(
+        "equivalent*", 0.2, trace, "/tmp/ganak", "ganak"
+    )
+    assert report["execution_path"] == "native_wmc"
+    assert report["native_time_consistent"] is True
+
+
+def test_version_only_and_positive_equivalence_remain_reduction_only():
+    trace = '501 execve("/tmp/ganak", ["/tmp/ganak", "--version"], 0x1) = 0'
+    report = module.classify_hybrid_execution(
+        "equivalent", None, trace, "/tmp/ganak", "ganak"
+    )
+    assert report["execution_path"] == "rr_only"
+
+
+def test_numeric_tool_time_without_native_exec_is_inconclusive_not_rr_only():
+    report = module.classify_hybrid_execution(
+        "equivalent", 0.2, "", "/tmp/gpmc", "gpmc"
+    )
+    assert report["execution_path"] == "unverified_native_dispatch"
+    assert report["native_time_consistent"] is False

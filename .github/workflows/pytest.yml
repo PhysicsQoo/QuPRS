@@ -35,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-14]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
         include:
           - os: ubuntu-latest
             arch: auto
@@ -46,7 +46,7 @@ jobs:
           - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-14    # M1/M2 Mac (ARM64)
+          - os: macos-15    # Apple Silicon arm64; matches the macOS 15+ wheel support minimum
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
     env:

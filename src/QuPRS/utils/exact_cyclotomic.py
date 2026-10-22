@@ -139,7 +139,13 @@ def _decision(prepared):
     """Projective-minor exact proof, with strict-equality refinement."""
     n, a, b = prepared
     d = 1 << n
-    anchor = None
+    # Anchor must be established BEFORE traversing any matrix entries:
+    # otherwise an earlier coordinate with V=0, U!=0 could be skipped.
+    v0 = _evolve(n, b, 0)
+    ay = next((row for row, value in enumerate(v0) if value != _ZERO), None)
+    if ay is None:
+        raise AssertionError("A unitary operator has a nonzero first column")
+    anchor = (ay, 0, _evolve(n, a, 0)[ay], v0[ay])
     all_equal = True
     for x in range(d):
         left, right = _evolve(n, a, x), _evolve(n, b, x)

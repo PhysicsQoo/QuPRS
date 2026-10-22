@@ -15,6 +15,7 @@ Use these observations only alongside CI runner, source, and solver identity.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -190,6 +191,8 @@ def main(argv=None) -> int:
     result["stderr_tail"] = result["stderr_tail"][:600]
     result.update({
         "case": case, "source_revision": os.getenv("GITHUB_SHA"),
+        "input_sha256": {name: hashlib.sha256(Path(case[name]).read_bytes()).hexdigest()
+                         for name in ("source", "transpiled")},
         "tool_name": args.tool_name, "backend": args.backend,
         "hostname_platform": platform.platform(), "python": platform.python_version(),
         "runner_os": os.getenv("RUNNER_OS"), "runner_arch": os.getenv("RUNNER_ARCH"),

@@ -47,11 +47,27 @@ def provenance(host_id: str) -> dict:
     }
 
 
+def _valid_solver_time(value: object) -> bool:
+    """None is a valid Hybrid RR-only path; numeric values must be finite."""
+    return (
+        value is None or (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
+        )
+    )
+
+
 def summarize(trials: list[dict], expected_repeats: int, *,
               expected_case: str | None = None,
               expected_solver: str | None = None,
               expected_backend: str | None = None) -> dict:
-    """Accept only matching, complete solver observations (warmups included)."""
+    """Validate end-to-end Hybrid resources independently of optional WMC.
+
+    Numeric solver_time is *not* proof of native model-counting execve.
+    Solver-only claims require a separately witnessed native execution.
+    """
     data = [x["report"] for x in trials if not x["warmup"]]
     if len(data) != expected_repeats:
         return {"status": "INCONCLUSIVE", "reason": "missing repetitions"}
@@ -65,9 +81,9 @@ def summarize(trials: list[dict], expected_repeats: int, *,
         or t["report"].get("resource_limit_status") is not None
         or t["report"].get("exit_code") != 0
         or t["report"].get("verdict", {}).get("accepted_positive") is not True
-        or not isinstance(t["report"].get("verdict", {}).get("solver_time"), (int, float))
-        or not math.isfinite(t["report"]["verdict"]["solver_time"])
-        or t["report"]["verdict"]["solver_time"] < 0
+        or not _valid_solver_time(
+            t["report"].get("verdict", {}).get("solver_time", "MISSING")
+        )
         for t in trials
     ):
         return {"status": "INCONCLUSIVE", "reason": "invalid solver or resource verdict"}
@@ -97,8 +113,22 @@ def summarize(trials: list[dict], expected_repeats: int, *,
     if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0
            for v in times + rss):
         return {"status": "INCONCLUSIVE", "reason": "invalid time or sampled RSS"}
+    solver_times = [t["report"]["verdict"]["solver_time"] for t in trials]
+    numeric_count = sum(v is not None for v in solver_times)
+    # This is an *observed metadata* classification, not an oracle that
+    # Hybrid must invoke WMC. The same case may take different valid paths.
+    execution_path = (
+        "RR_ONLY_REPORTED" if numeric_count == 0
+        else "WMC_TIME_REPORTED" if numeric_count == len(solver_times)
+        else "MIXED_HYBRID_PATHS"
+    )
     return {
         "status": "COMPLETE", "n": len(data),
+        "execution_path": execution_path,
+        "numeric_solver_time_trials": numeric_count,
+        "total_trials_including_warmups": len(solver_times),
+        "native_solver_execution_verified": False,
+        "solver_only_performance_certified": False,
         "walltime_median_seconds": statistics.median(times),
         "walltime_mad_seconds": statistics.median(
             abs(t - statistics.median(times)) for t in times

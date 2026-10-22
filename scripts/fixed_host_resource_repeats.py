@@ -116,51 +116,116 @@ def binary_hash(solver: str) -> str:
         return hashlib.sha256(Path(binary).read_bytes()).hexdigest()
 
 
-def run_bounded_trial(command: list[str], timeout_seconds: float) -> dict:
-    """Supervise the entire POSIX worker group, including surviving descendants.
+def _enable_linux_subreaper() -> None:
+    """Adopt orphaned solver descendants that escape a worker's process group."""
+    if sys.platform != "linux":
+        raise RuntimeError("Fixed-host process-tree containment requires Linux")
+    import ctypes
 
-    The fixed-host measurement environment is Linux. On non-POSIX systems,
-    this fallback can only terminate the direct child and is not a tree guarantee.
+    libc = ctypes.CDLL(None, use_errno=True)
+    # Linux prctl(PR_SET_CHILD_SUBREAPER, 1): children orphaned by nested
+    # Python/Rust/solver supervisors become children of this trial harness.
+    if libc.prctl(36, 1, 0, 0, 0) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def _reap_adopted_children() -> None:
+    """Reap detached direct children only after Popen.wait() reaps the worker."""
+    while True:
+        try:
+            pid, _ = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if pid == 0:
+            return
+
+
+def run_bounded_trial(command: list[str], timeout_seconds: float) -> dict:
+    """Bound a Linux worker and clean descendants across session/PGID changes.
+
+    Production GPMC/Ganak supervisors create their own sessions or process
+    groups, so signaling only the outer worker group is insufficient.
+    Linux subreaping retains adopted descendants under this supervisor.
     """
     import signal
     import tempfile
+    import psutil
 
     if timeout_seconds <= 0:
         raise ValueError("Trial timeout must be positive")
+    _enable_linux_subreaper()
+
+    supervisor = psutil.Process(os.getpid())
+    if supervisor.children(recursive=True):
+        raise RuntimeError("Trial supervisor must not have pre-existing children")
+
     with tempfile.TemporaryFile(mode="w+t") as stdout_file, \
             tempfile.TemporaryFile(mode="w+t") as stderr_file:
         process = subprocess.Popen(
             command, cwd=ROOT, stdout=stdout_file, stderr=stderr_file,
-            start_new_session=os.name == "posix",
+            start_new_session=True,
         )
         timed_out = False
         cleanup_needed = False
         cleanup_error = None
+
         try:
             process.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
             timed_out = True
         finally:
-            # Do this even if the immediate worker exited: a native solver may
-            # still be alive in the isolated group after its Python parent ends.
-            if os.name == "posix":
+            # Terminate the outer group, then iteratively terminate descendants
+            # that moved to private sessions/groups. Subreaping keeps them
+            # discoverable even when intermediate Python workers have exited.
+            if timed_out:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                     cleanup_needed = True
                 except ProcessLookupError:
                     pass
                 except OSError as exc:
-                    cleanup_error = f"process_group_kill_failed_errno_{exc.errno}"
-            elif process.poll() is None:
+                    cleanup_error = f"outer_group_kill_failed_errno_{exc.errno}"
+
+            settle_deadline = time.monotonic() + 5.0
+            while True:
                 try:
-                    process.kill()
-                    cleanup_needed = True
-                except OSError as exc:
-                    cleanup_error = f"worker_kill_failed_errno_{exc.errno}"
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                cleanup_error = "worker_not_reaped"
+                    if process.poll() is None:
+                        process.kill()
+                        cleanup_needed = True
+                    process.wait(timeout=max(0.01, settle_deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    cleanup_error = "worker_not_reaped"
+                except ProcessLookupError:
+                    pass
+
+                _reap_adopted_children()
+                survivors = []
+                for child in supervisor.children(recursive=True):
+                    try:
+                        if child.status() != psutil.STATUS_ZOMBIE:
+                            survivors.append(child)
+                    except psutil.NoSuchProcess:
+                        continue
+                    except psutil.Error as exc:
+                        cleanup_error = f"descendant_inspection_failed_{type(exc).__name__}"
+                if not survivors and process.poll() is not None:
+                    break
+
+                cleanup_needed = True
+                for child in survivors:
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                    except psutil.Error as exc:
+                        cleanup_error = f"descendant_kill_failed_{type(exc).__name__}"
+                if time.monotonic() >= settle_deadline:
+                    cleanup_error = cleanup_error or "descendants_remain_after_cleanup"
+                    break
+                time.sleep(0.02)
+
+            _reap_adopted_children()
 
         def tail(stream) -> str:
             stream.seek(0, os.SEEK_END)

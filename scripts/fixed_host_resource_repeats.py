@@ -58,6 +58,9 @@ def summarize(trials: list[dict], expected_repeats: int, *,
     if any(
         not isinstance(t.get("report"), dict)
         or t.get("exit_code", 0) != 0
+        or t.get("outer_timed_out") is True
+        or t.get("cleanup_needed") is True
+        or t.get("cleanup_error") is not None
         or t["report"].get("complete") is not True
         or t["report"].get("resource_limit_status") is not None
         or t["report"].get("exit_code") != 0
@@ -113,6 +116,67 @@ def binary_hash(solver: str) -> str:
         return hashlib.sha256(Path(binary).read_bytes()).hexdigest()
 
 
+def run_bounded_trial(command: list[str], timeout_seconds: float) -> dict:
+    """Supervise the entire POSIX worker group, including surviving descendants.
+
+    The fixed-host measurement environment is Linux. On non-POSIX systems,
+    this fallback can only terminate the direct child and is not a tree guarantee.
+    """
+    import signal
+    import tempfile
+
+    if timeout_seconds <= 0:
+        raise ValueError("Trial timeout must be positive")
+    with tempfile.TemporaryFile(mode="w+t") as stdout_file, \
+            tempfile.TemporaryFile(mode="w+t") as stderr_file:
+        process = subprocess.Popen(
+            command, cwd=ROOT, stdout=stdout_file, stderr=stderr_file,
+            start_new_session=os.name == "posix",
+        )
+        timed_out = False
+        cleanup_needed = False
+        cleanup_error = None
+        try:
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        finally:
+            # Do this even if the immediate worker exited: a native solver may
+            # still be alive in the isolated group after its Python parent ends.
+            if os.name == "posix":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    cleanup_needed = True
+                except ProcessLookupError:
+                    pass
+                except OSError as exc:
+                    cleanup_error = f"process_group_kill_failed_errno_{exc.errno}"
+            elif process.poll() is None:
+                try:
+                    process.kill()
+                    cleanup_needed = True
+                except OSError as exc:
+                    cleanup_error = f"worker_kill_failed_errno_{exc.errno}"
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                cleanup_error = "worker_not_reaped"
+
+        def tail(stream) -> str:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 600))
+            return stream.read()
+
+        return {
+            "exit_code": None if timed_out else process.returncode,
+            "outer_timed_out": timed_out,
+            "cleanup_needed": cleanup_needed,
+            "cleanup_error": cleanup_error,
+            "stdout_tail": tail(stdout_file),
+            "stderr_tail": tail(stderr_file),
+        }
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--host-id", required=True,
@@ -162,23 +226,16 @@ def main() -> int:
                         "--sample-interval-ms", str(a.sample_ms),
                         "--output", str(path.resolve()),
                     ]
-                    try:
-                        result = subprocess.run(
-                            cmd, cwd=ROOT, text=True, capture_output=True,
-                            check=False, timeout=a.walltime + 30,
-                        )
-                        code, stdout, stderr = (
-                            result.returncode, result.stdout, result.stderr
-                        )
-                    except subprocess.TimeoutExpired as exc:
-                        code = None
-                        stdout = (exc.stdout or b"")
-                        stderr = (exc.stderr or b"")
-                        if isinstance(stdout, bytes):
-                            stdout = stdout.decode(errors="replace")
-                        if isinstance(stderr, bytes):
-                            stderr = stderr.decode(errors="replace")
+                    outcome = run_bounded_trial(cmd, a.walltime + 30)
+                    code = outcome["exit_code"]
+                    stdout = outcome["stdout_tail"]
+                    stderr = outcome["stderr_tail"]
+                    if outcome["outer_timed_out"]:
                         stderr += "\nouter harness subprocess timeout"
+                    if outcome["cleanup_needed"] and not outcome["outer_timed_out"]:
+                        stderr += "\nprocess group remained after worker exit"
+                    if outcome["cleanup_error"]:
+                        stderr += "\n" + outcome["cleanup_error"]
                     try:
                         report = json.loads(path.read_text()) if path.is_file() else {}
                     except (OSError, ValueError):
@@ -186,6 +243,9 @@ def main() -> int:
                         stderr += "\nmissing or invalid resource JSON"
                     trials.append({
                         "warmup": warmup, "exit_code": code,
+                        "outer_timed_out": outcome["outer_timed_out"],
+                        "cleanup_needed": outcome["cleanup_needed"],
+                        "cleanup_error": outcome["cleanup_error"],
                         "report_path": filename, "report": report,
                         "stdout_tail": stdout[-600:],
                         "stderr_tail": stderr[-600:],

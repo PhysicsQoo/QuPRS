@@ -131,7 +131,8 @@ jobs:
 
       - name: Report withheld incomplete baseline
         if: steps.baseline_coverage.outcome != 'success'
-        run: echo "::warning::No baseline update: benchmark evidence is incomplete."
+        run: |
+          echo "::warning::No baseline update: benchmark evidence is incomplete."
 
       - name: Discard local changes to tracked files
         run: |

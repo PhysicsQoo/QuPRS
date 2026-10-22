@@ -95,8 +95,12 @@ jobs:
           lscpu > native-lifecycle-evidence/cpu.txt
           python --version > native-lifecycle-evidence/python.txt 2>&1
           rustc --version > native-lifecycle-evidence/rust.txt 2>&1
-          find native-lifecycle-evidence -type f ! -name SHA256SUMS -print0 |
-            sort -z | xargs -0 -r sha256sum > native-lifecycle-evidence/SHA256SUMS
+          (
+            cd native-lifecycle-evidence
+            find . -type f ! -name SHA256SUMS -print0 |
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
 
       - name: Preserve positive and negative diagnostic evidence
         if: always()
@@ -178,8 +182,12 @@ jobs:
         if: always()
         run: |
           mkdir -p fixed-host-evidence
-          find fixed-host-evidence -type f ! -name SHA256SUMS -print0 |
-            sort -z | xargs -0 -r sha256sum > fixed-host-evidence/SHA256SUMS
+          (
+            cd fixed-host-evidence
+            find . -type f ! -name SHA256SUMS -print0 |
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
 
       - name: Preserve fixed-host raw observations
         if: always()

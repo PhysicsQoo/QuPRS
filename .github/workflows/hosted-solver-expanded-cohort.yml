@@ -1,0 +1,109 @@
+name: Opt-in Additional Solver Case Coverage
+
+# Research-only one-shot validation; no baseline or pull-request regression gate.
+on:
+  push:
+    branches:
+      - research/fixed-host-resources-20261022
+    paths:
+      - '.github/workflows/hosted-solver-expanded-cohort.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight-and-measure:
+    name: Hosted / VQE4 and Graphstate16 native eligibility and resources
+    runs-on: ubuntu-24.04
+    timeout-minutes: 145
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Check out original QASM and native solver sources
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: hosted-additional-cohort
+
+      - name: Install scientific native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev strace
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+
+      - name: Record exact input and host provenance
+        run: |
+          mkdir -p expanded-cohort-evidence
+          git rev-parse HEAD > expanded-cohort-evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > expanded-cohort-evidence/source-tree.txt
+          uname -a > expanded-cohort-evidence/kernel.txt
+          lscpu > expanded-cohort-evidence/cpu.txt
+          python -m pip freeze > expanded-cohort-evidence/python-packages.txt
+          python scripts/paper_corpus_audit.py \
+            --json expanded-cohort-evidence/paper-qasm-audit.json
+
+      - name: Prove each solver actually executed on each additional paper case
+        run: |
+          python -u scripts/preflight_solver_cases.py \
+            --case vqe4 --case graphstate16 \
+            --output-dir expanded-cohort-evidence/native-preflight
+          test -s expanded-cohort-evidence/native-preflight/selected-cases.txt
+
+      - name: Measure only native-qualified cases in one VM
+        run: |
+          cases=()
+          while IFS= read -r case; do
+            test -n "$case"
+            cases+=(--case "$case")
+          done < expanded-cohort-evidence/native-preflight/selected-cases.txt
+          test "${#cases[@]}" -gt 0
+          python -u scripts/hosted_solver_comparison.py \
+            "${cases[@]}" \
+            --warmups 1 --repeats 4 \
+            --walltime 90 --solver-timeout 45 \
+            --rss-limit-mib 3072 --sample-ms 50 \
+            --total-budget-minutes 120 \
+            --output-dir expanded-cohort-evidence/measurements
+
+      - name: Seal and independently verify SHA256
+        if: always()
+        run: |
+          mkdir -p expanded-cohort-evidence
+          (
+            cd expanded-cohort-evidence
+            find . -type f ! -name SHA256SUMS -print0 |
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve all positive and inconclusive original evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: additional-native-solver-case-evidence
+          path: expanded-cohort-evidence/
+          if-no-files-found: error
+          retention-days: 90

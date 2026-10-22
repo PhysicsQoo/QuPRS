@@ -113,27 +113,26 @@ def test_bounded_trial_rejects_invalid_deadline():
 
 
 def test_outer_worker_timeout_reaps_mock_solver_descendant(tmp_path):
-    """The child models a native solver and must not outlive Python."""
-    import os
+    """Kill an actual three-level tree whose solver descendants call setsid."""
     import sys
     import time
 
     import psutil
     import pytest
 
-    if os.name != "posix":
-        pytest.skip("Process-group supervision requires POSIX")
+    if sys.platform != "linux":
+        pytest.skip("Subreaper supervision requires Linux")
     pid_path = tmp_path / "grandchild.pid"
     mock_solver = tmp_path / "mock_solver.py"
     mock_solver.write_text(
         "import pathlib, subprocess, sys, time\n"
-        "grandchild = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "grandchild = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)\n"
         f"pathlib.Path({str(pid_path)!r}).write_text(str(grandchild.pid))\n"
         "time.sleep(60)\n"
     )
     script = (
         "import subprocess, sys, time\n"
-        f"subprocess.Popen([sys.executable, {str(mock_solver)!r}])\n"
+        f"subprocess.Popen([sys.executable, {str(mock_solver)!r}], start_new_session=True)\n"
         "time.sleep(60)\n"
     )
     outcome = module.run_bounded_trial([sys.executable, "-c", script], 3.0)
@@ -154,20 +153,19 @@ def test_outer_worker_timeout_reaps_mock_solver_descendant(tmp_path):
 
 
 def test_early_worker_exit_does_not_leave_mock_solver_behind(tmp_path):
-    """A successful Python wrapper exit cannot leave a live solver running."""
-    import os
+    """Capture a detached solver orphaned before the Python wrapper exits."""
     import sys
     import time
 
     import psutil
     import pytest
 
-    if os.name != "posix":
-        pytest.skip("Process-group supervision requires POSIX")
+    if sys.platform != "linux":
+        pytest.skip("Subreaper supervision requires Linux")
     pid_path = tmp_path / "solver.pid"
     script = (
         "import pathlib, subprocess, sys\n"
-        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)\n"
         f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid))\n"
     )
     outcome = module.run_bounded_trial([sys.executable, "-c", script], 5.0)

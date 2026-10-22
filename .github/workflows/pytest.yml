@@ -11,6 +11,8 @@ on:
       - 'src/**'
       - 'test/**'
       - 'benchmarks/**'
+      - 'scripts/paper_corpus_audit.py'
+      - 'docs/development/paper-corpus-manifest.json'
       - 'rust/**'
       - 'GPMC'        # Solver submodule pointer affects native CI coverage.
       - '.gitmodules' # Solver submodule URL/config affects native CI setup.

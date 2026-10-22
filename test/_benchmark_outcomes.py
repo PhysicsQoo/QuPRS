@@ -2,9 +2,9 @@
 
 This runs *after* pytest-benchmark's timed call, so it does not change the
 measured function or introduce memory-sampling overhead into CodSpeed.
-Resource exhaustion means the benchmark did not complete, never that
-circuit equivalence was proved. Standalone small correctness tests remain
-fail-closed and independent of these resource-limited performance cases.
+Resource exhaustion means the benchmark did not complete. Treat it as a
+failed execution in both correctness CI and benchmark-only runs; neither a
+skip nor an equivalence proof. Small semantic tests remain independent.
 """
 
 import pytest
@@ -28,7 +28,7 @@ def assert_benchmark_result(result, *, benchmark, file_name: str,
         benchmark.extra_info["status"] = (
             f"Resource limited (not correctness pass): {status}"
         )
-        pytest.skip(f"Resource limited (not correctness pass): {file_name}: {status}")
+        pytest.fail(f"Resource limited (not correctness pass): {file_name}: {status}")
 
     assert status in EXPECTED_EQUIVALENCE, (
         f"Verification failed for {file_name}. "

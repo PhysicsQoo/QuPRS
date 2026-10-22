@@ -24,11 +24,12 @@ def test_unexpected_benchmark_status_fails(status):
 
 
 @pytest.mark.parametrize("status", ["Timeout", "MemoryOut"])
-def test_resource_limits_are_skips_not_passes(status):
+def test_resource_limits_fail_ci_instead_of_skipping(status):
     record = SimpleNamespace(extra_info={})
-    with pytest.raises(pytest.skip.Exception):
+    with pytest.raises(pytest.fail.Exception, match="Resource limited"):
         assert_benchmark_result(_result(status), benchmark=record, file_name="example.qasm")
     assert "not correctness pass" in record.extra_info["status"]
+    assert status in record.extra_info["status"]
 
 
 def test_ganak_format_error_is_failure():

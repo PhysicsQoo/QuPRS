@@ -28,9 +28,10 @@ prose/table row-count discrepancy is recorded, not silently fixed.
 
 The helper in `test/_benchmark_outcomes.py` is deliberately called
 **outside** `benchmark(generate_test, ...)`. It keeps status handling
-consistent without changing measured code. `Timeout` and `MemoryOut` are
-recorded as resource-limited skips, **not correctness successes**; separate
-small fail-closed tests remain responsible for actual semantic acceptance.
+consistent without changing measured code. `Timeout` and `MemoryOut` fail the individual benchmark execution, both
+under correctness CI and `--benchmark-only`, with an explicit resource-limit
+reason; they are never reported as skips or equivalence successes. Separate
+small fail-closed tests still provide independent semantic controls.
 
 ## Memory and time
 
@@ -60,3 +61,18 @@ hosted runners must not be compared as if they were identical hardware.
 The benchmark comparison remains report-only for timing regressions on shared
 runners. Numerical or resource uncertainty must not be converted into a
 positive semantic verdict.
+## Legacy performance history during workflow migration
+
+The `benchmarks` branch and its `main_baseline.json` / `main_baseline.provenance.json`
+remain the existing historical baseline source. This change does **not**
+remove or change the baseline-producing workflow, saved history, or PR
+reporting. An immutable reference for the transition inventory is:
+
+- `benchmarks` snapshot commit: `0051d5e25696a118401b3dbc07762ecf7f6c2f42`
+- `main_baseline.json` Git blob: `694555bdaba51b75a93a6cf927bebf32256bfb28`
+- `main_baseline.provenance.json` Git blob: `99b7bfe73f0a256c881363c6798b73368cd14f9a`
+
+Later snapshots may differ as normal baseline updates continue. Preserve the
+historical artifacts and provenance before disabling or removing the old
+benchmark workflow. Simulation metrics are not direct measurements of solver
+wall-time, system calls, or sampled peak memory.

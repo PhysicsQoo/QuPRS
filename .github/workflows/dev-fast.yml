@@ -10,6 +10,8 @@ on:
       - 'test/**'
       - 'rust/**'
       - 'benchmarks/**'
+      - 'scripts/paper_corpus_audit.py'
+      - 'docs/development/paper-corpus-manifest.json'
       - 'GPMC'
       - '.gitmodules'
       - 'pyproject.toml'
@@ -47,6 +49,9 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+
+      - name: Verify paper benchmark input integrity
+        run: python scripts/paper_corpus_audit.py --json "$RUNNER_TEMP/paper_corpus_sha256.json"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

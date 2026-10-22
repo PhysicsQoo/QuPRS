@@ -273,7 +273,7 @@ def check_equivalence(
         # A proof from original *Qiskit source inputs* remains independent
         # of Rust's current rational/pi approximation and WMC solver output.
         # Keep Timeout/MemoryOut and any existing non-Unknown verdict intact.
-        if method == "wmc_only" and mapped_equiv == "unknown" and rust_res.get("wmc_solver_time_sec") is not None:
+        if method in ("wmc_only", "hybrid") and mapped_equiv == "unknown" and rust_res.get("wmc_solver_time_sec") is not None:
             source_proof = certify_source_witness(circuit1, circuit2)
             if source_proof is not None:
                 mapped_equiv = source_proof

@@ -439,6 +439,16 @@ def check_equivalence(
                     magnitude_tolerance=config.WMC_MAGNITUDE_TOLERANCE,
                     phase_tolerance=config.WMC_PHASE_TOLERANCE,
                 )
+                # A floating WMC result carries no proof. Sufficient exact
+                # structural evidence for *discrete* gates may still decide
+                # the strict status without consulting the numerical count.
+                from QuPRS.utils.wmc_certificates import certify_discrete_pathsum
+                certified = certify_discrete_pathsum(
+                    qiskit_circuit1, qiskit_circuit2,
+                    pathsum_circuit, initial_state,
+                )
+                if certified is not None:
+                    equivalent = certified
                 wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or

@@ -78,10 +78,10 @@ jobs:
           python -m pytest -q \
             .diagnostics/exact_angle_native/test_native_red.py::test_native_control_semantics_remain_green \
             --junitxml=exact-angle-native-results/control-junit.xml
-      - name: Enforce genuine Reduction/Hybrid RED without xfail or WMC substitute
+      - name: Enforce source-exact 1Q positives and source-certified QPE negative RED
         run: |
           python -m pytest -q \
-            .diagnostics/exact_angle_native/test_native_red.py::test_qoo134_native_equivalent_up_to_phase_red \
+            .diagnostics/exact_angle_native/test_native_red.py::test_native_source_exact_contract_red \
             --junitxml=exact-angle-native-results/red-junit.xml
       - name: Preserve source-pinned RED artifacts even when semantic check fails
         if: always()

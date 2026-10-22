@@ -1,4 +1,4 @@
-"""exact-source-angle strict RED: actual Rust native false negatives from valid QASM.
+"""Strict source-exact RED: distinguish true 1Q positives from certified QPE negative.
 
 Run explicitly, outside pytest's testpaths=['test']:
 python -m pytest -q .diagnostics/exact_angle_native/test_native_red.py
@@ -65,7 +65,7 @@ def disable_unrelated_diagnostics(monkeypatch):
 @pytest.mark.parametrize("method", ["reduction_rules", "hybrid"])
 @pytest.mark.parametrize("strategy", ["Naive", "Proportional"])
 @pytest.mark.parametrize("case", ["rz_double", "rz_cross", "qpeexact8"])
-def test_qoo134_native_equivalent_up_to_phase_red(case, method, strategy):
+def test_native_source_exact_contract_red(case, method, strategy):
     if case == "rz_double":
         lhs, rhs = rz(A, A), rz(TWICE_A)
     elif case == "rz_cross":
@@ -73,7 +73,10 @@ def test_qoo134_native_equivalent_up_to_phase_red(case, method, strategy):
     else:
         lhs, rhs = qpe()
     discrepancy = unitary_oracle(lhs, rhs)
-    assert discrepancy < 1e-9, f"Not genuinely unitary-equivalent: {discrepancy}"
+    # This is a *float-rounded diagnostic*, not an exact equality oracle.
+    # Pinned Arb source-ball witnesses prove both QPE and Graphstate literal
+    # QASM pairs are NOT exactly equivalent modulo global phase.
+    assert discrepancy < 1e-9, f"Qiskit numeric baseline changed: {discrepancy}"
 
     # The actual Reduction/Hybrid native branch must solve this without an
     # unsound near-identity WMC fallback (QOO-136 remains separate).
@@ -81,14 +84,25 @@ def test_qoo134_native_equivalent_up_to_phase_red(case, method, strategy):
         lhs, rhs, method=method, strategy=strategy, tool_name="gpmc", timeout=30,
     )
     ledger = result["stage_ledger"]
-    assert ledger["solver_child_spawns"] == 0, "Regression must isolate pre-WMC"
-    assert result["status"] in {
-        "Equivalent", "Equivalent (Up to Global Phase)"
-    }, (
-        f"exact-source-angle real Rust false negative: case={case}, method={method}, "
-        f"strategy={strategy}, status={result['status']}, "
-        f"source_unitary_error={discrepancy}, final_ps={result['final_ps']}"
-    )
+    if case == "qpeexact8":
+        # Certified nonzero projective minor from original SOURCE QASM at
+        # 256-bit Arb precision: workflow qpe-source-ball-witness.yml.
+        # Native Unknown is fail-closed, but still INCOMPLETE; don't label
+        # it a false negative or manufacture an Equivalent result.
+        assert result["status"] == "Not Equivalent", (
+            f"Source-exact QPE non-equivalence certificate is not implemented "
+            f"in native Rust: method={method}, strategy={strategy}, "
+            f"status={result['status']}, numeric_residual={discrepancy}"
+        )
+    else:
+        # Valid exact source-decimal additivity must reduce without WMC.
+        assert ledger["solver_child_spawns"] == 0, "Exact 1Q proof must isolate pre-WMC"
+        assert result["status"] in {
+            "Equivalent", "Equivalent (Up to Global Phase)"
+        }, (
+            f"Exact 1Q source equality regressed: {case}, {method}, {strategy}, "
+            f"{result['status']}, qiskit_numeric_residual={discrepancy}"
+        )
 
 
 @pytest.mark.parametrize("method", ["reduction_rules", "hybrid"])

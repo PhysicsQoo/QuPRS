@@ -1,4 +1,4 @@
-name: Rust WMC Subprocess Attribution Probe
+name: Rust WMC Memory Instrument Probe
 
 # Isolated diagnostic for subprocess instrumentation; no maintained baseline updates.
 on:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   native-rust-wmc-attribution:
-    name: Rust native WMC / subprocess capture true
+    name: Rust native WMC / memory allocation coverage
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -55,7 +55,7 @@ jobs:
           uname -a > rust-subprocess-evidence/kernel.txt
           python --version > rust-subprocess-evidence/python.txt 2>&1
           rustc --version > rust-subprocess-evidence/rust.txt 2>&1
-          printf '%s\n' "true" > rust-subprocess-evidence/subprocess-capture-mode.txt
+          printf '%s\n' "memory" > rust-subprocess-evidence/instrument-mode.txt
           for solver in gpmc ganak; do
             strace -f -qq -e trace=execve \
               -o "rust-subprocess-evidence/${solver}.execve.log" \
@@ -80,13 +80,15 @@ jobs:
               print(f'{solver}: rust native execve verified', flush=True)
           assert seen['gpmc'] == seen['ganak'], 'input QASM changed across solvers'
           PY
-      - name: Run original Rust Grover4 CodSpeed benchmarks
+      - name: Check Linux BTF support for memory profiler
+        run: |
+          test -r /sys/kernel/btf/vmlinux
+          uname -r > rust-subprocess-evidence/btf-kernel.txt
+
+      - name: Run original Rust Grover4 Memory Instrument benchmarks
         uses: CodSpeedHQ/action@v5
         with:
-          mode: simulation
-          cycle-estimation: 'true'
-          exclude-allocations: 'false'
-          simulation-track-subprocess: 'true'
+          mode: memory
           run: >-
             pytest test/test_MQT.py --codspeed
             -k 'grover-noancilla_nativegates_ibm_qiskit_opt0_4 and rust'
@@ -104,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rust-native-subprocess-capture-true
+          name: rust-native-memory-allocation-probe
           path: rust-subprocess-evidence/
           retention-days: 45
           if-no-files-found: error

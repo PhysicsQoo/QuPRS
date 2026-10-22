@@ -14,13 +14,9 @@ permissions:
 
 jobs:
   native-rust-wmc-attribution:
-    name: Rust native WMC / subprocess capture ${{ matrix.capture }}
+    name: Rust native WMC / subprocess capture false
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        capture: ['false', 'true']
     env:
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
@@ -59,7 +55,7 @@ jobs:
           uname -a > rust-subprocess-evidence/kernel.txt
           python --version > rust-subprocess-evidence/python.txt 2>&1
           rustc --version > rust-subprocess-evidence/rust.txt 2>&1
-          printf '%s\n' "${{ matrix.capture }}" > rust-subprocess-evidence/subprocess-capture-mode.txt
+          printf '%s\n' "false" > rust-subprocess-evidence/subprocess-capture-mode.txt
           for solver in gpmc ganak; do
             strace -f -qq -e trace=execve \
               -o "rust-subprocess-evidence/${solver}.execve.log" \
@@ -90,7 +86,7 @@ jobs:
           mode: simulation
           cycle-estimation: 'true'
           exclude-allocations: 'false'
-          simulation-track-subprocess: '${{ matrix.capture }}'
+          simulation-track-subprocess: 'false'
           run: >-
             pytest test/test_MQT.py --codspeed
             -k 'grover-noancilla_nativegates_ibm_qiskit_opt0_4 and rust'
@@ -108,7 +104,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rust-native-subprocess-capture-${{ matrix.capture }}
+          name: rust-native-subprocess-capture-false
           path: rust-subprocess-evidence/
           retention-days: 45
           if-no-files-found: error

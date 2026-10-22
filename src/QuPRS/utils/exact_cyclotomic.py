@@ -11,6 +11,8 @@ phases, and unsupported operations are NOT admissible.
 """
 
 from fractions import Fraction
+from hashlib import sha256
+import json
 
 from qiskit import QuantumCircuit
 
@@ -72,8 +74,7 @@ def _prepare(c1, c2):
             operation = instruction.operation
             name = operation.name
             if (name not in _SUPPORTED or len(operation.params) != 0
-                    or len(instruction.qubits) != _ARITY[name]
-                    or getattr(operation, "condition", None) is not None):
+                    or len(instruction.qubits) != _ARITY[name]):
                 return None
             bits = tuple(circuit.find_bit(q).index for q in instruction.qubits)
             if len(set(bits)) != len(bits):
@@ -138,6 +139,11 @@ def _evolve(n, gates, basis):
 def _decision(prepared):
     """Projective-minor exact proof, with strict-equality refinement."""
     n, a, b = prepared
+    # Bind the portable proof to both normalized exact source gate lists.
+    # Two inequivalent circuits can have an identical first minor coordinate.
+    source_sha256 = sha256(
+        json.dumps([n, a, b], separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     d = 1 << n
     # Anchor must be established BEFORE traversing any matrix entries:
     # otherwise an earlier coordinate with V=0, U!=0 could be skipped.
@@ -162,6 +168,7 @@ def _decision(prepared):
                         "schema": "quprs-source-certificate-v1",
                         "kind": "cyclotomic-operator-minor",
                         "status": "not_equivalent",
+                        "source_sha256": source_sha256,
                         "anchor": [ay, ax],
                         "witness": [y, x],
                         "provenance": "exact-q-zeta8-four-coefficient-replay",
@@ -171,6 +178,7 @@ def _decision(prepared):
     return {
         "schema": "quprs-source-certificate-v1",
         "kind": "cyclotomic-operator-full",
+        "source_sha256": source_sha256,
         "status": "equivalent" if all_equal else "equivalent*",
         "qubits": n,
         "entries_checked": d * d,

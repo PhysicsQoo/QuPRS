@@ -44,6 +44,30 @@ def native_solver_work_execve(trace_text: str, binary: str, solver: str) -> bool
     )
 
 
+def classify_hybrid_execution(
+    verdict: object, tool_time: object, trace_text: str, binary: str, solver: str
+) -> dict:
+    """Observe Hybrid's route; WMC is optional after successful reduction.
+
+    A native model-counting exec is independently witnessed, whereas tool_time
+    is only diagnostic metadata. A version check is not WMC execution.
+    """
+    if not positive_verdict(verdict):
+        raise ValueError("Equivalence check is not positive")
+    native = native_solver_work_execve(trace_text, binary, solver)
+    numeric = numeric_tool_time(tool_time)
+    return {
+        "native_model_count_execve": native,
+        "tool_time_numeric": numeric,
+        "native_time_consistent": native == numeric,
+        "execution_path": (
+            "native_wmc" if native else (
+                "rr_only" if not numeric else "unverified_native_dispatch"
+            )
+        ),
+    }
+
+
 def verify(case: str, solver: str, backend: str) -> dict:
     from _benchmark_cases import MQT_CASES
     from QuPRS import check_equivalence

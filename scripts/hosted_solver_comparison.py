@@ -20,7 +20,8 @@ from fixed_host_resource_repeats import (
     ROOT, binary_hash, provenance, run_bounded_trial, summarize,
 )
 
-CASES = ("grover4", "qaoa7", "qft16")
+CASES = ("grover4", "qaoa7", "qft16", "vqe4", "graphstate16")
+DEFAULT_CASES = ("grover4", "qaoa7", "qft16")
 # Balanced counterpart order; reverse in middle repetitions (ABBA).
 CELLS = (("gpmc", "python"), ("ganak", "python"),
          ("ganak", "rust"), ("gpmc", "rust"))
@@ -105,7 +106,7 @@ def main() -> int:
         parser.error("Invalid resource or overall budget")
     if args.output_dir.exists() and any(args.output_dir.iterdir()):
         parser.error("Evidence directory must be new or empty; never overwrite trials")
-    cases = tuple(args.case) if args.case is not None else CASES
+    cases = tuple(args.case) if args.case is not None else DEFAULT_CASES
     try:
         plan = schedule(cases, warmups=args.warmups, repeats=args.repeats)
     except ValueError as exc:

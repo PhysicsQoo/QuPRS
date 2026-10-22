@@ -105,6 +105,36 @@ def test_native_source_exact_contract_red(case, method, strategy):
         )
 
 
+GRAPH = (
+    "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+    "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+)
+GRAPH_SHA256 = (
+    "cf068868f970e553ac9a8fb4998c7c2a6a2e3e6e7a437e3a636f477e34682e36",
+    "d2c38d1663dc26757ecb09748918be41c0064cc67bc52d4d7c1c2dfc3fbdd1c9",
+)
+
+
+@pytest.mark.parametrize("method", ["reduction_rules", "hybrid"])
+@pytest.mark.parametrize("solver", ["gpmc", "ganak"])
+def test_graphstate_source_exact_negative(solver, method):
+    # Full 16Q Arb ball proof: graph-source-ball-witness.yml, input 0,
+    # outputs 0 and 8, certified nonzero projective minor.
+    files = tuple(Path(p) for p in GRAPH)
+    hashes = tuple(hashlib.sha256(p.read_bytes()).hexdigest() for p in files)
+    assert hashes == GRAPH_SHA256
+    lhs, rhs = (p.read_text() for p in files)
+    result = _pathsum_rust.check_equivalence(
+        lhs, rhs, method=method, strategy="Naive",
+        tool_name=solver, timeout=30,
+    )
+    assert result["stage_ledger"]["solver_child_spawns"] == 0
+    assert result["status"] == "Not Equivalent", (
+        "Exact-source 16Q result must not be relabeled equivalent due to "
+        f"rounded-Qiskit acceptance: {solver}, {method}, {result['status']}"
+    )
+
+
 @pytest.mark.parametrize("method", ["reduction_rules", "hybrid"])
 @pytest.mark.parametrize("strategy", ["Naive", "Proportional"])
 @pytest.mark.parametrize("case", ["exact_symbolic_pi", "inequivalent_rz", "inequivalent_x"])

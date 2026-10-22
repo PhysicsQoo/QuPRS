@@ -31,6 +31,21 @@ def numeric_tool_time(value: object) -> bool:
             and math.isfinite(value) and value >= 0)
 
 
+def native_solver_work_execve(trace_text: str, binary: str, solver: str) -> bool:
+    """Match a successful *model-counting* launch, not a --version probe.
+
+    Both selected native solvers are invoked with their existing Mode 1 / Mode 6
+    CNF-solving command line. A bare executable execve is insufficient evidence.
+    """
+    solver_mode = {"gpmc": "-mode=1", "ganak": "--mode=6"}[solver]
+    return any(
+        'execve("' + binary + '"' in line
+        and '"' + solver_mode + '"' in line
+        and line.rstrip().endswith("= 0")
+        for line in trace_text.splitlines()
+    )
+
+
 def verify(case: str, solver: str, backend: str) -> dict:
     from _benchmark_cases import MQT_CASES
     from QuPRS import check_equivalence

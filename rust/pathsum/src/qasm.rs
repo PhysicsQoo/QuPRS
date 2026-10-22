@@ -64,7 +64,7 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
         // Validate arity before indexing targets/parameters; truncated QASM
         // should return an error, never a PyO3 Panic or a spurious identity.
         let expected = match gate_name.as_str() {
-            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "id" => (1, 0),
+            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "sx" | "sxdg" | "id" => (1, 0),
             "cx" | "cz" => (2, 0),
             "ccx" => (3, 0),
             "rx" | "ry" | "rz" => (1, 1),
@@ -88,6 +88,8 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             "sdg" => QuantumOp::SDG(qubits[0]),
             "t" => QuantumOp::T(qubits[0]),
             "tdg" => QuantumOp::TDG(qubits[0]),
+            "sx" => QuantumOp::SX(qubits[0]),
+            "sxdg" => QuantumOp::SXDG(qubits[0]),
             "cx" => QuantumOp::CX(qubits[0], qubits[1]),
             "cz" => QuantumOp::CZ(qubits[0], qubits[1]),
             "ccx" => QuantumOp::CCX(qubits[0], qubits[1], qubits[2]),
@@ -202,7 +204,7 @@ mod tests {
     #[test]
     fn unsupported_gates_cannot_be_silently_skipped() {
         let head = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\n";
-        assert!(parse_qasm_str(&format!("{head}sx q[0];\n")).is_err());
+        assert!(parse_qasm_str(&format!("{head}u4(0) q[0];\n")).is_err());
         assert!(parse_qasm_str(&format!("{head}measure q[0] -> c[0];\n")).is_err());
     }
 

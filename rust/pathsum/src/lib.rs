@@ -226,7 +226,9 @@ pub fn check_equivalence(
             op,
             QuantumOp::H(_) | QuantumOp::X(_) | QuantumOp::Y(_) |
             QuantumOp::Z(_) | QuantumOp::S(_) | QuantumOp::SDG(_) |
-            QuantumOp::T(_) | QuantumOp::TDG(_) | QuantumOp::CX(_, _) |
+            QuantumOp::T(_) | QuantumOp::TDG(_) |
+            QuantumOp::SX(_) | QuantumOp::SXDG(_) |
+            QuantumOp::CX(_, _) |
             QuantumOp::CZ(_, _) | QuantumOp::SWAP(_, _) |
             QuantumOp::CCX(_, _, _)
         ));

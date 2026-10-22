@@ -92,3 +92,13 @@ def test_equal_tableau_does_not_forge_strict_certificate():
     b.z(0)
     b.z(0)
     assert make_source_witness_certificate(a, b) is None
+
+def test_rz_strict_equality_does_not_ignore_qiskit_global_phase():
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    b.global_phase = 0.125
+    assert certify_rz_basis_witness(a, b) is None
+    assert make_source_witness_certificate(a, b) is None
+    b.rz(0.001, 0)
+    # The RZ-only witness deliberately fails closed for explicit phases
+    # instead of claiming source provenance that it has not modeled.
+    assert certify_rz_basis_witness(a, b) is None

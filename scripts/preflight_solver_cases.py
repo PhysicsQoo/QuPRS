@@ -30,7 +30,8 @@ def select_eligible(rows: list[dict], candidates: tuple[str, ...]) -> list[str]:
                 {(r.get("solver"), r.get("backend")) for r in matching} == set(CELLS) and
                 all(r.get("status") == "PASS"
                     and r.get("native_execve") is True
-                    and r.get("positive_equivalence") is True for r in matching)):
+                    and r.get("positive_equivalence") is True
+                    and r.get("numeric_solver_time") is True for r in matching)):
             selected.append(case)
     return selected
 
@@ -78,6 +79,7 @@ def main() -> int:
                     "status": row["status"],
                     "native_execve": row.get("native_execve"),
                     "positive_equivalence": row.get("positive_equivalence"),
+                    "numeric_solver_time": row.get("numeric_solver_time"),
                 }, sort_keys=True), flush=True)
         results["selected_cases"] = select_eligible(results["rows"], tuple(args.case))
         results["status"] = ("COMPLETE" if results["selected_cases"]

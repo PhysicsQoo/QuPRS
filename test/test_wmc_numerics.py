@@ -42,7 +42,7 @@ def test_floating_counts_match_hand_computed_models(tmp_path, positive, negative
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
-@pytest.mark.parametrize('fraction,expected', [(0.99, 'equivalent'), (1.01, 'not_equivalent')])
+@pytest.mark.parametrize('fraction,expected', [(0.99, 'unknown'), (1.01, 'unknown')])
 def test_python_normalized_magnitude_boundary(monkeypatch, solver, fraction, expected):
     import QuPRS.interface.ps2wmc as adapter
     # HH yields expected log2=2; compare normalized amplitude without
@@ -59,22 +59,20 @@ def test_python_normalized_magnitude_boundary(monkeypatch, solver, fraction, exp
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
 @pytest.mark.parametrize('backend,angle,accepted', [
-    ('python', 0.0, True), ('python', 0.0026, True), ('python', 0.003, False),
-    ('rust', 0.0, True), ('rust', 0.0026, True), ('rust', 0.003, False),
+    ('python', 0.0, True), ('python', 0.0026, False), ('python', 0.003, False),
+    ('rust', 0.0, True), ('rust', 0.0026, False), ('rust', 0.003, False),
 ])
 def test_real_solvers_near_existing_decision_boundaries(backend, solver, angle, accepted):
-    # |tr(RZ(angle))|/2 = cos(angle/2). Both Python and Rust now use
-    # the same normalized-magnitude boundary of 1e-6.
+    # |tr(RZ(angle))|/2 = cos(angle/2). This is numerical telemetry,
+    # NOT a strict proof, even for a mathematically equal case.
     identity = QuantumCircuit(1)
     circuit = QuantumCircuit(1)
     circuit.h(0)
     circuit.rz(angle, 0)
     circuit.h(0)
     result = check_equivalence(identity, circuit, method='wmc_only', tool_name=solver, backend=backend)
-    if accepted:
-        assert result.equivalent in {'equivalent', 'equivalent*'}
-    else:
-        assert result.equivalent == 'not_equivalent'
+    # No verified positive/negative WMC certificate supplied.
+    assert result.equivalent == 'unknown'
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
@@ -85,11 +83,11 @@ def test_large_normalization_identity_with_real_solver(solver):
         hh.h(0)
     # Expected count 2**31 needs more significant digits than mode 6 prints.
     result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
-    assert result.equivalent == 'equivalent'
+    assert result.equivalent == 'unknown'
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
-@pytest.mark.parametrize('fraction,expected', [(0.99, 'equivalent'), (1.01, 'equivalent*')])
+@pytest.mark.parametrize('fraction,expected', [(0.99, 'unknown'), (1.01, 'unknown')])
 def test_phase_boundary_with_real_floating_counts(tmp_path, monkeypatch, solver, fraction, expected):
     import QuPRS.interface.ps2wmc as adapter
     phase = fraction * config.WMC_PHASE_TOLERANCE
@@ -159,12 +157,12 @@ def test_python_113_bit_weights_match_independent_oracle(fraction):
 def test_python_wmc_count_classification_is_stable_for_extremes():
     kwargs = dict(magnitude_tolerance=1e-6, phase_tolerance=1e-6)
     status, log_value = classify_weighted_count(1e300, 0.0, math.log2(1e300), **kwargs)
-    assert status == 'equivalent'
+    assert status == 'unknown'
     assert math.isfinite(log_value)
 
-    assert classify_weighted_count(0.0, 0.0, 2.0, **kwargs)[0] == 'not_equivalent'
-    assert classify_weighted_count(4.0, -1.9e-6, 2.0, **kwargs)[0] == 'equivalent'
-    assert classify_weighted_count(0.0, 4.0, 2.0, **kwargs)[0] == 'equivalent*'
+    assert classify_weighted_count(0.0, 0.0, 2.0, **kwargs)[0] == 'unknown'
+    assert classify_weighted_count(4.0, -1.9e-6, 2.0, **kwargs)[0] == 'unknown'
+    assert classify_weighted_count(0.0, 4.0, 2.0, **kwargs)[0] == 'unknown'
     with pytest.raises(ValueError, match='Non-finite'):
         classify_weighted_count(math.inf, 0.0, 2.0, **kwargs)
 

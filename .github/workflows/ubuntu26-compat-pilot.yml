@@ -1,0 +1,134 @@
+name: Ubuntu 26.04 Native Compatibility Pilot
+
+# Isolated compatibility evidence; this workflow does not change regular CI.
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/ubuntu26-compat-pilot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ubuntu26-compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-compatibility:
+    name: Native source / ${{ matrix.os }} / Python 3.12
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, ubuntu-26.04-arm]
+    steps:
+      - name: Check out PR integration source and GPMC submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Record runner and source provenance
+        run: |
+          mkdir -p ubuntu26-evidence
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          def cmd(*args):
+              p = subprocess.run(args, capture_output=True, text=True, check=False)
+              return {"returncode": p.returncode, "output": (p.stdout or p.stderr).strip()[:4000]}
+
+          data = {
+              "runner_label": "${{ matrix.os }}",
+              "runner_os": os.environ.get("RUNNER_OS"),
+              "runner_arch": os.environ.get("RUNNER_ARCH"),
+              "image_os": os.environ.get("ImageOS"),
+              "image_version": os.environ.get("ImageVersion"),
+              "python": platform.python_version(),
+              "machine": platform.machine(),
+              "git_head": cmd("git", "rev-parse", "HEAD"),
+              "gpmc_submodule": cmd("git", "rev-parse", "HEAD:GPMC"),
+              "os_release": Path("/etc/os-release").read_text(),
+              "gcc": cmd("gcc", "--version"),
+              "cmake": cmd("cmake", "--version"),
+          }
+          Path("ubuntu26-evidence/provenance.json").write_text(
+              json.dumps(data, indent=2, sort_keys=True) + "\n"
+          )
+          print(json.dumps(data, indent=2, sort_keys=True))
+          PY
+
+      - name: Verify representative research circuit sources
+        run: python scripts/paper_corpus_audit.py --json ubuntu26-evidence/paper_corpus_sha256.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native solver build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Compile Rust/Python and GPMC on this image
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+
+      - name: Verify packaged Ganak and compiled GPMC
+        run: |
+          python -m QuPRS.utils.ganak_distribution
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          from QuPRS.utils import WMC
+
+          for solver in ("gpmc", "ganak"):
+              with WMC(solver) as path:
+                  path = Path(path)
+                  if not path.is_file() or not os.access(path, os.X_OK):
+                      raise SystemExit(f"{solver}: missing executable: {path}")
+                  digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                  with open(f"ubuntu26-evidence/{solver}-sha256.txt", "w") as f:
+                      f.write(digest + "  " + str(path) + "\n")
+                  print(f"{solver}: executable present, sha256={digest}")
+          PY
+
+      - name: Run locked Rust correctness tests
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum
+
+      - name: Run full Python correctness and representative benchmarks
+        id: python_correctness
+        run: python -m pytest -n auto -q -ra --junitxml=ubuntu26-evidence/pytest.xml
+
+      - name: Classify benchmark completion independently
+        if: ${{ !cancelled() && steps.python_correctness.outcome != 'skipped' }}
+        run: |
+          python scripts/check_benchmark_evidence.py \
+            --junit ubuntu26-evidence/pytest.xml \
+            --json ubuntu26-evidence/benchmark-evidence.json \
+            --markdown ubuntu26-evidence/benchmark-evidence.md
+
+      - name: Preserve native compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu26-native-${{ matrix.os }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: ubuntu26-evidence/

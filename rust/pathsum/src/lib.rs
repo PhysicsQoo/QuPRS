@@ -117,16 +117,16 @@ pub fn check_equivalence(
     if method != VerificationMethod::WmcOnly {
         if ps_miter.is_identity_up_to_phase() {
             if let Some(phase_coeff) = ps_miter.get_global_phase() {
-                let phase_val = (phase_coeff.constant.numer as f64) / (phase_coeff.constant.denom as f64);
-                let angle = phase_val * std::f64::consts::PI; 
-                let cos_val = angle.cos();
-                let sin_val = angle.sin();
-                if (cos_val - 1.0).abs() < 1e-6 && sin_val.abs() < 1e-6 {
-                    status = EquivalenceStatus::Equivalent;
+                // No floating phase tolerance may turn a small nonzero
+                // *exact* algebraic global phase into strict equality.
+                // Rational pi parts are already modulo one; exact decimal
+                // radians remain a separate nonzero transcendental component.
+                status = if phase_coeff.is_zero() {
+                    EquivalenceStatus::Equivalent
                 } else {
-                    status = EquivalenceStatus::EquivalentUpToGlobalPhase;
-                    log::debug!("Residual Global Phase detected: {} radians", angle);
-                }
+                    log::debug!("Residual exact global phase: {}", phase_coeff);
+                    EquivalenceStatus::EquivalentUpToGlobalPhase
+                };
             }
         } else {
             // If the state is not Identity, but there are no internal path variables left,

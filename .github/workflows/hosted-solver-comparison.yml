@@ -97,8 +97,12 @@ jobs:
         run: |
           mkdir -p hosted-solver-evidence
           date -u +"%Y-%m-%dT%H:%M:%SZ" > hosted-solver-evidence/end-utc.txt
-          find hosted-solver-evidence -type f ! -name SHA256SUMS -print0 |
-            sort -z | xargs -0 -r sha256sum > hosted-solver-evidence/SHA256SUMS
+          (
+            cd hosted-solver-evidence
+            find . -type f ! -name SHA256SUMS -print0 |
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
 
       - name: Upload complete and incomplete scientific diagnostic evidence
         if: always()

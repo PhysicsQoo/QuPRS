@@ -1,5 +1,19 @@
 # Fixed-host solver resource trials (opt-in)
 
+## Delivery and research validation
+
+The GitHub-hosted same-job comparison is an exploratory integration and
+resource-observation test. Acceptance of the opt-in tooling requires source
+correctness, bounded native process lifecycle checks, complete provenance and
+fail-closed trial summaries; it does **not** require a registered self-hosted
+runner or a fixed physical-host result. A dedicated, controlled Linux host is
+an optional separate research validation for paper-quality absolute or
+cross-version Walltime and resource claims. Hosted observations must never
+be labelled as fixed-physical-host evidence.
+
+Measured-trial Hybrid execution-path classifications exclude warmup routes.
+Warmup route counts remain available as separate metadata.
+
 The existing [benchmark experiment policy](benchmark-testing.md) distinguishes
 CodSpeed Simulation from wall-clock execution and sampled process-tree RSS.
 

@@ -69,11 +69,18 @@ def summarize(trials: list[dict], expected_repeats: int, *,
     Numeric solver_time is *not* proof of native model-counting execve.
     Solver-only claims require a separately witnessed native execution.
     """
-    data = [x["report"] for x in trials if not x["warmup"]]
+    if not isinstance(trials, list) or any(
+        not isinstance(t, dict) or not isinstance(t.get("warmup"), bool)
+        for t in trials
+    ):
+        return {"status": "INCONCLUSIVE", "reason": "invalid trial structure"}
+    measured = [t for t in trials if not t["warmup"]]
+    data = [t.get("report") for t in measured]
     if len(data) != expected_repeats:
         return {"status": "INCONCLUSIVE", "reason": "missing repetitions"}
     if any(
         not isinstance(t.get("report"), dict)
+        or not isinstance(t["report"].get("verdict"), dict)
         or t.get("exit_code", 0) != 0
         or t.get("outer_timed_out") is True
         or t.get("cleanup_needed") is True
@@ -92,7 +99,8 @@ def summarize(trials: list[dict], expected_repeats: int, *,
         for trial in trials:
             r = trial["report"]
             verdict = r["verdict"]
-            if (r.get("case", {}).get("case") != expected_case
+            if (not isinstance(r.get("case"), dict)
+                or r["case"].get("case") != expected_case
                 or r.get("tool_name") != expected_solver
                 or r.get("backend") != expected_backend
                 or verdict.get("tool_name") != expected_solver
@@ -109,12 +117,22 @@ def summarize(trials: list[dict], expected_repeats: int, *,
         first_hashes = trials[0]["report"]["input_sha256"]
         if any(t["report"]["input_sha256"] != first_hashes for t in trials):
             return {"status": "INCONCLUSIVE", "reason": "source input changed between trials"}
+    for key in ("elapsed_seconds", "sampled_peak_tree_rss_mib"):
+        if any(
+            not isinstance(r.get(key), (int, float))
+            or isinstance(r[key], bool)
+            or not math.isfinite(r[key])
+            or r[key] <= 0
+            for r in data
+        ):
+            return {"status": "INCONCLUSIVE", "reason": f"invalid or missing {key}"}
     times = [r["elapsed_seconds"] for r in data]
     rss = [r["sampled_peak_tree_rss_mib"] for r in data]
-    if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0
-           for v in times + rss):
-        return {"status": "INCONCLUSIVE", "reason": "invalid time or sampled RSS"}
-    solver_times = [t["report"]["verdict"]["solver_time"] for t in trials]
+    solver_times = [r["verdict"]["solver_time"] for r in data]
+    warmup_numeric_count = sum(
+        t["report"]["verdict"]["solver_time"] is not None
+        for t in trials if t["warmup"]
+    )
     numeric_count = sum(v is not None for v in solver_times)
     # This is an *observed metadata* classification, not an oracle that
     # Hybrid must invoke WMC. The same case may take different valid paths.
@@ -127,7 +145,8 @@ def summarize(trials: list[dict], expected_repeats: int, *,
         "status": "COMPLETE", "n": len(data),
         "execution_path": execution_path,
         "numeric_solver_time_trials": numeric_count,
-        "total_trials_including_warmups": len(solver_times),
+        "total_trials_including_warmups": len(trials),
+        "warmup_numeric_solver_time_trials": warmup_numeric_count,
         "native_solver_execution_verified": False,
         "solver_only_performance_certified": False,
         "walltime_median_seconds": statistics.median(times),

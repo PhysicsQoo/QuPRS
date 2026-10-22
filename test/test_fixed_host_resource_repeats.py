@@ -247,6 +247,62 @@ def test_missing_solver_time_field_is_not_accepted_as_rr_only():
     assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
 
 
+def test_malformed_positive_reports_fail_closed():
+    """Malformed successful-looking resource JSON must remain inconclusive."""
+    rows = [trial(2.0, 100), trial(2.1, 110), trial(2.2, 120)]
+    rows[0]["report"]["verdict"] = None
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+    rows = [trial(2.0, 100), trial(2.1, 110), trial(2.2, 120)]
+    del rows[0]["report"]["elapsed_seconds"]
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+    rows = [trial(2.0, 100), trial(2.1, 110), trial(2.2, 120)]
+    del rows[0]["report"]["sampled_peak_tree_rss_mib"]
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+    rows = [trial(2.0, 100), trial(2.1, 110), trial(2.2, 120)]
+    rows[0]["report"] = None
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+    rows = [trial(2.0, 100), trial(2.1, 110), trial(2.2, 120)]
+    del rows[0]["warmup"]
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+    rows = [trial(2.0, 100), trial(2.1, 110), trial(2.2, 120)]
+    rows[0]["report"]["sampled_peak_tree_rss_mib"] = True
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+
+def test_missing_case_metadata_is_inconclusive():
+    rows = [trial(2.0, 100), trial(2.1, 110), trial(2.2, 120)]
+    for row in rows:
+        row["report"].update({
+            "case": {"case": "grover4"}, "tool_name": "gpmc",
+            "backend": "python",
+            "input_sha256": {"source": "a" * 64, "transpiled": "b" * 64},
+        })
+        row["report"]["verdict"].update({"tool_name": "gpmc", "backend": "python"})
+    rows[0]["report"]["case"] = None
+    assert module.summarize(
+        rows, 3, expected_case="grover4",
+        expected_solver="gpmc", expected_backend="python",
+    )["status"] == "INCONCLUSIVE"
+
+
+def test_warmup_solver_route_does_not_change_measured_classification():
+    rows = [trial(1.0, 100), trial(2.0, 110), trial(2.1, 120), trial(2.2, 130)]
+    rows[0]["warmup"] = True
+    for row in rows[1:]:
+        row["report"]["verdict"]["solver_time"] = None
+    result = module.summarize(rows, 3)
+    assert result["status"] == "COMPLETE"
+    assert result["execution_path"] == "RR_ONLY_REPORTED"
+    assert result["numeric_solver_time_trials"] == 0
+    assert result["warmup_numeric_solver_time_trials"] == 1
+    assert result["total_trials_including_warmups"] == 4
+
+
 def test_fixed_host_balanced_four_round_schedule():
     plan = module.comparison_schedule(
         ("grover4", "qft16"), ("gpmc", "ganak"),

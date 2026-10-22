@@ -1,0 +1,149 @@
+name: QFT Native and Reduction Control Probe
+
+# Isolated research diagnostic; never modifies CodSpeed production baselines.
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/wmc-qft-reduction-controls.yml'
+      - 'scripts/probe_wmc_dispatch_controls.py'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  native-vs-reduction:
+    name: QFT16 / Graphstate16 Python Rust GPMC Ganak subprocess attribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Check out original paper QASM and solver sources
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qft-native-and-reduction-controls-v1
+
+      - name: Install native solver dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev strace
+
+      - name: Build unchanged original QuPRS backends
+        run: |
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+
+      - name: Verify positive native QFT and negative Graphstate controls
+        run: |
+          set -euo pipefail
+          root=solver-dispatch-evidence
+          mkdir -p "$root"
+          git rev-parse HEAD > "$root/source-sha.txt"
+          git rev-parse 'HEAD^{tree}' > "$root/source-tree.txt"
+          lscpu > "$root/lscpu.txt"
+          uname -a > "$root/kernel.txt"
+          python -m pip freeze > "$root/python-packages.txt"
+          rustc --version > "$root/rust-version.txt"
+          for case in qft16 graphstate16; do
+            for solver in gpmc ganak; do
+              for backend in python rust; do
+                prefix="$root/${case}-${solver}-${backend}"
+                strace -f -qq -e trace=execve -o "${prefix}.execve.log" \
+                  python scripts/probe_wmc_dispatch_controls.py \
+                    --case "$case" --solver "$solver" --backend "$backend" \
+                    --output "${prefix}.json"
+              done
+            done
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("solver-dispatch-evidence")
+          binary_ids = {}
+          qasm_ids = {}
+          rows = []
+          for case in ("qft16", "graphstate16"):
+              for solver in ("gpmc", "ganak"):
+                  for backend in ("python", "rust"):
+                      prefix = root / f"{case}-{solver}-{backend}"
+                      info = json.loads(prefix.with_suffix(".json").read_text())
+                      trace = prefix.with_suffix(".execve.log").read_text().splitlines()
+                      binary = info["solver_binary"]
+                      observed = any('execve("' + binary + '"' in line and line.rstrip().endswith('= 0')
+                                     for line in trace)
+                      expected = case == "qft16"
+                      assert observed is expected, f"{case}/{solver}/{backend}: native execve={observed}"
+                      assert info["native_expected"] is expected
+                      assert info["verdict"] in ("equivalent", "equivalent*")
+                      assert (info["tool_time_s"] is not None) is expected
+                      binary_ids.setdefault(solver, info["solver_sha256"])
+                      assert info["solver_sha256"] == binary_ids[solver]
+                      qasm_ids.setdefault(case, info["qasm_sha256"])
+                      assert info["qasm_sha256"] == qasm_ids[case]
+                      rows.append({"case": case, "solver": solver, "backend": backend,
+                                   "verdict": info["verdict"], "native_execve": observed,
+                                   "expected_native": expected})
+          assert len(rows) == 8
+          (root / "audit.json").write_text(json.dumps({
+              "scope": "preflight outside CodSpeed simulation",
+              "checks": rows,
+              "native_positive": 4,
+              "reduction_negative": 4,
+              "status": "PASS",
+          }, sort_keys=True, indent=2) + "\n")
+          print("8/8 native and reduction controls PASS", flush=True)
+          PY
+
+      - name: CodSpeed v5 Simulation with subprocess tracing enabled
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          run: >-
+            pytest test/test_MQT.py --codspeed
+            -k 'qft_nativegates_ibm_qiskit_opt0_16 or graphstate_nativegates_ibm_qiskit_opt0_16'
+
+      - name: Seal self-contained evidence with portable checksums
+        if: always()
+        run: |
+          mkdir -p solver-dispatch-evidence
+          (
+            cd solver-dispatch-evidence
+            find . -type f ! -name SHA256SUMS -print0 |
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve positive and negative native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: solver-dispatch-controls-original-qasm
+          path: solver-dispatch-evidence/
+          if-no-files-found: error
+          retention-days: 90

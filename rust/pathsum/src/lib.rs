@@ -194,19 +194,21 @@ pub fn check_equivalence(
         info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
+        // A solver response with binary64 complex weights has no verified
+        // enclosure for the exact trace. This is especially critical for
+        // original decimal-angle QASM: a nonzero exact source difference may
+        // round its normalized trace to almost exactly one.
+        //
+        // The solver is permitted to run for diagnostics, but cannot
+        // overwrite Unknown with Equivalent, global-phase Equivalent, or
+        // NotEquivalent without a separately verified certificate.
         let norm = final_amplitude.norm();
-        if (norm - 1.0).abs() < 1e-6 {
-            let theta = final_amplitude.im.atan2(final_amplitude.re);
-            info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-            if theta.abs() < 1e-6 {
-                status = EquivalenceStatus::Equivalent;
-            } else {
-                status = EquivalenceStatus::EquivalentUpToGlobalPhase;
-            }
-        } else {
-            debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
-            status = EquivalenceStatus::NotEquivalent;
-        }
+        let theta = final_amplitude.im.atan2(final_amplitude.re);
+        debug!(
+            "Uncertified WMC count (diagnostic only): normalized norm={:.16e}, phase={:.16e}; source-exact verdict remains Unknown",
+            norm, theta,
+        );
+        status = EquivalenceStatus::Unknown;
         }
     }
 

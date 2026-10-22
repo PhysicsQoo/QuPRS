@@ -4,6 +4,8 @@
 Examples (opt-in; do not run inside CodSpeed's timed measurements):
 
   python scripts/profile_benchmark_resources.py --case grover4 --output grover4.json
+  python scripts/profile_benchmark_resources.py --case qaoa7 --output qaoa7.json
+  python scripts/profile_benchmark_resources.py --case qft16 --output qft16.json
   python scripts/profile_benchmark_resources.py --case tof3 --output tof3.json
 
 The peak is *sampled aggregate process-tree RSS*, not an exact instantaneous
@@ -31,6 +33,7 @@ sys.path.insert(0, str(ROOT / "test"))
 _CASE_NAMES = {
     "grover4": ("mqt", "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm"),
     "qaoa7": ("mqt", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+    "qft16": ("mqt", "qft_nativegates_ibm_qiskit_opt0_16.qasm"),
     "vqe4": ("mqt", "vqe_nativegates_ibm_qiskit_opt0_4.qasm"),
     "tof3": ("feynman", "tof_3.qasm"),
 }

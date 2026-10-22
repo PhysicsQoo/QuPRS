@@ -55,6 +55,14 @@ a separate bounded trial; do not retry inside a CodSpeed timed function.
 
 ## Memory and time
 
+The existing MQT benchmark suite already covers **QFT16, QAOA7 and
+Grover4** in both Python and Rust with GPMC and Ganak. The optional
+resource observer reuses those same QASM paths, Proportional strategy,
+Hybrid method and source/target direction; it does **not** add cases to
+the default 32-case benchmark or introduce timed CodSpeed instrumentation.
+These resource pilots currently use the observer's Python/GPMC configuration,
+so they are not Rust/Ganak memory measurements.
+
 Do not time memory sampling inside a CodSpeed benchmark; sampling threads,
 process checks and logging can change the performance result. Run the
 resource observer in a **separate process** and save JSON evidence:
@@ -64,6 +72,10 @@ python scripts/profile_benchmark_resources.py \
   --case grover4 --walltime-seconds 90 --solver-timeout-seconds 45 \
   --memory-limit-mib 3072 --output grover4-resources.json
 ```
+
+For the additional existing examples, run the same observer separately with
+`--case qaoa7` or `--case qft16`, changing the output JSON path for each.
+These trials are opt-in and should use a matched runner for A/B comparisons.
 
 The observer includes the parent and its live solver descendants, and kills
 its process group when the configured wall-time or sampled RSS cap is crossed.

@@ -51,7 +51,7 @@ def angle(expr):
     return result * arb.pi() if pi_count else result
 
 
-def read(path):
+def read(path, expected_qubits=8):
     registers, gates, qubits = {}, [], 0
     text = Path(path).read_text()
     for number, raw in enumerate(text.splitlines(), 1):
@@ -94,7 +94,7 @@ def read(path):
             gates.append(("cx", ctrl, tgt))
             continue
         raise ValueError(f"Unsupported source at {path}:{number}: {line}")
-    if qubits != 8 or len(gates) > 512:
+    if qubits != expected_qubits or len(gates) > 512:
         raise ValueError("Invalid QPEexact8 scope")
     return gates
 
@@ -123,20 +123,20 @@ def prepared(gates):
     return ops
 
 
-def evolve(ops, basis):
-    state = [acb(0) for _ in range(256)]
+def evolve(ops, basis, dim=256):
+    state = [acb(0) for _ in range(dim)]
     state[basis] = acb(1)
     for name, bit, arg in ops:
         if name == "cx":
             cmask, tmask = 1 << bit, 1 << arg
-            for j in range(256):
+            for j in range(dim):
                 if (j & cmask) and not (j & tmask):
                     k = j | tmask
                     state[j], state[k] = state[k], state[j]
             continue
         m00, m01, m10, m11 = arg
         mask = 1 << bit
-        for j in range(256):
+        for j in range(dim):
             if not j & mask:
                 k = j | mask
                 u, v = state[j], state[k]

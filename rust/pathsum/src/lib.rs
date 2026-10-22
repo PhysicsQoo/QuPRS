@@ -195,18 +195,17 @@ pub fn check_equivalence(
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
         let norm = final_amplitude.norm();
-        if (norm - 1.0).abs() < 1e-6 {
-            let theta = final_amplitude.im.atan2(final_amplitude.re);
-            info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-            if theta.abs() < 1e-6 {
-                status = EquivalenceStatus::Equivalent;
-            } else {
-                status = EquivalenceStatus::EquivalentUpToGlobalPhase;
-            }
-        } else {
-            debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
-            status = EquivalenceStatus::NotEquivalent;
-        }
+        let theta = final_amplitude.im.atan2(final_amplitude.re);
+        debug!(
+            "Uncertified WMC trace result (diagnostic only): normalized norm={:.16e}, phase={:.16e} rad; no verified count enclosure",
+            norm, theta
+        );
+        // Numerical closeness, including an exactly rounded 1.0, cannot
+        // certify equality. A difference without a rigorous true-trace
+        // bound cannot certify inequality either. Ganak/GPMC currently
+        // expose no end-to-end certificate, so WMC is fail-closed.
+        // Symbolically proven reduction verdicts above remain authoritative.
+        status = EquivalenceStatus::Unknown;
         }
     }
 

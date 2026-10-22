@@ -56,11 +56,18 @@ def parse_count_line(line):
 
 
 def classify_weighted_count(real, imag, expected_log2, *, magnitude_tolerance, phase_tolerance):
-    """Classify a WMC result without rounding or squaring its components.
+    """Return *uncertified* WMC diagnostics without manufacturing a proof.
 
-    The magnitude policy matches Rust's normalized-amplitude threshold.
-    This operates on solver output, *not* on the reducer's symbolic tolerance.
-    Global phases outside the zero-phase tolerance remain equivalent*.
+    The current Ganak/GPMC outputs and CNF phase weights carry no verified,
+    end-to-end error enclosure. Neither an output equal to the expected
+    count nor a count different from it proves a strict unitary relation.
+    In particular, a near-unity trace magnitude cannot establish an exact
+    equality even modulo global phase.
+
+    This fail-closed gate preserves the normalized logarithmic count for
+    diagnostics. Until a separately validated certificate producer/verifier
+    exists, all finite numerical counts have status ``unknown``. Symbolic
+    reduction decisions are made upstream and remain unaffected.
     """
     if not all(math.isfinite(v) for v in (real, imag, expected_log2)):
         raise ValueError("Non-finite weighted count or normalization")
@@ -69,20 +76,13 @@ def classify_weighted_count(real, imag, expected_log2, *, magnitude_tolerance, p
 
     scale = max(abs(real), abs(imag))
     if scale == 0.0:
-        return "not_equivalent", float("-inf")
+        # A rounded zero is not a certified exact zero of the true trace.
+        return "unknown", float("-inf")
 
-    # log(hypot) without overflowing real**2 + imag**2 or a large norm.
+    # Preserve the overflow-safe log(count) diagnostic.
     log_count = math.log2(scale) + math.log2(
         math.hypot(real / scale, imag / scale)
     )
-    log_difference = log_count - expected_log2
-
-    # expm1 is accurate near zero; the upper guard avoids overflow when the
-    # expected count is far smaller than the observed finite count.
-    if log_difference > 2 or abs(math.expm1(log_difference * math.log(2))) >= magnitude_tolerance:
-        return "not_equivalent", log_count
-
-    phase = math.atan2(imag, real)  # [-pi, pi], including phases just below 2*pi
-    if abs(phase) < phase_tolerance:
-        return "equivalent", log_count
-    return "equivalent*", log_count
+    # An arbitrary fixed tolerance is not a certificate of either verdict;
+    # even a bitwise f64 match to the expected value is inconclusive.
+    return "unknown", log_count

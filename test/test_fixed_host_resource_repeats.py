@@ -123,14 +123,20 @@ def test_outer_worker_timeout_reaps_mock_solver_descendant(tmp_path):
 
     if os.name != "posix":
         pytest.skip("Process-group supervision requires POSIX")
-    pid_path = tmp_path / "solver.pid"
-    script = (
+    pid_path = tmp_path / "grandchild.pid"
+    mock_solver = tmp_path / "mock_solver.py"
+    mock_solver.write_text(
         "import pathlib, subprocess, sys, time\n"
-        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-        f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid))\n"
+        "grandchild = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"pathlib.Path({str(pid_path)!r}).write_text(str(grandchild.pid))\n"
         "time.sleep(60)\n"
     )
-    outcome = module.run_bounded_trial([sys.executable, "-c", script], 2.0)
+    script = (
+        "import subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, {str(mock_solver)!r}])\n"
+        "time.sleep(60)\n"
+    )
+    outcome = module.run_bounded_trial([sys.executable, "-c", script], 3.0)
     assert outcome["outer_timed_out"] is True
     assert outcome["cleanup_needed"] is True
     assert outcome["cleanup_error"] is None

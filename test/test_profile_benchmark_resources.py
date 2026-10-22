@@ -19,25 +19,25 @@ def test_resource_case_catalog_matches_current_ci_selection():
 
 
 @pytest.mark.parametrize(
-    'name,filename,reversed_order',
+    'name,filename,reversed_order,strategy',
     (
-        ('grover4', 'grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm', True),
-        ('qaoa7', 'qaoa_nativegates_ibm_qiskit_opt0_7.qasm', False),
-        ('qft16', 'qft_nativegates_ibm_qiskit_opt0_16.qasm', True),
-        ('vqe4', 'vqe_nativegates_ibm_qiskit_opt0_4.qasm', False),
-        ('graphstate16', 'graphstate_nativegates_ibm_qiskit_opt0_16.qasm', False),
+        ('grover4', 'grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm', True, 'proportional'),
+        ('qaoa7', 'qaoa_nativegates_ibm_qiskit_opt0_7.qasm', False, 'proportional'),
+        ('qft16', 'qft_nativegates_ibm_qiskit_opt0_16.qasm', True, 'proportional'),
+        ('vqe4', 'vqe_nativegates_ibm_qiskit_opt0_4.qasm', False, 'proportional'),
+        ('graphstate16', 'graphstate_nativegates_ibm_qiskit_opt0_16.qasm', False, 'naive'),
     ),
 )
 def test_representative_resource_cases_reuse_existing_mqt_settings(
-    name, filename, reversed_order,
+    name, filename, reversed_order, strategy,
 ):
     """Validate profiling selections without running any solver."""
     import _benchmark_cases
 
     case = resource.resolve_case(name)
-    assert (filename, 'proportional', reversed_order) in _benchmark_cases.MQT_CASES
+    assert (filename, strategy, reversed_order) in _benchmark_cases.MQT_CASES
     assert case['method'] == 'hybrid'
-    assert case['strategy'] == 'proportional'
+    assert case['strategy'] == strategy
     assert case['cohort'] == 'mqt'
     source = Path(case['source'])
     transpiled = Path(case['transpiled'])

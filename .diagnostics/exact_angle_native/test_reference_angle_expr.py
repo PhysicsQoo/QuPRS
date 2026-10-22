@@ -72,3 +72,25 @@ def test_big_rational_required_over_i64_budget():
     x = AngleExpr.decimal_radians("-2.5802058126763807")
     assert x.rad_weight.denominator > 1_000_000_000
     assert (x+x-x-x) == AngleExpr()
+
+def test_graphstate16_rounded_decimal_angles_are_not_one_exact_pi_symbol():
+    """Document the source-domain mismatch without claiming a full 16Q proof.
+
+    Exact decimal radians are rational numbers; unlike a symbolic 'pi' they
+    cannot equal pi exactly. Even their complementary decimal sums differ.
+    This is a provenance witness, not a global unitary non-equivalence proof.
+    """
+    from pathlib import Path
+    left = Path("benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm").read_text()
+    right = Path("benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm").read_text()
+    assert "rx(0.5*pi) q[0];" in left
+    for angle in ("2.0330832984526417", "1.1085093551371514",
+                  "2.8600220891857973", "0.2815705644039938"):
+        assert angle in right
+    first = (Fraction(Decimal("2.0330832984526417"))
+             + Fraction(Decimal("1.1085093551371514")))
+    second = (Fraction(Decimal("2.8600220891857973"))
+              + Fraction(Decimal("0.2815705644039938")))
+    assert first == Fraction(31415926535897931, 10**16)
+    assert second == Fraction(31415926535897911, 10**16)
+    assert first != second

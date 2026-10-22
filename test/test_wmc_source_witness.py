@@ -209,3 +209,20 @@ def test_cyclotomic_out_of_scope_is_fail_closed():
     b1 = QuantumCircuit(1)
     b1.global_phase = 0.01
     assert make_source_witness_certificate(a1, b1) is None
+
+
+
+def test_cyclotomic_minor_checks_coordinates_before_nonzero_anchor():
+    # V|0> = zeta|1> has its first nonzero entry at row 1, whereas
+    # U|0> from H has a nonzero row 0. A one-pass algorithm that chooses
+    # the anchor too late could miss the projective inequality.
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    a.h(0)
+    b.x(0)
+    b.t(0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["kind"] == "cyclotomic-operator-minor"
+    assert certificate["status"] == "not_equivalent"
+    assert certificate["anchor"] == [1, 0]
+    assert certificate["witness"] == [0, 0]
+    assert verify_source_witness_certificate(a, b, certificate)

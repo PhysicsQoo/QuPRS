@@ -5,6 +5,7 @@ import pytest
 from qiskit import QuantumCircuit
 
 from QuPRS import check_equivalence, config
+from QuPRS.utils.wmc_certificates import verify_source_witness_certificate
 from QuPRS.interface.ps2wmc import run_wmc, wlogi_to_clauses
 from QuPRS.utils.wmc_solvers import classify_weighted_count
 import symengine as se
@@ -54,7 +55,10 @@ def test_python_normalized_magnitude_boundary(monkeypatch, solver, fraction, exp
     hh.h(0)
     hh.h(0)
     result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
-    assert result.equivalent == expected
+    # The source gate identity H^2=I now has an exact algebraic certificate.
+    # The synthetic solver count must not influence the strict verdict.
+    assert result.equivalent == 'equivalent'
+    assert verify_source_witness_certificate(identity, hh, result.source_certificate)
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
@@ -81,9 +85,12 @@ def test_large_normalization_identity_with_real_solver(solver):
     hh = QuantumCircuit(1)
     for _ in range(60):
         hh.h(0)
-    # Expected count 2**31 needs more significant digits than mode 6 prints.
+    # Even if solver prints too few digits, 60 exact H gates cancel
+    # algebraically; only the independently verifiable source replay can
+    # issue a strict Equivalent status.
     result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
-    assert result.equivalent == 'unknown'
+    assert result.equivalent == 'equivalent'
+    assert verify_source_witness_certificate(identity, hh, result.source_certificate)
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
@@ -111,7 +118,8 @@ def test_phase_boundary_with_real_floating_counts(tmp_path, monkeypatch, solver,
     hh.h(0)
     hh.h(0)
     result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
-    assert result.equivalent == expected
+    assert result.equivalent == 'equivalent'
+    assert verify_source_witness_certificate(identity, hh, result.source_certificate)
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])

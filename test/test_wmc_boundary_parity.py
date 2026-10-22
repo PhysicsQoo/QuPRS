@@ -19,6 +19,7 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Operator
 
 from QuPRS import check_equivalence, config
+from QuPRS.utils.wmc_certificates import verify_source_witness_certificate
 from QuPRS.utils.util import algebraic_to_logical
 
 
@@ -183,12 +184,16 @@ def test_controlled_solver_count_agrees_across_python_and_rust(
         identity, hh, backend=backend, tool_name="gpmc",
         method="wmc_only", timeout=15,
     )
-    # A fake solver output cannot become a proof; H-H requires genuine
-    # symbolic cancellation or a verified positive certificate.
-    assert result.equivalent == "unknown", (
+    # The injected count cannot be a proof. A separate *exact* Q(zeta_8)
+    # source-replay certificate DOES establish H^2 = I, independent of the
+    # fake count (including its deliberately inconsistent imaginary part).
+    assert result.equivalent == "equivalent", (
         f"backend={backend}, count={complex_number}, kind={kind}, "
         f"factor={factor}, expected_policy={expected}, "
         f"actual={result.equivalent}"
     )
+    assert result.source_certificate is not None
+    assert result.source_certificate["kind"] == "cyclotomic-operator-full"
+    assert verify_source_witness_certificate(identity, hh, result.source_certificate)
     assert result.tool_name == "gpmc"
     assert result.tool_time is not None

@@ -206,6 +206,46 @@ pub fn check_equivalence(
         // expose no end-to-end certificate, so WMC is fail-closed.
         // Symbolically proven reduction verdicts above remain authoritative.
         status = EquivalenceStatus::Unknown;
+
+        // Independent *structural* certificate for exact discrete gates.
+        // No numerical WMC result is used to establish either verdict.
+        // With no internal path variables the Boolean ANF is a deterministic
+        // truth function. Different output ANFs prove inequivalence; an
+        // identical output with an input-independent phase proves equivalence
+        // up to that exactly represented phase. Parameterized gate angles
+        // are deliberately excluded until the exact source-angle migration.
+        let exact_discrete = gates1.iter().chain(gates2.iter()).all(|op| matches!(
+            op,
+            QuantumOp::H(_) | QuantumOp::X(_) | QuantumOp::Y(_) |
+            QuantumOp::Z(_) | QuantumOp::S(_) | QuantumOp::SDG(_) |
+            QuantumOp::T(_) | QuantumOp::TDG(_) | QuantumOp::CX(_, _) |
+            QuantumOp::CZ(_, _) | QuantumOp::SWAP(_, _) |
+            QuantumOp::CCX(_, _, _)
+        ));
+        let no_internal_paths = ps_miter.v.path_vars.iter()
+            .all(|&id| (id as usize) < num_qubits);
+        if exact_discrete && no_internal_paths {
+            if ps_miter.is_identity_up_to_phase() {
+                if let Some(phase) = ps_miter.get_global_phase() {
+                    status = if phase.is_zero() {
+                        EquivalenceStatus::Equivalent
+                    } else {
+                        EquivalenceStatus::EquivalentUpToGlobalPhase
+                    };
+                }
+            } else {
+                // Boolean ANF for the identity is exactly the singleton
+                // variable x_i on every output. No internal paths means a
+                // differing ANF is a valid computational-basis witness.
+                let differing_boolean_output = ps_miter.f.functions.iter()
+                    .enumerate().any(|(i, poly)| {
+                        poly.len() != 1 || !poly.contains(&vec![i as u32])
+                    });
+                if differing_boolean_output {
+                    status = EquivalenceStatus::NotEquivalent;
+                }
+            }
+        }
         }
     }
 

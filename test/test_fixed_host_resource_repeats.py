@@ -86,3 +86,97 @@ def test_input_hash_change_prevents_cross_input_comparison():
         rows, 3, expected_case="grover4",
         expected_solver="gpmc", expected_backend="python",
     )["status"] == "INCONCLUSIVE"
+
+
+def test_cleanup_requested_after_worker_exit_invalidates_sample():
+    rows = [trial(2.0, 100), trial(2.1, 101), trial(2.2, 102)]
+    rows[1]["cleanup_needed"] = True
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+
+def test_outer_timeout_invalidates_otherwise_positive_report():
+    rows = [trial(2.0, 100), trial(2.1, 101), trial(2.2, 102)]
+    rows[1]["outer_timed_out"] = True
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+
+def test_cleanup_error_invalidates_otherwise_positive_report():
+    rows = [trial(2.0, 100), trial(2.1, 101), trial(2.2, 102)]
+    rows[1]["cleanup_error"] = "worker_not_reaped"
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+
+def test_bounded_trial_rejects_invalid_deadline():
+    import pytest
+    with pytest.raises(ValueError, match="positive"):
+        module.run_bounded_trial(["unused"], 0)
+
+
+def test_outer_worker_timeout_reaps_mock_solver_descendant(tmp_path):
+    """The child models a native solver and must not outlive Python."""
+    import os
+    import sys
+    import time
+
+    import psutil
+    import pytest
+
+    if os.name != "posix":
+        pytest.skip("Process-group supervision requires POSIX")
+    pid_path = tmp_path / "solver.pid"
+    script = (
+        "import pathlib, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid))\n"
+        "time.sleep(60)\n"
+    )
+    outcome = module.run_bounded_trial([sys.executable, "-c", script], 2.0)
+    assert outcome["outer_timed_out"] is True
+    assert outcome["cleanup_needed"] is True
+    assert outcome["cleanup_error"] is None
+    assert pid_path.is_file(), "Mock solver was never started"
+    pid = int(pid_path.read_text())
+    for _ in range(100):
+        try:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                break
+        except psutil.NoSuchProcess:
+            break
+        time.sleep(0.02)
+    else:
+        pytest.fail("Mock native solver remained alive after outer timeout")
+
+
+def test_early_worker_exit_does_not_leave_mock_solver_behind(tmp_path):
+    """A successful Python wrapper exit cannot leave a live solver running."""
+    import os
+    import sys
+    import time
+
+    import psutil
+    import pytest
+
+    if os.name != "posix":
+        pytest.skip("Process-group supervision requires POSIX")
+    pid_path = tmp_path / "solver.pid"
+    script = (
+        "import pathlib, subprocess, sys\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid))\n"
+    )
+    outcome = module.run_bounded_trial([sys.executable, "-c", script], 5.0)
+    assert outcome["exit_code"] == 0
+    assert outcome["outer_timed_out"] is False
+    assert outcome["cleanup_needed"] is True
+    assert outcome["cleanup_error"] is None
+    assert pid_path.is_file()
+    pid = int(pid_path.read_text())
+    for _ in range(100):
+        try:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                break
+        except psutil.NoSuchProcess:
+            break
+        time.sleep(0.02)
+    else:
+        pytest.fail("Mock native solver remained alive after wrapper exit")

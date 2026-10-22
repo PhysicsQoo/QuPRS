@@ -28,9 +28,18 @@ For Rust, repeat on the same host with `--backend rust` and a **different**
 empty output directory. The output `manifest.json` preserves the host's
 self-reported identifier, CPU description, source SHA/tree, Python, Rust,
 tool executable hashes, warmups and every trial's raw observer result.
-Only complete, positive checks that report a numeric WMC solver time enter
-the median Walltime and observed RSS summaries. Every failed, missing,
-resource-inconclusive or invalid case remains visible and blocks that group.
+Only complete, positive checks with valid resource observations enter
+the **Hybrid end-to-end** median Walltime and sampled RSS summaries.
+A successful RR-only Hybrid check may legitimately report `tool_time=None`;
+it is not an invalid result or a missing solver failure. The manifest
+distinguishes `RR_ONLY_REPORTED`, `WMC_TIME_REPORTED` and
+`MIXED_HYBRID_PATHS` from the observed metadata, not from the circuit name.
+Numeric tool time alone does **not** establish a true native WMC execution:
+any **Solver-only** speed/memory claim requires separate model-counting
+`execve`/input evidence, excluding Ganak `--version` probes. A mixed-path
+group is valid for Hybrid end-to-end comparison but is **not** valid for
+Solver-only attribution. Every failed, missing, resource-inconclusive or
+invalid case remains visible and blocks that group.
 
 **Timeout and descendant cleanup (Linux only):** Each outer trial runs
 in a new process group. The Python and Rust native solver supervisors may
@@ -164,7 +173,7 @@ VQE4 therefore qualified for 20 observations (4 combinations × 1 warmup
 evidence, raw observation JSON and SHA256SUMS.
 
 By contrast, Graphstate16, with the original `naive` strategy, returned
-`equivalent` in all four combinations **without native WMC invocation**
+`equivalent` in all four combinations **without native CNF model-counting work**
 (`solver_time=null` in each). It is a legitimate reduction-only success,
 not a failed quantum equivalence result and not a GPMC/Ganak benchmark.
 The preflight must keep semantic correctness, numerical solver timing and

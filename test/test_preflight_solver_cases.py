@@ -17,6 +17,7 @@ def rows(case, *, all_valid=True):
             "case": case, "solver": solver, "backend": backend,
             "status": "PASS", "native_execve": True,
             "positive_equivalence": True,
+            "numeric_solver_time": True,
         })
     if not all_valid:
         result[0]["native_execve"] = False
@@ -39,3 +40,12 @@ def test_reduction_only_or_unobserved_solver_is_not_misclassified():
 
 def test_missing_solver_backend_case_is_rejected():
     assert module.select_eligible(rows("vqe4")[:-1], ("vqe4",)) == []
+
+
+def test_equivalent_reduction_only_case_is_ineligible_for_solver_comparison():
+    data = rows("graphstate16")
+    for row in data:
+        row["positive_equivalence"] = True
+        row["numeric_solver_time"] = False
+        row["native_execve"] = False
+    assert module.select_eligible(data, ("graphstate16",)) == []

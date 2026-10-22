@@ -76,6 +76,15 @@ jobs:
           python -u scripts/validate_native_solver_actions.py \
             --output-dir native-lifecycle-evidence
 
+      - name: Audit native solver calls for QAOA7 and QFT16
+        run: |
+          python -u scripts/validate_native_solver_actions.py \
+            --positive-only --case qaoa7 \
+            --output-dir native-lifecycle-evidence/qaoa7
+          python -u scripts/validate_native_solver_actions.py \
+            --positive-only --case qft16 \
+            --output-dir native-lifecycle-evidence/qft16
+
       - name: Seal diagnostic provenance
         if: always()
         run: |

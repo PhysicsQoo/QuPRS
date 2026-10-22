@@ -42,14 +42,14 @@ def active_pid(pid: int) -> bool:
         return False
 
 
-def positive_check(solver: str, backend: str, binary: Path, folder: Path) -> dict:
-    """Confirm real native execve and a successful unchanged Grover4 check."""
+def positive_check(solver: str, backend: str, binary: Path, folder: Path, *, case: str = "grover4") -> dict:
+    """Confirm actual native execve and positive equivalence of an original paper case."""
     trace = folder / "execve.log"
     report_path = folder / "profile.json"
     cmd = [
         "strace", "-f", "-qq", "-e", "trace=execve", "-o", str(trace),
         sys.executable, str(ROOT / "scripts/profile_benchmark_resources.py"),
-        "--case", "grover4",
+        "--case", case,
         "--tool-name", solver, "--backend", backend,
         "--walltime-seconds", "75",
         "--solver-timeout-seconds", "45",
@@ -59,7 +59,7 @@ def positive_check(solver: str, backend: str, binary: Path, folder: Path) -> dic
     ]
     observation = run_bounded_trial(cmd, 90)
     record = {
-        "kind": "positive", "solver": solver, "backend": backend,
+        "kind": "positive", "solver": solver, "backend": backend, "case": case,
         "outer_observation": observation,
         "binary_sha256": sha256(binary),
         "native_execve": False, "positive_equivalence": False,
@@ -171,7 +171,10 @@ def forced_timeout(solver: str, binary: Path, folder: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--forced-only", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--forced-only", action="store_true")
+    mode.add_argument("--positive-only", action="store_true")
+    parser.add_argument("--case", choices=("grover4", "qaoa7", "qft16", "vqe4", "graphstate16"), default="grover4")
     parser.add_argument("--backend", choices=("python", "rust", "both"), default="both")
     args = parser.parse_args()
 
@@ -197,19 +200,20 @@ def main() -> int:
                     raise RuntimeError(f"Non-executable solver: {solver}")
                 folder = args.output_dir / solver
                 folder.mkdir()
-                forced = forced_timeout(solver, binary, folder)
-                result["cases"].append(forced)
-                print(json.dumps({k: v for k, v in forced.items()
-                                  if k != "outer_observation"}, sort_keys=True), flush=True)
+                if not args.positive_only:
+                    forced = forced_timeout(solver, binary, folder)
+                    result["cases"].append(forced)
+                    print(json.dumps({k: v for k, v in forced.items()
+                                      if k != "outer_observation"}, sort_keys=True), flush=True)
                 if not args.forced_only:
                     for backend in ("python", "rust"):
                         if args.backend != "both" and backend != args.backend:
                             continue
                         target = folder / backend
                         target.mkdir()
-                        case = positive_check(solver, backend, binary, target)
-                        result["cases"].append(case)
-                        print(json.dumps({k: v for k, v in case.items()
+                        verdict = positive_check(solver, backend, binary, target, case=args.case)
+                        result["cases"].append(verdict)
+                        print(json.dumps({k: v for k, v in verdict.items()
                                           if k != "outer_observation"},
                                          sort_keys=True), flush=True)
     except Exception as exc:

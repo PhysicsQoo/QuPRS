@@ -8,7 +8,7 @@ use crate::rational::{Angle};
 /// Parse QASM string into a list of quantum operations
 pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
     let mut ops = Vec::new();
-    let mut register_map: HashMap<String, usize> = HashMap::new();
+    let mut register_map: HashMap<String, (usize, usize)> = HashMap::new();
     let mut current_qubit_count = 0;
 
     for (line_num, line) in source.lines().enumerate() {
@@ -22,12 +22,21 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             if parts.len() >= 3 {
                 let name = parts[1].to_string();
                 let size = parts[2].parse::<usize>().map_err(|_| format!("Invalid size at line {}", line_num + 1))?;
-                register_map.insert(name, current_qubit_count);
-                current_qubit_count += size;
+                if size == 0 { return Err(format!("Zero-sized register at line {}", line_num + 1)); }
+                let next = current_qubit_count.checked_add(size)
+                    .ok_or_else(|| format!("Qubit count overflow at line {}", line_num + 1))?;
+                if register_map.insert(name, (current_qubit_count, size)).is_some() {
+                    return Err(format!("Duplicate quantum register at line {}", line_num + 1));
+                }
+                current_qubit_count = next;
             }
             continue;
         }
         if line.starts_with("creg") { continue; }
+        // A barrier is an exactly unitary no-op. Other unsupported syntax,
+        // including measurements, must never be silently dropped from a
+        // circuit whose equivalence will be certified.
+        if line.starts_with("barrier ") || line == "barrier;" { continue; }
 
         // Split gate parameters and targets using the last closing parenthesis
         let (full_gate_part, targets_part) = if let Some(last_paren_idx) = line.rfind(')') {
@@ -44,14 +53,31 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             }
         };
 
-        if full_gate_part.is_empty() { continue; }
-        if targets_part.is_empty() || targets_part == ";" { continue; }
+        if full_gate_part.is_empty() || targets_part.is_empty() || targets_part == ";" {
+            return Err(format!("Missing gate or targets at line {}", line_num + 1));
+        }
 
         let (gate_name, params) = parse_gate_name_and_params(full_gate_part)?;
         let qubits = parse_targets(targets_part, &register_map)
             .map_err(|e| format!("Line {}: {}", line_num + 1, e))?;
 
-        if qubits.is_empty() { continue; }
+        // Validate arity before indexing targets/parameters; truncated QASM
+        // should return an error, never a PyO3 Panic or a spurious identity.
+        let expected = match gate_name.as_str() {
+            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "id" => (1, 0),
+            "cx" | "cz" => (2, 0),
+            "ccx" => (3, 0),
+            "rx" | "ry" | "rz" => (1, 1),
+            "u3" => (1, 3),
+            other => return Err(format!("Unsupported QASM gate '{}' at line {}", other, line_num + 1)),
+        };
+        if (qubits.len(), params.len()) != expected {
+            return Err(format!(
+                "Invalid arity for '{}' at line {}: got {} targets and {} angles, expected {} and {}",
+                gate_name, line_num + 1, qubits.len(), params.len(), expected.0, expected.1
+            ));
+        }
+        if gate_name == "id" { continue; }
 
         let op = match gate_name.as_str() {
             "h" => QuantumOp::H(qubits[0]),
@@ -72,7 +98,7 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
                 if params.len() != 3 { return Err(format!("U3 expects 3 params, got {}", params.len())); }
                 QuantumOp::U3(qubits[0], params[0].clone(), params[1].clone(), params[2].clone())
             },
-            _ => continue, // Skip unsupported gates
+            _ => unreachable!("Gate arity and support already checked"),
         };
         ops.push(op);
     }
@@ -112,7 +138,7 @@ fn parse_gate_name_and_params(token: &str) -> Result<(String, Vec<Angle>), Strin
     Ok((token.trim().to_lowercase(), vec![]))
 }
 
-fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>) -> Result<Vec<usize>, String> {
+fn parse_targets(targets_str: &str, reg_map: &HashMap<String, (usize, usize)>) -> Result<Vec<usize>, String> {
     let clean_str = targets_str.trim().trim_matches(';');
     if clean_str.is_empty() { return Ok(vec![]); }
     
@@ -127,9 +153,11 @@ fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>) -> Result<
         let reg_name = &part[..open_bracket];
         let idx_str = &part[open_bracket+1..close_bracket];
         
-        let offset = reg_map.get(reg_name).ok_or_else(|| format!("Unknown register: {}", reg_name))?;
+        let &(offset, size) = reg_map.get(reg_name).ok_or_else(|| format!("Unknown register: {}", reg_name))?;
         let local_idx = idx_str.parse::<usize>().map_err(|_| format!("Invalid index: {}", idx_str))?;
-        
+        if local_idx >= size {
+            return Err(format!("Qubit index {} out of bounds for register '{}' of size {}", local_idx, reg_name, size));
+        }
         indices.push(offset + local_idx);
     }
     Ok(indices)
@@ -170,6 +198,21 @@ impl PathSum {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_gates_cannot_be_silently_skipped() {
+        let head = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\n";
+        assert!(parse_qasm_str(&format!("{head}sx q[0];\n")).is_err());
+        assert!(parse_qasm_str(&format!("{head}measure q[0] -> c[0];\n")).is_err());
+    }
+
+    #[test]
+    fn malformed_arity_and_indices_are_errors_not_panics() {
+        let head = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\n";
+        for body in ["rx q[0];", "cx q[0];", "x q[9];", "rz() q[0];", "x;"] {
+            assert!(parse_qasm_str(&format!("{head}{body}\n")).is_err(), "{body}");
+        }
+    }
 
     #[test]
     fn test_parse_qasm_bell_state_ir() {

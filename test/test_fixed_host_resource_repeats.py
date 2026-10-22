@@ -245,3 +245,50 @@ def test_missing_solver_time_field_is_not_accepted_as_rr_only():
     rows = [trial(2, 100), trial(2.1, 110), trial(2.2, 120)]
     del rows[0]["report"]["verdict"]["solver_time"]
     assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+
+def test_fixed_host_balanced_four_round_schedule():
+    plan = module.comparison_schedule(
+        ("grover4", "qft16"), ("gpmc", "ganak"),
+        ("python", "rust"), warmups=1, repeats=4,
+    )
+    assert len(plan) == 40
+    assert [point["trial_index"] for point in plan] == list(range(40))
+    blocks = [[p for p in plan if p["round"] == r] for r in range(5)]
+    for case in ("grover4", "qft16"):
+        for solver in ("gpmc", "ganak"):
+            for backend in ("python", "rust"):
+                trial_rows = [p for p in plan if (p["case"], p["solver"], p["backend"]) ==
+                              (case, solver, backend)]
+                assert len(trial_rows) == 5
+                assert sum(p["warmup"] for p in trial_rows) == 1
+                assert [p["repetition"] for p in trial_rows if not p["warmup"]] == [0, 1, 2, 3]
+    assert [(x["case"], x["solver"], x["backend"]) for x in blocks[2]] == list(reversed(
+        [(x["case"], x["solver"], x["backend"]) for x in blocks[1]]
+    ))
+    assert [(x["case"], x["solver"], x["backend"]) for x in blocks[3]] == list(reversed(
+        [(x["case"], x["solver"], x["backend"]) for x in blocks[1]]
+    ))
+    assert [(x["case"], x["solver"], x["backend"]) for x in blocks[4]] == [
+        (x["case"], x["solver"], x["backend"]) for x in blocks[1]
+    ]
+
+
+def test_fixed_host_rejects_unbalanced_repetition_counts():
+    import pytest
+
+    for n in (0, 3, 5, 6):
+        with pytest.raises(ValueError, match="multiple of four"):
+            module.comparison_schedule(
+                ("grover4",), ("gpmc", "ganak"),
+                ("python",), warmups=1, repeats=n,
+            )
+
+
+def test_fixed_host_schedule_no_warmups_is_supported():
+    plan = module.comparison_schedule(
+        ("grover4",), ("gpmc", "ganak"), ("rust",),
+        warmups=0, repeats=4,
+    )
+    assert len(plan) == 8
+    assert not any(p["warmup"] for p in plan)

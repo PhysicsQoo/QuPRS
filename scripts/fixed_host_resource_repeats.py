@@ -7,6 +7,7 @@ This is observational data, not a CI performance gate or a strict RSS upper boun
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import math
@@ -272,6 +273,35 @@ def run_bounded_trial(command: list[str], timeout_seconds: float) -> dict:
         }
 
 
+def comparison_schedule(cases: tuple[str, ...], solvers: tuple[str, ...],
+                        backends: tuple[str, ...], *,
+                        warmups: int, repeats: int) -> list[dict]:
+    """Counterbalance solver/backend/case order on one dedicated host.
+
+    Four measured rounds use forward, reverse, reverse, forward (ABBA-like).
+    An optional warmup block precedes these measured rounds. This reduces
+    ordering bias but does not remove environmental drift or host contention.
+    """
+    if not cases or not solvers or not backends or warmups < 0:
+        raise ValueError("Nonempty selectors and nonnegative warmups required")
+    if repeats < 4 or repeats % 4 != 0:
+        raise ValueError("Measured repeats must be a positive multiple of four")
+    cells = [(case, solver, backend) for case in cases
+             for solver in solvers for backend in backends]
+    plan = []
+    for round_id in range(warmups + repeats):
+        warmup = round_id < warmups
+        repetition = None if warmup else round_id - warmups
+        reverse = not warmup and repetition % 4 in (1, 2)
+        for case, solver, backend in (cells[::-1] if reverse else cells):
+            plan.append({
+                "trial_index": len(plan), "round": round_id,
+                "repetition": repetition, "warmup": warmup,
+                "case": case, "solver": solver, "backend": backend,
+            })
+    return plan
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--host-id", required=True,
@@ -283,15 +313,15 @@ def main() -> int:
     p.add_argument("--backend", action="append", choices=("python", "rust"),
                    required=True)
     p.add_argument("--warmups", type=int, default=1)
-    p.add_argument("--repeats", type=int, default=3)
+    p.add_argument("--repeats", type=int, default=4)
     p.add_argument("--walltime", type=int, default=90)
     p.add_argument("--solver-timeout", type=int, default=45)
     p.add_argument("--rss-limit-mib", type=int, default=3072)
     p.add_argument("--sample-ms", type=int, default=50)
     p.add_argument("--output-dir", type=Path, required=True)
     a = p.parse_args()
-    if a.repeats < 3 or a.warmups < 0 or a.walltime <= a.solver_timeout:
-        p.error("At least 3 repeats and 0+ warmups; walltime > solver timeout")
+    if a.repeats < 4 or a.repeats % 4 != 0 or a.warmups < 0 or a.walltime <= a.solver_timeout:
+        p.error("At least 4 repeats in multiples of 4, 0+ warmups; walltime > solver timeout")
     if a.output_dir.exists() and any(a.output_dir.iterdir()):
         p.error("Output directory must be absent or empty; never overwrite evidence")
     a.output_dir.mkdir(parents=True, exist_ok=True)
@@ -302,64 +332,117 @@ def main() -> int:
         "solvers": {name: binary_hash(name) for name in sorted(set(a.solver))},
         "groups": [],
     }
-    overall = True
-    for case in dict.fromkeys(a.case):
-        for solver in dict.fromkeys(a.solver):
-            for backend in dict.fromkeys(a.backend):
-                trials = []
-                label = f"{case}-{solver}-{backend}"
-                for index in range(a.warmups + a.repeats):
-                    warmup = index < a.warmups
-                    filename = f"{label}-{'warmup' if warmup else 'sample'}-{index}.json"
-                    path = a.output_dir / filename
-                    cmd = [
-                        sys.executable, str(ROOT / "scripts/profile_benchmark_resources.py"),
-                        "--case", case, "--tool-name", solver, "--backend", backend,
-                        "--walltime-seconds", str(a.walltime),
-                        "--solver-timeout-seconds", str(a.solver_timeout),
-                        "--memory-limit-mib", str(a.rss_limit_mib),
-                        "--sample-interval-ms", str(a.sample_ms),
-                        "--output", str(path.resolve()),
-                    ]
-                    outcome = run_bounded_trial(cmd, a.walltime + 30)
-                    code = outcome["exit_code"]
-                    stdout = outcome["stdout_tail"]
-                    stderr = outcome["stderr_tail"]
-                    if outcome["outer_timed_out"]:
-                        stderr += "\nouter harness subprocess timeout"
-                    if outcome["cleanup_needed"] and not outcome["outer_timed_out"]:
-                        stderr += "\nprocess group remained after worker exit"
-                    if outcome["cleanup_error"]:
-                        stderr += "\n" + outcome["cleanup_error"]
-                    try:
-                        report = json.loads(path.read_text()) if path.is_file() else {}
-                    except (OSError, ValueError):
-                        report = {}
-                        stderr += "\nmissing or invalid resource JSON"
-                    trials.append({
-                        "warmup": warmup, "exit_code": code,
-                        "outer_timed_out": outcome["outer_timed_out"],
-                        "cleanup_needed": outcome["cleanup_needed"],
-                        "cleanup_error": outcome["cleanup_error"],
-                        "report_path": filename, "report": report,
-                        "stdout_tail": stdout[-600:],
-                        "stderr_tail": stderr[-600:],
-                    })
-                summary = summarize(
-                    trials, a.repeats,
-                    expected_case=case, expected_solver=solver,
-                    expected_backend=backend,
-                )
-                overall &= summary["status"] == "COMPLETE"
-                evidence["groups"].append({
-                    "case": case, "solver": solver, "backend": backend,
-                    "summary": summary, "trials": trials,
-                })
-                print(json.dumps({"group": label, **summary}, sort_keys=True))
-    evidence["status"] = "COMPLETE" if overall else "INCONCLUSIVE"
-    (a.output_dir / "manifest.json").write_text(
-        json.dumps(evidence, indent=2, sort_keys=True, default=str) + "\n"
+    cases = tuple(dict.fromkeys(a.case))
+    solvers = tuple(dict.fromkeys(a.solver))
+    backends = tuple(dict.fromkeys(a.backend))
+    plan = comparison_schedule(
+        cases, solvers, backends, warmups=a.warmups, repeats=a.repeats
     )
+    evidence.update({
+        "metric_scope": "same-fixed-host-hybrid-end-to-end",
+        "ordering": "ABBA-like measured rounds, interleaved case/solver/backend",
+        "expected_trials": len(plan), "plan": plan,
+        "trials": [], "completed_trials": 0,
+        "status": "RUNNING",
+    })
+    manifest = a.output_dir / "manifest.json"
+
+    def checkpoint() -> None:
+        temp = manifest.with_suffix(".json.tmp")
+        temp.write_text(json.dumps(evidence, indent=2, sort_keys=True, default=str) + "\n")
+        temp.replace(manifest)
+
+    checkpoint()
+    groups = {(case, solver, backend): [] for case in cases
+              for solver in solvers for backend in backends}
+    stopped_reason = None
+    for point in plan:
+        case, solver, backend = point["case"], point["solver"], point["backend"]
+        filename = (
+            f"{point['trial_index']:03d}-{case}-{solver}-{backend}-"
+            f"{'warmup' if point['warmup'] else 'sample'}.json"
+        )
+        path = a.output_dir / filename
+        cmd = [
+            sys.executable, str(ROOT / "scripts/profile_benchmark_resources.py"),
+            "--case", case, "--tool-name", solver, "--backend", backend,
+            "--walltime-seconds", str(a.walltime),
+            "--solver-timeout-seconds", str(a.solver_timeout),
+            "--memory-limit-mib", str(a.rss_limit_mib),
+            "--sample-interval-ms", str(a.sample_ms),
+            "--output", str(path.resolve()),
+        ]
+        try:
+            outcome = run_bounded_trial(cmd, a.walltime + 30)
+        except Exception as exc:
+            stopped_reason = f"supervisor_error:{type(exc).__name__}:{exc}"
+            outcome = {
+                "exit_code": None, "outer_timed_out": False,
+                "cleanup_needed": True, "cleanup_error": stopped_reason,
+                "stdout_tail": "", "stderr_tail": "",
+            }
+        try:
+            report = json.loads(path.read_text()) if path.is_file() else {}
+        except (OSError, ValueError):
+            report = {}
+        trial = {
+            **point, "exit_code": outcome["exit_code"],
+            "outer_timed_out": outcome["outer_timed_out"],
+            "cleanup_needed": outcome["cleanup_needed"],
+            "cleanup_error": outcome["cleanup_error"],
+            "report_path": filename, "report": report,
+            "stdout_tail": outcome["stdout_tail"][-600:],
+            "stderr_tail": outcome["stderr_tail"][-600:],
+        }
+        groups[(case, solver, backend)].append(trial)
+        evidence["trials"].append(trial)
+        evidence["completed_trials"] += 1
+        checkpoint()
+        print(json.dumps({
+            "trial_index": point["trial_index"], "case": case,
+            "solver": solver, "backend": backend,
+            "warmup": point["warmup"], "complete": report.get("complete"),
+            "cleanup_error": outcome["cleanup_error"],
+        }, sort_keys=True), flush=True)
+        if stopped_reason is not None:
+            evidence["stopped_reason"] = stopped_reason
+            break
+
+    overall = evidence["completed_trials"] == len(plan)
+    rows = []
+    for (case, solver, backend), trials in groups.items():
+        summary = summarize(
+            trials, a.repeats,
+            expected_case=case, expected_solver=solver,
+            expected_backend=backend,
+        )
+        overall &= summary["status"] == "COMPLETE"
+        evidence["groups"].append({
+            "case": case, "solver": solver, "backend": backend,
+            "summary": summary, "trials": trials,
+        })
+        rows.append({
+            "case": case, "solver": solver, "backend": backend,
+            "status": summary["status"],
+            "execution_path": summary.get("execution_path"),
+            "n": summary.get("n"),
+            "walltime_median_seconds": summary.get("walltime_median_seconds"),
+            "walltime_mad_seconds": summary.get("walltime_mad_seconds"),
+            "sampled_tree_rss_median_mib": summary.get("sampled_tree_rss_median_mib"),
+            "sampled_tree_rss_max_observed_mib": summary.get("sampled_tree_rss_max_observed_mib"),
+            "solver_only_performance_certified": summary.get("solver_only_performance_certified"),
+            "reason": summary.get("reason"),
+        })
+        print(json.dumps({
+            "group": f"{case}-{solver}-{backend}", **summary,
+        }, sort_keys=True), flush=True)
+    with (a.output_dir / "summary.csv").open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    evidence["status"] = "COMPLETE" if overall else "INCONCLUSIVE"
+    evidence["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    checkpoint()
     return 0 if overall else 1
 
 

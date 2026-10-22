@@ -19,15 +19,27 @@ Example (run inside the validated Python 3.12 environment with QuPRS built):
 python scripts/fixed_host_resource_repeats.py \
   --host-id research-cpu-a --case grover4 --case qaoa7 --case qft16 \
   --solver gpmc --solver ganak --backend python \
-  --warmups 1 --repeats 3 --walltime 90 --solver-timeout 45 \
+  --warmups 1 --repeats 4 --walltime 90 --solver-timeout 45 \
   --rss-limit-mib 3072 --sample-ms 50 \
   --output-dir /tmp/quprs-fixed-host-run-001
 ```
 
-For Rust, repeat on the same host with `--backend rust` and a **different**
-empty output directory. The output `manifest.json` preserves the host's
-self-reported identifier, CPU description, source SHA/tree, Python, Rust,
-tool executable hashes, warmups and every trial's raw observer result.
+Use `--backend python --backend rust` in the same run to compare both
+backends on the **same** controlled host, or select a single backend if
+needed. Each group has one warmup and four measured repetitions.
+The fixed-host driver executes the groups in four counterbalanced rounds:
+**forward / reverse / reverse / forward** over circuit/solver/backend
+combinations. This reduces order bias without proving that thermal drift
+or contention is absent. Runs with unbalanced repeat counts fail preflight.
+
+Each trial is written to a distinct JSON path, and the `manifest.json`
+is atomically checkpointed **after every trial**, including incomplete
+attempts. The manifest preserves host ID, CPU description, source SHA/tree,
+toolchain, native solver hashes, planned and completed attempts, warmups,
+per-group Hybrid path classification and each raw observer result. The
+`summary.csv` separately reports Walltime medians/MAD, sampled RSS and
+whether the group was RR-only, WMC-reported or mixed. Failed or interrupted
+jobs must retain their last completed manifest and checksums.
 Only complete, positive checks with valid resource observations enter
 the **Hybrid end-to-end** median Walltime and sampled RSS summaries.
 A successful RR-only Hybrid check may legitimately report `tool_time=None`;

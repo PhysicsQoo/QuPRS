@@ -92,7 +92,7 @@ jobs:
           from pathlib import Path
           import sys
           sys.path.insert(0, str(Path("scripts").resolve()))
-          from probe_wmc_dispatch_controls import native_solver_work_execve
+          from probe_wmc_dispatch_controls import classify_hybrid_execution
           root = Path("solver-dispatch-evidence")
           binary_ids = {}
           qasm_ids = {}
@@ -104,43 +104,46 @@ jobs:
                       info = json.loads(prefix.with_suffix(".json").read_text())
                       trace = prefix.with_suffix(".execve.log").read_text()
                       binary = info["solver_binary"]
-                      observed = native_solver_work_execve(trace, binary, solver)
+                      classification = classify_hybrid_execution(
+                          info["verdict"], info["tool_time_s"], trace, binary, solver
+                      )
                       version_probe = any(
                           'execve("' + binary + '"' in line
                           and '"--version"' in line
                           and line.rstrip().endswith('= 0')
                           for line in trace.splitlines()
                       )
-                      # Hybrid may complete after Reduction Rules for *any* case.
-                      # Neither a solver PID nor numeric tool_time is mandatory.
-                      assert info["verdict"] in ("equivalent", "equivalent*")
-                      assert info["tool_time_numeric"] == (
-                          isinstance(info["tool_time_s"], (int, float))
-                          and not isinstance(info["tool_time_s"], bool)
-                      )
+                      # Positive equivalence may be proved by RR alone.
+                      # Neither model-counting nor numeric tool time is mandatory.
+                      assert info["tool_time_numeric"] == classification["tool_time_numeric"]
                       binary_ids.setdefault(solver, info["solver_sha256"])
                       assert info["solver_sha256"] == binary_ids[solver]
                       qasm_ids.setdefault(case, info["qasm_sha256"])
                       assert info["qasm_sha256"] == qasm_ids[case]
-                      rows.append({"case": case, "solver": solver, "backend": backend,
-                                   "verdict": info["verdict"],
-                                   "native_model_count_execve": observed,
-                                   "native_version_probe_execve": version_probe,
-                                   "tool_time_numeric": info["tool_time_numeric"],
-                                   "execution_path": "native_wmc" if observed else "rr_only",
-                                   "native_time_consistent": observed == info["tool_time_numeric"]})
+                      rows.append({
+                          "case": case, "solver": solver, "backend": backend,
+                          "verdict": info["verdict"],
+                          "native_version_probe_execve": version_probe,
+                          **classification,
+                      })
           assert len(rows) == 8
           n_native = sum(row["native_model_count_execve"] for row in rows)
-          n_reduction_only = len(rows) - n_native
+          n_reduction_only = sum(row["execution_path"] == "rr_only" for row in rows)
+          n_ambiguous = len(rows) - n_native - n_reduction_only
           (root / "audit.json").write_text(json.dumps({
               "scope": "observed original Hybrid execution paths outside CodSpeed",
               "checks": rows,
               "native_wmc_observed": n_native,
               "rr_only_observed": n_reduction_only,
+              "ambiguous_dispatch_observed": n_ambiguous,
               "solver_attribution_possible": n_native > 0,
-              "status": "COMPLETE" if n_native > 0 else "INCONCLUSIVE_NO_NATIVE_WORK",
+              "status": (
+                  "COMPLETE" if n_native > 0 and n_ambiguous == 0
+                  else "INCONCLUSIVE_NO_NATIVE_WORK" if n_native == 0 and n_ambiguous == 0
+                  else "INCONCLUSIVE_DISPATCH_MISMATCH"
+              ),
           }, sort_keys=True, indent=2) + "\n")
-          print(f"8/8 positive equivalence; native WMC observed: {n_native}, RR-only: {n_reduction_only}", flush=True)
+          print(f"8/8 positive equivalence; native WMC: {n_native}, RR-only: {n_reduction_only}, ambiguous: {n_ambiguous}", flush=True)
           PY
 
       - name: CodSpeed v5 Simulation with subprocess tracing enabled

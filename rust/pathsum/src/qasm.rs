@@ -9,7 +9,7 @@ use crate::rational::{Angle};
 pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
     let mut ops = Vec::new();
     let mut register_map: HashMap<String, (usize, usize)> = HashMap::new();
-    let mut current_qubit_count = 0;
+    let mut current_qubit_count: usize = 0;
 
     for (line_num, line) in source.lines().enumerate() {
         let line = line.trim();

@@ -1,6 +1,6 @@
 name: Opt-in Additional Solver Case Coverage
 
-# Research-only one-shot validation; no baseline or pull-request regression gate.
+# Research-only independent hosted VM replication; no baseline or pull-request regression gate.
 on:
   push:
     branches:

@@ -46,3 +46,13 @@ def test_missing_repeats_or_duplicate_inputs_fail_before_scheduling():
         module.schedule(("grover4", "grover4"), warmups=1, repeats=4)
     with pytest.raises(ValueError, match="unique"):
         module.schedule(("unknown",), warmups=1, repeats=4)
+
+
+def test_optional_existing_paper_cases_have_balanced_solver_backend_schedule():
+    plan = module.schedule(("vqe4", "graphstate16"), warmups=1, repeats=4)
+    assert len(plan) == 40
+    assert {(row["case"], row["solver"], row["backend"]) for row in plan} == {
+        (case, solver, backend) for case in ("vqe4", "graphstate16")
+        for solver, backend in module.CELLS
+    }
+    assert module.DEFAULT_CASES == ("grover4", "qaoa7", "qft16")

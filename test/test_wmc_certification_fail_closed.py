@@ -74,7 +74,14 @@ def test_real_solver_nonzero_global_phase_requires_proof(solver, backend):
         reference, phase, method="wmc_only", backend=backend,
         tool_name=solver, timeout=60,
     )
-    # This finite exact discrete circuit carries an independent no-path\n    # global-phase certificate. The rounded solver count is still untrusted.\n    assert result.equivalent == "equivalent*"\n    assert result.tool_name == solver\n    assert result.tool_time is not None\n\n\n@pytest.mark.parametrize("backend", ("python", "rust"))
+    # This finite exact discrete circuit carries an independent no-path
+    # global-phase certificate. The rounded solver count is still untrusted.
+    assert result.equivalent == "equivalent*"
+    assert result.tool_name == solver
+    assert result.tool_time is not None
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
 def test_non_wmc_reduction_evidence_is_not_disabled(backend):
     reference = QuantumCircuit(1)
     result = check_equivalence(

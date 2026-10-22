@@ -201,3 +201,47 @@ def test_normal_worker_exit_requires_no_cleanup():
     assert outcome["cleanup_needed"] is False
     assert outcome["cleanup_error"] is None
     assert outcome["stdout_tail"].strip() == "done"
+
+
+def test_rr_only_is_valid_positive_hybrid_end_to_end_measurement():
+    rows = [trial(1.2, 140), trial(1.3, 145), trial(1.1, 135)]
+    for row in rows:
+        row["report"]["verdict"]["solver_time"] = None
+    summary = module.summarize(rows, 3)
+    assert summary["status"] == "COMPLETE"
+    assert summary["execution_path"] == "RR_ONLY_REPORTED"
+    assert summary["walltime_median_seconds"] == 1.2
+    assert summary["sampled_tree_rss_median_mib"] == 140
+    assert summary["native_solver_execution_verified"] is False
+    assert summary["solver_only_performance_certified"] is False
+
+
+def test_numeric_solver_time_is_metadata_not_native_execution_proof():
+    summary = module.summarize([trial(2, 110), trial(2.1, 120), trial(2.2, 130)], 3)
+    assert summary["status"] == "COMPLETE"
+    assert summary["execution_path"] == "WMC_TIME_REPORTED"
+    assert summary["native_solver_execution_verified"] is False
+    assert summary["solver_only_performance_certified"] is False
+
+
+def test_mixed_rr_and_wmc_is_valid_hybrid_but_not_solver_only_comparison():
+    rows = [trial(2.0, 120), trial(2.2, 140), trial(2.1, 130)]
+    rows[1]["report"]["verdict"]["solver_time"] = None
+    summary = module.summarize(rows, 3)
+    assert summary["status"] == "COMPLETE"
+    assert summary["execution_path"] == "MIXED_HYBRID_PATHS"
+    assert summary["numeric_solver_time_trials"] == 2
+    assert summary["solver_only_performance_certified"] is False
+
+
+def test_invalid_solver_time_still_rejected_not_relabelled_as_rr_only():
+    for value in (-0.5, float("nan"), float("inf"), True, "unknown"):
+        rows = [trial(2, 100), trial(2.1, 110), trial(2.2, 120)]
+        rows[0]["report"]["verdict"]["solver_time"] = value
+        assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"
+
+
+def test_missing_solver_time_field_is_not_accepted_as_rr_only():
+    rows = [trial(2, 100), trial(2.1, 110), trial(2.2, 120)]
+    del rows[0]["report"]["verdict"]["solver_time"]
+    assert module.summarize(rows, 3)["status"] == "INCONCLUSIVE"

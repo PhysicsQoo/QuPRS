@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/wmc-qft-reduction-controls.yml'
       - 'scripts/probe_wmc_dispatch_controls.py'
+      - 'test/test_wmc_dispatch_trace_classifier.py'
 
 permissions:
   contents: read
@@ -56,6 +57,10 @@ jobs:
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
           maturin develop --release -E dev
 
+      - name: Check trace classifier against native and version-only controls
+        run: |
+          python -m pytest -q test/test_wmc_dispatch_trace_classifier.py
+
       - name: Verify positive native QFT and negative Graphstate controls
         run: |
           set -euo pipefail
@@ -81,6 +86,9 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          import sys
+          sys.path.insert(0, str(Path("scripts").resolve()))
+          from probe_wmc_dispatch_controls import native_solver_work_execve
           root = Path("solver-dispatch-evidence")
           binary_ids = {}
           qasm_ids = {}
@@ -90,10 +98,15 @@ jobs:
                   for backend in ("python", "rust"):
                       prefix = root / f"{case}-{solver}-{backend}"
                       info = json.loads(prefix.with_suffix(".json").read_text())
-                      trace = prefix.with_suffix(".execve.log").read_text().splitlines()
+                      trace = prefix.with_suffix(".execve.log").read_text()
                       binary = info["solver_binary"]
-                      observed = any('execve("' + binary + '"' in line and line.rstrip().endswith('= 0')
-                                     for line in trace)
+                      observed = native_solver_work_execve(trace, binary, solver)
+                      version_probe = any(
+                          'execve("' + binary + '"' in line
+                          and '"--version"' in line
+                          and line.rstrip().endswith('= 0')
+                          for line in trace.splitlines()
+                      )
                       expected = case == "qft16"
                       assert observed is expected, f"{case}/{solver}/{backend}: native execve={observed}"
                       assert info["native_expected"] is expected
@@ -104,7 +117,8 @@ jobs:
                       qasm_ids.setdefault(case, info["qasm_sha256"])
                       assert info["qasm_sha256"] == qasm_ids[case]
                       rows.append({"case": case, "solver": solver, "backend": backend,
-                                   "verdict": info["verdict"], "native_execve": observed,
+                                   "verdict": info["verdict"], "native_model_count_execve": observed,
+                                   "native_version_probe_execve": version_probe,
                                    "expected_native": expected})
           assert len(rows) == 8
           (root / "audit.json").write_text(json.dumps({

@@ -32,6 +32,18 @@ Only complete, positive checks that report a numeric WMC solver time enter
 the median Walltime and observed RSS summaries. Every failed, missing,
 resource-inconclusive or invalid case remains visible and blocks that group.
 
+**Timeout and descendant cleanup:** Each outer trial runs in a new POSIX
+session/process group. On an outer timeout, the entire group is sent SIGKILL,
+and the immediate worker is reaped. Group cleanup is also attempted when the
+worker exits normally, to catch native solvers that survived their Python
+parent. A trial requiring post-exit group cleanup is **INCONCLUSIVE** even if
+its previously written JSON reports success. Mock subprocess regression tests
+cover both paths without starting GPMC or Ganak. Process-group supervision is
+not a guarantee for a child that deliberately escapes into a different session;
+this harness is intended for a controlled Linux host, and the actual GPMC and
+Ganak lifecycle must be verified separately on that host before accepting
+performance evidence.
+
 **Memory terms and limitations**
 
 - `elapsed_seconds`: end-to-end monotonic Walltime, including solver I/O

@@ -12,7 +12,7 @@ SPEC.loader.exec_module(resource)
 
 
 def test_resource_case_catalog_matches_current_ci_selection():
-    for name in ('grover4', 'qaoa7', 'qft16', 'vqe4', 'tof3'):
+    for name in ('grover4', 'qaoa7', 'qft16', 'vqe4', 'graphstate16', 'tof3'):
         case = resource.resolve_case(name)
         assert case['method'] in ('hybrid', 'reduction_rules')
         assert case['source'] != case['transpiled']
@@ -24,6 +24,8 @@ def test_resource_case_catalog_matches_current_ci_selection():
         ('grover4', 'grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm', True),
         ('qaoa7', 'qaoa_nativegates_ibm_qiskit_opt0_7.qasm', False),
         ('qft16', 'qft_nativegates_ibm_qiskit_opt0_16.qasm', True),
+        ('vqe4', 'vqe_nativegates_ibm_qiskit_opt0_4.qasm', False),
+        ('graphstate16', 'graphstate_nativegates_ibm_qiskit_opt0_16.qasm', False),
     ),
 )
 def test_representative_resource_cases_reuse_existing_mqt_settings(

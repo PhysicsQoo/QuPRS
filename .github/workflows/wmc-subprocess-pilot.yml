@@ -1,0 +1,89 @@
+name: WMC Subprocess Tracking Probe
+
+# Temporary, PR-only diagnostic; no maintained branch baseline changes.
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/wmc-subprocess-pilot.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  subprocess-capture:
+    name: Simulation subprocess capture / GPMC and Ganak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact PR integration with GPMC
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install solver dependencies and exec tracer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev strace
+      - name: Build exact tested source and solvers
+        run: |
+          python -m pip install --upgrade pip maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Prove native GPMC and Ganak execute (untimed controls)
+        run: |
+          set -euo pipefail
+          mkdir -p subprocess-evidence
+          git rev-parse HEAD > subprocess-evidence/source-sha.txt
+          for solver in gpmc ganak; do
+            strace -f -qq -e trace=execve \
+              -o "subprocess-evidence/$solver.execve.log" \
+              python scripts/verify_wmc_subprocess_probe.py \
+                --solver "$solver" --output "subprocess-evidence/$solver.json"
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("subprocess-evidence")
+          for solver in ("gpmc", "ganak"):
+              report = json.loads((root / (solver + ".json")).read_text())
+              trace = (root / (solver + ".execve.log")).read_text()
+              binary = report["solver"]["binary"]
+              matches = [
+                  line for line in trace.splitlines()
+                  if 'execve("' + binary + '"' in line and line.rstrip().endswith("= 0")
+              ]
+              if not matches:
+                  raise SystemExit(
+                      f"{solver}: no native execve matching the recorded binary"
+                  )
+              print(f"{solver}: native execve confirmed and positive, "
+                    f"solver_time={report['solver_time_seconds']}")
+          PY
+      - name: Run existing Grover4 solver benchmarks with capture ON
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          run: >-
+            pytest test/test_MQT.py --codspeed
+            -k 'grover-noancilla_nativegates_ibm_qiskit_opt0_4 and python'
+      - name: Preserve independent exec evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-wmc-exec-probe
+          if-no-files-found: warn
+          retention-days: 30
+          path: subprocess-evidence/

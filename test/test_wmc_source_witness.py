@@ -102,3 +102,31 @@ def test_rz_strict_equality_does_not_ignore_qiskit_global_phase():
     # The RZ-only witness deliberately fails closed for explicit phases
     # instead of claiming source provenance that it has not modeled.
     assert certify_rz_basis_witness(a, b) is None
+
+
+@pytest.mark.parametrize("delta", (1e-6, 1e-4, 1e-3, 0.2))
+def test_nonzero_rz_source_witness_is_independent_of_rounded_wmc_trace(delta):
+    a, b = QuantumCircuit(1), QuantumCircuit(1)
+    b.rz(delta, 0)
+    certificate = make_source_witness_certificate(a, b)
+    assert certificate["status"] == "not_equivalent"
+    assert verify_source_witness_certificate(a, b, certificate)
+
+
+def test_rz_witness_rejects_changed_qubit_and_changed_angle():
+    a, b = QuantumCircuit(2), QuantumCircuit(2)
+    b.rz(0.001, 1)
+    certificate = make_source_witness_certificate(a, b)
+    assert verify_source_witness_certificate(a, b, certificate)
+    assert not verify_source_witness_certificate(a, b, dict(certificate, qubit=0))
+    other = QuantumCircuit(2)
+    other.rz(0.002, 1)
+    assert not verify_source_witness_certificate(a, other, certificate)
+
+
+def test_clifford_witness_rejects_modified_input_circuit():
+    a, b = QuantumCircuit(2), QuantumCircuit(2)
+    b.cx(0, 1)
+    certificate = make_source_witness_certificate(a, b)
+    assert verify_source_witness_certificate(a, b, certificate)
+    assert not verify_source_witness_certificate(a, QuantumCircuit(2), certificate)

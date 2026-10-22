@@ -151,3 +151,26 @@ be relabelled as a solver performance result.
 The new cases are optional and are not appended to every existing
 CodSpeed/Pytest regression suite, so they do not expand the maintained
 baseline or introduce runtime-derived CI percentage gates.
+
+
+### First optional-case eligibility result
+
+In [GitHub-hosted Actions run #39778599649](https://github.com/PhysicsQoo/QuPRS/actions/runs/39778599649),
+the four VQE4 solver/backend combinations all passed actual native
+`execve` preflight and yielded positive `equivalent*` classifications.
+VQE4 therefore qualified for 20 observations (4 combinations × 1 warmup
++ 4 measured repetitions), all accepted on that VM. Run artifact
+`additional-native-solver-case-evidence` retains preflight `strace`
+evidence, raw observation JSON and SHA256SUMS.
+
+By contrast, Graphstate16, with the original `naive` strategy, returned
+`equivalent` in all four combinations **without native WMC invocation**
+(`solver_time=null` in each). It is a legitimate reduction-only success,
+not a failed quantum equivalence result and not a GPMC/Ganak benchmark.
+The preflight must keep semantic correctness, numerical solver timing and
+verified native launch as **separate fields**.
+
+Do not compare one VM's VQE4 timing against a different VM's other case
+timing as though it were a controlled same-host result. Native tool-time
+and end-to-end Walltime are distinct, and observed sampled-tree RSS cannot
+be described as exact peak RSS.

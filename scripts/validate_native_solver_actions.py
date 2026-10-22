@@ -63,6 +63,7 @@ def positive_check(solver: str, backend: str, binary: Path, folder: Path, *, cas
         "outer_observation": observation,
         "binary_sha256": sha256(binary),
         "native_execve": False, "positive_equivalence": False,
+        "numeric_solver_time": False,
         "status": "INCONCLUSIVE",
     }
     if report_path.is_file():
@@ -77,7 +78,11 @@ def positive_check(solver: str, backend: str, binary: Path, folder: Path, *, cas
                 and verdict.get("accepted_positive") is True
                 and verdict.get("tool_name") == solver
                 and verdict.get("backend") == backend
-                and isinstance(solver_time, (int, float))
+            )
+            # A fully reduced circuit can be equivalent without launching WMC.
+            # Keep semantic success distinct from actual native-tool evidence.
+            record["numeric_solver_time"] = (
+                isinstance(solver_time, (int, float))
                 and not isinstance(solver_time, bool)
                 and math.isfinite(solver_time)
                 and solver_time >= 0
@@ -93,6 +98,7 @@ def positive_check(solver: str, backend: str, binary: Path, folder: Path, *, cas
                 record["native_execve"] = True
                 break
     if (record["native_execve"] and record["positive_equivalence"]
+            and record["numeric_solver_time"]
             and observation["exit_code"] == 0
             and not observation["outer_timed_out"]
             and not observation["cleanup_needed"]

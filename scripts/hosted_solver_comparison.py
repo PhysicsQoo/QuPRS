@@ -221,6 +221,8 @@ def main() -> int:
         rows.append({
             "case": group["case"], "solver": group["solver"],
             "backend": group["backend"], "status": s["status"],
+            "execution_path": s.get("execution_path"),
+            "solver_only_performance_certified": s.get("solver_only_performance_certified"),
             "n": s.get("n"), "walltime_median_seconds": s.get("walltime_median_seconds"),
             "walltime_mad_seconds": s.get("walltime_mad_seconds"),
             "sampled_tree_rss_median_mib": s.get("sampled_tree_rss_median_mib"),

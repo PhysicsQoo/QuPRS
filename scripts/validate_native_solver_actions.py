@@ -146,6 +146,8 @@ def forced_timeout(solver: str, binary: Path, folder: Path) -> dict:
     finally:
         done.set()
         monitor.join(timeout=2)
+        # FIFO is only a blocking fixture; artifact ZIPs must contain regular files.
+        fifo.unlink(missing_ok=True)
     pid = witness["pid"]
     remaining = active_pid(pid) if pid is not None else None
     record = {

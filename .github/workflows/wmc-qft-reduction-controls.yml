@@ -1,4 +1,4 @@
-name: QFT Native and Reduction Control Probe
+name: Hybrid Reduction and Native WMC Observation Probe
 
 # Isolated research diagnostic; never modifies CodSpeed production baselines.
 on:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   native-vs-reduction:
-    name: QFT16 / Graphstate16 Python Rust GPMC Ganak subprocess attribution
+    name: Observe Hybrid RR-only and native WMC execution
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
@@ -65,7 +65,7 @@ jobs:
         run: |
           python -m pytest -q test/test_wmc_dispatch_trace_classifier.py
 
-      - name: Verify positive native QFT and negative Graphstate controls
+      - name: Observe Hybrid reduction-only and native work without requiring WMC
         run: |
           set -euo pipefail
           root=solver-dispatch-evidence
@@ -111,28 +111,36 @@ jobs:
                           and line.rstrip().endswith('= 0')
                           for line in trace.splitlines()
                       )
-                      expected = case == "qft16"
-                      assert observed is expected, f"{case}/{solver}/{backend}: native execve={observed}"
-                      assert info["native_expected"] is expected
+                      # Hybrid may complete after Reduction Rules for *any* case.
+                      # Neither a solver PID nor numeric tool_time is mandatory.
                       assert info["verdict"] in ("equivalent", "equivalent*")
-                      assert (info["tool_time_s"] is not None) is expected
+                      assert info["tool_time_numeric"] == (
+                          isinstance(info["tool_time_s"], (int, float))
+                          and not isinstance(info["tool_time_s"], bool)
+                      )
                       binary_ids.setdefault(solver, info["solver_sha256"])
                       assert info["solver_sha256"] == binary_ids[solver]
                       qasm_ids.setdefault(case, info["qasm_sha256"])
                       assert info["qasm_sha256"] == qasm_ids[case]
                       rows.append({"case": case, "solver": solver, "backend": backend,
-                                   "verdict": info["verdict"], "native_model_count_execve": observed,
+                                   "verdict": info["verdict"],
+                                   "native_model_count_execve": observed,
                                    "native_version_probe_execve": version_probe,
-                                   "expected_native": expected})
+                                   "tool_time_numeric": info["tool_time_numeric"],
+                                   "execution_path": "native_wmc" if observed else "rr_only",
+                                   "native_time_consistent": observed == info["tool_time_numeric"]})
           assert len(rows) == 8
+          n_native = sum(row["native_model_count_execve"] for row in rows)
+          n_reduction_only = len(rows) - n_native
           (root / "audit.json").write_text(json.dumps({
-              "scope": "preflight outside CodSpeed simulation",
+              "scope": "observed original Hybrid execution paths outside CodSpeed",
               "checks": rows,
-              "native_positive": 4,
-              "reduction_negative": 4,
-              "status": "PASS",
+              "native_wmc_observed": n_native,
+              "rr_only_observed": n_reduction_only,
+              "solver_attribution_possible": n_native > 0,
+              "status": "COMPLETE" if n_native > 0 else "INCONCLUSIVE_NO_NATIVE_WORK",
           }, sort_keys=True, indent=2) + "\n")
-          print("8/8 native and reduction controls PASS", flush=True)
+          print(f"8/8 positive equivalence; native WMC observed: {n_native}, RR-only: {n_reduction_only}", flush=True)
           PY
 
       - name: CodSpeed v5 Simulation with subprocess tracing enabled

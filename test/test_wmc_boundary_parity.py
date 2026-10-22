@@ -5,7 +5,9 @@ Two explicitly separate kinds of evidence:
 * Controlled external GPMC stdout to isolate the Python/Rust FLOATING COUNT
   classification boundary. A substituted WMC count is NOT a physics oracle.
 
-Only native-scalar normalization is fixed; solver policies, reduction rules,\nand numerical tolerances are unchanged.
+The WMC classifier is now fail-closed without a verifiable certificate.
+The float magnitude/phase acceptance bands remain historical diagnostics,
+not strict-equivalence decisions.
 """
 from contextlib import contextmanager
 import os
@@ -72,7 +74,9 @@ def test_real_solver_magnitude_policy_is_not_physical_equivalence(
         identity, target, backend=backend, tool_name=solver,
         method="wmc_only", timeout=60,
     )
-    assert result.equivalent == expected, (
+    # A previously decisive numerical policy must not certify equality or
+    # inequality of a true unitary without an end-to-end error enclosure.
+    assert result.equivalent == "unknown", (
         f"solver={solver}, backend={backend}, angle={angle}, "
         f"|Tr|/2={float(normalized_trace):.12g}, "
         f"expected_policy={expected}, actual={result.equivalent}"
@@ -179,7 +183,9 @@ def test_controlled_solver_count_agrees_across_python_and_rust(
         identity, hh, backend=backend, tool_name="gpmc",
         method="wmc_only", timeout=15,
     )
-    assert result.equivalent == expected, (
+    # A fake solver output cannot become a proof; H-H requires genuine
+    # symbolic cancellation or a verified positive certificate.
+    assert result.equivalent == "unknown", (
         f"backend={backend}, count={complex_number}, kind={kind}, "
         f"factor={factor}, expected_policy={expected}, "
         f"actual={result.equivalent}"

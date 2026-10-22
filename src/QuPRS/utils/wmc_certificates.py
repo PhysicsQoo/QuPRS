@@ -36,4 +36,7 @@ def certify_discrete_pathsum(circuit1, circuit2, pathsum, identity):
         return "equivalent"
     if not pathsum.P.free_symbols:
         return "equivalent*"
-    return None
+    # A nonconstant multilinear phase over exact Clifford/T source angles
+    # witnesses a relative phase on the same deterministic basis map.
+    # Each nonzero monomial is observable on some Boolean assignment.
+    return "not_equivalent"

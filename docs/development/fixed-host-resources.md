@@ -71,3 +71,53 @@ raw run, instrument version, tracked processes/allocators and result scope
 separate from this observer. Neither metric creates a GitHub-hosted
 performance regression gate or modifies the maintained v5 Simulation
 baseline.
+
+
+## GitHub-hosted within-job exploratory comparison (opt-in)
+
+Use the separate `Opt-in Hosted Solver Resource Comparison` Actions workflow on
+the diagnostic research branch to obtain **actual native-solver end-to-end
+Walltime and sampled process-tree RSS on one GitHub-hosted VM**. This is
+*not* the dedicated fixed physical host, and its output **must not** be
+combined with fixed-host or CodSpeed Simulation/Memory baselines.
+
+The workflow uses one `ubuntu-24.04` job and one exact-source build for all
+trials. The `scripts/hosted_solver_comparison.py` driver preserves the
+original Grover4, QAOA7 and QFT16 QASM pairs, strategies and directions.
+For each case it runs four cells (GPMC/Python, Ganak/Python, Ganak/Rust,
+GPMC/Rust) with one warmup and **four** measured repetitions per cell.
+The measured rounds reverse the cell and circuit ordering as
+forward / reverse / reverse / forward (an ABBA-like scheduling control).
+It does not establish randomization or eliminate shared-host interference.
+
+Each of the 60 scheduled trials receives a unique filename, including failed
+runs. After every trial the manifest is atomically checkpointed; a missing
+or invalid sample remains **INCONCLUSIVE**, not an excluded outlier.
+Artifacts contain the exact source/tree SHA, native binary hashes, original
+input QASM SHA256, CPU/kernel and run metadata, all trial JSON, manifest,
+CSV of median/MAD Walltime and observed RSS summaries, and SHA256SUMS.
+A nonzero workflow result does not erase evidence: artifact upload is
+configured to run even when an experiment reports INCONCLUSIVE.
+
+Comparisons **within the same job/VM** may support exploratory hypotheses
+about relative solver behavior. A separate Actions run can use different
+underlying CPU hardware, frequency policy, temperature, contention or VM
+placement, even with the same `runs-on` label. Replicate on independent runs
+before claiming stability, and use a controlled research host for
+paper-quality long-term/cross-version performance claims. Avoid a
+percentage-based GitHub-hosted gate.
+
+To invoke the driver in a prepared Ubuntu Linux development environment:
+
+```sh
+python scripts/hosted_solver_comparison.py \
+  --case grover4 --case qaoa7 --case qft16 \
+  --warmups 1 --repeats 4 \
+  --walltime 90 --solver-timeout 45 \
+  --rss-limit-mib 3072 --sample-ms 50 \
+  --output-dir hosted-solver-evidence/trials
+```
+
+The original `scripts/fixed_host_resource_repeats.py` and optional
+`quprs-research` self-hosted job remain available for a distinct
+controlled-environment study.

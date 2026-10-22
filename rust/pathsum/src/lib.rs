@@ -243,6 +243,13 @@ pub fn check_equivalence(
                     });
                 if differing_boolean_output {
                     status = EquivalenceStatus::NotEquivalent;
+                } else if ps_miter.p.terms.keys().any(|mono| !mono.is_empty()) {
+                    // On a deterministic identity Boolean mapping, a
+                    // nonconstant reduced multilinear phase polynomial over
+                    // exact discrete coefficients witnesses a relative
+                    // basis phase. The monomial basis is independent over
+                    // Boolean inputs (Möbius inversion), modulo a constant.
+                    status = EquivalenceStatus::NotEquivalent;
                 }
             }
         }

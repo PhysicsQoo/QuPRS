@@ -1,8 +1,8 @@
 """Source-pinned acceptance for the fail-closed, *uncertified* WMC stage.
 
 Real Ganak/GPMC output currently has no verified enclosure for the true
-normalized trace. This test deliberately expects Unknown, even for a true
-identity: diagnostics are not an exact-equivalence certificate.
+normalized trace. This test distinguishes independent, source-level exact certificates from
+uncertified numeric WMC counts. Bare solver diagnostics stay Unknown.
 
 A future certified implementation must revise these expectations only
 together with independently checked proof evidence, not a smaller tolerance.
@@ -56,9 +56,9 @@ def test_real_solver_never_promotes_uncertified_rz_to_exact_result(
         reference, target, method="wmc_only", backend=backend,
         tool_name=solver, timeout=60,
     )
-    assert result.equivalent == "unknown", (
-        backend, solver, delta, result.equivalent
-    )
+    assert result.equivalent == (
+        "equivalent" if delta == 0.0 else "not_equivalent"
+    ), (backend, solver, delta, result.equivalent)
     assert result.tool_name == solver
     assert result.tool_time is not None
 

@@ -14,6 +14,7 @@ from QuPRS.pathsum.statistics import StatisticsManager
 from QuPRS.utils.verification_timeout import VerificationTimeout
 from QuPRS.utils.solver_process import SolverTimeout
 from QuPRS.utils.util import set_safe_memory_limit
+from QuPRS.utils.wmc_certificates import certify_source_witness
 
 
 def timeout_handler(signum, frame):
@@ -269,6 +270,13 @@ def check_equivalence(
             mapped_equiv = "unknown"
         elif rust_res.get("status") == "Unknown":
             mapped_equiv = "unknown"
+        # A proof from original *Qiskit source inputs* remains independent
+        # of Rust's current rational/pi approximation and WMC solver output.
+        # Keep Timeout/MemoryOut and any existing non-Unknown verdict intact.
+        if method == "wmc_only" and mapped_equiv == "unknown" and rust_res.get("wmc_solver_time_sec") is not None:
+            source_proof = certify_source_witness(circuit1, circuit2)
+            if source_proof is not None:
+                mapped_equiv = source_proof
             
         return EquivalenceCheckResult(
             qubit_num=rust_res.get("qubits", 0),
@@ -449,6 +457,10 @@ def check_equivalence(
                 )
                 if certified is not None:
                     equivalent = certified
+                if equivalent == "unknown":
+                    source_proof = certify_source_witness(qiskit_circuit1, qiskit_circuit2)
+                    if source_proof is not None:
+                        equivalent = source_proof
                 wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or

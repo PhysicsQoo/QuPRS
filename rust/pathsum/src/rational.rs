@@ -49,6 +49,23 @@ impl fmt::Display for Rational {
     }
 }
 
+/// Exact modular arithmetic for path-sum phase coefficients.
+///
+/// Unlike approximate FreeRational arithmetic used by legacy symbolic
+/// angles, a finite discrete phase certificate cannot tolerate silent
+/// continued-fraction replacement. Reject unrepresentable denominators.
+fn exact_rational_mod_i128(num: i128, den: i128) -> Rational {
+    assert_ne!(den, 0, "Zero denominator in exact phase arithmetic");
+    let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
+    let remainder = num.rem_euclid(den);
+    let common = gcd_i128(remainder, den);
+    let n = remainder / common;
+    let d = den / common;
+    assert!(n <= i64::MAX as i128 && d <= i64::MAX as i128,
+        "Exact discrete phase exceeded the i64 rational domain");
+    Rational::new(n as i64, d as i64)
+}
+
 // --- Rational Operators ---
 
 impl Add for Rational {
@@ -56,8 +73,7 @@ impl Add for Rational {
     fn add(self, rhs: Self) -> Self {
         let num = (self.numer as i128) * (rhs.denom as i128) + (rhs.numer as i128) * (self.denom as i128);
         let den = (self.denom as i128) * (rhs.denom as i128);
-        let (n, d) = reduce_and_cap_i128(num, den);
-        Self::new(n, d) 
+        exact_rational_mod_i128(num, den)
     }
 }
 
@@ -74,16 +90,14 @@ impl Sub for Rational {
 impl Mul<i64> for Rational {
     type Output = Self;
     fn mul(self, rhs: i64) -> Self {
-        let (n, d) = reduce_and_cap_i128((self.numer as i128) * (rhs as i128), self.denom as i128);
-        Self::new(n, d)
+        exact_rational_mod_i128((self.numer as i128) * (rhs as i128), self.denom as i128)
     }
 }
 
 impl Div<i64> for Rational {
     type Output = Self;
     fn div(self, rhs: i64) -> Self {
-        let (n, d) = reduce_and_cap_i128(self.numer as i128, (self.denom as i128) * (rhs as i128));
-        Self::new(n, d)
+        exact_rational_mod_i128(self.numer as i128, (self.denom as i128) * (rhs as i128))
     }
 }
 

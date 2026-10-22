@@ -47,22 +47,48 @@ def provenance(host_id: str) -> dict:
     }
 
 
-def summarize(trials: list[dict], expected_repeats: int) -> dict:
-    """Accept complete, positive and actually WMC-invoking trials only."""
+def summarize(trials: list[dict], expected_repeats: int, *,
+              expected_case: str | None = None,
+              expected_solver: str | None = None,
+              expected_backend: str | None = None) -> dict:
+    """Accept only matching, complete solver observations (warmups included)."""
     data = [x["report"] for x in trials if not x["warmup"]]
     if len(data) != expected_repeats:
         return {"status": "INCONCLUSIVE", "reason": "missing repetitions"}
     if any(
-        r.get("complete") is not True
-        or r.get("resource_limit_status") is not None
-        or r.get("exit_code") != 0
-        or r.get("verdict", {}).get("accepted_positive") is not True
-        or not isinstance(r.get("verdict", {}).get("solver_time"), (int, float))
-        or not math.isfinite(r["verdict"]["solver_time"])
-        or r["verdict"]["solver_time"] < 0
-        for r in data
+        not isinstance(t.get("report"), dict)
+        or t.get("exit_code", 0) != 0
+        or t["report"].get("complete") is not True
+        or t["report"].get("resource_limit_status") is not None
+        or t["report"].get("exit_code") != 0
+        or t["report"].get("verdict", {}).get("accepted_positive") is not True
+        or not isinstance(t["report"].get("verdict", {}).get("solver_time"), (int, float))
+        or not math.isfinite(t["report"]["verdict"]["solver_time"])
+        or t["report"]["verdict"]["solver_time"] < 0
+        for t in trials
     ):
         return {"status": "INCONCLUSIVE", "reason": "invalid solver or resource verdict"}
+    if expected_case is not None or expected_solver is not None or expected_backend is not None:
+        for trial in trials:
+            r = trial["report"]
+            verdict = r["verdict"]
+            if (r.get("case", {}).get("case") != expected_case
+                or r.get("tool_name") != expected_solver
+                or r.get("backend") != expected_backend
+                or verdict.get("tool_name") != expected_solver
+                or verdict.get("backend") != expected_backend):
+                return {"status": "INCONCLUSIVE", "reason": "case/solver/backend mismatch"}
+            hashes = r.get("input_sha256")
+            if not isinstance(hashes, dict) or any(
+                not isinstance(hashes.get(which), str)
+                or len(hashes[which]) != 64
+                or any(ch not in "0123456789abcdef" for ch in hashes[which])
+                for which in ("source", "transpiled")
+            ):
+                return {"status": "INCONCLUSIVE", "reason": "missing input checksum"}
+        first_hashes = trials[0]["report"]["input_sha256"]
+        if any(t["report"]["input_sha256"] != first_hashes for t in trials):
+            return {"status": "INCONCLUSIVE", "reason": "source input changed between trials"}
     times = [r["elapsed_seconds"] for r in data]
     rss = [r["sampled_peak_tree_rss_mib"] for r in data]
     if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0
@@ -136,16 +162,39 @@ def main() -> int:
                         "--sample-interval-ms", str(a.sample_ms),
                         "--output", str(path.resolve()),
                     ]
-                    result = subprocess.run(cmd, cwd=ROOT, text=True,
-                                            capture_output=True, check=False)
-                    report = json.loads(path.read_text()) if path.is_file() else {}
+                    try:
+                        result = subprocess.run(
+                            cmd, cwd=ROOT, text=True, capture_output=True,
+                            check=False, timeout=a.walltime + 30,
+                        )
+                        code, stdout, stderr = (
+                            result.returncode, result.stdout, result.stderr
+                        )
+                    except subprocess.TimeoutExpired as exc:
+                        code = None
+                        stdout = (exc.stdout or b"")
+                        stderr = (exc.stderr or b"")
+                        if isinstance(stdout, bytes):
+                            stdout = stdout.decode(errors="replace")
+                        if isinstance(stderr, bytes):
+                            stderr = stderr.decode(errors="replace")
+                        stderr += "\nouter harness subprocess timeout"
+                    try:
+                        report = json.loads(path.read_text()) if path.is_file() else {}
+                    except (OSError, ValueError):
+                        report = {}
+                        stderr += "\nmissing or invalid resource JSON"
                     trials.append({
-                        "warmup": warmup, "exit_code": result.returncode,
+                        "warmup": warmup, "exit_code": code,
                         "report_path": filename, "report": report,
-                        "stdout_tail": result.stdout[-600:],
-                        "stderr_tail": result.stderr[-600:],
+                        "stdout_tail": stdout[-600:],
+                        "stderr_tail": stderr[-600:],
                     })
-                summary = summarize(trials, a.repeats)
+                summary = summarize(
+                    trials, a.repeats,
+                    expected_case=case, expected_solver=solver,
+                    expected_backend=backend,
+                )
                 overall &= summary["status"] == "COMPLETE"
                 evidence["groups"].append({
                     "case": case, "solver": solver, "backend": backend,

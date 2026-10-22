@@ -22,6 +22,7 @@ from QuPRS import check_equivalence, config
 from QuPRS.utils import WMC
 from QuPRS.utils import solver_process
 from QuPRS.utils.wmc_solvers import parse_count_line
+from QuPRS.utils.wmc_certificates import verify_source_witness_certificate
 
 OUT=Path("wmc-numerical-policy-results")
 DELTAS=("0","0.000001","0.0001","0.001","0.01","0.2")
@@ -98,6 +99,11 @@ def one(case,backend,solver):
                          "executable":str(binary)}
         result=check_equivalence(a,b,method="wmc_only",strategy="Naive",
                                  backend=backend,tool_name=solver,timeout=60)
+        certificate=getattr(result,"source_certificate",None)
+        certificate_verified=(
+            verify_source_witness_certificate(a,b,certificate)
+            if certificate is not None else None
+        )
         normalized_count=None
         if captures and backend=="python":
             # Ganak first invokes a distribution/version diagnostic. That is
@@ -122,6 +128,8 @@ def one(case,backend,solver):
                 "log_count":result.log_wmc,
                 "solver_time":result.tool_time,
                 "python_gate_counts":[result.gate_num,result.gate_num2],
+                "source_certificate":certificate,
+                "source_certificate_verified":certificate_verified,
                 "error":None}
     except Exception as err:
         record={"case":case,"backend":backend,"solver":solver,
@@ -192,11 +200,25 @@ def main():
         if row.get("outcome") in ("equivalent","equivalent*")
         and row.get("source_oracle",{}).get("truth")=="not_equivalent"
     ]
+    # Do not call a strict RZ result certified merely because it happens
+    # to match the high-precision oracle. Demand the separately checkable
+    # source basis-state proof for every non-global-phase sample.
+    for row in entries:
+        if row.get("case") == "global_phase":
+            continue  # Discrete PathSum phase proof; separate schema pending.
+        if row.get("outcome") in ("equivalent","not_equivalent","equivalent*"):
+            if row.get("source_certificate_verified") is not True:
+                mismatches.append({
+                    "case":row["case"],"backend":row["backend"],
+                    "solver":row["solver"],"kind":"NO_VERIFIED_SOURCE_CERTIFICATE",
+                    "actual":row.get("outcome"),
+                })
     status="SCIENCE_BLOCKED" if mismatches or len(entries)!=EXPECTED else "PASS"
     summary={"schema":environment["schema"],"status":status,
              "records":len(entries),"expected":EXPECTED,
              "strict_false_positive_claims":len(false_positive_claims),
              "unresolved_unknown_count":sum(row.get("outcome")=="unknown" for row in entries),
+             "verified_source_certificates":sum(row.get("source_certificate_verified") is True for row in entries),
              "discrepancies":mismatches,
              "constraints":[
                 "Very-close-to-1 may be floating error OR genuine inequivalence.",

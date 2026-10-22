@@ -458,7 +458,7 @@ def check_equivalence(
                 if certified is not None:
                     equivalent = certified
                 if equivalent == "unknown":
-                    source_proof = certify_source_witness(qiskit_circuit1, qiskit_circuit2)
+                    source_proof = certify_source_witness(circuit1, circuit2)
                     if source_proof is not None:
                         equivalent = source_proof
                 wmc_time = tool_time + to_DIMACS_time

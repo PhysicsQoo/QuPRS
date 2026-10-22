@@ -173,7 +173,7 @@ jobs:
             --case grover4 --case qaoa7 --case qft16 \
             --solver gpmc --solver ganak \
             --backend python --backend rust \
-            --warmups 1 --repeats 3 \
+            --warmups 1 --repeats 4 \
             --walltime 90 --solver-timeout 45 \
             --rss-limit-mib 3072 --sample-ms 50 \
             --output-dir fixed-host-evidence/trials

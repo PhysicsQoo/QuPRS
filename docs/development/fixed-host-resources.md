@@ -32,16 +32,24 @@ Only complete, positive checks that report a numeric WMC solver time enter
 the median Walltime and observed RSS summaries. Every failed, missing,
 resource-inconclusive or invalid case remains visible and blocks that group.
 
-**Timeout and descendant cleanup:** Each outer trial runs in a new POSIX
-session/process group. On an outer timeout, the entire group is sent SIGKILL,
-and the immediate worker is reaped. Group cleanup is also attempted when the
-worker exits normally, to catch native solvers that survived their Python
-parent. A trial requiring post-exit group cleanup is **INCONCLUSIVE** even if
-its previously written JSON reports success. Mock subprocess regression tests
-cover both paths without starting GPMC or Ganak. Process-group supervision is
-not a guarantee for a child that deliberately escapes into a different session;
-this harness is intended for a controlled Linux host, and the actual GPMC and
-Ganak lifecycle must be verified separately on that host before accepting
+**Timeout and descendant cleanup (Linux only):** Each outer trial runs
+in a new process group. The Python and Rust native solver supervisors may
+themselves create independent sessions/process groups: terminating only
+the outer group would therefore be insufficient. The trial harness enables
+Linux child-subreaper mode, kills its outer group on timeout, then discovers,
+terminates and reaps adopted descendants across session/group boundaries.
+On normal worker exit, unexpected live descendants also trigger cleanup.
+Any timeout, needed post-exit cleanup, failed inspection or incomplete reap
+makes the group **INCONCLUSIVE**, even when a stale JSON reports success.
+Tests include a clean completion, a hanging three-level mock tree with
+independent sessions, and an early-exiting parent leaving a detached child;
+they do not invoke GPMC or Ganak.
+
+This is a controlled **Linux** lifecycle contract, not a portable macOS/Windows
+one. It does not promise to kill processes delegated to a different privileged
+supervisor or an external cgroup, nor an uninterruptible kernel task. Run
+real forced-timeout and orphan checks on the dedicated research host for
+**both** native solvers and Python/Rust backends before accepting empirical
 performance evidence.
 
 **Memory terms and limitations**

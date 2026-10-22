@@ -145,7 +145,52 @@ def evolve(ops, basis, dim=256):
     return state
 
 
+def validate_gate_conventions():
+    """Independent hand-checkable one/two-qubit identities for the simulator.
+
+    These detect global-phase, rotation-sign, gate-order, and little-endian
+    CNOT mistakes before a source-level non-equivalence claim is printed.
+    Ball comparisons demand enclosure of exact analytic identities, not a
+    configurable epsilon.
+    """
+    halfturn = prepared([("rx", 0, angle("pi"))])
+    state = evolve(halfturn, 0)
+    assert state[0].contains(0)
+    assert (state[1] + I).contains(0), "RX(pi)|0> must equal -i|1>"
+
+    cancel = prepared([("rz", 0, angle("0.125")),
+                       ("rz", 0, angle("-0.125"))])
+    for basis in (0, 1):
+        state = evolve(cancel, basis)
+        assert (state[basis] - acb(1)).contains(0)
+        assert state[basis ^ 1].contains(0)
+
+    cnot = prepared([("cx", 0, 1)])
+    control_on = evolve(cnot, 1)
+    assert (control_on[3] - acb(1)).contains(0)
+    assert control_on[1].contains(0)
+    control_off = evolve(cnot, 0)
+    assert (control_off[0] - acb(1)).contains(0)
+    assert control_off[2].contains(0)
+
+    # Applying RZ(+pi/2), then RY(theta), then RZ(-pi/2) implements
+    # RX(theta) exactly, without a global phase.
+    euler = prepared([
+        ("rz", 0, angle("pi/2")),
+        ("ry", 0, angle("pi/2")),
+        ("rz", 0, angle("-pi/2")),
+    ])
+    rx = prepared([("rx", 0, angle("pi/2"))])
+    for basis in (0, 1):
+        u, v = evolve(euler, basis), evolve(rx, basis)
+        for row in (0, 1):
+            assert (u[row] - v[row]).contains(0), (
+                "Euler/RX sign or application order mismatch", basis, row
+            )
+
+
 def main():
+    validate_gate_conventions()
     hashes = tuple(hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in FILES)
     if hashes != HASHES:
         raise ValueError("Pinned QPE source hashes do not match")

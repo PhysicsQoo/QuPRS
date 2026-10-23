@@ -117,7 +117,7 @@ jobs:
             .diagnostics/wmc_interval_reference/test_import_dimacs.py \
             --junitxml=wmc-encoded-bridge-results/parser-junit.xml \
             2>&1 | tee wmc-encoded-bridge-results/parser-output.txt
-          test "\${PIPESTATUS[0]}" -eq 0
+          test "${PIPESTATUS[0]}" -eq 0
 
       - name: Compare real emitted CNFs with independent bounded reference and native solvers
         shell: bash
@@ -125,7 +125,7 @@ jobs:
           python -u .diagnostics/wmc_interval_reference/run_encoded_bridge.py \
             --output wmc-encoded-bridge-results \
             2>&1 | tee wmc-encoded-bridge-results/bridge-output.txt
-          test "\${PIPESTATUS[0]}" -eq 0
+          test "${PIPESTATUS[0]}" -eq 0
 
       - name: Seal source-tagged generated-CNF evidence
         if: always()

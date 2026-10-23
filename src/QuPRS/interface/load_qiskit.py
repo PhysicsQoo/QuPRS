@@ -137,6 +137,7 @@ def check_equivalence(
     timeout: int = 600,
     safe_mode: bool = False,
     backend: str = "python",
+    wmc_policy: str = "legacy",
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -170,6 +171,12 @@ def check_equivalence(
             and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
+        wmc_policy (str, optional): "legacy" preserves historical numerical
+            WMC verdicts. "conservative" reports "unknown" whenever an
+            uncertified numerical WMC result would otherwise give either a
+            positive or negative verdict; the numerical classification remains
+            available in result.wmc_numerical_verdict. Does not certify
+            symbolic Reduction Rules or solve general numerical error bounds.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -177,6 +184,8 @@ def check_equivalence(
     """
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout must be a positive integer number of seconds")
+    if wmc_policy not in ("legacy", "conservative"):
+        raise ValueError("wmc_policy must be 'legacy' or 'conservative'")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -270,6 +279,17 @@ def check_equivalence(
         elif rust_res.get("status") == "Unknown":
             mapped_equiv = "unknown"
             
+        rust_wmc_numerical_verdict = None
+        if (
+            wmc_policy == "conservative"
+            and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent")
+            and (method == "wmc_only" or rust_res.get("wmc_solver_time_sec") is not None)
+        ):
+            # The Rust status is a solver-derived numeric classification, not
+            # a certified enclosure. Preserve it as an observation only.
+            rust_wmc_numerical_verdict = mapped_equiv
+            mapped_equiv = "unknown"
+
         return EquivalenceCheckResult(
             qubit_num=rust_res.get("qubits", 0),
             gate_num=rust_res.get("gates1", 0),
@@ -289,6 +309,8 @@ def check_equivalence(
             CNF=None,
             expect=None,
             log_wmc=None,
+            wmc_policy=wmc_policy,
+            wmc_numerical_verdict=rust_wmc_numerical_verdict,
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -314,6 +336,7 @@ def check_equivalence(
             method=method,
             strategy=strategy,
             equivalent="not_equivalent",
+            wmc_policy=wmc_policy,
             verification_time=0.0,
             pathsum_time=0.0,
             final_pathsum="N/A",
@@ -364,6 +387,7 @@ def check_equivalence(
         CNF = (None,)
         log_wmc = None
         expect = None
+        wmc_numerical_verdict = None
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
@@ -439,6 +463,12 @@ def check_equivalence(
                     magnitude_tolerance=config.WMC_MAGNITUDE_TOLERANCE,
                     phase_tolerance=config.WMC_PHASE_TOLERANCE,
                 )
+                if wmc_policy == "conservative":
+                    # The external count does not carry a rigorous error bound.
+                    # Retain the unmodified heuristic output for diagnostics,
+                    # but do not assert either mathematical verdict from it.
+                    wmc_numerical_verdict = equivalent
+                    equivalent = "unknown"
                 wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or
@@ -496,6 +526,8 @@ def check_equivalence(
         CNF=CNF,
         expect=expect,
         log_wmc=log_wmc,
+        wmc_policy=wmc_policy,
+        wmc_numerical_verdict=wmc_numerical_verdict,
     )
     return Result
 
@@ -546,6 +578,9 @@ class EquivalenceCheckResult:
     CNF: Optional[str] = None
     expect: Optional[float] = None
     log_wmc: Optional[float] = None
+    # Legacy numeric verdict remains observable even when policy is conservative.
+    wmc_numerical_verdict: Optional[str] = None
+    wmc_policy: str = "legacy"
 
     @staticmethod
     def _fmt(val: float | str | None) -> str:

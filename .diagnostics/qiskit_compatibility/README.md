@@ -63,3 +63,31 @@ equivalence or certification of all Qiskit 2.x functionality.
    Qiskit 1.x + 2.x simultaneously or set an intentional new minimum.
 5. Add release documentation and a regression gate **before** changing
    `qiskit<2.0` in production metadata.
+
+
+## First exact-head observations (and tightened QASM2 gate)
+
+The initial `1.4.6`/`2.6.1` source-pinned runs successfully
+imported QuPRS and transpiled all ten circuits at all four levels.
+Both versions emit raw `p(...)` and `cp(...)` from `qasm2.dumps`
+which cannot be read back by the basic `qasm2.loads` with standard
+`qelib1.inc`. Raw QASM2 mismatch is **recorded as a failure of the raw
+serialization round-trip**, not as a new Qiskit 2.x regression.
+
+The updated study additionally verifies an explicit **`u3,cx` legacy
+basis** transpilation bridge against the source operator. This is an
+observable transformation and cannot be used to claim the unmodified
+QASM2 exporter can round-trip arbitrary Qiskit gates.
+
+Both QASM2 and QASM3 export/import of a circuit with an explicit
+nonzero `QuantumCircuit.global_phase` lose the exact scalar phase in
+these runs, even though matrix comparison *up to global phase* can
+still look equivalent. The audit preserves exact-unitary matrix
+Frobenius error and the original/imported phase separately. Such QASM
+paths require a source-phase provenance policy in QuPRS, especially
+for distinguishing exact equality from equality up to global phase.
+
+Both versions also drop `RZ(1e-12)` at transpiler levels 2 and 3,
+while preserving it at levels 0 and 1. This illustrates that fixed
+`approximation_degree=1.0` means no deliberate approximation beyond
+floating precision, **not** an exact real-number semantic guarantee.

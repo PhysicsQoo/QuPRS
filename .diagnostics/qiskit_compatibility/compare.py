@@ -49,7 +49,7 @@ def main():
     for name in sorted(by_version[0]):
         x,y=by_version[0][name],by_version[1][name]
         diff_qasm[name]={}
-        for fmt in ("qasm2","qasm3"):
+        for fmt in ("qasm2","qasm2_legacy_basis_bridge","qasm3"):
             diff_qasm[name][fmt]={
                 "1x_status":x[fmt]["status"],
                 "2x_status":y[fmt]["status"],
@@ -57,6 +57,16 @@ def main():
                 "2x_global_phase":y[fmt].get("imported_global_phase_float"),
                 "1x_registers_preserved":x[fmt].get("qreg_partition_preserved"),
                 "2x_registers_preserved":y[fmt].get("qreg_partition_preserved"),
+                "1x_explicit_global_phase_preserved":x[fmt].get("explicit_global_phase_preserved"),
+                "2x_explicit_global_phase_preserved":y[fmt].get("explicit_global_phase_preserved"),
+                "1x_raw_matrix_difference_float":x[fmt].get("matrix_frobenius_difference_float"),
+                "2x_raw_matrix_difference_float":y[fmt].get("matrix_frobenius_difference_float"),
+                "1x_source_to_serialized_matrix_difference_float":(
+                    x[fmt].get("composite_source_to_qasm2") or {}
+                ).get("matrix_frobenius_difference_float"),
+                "2x_source_to_serialized_matrix_difference_float":(
+                    y[fmt].get("composite_source_to_qasm2") or {}
+                ).get("matrix_frobenius_difference_float"),
             }
     o=args.output.resolve()
     o.mkdir(parents=True,exist_ok=True)

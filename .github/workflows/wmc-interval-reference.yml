@@ -1,0 +1,76 @@
+name: Opt-in Small Weighted-CNF Interval Reference
+
+# Source-scoped research reference; not a required native solver correctness gate.
+on:
+  push:
+    branches:
+      - research/wmc-interval-reference-20261023
+    paths:
+      - '.diagnostics/wmc_interval_reference/**'
+      - '.github/workflows/wmc-interval-reference.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  small-interval-wmc-reference:
+    name: Exact rational interval and small CNF reference
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test reporter
+        run: python -m pip install 'pytest>=8,<10'
+
+      - name: Validate arithmetic and independent controls
+        shell: bash
+        run: |
+          mkdir -p interval-wmc-reference-results
+          python -m pytest -q -ra .diagnostics/wmc_interval_reference/test_interval_wmc.py \
+            --junitxml=interval-wmc-reference-results/reference-junit.xml \
+            2>&1 | tee interval-wmc-reference-results/test-output.txt
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Generate exact-rational reference results
+        run: |
+          python .diagnostics/wmc_interval_reference/run_reference.py \
+            --output interval-wmc-reference-results
+          (cd interval-wmc-reference-results && sha256sum -c reference-results.sha256)
+
+      - name: Seal reproducible source and reference evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p interval-wmc-reference-results
+          git rev-parse HEAD > interval-wmc-reference-results/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > interval-wmc-reference-results/source-tree.txt
+          python --version > interval-wmc-reference-results/python-version.txt 2>&1
+          uname -a > interval-wmc-reference-results/kernel.txt
+          sha256sum .diagnostics/wmc_interval_reference/*.py \
+            .github/workflows/wmc-interval-reference.yml \
+            > interval-wmc-reference-results/source-files-sha256.txt
+          (
+            cd interval-wmc-reference-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve source-tagged interval reference
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-wmc-interval-reference
+          path: interval-wmc-reference-results/
+          retention-days: 30
+          if-no-files-found: error

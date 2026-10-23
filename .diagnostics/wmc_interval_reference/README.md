@@ -100,3 +100,54 @@ python -u .diagnostics/wmc_interval_reference/run_encoded_bridge.py \
 The extended opt-in Actions workflow runs this native comparison separately
 from the original dependency-free reference. Neither modifies the existing
 strict WMC scientific RED nor a maintained release/correctness baseline.
+
+
+## Rust-generated CNF and represented-coefficient intervals
+
+The additional opt-in Rust job runs a standalone crate example
+`rust/pathsum/examples/interval_cnf_reference.rs`. It creates an ordinary
+Rust WMC-only miter using the public strategy and WmcManager API, calls the
+actual `encode_trace` and `to_dimacs_string` for both GPMC and Ganak,
+and saves emitted CNF bytes and source QASM alongside variable-specific
+Rust PhasePolynomial coefficient provenance. This is neither a mock
+encoder nor a production change.
+
+A separate rational reference certifies
+`exp(2*pi*i*a/b)` for the **represented** Rust phase fraction `a/b`:
+Machin's pi identity uses rational alternating arctangent bounds,
+Taylor polynomials have explicit Lagrange remainders, and derivatives
+bound the uncertainty from pi. Each emitted `f64` decimal is considered
+an exact printed rational point. A componentwise hull of this point
+and the ideal represented-coefficient reference conservatively encloses
+both, and the resulting finite CNF is counted by the independently
+bounded enumerator. This provides a rigorous *represented-coefficient
+versus emitted-weight* discrepancy envelope, conditioned on the phase
+mapping, not a full verification proof.
+
+Crucial exclusions:
+
+- The Rust QASM angle parser uses approximation/continued fractions
+  before reaching PhasePolynomial. The original source-radian value
+  is not certified equal to the represented fraction.
+- There is no certified interval encompassing the GPMC/Ganak internal
+  floating-point weighted count. Their stdout is captured and compared
+  observationally only.
+- Rust and Python generate different CNF encodings. Equal DIMACS bytes
+  or literal variable identities are **not** required for semantic parity.
+- If the reference produces `upper < 1`, it certifies inequivalence
+  only within its stated represented-coefficient model; it must not be
+  advertised as certification of the original QASM circuit.
+- The maintained near-identity native verdict remains a real scientific
+  RED until a separately reviewed strict-positive policy exists.
+
+The research branch workflow stores the exact Rust CNFs, source QASM,
+phase coefficient metadata, independent interval results, raw native
+solver outputs, SHA256 evidence and test output under
+`rust-wmc-phase-results`. It is not a default required CI or release gate.
+
+```sh
+python -m pytest -q .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py
+python .diagnostics/wmc_interval_reference/run_rust_bridge.py \
+  --output rust-wmc-phase-results
+```
+

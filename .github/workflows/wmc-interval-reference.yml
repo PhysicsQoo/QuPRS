@@ -159,3 +159,79 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  rust-native-generated-weighted-cnf:
+    name: Rust-generated CNF and represented rational-phase reference
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Check out exact source and solver dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install exact native source
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+      - name: Validate rational-pi phase reference and importer
+        shell: bash
+        run: |
+          mkdir -p rust-wmc-phase-results
+          python -m pytest -q -ra \
+            .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            --junitxml=rust-wmc-phase-results/controls-junit.xml \
+            2>&1 | tee rust-wmc-phase-results/controls-output.txt
+      - name: Export Rust CNFs and compare rational phase coefficients
+        shell: bash
+        run: |
+          python -u .diagnostics/wmc_interval_reference/run_rust_bridge.py \
+            --output rust-wmc-phase-results \
+            2>&1 | tee rust-wmc-phase-results/bridge-output.txt
+      - name: Seal Rust CNF evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p rust-wmc-phase-results
+          git rev-parse HEAD > rust-wmc-phase-results/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > rust-wmc-phase-results/source-tree.txt
+          python --version > rust-wmc-phase-results/python-version.txt 2>&1
+          uname -a > rust-wmc-phase-results/kernel.txt
+          sha256sum \
+            rust/pathsum/examples/interval_cnf_reference.rs \
+            .diagnostics/wmc_interval_reference/phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/run_rust_bridge.py \
+            .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            .github/workflows/wmc-interval-reference.yml \
+            > rust-wmc-phase-results/source-files-sha256.txt
+          (
+            cd rust-wmc-phase-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve Rust-generated CNFs and phase provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-generated-cnf-phase-reference
+          path: rust-wmc-phase-results/
+          retention-days: 30
+          if-no-files-found: error
+

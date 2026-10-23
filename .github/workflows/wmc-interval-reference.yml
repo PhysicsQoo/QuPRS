@@ -74,3 +74,88 @@ jobs:
           path: interval-wmc-reference-results/
           retention-days: 30
           if-no-files-found: error
+
+  generated-dimacs-native-bridge:
+    name: QuPRS Python emitted CNF and independent reference comparison
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Check out exact bridge source and native solver dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install exact native Python/Rust source and solvers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+
+      - name: Validate emitted-weight parser and pathsum normalization
+        shell: bash
+        run: |
+          mkdir -p wmc-encoded-bridge-results
+          python -m pytest -q -ra \
+            .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            --junitxml=wmc-encoded-bridge-results/parser-junit.xml \
+            2>&1 | tee wmc-encoded-bridge-results/parser-output.txt
+          test "\${PIPESTATUS[0]}" -eq 0
+
+      - name: Compare real emitted CNFs with independent bounded reference and native solvers
+        shell: bash
+        run: |
+          python -u .diagnostics/wmc_interval_reference/run_encoded_bridge.py \
+            --output wmc-encoded-bridge-results \
+            2>&1 | tee wmc-encoded-bridge-results/bridge-output.txt
+          test "\${PIPESTATUS[0]}" -eq 0
+
+      - name: Seal source-tagged generated-CNF evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p wmc-encoded-bridge-results
+          git rev-parse HEAD > wmc-encoded-bridge-results/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > wmc-encoded-bridge-results/source-tree.txt
+          python --version > wmc-encoded-bridge-results/python-version.txt 2>&1
+          python -m pip freeze > wmc-encoded-bridge-results/python-packages.txt
+          uname -a > wmc-encoded-bridge-results/kernel.txt
+          sha256sum \
+            .diagnostics/wmc_interval_reference/import_dimacs.py \
+            .diagnostics/wmc_interval_reference/run_encoded_bridge.py \
+            .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            .github/workflows/wmc-interval-reference.yml \
+            > wmc-encoded-bridge-results/source-files-sha256.txt
+          (
+            cd wmc-encoded-bridge-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve generated CNFs, JUnit and raw solver records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-cnf-interval-comparison
+          path: wmc-encoded-bridge-results/
+          retention-days: 30
+          if-no-files-found: error
+

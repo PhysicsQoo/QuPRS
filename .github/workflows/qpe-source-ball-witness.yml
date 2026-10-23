@@ -1,0 +1,43 @@
+name: QPEexact8 Exact Source Complex-Ball Witness
+
+on:
+  pull_request:
+    paths:
+      - '.diagnostics/exact_angle_native/qpe_ball_witness.py'
+      - '.github/workflows/qpe-source-ball-witness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qpe-projective-interval-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install research-only pinned interval implementation
+        run: python -m pip install 'python-flint==0.9.0'
+      - name: Check source-exact projective non-equivalence by complex balls
+        run: python -u .diagnostics/exact_angle_native/qpe_ball_witness.py
+      - name: Archive source and proof artifacts even on inconclusive result
+        if: always()
+        run: |
+          mkdir -p exact-source-witness-results
+          git rev-parse HEAD > exact-source-witness-results/head.txt
+          sha256sum .diagnostics/exact_angle_native/qpe_ball_witness.py > exact-source-witness-results/script-sha256.txt
+          python -m pip freeze > exact-source-witness-results/pip-freeze.txt
+          find exact-source-witness-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > exact-source-witness-results/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qpe-source-exact-interval-witness
+          path: exact-source-witness-results/
+          if-no-files-found: error
+          retention-days: 30

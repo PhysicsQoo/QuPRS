@@ -1,0 +1,116 @@
+name: Exact Source-Angle Native Regression and Reference Model
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exact-angle-native-regression.yml'
+      - '.diagnostics/exact_angle_native/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reference-angle-green:
+    name: Exact angle expression reference model (GREEN)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run reference-only algebraic controls
+        run: |
+          python -m pip install 'pytest>=8,<10'
+          python -m pytest -q \
+            .diagnostics/exact_angle_native/test_reference_angle_expr.py \
+            --junitxml=reference-angle-results/junit.xml
+      - name: Seal source and reference test evidence
+        if: always()
+        run: |
+          mkdir -p reference-angle-results
+          git rev-parse HEAD > reference-angle-results/source-sha.txt
+          sha256sum .diagnostics/exact_angle_native/test_reference_angle_expr.py > reference-angle-results/reference-source-sha256.txt
+          find reference-angle-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > reference-angle-results/SHA256SUMS
+      - name: Archive reference evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-angle-reference-green
+          path: reference-angle-results/
+          retention-days: 30
+          if-no-files-found: error
+
+  native-semantic-red:
+    name: Native Reduction/Hybrid strict semantic RED gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build pinned native Rust FFI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: First verify actual inequivalent and symbolic-equality controls are GREEN
+        run: |
+          python -m pytest -q \
+            .diagnostics/exact_angle_native/test_native_red.py::test_native_control_semantics_remain_green \
+            --junitxml=exact-angle-native-results/control-junit.xml
+      - name: Enforce no WMC near-unity strict equivalence false positives
+        run: |
+          python -m pytest -q \
+            .diagnostics/exact_angle_native/test_native_red.py::test_native_wmc_near_unity_is_not_exact_proof \
+            .diagnostics/exact_angle_native/test_native_red.py::test_native_qpe_hybrid_does_not_manufacture_equivalence \
+            --junitxml=exact-angle-native-results/wmc-strict-safety-junit.xml
+      - name: Validate native Graphstate16 strict source negative against Arb witness
+        run: |
+          python -m pytest -q \
+            .diagnostics/exact_angle_native/test_native_red.py::test_graphstate_source_exact_negative \
+            --junitxml=exact-angle-native-results/graphstate-junit.xml
+      - name: Enforce source-exact 1Q positives and source-certified QPE negative RED
+        run: |
+          python -m pytest -q \
+            .diagnostics/exact_angle_native/test_native_red.py::test_native_source_exact_contract_red \
+            --junitxml=exact-angle-native-results/red-junit.xml
+      - name: Preserve source-pinned RED artifacts even when semantic check fails
+        if: always()
+        run: |
+          mkdir -p exact-angle-native-results
+          git rev-parse HEAD > exact-angle-native-results/source-sha.txt
+          python -m pip freeze > exact-angle-native-results/python-packages.txt
+          sha256sum .diagnostics/exact_angle_native/test_native_red.py > exact-angle-native-results/native-test-source-sha256.txt
+          sha256sum benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm \
+            'benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm' \
+            > exact-angle-native-results/qpe-input-sha256.txt
+          find exact-angle-native-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > exact-angle-native-results/SHA256SUMS
+      - name: Upload strict RED original test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-angle-native-semantic-red
+          path: exact-angle-native-results/
+          retention-days: 30
+          if-no-files-found: error

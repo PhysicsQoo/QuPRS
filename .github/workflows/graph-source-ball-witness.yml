@@ -1,0 +1,44 @@
+name: Graphstate16 Exact Source Complex-Ball Witness
+
+on:
+  pull_request:
+    paths:
+      - '.diagnostics/exact_angle_native/graph_ball_witness.py'
+      - '.diagnostics/exact_angle_native/qpe_ball_witness.py'
+      - '.github/workflows/graph-source-ball-witness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  graph-projective-interval-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned research-only interval arithmetic
+        run: python -m pip install 'python-flint==0.9.0'
+      - name: Check 16Q source-exact non-equivalence with Arb balls
+        run: python -u .diagnostics/exact_angle_native/graph_ball_witness.py
+      - name: Preserve scientific evidence even when inconclusive
+        if: always()
+        run: |
+          mkdir -p exact-source-witness-results
+          git rev-parse HEAD > exact-source-witness-results/head.txt
+          sha256sum .diagnostics/exact_angle_native/{qpe_ball_witness,graph_ball_witness}.py > exact-source-witness-results/script-sha256.txt
+          python -m pip freeze > exact-source-witness-results/pip-freeze.txt
+          find exact-source-witness-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > exact-source-witness-results/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: graphstate-source-exact-interval-witness
+          path: exact-source-witness-results/
+          if-no-files-found: error
+          retention-days: 30

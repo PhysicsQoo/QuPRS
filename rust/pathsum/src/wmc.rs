@@ -91,7 +91,14 @@ impl WmcManager {
     fn encode_phase_polynomial(&mut self, ps: &PathSum) {
         for (mono, coeff) in &ps.p.terms {
             let phase_val = (coeff.constant.numer as f64) / (coeff.constant.denom as f64);
-            let angle = phase_val * 2.0 * PI;
+            // exp(2*pi*i*(a + b/pi)) = exp(i*(2*pi*a + 2*b)).
+            // Exact rational radians are preserved throughout symbolic
+            // transformations; conversion here is *only* for the floating
+            // solver adapter, never an equivalence certificate.
+            let radian_component = coeff.radians.as_ref()
+                .map(|value| value.to_f64().unwrap_or(f64::NAN))
+                .unwrap_or(0.0);
+            let angle = phase_val * 2.0 * PI + 2.0 * radian_component;
             let weight = Complex::new(angle.cos(), angle.sin());
 
             let z_i = self.next_var_id;

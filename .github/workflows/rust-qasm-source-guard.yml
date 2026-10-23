@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test -p pathsum qasm::tests --lib --release -- --nocapture \
+          cargo test --manifest-path rust/Cargo.toml -p pathsum qasm::tests --lib --release -- --nocapture \
             2>&1 | tee evidence/rust-qasm-tests.log
       - name: Test public Python→Rust gate/parse behavior
         shell: bash

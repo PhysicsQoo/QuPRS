@@ -14,6 +14,9 @@ from QuPRS.pathsum.statistics import StatisticsManager
 from QuPRS.utils.verification_timeout import VerificationTimeout
 from QuPRS.utils.solver_process import SolverTimeout
 from QuPRS.utils.util import set_safe_memory_limit
+from QuPRS.utils.wmc_certificates import (
+    make_source_witness_certificate, verify_source_witness_certificate,
+)
 
 
 def timeout_handler(signum, frame):
@@ -184,6 +187,7 @@ def check_equivalence(
             "'reduction_rules', or 'wmc_only'."
         )
 
+    source_certificate = None
     if backend == "rust":
         request_started = time.monotonic()
         request_deadline = request_started + timeout
@@ -269,6 +273,15 @@ def check_equivalence(
             mapped_equiv = "unknown"
         elif rust_res.get("status") == "Unknown":
             mapped_equiv = "unknown"
+        # A proof from original *Qiskit source inputs* remains independent
+        # of Rust's current rational/pi approximation and WMC solver output.
+        # Keep Timeout/MemoryOut and any existing non-Unknown verdict intact.
+        if method in ("wmc_only", "hybrid") and mapped_equiv == "unknown" and rust_res.get("wmc_solver_time_sec") is not None:
+            candidate_certificate = make_source_witness_certificate(circuit1, circuit2)
+            if (candidate_certificate is not None and
+                    verify_source_witness_certificate(circuit1, circuit2, candidate_certificate)):
+                source_certificate = candidate_certificate
+                mapped_equiv = candidate_certificate["status"]
             
         return EquivalenceCheckResult(
             qubit_num=rust_res.get("qubits", 0),
@@ -289,6 +302,7 @@ def check_equivalence(
             CNF=None,
             expect=None,
             log_wmc=None,
+            source_certificate=source_certificate,
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -439,6 +453,22 @@ def check_equivalence(
                     magnitude_tolerance=config.WMC_MAGNITUDE_TOLERANCE,
                     phase_tolerance=config.WMC_PHASE_TOLERANCE,
                 )
+                # A floating WMC result carries no proof. Sufficient exact
+                # structural evidence for *discrete* gates may still decide
+                # the strict status without consulting the numerical count.
+                from QuPRS.utils.wmc_certificates import certify_discrete_pathsum
+                certified = certify_discrete_pathsum(
+                    qiskit_circuit1, qiskit_circuit2,
+                    pathsum_circuit, initial_state,
+                )
+                if certified is not None:
+                    equivalent = certified
+                if equivalent == "unknown":
+                    candidate_certificate = make_source_witness_certificate(circuit1, circuit2)
+                    if (candidate_certificate is not None and
+                            verify_source_witness_certificate(circuit1, circuit2, candidate_certificate)):
+                        source_certificate = candidate_certificate
+                        equivalent = candidate_certificate["status"]
                 wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or
@@ -496,6 +526,7 @@ def check_equivalence(
         CNF=CNF,
         expect=expect,
         log_wmc=log_wmc,
+        source_certificate=source_certificate,
     )
     return Result
 
@@ -546,6 +577,7 @@ class EquivalenceCheckResult:
     CNF: Optional[str] = None
     expect: Optional[float] = None
     log_wmc: Optional[float] = None
+    source_certificate: Optional[dict] = None
 
     @staticmethod
     def _fmt(val: float | str | None) -> str:

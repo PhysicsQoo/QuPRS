@@ -5,7 +5,9 @@ Two explicitly separate kinds of evidence:
 * Controlled external GPMC stdout to isolate the Python/Rust FLOATING COUNT
   classification boundary. A substituted WMC count is NOT a physics oracle.
 
-Only native-scalar normalization is fixed; solver policies, reduction rules,\nand numerical tolerances are unchanged.
+The WMC classifier is now fail-closed without a verifiable certificate.
+The float magnitude/phase acceptance bands remain historical diagnostics,
+not strict-equivalence decisions.
 """
 from contextlib import contextmanager
 import os
@@ -17,6 +19,7 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Operator
 
 from QuPRS import check_equivalence, config
+from QuPRS.utils.wmc_certificates import verify_source_witness_certificate
 from QuPRS.utils.util import algebraic_to_logical
 
 
@@ -72,7 +75,9 @@ def test_real_solver_magnitude_policy_is_not_physical_equivalence(
         identity, target, backend=backend, tool_name=solver,
         method="wmc_only", timeout=60,
     )
-    assert result.equivalent == expected, (
+    # A previously decisive numerical policy must not certify equality or
+    # inequality of a true unitary without an end-to-end error enclosure.
+    assert result.equivalent == "unknown", (
         f"solver={solver}, backend={backend}, angle={angle}, "
         f"|Tr|/2={float(normalized_trace):.12g}, "
         f"expected_policy={expected}, actual={result.equivalent}"
@@ -179,10 +184,16 @@ def test_controlled_solver_count_agrees_across_python_and_rust(
         identity, hh, backend=backend, tool_name="gpmc",
         method="wmc_only", timeout=15,
     )
-    assert result.equivalent == expected, (
+    # The injected count cannot be a proof. A separate *exact* Q(zeta_8)
+    # source-replay certificate DOES establish H^2 = I, independent of the
+    # fake count (including its deliberately inconsistent imaginary part).
+    assert result.equivalent == "equivalent", (
         f"backend={backend}, count={complex_number}, kind={kind}, "
         f"factor={factor}, expected_policy={expected}, "
         f"actual={result.equivalent}"
     )
+    assert result.source_certificate is not None
+    assert result.source_certificate["kind"] == "cyclotomic-operator-full"
+    assert verify_source_witness_certificate(identity, hh, result.source_certificate)
     assert result.tool_name == "gpmc"
     assert result.tool_time is not None

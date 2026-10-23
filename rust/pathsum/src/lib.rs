@@ -84,6 +84,8 @@ pub fn check_equivalence(
     timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
     let global_start = Instant::now();
+    // A previous call on this thread must never taint an independent proof.
+    rational::reset_exact_phase_status();
     let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
         return Err(anyhow::anyhow!("timeout must be a positive number of seconds"));
@@ -150,7 +152,13 @@ pub fn check_equivalence(
     let mut tool_time = None;
     let mut wmc_time = None;
 
-    if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
+    // Once any phase exceeds the exact i64 representation, reduction and
+    // generated CNF cannot serve as evidence. Do not run a solver on a
+    // potentially rounded polynomial. Return explicit inconclusive status.
+    if status != EquivalenceStatus::Timeout
+        && !rational::exact_phase_was_lost()
+        && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown))
+    {
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
         
@@ -195,21 +203,75 @@ pub fn check_equivalence(
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
         let norm = final_amplitude.norm();
-        if (norm - 1.0).abs() < 1e-6 {
-            let theta = final_amplitude.im.atan2(final_amplitude.re);
-            info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-            if theta.abs() < 1e-6 {
-                status = EquivalenceStatus::Equivalent;
+        let theta = final_amplitude.im.atan2(final_amplitude.re);
+        debug!(
+            "Uncertified WMC trace result (diagnostic only): normalized norm={:.16e}, phase={:.16e} rad; no verified count enclosure",
+            norm, theta
+        );
+        // Numerical closeness, including an exactly rounded 1.0, cannot
+        // certify equality. A difference without a rigorous true-trace
+        // bound cannot certify inequality either. Ganak/GPMC currently
+        // expose no end-to-end certificate, so WMC is fail-closed.
+        // Symbolically proven reduction verdicts above remain authoritative.
+        status = EquivalenceStatus::Unknown;
+
+        // Independent *structural* certificate for exact discrete gates.
+        // No numerical WMC result is used to establish either verdict.
+        // With no internal path variables the Boolean ANF is a deterministic
+        // truth function. Different output ANFs prove inequivalence; an
+        // identical output with an input-independent phase proves equivalence
+        // up to that exactly represented phase. Parameterized gate angles
+        // are deliberately excluded until the exact source-angle migration.
+        let exact_discrete = gates1.iter().chain(gates2.iter()).all(|op| matches!(
+            op,
+            QuantumOp::H(_) | QuantumOp::X(_) | QuantumOp::Y(_) |
+            QuantumOp::Z(_) | QuantumOp::S(_) | QuantumOp::SDG(_) |
+            QuantumOp::T(_) | QuantumOp::TDG(_) |
+            QuantumOp::SX(_) | QuantumOp::SXDG(_) |
+            QuantumOp::CX(_, _) |
+            QuantumOp::CZ(_, _) | QuantumOp::SWAP(_, _) |
+            QuantumOp::CCX(_, _, _)
+        ));
+        let no_internal_paths = ps_miter.v.path_vars.iter()
+            .all(|&id| (id as usize) < num_qubits);
+        if exact_discrete && no_internal_paths {
+            if ps_miter.is_identity_up_to_phase() {
+                if let Some(phase) = ps_miter.get_global_phase() {
+                    status = if phase.is_zero() {
+                        EquivalenceStatus::Equivalent
+                    } else {
+                        EquivalenceStatus::EquivalentUpToGlobalPhase
+                    };
+                }
             } else {
-                status = EquivalenceStatus::EquivalentUpToGlobalPhase;
+                // Boolean ANF for the identity is exactly the singleton
+                // variable x_i on every output. No internal paths means a
+                // differing ANF is a valid computational-basis witness.
+                let differing_boolean_output = ps_miter.f.functions.iter()
+                    .enumerate().any(|(i, poly)| {
+                        poly.len() != 1 || !poly.contains(&vec![i as u32])
+                    });
+                if differing_boolean_output {
+                    status = EquivalenceStatus::NotEquivalent;
+                } else if ps_miter.p.terms.keys().any(|mono| !mono.is_empty()) {
+                    // On a deterministic identity Boolean mapping, a
+                    // nonconstant reduced multilinear phase polynomial over
+                    // exact discrete coefficients witnesses a relative
+                    // basis phase. The monomial basis is independent over
+                    // Boolean inputs (Möbius inversion), modulo a constant.
+                    status = EquivalenceStatus::NotEquivalent;
+                }
             }
-        } else {
-            debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
-            status = EquivalenceStatus::NotEquivalent;
         }
         }
     }
 
+    if rational::exact_phase_was_lost() && status != EquivalenceStatus::Timeout {
+        log::warn!(
+            "Exact phase outgrew the legacy i64 coefficient domain; refusing any equivalence certificate"
+        );
+        status = EquivalenceStatus::Unknown;
+    }
     let total_time = global_start.elapsed().as_secs_f64();
 
     Ok(EquivalenceCheckResult {

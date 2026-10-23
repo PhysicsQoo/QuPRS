@@ -117,6 +117,38 @@ def load_circuit(circuit: str) -> QuantumCircuit:
         return circuit
 
 
+def _validate_rust_qasm_global_phase_contract(circuit1, circuit2) -> None:
+    """Reject relative scalar phases that the QASM2 Rust bridge cannot carry.
+
+    Equal explicitly specified input phases cancel in the comparison and
+    therefore may be omitted by the transport without changing either exact
+    equality or equality up to global phase. Unequal scalar phases cannot
+    safely be discarded when the public API distinguishes the two.
+    """
+
+    def phase_of(circuit) -> float:
+        if not isinstance(circuit, QuantumCircuit):
+            return 0.0
+        try:
+            phase = float(circuit.global_phase)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "Rust backend requires a bound numeric QuantumCircuit.global_phase"
+            ) from exc
+        if not np.isfinite(phase):
+            raise ValueError(
+                "Rust backend requires a finite QuantumCircuit.global_phase"
+            )
+        return phase
+
+    if phase_of(circuit1) != phase_of(circuit2):
+        raise ValueError(
+            "Rust QASM2 transport cannot preserve unequal "
+            "QuantumCircuit.global_phase values. The exact-vs-global-phase "
+            "equivalence classification would be unreliable."
+        )
+
+
 # =============================================================================
 # check_equivalence: Unified Quantum Circuit Equivalence Checking Interface
 # =============================================================================
@@ -185,6 +217,7 @@ def check_equivalence(
         )
 
     if backend == "rust":
+        _validate_rust_qasm_global_phase_contract(circuit1, circuit2)
         request_started = time.monotonic()
         request_deadline = request_started + timeout
         from QuPRS import _pathsum_rust

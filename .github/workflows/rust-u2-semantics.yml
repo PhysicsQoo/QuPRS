@@ -96,6 +96,22 @@ jobs:
             test/test_rust_p_phase_semantics.py \
             --junitxml=evidence/qasm-python-rust-junit.xml \
             2>&1 | tee evidence/public-rust-qasm-tests.log
+      - name: Recheck existing native QASM and P/U1 source semantic controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_rust_qasm_fail_closed.py \
+            test/test_rust_p_phase_semantics.py \
+            --junitxml=evidence/native-gate-regression-junit.xml \
+            2>&1 | tee evidence/native-gate-regression.log
+      - name: Recheck original register partition regression through real Rust FFI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra test/test_issue21_register_partitions.py \
+            -k rust --junitxml=evidence/register-partition-junit.xml \
+            2>&1 | tee evidence/register-partition-regression.log
       - name: Seal source and result evidence
         if: always()
         shell: bash

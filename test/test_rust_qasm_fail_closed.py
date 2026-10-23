@@ -41,7 +41,7 @@ def _gate(name):
 
 @pytest.mark.parametrize("qasm,expected", [
     ('OPENQASM 3.0;\nqubit[1] q;\nx q[0];', "Unsupported QASM header"),
-    ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nsx q[0];', "Unsupported QASM gate"),
+    ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncsx q[0],q[1];', "Unsupported QASM gate"),
     ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nrz(0.1,0.2) q[0];', "Invalid QASM arity"),
     ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nx q[5];', "out of bounds"),
 ])

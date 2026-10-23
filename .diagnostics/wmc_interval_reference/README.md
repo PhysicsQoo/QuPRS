@@ -200,3 +200,69 @@ python -m pytest -q \
   .diagnostics/wmc_interval_reference/test_qasm_rz_source_reference.py
 ```
 
+
+## Python source-decimal diagonal-family certificate (bounded)
+
+The new separate research job compares **exact literal source QASM**
+against the **real Python Path-sum's CNF** for a tightly constrained
+one-qubit diagonal gate family. The source grammar accepts 1 to 4
+sequential gates drawn from: decimal-radian `rz(δ)`, `p(δ)`, plus
+`z`, `s`, `sdg`, `t`, `tdg`. It rejects arbitrary QASM, other
+gates, source expressions, multi-registers and angles with absolute
+magnitude above 0.5 radian. This is *not* a general OpenQASM verifier.
+
+The source phase is independently derived from diagonal gate matrices:
+an RZ(δ) contributes a constant phase exp(-iδ/2) and an input-bit phase
+exp(+iδ); P(δ) contributes exp(+iδ) to the bit phase; Z/S/T and their
+inverses contribute exact rational multiples of pi to that bit phase.
+Original literal decimal radians are kept as exact Fractions. Each
+complex phase gets a conservatively enclosed rational Taylor + Machin
+pi reference, rounded *outward* to 50 decimal places.
+
+The actual Python gate mapping and `to_DIMACS` are called without
+overriding them. The source phase monomials must be exactly constant
+and/or input-bit terms; the corresponding positive weighted literals
+are found using the existing `P_to_wlogi` ordering. The independently
+parsed CNF then undergoes exhaustive **Boolean truth-table auditing**:
+for each input bit value there must be exactly one satisfying extension,
+and every weighted literal must be true precisely when the source
+monomial activates. An unexpected gate, polynomial term, output map,
+path variable, auxiliary multiplicity, weighted literal, or CNF larger
+than twelve variables fails closed.
+
+The reference enumerates this **actual finite weighted CNF** twice:
+with mathematically derived source weights, and with a conservative
+componentwise hull of those source weights and the exact emitted
+decimal weights. Only when the latter's rigorously enclosed
+normalized trace magnitude has upper bound **strictly below one** is
+a *limited source/printed-CNF non-equivalence certificate* produced.
+If one is exactly equivalent, a tiny angle is lost, or the result
+cannot be enclosed, the tool reports **INCONCLUSIVE**. It never infers
+equivalence just from a near-one numerical result.
+
+This is a scoped source/weighted-CNF certificate conditioned on the
+**fixed and audited Python diagonal-gate semantics and compiler path**.
+It is not a formal proof for general gate mapping, general CNF encoders
+or native floating solver arithmetic. Real GPMC/Ganak outputs, binary
+digests and stdout are captured as *observations only*; they are not
+silently promoted to mathematical bounds. The work does not change
+the production API, ordinary Hybrid/Reduction execution, existing
+Draft scientific REDs, or the default WMC acceptance tolerance.
+
+Evidence and tests live in:
+
+- `python_diagonal_source_certificate.py` — standalone formal restricted model;
+- `test_python_diagonal_source_certificate.py` — negative/fail-closed controls;
+- `run_python_source_certificate.py` — exact source, actual Python CNFs,
+  true GPMC/Ganak crosschecks, case-by-case JSON;
+- `python-source-certificate-results/` — QASM, raw CNFs, tests, solver
+  outputs, source hashes and verified SHA256 manifest, uploaded by
+  the opt-in workflow.
+
+```sh
+python -m pytest -q \
+  .diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py
+python .diagnostics/wmc_interval_reference/run_python_source_certificate.py \
+  --output python-source-certificate-results
+```
+

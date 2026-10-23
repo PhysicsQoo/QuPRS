@@ -313,8 +313,8 @@ impl QuantumGates for PathSum {
     }
     /// U2 Gate: X-Y plane rotation defined as U2(phi, lam) = U3(pi/2, phi, lam)
     fn apply_u2(&mut self, qubit: usize, phi: Angle, lam: Angle, side: Side) {
-        // theta = pi/2 (即 1/4 cycle)
-        let pi_over_2 = Angle::QUARTER;
+        // Angle stores theta/pi: the U2 theta=pi/2 constant is HALF.
+        let pi_over_2 = Angle::HALF;
         self.apply_u(qubit, pi_over_2, phi, lam, side);
     }
     /// U3(theta, phi, lam)

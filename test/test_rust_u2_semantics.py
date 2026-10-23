@@ -40,11 +40,14 @@ def test_public_u2_matches_u3_pi_half(phi, lam):
 def test_qiskit_u2_definition_is_pi_half_rotation(phi, lam):
     reference=QuantumCircuit(1)
     reference.u(math.pi/2,phi,lam,0)
-    explicit=QuantumCircuit(1)
-    explicit.u(math.pi/2,phi,lam,0)
-    # Numeric matrix merely checks our test fixture's intended definition.
+    # Independently evaluate Qiskit's documented U(theta,phi,lam)
+    # matrix definition at theta=pi/2, not two copies of the same API.
+    expected=np.array([
+        [1, -np.exp(1j*lam)],
+        [np.exp(1j*phi), np.exp(1j*(phi+lam))],
+    ],dtype=complex)/math.sqrt(2)
     np.testing.assert_allclose(
-        Operator(reference).data, Operator(explicit).data,
+        Operator(reference).data, expected,
         atol=2e-14, rtol=0
     )
 

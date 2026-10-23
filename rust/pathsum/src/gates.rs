@@ -410,6 +410,156 @@ mod tests {
         ps
     }
 
+    // An independent amplitude oracle: enumerate ALL fresh path variables
+    // in the unreduced one-qubit PathSum. In contrast to API verdict tests,
+    // this does not call Reduction, WMC, or compare two copies of apply_u.
+    // The complex exponential is used only as a numerical crosscheck for
+    // small rational-pi gate matrices, never as a strict source certificate.
+    fn unreduced_one_qubit_operator(
+        ps: &PathSum,
+    ) -> [[num_complex::Complex64; 2]; 2] {
+        use num_complex::Complex64;
+        use std::f64::consts::PI;
+        assert_eq!(ps.v.num_qubits, 1);
+        assert_eq!(ps.f.functions.len(), 1);
+        let mut fresh: Vec<u32> = ps.v.path_vars.iter()
+            .copied().filter(|&v| v >= 1).collect();
+        fresh.sort_unstable();
+        assert!(fresh.len() <= 5, "Bound exhaustive oracle size");
+        let mut matrix = [[Complex64::new(0.0, 0.0); 2]; 2];
+        let normalization = ((1u32 << fresh.len()) as f64).sqrt();
+        for input in 0..2u32 {
+            for mask in 0..(1u32 << fresh.len()) {
+                let mut assignment = input;
+                for (j, &id) in fresh.iter().enumerate() {
+                    assert!(id < 32);
+                    if (mask & (1u32 << j)) != 0 {
+                        assignment |= 1u32 << id;
+                    }
+                }
+                let is_true = |mono: &Vec<u32>| -> bool {
+                    mono.iter().all(|&id| (assignment & (1u32 << id)) != 0)
+                };
+                let output = ps.f.functions[0].iter()
+                    .fold(false, |acc, mono| acc ^ is_true(mono));
+                let mut cycle = 0.0;
+                for (mono, coeff) in &ps.p.terms {
+                    assert!(coeff.symbols.is_empty(),
+                            "Only exact rational-pi gates supported");
+                    if is_true(mono) {
+                        cycle += coeff.constant.numer as f64
+                            / coeff.constant.denom as f64;
+                    }
+                }
+                let value = Complex64::from_polar(1.0, 2.0 * PI * cycle)
+                    / normalization;
+                matrix[output as usize][input as usize] += value;
+            }
+        }
+        matrix
+    }
+
+    fn assert_matrix_matches(
+        actual: [[num_complex::Complex64; 2]; 2],
+        expected: [[num_complex::Complex64; 2]; 2],
+        context: &str,
+    ) {
+        for row in 0..2 {
+            for col in 0..2 {
+                assert!(
+                    (actual[row][col] - expected[row][col]).norm() < 1e-11,
+                    "{context}: matrix[{row}][{col}] was {:?}, expected {:?}",
+                    actual[row][col], expected[row][col]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_one_qubit_raw_pathsum_against_independent_unitary_matrices() {
+        use num_complex::Complex64 as C;
+        use std::f64::consts::PI;
+        let i = C::new(0.0, 1.0);
+        let e = |angle: f64| C::from_polar(1.0, angle);
+
+        for (theta, phi, lambda, t, p, l) in [
+            (Angle::ZERO, Angle::ZERO, Angle::ZERO, 0.0, 0.0, 0.0),
+            (Angle::HALF, Angle::QUARTER, Angle::THREE_QUARTERS,
+             PI / 2.0, PI / 4.0, 3.0 * PI / 4.0),
+            (Angle::QUARTER, Angle::HALF, Angle::QUARTER,
+             PI / 4.0, PI / 2.0, PI / 4.0),
+            (Angle::HALF, Angle::ZERO, Angle::ZERO,
+             PI / 2.0, 0.0, 0.0),
+        ] {
+            let c = (t / 2.0).cos();
+            let s = (t / 2.0).sin();
+            // Independently specified Qiskit U(theta,phi,lambda) matrix;
+            // NOT derived from Rust apply_u() or from a solver verdict.
+            let target = [
+                [C::new(c, 0.0), -e(l) * s],
+                [e(p) * s, e(p + l) * c],
+            ];
+            for side in [Side::Ket, Side::Bra] {
+                let mut ps = setup_test_env(1);
+                ps.apply_u3(0, theta.clone(), phi.clone(), lambda.clone(), side);
+                let got = unreduced_one_qubit_operator(&ps);
+                let reference = if matches!(side, Side::Bra) {
+                    [
+                        [target[0][0].conj(), target[1][0].conj()],
+                        [target[0][1].conj(), target[1][1].conj()],
+                    ]
+                } else {
+                    target
+                };
+                assert_matrix_matches(got, reference, "U3 analytic unitary");
+
+                let mut same = setup_test_env(1);
+                same.apply_u(0, theta.clone(), phi.clone(), lambda.clone(), side);
+                assert_eq!(same.p.terms, ps.p.terms, "U and U3 phase mismatch");
+                assert_eq!(same.f.functions, ps.f.functions, "U and U3 output mismatch");
+                assert_eq!(same.v.path_vars, ps.v.path_vars, "U and U3 path variables differ");
+            }
+        }
+
+        for (theta, radians) in [
+            (Angle::ZERO, 0.0),
+            (Angle::HALF, PI / 2.0),
+            (Angle::QUARTER, PI / 4.0),
+            (Angle::new_constant(crate::rational::FreeRational::new(-1, 4)),
+             -PI / 4.0),
+        ] {
+            let c = (radians / 2.0).cos();
+            let s = (radians / 2.0).sin();
+            let rx = [[C::new(c,0.0), -i*s], [-i*s, C::new(c,0.0)]];
+            let ry = [[C::new(c,0.0), C::new(-s,0.0)],
+                      [C::new(s,0.0), C::new(c,0.0)]];
+            let rz = [[e(-radians/2.0), C::new(0.0,0.0)],
+                      [C::new(0.0,0.0), e(radians/2.0)]];
+            for (name, expected) in [("rx", rx), ("ry", ry), ("rz", rz)] {
+                for side in [Side::Ket, Side::Bra] {
+                    let mut ps = setup_test_env(1);
+                    match name {
+                        "rx" => ps.apply_rx(0,theta.clone(),side),
+                        "ry" => ps.apply_ry(0,theta.clone(),side),
+                        "rz" => ps.apply_rz(0,theta.clone(),side),
+                        _ => unreachable!(),
+                    }
+                    let target = if matches!(side,Side::Bra) {
+                        [
+                            [expected[0][0].conj(),expected[1][0].conj()],
+                            [expected[0][1].conj(),expected[1][1].conj()],
+                        ]
+                    } else {
+                        expected
+                    };
+                    assert_matrix_matches(
+                        unreduced_one_qubit_operator(&ps), target, name
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_apply_x_and_z() {
         let mut ps = setup_test_env(1);

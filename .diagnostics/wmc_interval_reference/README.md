@@ -206,14 +206,15 @@ python -m pytest -q \
 The new separate research job compares **exact literal source QASM**
 against the **real Python Path-sum's CNF** for a tightly constrained
 one-qubit diagonal gate family. The source grammar accepts 1 to 4
-sequential gates drawn from: decimal-radian `rz(δ)`, `p(δ)`, plus
+sequential gates drawn from: decimal-radian `rz(δ)`, `u1(δ)` (QASM2 alias for Qiskit P), plus
 `z`, `s`, `sdg`, `t`, `tdg`. It rejects arbitrary QASM, other
 gates, source expressions, multi-registers and angles with absolute
 magnitude above 0.5 radian. This is *not* a general OpenQASM verifier.
 
 The source phase is independently derived from diagonal gate matrices:
 an RZ(δ) contributes a constant phase exp(-iδ/2) and an input-bit phase
-exp(+iδ); P(δ) contributes exp(+iδ) to the bit phase; Z/S/T and their
+exp(+iδ); QASM2 U1(δ) (same unitary as P(δ)) contributes exp(+iδ)
+to the bit phase; Z/S/T and their
 inverses contribute exact rational multiples of pi to that bit phase.
 Original literal decimal radians are kept as exact Fractions. Each
 complex phase gets a conservatively enclosed rational Taylor + Machin

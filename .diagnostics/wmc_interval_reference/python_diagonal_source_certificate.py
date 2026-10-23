@@ -20,7 +20,7 @@ from import_dimacs import normalized_for_pathsum
 
 _BEGIN = ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n')
 _DECIMAL = r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)'
-_GATE = re.compile(r'(rz|p)\(('+_DECIMAL+r')\) q\[0\];|'
+_GATE = re.compile(r'(rz|u1)\(('+_DECIMAL+r')\) q\[0\];|'
                    r'(z|s|sdg|t|tdg) q\[0\];')
 _MAX_GATES = 4
 _MAX_VARIABLES = 12
@@ -64,7 +64,7 @@ def source_phase_terms(operations):
         if kind == "rz":
             constant_rad -= angle / 2
             bit_rad += angle
-        elif kind == "p":
+        elif kind == "u1":
             bit_rad += angle
         elif kind == "z":
             bit_pi += 1

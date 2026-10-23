@@ -16,9 +16,9 @@ def fixture(*lines):
 
 class PythonSourceCertificateTests(unittest.TestCase):
     def test_exact_decimal_source_preserved(self):
-        gates=parse_diagonal_qasm(fixture("rz(0.001)","p(0.0004)","t"))
+        gates=parse_diagonal_qasm(fixture("rz(0.001)","u1(0.0004)","t"))
         self.assertEqual(gates[0],("rz",F(1,1000)))
-        self.assertEqual(gates[1],("p",F(1,2500)))
+        self.assertEqual(gates[1],("u1",F(1,2500)))
         self.assertEqual(source_phase_terms(gates)["constant"],(F(-1,2000),F(0)))
         self.assertEqual(source_phase_terms(gates)["bit"],(F(7,5000),F(1,4)))
 
@@ -49,6 +49,7 @@ class PythonSourceCertificateTests(unittest.TestCase):
             "rz(0.001) q[0];",
             fixture("rz(pi/4)"),
             fixture("rz(1e-12)"),
+            fixture("p(0.001)"),
             fixture("rz(0.001)")+"x q[0];\n",
             fixture("h"),
             fixture("rz(0.001)")+"// add this\n",

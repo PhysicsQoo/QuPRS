@@ -69,6 +69,14 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
         }
 
         let (gate_name, params) = parse_gate_name_and_params(full_gate_part)?;
+        // Identify unsupported operations *before* parsing their operands:
+        // measure/reset/conditional syntax is not unitary target syntax.
+        if !matches!(gate_name.as_str(),
+            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "id"
+            | "cx" | "cz" | "swap" | "ccx" | "rx" | "ry" | "rz"
+            | "p" | "u1" | "u2" | "u3" | "u" | "barrier") {
+            return Err(format!("Unsupported QASM gate '{}' at line {}", gate_name, line_num + 1));
+        }
         let qubits = parse_targets(targets_part, &register_map, &register_sizes)
             .map_err(|e| format!("Line {}: {}", line_num + 1, e))?;
         // Reject malformed parameter/arity combinations instead of silently

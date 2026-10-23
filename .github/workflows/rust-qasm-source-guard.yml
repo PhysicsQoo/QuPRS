@@ -1,0 +1,112 @@
+name: Opt-in Rust QASM Strict Source Guard
+
+on:
+  push:
+    branches:
+      - fix/rust-qasm-fail-closed-20261023
+    paths:
+      - 'rust/pathsum/src/qasm.rs'
+      - 'test/test_rust_qasm_fail_closed.py'
+      - '.github/workflows/rust-qasm-source-guard.yml'
+      - 'docs/development/rust-qasm-source-safety.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qasm-guard:
+    name: Native parser and Qiskit ${{ matrix.qiskit }} source semantics
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ["1.4.6", "2.6.1"]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      QISKIT_VERSION: "${{ matrix.qiskit }}"
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native requirements and pinned QuPRS
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pip install --no-deps "qiskit==$QISKIT_VERSION"
+          python -m pip install "qiskit-qasm3-import==0.6.0"
+          python - <<'PY'
+          import importlib.metadata
+          import os
+          assert importlib.metadata.version("qiskit")==os.environ["QISKIT_VERSION"]
+          PY
+      - name: Capture environment and metadata compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/tree-sha.txt
+          python -m pip freeze > evidence/pip-freeze.txt
+          python --version > evidence/python-version.txt 2>&1
+          rustc --version > evidence/rustc-version.txt 2>&1
+          set +e
+          python -m pip check > evidence/pip-check.txt 2>&1
+          echo $? > evidence/pip-check-status.txt
+          set -e
+          if [ "$QISKIT_VERSION" = "1.4.6" ]; then
+            test "$(cat evidence/pip-check-status.txt)" -eq 0
+          fi
+      - name: Run genuine Rust parse fail-closed unit regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p pathsum qasm::tests --lib --release -- --nocapture \
+            2>&1 | tee evidence/rust-qasm-tests.log
+      - name: Test public Python→Rust gate/parse behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_rust_qasm_fail_closed.py \
+            --junitxml=evidence/qasm-python-rust-junit.xml \
+            2>&1 | tee evidence/public-rust-qasm-tests.log
+      - name: Seal source and result evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          sha256sum \
+            rust/pathsum/src/qasm.rs \
+            test/test_rust_qasm_fail_closed.py \
+            .github/workflows/rust-qasm-source-guard.yml \
+            docs/development/rust-qasm-source-safety.md > evidence/source-sha256.txt
+          (
+            cd evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve source-validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-qasm-source-guard-${{ matrix.qiskit }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error

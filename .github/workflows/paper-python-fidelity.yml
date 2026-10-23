@@ -1,0 +1,126 @@
+name: Opt-in TACAS Artifact Python Fidelity
+
+on:
+  push:
+    branches:
+      - research/paper-python-v091-parity-20261023
+    paths:
+      - '.diagnostics/paper_python_parity/**'
+      - '.github/workflows/paper-python-fidelity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-paper-artifact-comparison:
+    name: v0.9.1 and dev Python / same host and Qiskit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Check out research source and current Python
+        uses: actions/checkout@v4
+        with:
+          path: working
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out immutable TACAS artifact source
+        uses: actions/checkout@v4
+        with:
+          ref: e928abc47dd15926364ec77905eb0d5dc92ce8cc
+          path: historical
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install shared scientific dependencies and native build support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+          python -m pip install "numpy<2" "qiskit==1.4.2" \
+            "qiskit-qasm3-import>=0.5.1" sympy symengine psutil "maturin>=1.5,<2"
+          python -m pip install --no-deps -e ./working
+      - name: Record source, environment and executable provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence-artifact evidence-dev evidence-compare policy-results
+          git -C historical rev-parse HEAD > policy-results/paper-head.txt
+          git -C working rev-parse HEAD > policy-results/research-head.txt
+          git -C working rev-parse '059aa076670401b733f6a573201f83611107b924^{tree}' > policy-results/dev-source-tree.txt
+          python --version > policy-results/python-version.txt 2>&1
+          python -m pip freeze > policy-results/python-packages.txt
+          file historical/src/QuPRS/utils/gpmc.so > policy-results/historical-gpmc-type.txt
+          ldd historical/src/QuPRS/utils/gpmc.so > policy-results/historical-gpmc-dependencies.txt || true
+          uname -a > policy-results/kernel.txt
+      - name: Audit both actual source-level WMC numerical policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python working/.diagnostics/paper_python_parity/policy_source.py \
+            --paper historical --dev working --output policy-results
+      - name: Run original artifact Python on pinned circuit corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u working/.diagnostics/paper_python_parity/collect.py \
+            --version artifact --source historical --paper-root historical \
+            --output evidence-artifact \
+            2>&1 | tee evidence-artifact/suite-output.txt
+      - name: Run current dev Python on identical pinned circuit corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u working/.diagnostics/paper_python_parity/collect.py \
+            --version dev --source working --paper-root historical \
+            --output evidence-dev \
+            2>&1 | tee evidence-dev/suite-output.txt
+      - name: Compare real evidence, not merely overall verdicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python working/.diagnostics/paper_python_parity/compare.py \
+            --paper evidence-artifact/summary.json \
+            --dev evidence-dev/summary.json \
+            --output evidence-compare
+      - name: Seal all raw source-tagged evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence-artifact evidence-dev evidence-compare policy-results
+          for folder in evidence-artifact evidence-dev evidence-compare policy-results; do
+            git -C historical rev-parse HEAD > "$folder/paper-source-head.txt"
+            git -C working rev-parse HEAD > "$folder/research-head.txt"
+            sha256sum \
+              working/.diagnostics/paper_python_parity/*.py \
+              working/.github/workflows/paper-python-fidelity.yml \
+              > "$folder/evidence-tools-sha256.txt"
+            (
+              cd "$folder"
+              find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+                xargs -0 -r sha256sum > SHA256SUMS
+              sha256sum -c SHA256SUMS
+            )
+          done
+      - name: Preserve actual source policy and both runtime observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas-v091-vs-dev-python-fidelity
+          path: |
+            policy-results/
+            evidence-artifact/
+            evidence-dev/
+            evidence-compare/
+          if-no-files-found: error
+          retention-days: 30

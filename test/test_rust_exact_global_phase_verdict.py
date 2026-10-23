@@ -22,14 +22,15 @@ def verify(lhs, rhs):
 
 
 @pytest.mark.parametrize("denominator", [1000, 10_000_000])
-def test_rz_versus_p_tiny_exact_global_phase_not_exact_equality(denominator):
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rz_versus_p_tiny_exact_global_phase_not_exact_equality(denominator, reverse):
     # Exact source spelling is a rational pi multiplier, not a decimal
     # approximation of pi. The induced scalar is exp(-i*pi/(2*denom)).
     qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     left = qasm + f'rz(pi/{denominator}) q[0];'
     right = qasm + f'p(pi/{denominator}) q[0];'
-    result = verify(left, right)
-    assert result.equivalent == "equivalent*"
+    result = verify(right, left) if reverse else verify(left, right)
+    assert result.equivalent == "equivalent*", (denominator, reverse, result.equivalent)
     assert result.tool_time is None
 
 

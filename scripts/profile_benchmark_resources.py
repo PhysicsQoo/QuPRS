@@ -15,6 +15,7 @@ Use these observations only alongside CI runner, source, and solver identity.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -35,6 +36,7 @@ _CASE_NAMES = {
     "qaoa7": ("mqt", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
     "qft16": ("mqt", "qft_nativegates_ibm_qiskit_opt0_16.qasm"),
     "vqe4": ("mqt", "vqe_nativegates_ibm_qiskit_opt0_4.qasm"),
+    "graphstate16": ("mqt", "graphstate_nativegates_ibm_qiskit_opt0_16.qasm"),
     "tof3": ("feynman", "tof_3.qasm"),
 }
 
@@ -96,9 +98,9 @@ def run_limited(command: list[str], *, deadline: float, rss_cap: int,
     if deadline <= 0 or rss_cap <= 0 or sample_seconds <= 0:
         raise ValueError("Resource limits and sample interval must be positive")
     with tempfile.TemporaryFile(mode="w+t") as stdout, tempfile.TemporaryFile(mode="w+t") as stderr:
+        begin = time.monotonic()
         process = subprocess.Popen(command, cwd=ROOT, stdout=stdout, stderr=stderr,
                                    start_new_session=os.name == "posix")
-        begin = time.monotonic()
         max_rss = 0
         reason = None
         try:
@@ -129,19 +131,21 @@ def run_limited(command: list[str], *, deadline: float, rss_cap: int,
         )
 
 
-def worker(name: str, solver_timeout: int) -> int:
+def worker(name: str, solver_timeout: int, tool_name: str = "gpmc",
+           backend: str = "python") -> int:
     from QuPRS import check_equivalence
 
     case = resolve_case(name)
-    kwargs = dict(method=case["method"], backend="python",
+    kwargs = dict(method=case["method"], backend=backend,
                   strategy=case["strategy"], timeout=solver_timeout)
     if case["method"] != "reduction_rules":
-        kwargs["tool_name"] = "gpmc"
+        kwargs["tool_name"] = tool_name
     result = check_equivalence(case["source"], case["transpiled"], **kwargs)
     status = str(result.equivalent)
     print("BENCH_RESOURCE_RESULT=" + json.dumps({
         "status": status, "accepted_positive": status in {"equivalent", "equivalent*"},
         "solver_time": getattr(result, "tool_time", None),
+        "tool_name": tool_name, "backend": backend,
     }, default=str), flush=True)
     return 0 if status in {"equivalent", "equivalent*"} else 2
 
@@ -149,6 +153,8 @@ def worker(name: str, solver_timeout: int) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", choices=tuple(_CASE_NAMES), required=True)
+    parser.add_argument("--tool-name", choices=("gpmc", "ganak"), default="gpmc")
+    parser.add_argument("--backend", choices=("python", "rust"), default="python")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--walltime-seconds", type=int, default=90)
     parser.add_argument("--solver-timeout-seconds", type=int, default=45)
@@ -163,12 +169,14 @@ def main(argv=None) -> int:
     if args.memory_limit_mib < 64 or args.sample_interval_ms < 10:
         parser.error("Memory limit >=64 MiB and interval >=10 ms required")
     if args.worker:
-        return worker(args.case, args.solver_timeout_seconds)
+        return worker(args.case, args.solver_timeout_seconds,
+                      args.tool_name, args.backend)
     case = resolve_case(args.case)
     command = [sys.executable, str(Path(__file__).resolve()),
                "--case", args.case, "--output", str(args.output),
                "--walltime-seconds", str(args.walltime_seconds),
                "--solver-timeout-seconds", str(args.solver_timeout_seconds),
+               "--tool-name", args.tool_name, "--backend", args.backend,
                "--memory-limit-mib", str(args.memory_limit_mib),
                "--sample-interval-ms", str(args.sample_interval_ms), "--worker"]
     result = run_limited(command, deadline=args.walltime_seconds,
@@ -184,6 +192,9 @@ def main(argv=None) -> int:
     result["stderr_tail"] = result["stderr_tail"][:600]
     result.update({
         "case": case, "source_revision": os.getenv("GITHUB_SHA"),
+        "input_sha256": {name: hashlib.sha256(Path(case[name]).read_bytes()).hexdigest()
+                         for name in ("source", "transpiled")},
+        "tool_name": args.tool_name, "backend": args.backend,
         "hostname_platform": platform.platform(), "python": platform.python_version(),
         "runner_os": os.getenv("RUNNER_OS"), "runner_arch": os.getenv("RUNNER_ARCH"),
         "runner_image": os.getenv("ImageOS"),

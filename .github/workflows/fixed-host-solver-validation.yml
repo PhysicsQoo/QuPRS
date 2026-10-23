@@ -1,0 +1,199 @@
+name: Opt-in Native Solver Lifecycle and Fixed-host Evidence
+
+on:
+  push:
+    branches:
+      - research/fixed-host-resources-20261022
+    paths:
+      - '.github/workflows/fixed-host-solver-validation.yml'
+      - 'scripts/validate_native_solver_actions.py'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Hosted lifecycle or dedicated fixed-host trials'
+        type: choice
+        required: true
+        default: hosted
+        options:
+          - hosted
+          - fixed-host
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-solver-research-validation
+  cancel-in-progress: false
+
+jobs:
+  native-lifecycle:
+    if: github.event_name == 'push' || inputs.mode == 'hosted'
+    name: Hosted / Native Solver Lifecycle (non-performance)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Checkout exact source with native solver submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust toolchain build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: native-solver-lifecycle
+
+      - name: Install native dependencies and strace
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev strace
+
+      - name: Build and validate exact-source package
+        run: |
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+
+      - name: Verify actual GPMC and Ganak invocation and forced cleanup
+        run: |
+          python -u scripts/validate_native_solver_actions.py \
+            --output-dir native-lifecycle-evidence
+
+      - name: Audit native solver calls for QAOA7 and QFT16
+        run: |
+          python -u scripts/validate_native_solver_actions.py \
+            --positive-only --case qaoa7 \
+            --output-dir native-lifecycle-evidence/qaoa7
+          python -u scripts/validate_native_solver_actions.py \
+            --positive-only --case qft16 \
+            --output-dir native-lifecycle-evidence/qft16
+
+      - name: Seal diagnostic provenance
+        if: always()
+        run: |
+          mkdir -p native-lifecycle-evidence
+          git rev-parse HEAD > native-lifecycle-evidence/checked-out-sha.txt
+          git rev-parse 'HEAD^{tree}' > native-lifecycle-evidence/checked-out-tree.txt
+          uname -a > native-lifecycle-evidence/kernel.txt
+          lscpu > native-lifecycle-evidence/cpu.txt
+          python --version > native-lifecycle-evidence/python.txt 2>&1
+          rustc --version > native-lifecycle-evidence/rust.txt 2>&1
+          (
+            cd native-lifecycle-evidence
+            find . -type f ! -name SHA256SUMS -print0 |
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve positive and negative diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-solver-lifecycle-hosted
+          path: native-lifecycle-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  dedicated-fixed-host:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'fixed-host'
+    name: Dedicated / Repeated Solver Walltime and Sampled RSS
+    runs-on: [self-hosted, Linux, X64, quprs-research]
+    timeout-minutes: 160
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Checkout exact source with solvers
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require provisioned fixed Linux toolchain
+        run: |
+          test -r /proc/cpuinfo
+          command -v python3.12
+          command -v rustc
+          command -v cargo
+          command -v cmake
+          command -v gcc
+          command -v pkg-config
+          pkg-config --exists gmp
+          pkg-config --exists mpfr
+          mkdir -p fixed-host-evidence
+          cat /etc/os-release > fixed-host-evidence/os-release.txt
+          lscpu > fixed-host-evidence/cpu.txt
+          uname -a > fixed-host-evidence/kernel.txt
+          rustc --version > fixed-host-evidence/rustc.txt
+          cargo --version > fixed-host-evidence/cargo.txt
+          gcc --version > fixed-host-evidence/gcc.txt
+          git rev-parse HEAD > fixed-host-evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > fixed-host-evidence/source-tree.txt
+
+      - name: Build exact source in isolated Python environment
+        run: |
+          python3.12 -m venv .fixed-host-env
+          . .fixed-host-env/bin/activate
+          python -m pip install 'maturin>=1.5,<2'
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+          python -m pip freeze > fixed-host-evidence/python-packages.txt
+
+      - name: Check forced native solver termination independently
+        run: |
+          . .fixed-host-env/bin/activate
+          python -u scripts/validate_native_solver_actions.py \
+            --forced-only --output-dir fixed-host-evidence/native-cleanup
+
+      - name: Collect separate GPMC/Ganak and Python/Rust observations
+        run: |
+          . .fixed-host-env/bin/activate
+          python -u scripts/fixed_host_resource_repeats.py \
+            --host-id quprs-research-fixed-host \
+            --case grover4 --case qaoa7 --case qft16 \
+            --solver gpmc --solver ganak \
+            --backend python --backend rust \
+            --warmups 1 --repeats 4 \
+            --walltime 90 --solver-timeout 45 \
+            --rss-limit-mib 3072 --sample-ms 50 \
+            --output-dir fixed-host-evidence/trials
+
+      - name: Seal raw fixed-host evidence
+        if: always()
+        run: |
+          mkdir -p fixed-host-evidence
+          (
+            cd fixed-host-evidence
+            find . -type f ! -name SHA256SUMS -print0 |
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve fixed-host raw observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-solver-fixed-host-raw
+          path: fixed-host-evidence/
+          retention-days: 90
+          if-no-files-found: error

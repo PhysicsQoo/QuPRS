@@ -18,7 +18,11 @@ inequivalent, or merely unknown.
 
 Additional gates already represented by Rust `QuantumOp` and the gate
 implementation are mapped explicitly: `p`, `u1`, `u2`, `u3`,
-`u` and `swap`. Identity `id` and barrier are treated as
+`u` and `swap`. `sx` and `sxdg` are expanded with **exact**
+Clifford identities `SX = H S H` and `SXdg = H Sdg H`, retaining
+their global phases without approximate rotation synthesis. This also
+preserves the previously present register-partition fixture that uses SX.
+Identity `id` and barrier are treated as
 unitary no-ops with validated operands; **measurement and reset are not
 unitary operations** and must be rejected.
 

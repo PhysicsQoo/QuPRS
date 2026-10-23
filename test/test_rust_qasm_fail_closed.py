@@ -17,7 +17,7 @@ def verify(a, b, **kwargs):
 
 
 @pytest.mark.parametrize("unsupported", [
-    lambda: _gate("sx"),
+    lambda: _gate("csx"),
     lambda: _gate("cp"),
     lambda: _gate("measure"),
 ])
@@ -28,8 +28,8 @@ def test_quantumcircuit_unsupported_gate_must_fail_closed(unsupported):
 
 def _gate(name):
     c = QuantumCircuit(2, 1)
-    if name == "sx":
-        c.sx(0)
+    if name == "csx":
+        c.csx(0, 1)
     elif name == "cp":
         c.cp(0.125, 0, 1)
     elif name == "measure":
@@ -53,16 +53,18 @@ def test_direct_unsupported_qasm_rejected_before_solver(qasm, expected):
 @pytest.mark.parametrize("name,apply", [
     ("p", lambda q: q.p(0.125, 0)),
     ("swap", lambda q: q.swap(0, 1)),
+    ("sx", lambda q: q.sx(0)),
+    ("sxdg", lambda q: q.sxdg(0)),
 ])
 def test_supported_qiskit_gates_are_not_silently_erased(name, apply):
     blank = QuantumCircuit(2)
     altered = QuantumCircuit(2)
     apply(altered)
     result = verify(blank, altered)
-    assert result.gate_num2 == 1, (name, result)
+    assert result.gate_num2 == (3 if name in ("sx", "sxdg") else 1), (name, result)
     # Reduction may return unknown, but must not mistake a nonidentity gate
     # for exact equivalence by silently skipping its source instruction.
-    assert result.equivalent in ("unknown", "not_equivalent", "equivalent*")
+    assert result.equivalent in ("unknown", "not_equivalent")
 
 
 @pytest.mark.parametrize("gate", ["p(0.125)", "u1(0.125)", "u2(0.1,0.2)", "u3(0.1,0.2,0.3)", "u(0.1,0.2,0.3)"])
@@ -71,7 +73,24 @@ def test_ir_phase_gates_are_explicitly_parsed_from_qasm2(gate):
     no_op = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     result = verify(no_op, source)
     assert result.gate_num2 == 1
-    assert result.equivalent in ("unknown", "not_equivalent", "equivalent*")
+    assert result.equivalent in ("unknown", "not_equivalent")
+
+
+@pytest.mark.parametrize("gate,phase", [("sx", "s"), ("sxdg", "sdg")])
+def test_sx_is_identical_to_exact_h_phase_h_sequence(gate, phase):
+    from qiskit.quantum_info import Operator
+    import numpy as np
+
+    left = QuantumCircuit(1)
+    getattr(left, gate)(0)
+    right = QuantumCircuit(1)
+    right.h(0)
+    getattr(right, phase)(0)
+    right.h(0)
+    assert np.allclose(Operator(left).data, Operator(right).data, atol=1e-14, rtol=0)
+    result = verify(left, right)
+    assert result.equivalent == "equivalent"
+    assert result.tool_time is None
 
 
 def test_existing_clifford_bell_control_is_preserved():

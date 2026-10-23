@@ -72,7 +72,7 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
         // Identify unsupported operations *before* parsing their operands:
         // measure/reset/conditional syntax is not unitary target syntax.
         if !matches!(gate_name.as_str(),
-            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "id"
+            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "sx" | "sxdg" | "id"
             | "cx" | "cz" | "swap" | "ccx" | "rx" | "ry" | "rz"
             | "p" | "u1" | "u2" | "u3" | "u" | "barrier") {
             return Err(format!("Unsupported QASM gate '{}' at line {}", gate_name, line_num + 1));
@@ -82,7 +82,7 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
         // Reject malformed parameter/arity combinations instead of silently
         // constructing a different quantum operation or indexing past a Vec.
         let arity = match gate_name.as_str() {
-            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "id" => (1, 0),
+            "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "sx" | "sxdg" | "id" => (1, 0),
             "cx" | "cz" | "swap" => (2, 0),
             "ccx" => (3, 0),
             "rx" | "ry" | "rz" | "p" | "u1" => (1, 1),
@@ -102,6 +102,15 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             return Err(format!("Duplicate qubit operand at line {}", line_num + 1));
         }
         if gate_name == "barrier" || gate_name == "id" { continue; }
+        if gate_name == "sx" || gate_name == "sxdg" {
+            // Qiskit SX = H S H and SXdg = H SDG H exactly, including
+            // scalar phase. Do not lower with floating rotation synthesis.
+            let q = qubits[0];
+            ops.push(QuantumOp::H(q));
+            ops.push(if gate_name == "sx" { QuantumOp::S(q) } else { QuantumOp::SDG(q) });
+            ops.push(QuantumOp::H(q));
+            continue;
+        }
 
         let op = match gate_name.as_str() {
             "h" => QuantumOp::H(qubits[0]),
@@ -249,7 +258,7 @@ mod tests {
     #[test]
     fn reject_unsupported_qasm_gates_instead_of_discarding_them() {
         for (qasm, expected) in [
-            ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nsx q[0];", "Unsupported QASM gate 'sx'"),
+            ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncsx q[0],q[1];", "Unsupported QASM gate 'csx'"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncp(0.1) q[0],q[1];", "Unsupported QASM gate 'cp'"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nmeasure q[0] -> c[0];", "Unsupported QASM gate 'measure'"),
             ("OPENQASM 3.0;\nqubit[1] q;\nx q[0];", "Unsupported QASM header"),
@@ -288,6 +297,17 @@ mod tests {
         assert!(matches!(ops[3], QuantumOp::U3(0, _, _, _)));
         assert!(matches!(ops[4], QuantumOp::U(1, _, _, _)));
         assert!(matches!(ops[5], QuantumOp::SWAP(0, 1)));
+    }
+
+    #[test]
+    fn sx_sxdg_exact_clifford_decomposition() {
+        let qasm = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nsx q[0];\nsxdg q[0];";
+        let (ops, n) = parse_qasm_str(qasm).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(ops, vec![
+            QuantumOp::H(0), QuantumOp::S(0), QuantumOp::H(0),
+            QuantumOp::H(0), QuantumOp::SDG(0), QuantumOp::H(0),
+        ]);
     }
 
     #[test]

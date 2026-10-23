@@ -91,3 +91,11 @@ Both versions also drop `RZ(1e-12)` at transpiler levels 2 and 3,
 while preserving it at levels 0 and 1. This illustrates that fixed
 `approximation_degree=1.0` means no deliberate approximation beyond
 floating precision, **not** an exact real-number semantic guarantee.
+
+The legacy `u3/cx` path can preserve the operation **up to global
+phase** while losing a constant Euler-decomposition phase on QASM2
+serialization. For this reason the audit saves both raw exact-unitary
+Frobenius deviation and phase-aligned Frobenius deviation; only the
+latter is accepted as a *floating non-phase* gate-synthesis check.
+A passing phase-aligned check does **not** claim the original exact
+unitary scalar survived, nor is it a rigorous proof of equivalence.

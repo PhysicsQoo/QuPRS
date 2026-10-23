@@ -106,8 +106,19 @@ def matrix_comparison(source, transformed):
     difference = float(np.linalg.norm(left - right, ord="fro"))
     inner = np.trace(left.conj().T @ right)
     unit = complex(inner / left.shape[0])
+    if abs(unit) > 0:
+        # Align right with left by the empirically observed global phase.
+        # This is a float diagnostic, not a mathematically exact certificate.
+        phase = unit / abs(unit)
+        aligned_error = float(np.linalg.norm(left - right / phase, ord="fro"))
+        observed_phase = math.atan2(unit.imag, unit.real)
+    else:
+        aligned_error = None
+        observed_phase = None
     return {
         "matrix_frobenius_difference_float": difference,
+        "up_to_global_phase_matrix_frobenius_float": aligned_error,
+        "observed_global_phase_offset_radians_float": observed_phase,
         "trace_normalized_real_float": unit.real,
         "trace_normalized_imag_float": unit.imag,
         "up_to_global_phase_trace_magnitude_float": abs(unit),
@@ -334,9 +345,9 @@ def main():
             if bridge["status"] != "OK":
                 failures.append("QASM2 normalized bridge failed "+case["name"])
             elif bridge["composite_source_to_qasm2"][
-                "matrix_frobenius_difference_float"
+                "up_to_global_phase_matrix_frobenius_float"
             ] > 1e-8:
-                failures.append("QASM2 normalized source semantic mismatch "+case["name"])
+                failures.append("QASM2 normalized non-phase semantic mismatch "+case["name"])
             for x in case["transpiled"]:
                 if x["status"] == "OK" and x["matrix_frobenius_difference_float"] > 1e-8:
                     failures.append("Coarse circuit semantic deviation "+case["name"]+"/L"+str(x["level"]))

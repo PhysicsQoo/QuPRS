@@ -67,6 +67,18 @@ def main():
                 "2x_source_to_serialized_matrix_difference_float":(
                     y[fmt].get("composite_source_to_qasm2") or {}
                 ).get("matrix_frobenius_difference_float"),
+                "1x_source_to_serialized_up_to_global_phase_error":(
+                    x[fmt].get("composite_source_to_qasm2") or {}
+                ).get("up_to_global_phase_matrix_frobenius_float"),
+                "2x_source_to_serialized_up_to_global_phase_error":(
+                    y[fmt].get("composite_source_to_qasm2") or {}
+                ).get("up_to_global_phase_matrix_frobenius_float"),
+                "1x_observed_phase_offset":(
+                    x[fmt].get("composite_source_to_qasm2") or {}
+                ).get("observed_global_phase_offset_radians_float"),
+                "2x_observed_phase_offset":(
+                    y[fmt].get("composite_source_to_qasm2") or {}
+                ).get("observed_global_phase_offset_radians_float"),
             }
     o=args.output.resolve()
     o.mkdir(parents=True,exist_ok=True)

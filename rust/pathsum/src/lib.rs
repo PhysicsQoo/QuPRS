@@ -117,15 +117,14 @@ pub fn check_equivalence(
     if method != VerificationMethod::WmcOnly {
         if ps_miter.is_identity_up_to_phase() {
             if let Some(phase_coeff) = ps_miter.get_global_phase() {
-                let phase_val = (phase_coeff.constant.numer as f64) / (phase_coeff.constant.denom as f64);
-                let angle = phase_val * std::f64::consts::PI; 
-                let cos_val = angle.cos();
-                let sin_val = angle.sin();
-                if (cos_val - 1.0).abs() < 1e-6 && sin_val.abs() < 1e-6 {
+                // The phase polynomial stores exact cycles modulo 2*pi.
+                // Floating sin/cos tolerances cannot prove that a nonzero
+                // rational or symbolic scalar is *exactly* identity.
+                if phase_coeff.is_zero() {
                     status = EquivalenceStatus::Equivalent;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
-                    log::debug!("Residual Global Phase detected: {} radians", angle);
+                    log::debug!("Residual global phase: {} cycles", phase_coeff);
                 }
             }
         } else {

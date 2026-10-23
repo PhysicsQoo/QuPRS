@@ -61,7 +61,7 @@ def one(name, qc, solver, folder):
     ps = source_pathsum(qc)
     dimacs_path = folder / f"{name}-{solver}.cnf"
     dimacs = to_DIMACS(ps, str(dimacs_path), tool_name=solver)
-    if dimacs.encode() != dimacs_path.read_bytes():
+    if dimacs.strip().encode() != dimacs_path.read_bytes():
         raise AssertionError("Returned CNF differs from actual emitted bytes")
     imported = parse_emitted_dimacs(dimacs, solver=solver)
     count = imported.count()

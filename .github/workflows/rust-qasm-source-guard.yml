@@ -6,7 +6,9 @@ on:
       - fix/rust-qasm-fail-closed-20261023
     paths:
       - 'rust/pathsum/src/qasm.rs'
+      - 'rust/pathsum/src/gates.rs'
       - 'test/test_rust_qasm_fail_closed.py'
+      - 'test/test_rust_p_phase_semantics.py'
       - '.github/workflows/rust-qasm-source-guard.yml'
       - 'docs/development/rust-qasm-source-safety.md'
   workflow_dispatch:
@@ -77,12 +79,21 @@ jobs:
           set -euo pipefail
           cargo test --manifest-path rust/Cargo.toml -p pathsum qasm::tests --lib --release -- --nocapture \
             2>&1 | tee evidence/rust-qasm-tests.log
+      - name: Verify exact native P/U1 phase-normalization gate regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/Cargo.toml -p pathsum gates::tests::test_apply_p --lib --release -- --nocapture \
+            2>&1 | tee evidence/rust-p-phase-tests.log
+          cargo test --manifest-path rust/Cargo.toml -p pathsum gates::tests::test_p_u1_relative_phase_unit_contract --lib --release -- --nocapture \
+            2>&1 | tee evidence/rust-p-u1-tests.log
       - name: Test public Python→Rust gate/parse behavior
         shell: bash
         run: |
           set -euo pipefail
           python -m pytest -q -ra \
             test/test_rust_qasm_fail_closed.py \
+            test/test_rust_p_phase_semantics.py \
             --junitxml=evidence/qasm-python-rust-junit.xml \
             2>&1 | tee evidence/public-rust-qasm-tests.log
       - name: Seal source and result evidence
@@ -93,7 +104,9 @@ jobs:
           mkdir -p evidence
           sha256sum \
             rust/pathsum/src/qasm.rs \
+            rust/pathsum/src/gates.rs \
             test/test_rust_qasm_fail_closed.py \
+            test/test_rust_p_phase_semantics.py \
             .github/workflows/rust-qasm-source-guard.yml \
             docs/development/rust-qasm-source-safety.md > evidence/source-sha256.txt
           (

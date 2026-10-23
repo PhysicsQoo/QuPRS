@@ -67,3 +67,34 @@ refactor. Existing applications which depended on unsupported gates being
 silently erased will now see a clear exception. The change is kept in a
 Draft PR until the affected benchmark/test corpus is audited for legitimate
 unitary cases requiring additional explicit Rust gate support.
+
+
+## Phase normalization correctness (P/U1)
+
+The strict parser makes the already present native P/U1 implementations
+reachable through QASM. An independent CP(theta) follow-up discovered
+a **factor-of-two phase normalization error** in the old Rust gate
+implementation: `Angle` stores theta/pi but `PathSum` polynomial
+coefficients are normalized to 2*pi.
+
+The mathematically required P(theta) input-bit coefficient is
+`Angle(theta)/2`, not the complete `Angle(theta)`. The conjugated
+bra-side gate has the corresponding **negative half** coefficient.
+Native P and U1 now share the corrected `apply_p` calculation;
+`P(pi/2) = S`, `P(pi) = Z`, `U1(pi/2) = S`, including exact
+relative and constant phase. The older native unit test which expected
+`P(pi/4)` to contribute a quarter cycle was itself incorrect;
+its correct expected coefficient is **1/8**.
+
+The source input phase representation issue remains separate:
+`Angle::from_qasm_str` uses `f64` and continued-fraction
+approximation, so fixing the P factor does not certify arbitrary tiny
+decimal-radian source angles. The original published Python-only
+research implementation is not affected by this post-publication
+Rust fix.
+
+This was found by a genuine CP(pi) versus CZ regression: the old P
+implementation could wrongly treat the five-gate CP(pi) expansion as
+Identity. The CP decomposition remains independently staged until both
+native phase normalization and the complete comparison pass.
+

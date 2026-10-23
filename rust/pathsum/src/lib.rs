@@ -231,3 +231,55 @@ pub fn check_equivalence(
 }
 mod ganak_distribution;
 mod solver_process;
+
+#[cfg(test)]
+mod exact_global_phase_verdict_tests {
+    use super::*;
+    use crate::ir::QuantumOp;
+    use crate::rational::{Angle, FreeRational};
+
+    // Rz(theta) = exp(-i*theta/2) P(theta), as complete 2x2 unitaries.
+    // A nonzero rational multiple of pi is exactly nonzero mod 2*pi;
+    // using floating sin/cos acceptance to call it exactly equal is unsound.
+    #[test]
+    fn red_near_nonzero_global_phase_is_not_exact_equality() {
+        for denom in [1000_i64, 10_000_000_i64] {
+            let theta = Angle::new_constant(FreeRational::new(1, denom));
+            let left = vec![QuantumOp::RZ(0, theta.clone())];
+            let right = vec![QuantumOp::P(0, theta)];
+            let r = check_equivalence(
+                1, &left, &right,
+                VerificationMethod::ReductionRules,
+                VerificationStrategy::Naive,
+                "gpmc", 30,
+            ).unwrap();
+            assert!(
+                r.final_ps.is_identity_up_to_phase(),
+                "RZ/P are scalar equivalent for exact rational pi angles: {denom}"
+            );
+            let phase = r.final_ps.get_global_phase().unwrap();
+            assert!(!phase.is_zero(),
+                    "exact nonzero phase must not disappear: {denom}");
+            assert_eq!(
+                r.status, EquivalenceStatus::EquivalentUpToGlobalPhase,
+                "RZ(pi/{denom}) versus P(pi/{denom}) is never exact equality"
+            );
+            assert!(r.tool_time.is_none(), "Reduction solved; do not run WMC");
+        }
+    }
+
+    #[test]
+    fn exact_phase_zero_clifford_controls_preserved() {
+        let theta = Angle::new_constant(FreeRational::new(1, 8));
+        let same = vec![QuantumOp::P(0, theta)];
+        let r = check_equivalence(
+            1, &same, &same,
+            VerificationMethod::ReductionRules,
+            VerificationStrategy::Naive,
+            "gpmc", 30,
+        ).unwrap();
+        assert!(r.final_ps.get_global_phase().unwrap().is_zero());
+        assert_eq!(r.status, EquivalenceStatus::Equivalent);
+        assert!(r.tool_time.is_none());
+    }
+}

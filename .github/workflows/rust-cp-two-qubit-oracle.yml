@@ -1,0 +1,80 @@
+name: Opt-in Rust Two-Qubit Controlled Phase Oracle
+
+on:
+  push:
+    branches:
+      - research/rust-cp-two-qubit-matrix-oracle-20261024
+    paths:
+      - 'rust/pathsum/src/qasm.rs'
+      - '.github/workflows/rust-cp-two-qubit-oracle.yml'
+      - '.diagnostics/rust_cp_matrix_oracle/README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cp-unreduced-two-qubit-oracle:
+    name: Unreduced CP exact-rational source-phase oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Source checkout including native submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install native build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Run real unreduced two-qubit rational-phase oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cp-oracle-evidence
+          cargo test --manifest-path rust/Cargo.toml -p pathsum \
+            qasm::tests::cp_unreduced --lib --release -- --nocapture \
+            2>&1 | tee cp-oracle-evidence/unreduced-oracle.log
+      - name: Run existing native QASM parsing controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/Cargo.toml -p pathsum \
+            qasm::tests --lib --release -- --nocapture \
+            2>&1 | tee cp-oracle-evidence/parser-regressions.log
+      - name: Record checked source and repeatable environment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cp-oracle-evidence
+          git rev-parse HEAD > cp-oracle-evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > cp-oracle-evidence/source-tree.txt
+          rustc --version > cp-oracle-evidence/rustc-version.txt 2>&1
+          cargo --version > cp-oracle-evidence/cargo-version.txt 2>&1
+          uname -a > cp-oracle-evidence/kernel.txt
+          sha256sum \
+            rust/pathsum/src/qasm.rs \
+            rust/pathsum/src/gates.rs \
+            rust/pathsum/src/rational.rs \
+            .github/workflows/rust-cp-two-qubit-oracle.yml \
+            .diagnostics/rust_cp_matrix_oracle/README.md \
+            > cp-oracle-evidence/source-file-sha256.txt
+          (
+            cd cp-oracle-evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Upload native source and verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-cp-unreduced-two-qubit-oracle
+          path: cp-oracle-evidence/
+          retention-days: 30
+          if-no-files-found: error

@@ -6,7 +6,7 @@ from interval_wmc import ComplexInterval, Interval, normalized_magnitude
 from phase_coeff_reference import (
     arctan_reciprocal_interval, ideal_rational_pi_phase, pi_interval,
     taylor_trig_at_rational, union_printed_and_ideal,
-    max_printed_ideal_component_gap,
+    max_printed_ideal_component_gap, outward_decimal_interval,
 )
 
 
@@ -18,6 +18,16 @@ class PhaseCoefficientReferenceTests(unittest.TestCase):
         self.assertGreater(p.lower, F(333, 106))
         self.assertLess(p.upper, F(355, 113))
         self.assertLess(p.upper - p.lower, F(1, 10**100))
+
+    def test_outward_rational_decimal_rounding(self):
+        rounded = outward_decimal_interval(
+            Interval(F(-1, 3), F(1, 3)), digits=20
+        )
+        self.assertLessEqual(rounded.lower, F(-1, 3))
+        self.assertGreaterEqual(rounded.upper, F(1, 3))
+        self.assertGreater(rounded.upper - rounded.lower, F(0))
+        self.assertEqual(outward_decimal_interval(Interval.exact(1)),
+                         Interval.exact(1))
 
     def test_phase_zero(self):
         z = ideal_rational_pi_phase(0, 1)
@@ -37,8 +47,8 @@ class PhaseCoefficientReferenceTests(unittest.TestCase):
                 self.assertGreaterEqual(z.real.upper, re)
                 self.assertLessEqual(z.imag.lower, im)
                 self.assertGreaterEqual(z.imag.upper, im)
-                self.assertLess(z.real.upper - z.real.lower, F(1, 10**60))
-                self.assertLess(z.imag.upper - z.imag.lower, F(1, 10**60))
+                self.assertLess(z.real.upper - z.real.lower, F(1, 10**45))
+                self.assertLess(z.imag.upper - z.imag.lower, F(1, 10**45))
 
     def test_representation_enclosure_hulls(self):
         printed = ComplexInterval.exact(F(1001, 1000), F(1, 2))

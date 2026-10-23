@@ -49,6 +49,21 @@ def taylor_trig_at_rational(x, *, cosine, terms=48):
     return Interval(center - error, center + error)
 
 
+def outward_decimal_interval(interval, digits=50):
+    """Rational outward rounding; contains the original huge exact interval.
+
+    This is a certificate-preserving representation bound, NOT a float
+    conversion, and keeps serialized numerators/denominators small.
+    """
+    if not isinstance(interval, Interval) or not 20 <= digits <= 80:
+        raise ValueError("Unsupported rigorous decimal enclosure")
+    scale = 10 ** digits
+    low = interval.lower.numerator * scale // interval.lower.denominator
+    high_num = interval.upper.numerator * scale
+    high = -(-high_num // interval.upper.denominator)
+    return Interval(Fraction(low, scale), Fraction(high, scale))
+
+
 def ideal_rational_pi_phase(numerator, denominator):
     """Enclose exp(2*pi*i*numerator/denominator) with rational endpoints."""
     if (type(numerator) is not int or type(denominator) is not int
@@ -64,8 +79,8 @@ def ideal_rational_pi_phase(numerator, denominator):
     rc = taylor_trig_at_rational(center, cosine=True)
     rs = taylor_trig_at_rational(center, cosine=False)
     return ComplexInterval(
-        Interval(rc.lower - radius, rc.upper + radius),
-        Interval(rs.lower - radius, rs.upper + radius),
+        outward_decimal_interval(Interval(rc.lower - radius, rc.upper + radius)),
+        outward_decimal_interval(Interval(rs.lower - radius, rs.upper + radius)),
     )
 
 

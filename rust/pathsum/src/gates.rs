@@ -538,6 +538,32 @@ mod tests {
     }
 
     #[test]
+    fn test_u2_matches_u3_pi_over_two_as_raw_pathsum() {
+        // Qiskit U2(phi, lambda) = U3(pi/2, phi, lambda).
+        // Angles store theta/pi, therefore pi/2 is Angle::HALF.
+        // Compare unsimplified polynomial/Boolean tensors so a
+        // near-identity numerical tolerance cannot hide a theta bug.
+        for (phi, lam) in [
+            (Angle::ZERO, Angle::ZERO),
+            (Angle::QUARTER, Angle::THREE_QUARTERS),
+            (Angle::HALF, Angle::QUARTER),
+        ] {
+            for side in [Side::Ket, Side::Bra] {
+                let mut u2 = setup_test_env(1);
+                let mut u3 = setup_test_env(1);
+                u2.apply_u2(0, phi.clone(), lam.clone(), side);
+                u3.apply_u3(0, Angle::HALF, phi.clone(), lam.clone(), side);
+                assert_eq!(u2.p.terms, u3.p.terms,
+                    "U2 phase polynomial must equal U3(pi/2,phi,lambda) on both sides");
+                assert_eq!(u2.f.functions, u3.f.functions,
+                    "U2 Boolean output must match U3(pi/2,phi,lambda)");
+                assert_eq!(u2.v.path_vars, u3.v.path_vars,
+                    "U2 path variable structure differs");
+            }
+        }
+    }
+
+    #[test]
     fn test_apply_p() {
         let mut ps = setup_test_env(1);
         // P(pi/4) contributes (pi/4)/(2*pi) = 1/8 to phase polynomial.

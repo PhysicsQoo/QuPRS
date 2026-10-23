@@ -291,14 +291,17 @@ impl QuantumGates for PathSum {
         }
     }
     fn apply_p(&mut self, qubit: usize, theta: Angle,side: Side) {
-         match side {
+        // Angle stores theta/pi, while the PathSum exponent is normalized
+        // to 2*pi: P(theta)|1> = exp(i*theta)|1>. The half factor is
+        // essential for both P and U1, including bra-side conjugation.
+        match side {
             Side::Ket => {
-                let phase = theta.to_phase_coeff();
+                let phase = (theta / 2).to_phase_coeff();
                 self.p += (&self.f.functions[qubit], phase);
             }
             Side::Bra => {
                 let x_i = vec![qubit as u32];
-                let conj_theta = Angle::ZERO - theta;
+                let conj_theta = Angle::ZERO - theta / 2;
                 let conj_phase = conj_theta.to_phase_coeff();
                 self.p += (x_i, conj_phase);
             }
@@ -310,8 +313,8 @@ impl QuantumGates for PathSum {
     }
     /// U2 Gate: X-Y plane rotation defined as U2(phi, lam) = U3(pi/2, phi, lam)
     fn apply_u2(&mut self, qubit: usize, phi: Angle, lam: Angle, side: Side) {
-        // theta = pi/2 (即 1/4 cycle)
-        let pi_over_2 = Angle::QUARTER;
+        // Angle stores theta/pi: the U2 theta=pi/2 constant is HALF.
+        let pi_over_2 = Angle::HALF;
         self.apply_u(qubit, pi_over_2, phi, lam, side);
     }
     /// U3(theta, phi, lam)
@@ -535,15 +538,64 @@ mod tests {
     }
 
     #[test]
+    fn test_u2_matches_u3_pi_over_two_as_raw_pathsum() {
+        // Qiskit U2(phi, lambda) = U3(pi/2, phi, lambda).
+        // Angles store theta/pi, therefore pi/2 is Angle::HALF.
+        // Compare unsimplified polynomial/Boolean tensors so a
+        // near-identity numerical tolerance cannot hide a theta bug.
+        for (phi, lam) in [
+            (Angle::ZERO, Angle::ZERO),
+            (Angle::QUARTER, Angle::THREE_QUARTERS),
+            (Angle::HALF, Angle::QUARTER),
+        ] {
+            for side in [Side::Ket, Side::Bra] {
+                let mut u2 = setup_test_env(1);
+                let mut u3 = setup_test_env(1);
+                u2.apply_u2(0, phi.clone(), lam.clone(), side);
+                u3.apply_u3(0, Angle::HALF, phi.clone(), lam.clone(), side);
+                assert_eq!(u2.p.terms, u3.p.terms,
+                    "U2 phase polynomial must equal U3(pi/2,phi,lambda) on both sides");
+                assert_eq!(u2.f.functions, u3.f.functions,
+                    "U2 Boolean output must match U3(pi/2,phi,lambda)");
+                assert_eq!(u2.v.path_vars, u3.v.path_vars,
+                    "U2 path variable structure differs");
+            }
+        }
+    }
+
+    #[test]
     fn test_apply_p() {
         let mut ps = setup_test_env(1);
-        
-        let phase = Angle::QUARTER;
-        ps.apply_p(0, phase, Side::Ket);
-        
-        assert!(ps.p.terms[&vec![0]].is_pure_quarter(), "P gate should add relative phase");
-        
-        assert!(!ps.p.terms.contains_key(&vec![]), "P gate MUST NOT add global phase");
+        // P(pi/4) contributes (pi/4)/(2*pi) = 1/8 to phase polynomial.
+        ps.apply_p(0, Angle::QUARTER, Side::Ket);
+        assert!(
+            ps.p.terms[&vec![0]].is_pure_fraction(1, 8),
+            "P(pi/4) must contribute 1/8 cycle, not 1/4"
+        );
+        assert!(!ps.p.terms.contains_key(&vec![]), "P must not add global phase");
+    }
+
+    #[test]
+    fn test_p_u1_relative_phase_unit_contract() {
+        let mut p_half = setup_test_env(1);
+        p_half.apply_p(0, Angle::HALF, Side::Ket);
+        assert!(p_half.p.terms[&vec![0]].is_pure_quarter(),
+                "P(pi/2) must be S, not Z");
+
+        let mut u1_half = setup_test_env(1);
+        u1_half.apply_u1(0, Angle::HALF, Side::Ket);
+        assert_eq!(u1_half.p.terms, p_half.p.terms,
+                   "U1(pi/2) must match P(pi/2)");
+
+        let mut p_bra = setup_test_env(1);
+        p_bra.apply_p(0, Angle::HALF, Side::Bra);
+        assert!(p_bra.p.terms[&vec![0]].is_pure_three_quarters(),
+                "Bra(P(pi/2)) must contribute -1/4 cycle");
+
+        let mut p_pi = setup_test_env(1);
+        p_pi.apply_p(0, Angle::new_constant(crate::rational::FreeRational::new(1, 1)), Side::Ket);
+        assert!(p_pi.p.terms[&vec![0]].is_pure_half(),
+                "P(pi) must be Z, not Identity");
     }
 
     #[test]

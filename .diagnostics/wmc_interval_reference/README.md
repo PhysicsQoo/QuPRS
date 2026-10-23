@@ -151,3 +151,52 @@ python .diagnostics/wmc_interval_reference/run_rust_bridge.py \
   --output rust-wmc-phase-results
 ```
 
+
+## Exact source-decimal RZ to represented Rust coefficient audit
+
+A third independent check binds the *literal QASM decimal radians* to the
+recorded Rust phase coefficients for exactly one positive `RZ(δ)` acting
+as the Bra-side circuit against the one-qubit identity. It recognizes only
+a small, strictly checked OpenQASM 2.0 source pattern; other expressions,
+multiple gates, and unsupported mappings fail closed.
+
+The QASM decimal literal (e.g. `rz(0.001)`) is read as an exact
+`Fraction(1,1000)` radians. It is **not** obtained by converting Qiskit's
+`float` or trusting Rust's floating-point parser. The one-gate RZ Bra
+formula in `rust/pathsum/src/gates.rs` gives the exact source-phase
+complex weights:
+
+- Constant phase monomial: `exp(+i δ/2)`, coefficient `δ/(4π)`.
+- Input-bit monomial `x[0]`: `exp(-i δ)`, coefficient
+  `1−δ/(2π)` (modulo 1).
+
+An independent rational-π interval bounds the exact source coefficients;
+the strict rational-radian Taylor reference bounds the corresponding
+complex phases. For each actual Rust-emitted phase literal, the audit
+records both the internal `Angle`/`PhaseCoeff` rational and its
+**rigorously upper-bounded distance** from the ideal source coefficient.
+It then recomputes the actual small CNF using (a) source-complex weights
+and (b) a conservative per-component hull containing the source,
+represented Rust phase, and printed decimal weight.
+
+For the nonzero 0.001-radian case, both the source-radian reference and
+this three-way hull are required to have normalized upper magnitude < 1;
+these are conditional small-model mathematical conclusions, not arbitrary
+floating-point tolerance checks.
+
+Important limitation: matching the two expected monomials and clauses
+gives a constrained source-to-CNF validation for this one known gate
+mapping. It is **not** a generic QASM parser correctness proof,
+a numerical certificate for GPMC or Ganak internals, nor a replacement
+for the separate native `wmc_only` strict-positive RED. Tiny angles
+can be lost earlier in Rust's approximate `Angle::from_qasm_str`;
+a separate fail-closed boundary study is needed for those.
+
+The source-radian test is opt-in and runs within the dedicated Rust
+diagnostic job:
+
+```sh
+python -m pytest -q \
+  .diagnostics/wmc_interval_reference/test_qasm_rz_source_reference.py
+```
+

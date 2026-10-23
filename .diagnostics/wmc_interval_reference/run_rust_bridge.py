@@ -26,6 +26,7 @@ from import_dimacs import (
     normalized_for_pathsum, parse_emitted_dimacs, serialized_count_verdict,
 )
 from interval_wmc import ComplexInterval, WeightedCNF, serialize_complex, serialize_interval
+from qasm_rz_source_reference import audit_single_rz_bra_source
 from phase_coeff_reference import (
     ideal_rational_pi_phase, max_printed_ideal_component_gap,
     union_printed_and_ideal,
@@ -161,6 +162,12 @@ def run_case(folder, name, solver, meta):
     oracle = Operator(quantum_circuit).data
     if quantum_circuit.num_qubits != meta["n"]:
         raise ValueError("Source QASM and Rust qubit metadata mismatch")
+    source_rz_audit = None
+    if name in ("rz_near", "rz_far"):
+        source_rz_audit = audit_single_rz_bra_source(
+            qasm_raw.decode("utf-8"), cnf, phase_map,
+            num_qubits=meta["n"], num_pathvar=meta["p"]
+        )
     physical_mag_float = abs(complex(oracle.trace())) / (1 << meta["n"])
     native, capture, capture_count = observe_solver(cnf_file, solver)
     if capture["command_args"] != list(SOLVER_ARGUMENTS[solver]):
@@ -192,6 +199,7 @@ def run_case(folder, name, solver, meta):
         "represented_rust_phase_coefficient_enclosed_count": serialize_complex(phase_widened),
         "represented_rust_phase_coefficient_normalized_magnitude": serialize_interval(widened_norm),
         "represented_rust_phase_source_records": phases,
+        "source_decimal_radian_rz_audit": source_rz_audit,
         "phase_coefficient_reference_is_certified_for_original_qasm": False,
         "native_solver_result_is_interval_certified": False,
         "printed_reference_classification": serialized_count_verdict(printed_norm),
@@ -210,6 +218,8 @@ def run_case(folder, name, solver, meta):
         report["represented_phase_coefficient_strictly_below_one"] = widened_norm.upper < 1
         report["observational_cross_check"] &= (
             printed_norm.upper < 1 and widened_norm.upper < 1
+            and source_rz_audit["source_reference_strictly_below_one"]
+            and source_rz_audit["source_represented_printed_hull_strictly_below_one"]
         )
     return report
 

@@ -195,6 +195,7 @@ jobs:
           mkdir -p rust-wmc-phase-results
           python -m pytest -q -ra \
             .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/test_qasm_rz_source_reference.py \
             .diagnostics/wmc_interval_reference/test_import_dimacs.py \
             --junitxml=rust-wmc-phase-results/controls-junit.xml \
             2>&1 | tee rust-wmc-phase-results/controls-output.txt
@@ -217,6 +218,8 @@ jobs:
             rust/pathsum/examples/interval_cnf_reference.rs \
             .diagnostics/wmc_interval_reference/phase_coeff_reference.py \
             .diagnostics/wmc_interval_reference/run_rust_bridge.py \
+            .diagnostics/wmc_interval_reference/qasm_rz_source_reference.py \
+            .diagnostics/wmc_interval_reference/test_qasm_rz_source_reference.py \
             .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
             .github/workflows/wmc-interval-reference.yml \
             > rust-wmc-phase-results/source-files-sha256.txt

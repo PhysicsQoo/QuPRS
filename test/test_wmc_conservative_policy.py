@@ -54,9 +54,16 @@ def test_hybrid_uncertified_numeric_fallback_is_only_downgraded(backend, solver)
         a, b, backend=backend, tool_name=solver, method="hybrid",
         strategy="Naive", timeout=60, wmc_policy="conservative",
     )
-    assert result.tool_time is not None
-    assert result.equivalent == "unknown"
-    assert result.wmc_numerical_verdict in {"equivalent", "equivalent*", "not_equivalent"}
+    if result.tool_time is None:
+        # The Rust reducer already proves this small nonzero rotation differs;
+        # conservative WMC policy must NOT force an unnecessary solver call.
+        assert result.equivalent == "not_equivalent"
+        assert result.wmc_numerical_verdict is None
+    else:
+        assert result.equivalent == "unknown"
+        assert result.wmc_numerical_verdict in {
+            "equivalent", "equivalent*", "not_equivalent"
+        }
 
 
 @pytest.mark.parametrize("backend", ["python", "rust"])

@@ -342,7 +342,8 @@ impl WmcManager {
 }
 #[cfg(test)]
 mod count_parser_tests {
-    use super::{parse_real_count, solver_arguments};
+    use super::{parse_real_count, solver_arguments, WmcManager, Complex};
+    use crate::pathsum::PathSum;
     static GPMC_OVERRIDE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]

@@ -74,7 +74,7 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
         if !matches!(gate_name.as_str(),
             "h" | "x" | "y" | "z" | "s" | "sdg" | "t" | "tdg" | "sx" | "sxdg" | "id"
             | "cx" | "cz" | "swap" | "ccx" | "rx" | "ry" | "rz"
-            | "p" | "u1" | "u2" | "u3" | "u" | "barrier") {
+            | "p" | "cp" | "u1" | "u2" | "u3" | "u" | "barrier") {
             return Err(format!("Unsupported QASM gate '{}' at line {}", gate_name, line_num + 1));
         }
         let qubits = parse_targets(targets_part, &register_map, &register_sizes)
@@ -86,6 +86,7 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             "cx" | "cz" | "swap" => (2, 0),
             "ccx" => (3, 0),
             "rx" | "ry" | "rz" | "p" | "u1" => (1, 1),
+            "cp" => (2, 1),
             "u2" => (1, 2),
             "u3" | "u" => (1, 3),
             "barrier" => (qubits.len(), 0), // Unitary no-op, validated targets.
@@ -97,11 +98,28 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
                 gate_name, line_num + 1, qubits.len(), params.len()
             ));
         }
-        if (gate_name == "cx" || gate_name == "cz" || gate_name == "swap" || gate_name == "ccx")
+        if (gate_name == "cx" || gate_name == "cz" || gate_name == "swap" || gate_name == "ccx" || gate_name == "cp")
             && qubits.iter().enumerate().any(|(i, &q)| qubits[..i].contains(&q)) {
             return Err(format!("Duplicate qubit operand at line {}", line_num + 1));
         }
         if gate_name == "barrier" || gate_name == "id" { continue; }
+        if gate_name == "cp" {
+            // Controlled-P(theta) is exactly:
+            //   P(theta/2) on control, CX, P(-theta/2) on target, CX,
+            //   P(theta/2) on target.
+            // This is an algebraic identity for the parsed Angle, not
+            // an approximate transpiler rewrite, and adds no scalar phase.
+            let control = qubits[0];
+            let target = qubits[1];
+            let half = params[0].clone() / 2;
+            let negative_half = Angle::ZERO - half.clone();
+            ops.push(QuantumOp::P(control, half.clone()));
+            ops.push(QuantumOp::CX(control, target));
+            ops.push(QuantumOp::P(target, negative_half));
+            ops.push(QuantumOp::CX(control, target));
+            ops.push(QuantumOp::P(target, half));
+            continue;
+        }
         if gate_name == "sx" || gate_name == "sxdg" {
             // Qiskit SX = H S H and SXdg = H SDG H exactly, including
             // scalar phase. Do not lower with floating rotation synthesis.
@@ -259,7 +277,7 @@ mod tests {
     fn reject_unsupported_qasm_gates_instead_of_discarding_them() {
         for (qasm, expected) in [
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncsx q[0],q[1];", "Unsupported QASM gate 'csx'"),
-            ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncp(0.1) q[0],q[1];", "Unsupported QASM gate 'cp'"),
+            ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncrx(0.1) q[0],q[1];", "Unsupported QASM gate 'crx'"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nmeasure q[0] -> c[0];", "Unsupported QASM gate 'measure'"),
             ("OPENQASM 3.0;\nqubit[1] q;\nx q[0];", "Unsupported QASM header"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nreset q[0];", "Unsupported QASM gate 'reset'"),
@@ -308,6 +326,34 @@ mod tests {
             QuantumOp::H(0), QuantumOp::S(0), QuantumOp::H(0),
             QuantumOp::H(0), QuantumOp::SDG(0), QuantumOp::H(0),
         ]);
+    }
+
+    #[test]
+    fn cp_phase_is_exact_five_gate_decomposition() {
+        let qasm = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncp(pi) q[0],q[1];";
+        let (ops, qubits) = parse_qasm_str(qasm).unwrap();
+        assert_eq!(qubits, 2);
+        let half = Angle::from_qasm_str("pi").unwrap() / 2;
+        assert_eq!(ops, vec![
+            QuantumOp::P(0, half.clone()),
+            QuantumOp::CX(0, 1),
+            QuantumOp::P(1, Angle::ZERO - half.clone()),
+            QuantumOp::CX(0, 1),
+            QuantumOp::P(1, half),
+        ]);
+    }
+
+    #[test]
+    fn cp_invalid_arity_and_repeated_qubits_fail_closed() {
+        for source in [
+            "cp(pi) q[0];",
+            "cp(pi) q[0],q[0];",
+            "cp(pi,0.1) q[0],q[1];",
+            "cp(pi) q[0],q[2];",
+        ] {
+            let qasm = format!("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\n{source}");
+            assert!(parse_qasm_str(&qasm).is_err(), "must reject: {source}");
+        }
     }
 
     #[test]

@@ -1,6 +1,13 @@
 name: Opt-in Conservative WMC Evidence Policy
 
 on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'test/test_wmc_conservative_policy.py'
+      - 'docs/development/wmc-evidence-policy.md'
+      - '.github/workflows/wmc-conservative-policy.yml'
   push:
     branches:
       - fix/wmc-conservative-evidence-20261023

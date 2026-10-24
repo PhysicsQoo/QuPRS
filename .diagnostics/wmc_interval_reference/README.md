@@ -267,3 +267,15 @@ python .diagnostics/wmc_interval_reference/run_python_source_certificate.py \
   --output python-source-certificate-results
 ```
 
+
+## SolverAdapter integration evidence
+
+The opt-in generated-DIMACS bridge now includes the Python solver-adapter
+contract tests along with its independent emitted-weight parser controls.
+The bridge and source-QASM jobs record the actual `solver_adapter.py` source
+hash in their evidence. Both Ganak and GPMC remain explicitly selected and
+are run separately with their own weight grammars and native arguments.
+The capture hook observes the real `solver_process.run` called by `run_wmc`;
+it does not fabricate a solver result or promote numerical agreement to a
+proof. A failing source/solver run must fail the workflow (including all
+piped Rust checks), rather than merely producing uploaded diagnostic output.

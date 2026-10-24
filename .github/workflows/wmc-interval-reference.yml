@@ -115,6 +115,7 @@ jobs:
           mkdir -p wmc-encoded-bridge-results
           python -m pytest -q -ra \
             .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            test/test_solver_adapter_contract.py \
             --junitxml=wmc-encoded-bridge-results/parser-junit.xml \
             2>&1 | tee wmc-encoded-bridge-results/parser-output.txt
           test "${PIPESTATUS[0]}" -eq 0
@@ -139,6 +140,7 @@ jobs:
           uname -a > wmc-encoded-bridge-results/kernel.txt
           sha256sum \
             .diagnostics/wmc_interval_reference/import_dimacs.py \
+            src/QuPRS/utils/solver_adapter.py \
             .diagnostics/wmc_interval_reference/run_encoded_bridge.py \
             .diagnostics/wmc_interval_reference/test_import_dimacs.py \
             .github/workflows/wmc-interval-reference.yml \
@@ -192,6 +194,7 @@ jobs:
       - name: Validate rational-pi phase reference and importer
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p rust-wmc-phase-results
           python -m pytest -q -ra \
             .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
@@ -202,6 +205,7 @@ jobs:
       - name: Export Rust CNFs and compare rational phase coefficients
         shell: bash
         run: |
+          set -euo pipefail
           python -u .diagnostics/wmc_interval_reference/run_rust_bridge.py \
             --output rust-wmc-phase-results \
             2>&1 | tee rust-wmc-phase-results/bridge-output.txt
@@ -302,6 +306,7 @@ jobs:
             .diagnostics/wmc_interval_reference/python_diagonal_source_certificate.py \
             .diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py \
             .diagnostics/wmc_interval_reference/run_python_source_certificate.py \
+            src/QuPRS/utils/solver_adapter.py \
             .github/workflows/wmc-interval-reference.yml \
             > python-source-certificate-results/source-files-sha256.txt
           (

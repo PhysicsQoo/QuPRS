@@ -35,7 +35,11 @@ pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
     match id {
         "gpmc" => Ok(&GPMC),
         "ganak" => Ok(&GANAK),
-        _ => Err(anyhow!("Unsupported tool name: {}", id)),
+        _ => Err(anyhow!(crate::solver_result::SolverFailure::new(
+            crate::solver_result::SolverFailureKind::Unsupported,
+            id,
+            format!("Unsupported tool name: {}", id),
+        ))),
     }
 }
 impl SolverAdapter for GpmcAdapter {

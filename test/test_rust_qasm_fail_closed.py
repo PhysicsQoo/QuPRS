@@ -101,3 +101,17 @@ def test_existing_clifford_bell_control_is_preserved():
     assert result.equivalent == "equivalent"
     assert result.gate_num == result.gate_num2 == 2
     assert result.tool_time is None
+
+@pytest.mark.parametrize("method", ["reduction_rules", "hybrid", "wmc_only"])
+@pytest.mark.parametrize("angle", ["1e-12", "-1e-12", "1e-100"])
+def test_nonzero_tiny_qasm_rotation_fails_closed_through_public_rust_api(
+    method, angle
+):
+    """Reject a lost source rotation; never return an equivalence verdict."""
+    identity = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+    rotated = identity + f"rz({angle}) q[0];\n"
+    with pytest.raises(ValueError, match="Nonzero source angle"):
+        check_equivalence(
+            identity, rotated, backend="rust", method=method, strategy="Naive",
+            tool_name="gpmc", timeout=30,
+        )

@@ -194,19 +194,9 @@ impl WmcManager {
     pub(crate) fn to_dimacs_with_adapter(
         &self, adapter: &dyn crate::solver_adapter::SolverAdapter
     ) -> String {
-        let _timed_serialize = crate::diagnostics::span("cnf_serialize");
-        let mut out = String::new();
-        out.push_str(&format!("p cnf {} {}\nc t wmc\n", self.next_var_id - 1, self.clauses.len()));
-        for (var, weight) in &self.weights {
-            let (positive, negative) = adapter.weight_lines(*var, *weight);
-            out.push_str(&positive);
-            out.push_str(&negative);
-        }
-        for clause in &self.clauses {
-            let values: Vec<String> = clause.iter().map(|lit| lit.to_string()).collect();
-            out.push_str(&format!("{} 0\n", values.join(" ")));
-        }
-        out
+        crate::wmc_problem::WmcProblem::new(
+            self.next_var_id - 1, &self.clauses, &self.weights
+        ).serialize(adapter)
     }
     /// Backward-compatible entrypoint for callers that do not own a deadline.
     /// The public verification path uses solve_with_deadline instead.

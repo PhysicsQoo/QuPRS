@@ -15,11 +15,7 @@ use crate::pathsum::PathSum;
 use crate::pathsum::phase_poly::Monomial;
 
 fn solver_arguments(tool_name: &str) -> Result<&'static [&'static str]> {
-    match tool_name {
-        "gpmc" => Ok(&["-mode=1"]),
-        "ganak" => Ok(&["--mode=6"]),
-        _ => Err(anyhow!("Unsupported tool name: {}", tool_name)),
-    }
+    Ok(crate::solver_adapter::adapter_for(tool_name)?.arguments())
 }
 
 // BigRational conversion handles ratios whose individual components exceed f64.
@@ -37,7 +33,7 @@ fn parse_real_count(value: &str) -> Result<f64> {
     Ok(result)
 }
 
-fn parse_count_line(line: &str) -> Result<Option<Complex<f64>>> {
+pub(crate) fn parse_count_line(line: &str) -> Result<Option<Complex<f64>>> {
     let prefixes = ["c s exact double prec-sci", "c s exact arb cpx",
         "c s exact quadruple float", "c s exact arb frac"];
     let Some(value) = prefixes.iter().find_map(|prefix| {
@@ -190,68 +186,28 @@ impl WmcManager {
     }
 
     pub fn to_dimacs_string(&self, tool_name: &str) -> String {
+        self.try_to_dimacs_string(tool_name).expect("Unsupported WMC solver")
+    }
+    pub fn try_to_dimacs_string(&self, tool_name: &str) -> Result<String> {
+        Ok(self.to_dimacs_with_adapter(crate::solver_adapter::adapter_for(tool_name)?))
+    }
+    pub(crate) fn to_dimacs_with_adapter(
+        &self, adapter: &dyn crate::solver_adapter::SolverAdapter
+    ) -> String {
         let _timed_serialize = crate::diagnostics::span("cnf_serialize");
         let mut out = String::new();
-        let num_vars = self.next_var_id - 1;
-        let num_clauses = self.clauses.len();
-
-        out.push_str(&format!("p cnf {} {}\nc t wmc\n", num_vars, num_clauses));
-        
+        out.push_str(&format!("p cnf {} {}\nc t wmc\n", self.next_var_id - 1, self.clauses.len()));
         for (var, weight) in &self.weights {
-            // Round-trip every finite f64 component rather than quantizing to
-            // a fixed number of decimal places before MPFR-based counting.
-            // 16 digits after the leading digit = 17 significant digits.
-            if tool_name == "gpmc" {
-                out.push_str(&format!("c p weight {} {:.16e} {:.16e} 0\n", var, weight.re, weight.im));
-                out.push_str(&format!("c p weight -{} 1.0 0.0 0\n", var));
-            } else {
-                let op = if weight.im >= 0.0 { "+" } else { "-" };
-                out.push_str(&format!("c p weight {} {:.16e} {} {:.16e}i 0\n", var, weight.re, op, weight.im.abs()));
-                out.push_str(&format!("c p weight -{} 1.0 + 0.0i 0\n", var));
-            }
+            let (positive, negative) = adapter.weight_lines(*var, *weight);
+            out.push_str(&positive);
+            out.push_str(&negative);
         }
-
         for clause in &self.clauses {
-            let clause_str: Vec<String> = clause.iter().map(|lit| lit.to_string()).collect();
-            out.push_str(&format!("{} 0\n", clause_str.join(" ")));
+            let values: Vec<String> = clause.iter().map(|lit| lit.to_string()).collect();
+            out.push_str(&format!("{} 0\n", values.join(" ")));
         }
         out
     }
-    fn find_gpmc_path() -> String {
-        if let Ok(path) = std::env::var("QUPRS_GPMC_PATH") {
-            return path;
-        }
-
-        if let Some(compile_path) = option_env!("GPMC_BIN_PATH") {
-            if std::path::Path::new(compile_path).exists() {
-                return compile_path.to_string();
-            }
-        }
-
-        if cfg!(windows) {
-            "gpmc.exe".to_string()
-        } else {
-            "gpmc".to_string()
-        }
-    }
-    fn find_ganak_path() -> String {
-        if let Ok(path) = std::env::var("QUPRS_GANAK_PATH") {
-            return path;
-        }
-
-        if let Some(compile_path) = option_env!("GANAK_BIN_PATH") {
-            if std::path::Path::new(compile_path).exists() {
-                return compile_path.to_string();
-            }
-        }
-
-        if cfg!(windows) {
-            "ganak.exe".to_string()
-        } else {
-            "ganak".to_string()
-        }
-    }
-
     /// Backward-compatible entrypoint for callers that do not own a deadline.
     /// The public verification path uses solve_with_deadline instead.
     pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
@@ -266,6 +222,15 @@ impl WmcManager {
         tool_name: &str,
         deadline: Option<std::time::Instant>,
     ) -> Result<Complex<f64>> {
+        let adapter = crate::solver_adapter::adapter_for(tool_name)?;
+        self.solve_with_adapter(adapter, deadline)
+    }
+    pub(crate) fn solve_with_adapter(
+        &self,
+        adapter: &dyn crate::solver_adapter::SolverAdapter,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Complex<f64>> {
+        let tool_name = adapter.id();
         use std::fs::OpenOptions;
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -288,7 +253,7 @@ impl WmcManager {
         let nonce = NEXT_CNF_ID.fetch_add(1, Ordering::Relaxed);
         let temp_cnf_path = std::env::temp_dir()
             .join(format!("temp_eqcheck_{}_{}_{}.cnf", pid, timestamp, nonce));
-        let cnf_content = self.to_dimacs_string(tool_name);
+        let cnf_content = self.to_dimacs_with_adapter(adapter);
         trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
         let _timed_write = crate::diagnostics::span("cnf_file_write");
@@ -308,23 +273,10 @@ impl WmcManager {
         drop(_timed_write);
 
         let result = (|| -> Result<Complex<f64>> {
-            let exe_path = match tool_name {
-                "gpmc" => Self::find_gpmc_path(),
-                "ganak" => Self::find_ganak_path(),
-                _ => return Err(anyhow!("Unsupported tool name: {}", tool_name)),
-            };
-            if tool_name == "ganak" {
-                let provenance = crate::ganak_distribution::diagnostics_with_deadline(
-                    std::path::Path::new(&exe_path),
-                    std::env::var_os("QUPRS_GANAK_PATH").is_some(),
-                    deadline,
-                ).map_err(|e| if e.starts_with("SolverTimeout:") {
-                    anyhow!(crate::solver_process::SolverTimeout)
-                } else { anyhow!(e) })?;
-                info!(target: "wmc", "{}", provenance);
-            }
-            let args: Vec<String> = solver_arguments(tool_name)?
-                .iter().map(|arg| arg.to_string()).collect();
+            let exe_path = adapter.executable_path();
+            adapter.preflight(&exe_path, deadline)?;
+            let args: Vec<String> = adapter.arguments()
+                .iter().map(|value| value.to_string()).collect();
             debug!(target: "wmc", "Spawning {} solver: {} {:?} {}",
                 tool_name, exe_path, args, temp_cnf_path.display());
             let mut command = Command::new(&exe_path);
@@ -345,12 +297,9 @@ impl WmcManager {
                 trace!(target: "wmc", "{} raw stderr:\n{}", tool_name, stderr_str);
             }
 
-            let mut result_val = None;
-            for line in stdout_str.lines() {
-                if let Some(count) = parse_count_line(line)? {
-                    info!(target: "wmc", "{} result parsed: {}", tool_name, count);
-                    result_val = Some(count);
-                }
+            let result_val = adapter.parse_count(&stdout_str)?;
+            if let Some(count) = result_val {
+                info!(target: "wmc", "{} result parsed: {}", tool_name, count);
             }
             result_val.ok_or_else(|| anyhow!(
                 "{} Error!\nCNF Path: {}\n--- STDOUT ---\n{}\n--- STDERR ---\n{}",

@@ -32,11 +32,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .ab-evidence
-          git rev-parse HEAD > .ab-evidence/head.txt
-          git rev-parse "$BASE_SHA" > .ab-evidence/base.txt
-          lscpu > .ab-evidence/cpu.txt
-          rustc --version > .ab-evidence/rust.txt
+          mkdir -p adapter-ab-evidence
+          git rev-parse HEAD > adapter-ab-evidence/head.txt
+          git rev-parse "$BASE_SHA" > adapter-ab-evidence/base.txt
+          lscpu > adapter-ab-evidence/cpu.txt
+          rustc --version > adapter-ab-evidence/rust.txt
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
           git -C "$RUNNER_TEMP/base" submodule update --init --recursive
       - name: Compile both environments on the same runner
@@ -56,7 +56,7 @@ jobs:
               maturin develop --release -E dev
               python -m QuPRS.utils.ganak_distribution
               pip check
-              pip freeze > "$GITHUB_WORKSPACE/.ab-evidence/$branch-pip.txt"
+              pip freeze > "$GITHUB_WORKSPACE/adapter-ab-evidence/$branch-pip.txt"
             )
           done
       - name: Interleave Base Head Head Base, preserve raw samples
@@ -71,7 +71,7 @@ jobs:
               "$RUNNER_TEMP/venv-$branch/bin/python" \
                 "$GITHUB_WORKSPACE/scripts/measure_solver_adapter_ab.py" \
                 --label "$branch" --batch "$batch" \
-                --output "$GITHUB_WORKSPACE/.ab-evidence/$branch-$batch.json"
+                --output "$GITHUB_WORKSPACE/adapter-ab-evidence/$branch-$batch.json"
             )
           done
       - name: Verify source and verdict consistency, calculate medians
@@ -80,7 +80,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, pathlib, statistics
-          d=pathlib.Path(".ab-evidence")
+          d=pathlib.Path("adapter-ab-evidence")
           rows={x:[json.loads((d/f"{x}-{i}.json").read_text()) for i in (1,2)] for x in ("base","head")}
           result=[]
           for solver in ("gpmc","ganak"):
@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd .ab-evidence
+          cd adapter-ab-evidence
           find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
           sha256sum -c SHA256SUMS
       - name: Upload same-host raw evidence
@@ -109,6 +109,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rust-wmc-same-host-ab
-          path: .ab-evidence/
+          path: adapter-ab-evidence/
           retention-days: 30
           if-no-files-found: error

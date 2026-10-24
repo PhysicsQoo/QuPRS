@@ -22,3 +22,19 @@ fallback, output smoothing, or silent crash-to-skip behavior. The full
 conformance milestone additionally needs independent Python-emitted source
 CNFs, malformed/signal/timeout/missing-executable typed negative controls,
 macOS Intel/ARM platform matrices, and binary version/provenance readback.
+
+## Independent Python-source encoding control
+
+A second source-scoped diagnostic now constructs an unreduced Python PathSum
+directly from the same HH/X/T QASM files and emits *its own* Ganak/GPMC
+weighted CNFs, rather than reusing Rust-emitted CNF bytes. Selected native
+solvers run these Python files independently. The report retains both source
+CNF hashes, both selected binary hashes, solver stdout, and the path-variable
+normalizer. Each Python result is checked against both an exact-rational
+interpretation of the printed decimal weights and an independently computed
+Qiskit dense-operator normalized trace. Distinct CNF bytes are allowed:
+equivalent weighted encodings need not be byte-identical.
+
+This small diagnostic does **not** establish arbitrary Python/Rust source
+encoder equivalence, formal exact gate semantics, or solver rounding
+certificates. Numerical comparison thresholds are diagnostic only.

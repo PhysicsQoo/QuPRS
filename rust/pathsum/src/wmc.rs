@@ -215,6 +215,24 @@ impl WmcManager {
         let adapter = crate::solver_adapter::adapter_for(tool_name)?;
         self.solve_with_adapter(adapter, deadline)
     }
+    /// Opt-in typed native measurement; ordinary solve APIs remain compatible.
+    pub fn observe_with_deadline(
+        &self,
+        tool_name: &str,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<crate::solver_result::SolverObservation> {
+        let selected = crate::solver_adapter::adapter_for(tool_name)?;
+        let started = std::time::Instant::now();
+        let count = self.solve_with_adapter(selected, deadline)?;
+        Ok(crate::solver_result::SolverObservation {
+            solver_id: selected.id().to_string(),
+            arguments: selected.arguments().iter().map(|arg| (*arg).to_string()).collect(),
+            count,
+            exit_code: 0,
+            elapsed_seconds: started.elapsed().as_secs_f64(),
+            exact_count_certificate: false,
+        })
+    }
     pub(crate) fn solve_with_adapter(
         &self,
         adapter: &dyn crate::solver_adapter::SolverAdapter,
@@ -277,24 +295,38 @@ impl WmcManager {
             let stdout_str = String::from_utf8_lossy(&output.stdout);
             let stderr_str = String::from_utf8_lossy(&output.stderr);
             if !output.status.success() {
-                return Err(anyhow!(
-                    "{} failed: status={}, command={} {:?}, stdout={}, stderr={}",
-                    tool_name, output.status, exe_path, args, stdout_str, stderr_str
-                ));
+                return Err(anyhow!(crate::solver_result::SolverFailure::new(
+                    crate::solver_result::SolverFailureKind::NonzeroExit,
+                    tool_name,
+                    format!(
+                        "{} failed: status={}, command={} {:?}, stdout={}, stderr={}",
+                        tool_name, output.status, exe_path, args, stdout_str, stderr_str
+                    ),
+                )));
             }
             trace!(target: "wmc", "{} raw stdout:\n{}", tool_name, stdout_str);
             if !stderr_str.is_empty() {
                 trace!(target: "wmc", "{} raw stderr:\n{}", tool_name, stderr_str);
             }
 
-            let result_val = adapter.parse_count(&stdout_str)?;
+            let result_val = adapter.parse_count(&stdout_str).map_err(|error| {
+                anyhow!(crate::solver_result::SolverFailure::new(
+                    crate::solver_result::SolverFailureKind::MalformedCount,
+                    tool_name,
+                    error.to_string(),
+                ))
+            })?;
             if let Some(count) = result_val {
                 info!(target: "wmc", "{} result parsed: {}", tool_name, count);
             }
-            result_val.ok_or_else(|| anyhow!(
-                "{} Error!\nCNF Path: {}\n--- STDOUT ---\n{}\n--- STDERR ---\n{}",
-                tool_name, temp_cnf_path.display(), stdout_str, stderr_str
-            ))
+            result_val.ok_or_else(|| anyhow!(crate::solver_result::SolverFailure::new(
+                crate::solver_result::SolverFailureKind::MissingCount,
+                tool_name,
+                format!(
+                    "{} Error!\nCNF Path: {}\n--- STDOUT ---\n{}\n--- STDERR ---\n{}",
+                    tool_name, temp_cnf_path.display(), stdout_str, stderr_str
+                ),
+            )))
         })();
 
         // Sensitive circuit data is removed on all paths by default. Preserve
@@ -310,7 +342,8 @@ impl WmcManager {
 }
 #[cfg(test)]
 mod count_parser_tests {
-    use super::{parse_real_count, solver_arguments};
+    use super::{parse_real_count, solver_arguments, WmcManager, Complex};
+    use crate::pathsum::PathSum;
     static GPMC_OVERRIDE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
@@ -540,6 +573,57 @@ mod count_parser_tests {
             assert!(result.unwrap_err().to_string().contains(message));
         }
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn typed_invalid_solver_does_not_dispatch() {
+        use crate::solver_result::{SolverFailure, SolverFailureKind};
+        let manager = WmcManager::new(&PathSum::new(0));
+        let err=manager.observe_with_deadline("missing_solver", None).unwrap_err();
+        let typed=err.downcast_ref::<SolverFailure>().unwrap();
+        assert_eq!(typed.kind, SolverFailureKind::Unsupported);
+        assert_eq!(typed.solver_id, "missing_solver");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn typed_numeric_observation_and_negative_failures() {
+        use crate::solver_adapter::{SolverAdapter, SolverCapabilities, WeightGrammar};
+        use crate::solver_result::{SolverFailure, SolverFailureKind};
+        struct Mock(&'static str);
+        impl SolverAdapter for Mock {
+            fn id(&self) -> &'static str { "mock" }
+            fn arguments(&self) -> &'static [&'static str] {
+                match self.0 {
+                    "ok" => &["-c", "printf 'c s exact quadruple float 1.5 - 0.25i\\n'"],
+                    "nonzero" => &["-c", "echo 'c s exact quadruple float 9'; exit 7"],
+                    "missing" => &["-c", "echo 'no weighted count'"],
+                    _ => &["-c", "echo 'c s exact quadruple float nan'"],
+                }
+            }
+            fn capabilities(&self) -> SolverCapabilities {
+                SolverCapabilities { complex_weights:true,exact_count_certificate:false,grammar:WeightGrammar::Pair }
+            }
+            fn executable_path(&self) -> String { "sh".into() }
+            fn weight_lines(&self, var:i32, weight:Complex<f64>)->(String,String) {
+                crate::solver_adapter::GpmcAdapter.weight_lines(var,weight)
+            }
+        }
+        let manager=WmcManager::new(&PathSum::new(0));
+        let deadline=|| Some(std::time::Instant::now()+std::time::Duration::from_secs(10));
+        let selected=Mock("ok");
+        let result=manager.solve_with_adapter(&selected,deadline()).unwrap();
+        assert_eq!(result,Complex::new(1.5,-0.25));
+        for (case,kind) in [
+            ("nonzero",SolverFailureKind::NonzeroExit),
+            ("missing",SolverFailureKind::MissingCount),
+            ("malformed",SolverFailureKind::MalformedCount)
+        ] {
+            let err=manager.solve_with_adapter(&Mock(case),deadline()).unwrap_err();
+            let typed=err.downcast_ref::<SolverFailure>().expect("category must be typed");
+            assert_eq!(typed.kind,kind,"case={case}");
+            assert_eq!(typed.solver_id,"mock");
+        }
     }
 
 }

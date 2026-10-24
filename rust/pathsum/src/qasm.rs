@@ -364,4 +364,103 @@ mod tests {
         assert_eq!(ops, vec![QuantumOp::H(0), QuantumOp::CX(0,1)]);
     }
 
+    /// Audits full two-qubit CP source semantics from the *unreduced* native
+    /// PathSum instead of comparing two aliases or relying on a WMC verdict.
+    /// Every Boolean phase term is evaluated using exact modular rationals.
+    /// This finite, rational-pi gate subset does not certify arbitrary
+    /// decimal-radian QASM input parsing.
+    fn cp_unreduced_basis_phases(qasm: &str, bra: bool) -> [crate::rational::Rational; 4] {
+        use crate::rational::Rational;
+        let (ops, qubits) = parse_qasm_str(qasm).expect("supported controlled phase");
+        assert_eq!(qubits, 2);
+        let mut ps = PathSum::new(2);
+        ps.set_auto_reduce(false);
+        if bra {
+            for op in ops.iter().rev() {
+                op.apply(&mut ps, true);
+            }
+        } else {
+            for op in &ops {
+                op.apply(&mut ps, false);
+            }
+        }
+        assert_eq!(ps.v.path_vars.len(), 2, "CP cannot introduce fresh path variables");
+        assert_eq!(ps.f.functions.len(), 2);
+        let mut measured = [Rational::ZERO; 4];
+        for basis in 0..4usize {
+            let monomial_true = |vars: &Vec<u32>| -> bool {
+                vars.iter().all(|&v| {
+                    assert!(v < 2, "unexpected non-source phase variable: {v}");
+                    (basis & (1usize << v)) != 0
+                })
+            };
+            let mut output = 0usize;
+            for (qubit, terms) in ps.f.functions.iter().enumerate() {
+                let bit = terms.iter().fold(false, |acc, monomial| {
+                    acc ^ monomial_true(monomial)
+                });
+                if bit { output |= 1usize << qubit; }
+            }
+            assert_eq!(output, basis, "CP must preserve every computational basis state");
+
+            let mut accumulated = Rational::ZERO;
+            for (monomial, coefficient) in &ps.p.terms {
+                assert!(coefficient.symbols.is_empty(), "Only exact rational-pi source phases");
+                if monomial_true(monomial) {
+                    accumulated += coefficient.constant;
+                }
+            }
+            measured[basis] = accumulated;
+        }
+        measured
+    }
+
+    #[test]
+    fn cp_unreduced_two_qubit_exact_diagonal_phase_and_bra_conjugation() {
+        use crate::rational::Rational;
+        // These expected CP phases come from diag(1,1,1,e^(i*theta)),
+        // independently of the native P/CX decomposition.
+        for (angle, expected) in [
+            ("pi", Rational::HALF),
+            ("pi/2", Rational::QUARTER),
+            ("pi/4", Rational::new(1, 8)),
+            ("-pi/2", Rational::new(3, 4)),
+        ] {
+            for (control, target) in [(0, 1), (1, 0)] {
+                let source = format!(
+                    "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncp({angle}) q[{control}],q[{target}];"
+                );
+                let ket = cp_unreduced_basis_phases(&source, false);
+                let bra = cp_unreduced_basis_phases(&source, true);
+                assert_eq!(ket, [Rational::ZERO, Rational::ZERO, Rational::ZERO, expected],
+                           "wrong exact Ket diagonal CP phase for {angle}, {control}->{target}");
+                assert_eq!(bra, [Rational::ZERO, Rational::ZERO, Rational::ZERO,
+                                 Rational::ZERO - expected],
+                           "wrong exact Bra diagonal CP phase for {angle}, {control}->{target}");
+                if expected != Rational::ZERO {
+                    assert_ne!(ket, [Rational::ZERO; 4], "CP was silently erased");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cp_unreduced_cancellation_and_cz_source_semantics() {
+        use crate::rational::Rational;
+        let preamble = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\n";
+        let cancel = format!(
+            "{preamble}cp(pi/2) q[0],q[1];\ncp(-pi/2) q[0],q[1];"
+        );
+        let cz = format!("{preamble}cz q[0],q[1];");
+        let cp_pi = format!("{preamble}cp(pi) q[0],q[1];");
+        assert_eq!(cp_unreduced_basis_phases(&cancel, false), [Rational::ZERO;4]);
+        assert_eq!(cp_unreduced_basis_phases(&cancel, true), [Rational::ZERO;4]);
+        // Check the source CP(pi) phase agrees with the *independently
+        // implemented* CZ source gate, not merely another P/CX sequence.
+        assert_eq!(cp_unreduced_basis_phases(&cp_pi, false),
+                   cp_unreduced_basis_phases(&cz, false));
+        assert_eq!(cp_unreduced_basis_phases(&cp_pi, true),
+                   cp_unreduced_basis_phases(&cz, true));
+    }
+
 }

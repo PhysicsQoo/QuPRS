@@ -1,6 +1,15 @@
 name: Opt-in Rust QASM Strict Source Guard
 
 on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'rust/pathsum/src/qasm.rs'
+      - 'rust/pathsum/src/rational.rs'
+      - 'rust/pathsum/src/gates.rs'
+      - 'test/test_rust_qasm_fail_closed.py'
+      - 'test/test_rust_p_phase_semantics.py'
+      - '.github/workflows/rust-qasm-source-guard.yml'
   push:
     branches:
       - fix/rust-qasm-fail-closed-20261023
@@ -104,6 +113,7 @@ jobs:
           mkdir -p evidence
           sha256sum \
             rust/pathsum/src/qasm.rs \
+            rust/pathsum/src/rational.rs \
             rust/pathsum/src/gates.rs \
             test/test_rust_qasm_fail_closed.py \
             test/test_rust_p_phase_semantics.py \

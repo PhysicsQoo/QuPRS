@@ -274,6 +274,32 @@ mod tests {
         assert_eq!(ps.v.num_qubits, 2);
     }
     #[test]
+    fn nonzero_decimal_angles_must_not_collapse_to_identity() {
+        for theta in ["1e-12", "-1e-12", "1e-10", "4e-10", "1e-9", "1e-1000"] {
+            let qasm = format!(
+                "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nrz({theta}) q[0];"
+            );
+            let error = parse_qasm_str(&qasm).expect_err("nonzero angle must not vanish");
+            assert!(
+                error.contains("Nonzero source angle"),
+                "unexpected diagnostic for {theta}: {error}"
+            );
+        }
+        for theta in ["0", "0.0", "0e-1000", "pi", "pi/2", "0.001"] {
+            let qasm = format!(
+                "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nrz({theta}) q[0];"
+            );
+            assert!(parse_qasm_str(&qasm).is_ok(), "should accept {theta}");
+        }
+        for theta in ["1/0", "1e999"] {
+            let qasm = format!(
+                "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nrz({theta}) q[0];"
+            );
+            assert!(parse_qasm_str(&qasm).is_err(), "must reject {theta}");
+        }
+    }
+
+    #[test]
     fn reject_unsupported_qasm_gates_instead_of_discarding_them() {
         for (qasm, expected) in [
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncsx q[0],q[1];", "Unsupported QASM gate 'csx'"),

@@ -428,9 +428,19 @@ impl Angle {
         };
 
         let final_val = if is_negative { -multiplier } else { multiplier };
+        if !final_val.is_finite() {
+            return Err(format!("Non-finite source angle: {}", s));
+        }
         let pi_multiplier = final_val / std::f64::consts::PI;
-        
-        Ok(Angle::new_constant(FreeRational::from_f64(pi_multiplier)))
+        let approximated = FreeRational::from_f64(pi_multiplier);
+        // Never silently transform a nonzero QASM rotation into identity.
+        // Exact decimal-radian representation is a separate capability.
+        if final_val != 0.0 && approximated.is_zero() {
+            return Err(format!(
+                "Nonzero source angle cannot be represented without loss: {}", s
+            ));
+        }
+        Ok(Angle::new_constant(approximated))
     }
 
     fn eval_simple_expression(s: &str) -> Result<f64, String> {
@@ -454,6 +464,13 @@ impl Angle {
         if s == "pi" {
             Ok(std::f64::consts::PI)
         } else if let Ok(val) = s.parse::<f64>() {
+            if !val.is_finite() {
+                return Err(format!("Non-finite source angle token: {}", s));
+            }
+            let mantissa = s.split(|c| c == 'e' || c == 'E').next().unwrap_or(s);
+            if val == 0.0 && mantissa.bytes().any(|c| (b'1'..=b'9').contains(&c)) {
+                return Err(format!("Nonzero source angle token underflows f64: {}", s));
+            }
             Ok(val)
         } else if s.is_empty() {
             Ok(1.0)

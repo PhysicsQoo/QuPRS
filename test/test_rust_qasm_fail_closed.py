@@ -18,7 +18,7 @@ def verify(a, b, **kwargs):
 
 @pytest.mark.parametrize("unsupported", [
     lambda: _gate("csx"),
-    lambda: _gate("cp"),
+    lambda: _gate("crz"),
     lambda: _gate("measure"),
 ])
 def test_quantumcircuit_unsupported_gate_must_fail_closed(unsupported):
@@ -30,8 +30,8 @@ def _gate(name):
     c = QuantumCircuit(2, 1)
     if name == "csx":
         c.csx(0, 1)
-    elif name == "cp":
-        c.cp(0.125, 0, 1)
+    elif name == "crz":
+        c.crz(0.125, 0, 1)
     elif name == "measure":
         c.measure(0, 0)
     else:

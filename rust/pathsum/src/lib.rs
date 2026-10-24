@@ -10,6 +10,7 @@ pub mod strategy;
 pub mod stats;    
 pub mod wmc;
 mod solver_adapter;
+mod wmc_problem;
 mod diagnostics;
 pub use diagnostics::ExclusiveLedger;
 

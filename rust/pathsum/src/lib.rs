@@ -11,6 +11,7 @@ pub mod stats;
 pub mod wmc;
 mod solver_adapter;
 mod wmc_problem;
+pub mod solver_result;
 mod diagnostics;
 pub use diagnostics::ExclusiveLedger;
 

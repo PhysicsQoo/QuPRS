@@ -1,6 +1,19 @@
 name: Opt-in Python Rust Solver Conformance
 
 on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/utils/wmc_solvers.py'
+      - 'src/QuPRS/interface/ps2wmc.py'
+      - 'rust/pathsum/src/solver_adapter.rs'
+      - 'rust/pathsum/src/solver_result.rs'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'test/test_solver_adapter_contract.py'
+      - 'rust/pathsum/examples/solver_conformance.rs'
+      - 'scripts/run_solver_cross_backend.py'
+      - '.github/workflows/solver-cross-backend-conformance.yml'
   push:
     branches:
       - test/solver-cross-backend-conformance-20261024

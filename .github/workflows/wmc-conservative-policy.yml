@@ -8,14 +8,6 @@ on:
       - 'test/test_wmc_conservative_policy.py'
       - 'docs/development/wmc-evidence-policy.md'
       - '.github/workflows/wmc-conservative-policy.yml'
-  push:
-    branches:
-      - fix/wmc-conservative-evidence-20261023
-    paths:
-      - 'src/QuPRS/interface/load_qiskit.py'
-      - 'test/test_wmc_conservative_policy.py'
-      - 'docs/development/wmc-evidence-policy.md'
-      - '.github/workflows/wmc-conservative-policy.yml'
   workflow_dispatch:
 
 permissions:

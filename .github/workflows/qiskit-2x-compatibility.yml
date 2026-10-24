@@ -1,0 +1,180 @@
+name: Opt-in Qiskit 1.x versus 2.6.1 Compatibility
+
+# This is deliberately not part of required release checks; QuPRS declares
+# qiskit<2 and no production dependency change is made in this research PR.
+on:
+  push:
+    branches:
+      - research/qiskit26-compatibility-20261023
+    paths:
+      - '.diagnostics/qiskit_compatibility/**'
+      - '.github/workflows/qiskit-2x-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-compatibility:
+    name: "Python 3.12 / Qiskit ${{ matrix.qiskit }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ["1.4.6", "2.6.1"]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      QISKIT_VERSION: "${{ matrix.qiskit }}"
+      PYTHONHASHSEED: "0"
+      RAYON_NUM_THREADS: "2"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - name: Checkout exact production baseline and opt-in diagnostic
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust native build
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build unchanged QuPRS and its declared Qiskit 1.x dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+
+      - name: Pin isolated Qiskit source version without modifying project metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-deps "qiskit==$QISKIT_VERSION"
+          python -m pip install "qiskit-qasm3-import==0.6.0"
+          python - <<'PY'
+          import importlib.metadata
+          import os
+          found = importlib.metadata.version("qiskit")
+          assert found == os.environ["QISKIT_VERSION"], (found, os.environ["QISKIT_VERSION"])
+          print("PINNED_QISKIT_VERSION", found)
+          PY
+
+      - name: Capture package provenance and expected metadata compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/source-tree.txt
+          python --version > evidence/python-version.txt 2>&1
+          rustc --version > evidence/rust-version.txt 2>&1
+          uname -a > evidence/kernel.txt
+          python -m pip freeze > evidence/pip-freeze.txt
+          set +e
+          python -m pip check > evidence/pip-check.txt 2>&1
+          echo $? > evidence/pip-check-exit-code.txt
+          set -e
+          cat evidence/pip-check.txt
+          if [ "$QISKIT_VERSION" = "1.4.6" ]; then
+            test "$(cat evidence/pip-check-exit-code.txt)" -eq 0
+          fi
+          # The 2.x trial is intentionally inconsistent with the current
+          # published QuPRS qiskit<2 metadata; this is a recorded blocker.
+
+      - name: Compare QASM2 QASM3 register phase and fixed-seed transpiler behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/qiskit_compatibility/probe.py \
+            --version "$QISKIT_VERSION" --output evidence \
+            2>&1 | tee evidence/probe-log.txt
+
+      - name: Seal exact-head source-pinned observations
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          sha256sum \
+            pyproject.toml \
+            src/QuPRS/interface/load_qiskit.py \
+            src/QuPRS/utils/util.py \
+            .diagnostics/qiskit_compatibility/probe.py \
+            .diagnostics/qiskit_compatibility/compare.py \
+            .github/workflows/qiskit-2x-compatibility.yml \
+            > evidence/source-files-sha256.txt
+          (
+            cd evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve pinned Qiskit matrix evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiskit-compatibility-${{ matrix.qiskit }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  compare-matrix:
+    name: Analyze per-version Qiskit compiler and semantic behavior
+    needs: [pinned-compatibility]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: qiskit-compatibility-1.4.6
+          path: evidence-1x
+      - uses: actions/download-artifact@v4
+        with:
+          name: qiskit-compatibility-2.6.1
+          path: evidence-2x
+      - name: Validate per-version artifact hashes and compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd evidence-1x && sha256sum -c SHA256SUMS)
+          (cd evidence-2x && sha256sum -c SHA256SUMS)
+          python .diagnostics/qiskit_compatibility/compare.py \
+            --v1 evidence-1x/observations.json \
+            --v2 evidence-2x/observations.json \
+            --output comparison
+      - name: Seal comparison and keep source provenance
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p comparison
+          git rev-parse HEAD > comparison/source-head.txt
+          (
+            cd comparison
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve complete Qiskit 1x/2x parity comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiskit-1x-2x-compatibility-comparison
+          path: comparison/
+          retention-days: 30
+          if-no-files-found: error

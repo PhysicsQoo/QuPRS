@@ -1,0 +1,114 @@
+name: Opt-in Same Host WMC Adapter A-B
+
+on:
+  push:
+    branches:
+      - feat/rust-independent-wmc-adapters-20261024
+    paths:
+      - '.github/workflows/rust-solver-adapter-ab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-once:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: 2cda80a03686abe1de785d5741101781f12d6c4f
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare exact base and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ab-evidence
+          git rev-parse HEAD > .ab-evidence/head.txt
+          git rev-parse "$BASE_SHA" > .ab-evidence/base.txt
+          lscpu > .ab-evidence/cpu.txt
+          rustc --version > .ab-evidence/rust.txt
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          git -C "$RUNNER_TEMP/base" submodule update --init --recursive
+      - name: Compile both environments on the same runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          for branch in base head; do
+            if [ "$branch" = base ]; then root="$RUNNER_TEMP/base"; else root="$GITHUB_WORKSPACE"; fi
+            python -m venv "$RUNNER_TEMP/venv-$branch"
+            (
+              source "$RUNNER_TEMP/venv-$branch/bin/activate"
+              pip install 'maturin>=1.5,<2'
+              cd "$root"
+              export VIRTUAL_ENV="$RUNNER_TEMP/venv-$branch"
+              maturin develop --release -E dev
+              python -m QuPRS.utils.ganak_distribution
+              pip check
+              pip freeze > "$GITHUB_WORKSPACE/.ab-evidence/$branch-pip.txt"
+            )
+          done
+      - name: Interleave Base Head Head Base, preserve raw samples
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in "base 1" "head 1" "head 2" "base 2"; do
+            read -r branch batch <<< "$pair"
+            if [ "$branch" = base ]; then root="$RUNNER_TEMP/base"; else root="$GITHUB_WORKSPACE"; fi
+            (
+              cd "$root"
+              "$RUNNER_TEMP/venv-$branch/bin/python" \
+                "$GITHUB_WORKSPACE/scripts/measure_solver_adapter_ab.py" \
+                --label "$branch" --batch "$batch" \
+                --output "$GITHUB_WORKSPACE/.ab-evidence/$branch-$batch.json"
+            )
+          done
+      - name: Verify source and verdict consistency, calculate medians
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, statistics
+          d=pathlib.Path(".ab-evidence")
+          rows={x:[json.loads((d/f"{x}-{i}.json").read_text()) for i in (1,2)] for x in ("base","head")}
+          result=[]
+          for solver in ("gpmc","ganak"):
+              samples=[v for a in rows.values() for v in a]
+              assert len({tuple(v["input_sha256"]) for v in samples})==1
+              assert len({v["solvers"][solver]["verdict"] for v in samples})==1
+              groups={k:[x for v in values for x in v["solvers"][solver]["wall_seconds"]] for k,values in rows.items()}
+              b=statistics.median(groups["base"]); h=statistics.median(groups["head"])
+              result.append({"solver":solver,"base_median":b,"head_median":h,
+                             "relative_change":h/b-1,
+                             "base_batches":[v["solvers"][solver]["median"] for v in rows["base"]],
+                             "head_batches":[v["solvers"][solver]["median"] for v in rows["head"]]})
+          (d/"summary.json").write_text(json.dumps(result,indent=2)+"\n")
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Seal evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .ab-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Upload same-host raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-wmc-same-host-ab
+          path: .ab-evidence/
+          retention-days: 30
+          if-no-files-found: error

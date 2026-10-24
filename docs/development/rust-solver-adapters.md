@@ -21,3 +21,13 @@ Deferred: a solver-neutral WmcProblem encoding IR, public typed result
 and error model, per-run SHA256/version provenance, and Python/Rust
 Ganak/GPMC cross-backend conformance matrices. This is not completion
 of the entire Solver Plugin Architecture milestone.
+
+## Same-host performance control
+
+The opt-in A/B workflow builds pinned base and head variants on one
+runner, uses separate virtualenvs, and interleaves 20 measured QAOA7
+walltime calls (plus 3 warmups) for native Ganak and GPMC in
+base/head/head/base order. It captures raw samples, solver verdicts,
+source hashes, runner CPU information and dependency versions. This
+is empirical walltime evidence, not a universal performance guarantee
+or a numeric solver certificate.

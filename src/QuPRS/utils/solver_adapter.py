@@ -48,10 +48,17 @@ class SolverAdapter:
         pass
 
     def parse_output(self, stdout):
+        count = None
         for line in stdout.splitlines():
             parsed = parse_count_line(line)
             if parsed is not None:
-                return parsed
+                if count is not None and count != parsed:
+                    raise SolverResultError(
+                        f"{self.solver_id} WMC output contains conflicting counts"
+                    )
+                count = parsed
+        if count is not None:
+            return count
         raise SolverResultError(f"{self.solver_id} WMC output format error, result: {stdout}")
 
 

@@ -20,11 +20,16 @@ pub(crate) trait SolverAdapter: Sync {
     fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String);
     fn preflight(&self, _path: &str, _deadline: Option<Instant>) -> Result<()> { Ok(()) }
     fn parse_count(&self, stdout: &str) -> Result<Option<Complex<f64>>> {
-        let mut last = None;
+        let mut count = None;
         for line in stdout.lines() {
-            if let Some(value) = crate::wmc::parse_count_line(line)? { last = Some(value); }
+            if let Some(value) = crate::wmc::parse_count_line(line)? {
+                if count.is_some_and(|previous| previous != value) {
+                    return Err(anyhow!("{} WMC output contains conflicting counts", self.id()));
+                }
+                count = Some(value);
+            }
         }
-        Ok(last)
+        Ok(count)
     }
 }
 pub(crate) struct GpmcAdapter;
@@ -110,6 +115,20 @@ mod tests {
         assert!(b.weight_lines(1, w).0.contains(" - 1.2500000000000000e-1i 0\n"));
         assert!(a.parse_count("missing count").unwrap().is_none());
         assert!(b.parse_count("c s exact quadruple float inf").is_err());
+    }
+    #[test]
+    fn conflicting_count_lines_fail_closed_for_both_solvers() {
+        let one = "c s exact arb frac 3/2 + 1/4i";
+        let two = "c s exact arb frac 7/2 + 1/4i";
+        for solver in ["gpmc", "ganak"] {
+            let adapter = adapter_for(solver).unwrap();
+            assert_eq!(adapter.parse_count(one).unwrap(), Some(Complex::new(1.5,0.25)));
+            assert_eq!(adapter.parse_count(&format!("{one}\\n{one}").replace("\\n", "\n")).unwrap(), Some(Complex::new(1.5,0.25)));
+            for candidate in [format!("{one}\\n{two}"), format!("{two}\\n{one}")] {
+                assert!(adapter.parse_count(&candidate.replace("\\n", "\n"))
+                    .unwrap_err().to_string().contains("conflicting counts"));
+            }
+        }
     }
     struct MockAdapter;
     impl SolverAdapter for MockAdapter {

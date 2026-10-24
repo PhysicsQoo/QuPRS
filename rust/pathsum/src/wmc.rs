@@ -598,6 +598,7 @@ mod count_parser_tests {
                     "ok" => &["-c", "printf 'c s exact quadruple float 1.5 - 0.25i\\n'"],
                     "nonzero" => &["-c", "echo 'c s exact quadruple float 9'; exit 7"],
                     "missing" => &["-c", "echo 'no weighted count'"],
+                    "conflict" => &["-c", "printf 'c s exact quadruple float 1.5 - 0.25i\\nc s exact quadruple float 7.5 - 0.25i\\n'"],
                     _ => &["-c", "echo 'c s exact quadruple float nan'"],
                 }
             }
@@ -617,7 +618,8 @@ mod count_parser_tests {
         for (case,kind) in [
             ("nonzero",SolverFailureKind::NonzeroExit),
             ("missing",SolverFailureKind::MissingCount),
-            ("malformed",SolverFailureKind::MalformedCount)
+            ("malformed",SolverFailureKind::MalformedCount),
+            ("conflict",SolverFailureKind::MalformedCount)
         ] {
             let err=manager.solve_with_adapter(&Mock(case),deadline()).unwrap_err();
             let typed=err.downcast_ref::<SolverFailure>().expect("category must be typed");

@@ -99,3 +99,43 @@ def test_third_adapter_can_extend_without_core_changes(monkeypatch):
     assert seen == [["/fixtures/mock", "--test", "input.cnf"]]
     with pytest.raises(ValueError, match="Unsupported solver"):
         get_solver_adapter("mock")
+
+
+@pytest.mark.parametrize("solver", ["gpmc", "ganak"])
+def test_conflicting_count_lines_cannot_select_first_or_last(solver):
+    adapter = get_solver_adapter(solver)
+    one = "c s exact arb frac 3/2 + 1/4i"
+    two = "c s exact arb frac 7/2 + 1/4i"
+    assert adapter.parse_output(one) == complex(1.5, .25)
+    assert adapter.parse_output(one + "\n" + one) == complex(1.5, .25)
+    with pytest.raises(SolverResultError, match="conflicting counts"):
+        adapter.parse_output(one + "\n" + two)
+    with pytest.raises(SolverResultError, match="conflicting counts"):
+        adapter.parse_output(two + "\n" + one)
+
+
+@pytest.mark.parametrize("solver", ["gpmc", "ganak"])
+def test_conflicting_counts_fail_selected_solver_without_fallback(monkeypatch, solver):
+    import QuPRS.interface.ps2wmc as impl
+    import QuPRS.utils.solver_process as process
+    import QuPRS.utils.ganak_distribution as dist
+
+    @contextmanager
+    def resource(name):
+        assert name == solver
+        yield "/fixtures/" + solver
+
+    calls = []
+    def runner(command, *, timeout):
+        calls.append(command)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="c s exact arb frac 3/2 + 1/4i\nc s exact arb frac 7/2 + 1/4i",
+            stderr="",
+        )
+    monkeypatch.setattr(impl, "WMC", resource)
+    monkeypatch.setattr(process, "run", runner)
+    monkeypatch.setattr(dist, "binary_diagnostics", lambda *args, **kwargs: {})
+    with pytest.raises(SolverResultError, match="conflicting counts"):
+        run_wmc("input.cnf", solver, timeout=5)
+    assert calls == [["/fixtures/" + solver, *get_solver_adapter(solver).arguments, "input.cnf"]]

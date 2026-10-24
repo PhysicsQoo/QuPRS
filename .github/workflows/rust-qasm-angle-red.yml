@@ -1,0 +1,104 @@
+name: Opt-in Rust QASM Tiny-Angle Scientific RED
+
+# Isolated research diagnostic, not a required release or source-correctness gate.
+on:
+  push:
+    branches:
+      - research/rust-qasm-tiny-angle-red-20261023
+    paths:
+      - 'rust/pathsum/examples/qasm_angle_boundary.rs'
+      - '.diagnostics/rust_qasm_angle_red/**'
+      - '.github/workflows/rust-qasm-angle-red.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-qasm-source-angle-red:
+    name: Exact decimal-radian oracle versus Rust parsed Angle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact Rust source and dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build and reference tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'pytest>=8,<10'
+
+      - name: Capture exact-source QASM and actual Rust Angle provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .diagnostics/rust_qasm_angle_red/results
+          python -u .diagnostics/rust_qasm_angle_red/run_boundary.py \
+            --output .diagnostics/rust_qasm_angle_red/results \
+            2>&1 | tee .diagnostics/rust_qasm_angle_red/results/provenance-output.txt
+
+      - name: Verify mathematical oracle and preserved controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            .diagnostics/rust_qasm_angle_red/test_boundary.py::test_independent_exact_source_oracles \
+            .diagnostics/rust_qasm_angle_red/test_boundary.py::test_true_zero_and_retained_angle_controls \
+            .diagnostics/rust_qasm_angle_red/test_boundary.py::test_stage_attribution_controls \
+            --junitxml=.diagnostics/rust_qasm_angle_red/results/controls-junit.xml \
+            2>&1 | tee .diagnostics/rust_qasm_angle_red/results/controls-output.txt
+
+      - name: Enforce actual nonzero-QASM survival scientific RED
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -vv -ra \
+            .diagnostics/rust_qasm_angle_red/test_boundary.py::test_nonzero_qasm_rotation_must_survive_rust_angle_conversion_red \
+            --junitxml=.diagnostics/rust_qasm_angle_red/results/red-junit.xml \
+            > .diagnostics/rust_qasm_angle_red/results/red-output.txt 2>&1
+          result=$?
+          cat .diagnostics/rust_qasm_angle_red/results/red-output.txt
+          exit "$result"
+
+      - name: Seal source-pinned diagnostic evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .diagnostics/rust_qasm_angle_red/results
+          git rev-parse HEAD > source-head.txt
+          git rev-parse 'HEAD^{tree}' > source-tree.txt
+          python --version > python-version.txt 2>&1
+          rustc --version > rustc-version.txt 2>&1
+          uname -a > kernel.txt
+          sha256sum \
+            ../run_boundary.py \
+            ../test_boundary.py \
+            ../../../rust/pathsum/examples/qasm_angle_boundary.rs \
+            ../../../.github/workflows/rust-qasm-angle-red.yml \
+            > source-files-sha256.txt
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Preserve green controls and genuine pre-WMC scientific RED
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-qasm-tiny-angle-semantic-red
+          path: .diagnostics/rust_qasm_angle_red/results/
+          if-no-files-found: error
+          retention-days: 30

@@ -80,3 +80,25 @@ def test_equal_explicit_phases_do_not_mask_nonphase_difference():
     right.x(0)
     outcome=verify(left,right)
     assert outcome.equivalent=="not_equivalent"
+
+
+def test_equal_source_phase_does_not_hide_native_gate_scalar():
+    # XZXZ = -I; equal explicit input scalars cancel, but the gate-derived
+    # nonzero global phase must still be reported as equivalent*.
+    left, right = QuantumCircuit(1), QuantumCircuit(1)
+    left.global_phase = 0.125
+    right.global_phase = 0.125
+    for gate in ("x", "z", "x", "z"):
+        getattr(left, gate)(0)
+    result = verify(left, right)
+    assert result.equivalent == "equivalent*"
+    assert result.tool_time is None
+
+
+def test_equal_unbound_symbolic_source_phase_still_fails_closed():
+    phi = Parameter("phi")
+    left, right = QuantumCircuit(1), QuantumCircuit(1)
+    left.global_phase = phi
+    right.global_phase = phi
+    with pytest.raises(ValueError, match="bound numeric"):
+        verify(left, right)

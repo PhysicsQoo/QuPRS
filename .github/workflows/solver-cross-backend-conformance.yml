@@ -13,12 +13,14 @@ on:
       - 'test/test_solver_adapter_contract.py'
       - 'rust/pathsum/examples/solver_conformance.rs'
       - 'scripts/run_solver_cross_backend.py'
+      - 'scripts/run_python_source_conformance.py'
       - '.github/workflows/solver-cross-backend-conformance.yml'
   push:
     branches:
       - test/solver-cross-backend-conformance-20261024
     paths:
       - 'scripts/run_solver_cross_backend.py'
+      - 'scripts/run_python_source_conformance.py'
       - 'rust/pathsum/examples/solver_conformance.rs'
       - '.github/workflows/solver-cross-backend-conformance.yml'
       - 'rust/pathsum/src/wmc.rs'
@@ -63,6 +65,12 @@ jobs:
           mkdir -p solver-conformance-evidence
           python -u scripts/run_solver_cross_backend.py --out solver-conformance-evidence \
             2>&1 | tee solver-conformance-evidence/runner.log
+      - name: Validate independent Python-emitted source CNFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/run_python_source_conformance.py --out solver-conformance-evidence \
+            2>&1 | tee solver-conformance-evidence/python-source-runner.log
       - name: Seal source and provenance evidence
         if: always()
         shell: bash
@@ -77,6 +85,7 @@ jobs:
           python -m pip freeze > solver-conformance-evidence/packages.txt
           sha256sum rust/pathsum/examples/solver_conformance.rs \
             scripts/run_solver_cross_backend.py \
+            scripts/run_python_source_conformance.py \
             .github/workflows/solver-cross-backend-conformance.yml \
             > solver-conformance-evidence/source-files.sha256
           (

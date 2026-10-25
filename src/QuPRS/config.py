@@ -4,8 +4,8 @@ TOLERANCE = 1e-10
 # Solver-output acceptance is independent of symbolic reduction tolerance.
 # These are Python public-API defaults; every call may override both values.
 # Keep symbolic reduction TOLERANCE independent from WMC numerical policy.
-WMC_MAGNITUDE_TOLERANCE = 1e-10
-WMC_PHASE_TOLERANCE = 1e-10
+WMC_MAGNITUDE_TOLERANCE = 1e-8
+WMC_PHASE_TOLERANCE = 1e-8
 
 
 def set_tolerance(new_tolerance: float):

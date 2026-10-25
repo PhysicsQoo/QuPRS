@@ -320,14 +320,14 @@ the original circuit parameters or the numerical type used upstream.
 
 Both Python and Rust WMC public API backends classify the unrounded,
 normalized complex count with user-selectable **per-call** thresholds.
-The proposed default magnitude and phase thresholds are `1e-10` each
+The proposed default magnitude and phase thresholds are `1e-8` each
 (historically `1e-6`); for example:
 
 ```python
 result = check_equivalence(
     circuit1, circuit2, method="wmc_only", backend="rust",
-    wmc_magnitude_tolerance=1e-10,
-    wmc_phase_tolerance=1e-10,
+    wmc_magnitude_tolerance=1e-8,
+    wmc_phase_tolerance=1e-8,
 )
 print(result.equivalent, result.wmc_magnitude_tolerance)
 ```

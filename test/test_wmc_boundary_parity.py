@@ -58,7 +58,8 @@ def test_real_solver_magnitude_policy_is_not_physical_equivalence(
         theta = mp.mpf(str(angle))
         normalized_trace = mp.cos(theta / 2)
         # Independent high-precision derivation, not QuPRS's WMC classifier.
-        trace_budget = mp.mpf(str(config.WMC_MAGNITUDE_TOLERANCE))
+        # Pin the historical heuristic boundary independently of API defaults.
+        trace_budget = mp.mpf("1e-6")
         predicted = (
             "equivalent" if abs(normalized_trace - 1) < trace_budget
             else "not_equivalent"
@@ -71,6 +72,7 @@ def test_real_solver_magnitude_policy_is_not_physical_equivalence(
     result = check_equivalence(
         identity, target, backend=backend, tool_name=solver,
         method="wmc_only", timeout=60,
+        wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6,
     )
     assert result.equivalent == expected, (
         f"solver={solver}, backend={backend}, angle={angle}, "

@@ -86,6 +86,35 @@ pub fn check_equivalence(
     tool_name: &str,
     timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
+    // Preserve the historical native-core entrypoint for direct Rust callers.
+    check_equivalence_with_tolerances(
+        num_qubits, gates1, gates2, method, strategy, tool_name, timeout_secs,
+        1e-6, 1e-6,
+    )
+}
+
+/// WMC decision thresholds are per-request policy, not symbolic reduction rules.
+/// This does not change the selected model counter or any PathSum transformation.
+pub fn check_equivalence_with_tolerances(
+    num_qubits: usize,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+    method: VerificationMethod,
+    strategy: VerificationStrategy,
+    tool_name: &str,
+    timeout_secs: u64,
+    wmc_magnitude_tolerance: f64,
+    wmc_phase_tolerance: f64,
+) -> Result<EquivalenceCheckResult> {
+    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
+        || wmc_magnitude_tolerance >= 1.0
+        || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
+        || wmc_phase_tolerance >= 1.0
+    {
+        return Err(anyhow::anyhow!(
+            "WMC magnitude and phase tolerances must be finite in (0, 1)"
+        ));
+    }
     let global_start = Instant::now();
     let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
@@ -197,10 +226,10 @@ pub fn check_equivalence(
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
         let norm = final_amplitude.norm();
-        if (norm - 1.0).abs() < 1e-6 {
+        if (norm - 1.0).abs() < wmc_magnitude_tolerance {
             let theta = final_amplitude.im.atan2(final_amplitude.re);
             info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-            if theta.abs() < 1e-6 {
+            if theta.abs() < wmc_phase_tolerance {
                 status = EquivalenceStatus::Equivalent;
             } else {
                 status = EquivalenceStatus::EquivalentUpToGlobalPhase;

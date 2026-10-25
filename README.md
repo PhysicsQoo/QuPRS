@@ -318,14 +318,33 @@ both solver inputs with 17 significant decimal digits in scientific notation
 nine-decimal quantization. Input precision cannot exceed the information in
 the original circuit parameters or the numerical type used upstream.
 
-Both Python and Rust WMC backends classify the unrounded, normalized complex
-count using `1e-6` magnitude and phase thresholds. Python exposes these as
-`config.WMC_MAGNITUDE_TOLERANCE` and `config.WMC_PHASE_TOLERANCE`;
-`config.TOLERANCE` remains the independent symbolic-reduction tolerance
-(default `1e-10`). Nonzero global phase gives `equivalent*` when the count
-magnitude passes the threshold. Python uses a scaled log-magnitude and signed
-`atan2`, avoiding overflow, zero-count division, and negative phases wrapping
-to nearly `2*pi`.
+Both Python and Rust WMC public API backends classify the unrounded,
+normalized complex count with user-selectable **per-call** thresholds.
+The proposed default magnitude and phase thresholds are `1e-8` each
+(historically `1e-6`); for example:
+
+```python
+result = check_equivalence(
+    circuit1, circuit2, method="wmc_only", backend="rust",
+    wmc_magnitude_tolerance=1e-8,
+    wmc_phase_tolerance=1e-8,
+)
+print(result.equivalent, result.wmc_magnitude_tolerance)
+```
+
+Omitting either argument uses `config.WMC_MAGNITUDE_TOLERANCE` or
+`config.WMC_PHASE_TOLERANCE`. Each accepted threshold must be finite
+and strictly between 0 and 1. The effective values are recorded with
+the result. The public Python interface passes the same values to the
+Rust backend; direct legacy Rust core callers keep their historical
+defaults. `config.TOLERANCE` remains the independent symbolic-reduction
+tolerance (default `1e-10`), **not** a WMC setting. Nonzero global phase
+gives `equivalent*` when the count magnitude passes the threshold.
+Python uses a scaled log-magnitude and signed `atan2`, avoiding overflow,
+zero-count division, and negative phases wrapping to nearly `2*pi`.
+See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md)
+for the current candidate's acceptance limits and QCEC/Quokka-Sharp metric
+comparison. A tighter numerical threshold is not a mathematical certificate.
 Results closer to a decision boundary than encoding or printed-count
 error should be checked independently; agreement between two solvers alone does
 not establish exact equivalence. Nonzero exits, crashes, missing results and

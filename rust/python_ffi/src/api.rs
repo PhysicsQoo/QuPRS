@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use pathsum::{
-    check_equivalence as core_check_equivalence,
+    check_equivalence_with_tolerances as core_check_equivalence_with_tolerances,
     VerificationMethod, VerificationStrategy, EquivalenceStatus,
     ir::QuantumOp, qasm,
 };
@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -51,8 +51,19 @@ pub fn check_equivalence(
     tool_name: &str,
     timeout: u64,
     safe_mode: bool,
+    wmc_magnitude_tolerance: f64,
+    wmc_phase_tolerance: f64,
 ) -> PyResult<PyObject> {
     let _ = safe_mode;
+    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
+        || wmc_magnitude_tolerance >= 1.0
+        || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
+        || wmc_phase_tolerance >= 1.0
+    {
+        return Err(PyValueError::new_err(
+            "WMC magnitude and phase tolerances must be finite in (0, 1)"
+        ));
+    }
 
     // Diagnostics-only FFI phase clock: default results are unchanged.
     // This is an extra opt-in and deliberately does not affect solver timing.
@@ -100,7 +111,11 @@ pub fn check_equivalence(
     let native_bridge_start = ffi_clock_enabled.then(Instant::now);
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
-            core_check_equivalence(system_qubits, &ops1, &ops2, rs_method, rs_strategy, &tool_name_owned, timeout)
+            core_check_equivalence_with_tolerances(
+                system_qubits, &ops1, &ops2, rs_method, rs_strategy,
+                &tool_name_owned, timeout, wmc_magnitude_tolerance,
+                wmc_phase_tolerance,
+            )
         })
     }).map_err(|e| PyValueError::new_err(format!("Verification Engine Failed: {}", e)))?;
     let native_bridge_ns = native_bridge_start.map(|start| start.elapsed().as_nanos() as u64);

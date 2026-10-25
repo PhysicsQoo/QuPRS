@@ -116,11 +116,29 @@ def parse_rust_phases(raw):
 
 
 def replay_rust(cnf, raw_phase):
+    phases = parse_rust_phases(raw_phase)
+    # This independent verifier is based on dev, not the branch-specific
+    # Boolean proof in the original Rust run. Recompute activation from the
+    # archived CNF itself; NEVER trust the original JSON truth flags.
+    phase_by_kind = {data[2]: lit for lit, data in phases.items()}
+    check(len(cnf.weights) == 3
+          and set(phase_by_kind) == {"", "0"}
+          and len(set(phase_by_kind.values())) == 2,
+          "Unexpected Rust one-input/two-phase CNF structure")
+    inputs = set(range(1, 4)) - set(phase_by_kind.values())
+    check(len(inputs) == 1, "Ambiguous CNF input variable")
+    input_var = inputs.pop()
+    w0, w1 = witnesses(cnf, input_var)
+    constant_var = phase_by_kind[""]
+    bit_var = phase_by_kind["0"]
+    is_set = lambda a, index: bool(a & (1 << (index-1)))
+    check(is_set(w0, constant_var) and is_set(w1, constant_var)
+          and not is_set(w0, bit_var) and is_set(w1, bit_var),
+          "Rust weighted literal activation disagrees with source monomials")
     proof = audit_single_rz_bra_source(
-        QASM.decode(),cnf,parse_rust_phases(raw_phase),
+        QASM.decode(),cnf,phases,
         num_qubits=1,num_pathvar=0)
     check(proof["source_radians"] == "1/5000"
-          and proof["source_boolean_encoding_proof"]["weighted_literal_activation_verified"]
           and proof["source_reference_strictly_below_one"]
           and proof["source_represented_printed_hull_strictly_below_one"],
           "Rust phase/source/CNF proof inconclusive")
@@ -128,7 +146,12 @@ def replay_rust(cnf, raw_phase):
           "Native arithmetic is not certified")
     return {"upper":proof["source_represented_printed_hull_normalized_magnitude"]["upper"],
             "source_upper":proof["source_reference_normalized_magnitude"]["upper"],
-            "boolean_witnesses":proof["source_boolean_encoding_proof"]}
+            "boolean_witnesses":{
+                "input_variable":input_var,
+                "unique_extensions":[str(w0),str(w1)],
+                "constant_phase_literal":constant_var,
+                "input_bit_phase_literal":bit_var,
+                "activation_verified":True}}
 
 
 def replay(folder,backend):

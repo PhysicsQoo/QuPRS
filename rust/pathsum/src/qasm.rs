@@ -274,28 +274,45 @@ mod tests {
         assert_eq!(ps.v.num_qubits, 2);
     }
     #[test]
-    fn nonzero_decimal_angles_must_not_collapse_to_identity() {
-        for theta in ["1e-12", "-1e-12", "1e-10", "4e-10", "1e-9", "1e-1000"] {
+    fn decimal_angles_retain_exact_source_or_fail_closed() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        for (theta, numerator, denominator) in [
+            ("1e-12", 1_i64, 1_000_000_000_000_i64),
+            ("-1e-12", -1_i64, 1_000_000_000_000_i64),
+            ("1e-10", 1_i64, 10_000_000_000_i64),
+            ("4e-10", 4_i64, 10_000_000_000_i64),
+            ("1e-9", 1_i64, 1_000_000_000_i64),
+        ] {
             let qasm = format!(
                 "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nrz({theta}) q[0];"
             );
-            let error = parse_qasm_str(&qasm).expect_err("nonzero angle must not vanish");
-            assert!(
-                error.contains("Nonzero source angle"),
-                "unexpected diagnostic for {theta}: {error}"
-            );
+            let (ops, count) = parse_qasm_str(&qasm).expect("bounded nonzero angle must survive");
+            assert_eq!(count, 1);
+            match &ops[0] {
+                QuantumOp::RZ(0, angle) => {
+                    assert_eq!(angle.constant.numer, 0);
+                    assert_eq!(
+                        angle.radians,
+                        Some(BigRational::new(
+                            BigInt::from(numerator), BigInt::from(denominator)
+                        ))
+                    );
+                }
+                op => panic!("expected RZ, got {op:?}"),
+            }
         }
-        for theta in ["0", "0.0", "0e-1000", "pi", "pi/2", "0.001"] {
+        for theta in ["0", "0.0", "0e-1000", "-0e-1000", "pi", "pi/2", "0.001"] {
             let qasm = format!(
                 "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nrz({theta}) q[0];"
             );
-            assert!(parse_qasm_str(&qasm).is_ok(), "should accept {theta}");
+            assert!(parse_qasm_str(&qasm).is_ok(), "must accept {theta}");
         }
-        for theta in ["1/0", "1e999"] {
+        for theta in ["1e-1000", "1/0", "1e999", "1e-2147483648", "pi*pi"] {
             let qasm = format!(
                 "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nrz({theta}) q[0];"
             );
-            assert!(parse_qasm_str(&qasm).is_err(), "must reject {theta}");
+            assert!(parse_qasm_str(&qasm).is_err(), "must reject unsupported {theta}");
         }
     }
 

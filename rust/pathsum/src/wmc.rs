@@ -87,7 +87,12 @@ impl WmcManager {
     fn encode_phase_polynomial(&mut self, ps: &PathSum) {
         for (mono, coeff) in &ps.p.terms {
             let phase_val = (coeff.constant.numer as f64) / (coeff.constant.denom as f64);
-            let angle = phase_val * 2.0 * PI;
+            // Convert exact source radians only at the floating solver boundary.
+            // These weights are observations, not mathematical certificates.
+            let radian_component = coeff.radians.as_ref()
+                .map(|value| value.to_f64().unwrap_or(f64::NAN))
+                .unwrap_or(0.0);
+            let angle = phase_val * 2.0 * PI + 2.0 * radian_component;
             let weight = Complex::new(angle.cos(), angle.sin());
 
             let z_i = self.next_var_id;

@@ -18,7 +18,9 @@ class HighDenominatorPhaseBoundary(unittest.TestCase):
         ):
             with self.subTest(denominator=denominator):
                 phase=local_wrapped_phase(numerator,denominator)
-                self.assertTrue(phase.real.lower <= 1 <= phase.real.upper)
+                # For a small *nonzero* angle cos(theta) is genuinely < 1;
+                # an outward enclosure may therefore exclude exactly one.
+                self.assertTrue(0 < phase.real.lower <= phase.real.upper <= 1)
                 self.assertTrue(phase.abs_squared().lower <= 1
                                 <= phase.abs_squared().upper)
                 self.assertLess(phase.imag.upper-phase.imag.lower,F(1,10**20))

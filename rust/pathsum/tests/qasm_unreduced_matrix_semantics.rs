@@ -51,7 +51,7 @@ fn matrix_from_unreduced(ps: &PathSum) -> M {
                     }
                 }
             }
-            matrix[output][input] += C::from_polar(1.0, TAU * phase_cycles)
+            matrix[output][input as usize] += C::from_polar(1.0, TAU * phase_cycles)
                 / normalization.sqrt();
         }
     }

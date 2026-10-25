@@ -73,7 +73,7 @@ class RZSequenceSourceTheoremTests(unittest.TestCase):
             canonical.replace("rz(","rx("),
             canonical.replace("qreg q[1]", "qreg q[2]"),
             canonical.replace("0.0002","1.3"),
-            make_qasm(("0.0002",)*5) if False else HEADER+"rz(0.0002) q[0];\n"*5,
+            HEADER+"rz(0.0002) q[0];\n"*5,
             canonical+"//injected\n",
             canonical.replace("0.0002","nan"),
         ):
@@ -82,7 +82,7 @@ class RZSequenceSourceTheoremTests(unittest.TestCase):
 
     def test_reject_phase_range_but_preserve_source_equivalence(self):
         with self.assertRaises(ValueError):
-            compare_sources(make_qasm(()),make_qasm(("0.5","0.5")))
+            compare_sources(make_qasm(()),make_qasm(("0.5","0.5","0.5")))
         with self.assertRaises(ValueError):
             parse_qasm(make_qasm(("0.8",)))
         valid=compare_sources(make_qasm(("0.0002","-0.0002")),make_qasm(()))

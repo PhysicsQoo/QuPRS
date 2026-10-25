@@ -14,6 +14,8 @@ on:
       - 'rust/pathsum/examples/solver_conformance.rs'
       - 'scripts/run_solver_cross_backend.py'
       - 'scripts/run_python_source_conformance.py'
+      - 'scripts/run_source_interval_bridge.py'
+      - '.diagnostics/wmc_interval_reference/**'
       - '.github/workflows/solver-cross-backend-conformance.yml'
   push:
     branches:
@@ -21,6 +23,8 @@ on:
     paths:
       - 'scripts/run_solver_cross_backend.py'
       - 'scripts/run_python_source_conformance.py'
+      - 'scripts/run_source_interval_bridge.py'
+      - '.diagnostics/wmc_interval_reference/**'
       - 'rust/pathsum/examples/solver_conformance.rs'
       - '.github/workflows/solver-cross-backend-conformance.yml'
       - 'rust/pathsum/src/wmc.rs'
@@ -71,6 +75,18 @@ jobs:
           set -euo pipefail
           python -u scripts/run_python_source_conformance.py --out solver-conformance-evidence \
             2>&1 | tee solver-conformance-evidence/python-source-runner.log
+      - name: Validate bounded source-to-emitted-CNF proof controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            .diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py \
+            .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            --junitxml=solver-conformance-evidence/source-interval-controls.xml \
+            2>&1 | tee solver-conformance-evidence/source-interval-controls.log
+          python -u scripts/run_source_interval_bridge.py --out solver-conformance-evidence \
+            2>&1 | tee solver-conformance-evidence/source-interval-bridge.log
       - name: Seal source and provenance evidence
         if: always()
         shell: bash
@@ -86,6 +102,11 @@ jobs:
           sha256sum rust/pathsum/examples/solver_conformance.rs \
             scripts/run_solver_cross_backend.py \
             scripts/run_python_source_conformance.py \
+            scripts/run_source_interval_bridge.py \
+            .diagnostics/wmc_interval_reference/python_diagonal_source_certificate.py \
+            .diagnostics/wmc_interval_reference/interval_wmc.py \
+            .diagnostics/wmc_interval_reference/import_dimacs.py \
+            .diagnostics/wmc_interval_reference/phase_coeff_reference.py \
             .github/workflows/solver-cross-backend-conformance.yml \
             > solver-conformance-evidence/source-files.sha256
           (

@@ -27,7 +27,27 @@ def fixture():
                if b=="python"
                else {"boolean_witnesses":{
                    "input_variable":3,"unique_extensions":["1","7"],
+                   "constant_phase_literal":1,
+                   "input_bit_phase_literal":2,
                    "activation_verified":True}}),
+            "independent_analytic_source_oracle":{
+                "kind":"independent_source_analytic_negative",
+                "backend":b,"solver":s,
+                "source_sha256":SOURCE_QASM_SHA256,
+                "cnf_sha256":"a"*64,
+                "source_angle_radians":"1/5000",
+                "analytic_cosine_lower":
+                    str(1-Fraction(1,10000)**2/2),
+                "analytic_cosine_upper":
+                    str(1-Fraction(1,10000)**2/2+Fraction(1,10000)**4/24),
+                "unique_witnesses":["2","7"] if b=="python" else ["1","7"],
+                "constant_phase_literal":2 if b=="python" else 1,
+                "bit_phase_literal":3 if b=="python" else 2,
+                "source_semantics_conditional":True,
+                "printed_weight_bound_claimed":False,
+                "general_compiler_certified":False,
+                "native_solver_certified":False,
+            },
         },
     } for b,head in SOURCE_HEAD.items() for s in ("gpmc","ganak")]
 
@@ -76,6 +96,31 @@ class TrustContractTests(unittest.TestCase):
                 v=fixture()
                 v[0].update(edit)
                 source_cnf_bundle(v,SOURCE_QASM_SHA256)
+
+    def test_independent_oracle_is_required_and_bound_to_raw_replay(self):
+        for key,value in (
+            ("analytic_cosine_upper","1"),
+            ("source_sha256","0"*64),
+            ("source_angle_radians","1/1000"),
+            ("unique_witnesses",["0","0"]),
+            ("constant_phase_literal",3),
+            ("printed_weight_bound_claimed",True),
+            ("native_solver_certified",True),
+            ("source_semantics_conditional",False),
+        ):
+            with self.subTest(key=key),self.assertRaises(ValueError):
+                rows=fixture()
+                rows[0]["replay"]["independent_analytic_source_oracle"][key]=value
+                source_cnf_bundle(rows,SOURCE_QASM_SHA256)
+
+    def test_independent_oracle_does_not_promote_native_solver(self):
+        doc=source_cnf_bundle(fixture(),SOURCE_QASM_SHA256)
+        for row in doc["records"]:
+            self.assertTrue(row["independent_cnfs_boolean_shape_checked"])
+            self.assertFalse(row["independent_source_oracle_printed_weight_bound"])
+            self.assertFalse(row["native_solver_arithmetic_certified"])
+            self.assertFalse(row["strict_positive_equivalence_certified"])
+            self.assertLess(Fraction(row["independent_analytic_source_upper"]),1)
 
     def test_complete_unique_cross_backend_required(self):
         for rows in (fixture()[:3],fixture()+fixture()[:1]):

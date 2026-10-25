@@ -115,7 +115,50 @@ def source_cnf_bundle(raw_replayed_records, expected_source_hash):
                   and all(isinstance(x,str) and x.isdecimal()
                           for x in witness["unique_extensions"]),
                   "Rust replay missing independent Boolean activation witnesses")
+        # Separately recomputed stdlib source/CNF-Boolean oracle.
+        # This independently checks ideal source inequivalence, NOT that
+        # printed weights or Rust-represented fractions enclose source phases.
+        oracle = replay.get("independent_analytic_source_oracle")
+        check(isinstance(oracle,dict)
+              and oracle.get("kind")=="independent_source_analytic_negative"
+              and oracle.get("backend")==backend
+              and oracle.get("solver")==solver
+              and oracle.get("source_sha256")==expected_source_hash
+              and oracle.get("cnf_sha256")==record["cnf_sha256"]
+              and oracle.get("source_angle_radians")=="1/5000"
+              and oracle.get("source_semantics_conditional") is True
+              and oracle.get("printed_weight_bound_claimed") is False
+              and oracle.get("general_compiler_certified") is False
+              and oracle.get("native_solver_certified") is False,
+              "Missing/invalid independent analytic source oracle")
+        x = Fraction(1,10000)
+        analytic_lower = 1-x*x/2
+        analytic_upper = analytic_lower+x**4/24
+        check(oracle.get("analytic_cosine_lower")==str(analytic_lower)
+              and oracle.get("analytic_cosine_upper")==str(analytic_upper)
+              and analytic_upper < 1,
+              "Analytic source Taylor bound not the exact rational lemma")
+        ow = oracle.get("unique_witnesses")
+        check(isinstance(ow,list) and len(ow)==2
+              and len(set(ow))==2
+              and all(isinstance(z,str) and z.isdecimal() for z in ow),
+              "Independent CNF witness data absent/invalid")
+        if backend == "python":
+            check(ow == witness
+                  and oracle.get("constant_phase_literal")==roles["constant"]
+                  and oracle.get("bit_phase_literal")==roles["bit"],
+                  "Python independent CNF witness/phase mismatch")
+        else:
+            check(ow == witness["unique_extensions"]
+                  and oracle.get("constant_phase_literal") ==
+                      replay["boolean_witnesses"].get("constant_phase_literal")
+                  and oracle.get("bit_phase_literal") ==
+                      replay["boolean_witnesses"].get("input_bit_phase_literal"),
+                  "Rust independent CNF witness/phase mismatch")
         output.append({
+            "independent_analytic_source_upper":str(analytic_upper),
+            "independent_cnfs_boolean_shape_checked":True,
+            "independent_source_oracle_printed_weight_bound":False,
             "kind":Kind.SOURCE_MODEL_NEGATIVE.value,
             "status":"non_equivalent_within_audited_source_cnf_model",
             "backend":backend,"solver":solver,

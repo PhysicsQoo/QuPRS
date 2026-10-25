@@ -31,6 +31,9 @@ def sha256(data):
 
 
 CASES = (
+    # Scientific residual from the stricter 1e-8 numerical acceptance band.
+    # This source/CNF proof does not modify or certify the native solver verdict.
+    ("rz_below_tolerance", ("rz(0.0002)",), "PROVED_NON_EQUIVALENT"),
     ("rz_near", ("rz(0.001)",), "PROVED_NON_EQUIVALENT"),
     ("rz_far", ("rz(0.01)",), "PROVED_NON_EQUIVALENT"),
     ("rz_twice", ("rz(0.0006)", "rz(0.0004)"), "PROVED_NON_EQUIVALENT"),

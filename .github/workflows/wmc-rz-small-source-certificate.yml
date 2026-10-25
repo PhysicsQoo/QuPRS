@@ -1,0 +1,131 @@
+name: Opt-in Small-RZ Source-CNF Certificate
+
+# Narrow scientific follow-up: exact decimal RZ against emitted weighted CNF.
+# Not a production/verifier equivalence gate; no solver threshold changes.
+on:
+  push:
+    branches:
+      - research/wmc-rz0002-source-cnf-certificate-20261025
+    paths:
+      - '.diagnostics/wmc_interval_reference/run_python_source_certificate.py'
+      - '.diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py'
+      - '.diagnostics/wmc_interval_reference/README.md'
+      - '.github/workflows/wmc-rz-small-source-certificate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  small-rz-source-cnf:
+    name: Exact source-RZ intervals on actual Python CNFs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Check out exact source and real solver dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build source-native QuPRS and both solvers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+      - name: Validate rational source semantics and CNF proof controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p small-rz-source-cnf-results
+          python -m pytest -q -ra \
+            .diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py \
+            .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            --junitxml=small-rz-source-cnf-results/controls-junit.xml \
+            2>&1 | tee small-rz-source-cnf-results/controls-output.txt
+      - name: Verify actual emitted Python CNFs and observe both solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/wmc_interval_reference/run_python_source_certificate.py \
+            --output small-rz-source-cnf-results \
+            2>&1 | tee small-rz-source-cnf-results/bridge-output.txt
+      - name: Enforce small-angle source-CNF scientific certificate contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from fractions import Fraction
+          from pathlib import Path
+          folder = Path("small-rz-source-cnf-results")
+          summary = json.loads((folder / "summary.json").read_text())
+          assert summary["status"] == "PASS", summary["status"]
+          records = [r for r in summary["observations"]
+                     if r["source_name"] == "rz_below_tolerance"]
+          assert len(records) == 2 and {r["solver"] for r in records} == {"gpmc", "ganak"}
+          for record in records:
+              assert record["check_passed"]
+              assert record["claimed_outcome"] == "PROVED_NON_EQUIVALENT"
+              assert record["native_observational_only"] is True
+              proof = record["source_certificate"]
+              assert proof["source_non_equivalent_up_to_global_phase_proved"]
+              assert proof["source_printed_hull_strictly_below_one"]
+              assert proof["formal_source_wmc_non_equivalence_supported"]
+              assert not proof["native_solver_internal_rounding_certified"]
+              assert not proof["general_qasm_compiler_certified"]
+              assert proof["source_boolean_encoding_proof"]["weighted_literal_activation_verified"]
+              bound = proof["inclusive_source_printed_normalized_magnitude"]
+              assert Fraction(bound["upper"]) < 1, bound
+              assert record["qasm_sha256"] and record["cnf_sha256"]
+              print("SMALL_RZ_CNF_SOURCE_CERTIFICATE", record["solver"],
+                    "UPPER_LT_ONE", bound["upper"])
+          PY
+      - name: Seal source hashes and native evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p small-rz-source-cnf-results
+          git rev-parse HEAD > small-rz-source-cnf-results/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > small-rz-source-cnf-results/source-tree.txt
+          python --version > small-rz-source-cnf-results/python-version.txt 2>&1
+          python -m pip freeze > small-rz-source-cnf-results/python-packages.txt
+          sha256sum \
+            src/QuPRS/pathsum/gates/single_qubit.py \
+            src/QuPRS/interface/ps2wmc.py \
+            .diagnostics/wmc_interval_reference/interval_wmc.py \
+            .diagnostics/wmc_interval_reference/python_diagonal_source_certificate.py \
+            .diagnostics/wmc_interval_reference/run_python_source_certificate.py \
+            .diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py \
+            .github/workflows/wmc-rz-small-source-certificate.yml \
+            > small-rz-source-cnf-results/source-files-sha256.txt
+          (
+            cd small-rz-source-cnf-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve source / CNF / solver evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-rz-source-cnf-certificate
+          path: small-rz-source-cnf-results/
+          retention-days: 30
+          if-no-files-found: error

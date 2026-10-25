@@ -201,6 +201,36 @@ python -m pytest -q \
 ```
 
 
+## New near-identity counterexample under 1e-8 numerical acceptance
+
+The research-only source-to-actual-Python-CNF runner now includes the
+one-qubit `rz(0.0002)` case. Its exact source decimal is `1/5000`
+radians. The independent source trace has magnitude
+`cos(1/10000)`, with ideal unit defect about `5e-9`, which
+lies within QuPRS's 1e-8 numerical WMC acceptance band.
+
+For **each** selected GPMC/Ganak CNF, the runner requires the source
+phase formula, the actual emitted weighted-CNF literal activation
+and unique Boolean extension, and an outward-rational interval
+enclosing the source and printed complex weights whose normalized
+magnitude upper bound is **strictly less than one**. If the
+enclosure touches one or the encoding is unsupported, it must
+**not** claim non-equivalence. Actual solver stdout and binary
+SHA256 are saved as distinct *observations*, not part of the proof.
+
+This is a restricted source-model/CNF encoding audit only, not a
+generic QASM compiler proof or a floating-point error bound on native
+GPMC/Ganak. It does not automatically alter `check_equivalence`
+results, the paper's reduction-first Hybrid or the configurable
+numerical policy. The independent native WMC strict-positive
+scientific RED is kept in Draft PR #90.
+
+The standalone opt-in [small-RZ source-CNF workflow]
+(../../.github/workflows/wmc-rz-small-source-certificate.yml)
+runs the independent rational test and the actual Python source-CNF
+generator against both native solvers; the existing broader certificate
+workflow remains unchanged.
+
 ## Python source-decimal diagonal-family certificate (bounded)
 
 The new separate research job compares **exact literal source QASM**

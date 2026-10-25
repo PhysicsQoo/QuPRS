@@ -2,7 +2,7 @@
 from fractions import Fraction as F
 import unittest
 
-from interval_wmc import ComplexInterval, WeightedCNF
+from interval_wmc import ComplexInterval, WeightedCNF, normalized_magnitude
 from python_diagonal_source_certificate import (
     audit_diagonal_source_to_emitted_cnf,
     boolean_truth_table, parse_diagonal_qasm, phase_kind,
@@ -21,6 +21,23 @@ class PythonSourceCertificateTests(unittest.TestCase):
         self.assertEqual(gates[1],("u1",F(1,2500)))
         self.assertEqual(source_phase_terms(gates)["constant"],(F(-1,2000),F(0)))
         self.assertEqual(source_phase_terms(gates)["bit"],(F(7,5000),F(1,4)))
+
+    def test_rz_below_numerical_tolerance_has_independent_source_bound(self):
+        # RZ(0.0002) is outside exact-equivalence despite falling within a
+        # 1e-8 normalized-magnitude heuristic. Keep this independent of floats.
+        source = fixture("rz(0.0002)")
+        gates = parse_diagonal_qasm(source)
+        self.assertEqual(gates, (("rz", F(1, 5000)),))
+        terms = source_phase_terms(gates)
+        self.assertEqual(terms["constant"], (F(-1, 10000), F(0)))
+        self.assertEqual(terms["bit"], (F(1, 5000), F(0)))
+        phase0 = source_unit_complex(terms["constant"])
+        phase1 = phase0 * source_unit_complex(terms["bit"])
+        bound = normalized_magnitude(phase0 + phase1, 2)
+        self.assertGreater(bound.lower, F(99999999, 100000000))
+        self.assertLess(bound.upper, F(1))
+        # The analytic numerical acceptance does not contradict a strict bound.
+        self.assertGreater(bound.lower, F(1) - F(1, 100000000))
 
     def test_negative_exact_decimal_radians(self):
         gates=parse_diagonal_qasm(fixture("rz(-0.001)","rz(0.001)"))

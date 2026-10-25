@@ -45,3 +45,40 @@ the independent #114 Rust source auditor only supports one positive RZ.
 Do not simply apply its single-gate positive-angle proof to negatives,
 multiple gates or cancellation cases. Extend each real encoder separately
 with source-pinned evidence and fail-closed unsupported outcomes.
+
+## Archived Rust source-angle representation drift (2026-10-25)
+
+This is distinct from floating-point GPMC/Ganak arithmetic. In actual Rust
+near-cancellation CNFs, the original source contains RZ(0.0002) followed
+by RZ(-0.000199999), giving an **exact source residual of 1e-9 radians**.
+Both original solver artifacts preserve Rust PhasePolynomial coefficients
+1/12258111022 (constant) and 6129055510/6129055511 (input bit), in pi-units.
+
+Rust rational.rs currently parses decimal source values with f64, divides
+by f64 pi, then uses continued fractions with epsilon 1e-10 and a max
+denominator of 1e9. Reproducing the conversion on the two distinct gates
+yields 27/424115 and -23/361285 pi-units. Their sum is precisely
+2/6129055511 pi-units; applying the existing RZ miter factor and sign
+gives exactly the constant/bit phase fractions archived in the emitted CNF.
+
+Thus the represented relative-angle is **2*pi/6129055511 radians**, not
+the exact source residual 1/1e9 radians. An independent rigorous Fraction
+Machin/pi bracketing computation proves the represented angle is strictly
+2%-3% larger; its numerical relative error is about **2.5147397654%**.
+This percentage is ONLY relative to this cancellation residual and must
+not be generalized to individual Rust gate accuracy.
+
+This is a **source->represented-angle discrepancy**. It neither shows
+incorrect native solver arithmetic nor invalidates the conditional
+enclosure of the **already represented** rational Rust phase weights.
+The analytic exact source inequivalence and compiled-source conformance
+remain different propositions. A source-semantic correction should be
+considered as a separate RED->GREEN change using exact decimal ingress
+or an explicitly specified representation-error contract, without
+changing reduction-first Hybrid or weakening WMC tolerance.
+
+Provenance: Rust native Actions run 40176131364, artifact 12592955204,
+ZIP digest SHA256 27cae4f9e7ef2f74019fd244e1804909a0d0c3917e2602bef45c929ae2e74c23.
+See test_rust_decimal_cancellation_drift.py for four independently
+checked targeted controls. The observational f64 parser mirror is
+separate from the exact rational angle/relative-drift inequality.

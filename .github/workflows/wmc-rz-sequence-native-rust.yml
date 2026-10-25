@@ -8,6 +8,8 @@ on:
       - 'rust/pathsum/examples/rz_sequence_cnf_reference.rs'
       - '.diagnostics/wmc_certificate_replay/rz_sequence_native_rust.py'
       - '.diagnostics/wmc_certificate_replay/rz_sequence_oracle.py'
+      - '.diagnostics/wmc_certificate_replay/wrapped_rust_phase_reference.py'
+      - '.diagnostics/wmc_certificate_replay/test_wrapped_rust_phase_reference.py'
       - '.github/workflows/wmc-rz-sequence-native-rust.yml'
   workflow_dispatch:
 
@@ -51,6 +53,9 @@ jobs:
           python -m unittest discover -s .diagnostics/wmc_certificate_replay \
             -p test_rz_sequence_oracle.py -v \
             2>&1 | tee rz-six-rust-evidence/source-tests.txt
+          python -m unittest discover -s .diagnostics/wmc_certificate_replay \
+            -p test_wrapped_rust_phase_reference.py -v \
+            2>&1 | tee -a rz-six-rust-evidence/source-tests.txt
           python -u .diagnostics/wmc_certificate_replay/rz_sequence_native_rust.py \
             --output rz-six-rust-evidence \
             2>&1 | tee rz-six-rust-evidence/native-stdout.txt
@@ -73,6 +78,11 @@ jobs:
               for solver in ("gpmc","ganak")}
           for item in rows:
               assert item["observational_cross_check"]
+              if item["case"]=="nearly_cancelled":
+                  assert item["represented_phase_reference_scope"] == "wrapped_high_denominator_represented_only"
+                  assert item["restricted_phase_boolean_activation"]["activation_verified"]
+                  assert item["wrapped_phase_is_original_source_certificate"] is False
+                  assert item["prior_phase_limit_diagnostic"]
               assert item["source_cnf_formal_certificate"]=="NOT_AVAILABLE"
               assert item["source_to_rust_phase_polynomial_certified"] is False
               assert item["compiled_circuit_exact_equivalence_certified"] is False
@@ -95,6 +105,8 @@ jobs:
             rust/pathsum/examples/rz_sequence_cnf_reference.rs \
             rust/pathsum/src/wmc.rs rust/pathsum/src/qasm.rs \
             .diagnostics/wmc_certificate_replay/rz_sequence_native_rust.py \
+            .diagnostics/wmc_certificate_replay/wrapped_rust_phase_reference.py \
+            .diagnostics/wmc_certificate_replay/test_wrapped_rust_phase_reference.py \
             .diagnostics/wmc_certificate_replay/rz_sequence_oracle.py \
             .diagnostics/wmc_interval_reference/run_rust_bridge.py \
             .github/workflows/wmc-rz-sequence-native-rust.yml \

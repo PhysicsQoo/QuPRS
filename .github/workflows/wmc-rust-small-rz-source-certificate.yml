@@ -1,0 +1,141 @@
+name: Opt-in Rust Small-RZ Source-CNF Certificate
+
+# Research-only interval model. No default CI or runtime semantics changes.
+on:
+  push:
+    branches:
+      - research/wmc-rust-rz0002-source-cnf-20261025
+    paths:
+      - 'rust/pathsum/examples/interval_cnf_reference.rs'
+      - '.diagnostics/wmc_interval_reference/run_rust_bridge.py'
+      - '.diagnostics/wmc_interval_reference/qasm_rz_source_reference.py'
+      - '.diagnostics/wmc_interval_reference/test_qasm_rz_source_reference.py'
+      - '.diagnostics/wmc_interval_reference/README.md'
+      - '.github/workflows/wmc-rust-small-rz-source-certificate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-small-rz-source-cnf:
+    name: Rust RZ exact source to actual GPMC/Ganak CNF
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Check out exact source and native dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build native QuPRS and independent solvers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+      - name: Verify source-radian, Boolean activation and interval controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rust-small-rz-cnf-results
+          python -m pytest -q -ra \
+            .diagnostics/wmc_interval_reference/test_qasm_rz_source_reference.py \
+            .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            --junitxml=rust-small-rz-cnf-results/controls-junit.xml \
+            2>&1 | tee rust-small-rz-cnf-results/controls-stdout.txt
+      - name: Run actual Rust exporter, both real solvers and interval checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/wmc_interval_reference/run_rust_bridge.py \
+            --output rust-small-rz-cnf-results \
+            2>&1 | tee rust-small-rz-cnf-results/bridge-stdout.txt
+      - name: Classify restricted source-model result without claiming native proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from fractions import Fraction
+          from pathlib import Path
+          directory = Path("rust-small-rz-cnf-results")
+          summary = json.loads((directory / "summary.json").read_text())
+          assert summary["status"] == "PASS", summary["status"]
+          assert summary["count"] == 14
+          targets = [x for x in summary["cases"] if x["case"] == "rz_below_tolerance"]
+          assert len(targets) == 2 and {x["solver"] for x in targets} == {"gpmc", "ganak"}
+          for item in targets:
+              assert item["source_qasm_sha256"] and item["cnf_sha256"]
+              assert item["native_raw_process_calls"] == 1
+              assert item["native_solver_binary_sha256"] and item["native_solver_stdout"]
+              assert item["native_solver_result_is_interval_certified"] is False
+              status = item["rust_small_rz_source_model_status"]
+              assert status in {"PROVED_NON_EQUIVALENT", "INCONCLUSIVE"}
+              proof = item["source_decimal_radian_rz_audit"]
+              if status == "PROVED_NON_EQUIVALENT":
+                  assert proof is not None
+                  assert proof["source_radians"] == "1/5000"
+                  assert proof["source_boolean_encoding_proof"]["weighted_literal_activation_verified"]
+                  assert proof["source_reference_strictly_below_one"]
+                  assert proof["source_represented_printed_hull_strictly_below_one"]
+                  assert not proof["native_solver_interval_certified"]
+                  assert not proof["full_qasm_parser_semantics_certified"]
+                  bound = proof["source_represented_printed_hull_normalized_magnitude"]
+                  assert Fraction(bound["upper"]) < 1
+                  print("RUST_RZ_SOURCE_MODEL", item["solver"], status,
+                        "upper", bound["upper"])
+              else:
+                  print("RUST_RZ_SOURCE_MODEL", item["solver"], "INCONCLUSIVE",
+                        "reason", item.get("source_rz_audit_error"))
+          PY
+      - name: Seal exact source and generated native evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rust-small-rz-cnf-results
+          git rev-parse HEAD > rust-small-rz-cnf-results/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > rust-small-rz-cnf-results/source-tree.txt
+          python --version > rust-small-rz-cnf-results/python-version.txt 2>&1
+          python -m pip freeze > rust-small-rz-cnf-results/python-packages.txt
+          sha256sum \
+            rust/pathsum/examples/interval_cnf_reference.rs \
+            rust/pathsum/src/wmc.rs \
+            rust/pathsum/src/qasm.rs \
+            .diagnostics/wmc_interval_reference/qasm_rz_source_reference.py \
+            .diagnostics/wmc_interval_reference/test_qasm_rz_source_reference.py \
+            .diagnostics/wmc_interval_reference/run_rust_bridge.py \
+            .diagnostics/wmc_interval_reference/interval_wmc.py \
+            .diagnostics/wmc_interval_reference/phase_coeff_reference.py \
+            .github/workflows/wmc-rust-small-rz-source-certificate.yml \
+            > rust-small-rz-cnf-results/source-files-sha256.txt
+          (
+            cd rust-small-rz-cnf-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Save actual source, CNF, native solver and interval records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-small-rz-source-cnf-reference
+          path: rust-small-rz-cnf-results/
+          retention-days: 30
+          if-no-files-found: error

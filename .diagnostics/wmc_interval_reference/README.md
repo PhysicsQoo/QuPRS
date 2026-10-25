@@ -279,3 +279,35 @@ The capture hook observes the real `solver_process.run` called by `run_wmc`;
 it does not fabricate a solver result or promote numerical agreement to a
 proof. A failing source/solver run must fail the workflow (including all
 piped Rust checks), rather than merely producing uploaded diagnostic output.
+
+## Rust source-RZ 0.0002 CNF boundary study
+
+The dedicated Rust source-CNF experiment adds the exact QASM literal
+`rz(0.0002)` (one-qubit identity miter, Bra-side RZ) to the existing
+`WmcManager::encode_trace` exporter. The certificate reads the **actual**
+Rust-generated GPMC and Ganak CNF bytes, the **actual** `PhasePolynomial`
+fraction records, and the decimal source token as `Fraction(1, 5000)`.
+Unlike a comparison of approximate trace magnitudes, this checks the
+source phase formula against a conservative complex interval enclosing:
+(i) ideal source radians, (ii) Rust's represented rational coefficient,
+and (iii) the printed complex CNF weight.
+
+The bound is conditional on an independent exhaustive 1-bit Boolean
+witness test: the Rust CNF must have exactly one satisfying extension for
+input 0 and input 1; its constant weighted literal is always true and
+the x0 weighted literal is true exactly for input 1. Unexpected extra
+variables, changed clauses, phase bindings, or malformed source angles
+fail the scoped proof. The selected native model counters are executed
+independently and saved strictly as **observations**.
+
+When the source/represented/printed normalized magnitude upper interval
+is < 1, the report says `PROVED_NON_EQUIVALENT` **for the bounded source
+model**. If an assumption fails or the upper bound reaches 1, the report
+records `INCONCLUSIVE`; the original floating count does not repair a
+missing proof. This does not certify general Rust/QASM translation or
+the numerical precision of Ganak/GPMC, and it changes no production
+verifier semantics.
+
+The opt-in evidence job is `.github/workflows/wmc-rust-small-rz-source-certificate.yml`.
+All original Rust-exported reference cases remain in the runner.
+

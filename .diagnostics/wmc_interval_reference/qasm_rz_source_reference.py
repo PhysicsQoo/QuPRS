@@ -49,6 +49,51 @@ def _source_coefficient_interval(delta, monomial):
     raise ValueError("Unrecognized RZ Bra phase polynomial monomial")
 
 
+
+def prove_single_rz_boolean_activation(cnf, by_monomial):
+    """Exhaustively bind the two source phase monomials to a 1-bit Rust CNF.
+
+    Exactly two weighted variables (constant, x0) and one unweighted input
+    variable are allowed. Each input bit must have ONE satisfying extension
+    with the expected phase-weight activation. No solver output is trusted.
+    """
+    if not isinstance(cnf, WeightedCNF) or set(by_monomial) != {"", "0"}:
+        raise ValueError("Unsupported single-RZ source/CNF phase binding")
+    phase_literals = {monomial: entry[0] for monomial, entry in by_monomial.items()}
+    if len(cnf.weights) != 3 or len(set(phase_literals.values())) != 2:
+        raise ValueError("Single-RZ proof requires exactly 2 phase vars and 1 input bit")
+    remaining = set(range(1, len(cnf.weights) + 1)) - set(phase_literals.values())
+    if len(remaining) != 1:
+        raise ValueError("Unique input bit CNF variable is missing")
+    input_var = remaining.pop()
+    witnesses = []
+    for bit in (0, 1):
+        solutions = []
+        for assignment in range(1 << len(cnf.weights)):
+            if bool(assignment & (1 << (input_var - 1))) != bool(bit):
+                continue
+            if all(
+                any(bool(assignment & (1 << (abs(lit) - 1))) == (lit > 0)
+                    for lit in clause)
+                for clause in cnf.clauses
+            ):
+                solutions.append(assignment)
+        if len(solutions) != 1:
+            raise ValueError("Non-unique or missing input-bit CNF extension")
+        assignment = solutions[0]
+        if not (assignment & (1 << (phase_literals[""] - 1))):
+            raise ValueError("Constant phase literal not active")
+        if bool(assignment & (1 << (phase_literals["0"] - 1))) != bool(bit):
+            raise ValueError("Input-dependent phase activation mismatch")
+        witnesses.append(str(assignment))
+    return {
+        "input_variable": input_var,
+        "unique_extensions": witnesses,
+        "weighted_literal_activation_verified": True,
+        "input_bit_zero_unique_extension": True,
+        "input_bit_one_unique_extension": True,
+    }
+
 def audit_single_rz_bra_source(qasm, cnf, phase_map, *, num_qubits, num_pathvar):
     """Enclose source-angle, Rust represented-phase, and printed CNF weights.
 
@@ -124,6 +169,8 @@ def audit_single_rz_bra_source(qasm, cnf, phase_map, *, num_qubits, num_pathvar)
             exact_source.append((printed_positive, printed_negative))
             inclusive.append((printed_positive, printed_negative))
 
+    # Check the *actual* emitted clause structure, not just two phase tags.
+    boolean_proof = prove_single_rz_boolean_activation(cnf, by_monomial)
     source_count = WeightedCNF(cnf.clauses, tuple(exact_source)).count()
     hull_count = WeightedCNF(cnf.clauses, tuple(inclusive)).count()
     source_norm = normalized_for_pathsum(
@@ -136,6 +183,7 @@ def audit_single_rz_bra_source(qasm, cnf, phase_map, *, num_qubits, num_pathvar)
         "source_semantics": "positive literal decimal interpreted as exact rational radians",
         "scope": "one-qubit single RZ Bra WMC CNF, checked monomial mapping",
         "source_radians": str(delta),
+        "source_boolean_encoding_proof": boolean_proof,
         "source_reference_count": serialize_complex(source_count),
         "source_reference_normalized_magnitude": serialize_interval(source_norm),
         "source_reference_strictly_below_one": source_norm.upper < 1,

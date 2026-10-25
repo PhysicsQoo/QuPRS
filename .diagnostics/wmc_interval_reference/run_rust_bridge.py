@@ -32,7 +32,7 @@ from phase_coeff_reference import (
     union_printed_and_ideal,
 )
 
-CASES = ("identity", "hh", "x", "t", "rz_near", "rz_far")
+CASES = ("identity", "hh", "x", "t", "rz_below_tolerance", "rz_near", "rz_far")
 SOLVERS = ("gpmc", "ganak")
 SUMMARY_PATTERN = re.compile(
     r"^RUST_CNF case=(\w+) solver=(gpmc|ganak) "
@@ -163,11 +163,19 @@ def run_case(folder, name, solver, meta):
     if quantum_circuit.num_qubits != meta["n"]:
         raise ValueError("Source QASM and Rust qubit metadata mismatch")
     source_rz_audit = None
-    if name in ("rz_near", "rz_far"):
-        source_rz_audit = audit_single_rz_bra_source(
-            qasm_raw.decode("utf-8"), cnf, phase_map,
-            num_qubits=meta["n"], num_pathvar=meta["p"]
-        )
+    source_rz_audit_error = None
+    if name in ("rz_near", "rz_far", "rz_below_tolerance"):
+        try:
+            source_rz_audit = audit_single_rz_bra_source(
+                qasm_raw.decode("utf-8"), cnf, phase_map,
+                num_qubits=meta["n"], num_pathvar=meta["p"]
+            )
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            # Preserve the real CNF and native observations. A failed scoped
+            # proof on the tiny case must be INCONCLUSIVE, never a theorem.
+            if name != "rz_below_tolerance":
+                raise
+            source_rz_audit_error = f"{type(exc).__name__}: {exc}"
     physical_mag_float = abs(complex(oracle.trace())) / (1 << meta["n"])
     native, capture, capture_count = observe_solver(cnf_file, solver)
     if capture["command_args"] != list(SOLVER_ARGUMENTS[solver]):
@@ -200,6 +208,7 @@ def run_case(folder, name, solver, meta):
         "represented_rust_phase_coefficient_normalized_magnitude": serialize_interval(widened_norm),
         "represented_rust_phase_source_records": phases,
         "source_decimal_radian_rz_audit": source_rz_audit,
+        "source_rz_audit_error": source_rz_audit_error,
         "phase_coefficient_reference_is_certified_for_original_qasm": False,
         "native_solver_result_is_interval_certified": False,
         "printed_reference_classification": serialized_count_verdict(printed_norm),
@@ -213,6 +222,18 @@ def run_case(folder, name, solver, meta):
             and math.isfinite(model_to_operator) and model_to_operator <= 2e-6
         ),
     }
+    if name == "rz_below_tolerance":
+        valid = bool(
+            source_rz_audit
+            and source_rz_audit["source_reference_strictly_below_one"]
+            and source_rz_audit["source_represented_printed_hull_strictly_below_one"]
+            and source_rz_audit["source_boolean_encoding_proof"]["weighted_literal_activation_verified"]
+        )
+        report["rust_small_rz_source_model_status"] = (
+            "PROVED_NON_EQUIVALENT" if valid else "INCONCLUSIVE"
+        )
+        report["rust_small_rz_source_model_is_conditional"] = True
+        report["native_solver_result_is_interval_certified"] = False
     if name == "rz_near":
         report["printed_weight_strictly_below_one"] = printed_norm.upper < 1
         report["represented_phase_coefficient_strictly_below_one"] = widened_norm.upper < 1
@@ -256,7 +277,7 @@ def main():
             reports.append(data)
             print("RUST_REFERENCE", case, solver,
                   data.get("observational_cross_check"), flush=True)
-    status = "PASS" if len(reports) == 12 and all(
+    status = "PASS" if len(reports) == len(CASES) * len(SOLVERS) and all(
         record.get("observational_cross_check") for record in reports
     ) else "FAIL"
     summary = {
@@ -266,7 +287,11 @@ def main():
         "scope": (
             "Exact rational bounds enclose the represented Rust PhasePolynomial "
             "rational coefficient's complex phase and exact printed decimals. "
-            "Does not enclose the original QASM angle or native solver rounding."
+            "The bounded RZ source-decimal variant also encloses the exact "
+            "source radians, represented Rust coefficients and printed "
+            "weights, conditional on explicitly checked Boolean activation. "
+            "It does NOT enclose native solver internal floating arithmetic "
+            "or certify generic QASM parsing."
         ),
         "cases": reports,
     }

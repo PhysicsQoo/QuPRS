@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("hh", "h q[0];\nh q[0];\n"),
         ("x", "x q[0];\n"),
         ("t", "t q[0];\n"),
+        ("rz_below_tolerance", "rz(0.0002) q[0];\n"),
         ("rz_near", "rz(0.001) q[0];\n"),
         ("rz_far", "rz(0.01) q[0];\n"),
     ];

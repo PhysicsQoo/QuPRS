@@ -1,3 +1,4 @@
+import math
 import signal
 import threading
 import time
@@ -170,6 +171,8 @@ def check_equivalence(
     safe_mode: bool = False,
     backend: str = "python",
     wmc_policy: str = "legacy",
+    wmc_magnitude_tolerance: float | None = None,
+    wmc_phase_tolerance: float | None = None,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -203,12 +206,15 @@ def check_equivalence(
             and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
-        wmc_policy (str, optional): "legacy" preserves historical numerical
-            WMC verdicts. "conservative" reports "unknown" whenever an
-            uncertified numerical WMC result would otherwise give either a
-            positive or negative verdict; the numerical classification remains
-            available in result.wmc_numerical_verdict. Does not certify
-            symbolic Reduction Rules or solve general numerical error bounds.
+        wmc_policy (str, optional): "legacy" preserves the heuristic verdict
+            policy; "conservative" returns "unknown" for uncertified numeric
+            WMC outcomes while retaining result.wmc_numerical_verdict.
+        wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
+            acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
+            Independent of reduction tolerance and not a formal proof bound.
+        wmc_phase_tolerance (float | None): WMC phase threshold separating
+            "equivalent" and "equivalent*" for near-unit magnitudes.
+            None uses config.WMC_PHASE_TOLERANCE.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -218,6 +224,18 @@ def check_equivalence(
         raise ValueError("timeout must be a positive integer number of seconds")
     if wmc_policy not in ("legacy", "conservative"):
         raise ValueError("wmc_policy must be 'legacy' or 'conservative'")
+    if wmc_magnitude_tolerance is None:
+        wmc_magnitude_tolerance = config.WMC_MAGNITUDE_TOLERANCE
+    if wmc_phase_tolerance is None:
+        wmc_phase_tolerance = config.WMC_PHASE_TOLERANCE
+    for name, threshold in (
+        ("wmc_magnitude_tolerance", wmc_magnitude_tolerance),
+        ("wmc_phase_tolerance", wmc_phase_tolerance),
+    ):
+        if (isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+            or not math.isfinite(threshold) or not 0 < threshold < 1):
+            raise ValueError(f"{name} must be finite and in (0, 1)")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -289,6 +307,8 @@ def check_equivalence(
                                     tool_name=tool_name,
                                     timeout=remaining,
                                     safe_mode=safe_mode,
+                                    wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+                                    wmc_phase_tolerance=wmc_phase_tolerance,
                                 )
                         finally:
                             if previous_path is None:
@@ -493,8 +513,8 @@ def check_equivalence(
                 tool_time = round(time.time() - tool_start_time, 3)
                 equivalent, log_wmc = classify_weighted_count(
                     complex_number[0], complex_number[1], expect,
-                    magnitude_tolerance=config.WMC_MAGNITUDE_TOLERANCE,
-                    phase_tolerance=config.WMC_PHASE_TOLERANCE,
+                    magnitude_tolerance=wmc_magnitude_tolerance,
+                    phase_tolerance=wmc_phase_tolerance,
                 )
                 if wmc_policy == "conservative":
                     # The external count does not carry a rigorous error bound.

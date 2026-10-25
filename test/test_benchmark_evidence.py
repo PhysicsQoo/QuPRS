@@ -102,3 +102,78 @@ def test_cohort_without_success_is_not_verified(tmp_path):
     report = checker.audit(junit(tmp_path, statuses), real_catalog())
     assert report["status"] == "BLOCKED"
     assert "Feynman" in " ".join(report["problems"])
+
+def test_two_graphstate_rust_approximate_results_are_distinct_from_strict(tmp_path):
+    """Approximate scientific controls count separately, never as 32 strict PASS."""
+    keys = [
+        key for key in checker.expected_cases(real_catalog())
+        if checker.authorized_approximate_case(*key)
+    ]
+    assert len(keys) == 2
+    root = ET.Element("testsuites")
+    suite = ET.SubElement(root, "testsuite")
+    for cls, name in checker.expected_cases(real_catalog()):
+        node = ET.SubElement(suite, "testcase", classname="test." + cls, name=name)
+        if (cls, name) not in keys:
+            continue
+        props = ET.SubElement(node, "properties")
+        good = {
+            "verification_status": checker.APPROXIMATE_REDUCED_BOUND,
+            "strict_source_verdict": "not_equivalent",
+            "approximate_metric": "projective_hilbert_schmidt",
+            "approximate_threshold": "1e-8",
+            "distance_squared_upper": "1/100000000000000000000000000000",
+            "proof_provenance": "source-pinned-reduced-diagonal",
+            "source_blobs": checker._PINNED_SOURCE_BLOBS,
+        }
+        for k, v in good.items():
+            ET.SubElement(props, "property", name=k, value=v)
+    output = tmp_path / "approximately.xml"
+    ET.ElementTree(root).write(output)
+    summary = checker.audit(output, real_catalog())
+    assert summary["status"] == "COMPLETE_WITH_APPROXIMATE"
+    assert summary["counts"]["PASS"] == 30
+    assert summary["counts"][checker.APPROXIMATE_REDUCED_BOUND] == 2
+    strict = checker.audit(output, real_catalog(), require_complete=True)
+    assert strict["status"] == "BLOCKED"
+    assert strict["counts"]["PASS"] == 30
+
+    # A missing provenance value, an unauthorized case, or a failed test
+    # cannot be reclassified as a valid approximate result.
+    special = suite.findall("testcase")
+    first_approx = next(x for x in special if checker.authorized_approximate_case(
+        x.get("classname").split(".")[-1], x.get("name")))
+    metric = next(x for x in first_approx.findall("./properties/property")
+                  if x.get("name") == "approximate_metric")
+    metric.set("value", "wmc_magnitude_defect")
+    ET.ElementTree(root).write(output)
+    report = checker.audit(output, real_catalog())
+    assert report["status"] == "BLOCKED"
+    assert report["counts"]["ERROR"] == 1
+    assert report["approximation_errors"]
+
+
+def test_approximate_source_proof_rejected_for_unrelated_benchmark():
+    key = next(k for k in checker.expected_cases(real_catalog())
+               if not checker.authorized_approximate_case(*k))
+    assert not checker.validate_approximate_properties(
+        *key, {"verification_status": checker.APPROXIMATE_REDUCED_BOUND}
+    )
+
+
+def test_approximate_source_proof_rejects_invalid_upper_bound():
+    key = next(k for k in checker.expected_cases(real_catalog())
+               if checker.authorized_approximate_case(*k))
+    good = {
+        "verification_status": checker.APPROXIMATE_REDUCED_BOUND,
+        "strict_source_verdict": "not_equivalent",
+        "approximate_metric": "projective_hilbert_schmidt",
+        "approximate_threshold": "1e-8",
+        "distance_squared_upper": "1/100000000000000000000000000000",
+        "proof_provenance": "source-pinned-reduced-diagonal",
+        "source_blobs": checker._PINNED_SOURCE_BLOBS,
+    }
+    assert checker.validate_approximate_properties(*key, good)
+    for value in ("nan", "-1e-30", "1e-8", "1/0", "0"):
+        broken = {**good, "distance_squared_upper": value}
+        assert not checker.validate_approximate_properties(*key, broken)

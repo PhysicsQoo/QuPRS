@@ -83,6 +83,7 @@ jobs:
             .diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py \
             .diagnostics/wmc_interval_reference/test_import_dimacs.py \
             .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/test_source_interval_bridge.py \
             --junitxml=solver-conformance-evidence/source-interval-controls.xml \
             2>&1 | tee solver-conformance-evidence/source-interval-controls.log
           python -u scripts/run_source_interval_bridge.py --out solver-conformance-evidence \
@@ -107,6 +108,7 @@ jobs:
             .diagnostics/wmc_interval_reference/interval_wmc.py \
             .diagnostics/wmc_interval_reference/import_dimacs.py \
             .diagnostics/wmc_interval_reference/phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/test_source_interval_bridge.py \
             .github/workflows/solver-cross-backend-conformance.yml \
             > solver-conformance-evidence/source-files.sha256
           (

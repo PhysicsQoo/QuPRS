@@ -16,6 +16,10 @@ import subprocess
 import sys
 import traceback
 
+# The bridge is kept research-only next to other replay studies; reuse the
+# existing reference modules from their original scoped directory.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "wmc_interval_reference"))
+
 from qiskit import qasm2
 from qiskit.quantum_info import Operator
 

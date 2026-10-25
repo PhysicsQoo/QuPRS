@@ -37,9 +37,11 @@ and https://github.com/munich-quantum-toolkit/bench .
 - Verifies all 65,536 output amplitudes of the **state preparation from
   |0>**, against the graph-state reference
   `CZ(edges) H^16 |0>`, up to global phase.
-- Independently compares representative computational-basis columns of
-  the two QASM operators and rejects a deliberately corrupted 0.001-rad
-  rotation. **Sampled columns are not full-unitary proof.**
+- Independently compares representative computational-basis columns and
+  a coherent superposition using **one shared global-phase factor**, rather
+  than aligning an unrelated phase independently on every input. A deliberately
+  corrupted 0.001-rad rotation must be detected. **Sampled columns and
+  coherent states are not full-unitary proof.**
 - `test/test_graphstate16_source_contract.py` separately validates the
   reported exact Rust PathSum residual for all 16 qubits using rational
   bounds on pi. On a faithful source→PathSum reduction, the QASM literal

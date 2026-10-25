@@ -92,15 +92,39 @@ def test_graphstate_both_qasm_prepare_same_full_graph_state(source_circuits):
         assert _phase_aligned_l2(expected, vector) < 1e-10
 
 
+@pytest.fixture(scope="module")
+def common_unitary_phase(source_circuits):
+    """One global phase must explain every tested input, not one per state."""
+    a, b, _ = source_circuits
+    zero = Statevector.from_int(0, SIZE)
+    output_a, output_b = zero.evolve(a).data, zero.evolve(b).data
+    overlap = np.vdot(output_a, output_b)
+    assert abs(overlap) > 0.5
+    return np.conj(overlap) / abs(overlap)
+
+
 @pytest.mark.parametrize("basis", [0, 1, 1 << 3, 1 << 12, SIZE - 1])
-def test_graphstate_source_qasm_unitary_basis_samples(source_circuits, basis):
-    """Matrix-free check of representative columns; not full-unitary proof."""
+def test_graphstate_source_qasm_unitary_basis_samples(
+    source_circuits, common_unitary_phase, basis,
+):
+    """Matrix-free shared-phase column checks; not full-unitary proof."""
     a, b, _ = source_circuits
     state = Statevector.from_int(basis, SIZE)
     output_a, output_b = state.evolve(a).data, state.evolve(b).data
     assert abs(np.linalg.norm(output_a) - 1) < 1e-10
     assert abs(np.linalg.norm(output_b) - 1) < 1e-10
-    assert _phase_aligned_l2(output_a, output_b) < 1e-10
+    assert np.linalg.norm(output_a - common_unitary_phase * output_b) < 1e-10
+
+
+def test_graphstate_coherent_superposition_shared_global_phase(
+    source_circuits, common_unitary_phase,
+):
+    a, b, _ = source_circuits
+    uniform = Statevector(
+        np.full(SIZE, 1 / np.sqrt(SIZE), dtype=np.complex128)
+    )
+    output_a, output_b = uniform.evolve(a).data, uniform.evolve(b).data
+    assert np.linalg.norm(output_a - common_unitary_phase * output_b) < 1e-10
 
 
 def test_graphstate_independent_qiskit_detects_rotation_error(source_circuits):

@@ -22,3 +22,23 @@ WMC tolerance with strict mathematical equivalence.
 
 This workflow reads previously sealed artifacts. No production logic,
 Hybrid strategy, benchmarks or public WMC policy are modified.
+
+## Source-CNF evidence trust contract
+
+Offline replay now emits typed evidence only after checking the raw source,
+emitted weighted CNF and independent rational intervals. The three types are:
+`observational_numeric`, `bounded_source_cnf_negative`,
+and `inconclusive`. Numeric classifications obtained within a user-defined
+tolerance have no strict proof status.
+
+The bounded negative record is restricted to the single audited source
+`RZ(0.0002)` and binds the source/QASM SHA256, original commit,
+solver-specific actual CNF SHA256, exact rational upper magnitude bound,
+and separate selected solver executable hashes recorded as observations.
+Each Python/Rust × GPMC/Ganak combination must be present exactly once,
+and all four upper endpoints must be strictly below one.
+
+The typed JSON is **NOT self-authenticating**: clients must rerun the raw
+archive verification and arithmetic rather than merely parse this envelope.
+This does not prove general QASM compiler correctness, native floating
+arithmetic, or exact positive equivalence.

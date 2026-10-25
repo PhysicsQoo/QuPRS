@@ -1,0 +1,127 @@
+"""Research-only typed contract. Metadata alone is NOT a mathematical proof.
+
+Only the raw-CNF replay tool may emit bounded source-model negative evidence.
+A user-adjustable WMC numerical verdict can never be promoted to strict proof.
+"""
+from enum import Enum
+from fractions import Fraction
+import re
+
+class Kind(str, Enum):
+    NUMERICAL_OBSERVATION = "observational_numeric"
+    SOURCE_MODEL_NEGATIVE = "bounded_source_cnf_negative"
+    INCONCLUSIVE = "inconclusive"
+
+SOURCE_HEAD = {
+    "python": "ed72156b860dbafe750bbc0fe2d2e537253609a1",
+    "rust": "1adbb067793d2bdf6ae7ff24b7cac27a1655c609",
+}
+SOURCE_QASM_SHA256 = "fa2f30e8bb82e3558268696b355eb2a6af778217fc76685259de6267f3565281"
+SOLVERS = ("gpmc", "ganak")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_RATIONAL = re.compile(r"[0-9]+(?:/[1-9][0-9]*)?\Z")
+
+def check(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+def upper_bound(value):
+    """Finite exact upper endpoint; no floats, decimals or equality to one."""
+    check(isinstance(value, str) and len(value) <= 256
+          and _RATIONAL.fullmatch(value) is not None,
+          "Expected bounded exact nonnegative rational upper")
+    bound = Fraction(value)
+    check(0 < bound < 1, "No strict upper-bound separation from one")
+    return bound
+
+def numeric_observation(backend, solver, value, tolerance):
+    check(backend in SOURCE_HEAD and solver in SOLVERS,
+          "Unknown numerical solver provenance")
+    check(isinstance(value,str) and isinstance(tolerance,str)
+          and 0 < len(value) < 200 and 0 < len(tolerance) < 100,
+          "Missing numerical result/tolerance observation")
+    return {"kind": Kind.NUMERICAL_OBSERVATION.value,
+            "status": "unverified_numeric", "backend":backend, "solver":solver,
+            "observed_value":value, "user_tolerance":tolerance,
+            "strict_equivalence_certified":False,
+            "strict_non_equivalence_certified":False,
+            "native_solver_arithmetic_certified":False}
+
+def inconclusive(reason):
+    check(isinstance(reason,str) and 0 < len(reason) <= 500,
+          "Missing bounded reason for inconclusive")
+    return {"kind":Kind.INCONCLUSIVE.value, "status":"inconclusive",
+            "reason":reason, "strict_equivalence_certified":False,
+            "strict_non_equivalence_certified":False}
+
+def source_cnf_bundle(raw_replayed_records, expected_source_hash):
+    """Metadata checks AFTER actual QASM/CNF/phase replay. Not self-attesting.
+
+    The caller must have independently recomputed raw Boolean witnesses,
+    literal weights and conservative interval bounds from sealed artifacts.
+    Manually written JSON with identical fields has no evidentiary standing.
+    """
+    check(isinstance(raw_replayed_records,list) and len(raw_replayed_records)==4,
+          "Four independent backend/solver raw replays required")
+    check(expected_source_hash == SOURCE_QASM_SHA256,
+          "Unsupported or altered exact source QASM")
+    seen = set()
+    output = []
+    for record in raw_replayed_records:
+        check(isinstance(record,dict),"Malformed raw replay evidence")
+        backend, solver = record.get("backend"),record.get("solver")
+        check(backend in SOURCE_HEAD and solver in SOLVERS,
+              "Unsupported backend or solver")
+        check((backend,solver) not in seen,"Repeated backend/solver evidence")
+        seen.add((backend,solver))
+        check(record.get("source_commit")==SOURCE_HEAD[backend],
+              "Source HEAD mismatch")
+        check(record.get("source_sha256")==expected_source_hash,
+              "Source QASM hash mismatch")
+        for key in ("cnf_sha256","native_binary_sha256_observation"):
+            v=record.get(key)
+            check(isinstance(v,str) and _SHA256.fullmatch(v) is not None,
+                  "Missing sha256 evidence: "+key)
+        check(record.get("restricted_source_model_not_equivalent") is True,
+              "Raw replay did not establish source-model inequivalence")
+        check(record.get("native_solver_arithmetic_certified") is False
+              and record.get("general_compiler_soundness_certified") is False,
+              "Unsupported broader scientific proof claim")
+        bound=record.get("raw_recomputed_upper")
+        upper_bound(bound)
+        replay=record.get("replay")
+        check(isinstance(replay,dict) and replay.get("upper")==bound,
+              "Replay upper and certificate upper mismatch")
+        upper_bound(replay.get("source_upper"))
+        check("boolean_witnesses" in replay,
+              "No independent Boolean witness attestation")
+        output.append({
+            "kind":Kind.SOURCE_MODEL_NEGATIVE.value,
+            "status":"non_equivalent_within_audited_source_cnf_model",
+            "backend":backend,"solver":solver,
+            "source_commit":record["source_commit"],
+            "source_qasm_sha256":expected_source_hash,
+            "emitted_cnf_sha256":record["cnf_sha256"],
+            "outward_rational_normalized_upper":bound,
+            "original_source_normalized_upper":replay["source_upper"],
+            "native_solver_binary_sha256_observed_only":
+                record["native_binary_sha256_observation"],
+            "strict_positive_equivalence_certified":False,
+            "source_cnf_negative_conditional":True,
+            "native_solver_arithmetic_certified":False,
+            "general_qasm_compiler_certified":False,
+        })
+    check(seen == {(b,s) for b in SOURCE_HEAD for s in SOLVERS},
+          "Incomplete backend/solver source coverage")
+    output.sort(key=lambda row:(row["backend"],row["solver"]))
+    return {
+        "schema":"small-rz-conditional-source-cnf-evidence-v1",
+        "status":"non_equivalent_within_audited_source_cnf_model",
+        "scope":"one-qubit source QASM identity vs RZ(0.0002)",
+        "metadata_self_authenticating":False,
+        "raw_artifact_replay_required":True,
+        "strict_positive_equivalence_certified":False,
+        "native_solver_arithmetic_certified":False,
+        "general_qasm_compiler_certified":False,
+        "records":output,
+    }

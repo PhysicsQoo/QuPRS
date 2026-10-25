@@ -15,6 +15,7 @@ from phase_coeff_reference import union_printed_and_ideal
 from python_diagonal_source_certificate import (
     parse_diagonal_qasm, source_phase_terms, source_unit_complex)
 from qasm_rz_source_reference import audit_single_rz_bra_source
+from evidence_contract import source_cnf_bundle
 
 QASM = ('OPENQASM 2.0;\ninclude "qelib1.inc";\n'
         'qreg q[1];\nrz(0.0002) q[0];\n').encode()
@@ -218,12 +219,8 @@ def main():
     records = replay(args.python_artifact,"python")+replay(args.rust_artifact,"rust")
     check(len(records)==4 and len({r["source_sha256"] for r in records})==1,
           "Cross-backend source identity mismatch")
-    obj = {
-      "schema":"bounded-small-rz-cnf-replay-v1",
-      "scope":"one-qubit source RZ(0.0002) versus identity",
-      "native_solver_arithmetic_certified":False,
-      "positive_equivalence_certified":False,
-      "records":records}
+    # Typed scientific claims follow, never precede raw archive verification.
+    obj = source_cnf_bundle(records, expected_source_hash=sha(QASM))
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(obj,indent=2,sort_keys=True)+"\n")
     for r in records:

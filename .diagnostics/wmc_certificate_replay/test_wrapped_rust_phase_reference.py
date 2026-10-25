@@ -6,7 +6,7 @@ import sys
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from wrapped_rust_phase_reference import local_wrapped_phase
+from wrapped_rust_phase_reference import local_wrapped_phase, audited_represented_weight
 from interval_wmc import Interval, ComplexInterval
 
 
@@ -17,7 +17,9 @@ class HighDenominatorPhaseBoundary(unittest.TestCase):
             (6129055510,6129055511),
         ):
             with self.subTest(denominator=denominator):
-                phase=local_wrapped_phase(numerator,denominator)
+                # The old reference already accepts denominators <= 1e10.
+                # Only the new larger denominator needs the wrapped extension.
+                phase=audited_represented_weight(numerator,denominator)
                 # For a small *nonzero* angle cos(theta) is genuinely < 1;
                 # an outward enclosure may therefore exclude exactly one.
                 self.assertTrue(0 < phase.real.lower <= phase.real.upper <= 1)

@@ -36,6 +36,7 @@ from phase_coeff_reference import (
     ideal_rational_pi_phase, max_printed_ideal_component_gap,
     union_printed_and_ideal,
 )
+from wrapped_rust_phase_reference import narrow_represented_cnf_reference
 
 CASES = ("positive_rotation", "negative_rotation", "accumulated_rotation",
          "exact_cancellation", "identical_paths", "nearly_cancelled")
@@ -159,9 +160,26 @@ def run_case(folder, name, solver, meta):
     phase_map = parse_phase_metadata(folder / f"{name}-{solver}-phases.tsv")
     if len(phase_map) != meta["phases"]:
         raise ValueError("Phase term count differs from native Rust metadata")
-    printed, printed_norm, phase_widened, widened_norm, phases = normalize_reference(
-        cnf, phase_map, meta["n"], meta["p"]
-    )
+    phase_error = None
+    phase_scope = "legacy_rational_phase_reference"
+    try:
+        printed, printed_norm, phase_widened, widened_norm, phases = normalize_reference(
+            cnf, phase_map, meta["n"], meta["p"]
+        )
+        scoped_activation = None
+    except ValueError as exc:
+        # Only one source-pinned subnanoradian case has legitimate >1e10
+        # represented denominators. Never broaden the general reference.
+        if name != "nearly_cancelled" or "phase fraction" not in str(exc):
+            raise
+        printed = cnf.count()
+        printed_norm = normalized_for_pathsum(
+            printed,num_qubits=meta["n"],num_pathvar=meta["p"])
+        phase_widened,widened_norm,phases,scoped_activation = (
+            narrow_represented_cnf_reference(
+                cnf,phase_map,num_qubits=meta["n"],num_pathvar=meta["p"]))
+        phase_error = str(exc)
+        phase_scope = "wrapped_high_denominator_represented_only"
     qasm_file = folder / f"{name}.qasm"
     qasm_raw = qasm_file.read_bytes()
     original = next((pair for pair in SOURCE_CASES if pair[0] == name), None)
@@ -226,6 +244,10 @@ def run_case(folder, name, solver, meta):
         "represented_rust_phase_coefficient_enclosed_count": serialize_complex(phase_widened),
         "represented_rust_phase_coefficient_normalized_magnitude": serialize_interval(widened_norm),
         "represented_rust_phase_source_records": phases,
+        "represented_phase_reference_scope": phase_scope,
+        "prior_phase_limit_diagnostic": phase_error,
+        "restricted_phase_boolean_activation": scoped_activation,
+        "wrapped_phase_is_original_source_certificate": False,
         "source_decimal_radian_rz_audit": source_rz_audit,
         "source_rz_audit_error": source_rz_audit_error,
         "phase_coefficient_reference_is_certified_for_original_qasm": False,

@@ -1,0 +1,86 @@
+name: Opt-in Fixed Rust Decimal-Ingress Candidate Canary
+
+# Isolated canary for candidate source semantics only: NOT an integration
+# check against latest dev or a native solver exact-verdict certification.
+on:
+  push:
+    branches:
+      - research/wmc-source-cnf-evidence-replay-20261025
+    paths:
+      - '.diagnostics/wmc_certificate_replay/rust_pr80_decimal_ingress_canary.rs'
+      - '.github/workflows/wmc-rz-pr80-decimal-ingress-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-decimal-ingress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      RUST_BACKTRACE: '1'
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Checkout research controls (pinned workflow input)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: research
+      - name: Checkout pinned candidate source independently
+        uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: d27d9644054c5478f02339b9d83911dd3553448c
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: recursive
+          path: candidate
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Record exact identities and install isolated external canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate-ingress-results candidate/rust/pathsum/tests
+          git -C candidate rev-parse HEAD | tee candidate-ingress-results/candidate-sha.txt
+          test "$(cat candidate-ingress-results/candidate-sha.txt)" = "d27d9644054c5478f02339b9d83911dd3553448c"
+          git -C research rev-parse HEAD > candidate-ingress-results/research-sha.txt
+          git -C candidate rev-parse 'HEAD^{tree}' > candidate-ingress-results/candidate-tree.txt
+          cp research/.diagnostics/wmc_certificate_replay/rust_pr80_decimal_ingress_canary.rs \
+             candidate/rust/pathsum/tests/rz_decimal_ingress_canary.rs
+          sha256sum candidate/rust/pathsum/tests/rz_decimal_ingress_canary.rs \
+            candidate/rust/pathsum/src/qasm.rs \
+            candidate/rust/pathsum/src/rational.rs \
+            candidate/rust/pathsum/src/gates.rs \
+            > candidate-ingress-results/source-sha256.txt
+      - name: Validate decimal source to actual Rust PhasePolynomial without WMC
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --release --manifest-path candidate/rust/Cargo.toml \
+            -p pathsum --test rz_decimal_ingress_canary -- --nocapture \
+            2>&1 | tee candidate-ingress-results/canary-output.txt
+      - name: Seal candidate observations
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd candidate-ingress-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve exact source/canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-decimal-ingress-fixed-candidate
+          path: candidate-ingress-results/
+          retention-days: 30
+          if-no-files-found: error

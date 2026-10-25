@@ -118,7 +118,8 @@ def test_graphstate_independent_qiskit_detects_rotation_error(source_circuits):
 
 def test_graphstate_transpilation_provenance_is_not_fabricated(source_circuits):
     """QASM contents prove gate-level properties, not the old compiler build."""
-    a, b, _ = source_circuits
+    assert source_circuits[0].num_qubits == source_circuits[1].num_qubits == N
+    a, b = (p.read_text(encoding="utf-8") for p in SOURCES)
     assert a.startswith("// Used Gate Set:")
     assert "OPENQASM 2.0;" in a and "OPENQASM 2.0;" in b
     # Do not infer the exact Qiskit version or random seed from a filename.

@@ -1,0 +1,137 @@
+name: Opt-in Rust RZ Decimal Ingress Drift Evidence
+
+on:
+  push:
+    branches:
+      - research/wmc-source-cnf-evidence-replay-20261025
+    paths:
+      - '.github/workflows/wmc-rz-decimal-ingress-drift.yml'
+      - '.diagnostics/wmc_certificate_replay/test_rust_decimal_cancellation_drift.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay-source-angle-drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download original six-case Rust native evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: pure-rz-six-native-rust-source-cnf
+          repository: PhysicsQoo/QuPRS
+          run-id: 40176131364
+          github-token: ${{ github.token }}
+          path: original-rust
+      - name: Verify complete original evidence SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd original-rust
+          sha256sum -c SHA256SUMS > ../original-manifest-check.txt
+      - name: Exact rational drift controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rust-drift-review
+          python -m unittest discover -s .diagnostics/wmc_certificate_replay \
+            -p 'test_rust_decimal_cancellation_drift.py' -v \
+            2>&1 | tee rust-drift-review/control-tests.txt
+      - name: Bind archived CNF/phase records and recalculate drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys, json
+          from pathlib import Path
+          from fractions import Fraction as F
+          from hashlib import sha256
+          sys.path.insert(0, ".diagnostics/wmc_certificate_replay")
+          from test_rust_decimal_cancellation_drift import (
+              RUST_CONST, RUST_BIT, SOURCE_DELTA, represented_vs_source)
+          root=Path("original-rust")
+          summary=json.loads((root/"summary.json").read_text())
+          assert summary["status"]=="PASS" and len(summary["cases"])==12
+          source=('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+                  'rz(0.0002) q[0];\nrz(-0.000199999) q[0];\n').encode()
+          raw_source=(root/"nearly_cancelled.qasm").read_bytes()
+          assert raw_source==source and SOURCE_DELTA==F(1,10**9)
+          records=[]
+          for solver in ("gpmc","ganak"):
+              lines=(root/f"nearly_cancelled-{solver}-phases.tsv").read_text().splitlines()
+              assert len(lines)==3
+              assert lines[0]=="weight_lit\tphase_numerator\tphase_denominator\tmonomial"
+              phase={}
+              for line in lines[1:]:
+                  literal,n,d,monomial=line.split("\t")
+                  assert monomial not in phase and monomial in ("","0")
+                  phase[monomial]=F(int(n),int(d))
+              assert phase=={"":RUST_CONST,"0":RUST_BIT}
+              cnf=(root/f"nearly_cancelled-{solver}.cnf").read_bytes()
+              row=next(x for x in summary["cases"] if
+                       x["case"]=="nearly_cancelled" and x["solver"]==solver)
+              assert row["source_qasm_sha256"]==sha256(source).hexdigest()
+              assert row["cnf_sha256"]==sha256(cnf).hexdigest()
+              assert row["observational_cross_check"] is True
+              assert row["source_to_rust_phase_polynomial_certified"] is False
+              assert row["native_solver_result_is_interval_certified"] is False
+              records.append({"solver":solver,"cnf_sha256":sha256(cnf).hexdigest(),
+                              "constant_pi_units":str(phase[""]),
+                              "bit_pi_units":str(phase["0"])})
+          drift=represented_vs_source()
+          assert F(2,100)<drift["relative_drift_lower"]<drift["relative_drift_upper"]<F(3,100)
+          report={
+              "schema":"rust-rz-source-approximation-drift-replay-v1",
+              "original_native_run":40176131364,
+              "exact_source_radians":str(SOURCE_DELTA),
+              "represented_radians_lower":str(drift["represented_radians_lower"]),
+              "represented_radians_upper":str(drift["represented_radians_upper"]),
+              "relative_drift_lower":str(drift["relative_drift_lower"]),
+              "relative_drift_upper":str(drift["relative_drift_upper"]),
+              "source_qasm_sha256":sha256(source).hexdigest(),
+              "native_cnf_records":records,
+              "result":"SOURCE_TO_REPRESENTED_DRIFT_CONFIRMED",
+              "compiler_semantics_certified":False,
+              "solver_float_arithmetic_certified":False
+          }
+          Path("rust-drift-review/report.json").write_text(
+              json.dumps(report,sort_keys=True,indent=2)+"\n")
+          print("RUST_RZ_DRIFT",report["result"],flush=True)
+          print("RATIONAL_DRIFT_LO",report["relative_drift_lower"],flush=True)
+          print("RATIONAL_DRIFT_HI",report["relative_drift_upper"],flush=True)
+          PY
+      - name: Seal source and replay report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rust-drift-review
+          git rev-parse HEAD > rust-drift-review/reviewer-sha.txt
+          git rev-parse 'HEAD^{tree}' > rust-drift-review/reviewer-tree.txt
+          sha256sum .diagnostics/wmc_certificate_replay/test_rust_decimal_cancellation_drift.py \
+            rust/pathsum/src/rational.rs rust/pathsum/src/qasm.rs \
+            .github/workflows/wmc-rz-decimal-ingress-drift.yml \
+            > rust-drift-review/source-files-sha256.txt
+          (
+            cd rust-drift-review
+            find . -type f ! -name SHA256SUMS -print0 | sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Archive original-run drift evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-rz-source-ingress-drift-replay
+          path: rust-drift-review/
+          retention-days: 30
+          if-no-files-found: error

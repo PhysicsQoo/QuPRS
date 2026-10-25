@@ -93,8 +93,28 @@ def source_cnf_bundle(raw_replayed_records, expected_source_hash):
         check(isinstance(replay,dict) and replay.get("upper")==bound,
               "Replay upper and certificate upper mismatch")
         upper_bound(replay.get("source_upper"))
-        check("boolean_witnesses" in replay,
-              "No independent Boolean witness attestation")
+        if backend == "python":
+            witness = replay.get("input_witnesses")
+            roles = replay.get("phase_roles")
+            check(isinstance(witness,list) and len(witness)==2
+                  and len(set(witness))==2
+                  and all(isinstance(x,str) and x.isdecimal() for x in witness)
+                  and isinstance(roles,dict) and set(roles)=={"constant","bit"}
+                  and all(type(v) is int and v > 1 for v in roles.values())
+                  and roles["constant"] != roles["bit"],
+                  "Python replay missing independently derived Boolean witnesses")
+        else:
+            witness = replay.get("boolean_witnesses")
+            check(isinstance(witness,dict)
+                  and witness.get("activation_verified") is True
+                  and type(witness.get("input_variable")) is int
+                  and witness["input_variable"] > 0
+                  and isinstance(witness.get("unique_extensions"),list)
+                  and len(witness["unique_extensions"])==2
+                  and len(set(witness["unique_extensions"]))==2
+                  and all(isinstance(x,str) and x.isdecimal()
+                          for x in witness["unique_extensions"]),
+                  "Rust replay missing independent Boolean activation witnesses")
         output.append({
             "kind":Kind.SOURCE_MODEL_NEGATIVE.value,
             "status":"non_equivalent_within_audited_source_cnf_model",

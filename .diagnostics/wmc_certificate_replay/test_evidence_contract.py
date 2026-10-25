@@ -19,9 +19,16 @@ def fixture():
         "restricted_source_model_not_equivalent":True,
         "native_solver_arithmetic_certified":False,
         "general_compiler_soundness_certified":False,
-        "replay":{"upper":"999999995/1000000000",
-                  "source_upper":"999999996/1000000000",
-                  "boolean_witnesses":{"verified":True}},
+        "replay":{
+            "upper":"999999995/1000000000",
+            "source_upper":"999999996/1000000000",
+            **({"input_witnesses":["2","7"],
+                "phase_roles":{"constant":2,"bit":3}}
+               if b=="python"
+               else {"boolean_witnesses":{
+                   "input_variable":3,"unique_extensions":["1","7"],
+                   "activation_verified":True}}),
+        },
     } for b,head in SOURCE_HEAD.items() for s in ("gpmc","ganak")]
 
 class TrustContractTests(unittest.TestCase):

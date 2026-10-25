@@ -30,8 +30,28 @@ def junit(tmp_path, statuses=None, drop=(), duplicate=()):
             continue
         cls, name = key
         case = ET.SubElement(suite, "testcase", classname="test." + cls, name=name)
-        kind = (statuses or {}).get(key, "PASS")
-        if kind == "INCONCLUSIVE_RESOURCE":
+        kind = (statuses or {}).get(
+            key,
+            checker.APPROXIMATE_REDUCED_BOUND
+            if checker.authorized_approximate_case(*key) else "PASS",
+        )
+        if kind == checker.APPROXIMATE_REDUCED_BOUND:
+            props = ET.SubElement(case, "properties")
+            record = {
+                "verification_status": checker.APPROXIMATE_REDUCED_BOUND,
+                "strict_source_verdict": "not_equivalent",
+                "observed_backend_verdict": (
+                    "not_equivalent" if name.endswith("-rust]") else "equivalent"
+                ),
+                "approximate_metric": "projective_hilbert_schmidt",
+                "approximate_threshold": "1e-8",
+                "distance_squared_upper": "1/100000000000000000000000000000",
+                "proof_provenance": "source-pinned-reduced-diagonal",
+                "source_blobs": checker._PINNED_SOURCE_BLOBS,
+            }
+            for label, value in record.items():
+                ET.SubElement(props, "property", name=label, value=value)
+        elif kind == "INCONCLUSIVE_RESOURCE":
             ET.SubElement(case, "skipped", message="INCONCLUSIVE_RESOURCE: Timeout")
         elif kind == "SKIP":
             ET.SubElement(case, "skipped", message="Unsupported platform")
@@ -46,10 +66,14 @@ def junit(tmp_path, statuses=None, drop=(), duplicate=()):
     return path
 
 
-def test_full_thirty_two_cases_are_complete(tmp_path):
-    report = checker.audit(junit(tmp_path), real_catalog(), require_complete=True)
-    assert report["expected"] == report["observed"] == report["counts"]["PASS"] == 32
-    assert report["status"] == "COMPLETE"
+def test_full_catalog_classifies_four_approximate_cases_separately(tmp_path):
+    report = checker.audit(junit(tmp_path), real_catalog())
+    assert report["expected"] == report["observed"] == 32
+    assert report["counts"]["PASS"] == 28
+    assert report["counts"][checker.APPROXIMATE_REDUCED_BOUND] == 4
+    assert report["status"] == "COMPLETE_WITH_APPROXIMATE"
+    strict = checker.audit(junit(tmp_path), real_catalog(), require_complete=True)
+    assert strict["status"] == "BLOCKED"
 
 
 def test_single_timeout_is_inconclusive_not_blocking(tmp_path):
@@ -58,7 +82,8 @@ def test_single_timeout_is_inconclusive_not_blocking(tmp_path):
     assert report["status"] == "INCONCLUSIVE_RESOURCE"
     assert report["counts"]["INCONCLUSIVE_RESOURCE"] == 1
     assert report["counts"]["SKIP"] == 0
-    assert report["counts"]["PASS"] == 31
+    assert report["counts"]["PASS"] == 27
+    assert report["counts"][checker.APPROXIMATE_REDUCED_BOUND] == 4
 
 
 def test_single_timeout_cannot_publish_a_main_baseline(tmp_path):
@@ -205,3 +230,13 @@ def test_approximate_backend_verdict_is_provenance_not_strict_truth():
     assert not checker.validate_approximate_properties(*rust, values)
     values["observed_backend_verdict"] = "unknown"
     assert not checker.validate_approximate_properties(*py, values)
+
+def test_graphstate_missing_approximation_metadata_fails_closed(tmp_path):
+    key = next(k for k in checker.expected_cases(real_catalog())
+               if checker.authorized_approximate_case(*k))
+    report = checker.audit(junit(tmp_path, {key: "PASS"}), real_catalog())
+    assert report["status"] == "BLOCKED"
+    assert report["counts"]["ERROR"] == 1
+    assert report["counts"]["PASS"] == 28
+    assert report["counts"][checker.APPROXIMATE_REDUCED_BOUND] == 3
+    assert report["approximation_errors"]

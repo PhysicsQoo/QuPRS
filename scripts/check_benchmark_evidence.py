@@ -113,12 +113,18 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
                 prop.get("name"): prop.get("value")
                 for prop in case.findall("./properties/property")
             }
+            required_approximate = authorized_approximate_case(classname, name)
             if properties.get("verification_status") == APPROXIMATE_REDUCED_BOUND:
                 if validate_approximate_properties(classname, name, properties):
                     state = APPROXIMATE_REDUCED_BOUND
                 else:
                     state = "ERROR"
                     approximation_errors.append({"class": classname, "name": name})
+            elif required_approximate:
+                # Missing metadata cannot silently upgrade source-approximate
+                # evidence into a strict positive result.
+                state = "ERROR"
+                approximation_errors.append({"class": classname, "name": name})
             else:
                 state = "PASS"
         actual[key] = {"group": expected[key], "status": state}

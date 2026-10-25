@@ -42,3 +42,21 @@ The typed JSON is **NOT self-authenticating**: clients must rerun the raw
 archive verification and arithmetic rather than merely parse this envelope.
 This does not prove general QASM compiler correctness, native floating
 arithmetic, or exact positive equivalence.
+
+## Separate stdlib-only analytic source oracle
+
+The offline replay additionally runs independent_source_oracle.py, which does
+NOT import interval_wmc, the phase-bound reference, QuPRS, or any native
+solver. It parses the exact raw one-qubit QASM, GPMC/Ganak weighted CNF, and
+Rust phase numerator/denominator TSV using only the Python standard library.
+It enumerates the raw Boolean assignments independently and requires exactly
+one satisfying extension for each input and the correct always-on/bit-on
+phase literal activation. The source-only normalized trace bound is derived
+from exact rational x=1/10000 and the elementary inequality
+0 < cos(x) <= 1 - x^2/2 + x^4/24 < 1.
+
+This is deliberately **not** a second proof of the numerical printed weights
+or represented Rust phase coefficients. Those bounds remain separately checked
+by the original exact-rational reference implementation. Any mismatch in
+source/CNF identity or Boolean activation fails the replay; this independent
+source theorem must never be relabeled as a generic solver certificate.

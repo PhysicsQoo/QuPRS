@@ -16,6 +16,7 @@ from python_diagonal_source_certificate import (
     parse_diagonal_qasm, source_phase_terms, source_unit_complex)
 from qasm_rz_source_reference import audit_single_rz_bra_source
 from evidence_contract import source_cnf_bundle
+from independent_source_oracle import independent_source_check
 
 QASM = ('OPENQASM 2.0;\ninclude "qelib1.inc";\n'
         'qreg q[1];\nrz(0.0002) q[0];\n').encode()
@@ -191,12 +192,21 @@ def replay(folder,backend):
         cnf = parse_emitted_dimacs(data.decode(),solver=solver)
         if backend=="python":
             claim = replay_python(cnf)
+            analytic = independent_source_check(qasm,data,"python",solver)
             saved = row["source_certificate"][
                 "inclusive_source_printed_normalized_magnitude"]["upper"]
         else:
-            claim = replay_rust(cnf,(folder/(NAME+"-"+solver+"-phases.tsv")).read_bytes())
+            phases = (folder/(NAME+"-"+solver+"-phases.tsv")).read_bytes()
+            claim = replay_rust(cnf,phases)
+            analytic = independent_source_check(qasm,data,"rust",solver,phases)
             saved = row["source_decimal_radian_rz_audit"][
                 "source_represented_printed_hull_normalized_magnitude"]["upper"]
+        check(analytic["source_sha256"]==sha(qasm)
+              and analytic["cnf_sha256"]==sha(data)
+              and analytic["source_semantics_conditional"] is True
+              and analytic["native_solver_certified"] is False,
+              "Independent analytic/Boolean source oracle failed")
+        claim["independent_analytic_source_oracle"]=analytic
         check(saved == claim["upper"], "Saved proof upper differs from raw replay")
         findings.append({
             "backend":backend,"solver":solver,"source_commit":HEAD[backend],

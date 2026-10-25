@@ -1,0 +1,88 @@
+name: Opt-in WMC Small-RZ Source-CNF Evidence Replay
+
+on:
+  push:
+    branches:
+      - research/wmc-source-cnf-evidence-replay-20261025
+    paths:
+      - '.diagnostics/wmc_certificate_replay/**'
+      - '.github/workflows/wmc-source-cnf-evidence-replay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    name: Replay original Python/Rust CNFs and rational bounds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download sealed Python evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: small-rz-source-cnf-certificate
+          repository: PhysicsQoo/QuPRS
+          run-id: 40160244018
+          github-token: ${{ github.token }}
+          path: replay-input/python
+      - name: Download sealed Rust evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-small-rz-source-cnf-reference
+          repository: PhysicsQoo/QuPRS
+          run-id: 40161565829
+          github-token: ${{ github.token }}
+          path: replay-input/rust
+      - name: Run tamper-rejection unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p replay-results
+          python -m unittest discover -s .diagnostics/wmc_certificate_replay \
+            -p 'test_*.py' -v 2>&1 | tee replay-results/tests.txt
+      - name: Independently replay raw evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .diagnostics/wmc_certificate_replay/replay_small_rz_evidence.py \
+            --python-artifact replay-input/python \
+            --rust-artifact replay-input/rust \
+            --output replay-results/report.json \
+            2>&1 | tee replay-results/replay-output.txt
+      - name: Seal output
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p replay-results
+          git rev-parse HEAD > replay-results/head.txt
+          git rev-parse 'HEAD^{tree}' > replay-results/tree.txt
+          sha256sum .diagnostics/wmc_certificate_replay/*.py \
+            .diagnostics/wmc_interval_reference/interval_wmc.py \
+            .diagnostics/wmc_interval_reference/import_dimacs.py \
+            .diagnostics/wmc_interval_reference/python_diagonal_source_certificate.py \
+            .diagnostics/wmc_interval_reference/qasm_rz_source_reference.py \
+            .github/workflows/wmc-source-cnf-evidence-replay.yml \
+            > replay-results/source-sha256.txt
+          (
+            cd replay-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve independent replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-rz-conditional-cnf-evidence-replay
+          path: replay-results/
+          retention-days: 30
+          if-no-files-found: error

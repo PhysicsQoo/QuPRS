@@ -1,0 +1,121 @@
+name: Opt-in Pure-RZ Six-Case Native Python CNF Probe
+
+# Explicitly research-only: no changes to production verifier or required CI.
+on:
+  push:
+    branches:
+      - research/wmc-source-cnf-evidence-replay-20261025
+    paths:
+      - '.diagnostics/wmc_certificate_replay/**'
+      - '.github/workflows/wmc-rz-sequence-native-python.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  six-case-python:
+    name: Python actual weighted CNF × GPMC/Ganak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native package and independent solvers
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+      - name: Check exact source RZ theorem
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rz-six-native-evidence
+          python -m unittest discover -s .diagnostics/wmc_certificate_replay \
+            -p 'test_rz_sequence_oracle.py' -v \
+            2>&1 | tee rz-six-native-evidence/source-controls.txt
+      - name: Generate actual Python CNFs and observe both native solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/wmc_certificate_replay/rz_sequence_native_python.py \
+            --output rz-six-native-evidence \
+            2>&1 | tee rz-six-native-evidence/native-output.txt
+      - name: Verify complete bounded provenance and positive-case separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=Path("rz-six-native-evidence")
+          rows=json.loads((d/"summary.json").read_text())
+          assert rows["status"]=="PASS" and len(rows["observations"])==12
+          assert rows["passed"]==12
+          assert rows["native_solver_arithmetic_certified"] is False
+          assert rows["source_positive_not_promoted"] is True
+          for item in rows["observations"]:
+              assert item["check_passed"]
+              assert item["native_observation_pass"]
+              assert item["compiled_exact_equivalence_certified"] is False
+              if item["expected_source_outcome"]=="EQUIVALENT":
+                  assert item["source_cnf_verdict"]=="INCONCLUSIVE"
+                  assert not item["source_cnf_negative_proved"]
+              else:
+                  assert item["source_cnf_verdict"] in {
+                      "BOUNDED_NON_EQUIVALENT","INCONCLUSIVE"}
+              actual=item["native_report"]
+              assert (d/f'{item["case"]}-{item["solver"]}.cnf').exists()
+              assert actual["qasm_sha256"] and actual["cnf_sha256"]
+              assert actual["native_executable_sha256"]
+              print("ACCEPTED_RZ_SOURCE_AND_NATIVE_OBSERVATION",
+                    item["case"],item["solver"],item["source_cnf_verdict"])
+          PY
+      - name: Seal evidence and code digests
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rz-six-native-evidence
+          git rev-parse HEAD > rz-six-native-evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > rz-six-native-evidence/source-tree.txt
+          python --version > rz-six-native-evidence/python-version.txt
+          sha256sum \
+            .diagnostics/wmc_certificate_replay/rz_sequence_oracle.py \
+            .diagnostics/wmc_certificate_replay/rz_sequence_native_python.py \
+            .diagnostics/wmc_interval_reference/run_python_source_certificate.py \
+            .diagnostics/wmc_interval_reference/python_diagonal_source_certificate.py \
+            src/QuPRS/interface/ps2wmc.py \
+            src/QuPRS/pathsum/gates/single_qubit.py \
+            .github/workflows/wmc-rz-sequence-native-python.yml \
+            > rz-six-native-evidence/code-sha256.txt
+          (
+            cd rz-six-native-evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve Python/GPMC/Ganak CNFs and observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pure-rz-six-native-python-source-cnf
+          path: rz-six-native-evidence/
+          if-no-files-found: error
+          retention-days: 30

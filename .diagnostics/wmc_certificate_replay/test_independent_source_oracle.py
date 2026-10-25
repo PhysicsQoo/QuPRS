@@ -66,7 +66,9 @@ class IndependentSourceOracleTests(unittest.TestCase):
             (SOURCE,GPMC.replace(b"2 0\n",b"")),
             (SOURCE,GPMC.replace(b"-1 3 0\n",b"1 3 0\n")),
             (SOURCE,GPMC.replace(b"-3 1 0\n",b"")),
-            (SOURCE,GPMC.replace(b"0.99999998",b"1")),
+            (SOURCE,GPMC.replace(
+                b"c p weight 3 0.99999998 0.0002 0",
+                b"c p weight 3 1 0 0")),
             (SOURCE,GPMC.replace(b"-2 1 0 0",b"-2 2 0 0")),
             (SOURCE,GPMC.replace(b"0.999999995",b"nan")),
             (SOURCE,GPMC.replace(b"p cnf 3 3",b"p cnf 13 3")),

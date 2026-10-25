@@ -72,7 +72,8 @@ def check_observation(folder, case, solver):
     assert_valid(record.get("cnf_bytes_equal")
                  == (python_cnf.read_bytes() == rust_cnf.read_bytes()),
                  "Reported CNF byte comparison mismatch")
-    assert_valid(bool(SHA256.fullmatch(record.get("selected_binary_sha256", ""))),
+    binary_hash = record.get("selected_binary_sha256")
+    assert_valid(isinstance(binary_hash, str) and bool(SHA256.fullmatch(binary_hash)),
                  "Missing native solver executable fingerprint")
     source = source_path.read_text(encoding="utf-8")
     assert_valid(source == HEADER + GATES[case],

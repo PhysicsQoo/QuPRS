@@ -364,6 +364,8 @@ def check_equivalence(
             log_wmc=None,
             wmc_policy=wmc_policy,
             wmc_numerical_verdict=rust_wmc_numerical_verdict,
+            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+            wmc_phase_tolerance=wmc_phase_tolerance,
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -390,6 +392,8 @@ def check_equivalence(
             strategy=strategy,
             equivalent="not_equivalent",
             wmc_policy=wmc_policy,
+            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+            wmc_phase_tolerance=wmc_phase_tolerance,
             verification_time=0.0,
             pathsum_time=0.0,
             final_pathsum="N/A",
@@ -581,6 +585,8 @@ def check_equivalence(
         log_wmc=log_wmc,
         wmc_policy=wmc_policy,
         wmc_numerical_verdict=wmc_numerical_verdict,
+        wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+        wmc_phase_tolerance=wmc_phase_tolerance,
     )
     return Result
 
@@ -634,6 +640,9 @@ class EquivalenceCheckResult:
     # Legacy numeric verdict remains observable even when policy is conservative.
     wmc_numerical_verdict: Optional[str] = None
     wmc_policy: str = "legacy"
+    # Effective thresholds recorded for reproducible numerical verdicts.
+    wmc_magnitude_tolerance: float | None = None
+    wmc_phase_tolerance: float | None = None
 
     @staticmethod
     def _fmt(val: float | str | None) -> str:

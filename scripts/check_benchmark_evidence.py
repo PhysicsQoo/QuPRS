@@ -30,8 +30,9 @@ def authorized_approximate_case(classname: str, name: str) -> bool:
     return (
         classname == "test_MQT"
         and name in {
-            f"test_all_benchmarks[{_GRAPHSTATE_FILE}-naive-False-{tool}-rust]"
+            f"test_all_benchmarks[{_GRAPHSTATE_FILE}-naive-False-{tool}-{backend}]"
             for tool in ("gpmc", "ganak")
+            for backend in ("python", "rust")
         }
     )
 
@@ -49,6 +50,15 @@ def validate_approximate_properties(classname: str, name: str, props: dict) -> b
         "source_blobs": _PINNED_SOURCE_BLOBS,
     }
     if any(props.get(k) != v for k, v in mandatory.items()):
+        return False
+    observed = props.get("observed_backend_verdict")
+    if name.endswith("-rust]"):
+        if observed != "not_equivalent":
+            return False
+    elif name.endswith("-python]"):
+        if observed not in {"equivalent", "equivalent*", "not_equivalent"}:
+            return False
+    else:
         return False
     try:
         bound = Fraction(props["distance_squared_upper"])

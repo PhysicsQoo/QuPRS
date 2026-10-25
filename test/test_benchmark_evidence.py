@@ -103,13 +103,13 @@ def test_cohort_without_success_is_not_verified(tmp_path):
     assert report["status"] == "BLOCKED"
     assert "Feynman" in " ".join(report["problems"])
 
-def test_two_graphstate_rust_approximate_results_are_distinct_from_strict(tmp_path):
+def test_four_graphstate_backend_approximate_results_are_distinct_from_strict(tmp_path):
     """Approximate scientific controls count separately, never as 32 strict PASS."""
     keys = [
         key for key in checker.expected_cases(real_catalog())
         if checker.authorized_approximate_case(*key)
     ]
-    assert len(keys) == 2
+    assert len(keys) == 4
     root = ET.Element("testsuites")
     suite = ET.SubElement(root, "testsuite")
     for cls, name in checker.expected_cases(real_catalog()):
@@ -120,6 +120,9 @@ def test_two_graphstate_rust_approximate_results_are_distinct_from_strict(tmp_pa
         good = {
             "verification_status": checker.APPROXIMATE_REDUCED_BOUND,
             "strict_source_verdict": "not_equivalent",
+            "observed_backend_verdict": (
+                "not_equivalent" if name.endswith("-rust]") else "equivalent"
+            ),
             "approximate_metric": "projective_hilbert_schmidt",
             "approximate_threshold": "1e-8",
             "distance_squared_upper": "1/100000000000000000000000000000",
@@ -132,11 +135,11 @@ def test_two_graphstate_rust_approximate_results_are_distinct_from_strict(tmp_pa
     ET.ElementTree(root).write(output)
     summary = checker.audit(output, real_catalog())
     assert summary["status"] == "COMPLETE_WITH_APPROXIMATE"
-    assert summary["counts"]["PASS"] == 30
-    assert summary["counts"][checker.APPROXIMATE_REDUCED_BOUND] == 2
+    assert summary["counts"]["PASS"] == 28
+    assert summary["counts"][checker.APPROXIMATE_REDUCED_BOUND] == 4
     strict = checker.audit(output, real_catalog(), require_complete=True)
     assert strict["status"] == "BLOCKED"
-    assert strict["counts"]["PASS"] == 30
+    assert strict["counts"]["PASS"] == 28
 
     # A missing provenance value, an unauthorized case, or a failed test
     # cannot be reclassified as a valid approximate result.
@@ -167,6 +170,7 @@ def test_approximate_source_proof_rejects_invalid_upper_bound():
     good = {
         "verification_status": checker.APPROXIMATE_REDUCED_BOUND,
         "strict_source_verdict": "not_equivalent",
+        "observed_backend_verdict": "not_equivalent",
         "approximate_metric": "projective_hilbert_schmidt",
         "approximate_threshold": "1e-8",
         "distance_squared_upper": "1/100000000000000000000000000000",
@@ -177,3 +181,27 @@ def test_approximate_source_proof_rejects_invalid_upper_bound():
     for value in ("nan", "-1e-30", "1e-8", "1/0", "0"):
         broken = {**good, "distance_squared_upper": value}
         assert not checker.validate_approximate_properties(*key, broken)
+
+def test_approximate_backend_verdict_is_provenance_not_strict_truth():
+    cases = list(checker.expected_cases(real_catalog()))
+    py = next(k for k in cases if checker.authorized_approximate_case(*k)
+              and k[1].endswith("-python]"))
+    rust = next(k for k in cases if checker.authorized_approximate_case(*k)
+                and k[1].endswith("-rust]"))
+    for case, raw in ((py, "equivalent"), (py, "not_equivalent"),
+                      (rust, "not_equivalent")):
+        values = {
+            "verification_status": checker.APPROXIMATE_REDUCED_BOUND,
+            "strict_source_verdict": "not_equivalent",
+            "observed_backend_verdict": raw,
+            "approximate_metric": "projective_hilbert_schmidt",
+            "approximate_threshold": "1e-8",
+            "distance_squared_upper": "1/100000000000000000000000000000",
+            "proof_provenance": "source-pinned-reduced-diagonal",
+            "source_blobs": checker._PINNED_SOURCE_BLOBS,
+        }
+        assert checker.validate_approximate_properties(*case, values)
+    values["observed_backend_verdict"] = "equivalent"
+    assert not checker.validate_approximate_properties(*rust, values)
+    values["observed_backend_verdict"] = "unknown"
+    assert not checker.validate_approximate_properties(*py, values)

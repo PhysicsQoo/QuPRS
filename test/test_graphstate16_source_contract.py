@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+from functools import lru_cache
 from decimal import Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
@@ -113,15 +114,26 @@ def certificate_from_reduced(full_text):
     return residuals,distance_upper_sq
 
 
-@pytest.fixture(scope="module")
-def full_graphstate_certificate():
+@lru_cache(maxsize=1)
+def get_graphstate_reduced_certificate():
+    """Obtain a source-pinned, independently invoked Rust reduction certificate.
+
+    This is a conditional reducer certificate, not an independent proof of the
+    source-to-PathSum translation. It is never part of benchmark timing.
+    """
     independent_source_contract()
-    res=check_equivalence(str(A),str(B),backend="rust",
-                          method="reduction_rules",strategy="Naive",
-                          tool_name="gpmc",timeout=30)
-    assert res.equivalent=="not_equivalent"
+    res = check_equivalence(
+        str(A), str(B), backend="rust", method="reduction_rules",
+        strategy="Naive", tool_name="gpmc", timeout=30,
+    )
+    assert res.equivalent == "not_equivalent"
     assert res.tool_time is None
     return certificate_from_reduced(str(res.final_pathsum))
+
+
+@pytest.fixture(scope="module")
+def full_graphstate_certificate():
+    return get_graphstate_reduced_certificate()
 
 
 def test_graphstate_source_literal_identity():

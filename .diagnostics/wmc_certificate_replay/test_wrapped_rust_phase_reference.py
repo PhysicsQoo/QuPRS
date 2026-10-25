@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import unittest
 
+sys.path.insert(0,str(Path(__file__).resolve().parents[1] / "wmc_interval_reference"))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from wrapped_rust_phase_reference import local_wrapped_phase, audited_represented_weight
 from interval_wmc import Interval, ComplexInterval

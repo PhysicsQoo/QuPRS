@@ -1,0 +1,115 @@
+name: Opt-in Pure-RZ Six-Case Native Rust CNF Probe
+
+on:
+  push:
+    branches:
+      - research/wmc-source-cnf-evidence-replay-20261025
+    paths:
+      - 'rust/pathsum/examples/rz_sequence_cnf_reference.rs'
+      - '.diagnostics/wmc_certificate_replay/rz_sequence_native_rust.py'
+      - '.diagnostics/wmc_certificate_replay/rz_sequence_oracle.py'
+      - '.github/workflows/wmc-rz-sequence-native-rust.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-sequence-reference:
+    name: Rust WmcManager six source cases × GPMC/Ganak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build native QuPRS and both independent model counters
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+      - name: Check source theorem and collect real Rust CNFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rz-six-rust-evidence
+          python -m unittest discover -s .diagnostics/wmc_certificate_replay \
+            -p test_rz_sequence_oracle.py -v \
+            2>&1 | tee rz-six-rust-evidence/source-tests.txt
+          python -u .diagnostics/wmc_certificate_replay/rz_sequence_native_rust.py \
+            --output rz-six-rust-evidence \
+            2>&1 | tee rz-six-rust-evidence/native-stdout.txt
+      - name: Check complete provenance without upgrading numerical verdicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=Path("rz-six-rust-evidence")
+          data=json.loads((d/"summary.json").read_text())
+          assert data["status"]=="PASS" and data["count"]==12
+          assert data["rust_source_to_cnf_formal_certificate"] is False
+          rows=data["cases"]
+          assert {(r["case"],r["solver"]) for r in rows} == {
+              (case,solver) for case in (
+                  "positive_rotation","negative_rotation","accumulated_rotation",
+                  "exact_cancellation","identical_paths","nearly_cancelled")
+              for solver in ("gpmc","ganak")}
+          for item in rows:
+              assert item["observational_cross_check"]
+              assert item["source_cnf_formal_certificate"]=="NOT_AVAILABLE"
+              assert item["source_to_rust_phase_polynomial_certified"] is False
+              assert item["compiled_circuit_exact_equivalence_certified"] is False
+              assert item["native_solver_result_is_interval_certified"] is False
+              assert item["exact_source_pair_theorem"]["emitted_cnf_semantics_verified"] is False
+              assert item["source_qasm_sha256"] and item["cnf_sha256"]
+              assert item["native_solver_binary_sha256"] and item["native_solver_stdout"]
+              assert (d/f'{item["case"]}-{item["solver"]}.cnf').exists()
+              assert (d/f'{item["case"]}-{item["solver"]}-phases.tsv').exists()
+          PY
+      - name: Seal source/solver provenance
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rz-six-rust-evidence
+          git rev-parse HEAD > rz-six-rust-evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > rz-six-rust-evidence/source-tree.txt
+          sha256sum \
+            rust/pathsum/examples/rz_sequence_cnf_reference.rs \
+            rust/pathsum/src/wmc.rs rust/pathsum/src/qasm.rs \
+            .diagnostics/wmc_certificate_replay/rz_sequence_native_rust.py \
+            .diagnostics/wmc_certificate_replay/rz_sequence_oracle.py \
+            .diagnostics/wmc_interval_reference/run_rust_bridge.py \
+            .github/workflows/wmc-rz-sequence-native-rust.yml \
+            > rz-six-rust-evidence/code-sha256.txt
+          (
+            cd rz-six-rust-evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve real Rust/GPMC/Ganak source and emitted-CNF evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pure-rz-six-native-rust-source-cnf
+          path: rz-six-rust-evidence/
+          retention-days: 30
+          if-no-files-found: error

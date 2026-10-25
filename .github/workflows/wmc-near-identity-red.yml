@@ -58,6 +58,10 @@ jobs:
           python -m pytest -q -ra \
             .diagnostics/wmc_near_identity_red/test_near_identity.py::test_independent_dense_operator_controls \
             .diagnostics/wmc_near_identity_red/test_near_identity.py::test_count_policy_controls_and_true_negative \
+            .diagnostics/wmc_near_identity_red/test_near_identity.py::test_default_threshold_rejects_historical_counterexample \
+            .diagnostics/wmc_near_identity_red/test_near_identity.py::test_explicit_historical_tolerance_retains_numeric_acceptance \
+            .diagnostics/wmc_near_identity_red/test_near_identity.py::test_conservative_mode_does_not_claim_small_angle_proof \
+            .diagnostics/wmc_near_identity_red/test_near_identity.py::test_two_numerical_thresholds_are_not_equivalence_proofs \
             --junitxml=wmc-near-identity-red-results/reference-junit.xml \
             2>&1 | tee wmc-near-identity-red-results/reference-output.txt
           test "${PIPESTATUS[0]}" -eq 0

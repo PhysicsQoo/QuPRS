@@ -9,6 +9,9 @@ pub mod reduction;
 pub mod strategy;
 pub mod stats;    
 pub mod wmc;
+mod solver_adapter;
+mod wmc_problem;
+pub mod solver_result;
 mod diagnostics;
 pub use diagnostics::ExclusiveLedger;
 
@@ -83,6 +86,35 @@ pub fn check_equivalence(
     tool_name: &str,
     timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
+    // Preserve the historical native-core entrypoint for direct Rust callers.
+    check_equivalence_with_tolerances(
+        num_qubits, gates1, gates2, method, strategy, tool_name, timeout_secs,
+        1e-6, 1e-6,
+    )
+}
+
+/// WMC decision thresholds are per-request policy, not symbolic reduction rules.
+/// This does not change the selected model counter or any PathSum transformation.
+pub fn check_equivalence_with_tolerances(
+    num_qubits: usize,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+    method: VerificationMethod,
+    strategy: VerificationStrategy,
+    tool_name: &str,
+    timeout_secs: u64,
+    wmc_magnitude_tolerance: f64,
+    wmc_phase_tolerance: f64,
+) -> Result<EquivalenceCheckResult> {
+    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
+        || wmc_magnitude_tolerance >= 1.0
+        || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
+        || wmc_phase_tolerance >= 1.0
+    {
+        return Err(anyhow::anyhow!(
+            "WMC magnitude and phase tolerances must be finite in (0, 1)"
+        ));
+    }
     let global_start = Instant::now();
     let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
@@ -117,15 +149,14 @@ pub fn check_equivalence(
     if method != VerificationMethod::WmcOnly {
         if ps_miter.is_identity_up_to_phase() {
             if let Some(phase_coeff) = ps_miter.get_global_phase() {
-                let phase_val = (phase_coeff.constant.numer as f64) / (phase_coeff.constant.denom as f64);
-                let angle = phase_val * std::f64::consts::PI; 
-                let cos_val = angle.cos();
-                let sin_val = angle.sin();
-                if (cos_val - 1.0).abs() < 1e-6 && sin_val.abs() < 1e-6 {
+                // The phase polynomial stores exact cycles modulo 2*pi.
+                // Floating sin/cos tolerances cannot prove that a nonzero
+                // rational or symbolic scalar is *exactly* identity.
+                if phase_coeff.is_zero() {
                     status = EquivalenceStatus::Equivalent;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
-                    log::debug!("Residual Global Phase detected: {} radians", angle);
+                    log::debug!("Residual global phase: {} cycles", phase_coeff);
                 }
             }
         } else {
@@ -195,10 +226,10 @@ pub fn check_equivalence(
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
         let norm = final_amplitude.norm();
-        if (norm - 1.0).abs() < 1e-6 {
+        if (norm - 1.0).abs() < wmc_magnitude_tolerance {
             let theta = final_amplitude.im.atan2(final_amplitude.re);
             info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-            if theta.abs() < 1e-6 {
+            if theta.abs() < wmc_phase_tolerance {
                 status = EquivalenceStatus::Equivalent;
             } else {
                 status = EquivalenceStatus::EquivalentUpToGlobalPhase;
@@ -231,3 +262,60 @@ pub fn check_equivalence(
 }
 mod ganak_distribution;
 mod solver_process;
+
+#[cfg(test)]
+mod exact_global_phase_verdict_tests {
+    use super::*;
+    use crate::ir::QuantumOp;
+    use crate::rational::{Angle, FreeRational};
+
+    // Rz(theta) = exp(-i*theta/2) P(theta), as complete 2x2 unitaries.
+    // A nonzero rational multiple of pi is exactly nonzero mod 2*pi;
+    // using floating sin/cos acceptance to call it exactly equal is unsound.
+    #[test]
+    fn red_near_nonzero_global_phase_is_not_exact_equality() {
+        for denom in [1000_i64, 10_000_000_i64] {
+            let theta = Angle::new_constant(FreeRational::new(1, denom));
+            let rz = vec![QuantumOp::RZ(0, theta.clone())];
+            let p_gate = vec![QuantumOp::P(0, theta)];
+            for (left, right, direction) in [
+                (&rz, &p_gate, "RZ_vs_P"),
+                (&p_gate, &rz, "P_vs_RZ"),
+            ] {
+                let r = check_equivalence(
+                    1, left, right,
+                    VerificationMethod::ReductionRules,
+                    VerificationStrategy::Naive,
+                    "gpmc", 30,
+                ).unwrap();
+                assert!(
+                    r.final_ps.is_identity_up_to_phase(),
+                    "{direction} must be scalar equivalent: {denom}"
+                );
+                let phase = r.final_ps.get_global_phase().unwrap();
+                assert!(!phase.is_zero(),
+                        "exact nonzero phase must not disappear: {denom} {direction}");
+                assert_eq!(
+                    r.status, EquivalenceStatus::EquivalentUpToGlobalPhase,
+                    "{direction} at pi/{denom} must not be labeled exactly equal"
+                );
+                assert!(r.tool_time.is_none(), "Reduction solved; do not run WMC");
+            }
+        }
+    }
+
+    #[test]
+    fn exact_phase_zero_clifford_controls_preserved() {
+        let theta = Angle::new_constant(FreeRational::new(1, 8));
+        let same = vec![QuantumOp::P(0, theta)];
+        let r = check_equivalence(
+            1, &same, &same,
+            VerificationMethod::ReductionRules,
+            VerificationStrategy::Naive,
+            "gpmc", 30,
+        ).unwrap();
+        assert!(r.final_ps.get_global_phase().unwrap().is_zero());
+        assert_eq!(r.status, EquivalenceStatus::Equivalent);
+        assert!(r.tool_time.is_none());
+    }
+}

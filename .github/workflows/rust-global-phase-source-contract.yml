@@ -1,0 +1,102 @@
+name: Opt-in Rust Global Phase Source Contract
+
+on:
+  push:
+    branches:
+      - research/qiskit-global-phase-contract-20261023
+    paths:
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'test/test_rust_global_phase_qasm_contract.py'
+      - '.github/workflows/rust-global-phase-source-contract.yml'
+      - 'docs/development/rust-global-phase-contract.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-phase-contract:
+    name: Qiskit ${{ matrix.qiskit }} explicit global-phase QASM guard
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ["1.4.6", "2.6.1"]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      QISKIT_VERSION: "${{ matrix.qiskit }}"
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build native QuPRS and pin isolated Qiskit
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pip install --no-deps "qiskit==$QISKIT_VERSION"
+          python -m pip install "qiskit-qasm3-import==0.6.0"
+          python - <<'PY'
+          import os, importlib.metadata
+          assert importlib.metadata.version("qiskit")==os.environ["QISKIT_VERSION"]
+          PY
+      - name: Record source and intentional package metadata compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/tree.txt
+          python --version > evidence/python.txt 2>&1
+          python -m pip freeze > evidence/requirements.txt
+          set +e
+          python -m pip check > evidence/pip-check.txt 2>&1
+          echo $? > evidence/pip-check-exit.txt
+          set -e
+          if [ "$QISKIT_VERSION" = "1.4.6" ]; then
+            test "$(cat evidence/pip-check-exit.txt)" -eq 0
+          fi
+      - name: Prove equal-phase cancellation and fail-closed unequal phase
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_rust_global_phase_qasm_contract.py \
+            --junitxml=evidence/results-junit.xml \
+            2>&1 | tee evidence/test-stdout.txt
+      - name: Seal exact source and evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          sha256sum src/QuPRS/interface/load_qiskit.py \
+            test/test_rust_global_phase_qasm_contract.py \
+            .github/workflows/rust-global-phase-source-contract.yml \
+            docs/development/rust-global-phase-contract.md > evidence/source-sha256.txt
+          (
+            cd evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Preserve phase source-contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-global-phase-contract-${{ matrix.qiskit }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error

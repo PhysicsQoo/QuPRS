@@ -1,0 +1,127 @@
+name: Opt-in Python Rust Solver Conformance
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/utils/wmc_solvers.py'
+      - 'src/QuPRS/interface/ps2wmc.py'
+      - 'rust/pathsum/src/solver_adapter.rs'
+      - 'rust/pathsum/src/solver_result.rs'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'test/test_solver_adapter_contract.py'
+      - 'rust/pathsum/examples/solver_conformance.rs'
+      - 'scripts/run_solver_cross_backend.py'
+      - 'scripts/run_python_source_conformance.py'
+      - 'scripts/run_source_interval_bridge.py'
+      - '.diagnostics/wmc_interval_reference/**'
+      - '.github/workflows/solver-cross-backend-conformance.yml'
+  push:
+    branches:
+      - test/solver-cross-backend-conformance-20261024
+    paths:
+      - 'scripts/run_solver_cross_backend.py'
+      - 'scripts/run_python_source_conformance.py'
+      - 'scripts/run_source_interval_bridge.py'
+      - '.diagnostics/wmc_interval_reference/**'
+      - 'rust/pathsum/examples/solver_conformance.rs'
+      - '.github/workflows/solver-cross-backend-conformance.yml'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'rust/pathsum/src/solver_adapter.rs'
+      - 'rust/pathsum/src/solver_result.rs'
+      - 'src/QuPRS/utils/solver_adapter.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-rust-real-solver:
+    name: Independent Python and Rust invocation over identical emitted CNFs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build native QuPRS and both solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+          python -m pip check
+      - name: Run cross-language real-solver CNF matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p solver-conformance-evidence
+          python -u scripts/run_solver_cross_backend.py --out solver-conformance-evidence \
+            2>&1 | tee solver-conformance-evidence/runner.log
+      - name: Validate independent Python-emitted source CNFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/run_python_source_conformance.py --out solver-conformance-evidence \
+            2>&1 | tee solver-conformance-evidence/python-source-runner.log
+      - name: Validate bounded source-to-emitted-CNF proof controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            .diagnostics/wmc_interval_reference/test_python_diagonal_source_certificate.py \
+            .diagnostics/wmc_interval_reference/test_import_dimacs.py \
+            .diagnostics/wmc_interval_reference/test_phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/test_source_interval_bridge.py \
+            --junitxml=solver-conformance-evidence/source-interval-controls.xml \
+            2>&1 | tee solver-conformance-evidence/source-interval-controls.log
+          python -u scripts/run_source_interval_bridge.py --out solver-conformance-evidence \
+            2>&1 | tee solver-conformance-evidence/source-interval-bridge.log
+      - name: Seal source and provenance evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p solver-conformance-evidence
+          git rev-parse HEAD > solver-conformance-evidence/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > solver-conformance-evidence/source-tree.txt
+          python --version > solver-conformance-evidence/python.txt
+          rustc --version > solver-conformance-evidence/rustc.txt
+          lscpu > solver-conformance-evidence/cpu.txt
+          python -m pip freeze > solver-conformance-evidence/packages.txt
+          sha256sum rust/pathsum/examples/solver_conformance.rs \
+            scripts/run_solver_cross_backend.py \
+            scripts/run_python_source_conformance.py \
+            scripts/run_source_interval_bridge.py \
+            .diagnostics/wmc_interval_reference/python_diagonal_source_certificate.py \
+            .diagnostics/wmc_interval_reference/interval_wmc.py \
+            .diagnostics/wmc_interval_reference/import_dimacs.py \
+            .diagnostics/wmc_interval_reference/phase_coeff_reference.py \
+            .diagnostics/wmc_interval_reference/test_source_interval_bridge.py \
+            .github/workflows/solver-cross-backend-conformance.yml \
+            > solver-conformance-evidence/source-files.sha256
+          (
+            cd solver-conformance-evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Upload reproducible cross-backend evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-rust-solver-conformance
+          path: solver-conformance-evidence/
+          retention-days: 30
+          if-no-files-found: error

@@ -1,0 +1,94 @@
+name: Opt-in Rust Tiny Residual Artifact Diagnostic
+
+on:
+  push:
+    branches:
+      - research/wmc-source-cnf-evidence-replay-20261025
+    paths:
+      - '.github/workflows/wmc-rz-rust-artifact-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    name: Rust 1e-9 residual provenance and numerical separation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download sealed Rust original run evidence
+        uses: actions/download-artifact@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          run-id: 40173674322
+          name: pure-rz-six-native-rust-source-cnf
+          github-token: ${{ github.token }}
+          path: original-rust
+      - name: Explain tiny residual against all native stages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rust-rz-diagnostic
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from hashlib import sha256
+          d=Path("original-rust")
+          summary=json.loads((d/"summary.json").read_text())
+          assert summary["count"]==12 and len(summary["cases"])==12
+          cases=summary["cases"]
+          small=[x for x in cases if x["case"]=="nearly_cancelled"]
+          assert len(small)==2 and {x["solver"] for x in small}=={"gpmc","ganak"}
+          assert (d/"SHA256SUMS").is_file()
+          report={
+            "source_run":40173674322,
+            "source_artifact":12591391323,
+            "source_digest":"9e3c3f8f9e73838c284dc7cd7b36a17d7c15a636a20672cd31e10d491a62f408",
+            "run_status":"FAILED_EXPECTED_DIAGNOSTIC_GATES",
+            "native_solver_certified":False,
+            "source_exact_rational_angle":"1/1000000000",
+            "controls_passed":sum(bool(x.get("observational_cross_check")) for x in cases),
+            "case_details":small,
+          }
+          assert report["controls_passed"]==10
+          for x in small:
+            solver=x["solver"]
+            qasm=(d/"nearly_cancelled.qasm").read_bytes()
+            raw=(d/f"nearly_cancelled-{solver}.cnf").read_bytes()
+            phases=(d/f"nearly_cancelled-{solver}-phases.tsv").read_text()
+            print("SMALL_RZ_RUST",solver,
+                  "QASM_SHA",sha256(qasm).hexdigest(),
+                  "CNF_SHA",sha256(raw).hexdigest(),
+                  "PHASE_ROWS",repr(phases),
+                  "ERROR",x.get("error"),
+                  "PRINTED_FLOAT_ERR",x.get("native_vs_printed_weight_count_abs_float"),
+                  "QISKIT_FLOAT_ERR",x.get("model_to_qiskit_operator_abs_float"),
+                  "BUDGET",x.get("observational_budget"),
+                  "PRINTED_NORM",x.get("printed_weight_normalized_magnitude"),
+                  "REPRESENTED_NORM",x.get("represented_rust_phase_coefficient_normalized_magnitude"))
+          out=Path("rust-rz-diagnostic")/"report.json"
+          out.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
+          PY
+          git rev-parse HEAD > rust-rz-diagnostic/diagnostic-head.txt
+          (
+            cd rust-rz-diagnostic
+            find . -type f ! -name SHA256SUMS -print0 | sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Archive bounded diagnostic (not a scientific gate)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-rz-nanophase-source-diagnostic
+          path: rust-rz-diagnostic/
+          retention-days: 30
+          if-no-files-found: error

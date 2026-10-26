@@ -75,6 +75,23 @@ jobs:
               python -c 'import QuPRS, qiskit; print(QuPRS.__file__, qiskit.__version__)'
             )
           done
+      - name: Pin byte-identical native solver executables for both revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p paired-perf-evidence
+          for executable in gpmc ganak; do
+            base="$RUNNER_TEMP/perf-base/src/QuPRS/utils/wmc_tools/$executable"
+            head="$RUNNER_TEMP/perf-head/src/QuPRS/utils/wmc_tools/$executable"
+            test -x "$base" && test -x "$head"
+            sha256sum "$base" > "paired-perf-evidence/build-base-$executable.sha256"
+            sha256sum "$head" > "paired-perf-evidence/build-head-$executable.sha256"
+            cp "$base" "$head"
+            cmp -s "$base" "$head"
+            sha256sum "$base" | awk '{print $1}' > "paired-perf-evidence/runtime-base-$executable.sha256"
+            sha256sum "$head" | awk '{print $1}' > "paired-perf-evidence/runtime-head-$executable.sha256"
+            diff -u "paired-perf-evidence/runtime-base-$executable.sha256" "paired-perf-evidence/runtime-head-$executable.sha256"
+          done
       - name: Record environment and solver binary identities
         shell: bash
         run: |

@@ -57,11 +57,17 @@ impl PhasePolynomial {
                 let mut rest = mono.clone();
                 rest.retain(|&x| x != target_var);
                 
-                let mut rest_poly = FxHashSet::default();
-                rest_poly.insert(rest);
-                
-                // Compute boolean product: rest * sub_poly
-                let boolean_product = crate::pathsum::mul_boolean_polys(&rest_poly, sub_poly);
+                // A singleton Boolean polynomial times sub_poly is just
+                // monomial union for each term, with XOR cancellation when
+                // multiple unions collapse to the same monomial. Avoid
+                // materializing the singleton set and generic nested product.
+                let mut boolean_product = FxHashSet::default();
+                for sub_term in sub_poly {
+                    let product = crate::pathsum::mul_monomials(&rest, sub_term);
+                    if !boolean_product.remove(&product) {
+                        boolean_product.insert(product);
+                    }
+                }
                 
                 // Record the expanded boolean polynomial and corresponding coefficient
                 additions.push((boolean_product, coeff.clone()));
@@ -153,4 +159,87 @@ pub fn expand_xor_to_arithmetic(
     }
 
     arith_poly
+}
+
+
+#[cfg(test)]
+mod substitution_allocation_regressions {
+    use super::*;
+    use crate::rational::{Angle, FreeRational, Rational};
+
+    // Frozen pre-optimization algorithm: one temporary singleton polynomial,
+    // a generic Boolean-ring product and the same arithmetic expansion.
+    fn reference_substitution(
+        p: &mut PhasePolynomial,
+        target: u32,
+        replacement: &FxHashSet<Monomial>,
+    ) {
+        let mut removals = Vec::new();
+        let mut additions = Vec::new();
+        for (mono, coeff) in &p.terms {
+            if mono.contains(&target) {
+                removals.push(mono.clone());
+                let mut rest = mono.clone();
+                rest.retain(|&x| x != target);
+                let mut one = FxHashSet::default();
+                one.insert(rest);
+                additions.push((crate::pathsum::mul_boolean_polys(&one, replacement), coeff.clone()));
+            }
+        }
+        for mono in removals { p.terms.remove(&mono); }
+        for (poly, coeff) in additions { *p += (&poly, coeff); }
+    }
+
+    fn set(terms: &[&[u32]]) -> FxHashSet<Monomial> {
+        terms.iter().map(|mono| mono.to_vec()).collect()
+    }
+
+    fn source_polynomial() -> PhasePolynomial {
+        let mut p = PhasePolynomial::new();
+        p.add_term(vec![0], Angle::from_qasm_str("0.0002").unwrap().to_phase_coeff());
+        p.add_term(vec![0, 1], Angle::from_qasm_str("-0.000199999").unwrap().to_phase_coeff());
+        p.add_term(vec![0, 2], PhaseCoeff::new_constant(Rational::QUARTER));
+        p.add_term(vec![0, 1, 2], Angle::from_qasm_str("pi/8").unwrap().to_phase_coeff());
+        p.add_term(vec![1, 3], PhaseCoeff::new_symbolic(19, FreeRational::new(1, 3)));
+        p.add_term(vec![0, 3], PhaseCoeff::new_symbolic(20, FreeRational::new(-1, 4)));
+        p.add_term(vec![2], Angle::from_qasm_str("1e-100").unwrap().to_phase_coeff());
+        p.add_term(vec![], PhaseCoeff::new_constant(Rational::HALF));
+        p
+    }
+
+    #[test]
+    fn phase_substitution_matches_original_for_exact_angles_and_collisions() {
+        // Empty/constant/singleton/multi-term replacements, OR collisions,
+        // already-present target variables and untouched polynomials.
+        for replacement in [
+            set(&[]),
+            set(&[&[]]),
+            set(&[&[1]]),
+            set(&[&[1], &[2]]),
+            set(&[&[1], &[1, 2]]),
+            set(&[&[], &[1], &[2], &[1, 2]]),
+            set(&[&[0], &[1]]),
+            set(&[&[0, 1], &[1, 2], &[3]]),
+        ] {
+            for target in [0, 1, 2, 3, 9] {
+                let mut expected = source_polynomial();
+                let mut optimized = expected.clone();
+                reference_substitution(&mut expected, target, &replacement);
+                optimized.substitute_var_with_poly(target, &replacement);
+                assert_eq!(
+                    expected.terms, optimized.terms,
+                    "substitution mismatch target={target}, replacement={replacement:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn singleton_boolean_product_collisions_cancel_in_gf2() {
+        let mut p = PhasePolynomial::new();
+        let phase = Angle::from_qasm_str("-1e-100").unwrap().to_phase_coeff();
+        p.add_term(vec![0, 1], phase);
+        p.substitute_var_with_poly(0, &set(&[&[2], &[1, 2]]));
+        assert!(p.terms.is_empty(), "two unions to the same term must cancel");
+    }
 }

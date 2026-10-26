@@ -8,7 +8,7 @@ use std::f64::consts::PI;
 use log::{info, debug, trace};
 use num_complex::Complex;
 use num_rational::BigRational;
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 use anyhow::{Result, Context, anyhow};
 
 use crate::pathsum::PathSum;

@@ -1,9 +1,9 @@
-name: Opt-in VQE4 Ganak Emitted-CNF Root-Cause Study
+name: Opt-in VQE4 Singleton-Phase WMC Optimization Study
 
 on:
   push:
     branches:
-      - research/vqe4-ganak-cnf-diff-20261026
+      - research/vqe4-singleton-wmc-paired-20261026
     paths:
       - '.github/workflows/vqe4-ganak-cnf-diff.yml'
       - 'scripts/vqe4_ganak_cnf_diff.py'
@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: vqe4-ganak-cnf-diff-20261026
+  group: vqe4-singleton-wmc-paired-20261026
   cancel-in-progress: false
 
 jobs:
@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 48
     env:
-      BASE_SHA: '54f712d948109aa73b2fa92f785ab76611b02636'
-      HEAD_SHA: '03b3f16e8c89c9fd30897a96dbe8003bf9c2c642'
+      BASE_SHA: '03b3f16e8c89c9fd30897a96dbe8003bf9c2c642'
+      HEAD_SHA: '9605a47459de9f89c5c6bcaf83fac839ce89d2c1'
       PYTHONHASHSEED: '0'
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p vqe4-cnf-evidence
-          git fetch --no-tags origin dev
+          git fetch --no-tags origin perf/wmc-singleton-phase-20261026
           git cat-file -e "$BASE_SHA^{commit}"
           git cat-file -e "$HEAD_SHA^{commit}"
           for variant in base head; do
@@ -87,16 +87,21 @@ jobs:
               "$GITHUB_WORKSPACE/vqe4-cnf-evidence/$variant" \
               "$repo/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm" \
               "$repo/benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm"
-            cp "$repo/src/QuPRS/utils/wmc_tools/ganak" "vqe4-cnf-evidence/$variant/ganak"
+            for solver in ganak gpmc; do
+              cp "$repo/src/QuPRS/utils/wmc_tools/$solver" "vqe4-cnf-evidence/$variant/$solver"
+            done
           done
       - name: Normalize native solver binary, verify provenance and compare weighted CNF
         shell: bash
         run: |
           set -euo pipefail
-          sha256sum vqe4-cnf-evidence/base/ganak > vqe4-cnf-evidence/base/ganak-build.sha256
-          sha256sum vqe4-cnf-evidence/head/ganak > vqe4-cnf-evidence/head/ganak-build.sha256
-          cp vqe4-cnf-evidence/base/ganak vqe4-cnf-evidence/head/ganak
-          cmp -s vqe4-cnf-evidence/base/ganak vqe4-cnf-evidence/head/ganak
+          cmp -s vqe4-cnf-evidence/base/phase-signatures.tsv vqe4-cnf-evidence/head/phase-signatures.tsv
+          for solver in ganak gpmc; do
+            sha256sum "vqe4-cnf-evidence/base/$solver" > "vqe4-cnf-evidence/base/$solver-build.sha256"
+            sha256sum "vqe4-cnf-evidence/head/$solver" > "vqe4-cnf-evidence/head/$solver-build.sha256"
+            cp "vqe4-cnf-evidence/base/$solver" "vqe4-cnf-evidence/head/$solver"
+            cmp -s "vqe4-cnf-evidence/base/$solver" "vqe4-cnf-evidence/head/$solver"
+          done
           python -u scripts/vqe4_ganak_cnf_diff.py
       - name: Seal all native inputs, outputs, times and source files
         if: always()
@@ -111,7 +116,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: vqe4-ganak-cnf-source-and-solver-raw
+          name: vqe4-singleton-phase-wmc-comparison-raw
           path: vqe4-cnf-evidence/
           retention-days: 90
           if-no-files-found: error

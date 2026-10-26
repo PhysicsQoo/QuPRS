@@ -1,0 +1,120 @@
+name: Opt-in Same-runner Rust Source-Angle Performance Comparison
+
+on:
+  push:
+    branches:
+      - research/angle-source-perf-paired-20261026
+    paths:
+      - '.github/workflows/rust-source-angle-paired.yml'
+      - 'scripts/paired_source_angle_perf.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-source-angle-paired-20261026
+  cancel-in-progress: false
+
+jobs:
+  paired-source-angle:
+    name: Paired same-runner source-angle A-B-B-A
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      BASE_SHA: '54f712d948109aa73b2fa92f785ab76611b02636'
+      HEAD_SHA: '2564cfcbf4d381694cf1f8080c8f730e7693760d'
+    steps:
+      - name: Checkout harness and native solver sources
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Checkout exact source revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin fix/rust-exact-decimal-source-20261025
+          git cat-file -e "$BASE_SHA^{commit}"
+          git cat-file -e "$HEAD_SHA^{commit}"
+          git worktree add --detach "$RUNNER_TEMP/perf-base" "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/perf-head" "$HEAD_SHA"
+          git -C "$RUNNER_TEMP/perf-base" submodule update --init --recursive
+          git -C "$RUNNER_TEMP/perf-head" submodule update --init --recursive
+          test "$(git -C "$RUNNER_TEMP/perf-base" rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C "$RUNNER_TEMP/perf-head" rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C "$RUNNER_TEMP/perf-base" rev-parse HEAD:GPMC)" = "$(git -C "$RUNNER_TEMP/perf-head" rev-parse HEAD:GPMC)"
+      - name: Build separate revision-specific virtual environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in base head; do
+            source_path="$RUNNER_TEMP/perf-$variant"
+            env_path="$RUNNER_TEMP/perf-venv-$variant"
+            python -m venv "$env_path"
+            (
+              source "$env_path/bin/activate"
+              python -m pip install 'maturin>=1.5,<2'
+              cd "$source_path"
+              maturin develop --release -E dev
+              python -m QuPRS.utils.ganak_distribution
+              python -c 'import QuPRS, qiskit; print(QuPRS.__file__, qiskit.__version__)'
+            )
+          done
+      - name: Record environment and solver binary identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p paired-perf-evidence
+          date -u +%Y-%m-%dT%H:%M:%SZ > paired-perf-evidence/start-utc.txt
+          lscpu > paired-perf-evidence/lscpu.txt
+          uname -a > paired-perf-evidence/kernel.txt
+          rustc --version > paired-perf-evidence/rust.txt
+          for variant in base head; do
+            git -C "$RUNNER_TEMP/perf-$variant" rev-parse HEAD > "paired-perf-evidence/$variant-sha.txt"
+            git -C "$RUNNER_TEMP/perf-$variant" rev-parse 'HEAD^{tree}' > "paired-perf-evidence/$variant-tree.txt"
+            git -C "$RUNNER_TEMP/perf-$variant" rev-parse HEAD:GPMC > "paired-perf-evidence/$variant-gpmc.txt"
+            "$RUNNER_TEMP/perf-venv-$variant/bin/python" -m pip freeze > "paired-perf-evidence/$variant-pip.txt"
+            (cd "$RUNNER_TEMP/perf-$variant"; find src/QuPRS/utils -type f \( -iname '*gpmc*' -o -iname '*ganak*' \) -print0 | sort -z | xargs -0 -r sha256sum) > "paired-perf-evidence/$variant-solver-files.txt"
+          done
+          diff -u paired-perf-evidence/base-gpmc.txt paired-perf-evidence/head-gpmc.txt
+      - name: Measure within one hosted VM using A-B-B-A order
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/paired_source_angle_perf.py \
+            --base-python "$RUNNER_TEMP/perf-venv-base/bin/python" \
+            --head-python "$RUNNER_TEMP/perf-venv-head/bin/python" \
+            --base-root "$RUNNER_TEMP/perf-base" \
+            --head-root "$RUNNER_TEMP/perf-head" \
+            --out paired-perf-evidence --warmups 1 --repeats 5
+      - name: Seal raw evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p paired-perf-evidence
+          date -u +%Y-%m-%dT%H:%M:%SZ > paired-perf-evidence/end-utc.txt
+          (cd paired-perf-evidence; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload original data and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-angle-paired-walltime-raw
+          path: paired-perf-evidence/
+          retention-days: 90
+          if-no-files-found: error

@@ -189,7 +189,7 @@ pub fn check_equivalence_with_tolerances(
         
         {
             let _encode_scope = diagnostics::span("cnf_encode");
-            wmc_mgr.encode_trace(&ps_miter);
+            wmc_mgr.encode_trace(&ps_miter)?;
         }
 
         let dimacs_start = Instant::now();

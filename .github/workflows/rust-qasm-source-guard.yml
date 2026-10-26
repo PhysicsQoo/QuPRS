@@ -9,6 +9,7 @@ on:
       - 'rust/pathsum/src/gates.rs'
       - 'test/test_rust_qasm_fail_closed.py'
       - 'test/test_rust_p_phase_semantics.py'
+      - 'test/test_graphstate16_qiskit_provenance.py'
       - '.github/workflows/rust-qasm-source-guard.yml'
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - 'rust/pathsum/src/gates.rs'
       - 'test/test_rust_qasm_fail_closed.py'
       - 'test/test_rust_p_phase_semantics.py'
+      - 'test/test_graphstate16_qiskit_provenance.py'
       - '.github/workflows/rust-qasm-source-guard.yml'
       - 'docs/development/rust-qasm-source-safety.md'
   workflow_dispatch:
@@ -105,6 +107,14 @@ jobs:
             test/test_rust_p_phase_semantics.py \
             --junitxml=evidence/qasm-python-rust-junit.xml \
             2>&1 | tee evidence/public-rust-qasm-tests.log
+      - name: Verify Graphstate16 independent Qiskit full-state oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_graphstate16_qiskit_provenance.py \
+            --junitxml=evidence/graphstate16-qiskit-junit.xml \
+            2>&1 | tee evidence/graphstate16-qiskit-tests.log
       - name: Seal source and result evidence
         if: always()
         shell: bash
@@ -117,6 +127,8 @@ jobs:
             rust/pathsum/src/gates.rs \
             test/test_rust_qasm_fail_closed.py \
             test/test_rust_p_phase_semantics.py \
+            test/test_graphstate16_qiskit_provenance.py \
+            docs/development/graphstate16-qasm-provenance.md \
             .github/workflows/rust-qasm-source-guard.yml \
             docs/development/rust-qasm-source-safety.md > evidence/source-sha256.txt
           (

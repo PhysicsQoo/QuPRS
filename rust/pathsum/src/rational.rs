@@ -233,12 +233,20 @@ impl PhaseCoeff {
     }
 
     fn add_radians(&mut self, rhs: &Option<BigRational>, negative: bool) {
-        if let Some(value) = rhs {
-            let old = self.radians.take().unwrap_or_else(BigRational::zero);
-            let new = if negative { old - value } else { old + value };
-            if !new.is_zero() {
-                self.radians = Some(new);
+        let Some(value) = rhs else { return; };
+        if let Some(current) = self.radians.as_mut() {
+            // Update the exact fraction in place instead of moving it out,
+            // creating a zero fraction, and replacing the stored value.
+            if negative {
+                *current -= value;
+            } else {
+                *current += value;
             }
+            if current.is_zero() {
+                self.radians = None;
+            }
+        } else if !value.is_zero() {
+            self.radians = Some(if negative { -value.clone() } else { value.clone() });
         }
     }
 
@@ -267,6 +275,7 @@ impl PhaseCoeff {
     }
 
     pub fn mul_scalar_logic(&mut self, rhs: i64) {
+        if rhs == 1 { return; }
         if rhs == 0 {
             self.constant = Rational::ZERO;
             self.radians = None;
@@ -285,6 +294,7 @@ impl PhaseCoeff {
 
     pub fn div_scalar_logic(&mut self, rhs: i64) {
         if rhs == 0 { panic!("Division by zero in PhaseCoeff"); }
+        if rhs == 1 { return; }
         self.constant /= rhs;
         if let Some(rad) = &mut self.radians {
             *rad /= BigRational::from_integer(BigInt::from(rhs));
@@ -540,6 +550,7 @@ impl Mul<i64> for Angle {
     type Output = Self;
     fn mul(mut self, rhs: i64) -> Self {
         if rhs == 0 { return Self::ZERO; }
+        if rhs == 1 { return self; }
         self.constant *= rhs;
         if let Some(rad) = &mut self.radians {
             *rad *= BigRational::from_integer(BigInt::from(rhs));
@@ -574,6 +585,7 @@ impl Div<i64> for Angle {
     type Output = Self;
     fn div(mut self, rhs: i64) -> Self {
         if rhs == 0 { panic!("Division by zero in Angle"); }
+        if rhs == 1 { return self; }
         self.constant /= rhs;
         if let Some(rad) = &mut self.radians {
             *rad /= BigRational::from_integer(BigInt::from(rhs));

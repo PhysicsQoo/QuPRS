@@ -172,3 +172,44 @@ fn wmc_boundary_rejects_unrepresentable_nonzero_source_radians() {
     let mut solver = WmcManager::new(&pathsum);
     solver.encode_trace(&pathsum).unwrap();
 }
+#[test]
+fn exact_angle_scalar_unit_fast_paths_preserve_source_and_clifford() {
+    use pathsum::rational::{PhaseCoeff, Rational};
+
+    for angle in ["0.0002", "-0.000199999", "1e-100", "pi/8"] {
+        let source = Angle::from_qasm_str(angle).unwrap();
+        assert_eq!(source.clone() * 1, source);
+        assert_eq!(source.clone() / 1, source);
+        let exact = source.to_phase_coeff();
+        let mut updated = exact.clone();
+        updated *= 1;
+        updated /= 1;
+        assert_eq!(updated, exact);
+        let mut cancelled = PhaseCoeff::new_constant(Rational::ZERO);
+        cancelled += &exact;
+        cancelled -= &exact;
+        assert_eq!(cancelled, PhaseCoeff::ZERO, "cancellation failed: {angle}");
+        let mut twice = exact.clone();
+        twice += &exact;
+        twice -= &exact;
+        assert_eq!(twice, exact, "rational in-place update failed: {angle}");
+    }
+}
+
+#[test]
+fn repeated_exact_radian_accumulation_is_order_and_sign_stable() {
+    use pathsum::rational::PhaseCoeff;
+    let first = Angle::from_qasm_str("0.0002").unwrap().to_phase_coeff();
+    let second = Angle::from_qasm_str("0.000199999").unwrap().to_phase_coeff();
+    let tiny = Angle::from_qasm_str("0.000000001").unwrap().to_phase_coeff();
+    let mut value = PhaseCoeff::ZERO;
+    value += &first;
+    value -= &second;
+    assert_eq!(value, tiny);
+    value -= &tiny;
+    assert_eq!(value, PhaseCoeff::ZERO);
+    value += &second;
+    value += &tiny;
+    assert_eq!(value, first);
+}
+

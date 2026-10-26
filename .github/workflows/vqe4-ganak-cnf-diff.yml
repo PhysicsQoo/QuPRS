@@ -1,0 +1,117 @@
+name: Opt-in VQE4 Ganak Emitted-CNF Root-Cause Study
+
+on:
+  push:
+    branches:
+      - research/vqe4-ganak-cnf-diff-20261026
+    paths:
+      - '.github/workflows/vqe4-ganak-cnf-diff.yml'
+      - 'scripts/vqe4_ganak_cnf_diff.py'
+      - 'scripts/vqe4_emit_cnf.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vqe4-ganak-cnf-diff-20261026
+  cancel-in-progress: false
+
+jobs:
+  paired-cnf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 48
+    env:
+      BASE_SHA: '54f712d948109aa73b2fa92f785ab76611b02636'
+      HEAD_SHA: '03b3f16e8c89c9fd30897a96dbe8003bf9c2c642'
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Pin exact revisions and original QASM
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vqe4-cnf-evidence
+          git fetch --no-tags origin dev
+          git cat-file -e "$BASE_SHA^{commit}"
+          git cat-file -e "$HEAD_SHA^{commit}"
+          for variant in base head; do
+            if [[ "$variant" == base ]]; then sha="$BASE_SHA"; else sha="$HEAD_SHA"; fi
+            git worktree add --detach "$RUNNER_TEMP/vqe-$variant" "$sha"
+            git -C "$RUNNER_TEMP/vqe-$variant" submodule update --init --recursive
+            test "$(git -C "$RUNNER_TEMP/vqe-$variant" rev-parse HEAD)" = "$sha"
+            mkdir -p "vqe4-cnf-evidence/$variant"
+            git -C "$RUNNER_TEMP/vqe-$variant" rev-parse HEAD > "vqe4-cnf-evidence/$variant/revision.txt"
+            git -C "$RUNNER_TEMP/vqe-$variant" rev-parse 'HEAD^{tree}' > "vqe4-cnf-evidence/$variant/tree.txt"
+            git -C "$RUNNER_TEMP/vqe-$variant" rev-parse HEAD:GPMC > "vqe4-cnf-evidence/$variant/gpmc-gitlink.txt"
+          done
+          for file in "vqe_nativegates_ibm_qiskit_opt0_4.qasm"; do
+            cmp -s "$RUNNER_TEMP/vqe-base/benchmarks/MQTBench/$file" "$RUNNER_TEMP/vqe-head/benchmarks/MQTBench/$file"
+            cmp -s "$RUNNER_TEMP/vqe-base/benchmarks/MQTBench/h,ry,rz,cx/$file" "$RUNNER_TEMP/vqe-head/benchmarks/MQTBench/h,ry,rz,cx/$file"
+          done
+          lscpu > vqe4-cnf-evidence/lscpu.txt
+          uname -a > vqe4-cnf-evidence/kernel.txt
+      - name: Build actual Rust parser/miter and both native solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in base head; do
+            repo="$RUNNER_TEMP/vqe-$variant"
+            python -m venv "$RUNNER_TEMP/vqe-venv-$variant"
+            (
+              source "$RUNNER_TEMP/vqe-venv-$variant/bin/activate"
+              python -m pip install 'maturin>=1.5,<2'
+              cd "$repo"
+              maturin develop --release -E dev
+              python -m QuPRS.utils.ganak_distribution
+              python -m pip freeze > "$GITHUB_WORKSPACE/vqe4-cnf-evidence/$variant/packages.txt"
+            )
+            cp scripts/vqe4_emit_cnf.rs "$repo/rust/pathsum/examples/vqe4_cnf_export.rs"
+            cargo run --manifest-path "$repo/rust/Cargo.toml" --release -p pathsum \
+              --example vqe4_cnf_export -- \
+              "$GITHUB_WORKSPACE/vqe4-cnf-evidence/$variant" \
+              "$repo/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm" \
+              "$repo/benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm"
+            cp "$repo/src/QuPRS/utils/wmc_tools/ganak" "vqe4-cnf-evidence/$variant/ganak"
+          done
+      - name: Normalize native solver binary, verify provenance and compare weighted CNF
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum vqe4-cnf-evidence/base/ganak > vqe4-cnf-evidence/base/ganak-build.sha256
+          sha256sum vqe4-cnf-evidence/head/ganak > vqe4-cnf-evidence/head/ganak-build.sha256
+          cp vqe4-cnf-evidence/base/ganak vqe4-cnf-evidence/head/ganak
+          cmp -s vqe4-cnf-evidence/base/ganak vqe4-cnf-evidence/head/ganak
+          python -u scripts/vqe4_ganak_cnf_diff.py
+      - name: Seal all native inputs, outputs, times and source files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vqe4-cnf-evidence
+          date -u +%Y-%m-%dT%H:%M:%SZ > vqe4-cnf-evidence/end-utc.txt
+          sha256sum scripts/vqe4_emit_cnf.rs scripts/vqe4_ganak_cnf_diff.py > vqe4-cnf-evidence/harness-sha256.txt
+          (cd vqe4-cnf-evidence; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload immutable diagnostic record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vqe4-ganak-cnf-source-and-solver-raw
+          path: vqe4-cnf-evidence/
+          retention-days: 90
+          if-no-files-found: error

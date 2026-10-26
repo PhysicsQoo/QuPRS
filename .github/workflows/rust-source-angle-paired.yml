@@ -1,9 +1,9 @@
-name: Opt-in Same-runner Rust Source-Angle Performance Comparison
+name: Opt-in Same-runner Exact-Angle Hot-path Performance Comparison
 
 on:
   push:
     branches:
-      - research/angle-source-perf-paired-20261026
+      - research/exact-angle-hotpath-paired-20261026
     paths:
       - '.github/workflows/rust-source-angle-paired.yml'
       - 'scripts/paired_source_angle_perf.py'
@@ -13,12 +13,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-source-angle-paired-20261026
+  group: exact-angle-hotpath-paired-20261026
   cancel-in-progress: false
 
 jobs:
   paired-source-angle:
-    name: Paired same-runner source-angle A-B-B-A
+    name: Paired source-exact hot-path A-B-B-A
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
@@ -26,8 +26,8 @@ jobs:
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
-      BASE_SHA: '54f712d948109aa73b2fa92f785ab76611b02636'
-      HEAD_SHA: '2564cfcbf4d381694cf1f8080c8f730e7693760d'
+      BASE_SHA: '8311d7f3d17c92a62c39cdbe8715fc9f4ec1d009'
+      HEAD_SHA: 'bad416729ca6c37e91902ae7f9076ce1dbadf08f'
     steps:
       - name: Checkout harness and native solver sources
         uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin fix/rust-exact-decimal-source-20261025
+          git fetch --no-tags origin perf/exact-angle-hotpath-20261026
           git cat-file -e "$BASE_SHA^{commit}"
           git cat-file -e "$HEAD_SHA^{commit}"
           git worktree add --detach "$RUNNER_TEMP/perf-base" "$BASE_SHA"

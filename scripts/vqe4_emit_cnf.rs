@@ -29,7 +29,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     fs::write(output.join("miter-metadata.tsv"), metadata)?;
     let mut manager = WmcManager::new(&miter);
-    manager.encode_trace(&miter)?;
+    // Old native API returns (), current API returns Result<(), anyhow::Error>.
+    // Check both successful spellings, rejecting a current API error.
+    let emission = format!("{:?}", manager.encode_trace(&miter));
+    if emission != "()" && emission != "Ok(())" {
+        return Err(format!("WMC emission failed: {emission}").into());
+    }
     for solver in ["ganak", "gpmc"] {
         let cnf = manager.to_dimacs_string(solver);
         fs::write(output.join(format!("vqe4-{solver}.cnf")), cnf.as_bytes())?;

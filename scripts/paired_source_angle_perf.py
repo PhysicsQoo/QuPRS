@@ -8,6 +8,7 @@ Preserves raw timings; no hosted 10-percent correctness/performance gate.
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import statistics
 import subprocess
@@ -75,7 +76,12 @@ def orchestrate(a):
         cmd = [str(Path(executable).resolve()), str(Path(__file__).resolve()),
                "--mode", "trial", "--root", root, "--json-output", str(output),
                "--warmups", str(a.warmups), "--repeats", str(a.repeats)]
-        proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True,
+        # The editable native build is source-tree-relative. Resolve the
+        # Python package strictly from the selected pinned revision.
+        proc_env = os.environ.copy()
+        proc_env["PYTHONPATH"] = str(Path(root).resolve() / "src")
+        proc = subprocess.run(cmd, cwd=root, env=proc_env,
+                              capture_output=True, text=True,
                               timeout=600, check=False)
         (destination / f"trial-{run:02d}-{variant}.stdout.txt").write_text(proc.stdout)
         (destination / f"trial-{run:02d}-{variant}.stderr.txt").write_text(proc.stderr)

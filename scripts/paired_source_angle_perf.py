@@ -73,7 +73,7 @@ def orchestrate(a):
     samples = {}
     for run, (variant, executable, root) in enumerate(plan):
         output = destination / f"trial-{run:02d}-{variant}.json"
-        cmd = [str(Path(executable).resolve()), str(Path(__file__).resolve()),
+        cmd = [str(Path(executable).absolute()), str(Path(__file__).resolve()),
                "--mode", "trial", "--root", root, "--json-output", str(output),
                "--warmups", str(a.warmups), "--repeats", str(a.repeats)]
         # The editable native build is source-tree-relative. Resolve the

@@ -75,6 +75,17 @@ jobs:
               python -c 'import QuPRS, qiskit; print(QuPRS.__file__, qiskit.__version__)'
             )
           done
+      - name: Preflight revision-specific Python interpreters
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p paired-perf-evidence
+          for variant in base head; do
+            PYTHONPATH="$RUNNER_TEMP/perf-$variant/src" \
+              "$RUNNER_TEMP/perf-venv-$variant/bin/python" -c \
+                'import sys, QuPRS, numpy, qiskit; print(sys.executable, QuPRS.__file__, numpy.__version__, qiskit.__version__)' \
+              > "paired-perf-evidence/$variant-import-preflight.txt"
+          done
       - name: Pin byte-identical native solver executables for both revisions
         shell: bash
         run: |

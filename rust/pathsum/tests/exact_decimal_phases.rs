@@ -7,6 +7,7 @@ use pathsum::rational::Angle;
 use pathsum::strategy::VerificationStrategy;
 use num_bigint::BigInt;
 use num_rational::BigRational;
+use num_traits::Zero;
 
 fn qasm(gates: &str) -> String {
     format!("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\n{}", gates)
@@ -141,4 +142,33 @@ fn small_rz_and_p_rotation_differ_only_by_nonzero_global_phase() {
     assert_eq!(check("rz(0.000000001) q[0];",
                      "p(0.000000001) q[0];"),
                EquivalenceStatus::EquivalentUpToGlobalPhase);
+}
+
+#[test]
+fn wmc_boundary_rejects_unrepresentable_nonzero_source_radians() {
+    use pathsum::ir::QuantumOp;
+    use pathsum::wmc::WmcManager;
+    use pathsum::PathSum;
+
+    // Supported exact-rational source notation is not permission to
+    // round a nonzero phase into a zero WMC complex weight.
+    for value in ["1e-512", "-1e-512", "1e512"] {
+        let angle = Angle::from_qasm_str(value).unwrap();
+        assert!(angle.radians.as_ref().is_some_and(|r| !r.numer().is_zero()));
+        let mut pathsum = PathSum::new(1);
+        pathsum.set_auto_reduce(false);
+        QuantumOp::RZ(0, angle).apply(&mut pathsum, false);
+        let mut solver = WmcManager::new(&pathsum);
+        assert!(
+            solver.encode_trace(&pathsum).is_err(),
+            "WMC accepted unrepresentable nonzero source angle {value}",
+        );
+    }
+    // Representable small angles still reach the ordinary floating solver.
+    let mut pathsum = PathSum::new(1);
+    pathsum.set_auto_reduce(false);
+    QuantumOp::RZ(0, Angle::from_qasm_str("1e-100").unwrap())
+        .apply(&mut pathsum, false);
+    let mut solver = WmcManager::new(&pathsum);
+    solver.encode_trace(&pathsum).unwrap();
 }

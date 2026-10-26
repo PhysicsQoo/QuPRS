@@ -112,6 +112,20 @@ impl WmcManager {
             }
             let weight = Complex::new(angle.cos(), angle.sin());
 
+            // A singleton phase monomial already has the activation bit x.
+            // Encoding a fresh z with (z <-> x) adds one variable and two
+            // clauses but does not change the weighted model count: attach
+            // the very same weight to x directly instead. PhasePolynomial
+            // has one coefficient per monomial, so a repeated weighted x is
+            // an invariant violation rather than an implicit overwrite.
+            if mono.len() == 1 {
+                let x = self.get_dimacs_var(mono[0]);
+                if self.weights.insert(x, weight).is_some() {
+                    return Err(anyhow!("Duplicate singleton phase weight variable"));
+                }
+                continue;
+            }
+
             let z_i = self.next_var_id;
             self.next_var_id += 1;
             
@@ -652,4 +666,127 @@ mod count_parser_tests {
         }
     }
 
+}
+
+#[cfg(test)]
+mod singleton_phase_weight_tests {
+    use super::{Complex, WmcManager};
+    use crate::pathsum::PathSum;
+    use crate::rational::{Angle, PhaseCoeff, Rational};
+
+    // Exhaustive, solver-independent WMC for small weighted Boolean CNFs.
+    // Include both positive and negative literals; every unweighted variable
+    // is assigned unit weight. This verifies the weighted-CNF transformation,
+    // not any external solver's floating-point implementation.
+    fn enumerated_count(manager: &WmcManager) -> Complex<f64> {
+        let n = (manager.next_var_id - 1) as usize;
+        assert!(n <= 8, "Only bounded exhaustive Boolean fixtures");
+        let mut total = Complex::new(0.0, 0.0);
+        for bits in 0..(1usize << n) {
+            let satisfied = manager.clauses.iter().all(|clause| {
+                clause.iter().any(|lit| {
+                    let positive = bits & (1usize << (lit.unsigned_abs() as usize - 1)) != 0;
+                    positive == (*lit > 0)
+                })
+            });
+            if satisfied {
+                let mut product = Complex::new(1.0, 0.0);
+                for (&id, &w) in &manager.weights {
+                    if bits & (1usize << (id as usize - 1)) != 0 {
+                        product *= w;
+                    }
+                }
+                total += product;
+            }
+        }
+        total
+    }
+
+    fn assert_close(a: Complex<f64>, b: Complex<f64>) {
+        assert!((a - b).norm() < 1e-12, "WMC mismatch: {a:?} vs {b:?}");
+    }
+
+    #[test]
+    fn singleton_phase_is_exactly_same_weighted_count_as_old_equivalence_gadget() {
+        for angle in ["0.0002", "-0.000199999", "pi/8", "pi/2", "1e-100"] {
+            let coefficient = Angle::from_qasm_str(angle).unwrap().to_phase_coeff();
+            let mut ps = PathSum::new(1);
+            ps.p.add_term(vec![0], coefficient);
+            let mut optimized = WmcManager::new(&ps);
+            optimized.encode_phase_polynomial(&ps).unwrap();
+            assert_eq!(optimized.next_var_id - 1, 1, "{angle}");
+            assert!(optimized.clauses.is_empty(), "{angle}");
+            let weight = optimized.weights[&1];
+
+            let mut legacy = WmcManager::new(&ps);
+            legacy.next_var_id = 3;
+            legacy.weights.insert(2, weight);
+            legacy.clauses.extend([vec![-2, 1], vec![-1, 2]]);
+            for (label, forced) in [("free", None), ("true", Some(true)), ("false", Some(false))] {
+                let mut old = legacy.clone_for_fixture();
+                let mut new = optimized.clone_for_fixture();
+                if let Some(bit) = forced {
+                    let clause = vec![if bit { 1 } else { -1 }];
+                    old.clauses.push(clause.clone());
+                    new.clauses.push(clause);
+                }
+                assert_close(enumerated_count(&old), enumerated_count(&new));
+                assert_eq!(new.weights[&1].re.to_bits(), weight.re.to_bits(),
+                           "Weight re changed: {angle}/{label}");
+                assert_eq!(new.weights[&1].im.to_bits(), weight.im.to_bits(),
+                           "Weight im changed: {angle}/{label}");
+            }
+        }
+    }
+
+    #[test]
+    fn constant_and_product_terms_keep_existing_activation_gadgets() {
+        let mut ps = PathSum::new(2);
+        ps.p.add_term(vec![], PhaseCoeff::new_constant(Rational::QUARTER));
+        ps.p.add_term(vec![0], Angle::from_qasm_str("0.0002").unwrap().to_phase_coeff());
+        ps.p.add_term(vec![0, 1], Angle::from_qasm_str("pi/8").unwrap().to_phase_coeff());
+        let mut manager = WmcManager::new(&ps);
+        manager.encode_phase_polynomial(&ps).unwrap();
+        // One weighted path variable, constant-unit gadget, AND gadget.
+        assert_eq!(manager.next_var_id - 1, 4);
+        assert_eq!(manager.clauses.len(), 4);
+        assert_eq!(manager.weights.len(), 3);
+
+        let mut legacy = WmcManager::new(&ps);
+        let terms = ps.p.terms.iter().collect::<Vec<_>>();
+        for (mono, coeff) in terms {
+            let fraction = coeff.constant.numer as f64 / coeff.constant.denom as f64;
+            let radian = coeff.radians.as_ref().map(|v| {
+                use num_traits::ToPrimitive;
+                v.to_f64().unwrap()
+            }).unwrap_or(0.0);
+            let theta = fraction * 2.0 * std::f64::consts::PI + 2.0 * radian;
+            let weight = Complex::new(theta.cos(), theta.sin());
+            let z = legacy.next_var_id;
+            legacy.next_var_id += 1;
+            legacy.weights.insert(z, weight);
+            if mono.is_empty() {
+                legacy.clauses.push(vec![z]);
+            } else {
+                let vars = mono.iter().map(|&v| legacy.get_dimacs_var(v)).collect::<Vec<_>>();
+                for &x in &vars { legacy.clauses.push(vec![-z, x]); }
+                let mut clause = vec![z];
+                clause.extend(vars.iter().map(|&x| -x));
+                legacy.clauses.push(clause);
+            }
+        }
+        assert_close(enumerated_count(&legacy), enumerated_count(&manager));
+    }
+
+    impl WmcManager {
+        // Test-only copy of a finite small CNF; avoid changing public API.
+        fn clone_for_fixture(&self) -> Self {
+            Self {
+                clauses: self.clauses.clone(),
+                weights: self.weights.clone(),
+                var_map: self.var_map.clone(),
+                next_var_id: self.next_var_id,
+            }
+        }
+    }
 }

@@ -137,20 +137,23 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 
 ## Equivalence Checking
 
-> **Known research-verified correctness limits (2026-10-22):**
-> On tested current development source, the floating WMC normalized-trace
-> acceptance band can label genuinely inequivalent near-identity rotations
-> `Equivalent` (both Rust/Python, both Ganak/GPMC), while the Rust QASM
-> decimal-radian reduction path can label genuinely globally-phase-equivalent
-> circuits `Not Equivalent`. These are distinct outstanding scientific bugs,
-> **not** evidence that the circuits satisfy the opposite mathematical relation.
-> A finite-tolerance solver verdict alone must not be treated as an exact
-> equivalence certificate. See the
-> [formal semantics](docs/development/equivalence-semantics.md),
-> [WMC certification boundary](docs/development/wmc-certification.md),
-> [angle-domain design](docs/development/exact-angle-representation.md),
-> [WMC audit](https://github.com/PhysicsQoo/QuPRS/pull/77), and
-> [native RED regression](https://github.com/PhysicsQoo/QuPRS/pull/74).
+> **Numerical and source-semantic limits (v0.13.4 candidate):**
+> Rust preserves supported QASM2 literal decimal-radian angles separately from
+> symbolic multiples of pi through its PathSum/phase representation. Strict
+> source-literal comparison can therefore disagree with historical approximate
+> transpilation verdicts (for example Graphstate16), even where independent
+> numerical distance is tiny. The Python Qiskit-object path has different
+> input-precision provenance; do not infer recovered source literals from f64.
+> Ganak and GPMC produce floating weighted counts, not general proof
+> certificates: default `wmc_policy="legacy"` numerical acceptance can still
+> report positive results for genuinely inequivalent near-identity rotations.
+> Use `wmc_policy="conservative"` to retain the numeric observation as a
+> diagnostic and return `unknown` for uncertified external WMC results.
+> A numerical tolerance cannot make the underlying input operators exactly
+> equal. See [formal semantics](docs/development/equivalence-semantics.md),
+> [WMC evidence](docs/development/wmc-evidence-policy.md), and
+> [QASM source-angle representation](docs/development/exact-angle-representation.md).
+
 `QuPRS` provides tools for checking the equivalence of two quantum circuits, potentially imported from Qiskit or QASM files.
 
 Importing Circuits for Equivalence Checking
@@ -320,7 +323,7 @@ the original circuit parameters or the numerical type used upstream.
 
 Both Python and Rust WMC public API backends classify the unrounded,
 normalized complex count with user-selectable **per-call** thresholds.
-The proposed default magnitude and phase thresholds are `1e-8` each
+The current public-API default magnitude and phase thresholds are `1e-8` each
 (historically `1e-6`); for example:
 
 ```python

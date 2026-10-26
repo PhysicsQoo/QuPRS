@@ -86,23 +86,27 @@ An `Unknown` returned from reduction must not silently become `Equivalent`
 on the strength of a rounded WMC result. Solver errors must not switch
 between Ganak and GPMC without explicit user selection.
 
-**Known divergence from this contract (2026-10-22):**
+**Implementation status for the v0.13.4 candidate (2026-10-27):**
 
-1. A real solver-based audit with both Python/Rust and Ganak/GPMC reports a
-   false-positive WMC `equivalent` for `δ=0.001`:
-   [solver audit](https://github.com/PhysicsQoo/QuPRS/pull/77),
-   [run](https://github.com/PhysicsQoo/QuPRS/actions/runs/39588515523).
-2. The Rust QASM decimal-radian reduction pipeline reports false-negative
-   `Not Equivalent` for algebraically equal rotations, including a verified
-   8-qubit QPE case:
-   [native RED tests](https://github.com/PhysicsQoo/QuPRS/pull/74),
-   [run](https://github.com/PhysicsQoo/QuPRS/actions/runs/39572405300).
-   The reference exact-angle model is green, but native RED remains red.
-
-Do not reinterpret those failures as numerical noise or certify release
-correctness based on unrelated green CI. See
-[WMC numerical certification design](wmc-certification.md) and
-[exact-angle representation design](exact-angle-representation.md).
+1. **Historical pre-fix findings (2026-10-22):** the source-angle RED and
+   default WMC negative-control results in the archived
+   [native tests](https://github.com/PhysicsQoo/QuPRS/pull/74) and
+   [solver audit](https://github.com/PhysicsQoo/QuPRS/pull/77) describe
+   earlier commits. They must not be presented as a fresh native RED result
+   from current `dev`.
+2. **Current Rust source representation:** supported QASM2 decimal-radian
+   literals are retained in an exact rational-radian component, separate from
+   symbolic pi coefficients, through the Rust PathSum phase operations.
+   Conversion at the external weighted-complex-solver boundary remains finite
+   precision; exact source representation is **not** a general WMC certificate.
+3. **Remaining known limitation:** the default floating WMC `legacy` result
+   can call strictly inequivalent near-identity rotations equivalent.
+   The opt-in `wmc_policy="conservative"` preserves the numeric observation
+   but reports `unknown` without a sound certificate. Strict and approximate
+   Qiskit-transpilation relations (including Graphstate16) are separate.
+4. **Release gate:** source-pinned QPE, Graphstate16, CP/U2/SX and global-phase
+   oracle controls, both backends and both independent solvers, must be checked
+   again at the actual RC SHA. Those prior-run findings are not substitutes.
 
 ## Minimal independent reference checks
 

@@ -19,15 +19,14 @@ print(result.equivalent, result.wmc_magnitude_tolerance)
 ~~~
 
 Both fields are optional, evaluated per call and separately recorded in
-the returned result. None uses config.WMC_MAGNITUDE_TOLERANCE and
-config.WMC_PHASE_TOLERANCE. Explicit values must be finite numbers
+the returned result. When omitted, the public API reads defaults from
+config.WMC_MAGNITUDE_TOLERANCE and config.WMC_PHASE_TOLERANCE. Explicit values must be finite numbers
 strictly between 0 and 1. Invalid values fail before native execution.
 config.set_tolerance() governs Python symbolic reduction only; changing
 it is **not** a way to tune the WMC numeric classifier.
 
-The proposed **public Python API** defaults are magnitude 1e-8, phase
-1e-8 (subject to exact-HEAD conformance and numerical regression
-acceptance). The historical values were 1e-6 each. Direct callers of the
+The current **public Python API** defaults are magnitude 1e-8 and
+phase 1e-8. These are numerical heuristics, not exact certificates. The historical values were 1e-6 each. Direct callers of the
 legacy Rust-core function retain its historical defaults; the Python API
 passes its validated current per-call settings to the Rust FFI explicitly.
 Both backend paths must agree on selected settings and outcomes.
@@ -100,7 +99,7 @@ policy gate: explicitly historical RZ(0.0026) controls naturally changed
 classification, and a genuine identity versus 60 H gates was falsely
 reported as inequivalent by a finite-precision Ganak 2.8.0 mode-6 count.
 That proves 1e-10 was too strict for the supported default environment.
-The controlled follow-up candidate is 1e-8, while historical boundary
+The currently integrated public default is 1e-8, while historical boundary
 fixtures now explicitly request 1e-6 to continue testing the historical
 policy. The large-normalization identity control still uses the new default
 and must remain correct; do not adjust that oracle or silently skip the case.

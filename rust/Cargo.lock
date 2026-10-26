@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "QuPRS_cli"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "pathsum"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "anyhow",
  "cmake",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "quprs_python"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "pathsum",
  "pyo3",

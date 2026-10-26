@@ -1,30 +1,22 @@
 # Exact input-angle domain: design and migration contract
 
-**Status:** architecture specification only; not integrated into Rust
-production. The native scientific regression remains red.
+**Status (v0.13.4 candidate):** the supported Rust QASM2 angle/phase
+representation has been integrated into `rational.rs`, `qasm.rs` and the
+PathSum/WMC path. Exact decimal-radian input provenance is preserved through
+symbolic phase operations. The solver complex-weight boundary and some
+Qiskit-object input paths still use finite precision; this is not a
+certificate of arbitrary-circuit strict equivalence.
 
-## Verified current failure mode
+## Historical failure mode (before the exact-decimal integration)
 
-The QASM parser routes gate angles through
-`rust/pathsum/src/qasm.rs::parse_gate_name_and_params` to
-`rust/pathsum/src/rational.rs::Angle::from_qasm_str`. The latter
-evaluates expressions as binary64, divides by a binary64 approximation
-of π, and calls `FreeRational::from_f64`. Continued fractions have a
-`10⁻¹⁰` cutoff and maximum denominator `10⁹`. Even later exact-looking
-operations use `reduce_and_cap_i128`, which reapproximates with binary64
-when the internal budget exceeds `10¹⁴`.
-
-Therefore a decimal-radian identity such as
-`RZ(-2.5802058126763807)·RZ(-2.5802058126763807)
- = RZ(-5.1604116253527614)`
-can become unequal *after parsing*, prior to any WMC call.
-The exact native regression
-[PR #74](https://github.com/PhysicsQoo/QuPRS/pull/74)
-retains the original 8Q QPE input hashes, 12 required positive
-native cases and 12 independent controls. The reference model passes
-while native RED is intentionally failing. Simply raising the
-continued-fraction denominator or widening global-phase tolerance
-cannot preserve algebraic identities in general.
+Earlier Rust builds converted QASM source angles through binary64 and
+continued-fraction approximation to rational multiples of pi. This could
+break algebraic identities even before WMC (see the original
+[research regression](https://github.com/PhysicsQoo/QuPRS/pull/74)).
+Those source-loss symptoms motivated the current split representation; do
+not mistake the historical intentionally-red tests for the status of the
+latest `dev` without rerunning the exact-HEAD source oracle. A new exact
+source model need not reproduce a previous *approximate* benchmark verdict.
 
 ## Proposed expression and its semantics
 
@@ -79,18 +71,22 @@ input-independent phase from qubit-dependent relative phases.
   identities**; measure memory and runtime growth independently.
   Keep WMC numerical soundness as a separate prerequisite.
 
-## Staged migration
+## Integrated path and remaining validation
 
-1. Freeze the source-pinned original RED/negative cases and the
-   existing isolated expression-model GREEN. Preserve raw evidence.
-2. Implement a typed exact angle/phase representation in an **isolated
-   Draft PR** with property tests (associativity where defined,
-   cancellation, modulo, hash/equality and overflow safeguards).
-3. Thread it through QASM, gates, reductions and WMC encoding without
-   changing default behavior prematurely; report unsupported terms
-   honestly and verify Python/Rust semantic parity.
-4. Require the actual native RED gate to become GREEN and all negative,
-   symbolic and global-phase controls to remain GREEN at the **same
-   exact head SHA**. Only then consider normal review/merge.
+1. Supported QASM2 decimal-radian literals and symbolic pi coefficients have
+   independent typed storage in Rust; unsupported expressions and gates must
+   fail closed rather than synthesize a proof from approximated input.
+2. Test cancellation, decimal-versus-pi provenance, CP/U2/global-phase
+   matrices, the source-pinned QPE and Graphstate16 cases on the exact RC SHA.
+   Distinguish strict source inequivalence from *approximate* transpilation
+   equivalence and record a numerical oracle's metric explicitly.
+3. Track finite-precision WMC complex-weight conversion and solver output
+   separately (see WMC evidence policy); `wmc_policy="conservative"` is a compatibility-aware
+   opt-in response to uncertified numerical counts, not an MPFR proof.
+4. For Qiskit `QuantumCircuit` inputs already represented as binary64,
+   document the input precision; no parser can reconstruct original unrounded
+   source angles from those values.
 
-No release or default runtime promise is made by this document.
+This document specifies source semantics and current limitations; scientific
+release qualification requires exact-head native and cross-backend evidence.
+

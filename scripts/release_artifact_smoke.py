@@ -42,9 +42,9 @@ def main() -> None:
     hh.h(0)
     hh.h(0)
     phased = QuantumCircuit(1)
-    phased.h(0)
-    phased.h(0)
-    phased.global_phase = 0.25
+    # XZXZ = -I: a genuine gate-derived global phase that QASM2 preserves.
+    for gate in ("x", "z", "x", "z"):
+        getattr(phased, gate)(0)
     inequivalent = QuantumCircuit(1)
     inequivalent.x(0)
 
@@ -77,6 +77,25 @@ def main() -> None:
                     "case": label, "backend": backend, "solver": solver,
                     "equivalent": result.equivalent, "tool_time": result.tool_time,
                 })
+    # Preserve the Rust QASM2 transport contract: unequal explicit scalar
+    # phases cannot be serialized faithfully and must fail closed, even when
+    # their operators are equal up to global phase.
+    explicit_phase = QuantumCircuit(1)
+    explicit_phase.global_phase = 0.25
+    if not Operator(identity).equiv(Operator(explicit_phase)):
+        raise AssertionError("Explicit scalar phase oracle unexpectedly disagrees")
+    for solver in ("ganak", "gpmc"):
+        try:
+            check_equivalence(
+                identity, explicit_phase, method="wmc_only",
+                tool_name=solver, backend="rust", timeout=60,
+            )
+        except ValueError as exc:
+            if "global_phase" not in str(exc):
+                raise
+        else:
+            raise AssertionError(f"Rust QASM2 must reject unequal explicit scalar phases: {solver}")
+
     print(json.dumps({
         "version": expected, "python": sys.version.split()[0],
         "package": str(imported), "native": str(native_path),

@@ -2,6 +2,30 @@
 
 Significant user-facing changes to QuPRS are summarized here. See [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases) for published packages and release dates.
 
+## 0.13.4 (unreleased)
+
+### Scientific semantics and correctness
+- Preserve supported OpenQASM 2 literal decimal-radian angles separately from symbolic multiples of pi in Rust PathSum/phase operations; prevent lossy rational-pi substitution of exact source values. Unsupported input remains fail-closed. Distinguish source-literal semantics from floating-point Qiskit parameters.
+- Strengthen Rust gate semantics and QASM safety, including controlled phase, U2, SX, global-phase transport and unsupported-gate validation. Source-exact comparisons may legitimately differ from prior numerically approximated verdicts; approximate transpilation equivalence is a separate predicate, not strict equality.
+- Add independent small matrix oracles, Graphstate16 source/provenance controls, QPE-focused tests, paper-corpus integrity checks and cross-backend solver/result regressions.
+
+### WMC and solver reliability
+- Expose independent, validated per-call WMC magnitude/phase numerical tolerances (public Python defaults 1e-8). Symbolic reduction tolerance remains independent. A smaller threshold does **not** certify exact mathematical equivalence.
+- Add opt-in `wmc_policy="conservative"`: uncertified external floating WMC verdicts return `unknown` while retaining a numerical diagnostic; default `legacy` mode remains a numerical heuristic for compatibility.
+- Separate Python/Rust Ganak and GPMC solver adapters, supervised error/result contracts, weighted-CNF representation, incompatible output and unsupported-solver rejection. No implicit cross-solver fallback.
+
+### Performance and engineering
+- Reduce redundant exact-angle rational arithmetic in the Rust hot path and reuse Python reduction coefficient work; retain the original Reduction-first Hybrid behavior and explicit Solver selection.
+- Migrate CodSpeed Simulation to v5, verify the 5-shard/32-benchmark corpus, improve dev/native/benchmark gating, and add reproducible opt-in same-job walltime/RSS and cost-attribution diagnostics. CodSpeed simulated cycles and sampled process-tree RSS are **not** native solver-PID runtime or exact memory peaks.
+- Improve source-first compatibility checks and scientific benchmark outcome reporting without adding a hosted-runner percentage regression hard gate.
+
+### Compatibility and known limits
+- Retain the v0.13.3 declared installation targets (Python 3.11–3.13, Qiskit 1.x, Linux x86_64/ARM64 and macOS 15+ x86_64/ARM64 wheel targets). Qiskit 2.x, Python 3.14, Ubuntu 26.04 and macOS 14 wheel support are not newly guaranteed.
+- Legacy finite-tolerance WMC may accept near-identity but strictly inequivalent circuits. For proof-sensitive numerical WMC paths, request `wmc_policy="conservative"` and treat `unknown` as inconclusive. No general certified error enclosure for arbitrary external solver outputs is claimed.
+- Some historical transpiled-QASM benchmark pairs, including Graphstate16, are extremely close in numerical projective distance yet not strictly equal as source-decimal operators. Strict and approximate outcomes must not be conflated.
+
+**Release status:** RC preparation only. This section does not indicate that the final cross-platform source, installed wheel/sdist, Docker or publish gates have run on the release candidate.
+
 ## 0.13.3
 
 ### Fixed

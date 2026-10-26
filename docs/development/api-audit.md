@@ -1,5 +1,14 @@
 # QuPRS public API and documentation audit
 
+**Historical audit (2026-10-20):** The inventory below is anchored at
+`dev@320f9f92af938897753d4999bde6903871b75edb` and is preserved for
+provenance. It is **not** the current public API signature or the current
+scientific limitations of the v0.13.4 release candidate. The newer interface
+adds per-call `wmc_policy`, `wmc_magnitude_tolerance`, and
+`wmc_phase_tolerance`; Rust source-decimal representation and result contracts
+also changed. Consult `src/QuPRS/interface/load_qiskit.py` and
+`docs/development/wmc-evidence-policy.md` for current behavior.
+
 **Reference snapshot:** `dev@320f9f92af938897753d4999bde6903871b75edb`
 (2026-10-20). This is a source-anchored inventory and gap analysis, **not**
 an API stability promise, a generated reference, or evidence that a document

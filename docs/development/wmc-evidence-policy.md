@@ -13,10 +13,17 @@ also has no externally verified general solver rounding bound, so counts
 outside the default acceptance band are not automatically formally certified
 counterexamples either.
 
-For example, the identity and RZ(0.001) are not equivalent even up to global
-phase: the normalized trace magnitude is cos(0.0005), strictly less than 1.
-Yet the legacy floating acceptance rule returns a positive verdict because
-the magnitude defect is about 1.25e-7, below the default acceptance band.
+For example, the identity and RZ(0.0002) are not equivalent even up to
+global phase: their ideal normalized trace magnitude is cos(0.0001),
+strictly less than one. The magnitude defect is approximately 5e-9, within
+the current default 1e-8 numerical acceptance band. The actual WMC count
+may differ because the solver does not supply a certified error enclosure.
+
+Historically, the 1e-6 magnitude tolerance also admits identity versus
+RZ(0.001), whose ideal magnitude defect is approximately 1.25e-7. The
+current 1e-8 default does **not** admit this ideal trace. Specify
+`wmc_magnitude_tolerance=1e-6` explicitly to recreate the old numerical
+acceptance band; neither threshold establishes mathematical equality.
 
 ## API
 
@@ -26,7 +33,7 @@ from QuPRS import check_equivalence
 
 identity = QuantumCircuit(1)
 near = QuantumCircuit(1)
-near.rz(0.001, 0)
+near.rz(0.0002, 0)
 
 legacy = check_equivalence(
     identity, near, method="wmc_only", backend="python", tool_name="gpmc",
@@ -59,9 +66,11 @@ diagnostic analysis without asserting a mathematically certified verdict.
 
 **Important limitations:** This policy governs uncertified *external WMC
 numeric* results only. It does **not** make the entire API a theorem prover:
-Reduction can rely on numerical symbolic tolerances, Rust QASM parsing can
-approximate angles, and arbitrary circuit encoding or solver arithmetic
-have not been supplied with general rigorous error bounds.
+Reduction can rely on symbolic numeric tolerances, Qiskit circuit objects
+may already contain binary64-quantized angles, and exact source-decimal
+propagation through Rust still reaches floating complex weights at the WMC
+boundary. No general certified error bounds currently cover arbitrary
+circuit encodings and external solver arithmetic.
 `unknown` means insufficient evidence, **not** inequivalence.
 
 The option remains non-default for compatibility while scientific

@@ -240,3 +240,9 @@ def test_graphstate_missing_approximation_metadata_fails_closed(tmp_path):
     assert report["counts"]["PASS"] == 28
     assert report["counts"][checker.APPROXIMATE_REDUCED_BOUND] == 3
     assert report["approximation_errors"]
+
+
+def test_report_does_not_promote_heuristic_pass_to_formal_proof(tmp_path):
+    report = checker.audit(junit(tmp_path), real_catalog())
+    assert "not by itself a strict formal" in report["interpretation"]
+    assert "expected-positive benchmark outcome" in report["interpretation"]

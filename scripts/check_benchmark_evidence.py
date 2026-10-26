@@ -122,7 +122,7 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
                     approximation_errors.append({"class": classname, "name": name})
             elif required_approximate:
                 # Missing metadata cannot silently upgrade source-approximate
-                # evidence into a strict positive result.
+                # evidence into an ordinary expected-positive PASS.
                 state = "ERROR"
                 approximation_errors.append({"class": classname, "name": name})
             else:
@@ -173,11 +173,12 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
             "COMPLETE"),
         "problems": problems,
         "interpretation": (
-            "Only PASS is completed strict positive verification; "
-            "APPROXIMATE_REDUCED_BOUND is a separate opt-in, source-pinned "
-            "process-distance certificate conditional on a correct native reduction. "
-            "Inconclusive, skipped, or approximate cases must not be counted "
-            "as strict-equivalence or complete release-baseline samples."
+            "PASS denotes a completed expected-positive benchmark outcome under "
+            "the selected verifier policy; it is not by itself a strict formal "
+            "equivalence certificate. APPROXIMATE_REDUCED_BOUND is a separate "
+            "opt-in, source-pinned distance bound conditional on a correct "
+            "native reduction. Inconclusive, skipped, or approximate cases must "
+            "not count as ordinary PASS or complete release-baseline samples."
         ),
     }
 
@@ -205,7 +206,8 @@ def main(argv: list[str] | None = None) -> int:
                  f"{counts.get('INCONCLUSIVE_RESOURCE', 0)} resource-inconclusive; "
                  f"{counts.get('SKIP', 0)} planned/other skipped; "
                  f"{counts.get(APPROXIMATE_REDUCED_BOUND, 0)} source-pinned approximate.", "",
-                 "Only completed PASS cases constitute positive equivalence evidence."]
+                 "PASS is an expected-positive test outcome, not necessarily a "
+                 "strict mathematical proof."]
         if report.get("problems"):
             lines.extend(["", "Coverage blockers:"] + [f"- {p}" for p in report["problems"]])
         args.markdown.write_text("\n".join(lines) + "\n", encoding="utf-8")

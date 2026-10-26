@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ps.set_auto_reduce(false);
         let source = VerificationStrategy::Naive.run(ps, &[], &ops);
         let mut manager = WmcManager::new(&source);
-        manager.encode_trace(&source);
+        manager.encode_trace(&source)?;
         for solver in ["gpmc", "ganak"] {
             let cnf = manager.to_dimacs_string(solver);
             fs::write(dir.join(format!("{name}-{solver}.cnf")), cnf.as_bytes())?;

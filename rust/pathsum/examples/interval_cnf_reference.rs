@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .checked_sub(num_qubits)
             .ok_or("Rust path-variable count underflow")?;
         let mut manager = WmcManager::new(&ps);
-        manager.encode_trace(&ps);
+        manager.encode_trace(&ps)?;
 
         // Reconstruct the phase variable ordering from the actual encoding
         // loop (weight variable first, then newly seen monomial variables).

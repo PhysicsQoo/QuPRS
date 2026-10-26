@@ -8,7 +8,7 @@ use std::f64::consts::PI;
 use log::{info, debug, trace};
 use num_complex::Complex;
 use num_rational::BigRational;
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 use anyhow::{Result, Context, anyhow};
 
 use crate::pathsum::PathSum;
@@ -84,15 +84,32 @@ impl WmcManager {
         }
     }
 
-    fn encode_phase_polynomial(&mut self, ps: &PathSum) {
+    fn encode_phase_polynomial(&mut self, ps: &PathSum) -> Result<()> {
         for (mono, coeff) in &ps.p.terms {
             let phase_val = (coeff.constant.numer as f64) / (coeff.constant.denom as f64);
             // Convert exact source radians only at the floating solver boundary.
             // These weights are observations, not mathematical certificates.
-            let radian_component = coeff.radians.as_ref()
-                .map(|value| value.to_f64().unwrap_or(f64::NAN))
-                .unwrap_or(0.0);
+            let radian_component = match coeff.radians.as_ref() {
+                Some(value) => {
+                    let rad = value.to_f64().ok_or_else(|| anyhow!(
+                        "Exact source radians cannot be represented at the WMC weight boundary"
+                    ))?;
+                    // A nonzero rational can round to binary64 zero (or be lost
+                    // on the subsequent 2x phase conversion). Neither case is
+                    // usable evidence for strict equivalence.
+                    if !rad.is_finite() || (!value.is_zero() && 2.0 * rad == 0.0) {
+                        return Err(anyhow!(
+                            "Nonzero exact source radians underflow at the WMC weight boundary"
+                        ));
+                    }
+                    rad
+                }
+                None => 0.0,
+            };
             let angle = phase_val * 2.0 * PI + 2.0 * radian_component;
+            if !angle.is_finite() {
+                return Err(anyhow!("Non-finite angle at the WMC weight boundary"));
+            }
             let weight = Complex::new(angle.cos(), angle.sin());
 
             let z_i = self.next_var_id;
@@ -121,6 +138,7 @@ impl WmcManager {
                 }
             }
         }
+        Ok(())
     }
 
     fn encode_anf(&mut self, anf: &[Monomial]) -> i32 {
@@ -176,8 +194,8 @@ impl WmcManager {
         current_var
     }
 
-    pub fn encode_trace(&mut self, ps: &PathSum) {
-        self.encode_phase_polynomial(ps);
+    pub fn encode_trace(&mut self, ps: &PathSum) -> Result<()> {
+        self.encode_phase_polynomial(ps)?;
 
         for i in 0..ps.v.num_qubits {
             let a = self.get_dimacs_var(i as u32);
@@ -188,6 +206,7 @@ impl WmcManager {
             self.clauses.push(vec![-a, b]); // a -> b
             self.clauses.push(vec![a, -b]); // b -> a
         }
+        Ok(())
     }
 
     pub fn to_dimacs_string(&self, tool_name: &str) -> String {

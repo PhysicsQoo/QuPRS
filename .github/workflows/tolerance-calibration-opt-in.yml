@@ -62,6 +62,35 @@ jobs:
           python -u .diagnostics/tolerance_calibration/run_matrix.py \
             2>&1 | tee tolerance-calibration-results/runner.log
 
+      - name: Validate existing strict native source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tolerance-calibration-results
+          python -m pytest -q -ra \
+            test/test_exact_diagonal_oracle.py \
+            test/test_rust_p_phase_semantics.py \
+            test/test_rust_global_phase_qasm_contract.py \
+            --junitxml=tolerance-calibration-results/strict-source-junit.xml \
+            2>&1 | tee tolerance-calibration-results/strict-source.log
+
+      - name: Validate Graphstate strict and independent approximate contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_graphstate16_source_contract.py \
+            -k 'test_graphstate_strict_non_equivalence_up_to_phase or test_graphstate_independent_approximate_contract' \
+            --junitxml=tolerance-calibration-results/graphstate-junit.xml \
+            2>&1 | tee tolerance-calibration-results/graphstate.log
+
+      - name: Compare opt-in numerical policy, source strictness and solver precision
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/tolerance_calibration/followup_matrix.py \
+            2>&1 | tee tolerance-calibration-results/followup.log
+
       - name: Seal results and source identity
         if: always()
         shell: bash
@@ -77,6 +106,7 @@ jobs:
           python -m pip freeze > tolerance-calibration-results/python-packages.txt
           sha256sum \
             .diagnostics/tolerance_calibration/run_matrix.py \
+            .diagnostics/tolerance_calibration/followup_matrix.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > tolerance-calibration-results/source-files-sha256.txt
           (

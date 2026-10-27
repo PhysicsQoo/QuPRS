@@ -106,6 +106,27 @@ pub fn check_equivalence_with_tolerances(
     wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
 ) -> Result<EquivalenceCheckResult> {
+    check_equivalence_with_tolerances_mode(
+        num_qubits, gates1, gates2, method, strategy, tool_name,
+        timeout_secs, wmc_magnitude_tolerance, wmc_phase_tolerance, false,
+    )
+}
+
+/// Experimental opt-in numerical policy. Legacy callers keep exact-source
+/// reduction outcomes; only callers explicitly enabling this policy may defer
+/// a phase-only residual to weighted counting.
+pub fn check_equivalence_with_tolerances_mode(
+    num_qubits: usize,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+    method: VerificationMethod,
+    strategy: VerificationStrategy,
+    tool_name: &str,
+    timeout_secs: u64,
+    wmc_magnitude_tolerance: f64,
+    wmc_phase_tolerance: f64,
+    approximate_phase_fallback: bool,
+) -> Result<EquivalenceCheckResult> {
     if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
         || wmc_magnitude_tolerance >= 1.0
         || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
@@ -171,7 +192,7 @@ pub fn check_equivalence_with_tolerances(
                 .all(|(qubit_idx, poly)| {
                     poly.len() == 1 && poly.contains(&vec![qubit_idx as u32])
                 });
-            if num_active_vars == 0 && !identity_basis {
+            if num_active_vars == 0 && (!approximate_phase_fallback || !identity_basis) {
                 status = EquivalenceStatus::NotEquivalent;
             } else {
                 status = EquivalenceStatus::Unknown;

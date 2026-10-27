@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use pathsum::{
-    check_equivalence_with_tolerances as core_check_equivalence_with_tolerances,
+    check_equivalence_with_tolerances_mode as core_check_equivalence_with_tolerances_mode,
     VerificationMethod, VerificationStrategy, EquivalenceStatus,
     ir::QuantumOp, qasm,
 };
@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6, approximate_distance_tolerance=None))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -53,10 +53,22 @@ pub fn check_equivalence(
     safe_mode: bool,
     wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
+    approximate_distance_tolerance: Option<f64>,
 ) -> PyResult<PyObject> {
     let _ = safe_mode;
-    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
-        || wmc_magnitude_tolerance >= 1.0
+    // Stable mapping: projective-Hilbert-Schmidt D -> trace magnitude defect.
+    // No promise of numerical certification is made by this conversion.
+    let effective_magnitude_tolerance = if let Some(eps) = approximate_distance_tolerance {
+        if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
+            return Err(PyValueError::new_err("approximate_distance_tolerance must be finite in (0, 1)"));
+        }
+        let sq = eps * eps;
+        sq / (1.0 + (1.0 - sq).sqrt())
+    } else {
+        wmc_magnitude_tolerance
+    };
+    if !effective_magnitude_tolerance.is_finite() || effective_magnitude_tolerance <= 0.0
+        || effective_magnitude_tolerance >= 1.0
         || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
         || wmc_phase_tolerance >= 1.0
     {
@@ -111,10 +123,10 @@ pub fn check_equivalence(
     let native_bridge_start = ffi_clock_enabled.then(Instant::now);
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
-            core_check_equivalence_with_tolerances(
+            core_check_equivalence_with_tolerances_mode(
                 system_qubits, &ops1, &ops2, rs_method, rs_strategy,
-                &tool_name_owned, timeout, wmc_magnitude_tolerance,
-                wmc_phase_tolerance,
+                &tool_name_owned, timeout, effective_magnitude_tolerance,
+                wmc_phase_tolerance, approximate_distance_tolerance.is_some(),
             )
         })
     }).map_err(|e| PyValueError::new_err(format!("Verification Engine Failed: {}", e)))?;

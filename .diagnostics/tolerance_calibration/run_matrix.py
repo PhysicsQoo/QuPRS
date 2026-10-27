@@ -25,15 +25,20 @@ CASES = {
     "rz_100_x_5e_m10": (5e-10,) * 100,
     "rz_100_x_0p0002": (0.0002,) * 100,
     "inverse_cancel": (0.001, -0.001),
+    "identity_h60": (),
 }
 RECORDS = []
 
 
-def make_circuits(angles, source_kind):
+def make_circuits(angles, source_kind, case=None):
     if source_kind == "qiskit":
         a, b = QuantumCircuit(1), QuantumCircuit(1)
-        for angle in angles:
-            b.rz(angle, 0)
+        if case == "identity_h60":
+            for _ in range(60):
+                b.h(0)
+        else:
+            for angle in angles:
+                b.rz(angle, 0)
         return a, b
 
     def qasm(sequence):
@@ -85,7 +90,7 @@ def observe(case, *, source_kind="qiskit", backend="python",
     previous = config.get_tolerance()
     try:
         config.set_tolerance(rr_tolerance)
-        left, right = make_circuits(angles, source_kind)
+        left, right = make_circuits(angles, source_kind, case=case)
         start = time.monotonic()
         answer = check_equivalence(
             left, right, backend=backend, method=method,
@@ -149,7 +154,12 @@ def main():
                     observe(case, backend=backend, method="wmc_only",
                             solver=solver, wmc_magnitude_tolerance=threshold)
 
-    # 4. One raw QASM text comparison to separate serialized float ingress.
+    # 4. Ganak finite-precision positive control from the historic 60H case.
+    for threshold in (1e-8, 1e-10):
+        observe("identity_h60", backend="python", method="wmc_only",
+                solver="ganak", wmc_magnitude_tolerance=threshold)
+
+    # 5. One raw QASM text comparison to separate serialized float ingress.
     for backend in ("python", "rust"):
         for method in ("reduction_rules", "hybrid", "wmc_only"):
             observe("rz_0p0002", source_kind="qasm",

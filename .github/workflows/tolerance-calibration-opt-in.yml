@@ -1,0 +1,96 @@
+name: Opt-in Numerical Tolerance Calibration
+
+on:
+  push:
+    branches:
+      - 'experiment/**'
+    paths:
+      - '.diagnostics/tolerance_calibration/**'
+      - '.github/workflows/tolerance-calibration-opt-in.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tolerance-calibration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  numerical-observations:
+    name: Python Rust RR Hybrid WMC paired tolerance observations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Checkout pinned experiment source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build native QuPRS and independent solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+          python -m pip check
+
+      - name: Run source-pinned bounded tolerance comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tolerance-calibration-results
+          python -u .diagnostics/tolerance_calibration/run_matrix.py \
+            2>&1 | tee tolerance-calibration-results/runner.log
+
+      - name: Seal results and source identity
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tolerance-calibration-results
+          git rev-parse HEAD > tolerance-calibration-results/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > tolerance-calibration-results/source-tree.txt
+          git status --porcelain > tolerance-calibration-results/git-status.txt
+          python --version > tolerance-calibration-results/python-version.txt
+          rustc --version > tolerance-calibration-results/rustc-version.txt
+          uname -a > tolerance-calibration-results/kernel.txt
+          python -m pip freeze > tolerance-calibration-results/python-packages.txt
+          sha256sum \
+            .diagnostics/tolerance_calibration/run_matrix.py \
+            .github/workflows/tolerance-calibration-opt-in.yml \
+            > tolerance-calibration-results/source-files-sha256.txt
+          (
+            cd tolerance-calibration-results
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Preserve raw experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tolerance-calibration-observations
+          path: tolerance-calibration-results/
+          retention-days: 30
+          if-no-files-found: error

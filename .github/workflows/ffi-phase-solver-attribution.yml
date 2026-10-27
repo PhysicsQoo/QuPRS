@@ -1,12 +1,6 @@
 name: Opt-in FFI Phase and VQE Solver Attribution
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/ffi-phase-solver-attribution.yml'
-      - '.diagnostics/ffi_boundary/**'
-      - 'rust/python_ffi/src/api.rs'
-      - 'test/test_rust_ffi_phase_timing.py'
   workflow_dispatch:
 
 permissions:

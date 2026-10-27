@@ -1,10 +1,6 @@
 name: Rust Per-Elim Cost Six-Family Pilot
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/rust-per-elim-cost-pilot.yml'
-      - '.diagnostics/elim_timing/**'
   workflow_dispatch:
 
 permissions:

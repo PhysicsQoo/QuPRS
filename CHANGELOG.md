@@ -2,6 +2,16 @@
 
 Significant user-facing changes to QuPRS are summarized here. See [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases) for published packages and release dates.
 
+## Unreleased
+
+### Fixed
+- Preserve nonzero phase coefficients at Python gate-to-PathSum construction time, independently of the tolerance used by Elim/HH/omega local reduction matching. This prevents large collections of individually tiny Rz rotations from disappearing before RR, Hybrid or WMC-only can account for their accumulated effect.
+- Invalidate cached tolerance-dependent Python reductions when `config.set_tolerance()` changes its value; reject non-finite, Boolean and nonpositive settings.
+
+### Compatibility
+- The public `check_equivalence()` signature, supported `method` values and current RR/WMC default thresholds are unchanged. Some previous `equivalent` decisions can become `unknown` or `not_equivalent` where small nonzero phases were previously discarded.
+- `config.set_tolerance()` remains a process-global setting and is not safe for simultaneous per-thread changes. Floating Ganak/GPMC numerical decisions remain heuristic; no new strict approximation-distance API or universal solver precision guarantee is introduced.
+
 ## 0.13.4 (unreleased)
 
 ### Scientific semantics and correctness

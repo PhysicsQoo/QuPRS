@@ -146,7 +146,9 @@ def python_coefficient_budget():
                 emit(group="python_phase_budget", rr_tolerance=tau,
                      circuit=name, method=method, oracle_distance=math.sin(0.0003),
                      **v)
-    assert results[(1e-6, "many", "reduction_rules")]["verdict"] == "equivalent"
+    # With phase-preserving gate ingestion the RR result is incomplete,
+    # not a false proof of equivalence; Hybrid may defer to WMC.
+    assert results[(1e-6, "many", "reduction_rules")]["verdict"] == "unknown"
     # WMC-only must preserve cumulative phase independently of RR local tau.
     assert results[(1e-6, "many", "wmc_only")]["verdict"] == "not_equivalent"
     assert results[(1e-6, "total", "wmc_only")]["verdict"] == "not_equivalent"

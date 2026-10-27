@@ -139,6 +139,13 @@ jobs:
           python -u .diagnostics/tolerance_calibration/representative_pairs.py \
             2>&1 | tee tolerance-calibration-results/representative-pairs.log
 
+      - name: Run bounded paper-first magnitude calibration pilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/tolerance_calibration/paper_precision_pilot.py \
+            2>&1 | tee tolerance-calibration-results/paper-precision-pilot.log
+
       - name: Seal results and source identity
         if: always()
         shell: bash
@@ -157,6 +164,7 @@ jobs:
             .diagnostics/tolerance_calibration/followup_matrix.py \
             .diagnostics/tolerance_calibration/gate_phase_study.py \
             .diagnostics/tolerance_calibration/representative_pairs.py \
+            .diagnostics/tolerance_calibration/paper_precision_pilot.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > tolerance-calibration-results/source-files-sha256.txt
           (

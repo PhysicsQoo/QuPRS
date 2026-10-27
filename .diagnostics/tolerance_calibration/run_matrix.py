@@ -26,6 +26,7 @@ CASES = {
     "rz_100_x_0p0002": (0.0002,) * 100,
     "inverse_cancel": (0.001, -0.001),
     "identity_h60": (),
+    "x_gate": (),
 }
 RECORDS = []
 
@@ -36,6 +37,8 @@ def make_circuits(angles, source_kind, case=None):
         if case == "identity_h60":
             for _ in range(60):
                 b.h(0)
+        elif case == "x_gate":
+            b.x(0)
         else:
             for angle in angles:
                 b.rz(angle, 0)
@@ -65,8 +68,8 @@ def observe(case, *, source_kind="qiskit", backend="python",
     angles = CASES[case]
     total_angle = math.fsum(angles)
     # Stable small-angle formula: avoids subtracting a float rounded to 1.
-    distance = abs(math.sin(total_angle / 2))
-    defect = 2 * math.sin(total_angle / 4)**2
+    distance = 1.0 if case == "x_gate" else abs(math.sin(total_angle / 2))
+    defect = 1.0 if case == "x_gate" else 2 * math.sin(total_angle / 4)**2
     rec = {
         "case": case,
         "source_kind": source_kind,
@@ -154,12 +157,16 @@ def main():
                     observe(case, backend=backend, method="wmc_only",
                             solver=solver, wmc_magnitude_tolerance=threshold)
 
-    # 4. Ganak finite-precision positive control from the historic 60H case.
+    # 4. Preserve a definite Boolean negative after the phase-only change.
+    for method in ("reduction_rules", "hybrid", "wmc_only"):
+        observe("x_gate", backend="rust", method=method)
+
+    # 5. Ganak finite-precision positive control from the historic 60H case.
     for threshold in (1e-8, 1e-10):
         observe("identity_h60", backend="python", method="wmc_only",
                 solver="ganak", wmc_magnitude_tolerance=threshold)
 
-    # 5. One raw QASM text comparison to separate serialized float ingress.
+    # 6. One raw QASM text comparison to separate serialized float ingress.
     for backend in ("python", "rust"):
         for method in ("reduction_rules", "hybrid", "wmc_only"):
             observe("rz_0p0002", source_kind="qasm",
@@ -183,9 +190,45 @@ def main():
     (OUT / "summary.json").write_text(
         json.dumps(summary, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
+    # On this experiment branch, check the phase-only fallback candidate.
+    for case, hybrid_expected in (
+        ("rz_0p0002", "equivalent"),
+        ("rz_0p001", "not_equivalent"),
+        ("rz_2e_m8", "equivalent"),
+        ("rz_100_x_5e_m10", "equivalent"),
+    ):
+        relevant = [
+            x for x in RECORDS[:36]
+            if x["case"] == case and x["backend"] == "rust"
+            and x["source_kind"] == "qiskit"
+        ]
+        by_method = {x["method"]: x for x in relevant}
+        assert by_method["reduction_rules"].get("verdict") == "unknown", (
+            case, by_method
+        )
+        assert by_method["hybrid"].get("verdict") == hybrid_expected, (
+            case, by_method
+        )
+        assert by_method["hybrid"].get("wmc_solver_invoked"), case
+        assert by_method["wmc_only"].get("verdict") == hybrid_expected, (
+            case, by_method
+        )
+
+    negative = {
+        x["method"]: x for x in RECORDS
+        if x["case"] == "x_gate" and x["backend"] == "rust"
+    }
+    assert set(negative) == {"reduction_rules", "hybrid", "wmc_only"}
+    for method, item in negative.items():
+        assert item.get("verdict") == "not_equivalent", (method, item)
+    assert not negative["hybrid"].get("wmc_solver_invoked"), negative
+
+    summary["focused_rust_phase_fallback_gate"] = "PASS"
+    (OUT / "summary.json").write_text(
+        json.dumps(summary, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
     print("SUMMARY", json.dumps(summary), flush=True)
-    # An experiment may observe contradictions, but an entirely failed run is invalid.
-    return 0 if len(RECORDS) >= 80 and summary["errors"] < len(RECORDS) // 4 else 1
+    return 0 if len(RECORDS) >= 89 and summary["errors"] == 0 else 1
 
 
 if __name__ == "__main__":

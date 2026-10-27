@@ -57,11 +57,11 @@ def gate_policy(preserve):
 
 
 def run(left, right, *, label, method, tau, preserve, solver="gpmc",
-        group="gate_budget", n_h=None):
+        group="gate_budget", n_h=None, mag_tau=1e-8):
     row = {
         "group": group, "case": label, "method": method, "solver": solver,
         "gate_policy": "preserve_nonzero" if preserve else "legacy_gate_snap",
-        "rr_tolerance": tau, "wmc_magnitude_tolerance": 1e-8,
+        "rr_tolerance": tau, "wmc_magnitude_tolerance": mag_tau,
         "n_h": n_h, "GITHUB_SHA": os.environ.get("GITHUB_SHA"),
     }
     old = config.get_tolerance()
@@ -72,7 +72,7 @@ def run(left, right, *, label, method, tau, preserve, solver="gpmc",
             result = check_equivalence(
                 left, right, backend="python", method=method,
                 strategy="Naive", tool_name=solver, timeout=30,
-                wmc_magnitude_tolerance=1e-8,
+                wmc_magnitude_tolerance=mag_tau,
                 wmc_phase_tolerance=1e-8, wmc_policy="legacy",
             )
             row.update({
@@ -174,6 +174,25 @@ def solver_floor():
                 r["relative_trace_magnitude_defect"]=abs(math.expm1(delta))
             assert r["verdict"]=="equivalent",(n_h,solver,r)
 
+    # Map actual false-negative threshold with a bounded two-depth matrix.
+    # Both I and H^N represent exactly the same unitary (N is even).
+    for n_h in (60, 80):
+        a,b=QuantumCircuit(1),QuantumCircuit(1)
+        for _ in range(n_h):
+            b.h(0)
+        for solver in ("gpmc","ganak"):
+            accepted=[]
+            for mag_tau in (1e-10, 5e-10, 1e-9, 2e-9, 3e-9, 1e-8):
+                r=run(a,b,label="h_identity_threshold",method="wmc_only",
+                      tau=1e-10,preserve=False,solver=solver,
+                      group="solver_threshold",n_h=n_h,mag_tau=mag_tau)
+                accepted.append(r["verdict"]=="equivalent")
+                if solver=="gpmc":
+                    assert r["verdict"]=="equivalent", (n_h,solver,mag_tau,r)
+            assert accepted==sorted(accepted), (n_h,solver,accepted)
+            assert accepted[-1], (n_h,solver,accepted)
+
+
 
 def cache_probe():
     """Demonstrate whether the low-level cached reducer is tau-dependent."""
@@ -183,11 +202,11 @@ def cache_probe():
     try:
         cache_manager.clear_all_caches()
         config.set_tolerance(1e-10)
-        strict=reduce_expression(expr)
+        strict=raw_reduce_expression(expr)
         config.set_tolerance(1e-6)
-        stale=reduce_expression(expr)
+        stale=raw_reduce_expression(expr)
         cache_manager.clear_all_caches()
-        fresh=reduce_expression(expr)
+        fresh=raw_reduce_expression(expr)
         r={
             "group":"cache_probe","case":"single_symbol_exact_fraction",
             "strict_coeff":str(strict),"stale_coeff":str(stale),
@@ -197,6 +216,7 @@ def cache_probe():
         }
         emit(r)
         assert strict!=se.S.Zero and fresh==se.S.Zero
+        assert r["cache_observed_stale"], r
     finally:
         config.set_tolerance(prior)
         cache_manager.clear_all_caches()

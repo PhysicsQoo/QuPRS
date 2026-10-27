@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 
-ROOT=Path(__file__).resolve().parents[3]
+ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/"tolerance-calibration-results"
 OUT.mkdir(exist_ok=True)
 CASES={

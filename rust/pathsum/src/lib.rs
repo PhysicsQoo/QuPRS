@@ -160,10 +160,18 @@ pub fn check_equivalence_with_tolerances(
                 }
             }
         } else {
-            // If the state is not Identity, but there are no internal path variables left,
-            // it means it reduced to a definitive non-equivalent Boolean state.
+            // A residual phase depending on the input basis is not a global
+            // phase, but can still lie within the caller's approximation
+            // tolerance. Defer this case to WMC in hybrid mode.
+            //
+            // Preserve the existing definite non-equivalence result for a
+            // nontrivial Boolean output with no active path variables.
             let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-            if num_active_vars == 0 {
+            let identity_basis = ps_miter.f.functions.iter().enumerate()
+                .all(|(qubit_idx, poly)| {
+                    poly.len() == 1 && poly.contains(&vec![qubit_idx as u32])
+                });
+            if num_active_vars == 0 && !identity_basis {
                 status = EquivalenceStatus::NotEquivalent;
             } else {
                 status = EquivalenceStatus::Unknown;

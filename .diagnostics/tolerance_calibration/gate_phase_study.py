@@ -43,12 +43,13 @@ def gate_policy(preserve):
     """
     before_single = single_qubit.reduce_expression
     before_two = two_qubit.reduce_expression
-    if preserve:
-        def no_snap(expr, *args, **kwargs):
-            kwargs["drop_small"] = False
+    if preserve is not None:
+        def normalizer(expr, *args, **kwargs):
+            # Preserve a complete A/B: legacy deletion vs new source default.
+            kwargs["drop_small"] = bool(not preserve)
             return raw_reduce_expression(expr, *args, **kwargs)
-        single_qubit.reduce_expression = no_snap
-        two_qubit.reduce_expression = no_snap
+        single_qubit.reduce_expression = normalizer
+        two_qubit.reduce_expression = normalizer
     try:
         yield
     finally:
@@ -60,7 +61,8 @@ def run(left, right, *, label, method, tau, preserve, solver="gpmc",
         group="gate_budget", n_h=None, mag_tau=1e-8):
     row = {
         "group": group, "case": label, "method": method, "solver": solver,
-        "gate_policy": "preserve_nonzero" if preserve else "legacy_gate_snap",
+        "gate_policy": ("source_default" if preserve is None else
+                        "preserve_nonzero" if preserve else "legacy_gate_snap"),
         "rr_tolerance": tau, "wmc_magnitude_tolerance": mag_tau,
         "n_h": n_h, "GITHUB_SHA": os.environ.get("GITHUB_SHA"),
     }
@@ -127,6 +129,25 @@ def rotation_budget():
     for tau in (1e-6,1e-10):
         assert (ref[(tau,True,"repeated","wmc_only")]["log_wmc"]
                 == ref[(tau,True,"combined","wmc_only")]["log_wmc"])
+
+
+
+def source_default_gate_contract():
+    """Production candidate route, not monkeypatched: provenance matters."""
+    left, repeated, combined = QuantumCircuit(1), QuantumCircuit(1), QuantumCircuit(1)
+    for _ in range(200):
+        repeated.rz(3e-6,0)
+    combined.rz(0.0006,0)
+    for tau in (1e-6,1e-10):
+        for name,right in (("repeated",repeated),("combined",combined)):
+            for method in ("reduction_rules","hybrid","wmc_only"):
+                row=run(left,right,label=name,method=method,tau=tau,
+                        preserve=None,group="source_default_contract")
+                expected="unknown" if method=="reduction_rules" else "not_equivalent"
+                assert row["verdict"]==expected, (tau,name,method,row)
+                if method=="hybrid":
+                    assert row["solver_invoked"],(tau,name,method,row)
+
 
 
 def reduction_controls():
@@ -216,7 +237,23 @@ def cache_probe():
         }
         emit(r)
         assert strict!=se.S.Zero and fresh==se.S.Zero
-        assert r["cache_observed_stale"], r
+        assert stale==fresh==se.S.Zero and not r["cache_observed_stale"], r
+        # Switching back must recover the small but nonzero coefficient.
+        config.set_tolerance(1e-10)
+        reverse=raw_reduce_expression(expr)
+        assert reverse==strict, ("reverse switch retained old tolerance", reverse)
+        # Invalid values must not mutate the active configuration.
+        for invalid in (True, False, math.nan, math.inf, -math.inf, 0, -1):
+            try:
+                config.set_tolerance(invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(("invalid tolerance accepted", invalid))
+            assert config.get_tolerance()==1e-10
+        emit({"group":"cache_probe", "case":"switch_back_and_reject_nonfinite",
+              "reverse_coeff":str(reverse),"invalid_candidates_rejected":7,
+              "cache_consistent":True})
     finally:
         config.set_tolerance(prior)
         cache_manager.clear_all_caches()
@@ -224,6 +261,7 @@ def cache_probe():
 
 def main():
     rotation_budget()
+    source_default_gate_contract()
     reduction_controls()
     solver_floor()
     cache_probe()

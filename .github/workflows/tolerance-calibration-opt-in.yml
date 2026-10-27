@@ -54,6 +54,30 @@ jobs:
           python -m QuPRS.utils.ganak_distribution
           python -m pip check
 
+      - name: Fast compile sanity for experimental Python changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q src/QuPRS/config.py src/QuPRS/pathsum/gates \
+            .diagnostics/tolerance_calibration/gate_phase_study.py
+          python - <<'PY'
+          import math
+          from QuPRS import config
+          prior=config.get_tolerance()
+          try:
+              for value in (float("nan"),float("inf"),float("-inf"),True,False,0,-1):
+                  try:
+                      config.set_tolerance(value)
+                  except ValueError:
+                      pass
+                  else:
+                      raise AssertionError(("invalid accepted",value))
+                  assert config.get_tolerance()==prior
+          finally:
+              config.set_tolerance(prior)
+          print("TOLERANCE_SETTER_SMOKE_PASS")
+          PY
+
       - name: Run source-pinned bounded tolerance comparison
         shell: bash
         run: |

@@ -1,11 +1,6 @@
 name: Rust Matched Elim Success Failure Fixtures
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/rust-elim-success-fixtures.yml'
-      - '.diagnostics/elim_success_fixture/**'
-      - 'rust/pathsum/src/diagnostics.rs'
   workflow_dispatch:
 
 permissions:

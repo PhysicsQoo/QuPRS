@@ -1,10 +1,6 @@
 name: Rust Elim Cost Family-Held-Out Model Audit
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/rust-elim-cost-model-audit.yml'
-      - '.diagnostics/cost_model_lofo/**'
   workflow_dispatch:
 
 permissions:

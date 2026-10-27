@@ -1,0 +1,103 @@
+name: Opt-in TACAS Paper 200s Timeout Follow-up
+
+on:
+  push:
+    branches:
+      - experiment/numerical-tolerance-calibration-20261027
+    paths:
+      - '.diagnostics/paper_timeout_followup/**'
+      - '.github/workflows/tacas-paper-timeout-followup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paper-timeout-three-cases:
+    name: QFT20 and QPEexact8 Hybrid Python GPMC 200s
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout exact experiment source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build research source and bundled GPMC
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pip check
+          python -m compileall -q .diagnostics/paper_timeout_followup/followup_200s.py
+
+      - name: Record source and solver provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p paper-timeout-followup-evidence
+          git rev-parse HEAD > paper-timeout-followup-evidence/source-sha.txt
+          git rev-parse 'HEAD^{tree}' > paper-timeout-followup-evidence/source-tree.txt
+          python --version > paper-timeout-followup-evidence/python-version.txt
+          rustc --version > paper-timeout-followup-evidence/rustc-version.txt
+          uname -a > paper-timeout-followup-evidence/kernel.txt
+          python -m pip freeze > paper-timeout-followup-evidence/python-packages.txt
+          python - <<'PY'
+          import hashlib
+          import inspect
+          from QuPRS import check_equivalence
+          from QuPRS.utils import get_gpmc_path
+          with get_gpmc_path() as p:
+              print("gpmc_path", p)
+              print("gpmc_sha256", hashlib.sha256(p.read_bytes()).hexdigest())
+          print("public_api", inspect.signature(check_equivalence))
+          PY
+          sha256sum \
+            .diagnostics/paper_timeout_followup/followup_200s.py \
+            .github/workflows/tacas-paper-timeout-followup.yml \
+            > paper-timeout-followup-evidence/source-files-sha256.txt
+
+      - name: Run exactly three 200-second cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/paper_timeout_followup/followup_200s.py \
+            2>&1 | tee paper-timeout-followup-evidence/runner.log
+
+      - name: Seal evidence and verify checksums
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p paper-timeout-followup-evidence
+          (
+            cd paper-timeout-followup-evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z \
+              | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload results for independent scientific review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas-paper-200s-three-case-followup
+          path: paper-timeout-followup-evidence/
+          retention-days: 30
+          if-no-files-found: error

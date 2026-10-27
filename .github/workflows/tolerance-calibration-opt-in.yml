@@ -74,6 +74,16 @@ jobs:
             --junitxml=tolerance-calibration-results/strict-source-junit.xml \
             2>&1 | tee tolerance-calibration-results/strict-source.log
 
+      - name: Validate WMC-only tolerance API and numerical regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_wmc_tolerance_api.py \
+            test/test_wmc_boundary_parity.py \
+            --junitxml=tolerance-calibration-results/wmc-api-junit.xml \
+            2>&1 | tee tolerance-calibration-results/wmc-api.log
+
       - name: Validate Graphstate strict and independent approximate contracts
         shell: bash
         run: |

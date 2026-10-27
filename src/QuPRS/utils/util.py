@@ -83,9 +83,10 @@ def algebraic_to_logical(expr: sp.Expr | se.Expr) -> sp.Expr:
 
 
 @tracked_lru_cache(maxsize=524288)
-def process_term(term: se.Expr, mod_coeffs=1, linearize=True):
+def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True):
 
-    tolerance = config.TOLERANCE
+    # WMC-only source ingestion should preserve small nonzero phase terms.
+    tolerance = config.TOLERANCE if drop_small else 0
 
     if term.is_Mul:
         coeffs = []
@@ -127,18 +128,18 @@ def process_term(term: se.Expr, mod_coeffs=1, linearize=True):
 
 
 @tracked_lru_cache(maxsize=65536)
-def reduce_expression(expr: se.Expr, mod_coeffs=1, linearize=True):
+def reduce_expression(expr: se.Expr, mod_coeffs=1, linearize=True, drop_small=True):
     expanded_expr = expr.expand()
     if expanded_expr.is_Add:
         # Process each term in the expanded expression
         processed_terms = [
-            process_term(term, mod_coeffs, linearize) for term in expanded_expr.args
+            process_term(term, mod_coeffs, linearize, drop_small) for term in expanded_expr.args
         ]
         # Combine the processed terms
         result = se.Add(*processed_terms)
     else:
         # Process the single term
-        result = process_term(expanded_expr, mod_coeffs, linearize)
+        result = process_term(expanded_expr, mod_coeffs, linearize, drop_small)
     return result
 
 

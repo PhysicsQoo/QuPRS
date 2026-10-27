@@ -147,9 +147,13 @@ def python_coefficient_budget():
                      circuit=name, method=method, oracle_distance=math.sin(0.0003),
                      **v)
     assert results[(1e-6, "many", "reduction_rules")]["verdict"] == "equivalent"
-    assert results[(1e-6, "many", "wmc_only")]["verdict"] == "equivalent"
+    # WMC-only must preserve cumulative phase independently of RR local tau.
+    assert results[(1e-6, "many", "wmc_only")]["verdict"] == "not_equivalent"
     assert results[(1e-6, "total", "wmc_only")]["verdict"] == "not_equivalent"
     assert results[(1e-10, "many", "wmc_only")]["verdict"] == "not_equivalent"
+    assert results[(1e-6, "many", "wmc_only")]["log_wmc"] == results[
+        (1e-6, "total", "wmc_only")
+    ]["log_wmc"]
 
 
 def solver_precision():

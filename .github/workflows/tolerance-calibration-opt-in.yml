@@ -101,6 +101,13 @@ jobs:
           python -u .diagnostics/tolerance_calibration/followup_matrix.py \
             2>&1 | tee tolerance-calibration-results/followup.log
 
+      - name: Experiment on gate-phase preservation and reduction hits
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/tolerance_calibration/gate_phase_study.py \
+            2>&1 | tee tolerance-calibration-results/gate-phase.log
+
       - name: Seal results and source identity
         if: always()
         shell: bash
@@ -117,6 +124,7 @@ jobs:
           sha256sum \
             .diagnostics/tolerance_calibration/run_matrix.py \
             .diagnostics/tolerance_calibration/followup_matrix.py \
+            .diagnostics/tolerance_calibration/gate_phase_study.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > tolerance-calibration-results/source-files-sha256.txt
           (

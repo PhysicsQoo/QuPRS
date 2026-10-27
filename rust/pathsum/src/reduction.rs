@@ -7,6 +7,7 @@ use crate::stats::RuleType;
 
 impl PathSum {
     pub fn get_reducible_vars(&self) -> Vec<u32> {
+        let mut timer = crate::diagnostics::time_rule("candidate_discovery", 0);
         let f_used_vars = self.f.get_used_vars();
         let mut reducible_vars: Vec<u32> = self.v.path_vars.iter()
             .copied()
@@ -14,11 +15,15 @@ impl PathSum {
             .collect();
         
         reducible_vars.sort_unstable_by(|a, b| b.cmp(a));
-        
+        if let Some(clock) = timer.as_mut() {
+            clock.set_candidates(reducible_vars.len());
+            if !reducible_vars.is_empty() { clock.mark_success(); }
+        }
         reducible_vars
     }
 
     pub fn full_reduce(&mut self) {
+        let _timed_reduction = crate::diagnostics::span("reduction");
         // Skip if stats disabled
         if !self.stats.is_enabled() {
             return;
@@ -50,11 +55,24 @@ impl PathSum {
 
     pub fn try_reduce_elim(&mut self, reducible_vars: &[u32]) -> bool {
         self.stats.record_attempt(RuleType::Elim);
+        let mut timed_elim = crate::diagnostics::observe_elim_attempt(|| {
+            let k_r = reducible_vars.len();
+            let d_r = self.p.terms.len();
+            let l_r = self.p.terms.keys().map(|mono| mono.len()).sum();
+            // Count live internal IDs directly; total set size can shrink.
+            let v_r = self.v.path_vars.iter()
+                .filter(|&&id| (id as usize) >= self.v.num_qubits)
+                .count();
+            (k_r, l_r, v_r, d_r)
+        });
 
         // Find completely isolated internal variables
         let mut vars_to_remove = Vec::new();
+        // The phase polynomial is unchanged while scanning candidates.
+        // Build the used-variable set once per Elim attempt, not once per variable.
+        let used_vars = self.p.get_used_vars();
         for &var in reducible_vars {
-            if !self.p.get_used_vars().contains(&var) {
+            if !used_vars.contains(&var) {
                 vars_to_remove.push(var);
             }
         }
@@ -69,12 +87,16 @@ impl PathSum {
         }
 
         self.stats.record_success(RuleType::Elim);
+        if let Some(timer) = timed_elim.as_mut() {
+            timer.mark_success();
+        }
         true
     }
 
     /// Attempt to execute HH Rule (Feynman path cancellation)
     pub fn try_reduce_hh(&mut self, reducible_vars: &[u32]) -> bool {
         self.stats.record_attempt(RuleType::HH);
+        let mut timer = crate::diagnostics::time_rule("hh", reducible_vars.len());
 
         for &var in reducible_vars {
             // Step 1: Extract Phi polynomial and verify coefficients
@@ -160,6 +182,7 @@ impl PathSum {
             }
             
             self.stats.record_success(RuleType::HH);
+            if let Some(clock) = timer.as_mut() { clock.mark_success(); }
             return true;
         }
         false
@@ -188,6 +211,7 @@ impl PathSum {
     /// Attempt to execute ω-rule (Phase Gadget simplification)
     pub fn try_reduce_omega(&mut self, reducible_vars: &[u32]) -> bool {
         self.stats.record_attempt(RuleType::Omega);
+        let mut timer = crate::diagnostics::time_rule("omega", reducible_vars.len());
 
         let mut target_y = None;
         
@@ -251,6 +275,7 @@ impl PathSum {
         debug!("[Omega Rule] Integrated out variable: {} (generated Phase Gadget)", self.v.fmt_var(y));
 
         self.stats.record_success(RuleType::Omega);
+        if let Some(clock) = timer.as_mut() { clock.mark_success(); }
         true
     }
 }

@@ -1,0 +1,62 @@
+name: Opt-in FFI Phase and VQE Solver Attribution
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ffi-phase-solver-attribution.yml'
+      - '.diagnostics/ffi_boundary/**'
+      - 'rust/python_ffi/src/api.rs'
+      - 'test/test_rust_ffi_phase_timing.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controlled-ffi-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build source-pinned Rust package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Verify opt-in conversion boundary semantic parity
+        run: |
+          python -m pytest -q test/test_rust_ffi_phase_timing.py test/test_rust_structural_probe_ffi.py
+      - name: Run same-CPU Graphstate16 and VQE4 controlled interleaved measurements
+        run: python -u .diagnostics/ffi_boundary/profile.py
+      - name: Seal SHA256 of all original evidence on pass or failure
+        if: always()
+        run: |
+          mkdir -p ffi-boundary-results
+          git rev-parse HEAD > ffi-boundary-results/source-head-sha.txt
+          find ffi-boundary-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > ffi-boundary-results/SHA256SUMS
+      - name: Upload original raw timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffi-phase-vqe-solver-controlled
+          path: ffi-boundary-results/
+          if-no-files-found: error
+          retention-days: 30

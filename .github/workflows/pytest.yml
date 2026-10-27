@@ -2,15 +2,21 @@
 
 name: Python Pytest CI
 
-# Trigger this workflow on push or pull request to main branch
+# Full cross-platform integration coverage for dev/main pushes and explicit reusable/manual invocations.
 on:
   workflow_call:
   push:
-    branches: "**"
+    branches: [main, dev]
     paths:
       - 'src/**'
       - 'test/**'
+      - 'benchmarks/**'
+      - 'scripts/paper_corpus_audit.py'
+      - 'scripts/check_benchmark_evidence.py'
+      - 'docs/development/paper-corpus-manifest.json'
       - 'rust/**'
+      - 'GPMC'        # Solver submodule pointer affects native CI coverage.
+      - '.gitmodules' # Solver submodule URL/config affects native CI setup.
       - 'pyproject.toml'
       - '.github/workflows/pytest.yml'
   workflow_dispatch:
@@ -29,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-14]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
         include:
           - os: ubuntu-latest
             arch: auto
@@ -40,7 +46,7 @@ jobs:
           - os: macos-15-intel    # Intel Mac (x86_64)
             arch: "x86_64"  # Build only x86_64
             name: "macOS Intel"
-          - os: macos-14    # M1/M2 Mac (ARM64)
+          - os: macos-15    # Apple Silicon arm64; matches the macOS 15+ wheel support minimum
             arch: "arm64"   # Build only arm64
             name: "macOS Silicon"
     env:
@@ -153,6 +159,10 @@ jobs:
           --html=pytest-results.html --self-contained-html 
           --cov=src/QuPRS --cov-report=xml --cov-report=html
 
+      - name: Audit representative benchmark outcomes
+        if: ${{ always() && !cancelled() }}
+        run: python scripts/check_benchmark_evidence.py --junit pytest-results.xml --json benchmark-evidence.json
+
       # ==========================================
       # Artifact Uploads
       # ==========================================
@@ -168,7 +178,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pytest-results-xml-${{ matrix.os }}-${{ matrix.python-version }}
-          path: pytest-results.xml
+          path: |
+            pytest-results.xml
+            benchmark-evidence.json
           
       - name: Upload coverage XML report  
         if: always()

@@ -1,3 +1,4 @@
+import math
 import signal
 import threading
 import time
@@ -117,6 +118,38 @@ def load_circuit(circuit: str) -> QuantumCircuit:
         return circuit
 
 
+def _validate_rust_qasm_global_phase_contract(circuit1, circuit2) -> None:
+    """Reject relative scalar phases that the QASM2 Rust bridge cannot carry.
+
+    Equal explicitly specified input phases cancel in the comparison and
+    therefore may be omitted by the transport without changing either exact
+    equality or equality up to global phase. Unequal scalar phases cannot
+    safely be discarded when the public API distinguishes the two.
+    """
+
+    def phase_of(circuit) -> float:
+        if not isinstance(circuit, QuantumCircuit):
+            return 0.0
+        try:
+            phase = float(circuit.global_phase)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "Rust backend requires a bound numeric QuantumCircuit.global_phase"
+            ) from exc
+        if not np.isfinite(phase):
+            raise ValueError(
+                "Rust backend requires a finite QuantumCircuit.global_phase"
+            )
+        return phase
+
+    if phase_of(circuit1) != phase_of(circuit2):
+        raise ValueError(
+            "Rust QASM2 transport cannot preserve unequal "
+            "QuantumCircuit.global_phase values. The exact-vs-global-phase "
+            "equivalence classification would be unreliable."
+        )
+
+
 # =============================================================================
 # check_equivalence: Unified Quantum Circuit Equivalence Checking Interface
 # =============================================================================
@@ -137,6 +170,9 @@ def check_equivalence(
     timeout: int = 600,
     safe_mode: bool = False,
     backend: str = "python",
+    wmc_policy: str = "legacy",
+    wmc_magnitude_tolerance: float | None = None,
+    wmc_phase_tolerance: float | None = None,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -170,6 +206,15 @@ def check_equivalence(
             and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
+        wmc_policy (str, optional): "legacy" preserves the heuristic verdict
+            policy; "conservative" returns "unknown" for uncertified numeric
+            WMC outcomes while retaining result.wmc_numerical_verdict.
+        wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
+            acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
+            Independent of reduction tolerance and not a formal proof bound.
+        wmc_phase_tolerance (float | None): WMC phase threshold separating
+            "equivalent" and "equivalent*" for near-unit magnitudes.
+            None uses config.WMC_PHASE_TOLERANCE.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -177,6 +222,20 @@ def check_equivalence(
     """
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout must be a positive integer number of seconds")
+    if wmc_policy not in ("legacy", "conservative"):
+        raise ValueError("wmc_policy must be 'legacy' or 'conservative'")
+    if wmc_magnitude_tolerance is None:
+        wmc_magnitude_tolerance = config.WMC_MAGNITUDE_TOLERANCE
+    if wmc_phase_tolerance is None:
+        wmc_phase_tolerance = config.WMC_PHASE_TOLERANCE
+    for name, threshold in (
+        ("wmc_magnitude_tolerance", wmc_magnitude_tolerance),
+        ("wmc_phase_tolerance", wmc_phase_tolerance),
+    ):
+        if (isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+            or not math.isfinite(threshold) or not 0 < threshold < 1):
+            raise ValueError(f"{name} must be finite and in (0, 1)")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -185,6 +244,7 @@ def check_equivalence(
         )
 
     if backend == "rust":
+        _validate_rust_qasm_global_phase_contract(circuit1, circuit2)
         request_started = time.monotonic()
         request_deadline = request_started + timeout
         from QuPRS import _pathsum_rust
@@ -247,6 +307,8 @@ def check_equivalence(
                                     tool_name=tool_name,
                                     timeout=remaining,
                                     safe_mode=safe_mode,
+                                    wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+                                    wmc_phase_tolerance=wmc_phase_tolerance,
                                 )
                         finally:
                             if previous_path is None:
@@ -270,6 +332,17 @@ def check_equivalence(
         elif rust_res.get("status") == "Unknown":
             mapped_equiv = "unknown"
             
+        rust_wmc_numerical_verdict = None
+        if (
+            wmc_policy == "conservative"
+            and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent")
+            and (method == "wmc_only" or rust_res.get("wmc_solver_time_sec") is not None)
+        ):
+            # The Rust status is a solver-derived numeric classification, not
+            # a certified enclosure. Preserve it as an observation only.
+            rust_wmc_numerical_verdict = mapped_equiv
+            mapped_equiv = "unknown"
+
         return EquivalenceCheckResult(
             qubit_num=rust_res.get("qubits", 0),
             gate_num=rust_res.get("gates1", 0),
@@ -289,6 +362,10 @@ def check_equivalence(
             CNF=None,
             expect=None,
             log_wmc=None,
+            wmc_policy=wmc_policy,
+            wmc_numerical_verdict=rust_wmc_numerical_verdict,
+            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+            wmc_phase_tolerance=wmc_phase_tolerance,
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -314,6 +391,9 @@ def check_equivalence(
             method=method,
             strategy=strategy,
             equivalent="not_equivalent",
+            wmc_policy=wmc_policy,
+            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+            wmc_phase_tolerance=wmc_phase_tolerance,
             verification_time=0.0,
             pathsum_time=0.0,
             final_pathsum="N/A",
@@ -364,6 +444,7 @@ def check_equivalence(
         CNF = (None,)
         log_wmc = None
         expect = None
+        wmc_numerical_verdict = None
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
@@ -436,9 +517,15 @@ def check_equivalence(
                 tool_time = round(time.time() - tool_start_time, 3)
                 equivalent, log_wmc = classify_weighted_count(
                     complex_number[0], complex_number[1], expect,
-                    magnitude_tolerance=config.WMC_MAGNITUDE_TOLERANCE,
-                    phase_tolerance=config.WMC_PHASE_TOLERANCE,
+                    magnitude_tolerance=wmc_magnitude_tolerance,
+                    phase_tolerance=wmc_phase_tolerance,
                 )
+                if wmc_policy == "conservative":
+                    # The external count does not carry a rigorous error bound.
+                    # Retain the unmodified heuristic output for diagnostics,
+                    # but do not assert either mathematical verdict from it.
+                    wmc_numerical_verdict = equivalent
+                    equivalent = "unknown"
                 wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or
@@ -496,6 +583,10 @@ def check_equivalence(
         CNF=CNF,
         expect=expect,
         log_wmc=log_wmc,
+        wmc_policy=wmc_policy,
+        wmc_numerical_verdict=wmc_numerical_verdict,
+        wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+        wmc_phase_tolerance=wmc_phase_tolerance,
     )
     return Result
 
@@ -546,6 +637,12 @@ class EquivalenceCheckResult:
     CNF: Optional[str] = None
     expect: Optional[float] = None
     log_wmc: Optional[float] = None
+    # Legacy numeric verdict remains observable even when policy is conservative.
+    wmc_numerical_verdict: Optional[str] = None
+    wmc_policy: str = "legacy"
+    # Effective thresholds recorded for reproducible numerical verdicts.
+    wmc_magnitude_tolerance: float | None = None
+    wmc_phase_tolerance: float | None = None
 
     @staticmethod
     def _fmt(val: float | str | None) -> str:

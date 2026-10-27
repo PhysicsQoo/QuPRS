@@ -2,12 +2,13 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyValueError, PyTypeError};
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 use std::path::Path;
+use std::time::Instant;
 
 use pathsum::{
-    check_equivalence as core_check_equivalence,
+    check_equivalence_with_tolerances as core_check_equivalence_with_tolerances,
     VerificationMethod, VerificationStrategy, EquivalenceStatus,
     ir::QuantumOp, qasm,
 };
@@ -41,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -50,11 +51,29 @@ pub fn check_equivalence(
     tool_name: &str,
     timeout: u64,
     safe_mode: bool,
+    wmc_magnitude_tolerance: f64,
+    wmc_phase_tolerance: f64,
 ) -> PyResult<PyObject> {
     let _ = safe_mode;
+    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
+        || wmc_magnitude_tolerance >= 1.0
+        || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
+        || wmc_phase_tolerance >= 1.0
+    {
+        return Err(PyValueError::new_err(
+            "WMC magnitude and phase tolerances must be finite in (0, 1)"
+        ));
+    }
 
+    // Diagnostics-only FFI phase clock: default results are unchanged.
+    // This is an extra opt-in and deliberately does not affect solver timing.
+    let ffi_clock_enabled = std::env::var("QUPRS_FFI_PHASE_TIMING")
+        .ok().as_deref() == Some("1");
+    let total_ffi_start = ffi_clock_enabled.then(Instant::now);
+    let parse_start = ffi_clock_enabled.then(Instant::now);
     let (ops1, num_qubits1) = extract_circuit(circuit1)?;
     let (ops2, num_qubits2) = extract_circuit(circuit2)?;
+    let qasm_extract_ns = parse_start.map(|start| start.elapsed().as_nanos() as u64);
     let system_qubits = std::cmp::max(num_qubits1, num_qubits2);
 
     if num_qubits1 != num_qubits2 {
@@ -89,13 +108,20 @@ pub fn check_equivalence(
 
     let tool_name_owned = tool_name.to_lowercase();
 
+    let native_bridge_start = ffi_clock_enabled.then(Instant::now);
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
-            core_check_equivalence(system_qubits, &ops1, &ops2, rs_method, rs_strategy, &tool_name_owned, timeout)
+            core_check_equivalence_with_tolerances(
+                system_qubits, &ops1, &ops2, rs_method, rs_strategy,
+                &tool_name_owned, timeout, wmc_magnitude_tolerance,
+                wmc_phase_tolerance,
+            )
         })
     }).map_err(|e| PyValueError::new_err(format!("Verification Engine Failed: {}", e)))?;
+    let native_bridge_ns = native_bridge_start.map(|start| start.elapsed().as_nanos() as u64);
 
     Python::with_gil(|py| {
+        let dict_build_start = ffi_clock_enabled.then(Instant::now);
         let dict = PyDict::new_bound(py);
         
         let status_str = match result.status {
@@ -131,6 +157,87 @@ pub fn check_equivalence(
             dict.set_item("wmc_time_sec", wmc_time)?;
             dict.set_item("wmc_dimacs_time_sec", result.to_dimacs_time.unwrap_or(0.0))?;
             dict.set_item("wmc_solver_time_sec", result.tool_time.unwrap_or(0.0))?;
+        }
+        let mut stage_materialize_ns = None;
+        if let Some(ledger) = &result.stage_ledger {
+            let stage_build_start = ffi_clock_enabled.then(Instant::now);
+            let diagnostic = PyDict::new_bound(py);
+            diagnostic.set_item("schema", ledger.schema)?;
+            diagnostic.set_item("total_native_wall_seconds", ledger.total_native_wall_seconds)?;
+            diagnostic.set_item("solver_child_spawns", ledger.solver_child_spawns)?;
+            diagnostic.set_item("reduction_max_depth", ledger.reduction_max_depth)?;
+            diagnostic.set_item("closure_error_seconds", ledger.closure_error_seconds)?;
+            diagnostic.set_item("has_stage_overlap", ledger.has_stage_overlap)?;
+            let seconds = PyDict::new_bound(py);
+            for (name, value) in &ledger.seconds {
+                seconds.set_item(*name, *value)?;
+            }
+            diagnostic.set_item("exclusive_seconds", seconds)?;
+            let calls = PyDict::new_bound(py);
+            for (name, count) in &ledger.calls {
+                calls.set_item(*name, *count)?;
+            }
+            diagnostic.set_item("stage_calls", calls)?;
+            let probes = PyList::empty_bound(py);
+            for sample in &ledger.structural_elim_attempts {
+                let item = PyDict::new_bound(py);
+                item.set_item("k_r", sample.k_r)?;
+                item.set_item("l_r", sample.l_r)?;
+                item.set_item("v_r", sample.v_r)?;
+                item.set_item("d_r", sample.d_r)?;
+                item.set_item("w_redundant_estimated", sample.w_redundant_estimated)?;
+                probes.append(item)?;
+            }
+            diagnostic.set_item("structural_elim_attempts", probes)?;
+            // Preserve the v0 Stage Ledger JSON shape when the second opt-in
+            // QUPRS_ELIM_TIMING flag is not explicitly set.
+            if ledger.elim_timing_enabled {
+                let timings = PyList::empty_bound(py);
+                for sample in &ledger.elim_attempt_timings {
+                    let item = PyDict::new_bound(py);
+                    item.set_item("structural_index", sample.structural_index)?;
+                    item.set_item("elapsed_ns", sample.elapsed_ns)?;
+                    item.set_item("success", sample.success)?;
+                    timings.append(item)?;
+                }
+                diagnostic.set_item("elim_attempt_timings", timings)?;
+            }
+            if ledger.other_rule_timing_enabled {
+                let records = PyList::empty_bound(py);
+                for sample in &ledger.other_rule_timings {
+                    let item = PyDict::new_bound(py);
+                    item.set_item("rule", sample.rule)?;
+                    item.set_item("elapsed_ns", sample.elapsed_ns)?;
+                    item.set_item("success", sample.success)?;
+                    item.set_item("candidate_count", sample.candidate_count)?;
+                    item.set_item("within_reduction", sample.within_reduction)?;
+                    records.append(item)?;
+                }
+                diagnostic.set_item("other_rule_timings", records)?;
+            }
+            dict.set_item("stage_ledger", diagnostic)?;
+            stage_materialize_ns = stage_build_start
+                .map(|start| start.elapsed().as_nanos() as u64);
+        }
+
+        // This stamp is taken before materializing the phase metadata so that
+        // the diagnostic dictionary does not inflate the conversion estimate.
+        if let Some(total_start) = total_ffi_start {
+            let dict_build_ns = dict_build_start
+                .expect("FFI phase clock implies dictionary clock")
+                .elapsed().as_nanos() as u64;
+            // Sample the outer clock BEFORE emitting its own metadata.
+            // Otherwise this value incorrectly includes phase dict insertion.
+            let ffi_pre_metadata_ns = total_start.elapsed().as_nanos() as u64;
+            let phase = PyDict::new_bound(py);
+            phase.set_item("schema", "quprs-rust-ffi-phase-v1")?;
+            phase.set_item("qasm_extract_ns", qasm_extract_ns.unwrap_or(0))?;
+            phase.set_item("native_bridge_ns", native_bridge_ns.unwrap_or(0))?;
+            phase.set_item("python_dict_build_ns", dict_build_ns)?;
+            phase.set_item("stage_ledger_materialize_ns", stage_materialize_ns.unwrap_or(0))?;
+            phase.set_item("ffi_elapsed_excluding_phase_metadata_ns",
+                           ffi_pre_metadata_ns)?;
+            dict.set_item("ffi_phase_timings", phase)?;
         }
 
         Ok(dict.to_object(py))

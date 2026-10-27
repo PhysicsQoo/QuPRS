@@ -1,0 +1,27 @@
+# Additional pre-merge correctness validation for native/FFI/solver-sensitive dev PRs.
+# Reuse exactly the same 12-platform Rust/Python tests that protect dev integration.
+# This workflow is informational; protect-dev has no required status check.
+name: Native Cross-Platform PR
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'rust/**'
+      - 'GPMC'
+      - '.gitmodules'
+      - 'src/QuPRS/utils/**'
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'pyproject.toml'
+      - 'scripts/install_linux_deps.sh'
+      - '.github/workflows/pytest.yml'
+      - '.github/workflows/native-cross-platform-pr.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-source-matrix:
+    name: Native source correctness matrix
+    uses: ./.github/workflows/pytest.yml

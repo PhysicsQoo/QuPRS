@@ -1,0 +1,70 @@
+name: Exclusive Reduction Stage Ledger Pilot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: exclusive-stage-ledger-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    name: Source-pinned Python and Rust disjoint stage timing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout exact diagnostic commit
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install scientific dependency and Rust build chain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --upgrade pip
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -c 'import QuPRS, qiskit, symengine; print(QuPRS.__version__, qiskit.__version__, symengine.__version__)'
+
+      - name: Test exclusive ledger accounting contracts
+        run: |
+          python -m pytest -q test/test_exclusive_stage_ledger.py
+
+      - name: Run QAOA7 and actual-WMC GHZ4 pilot
+        run: |
+          python -u .diagnostics/stage_ledger/run_pilot.py
+
+      - name: Record immutable artifact SHA256 manifest
+        if: always()
+        run: |
+          mkdir -p exclusive-stage-ledger-results
+          git rev-parse HEAD > exclusive-stage-ledger-results/checked-out-sha.txt
+          find exclusive-stage-ledger-results -type f ! -name SHA256SUMS -print0 |
+            sort -z | xargs -0 -r sha256sum > exclusive-stage-ledger-results/SHA256SUMS
+
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exclusive-stage-ledger-pilot
+          path: exclusive-stage-ledger-results/
+          if-no-files-found: error
+          retention-days: 30

@@ -136,6 +136,24 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 ```
 
 ## Equivalence Checking
+
+> **Numerical and source-semantic limits (v0.13.4 candidate):**
+> Rust preserves supported QASM2 literal decimal-radian angles separately from
+> symbolic multiples of pi through its PathSum/phase representation. Strict
+> source-literal comparison can therefore disagree with historical approximate
+> transpilation verdicts (for example Graphstate16), even where independent
+> numerical distance is tiny. The Python Qiskit-object path has different
+> input-precision provenance; do not infer recovered source literals from f64.
+> Ganak and GPMC produce floating weighted counts, not general proof
+> certificates: default `wmc_policy="legacy"` numerical acceptance can still
+> report positive results for genuinely inequivalent near-identity rotations.
+> Use `wmc_policy="conservative"` to retain the numeric observation as a
+> diagnostic and return `unknown` for uncertified external WMC results.
+> A numerical tolerance cannot make the underlying input operators exactly
+> equal. See [formal semantics](docs/development/equivalence-semantics.md),
+> [WMC evidence](docs/development/wmc-evidence-policy.md), and
+> [QASM source-angle representation](docs/development/exact-angle-representation.md).
+
 `QuPRS` provides tools for checking the equivalence of two quantum circuits, potentially imported from Qiskit or QASM files.
 
 Importing Circuits for Equivalence Checking
@@ -233,8 +251,9 @@ A solver invocation is bounded by its own remaining-budget deadline;
 long-running in-process work can still exceed the requested overall
 time. Do not rely on this API as a hard end-to-end kill switch.
 
-The result status `equivalent` / `equivalent*` is a verified equivalence
-classification; `not_equivalent` is an actual negative result;
+The result statuses `equivalent` / `equivalent*` are **intended** as verified
+equivalence classifications, and `not_equivalent` as an actual negative
+result; known exceptions on current development builds are documented above.
 `unknown` means reduction alone was inconclusive; `Timeout` means a
 deadline expired. Solver launch failures, output overflow, nonzero exits,
 malformed counts and other solver errors **raise an exception** rather
@@ -302,14 +321,33 @@ both solver inputs with 17 significant decimal digits in scientific notation
 nine-decimal quantization. Input precision cannot exceed the information in
 the original circuit parameters or the numerical type used upstream.
 
-Both Python and Rust WMC backends classify the unrounded, normalized complex
-count using `1e-6` magnitude and phase thresholds. Python exposes these as
-`config.WMC_MAGNITUDE_TOLERANCE` and `config.WMC_PHASE_TOLERANCE`;
-`config.TOLERANCE` remains the independent symbolic-reduction tolerance
-(default `1e-10`). Nonzero global phase gives `equivalent*` when the count
-magnitude passes the threshold. Python uses a scaled log-magnitude and signed
-`atan2`, avoiding overflow, zero-count division, and negative phases wrapping
-to nearly `2*pi`.
+Both Python and Rust WMC public API backends classify the unrounded,
+normalized complex count with user-selectable **per-call** thresholds.
+The current public-API default magnitude and phase thresholds are `1e-8` each
+(historically `1e-6`); for example:
+
+```python
+result = check_equivalence(
+    circuit1, circuit2, method="wmc_only", backend="rust",
+    wmc_magnitude_tolerance=1e-8,
+    wmc_phase_tolerance=1e-8,
+)
+print(result.equivalent, result.wmc_magnitude_tolerance)
+```
+
+Omitting either argument uses `config.WMC_MAGNITUDE_TOLERANCE` or
+`config.WMC_PHASE_TOLERANCE`. Each accepted threshold must be finite
+and strictly between 0 and 1. The effective values are recorded with
+the result. The public Python interface passes the same values to the
+Rust backend; direct legacy Rust core callers keep their historical
+defaults. `config.TOLERANCE` remains the independent symbolic-reduction
+tolerance (default `1e-10`), **not** a WMC setting. Nonzero global phase
+gives `equivalent*` when the count magnitude passes the threshold.
+Python uses a scaled log-magnitude and signed `atan2`, avoiding overflow,
+zero-count division, and negative phases wrapping to nearly `2*pi`.
+See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md)
+for the current candidate's acceptance limits and QCEC/Quokka-Sharp metric
+comparison. A tighter numerical threshold is not a mathematical certificate.
 Results closer to a decision boundary than encoding or printed-count
 error should be checked independently; agreement between two solvers alone does
 not establish exact equivalence. Nonzero exits, crashes, missing results and

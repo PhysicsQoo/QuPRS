@@ -89,7 +89,7 @@ impl AddAssign<(&FxHashSet<Monomial>, PhaseCoeff)> for PhasePolynomial {
     fn add_assign(&mut self, (poly, phase): (&FxHashSet<Monomial>, PhaseCoeff)) {
         if poly.is_empty() || phase.is_zero() { return; }
 
-        let max_order = if !phase.symbols.is_empty() {
+        let max_order = if !phase.symbols.is_empty() || phase.radians.is_some() {
             usize::MAX
         } else {
             let denom_u64 = phase.constant.denom as u64;

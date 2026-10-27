@@ -1,21 +1,36 @@
 name: CodSpeed
 
 on:
+  # Retain baselines on both maintained branches: the default release branch
+  # and the integration branch used as the target for feature/fix PRs.
   push:
     branches:
       - main
+      - dev
     paths:
       - 'src/**'
-      - 'test/**'
+      - 'test/test_Feynman.py'
+      - 'test/test_MQT.py'
+      - 'test/conftest.py'
+      - 'test/_benchmark_*.py'
       - 'rust/**'
+      - 'GPMC'           # Solver submodule revision affects measured workloads.
+      - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - 'scripts/check_codspeed_shards.py'
+  # Run on code-affecting PRs, including feat/fix -> dev and dev -> main.
+  # No hard percentage regression gate: CI job success is not no-regression proof.
   pull_request:
     paths:
       - 'src/**'
-      - 'test/**'
+      - 'test/test_Feynman.py'
+      - 'test/test_MQT.py'
+      - 'test/conftest.py'
+      - 'test/_benchmark_*.py'
       - 'rust/**'
+      - 'GPMC'           # Solver submodule revision affects measured workloads.
+      - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - 'scripts/check_codspeed_shards.py'
@@ -53,6 +68,8 @@ jobs:
           python -m pip install pytest-shard
       - name: Prove shard union, disjointness and nonempty collection
         run: python scripts/check_codspeed_shards.py
+      - name: Verify benchmark input integrity
+        run: python scripts/paper_corpus_audit.py --json "$RUNNER_TEMP/paper_corpus_sha256.json"
 
   codspeed:
     name: Run benchmarks
@@ -102,7 +119,13 @@ jobs:
           pip install pytest-shard
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v4
+        uses: CodSpeedHQ/action@v5
         with:
           mode: simulation
+          # v5 estimates CPU cycles rather than the pre-v5 simulation metric.
+          # Do not compare v5 reports against pre-v5 measurements.
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          # Evaluate solver subprocess instrumentation independently.
+          simulation-track-subprocess: 'false'
           run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }}

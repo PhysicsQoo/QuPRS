@@ -291,14 +291,17 @@ impl QuantumGates for PathSum {
         }
     }
     fn apply_p(&mut self, qubit: usize, theta: Angle,side: Side) {
-         match side {
+        // Angle stores theta/pi, while the PathSum exponent is normalized
+        // to 2*pi: P(theta)|1> = exp(i*theta)|1>. The half factor is
+        // essential for both P and U1, including bra-side conjugation.
+        match side {
             Side::Ket => {
-                let phase = theta.to_phase_coeff();
+                let phase = (theta / 2).to_phase_coeff();
                 self.p += (&self.f.functions[qubit], phase);
             }
             Side::Bra => {
                 let x_i = vec![qubit as u32];
-                let conj_theta = Angle::ZERO - theta;
+                let conj_theta = Angle::ZERO - theta / 2;
                 let conj_phase = conj_theta.to_phase_coeff();
                 self.p += (x_i, conj_phase);
             }
@@ -310,8 +313,8 @@ impl QuantumGates for PathSum {
     }
     /// U2 Gate: X-Y plane rotation defined as U2(phi, lam) = U3(pi/2, phi, lam)
     fn apply_u2(&mut self, qubit: usize, phi: Angle, lam: Angle, side: Side) {
-        // theta = pi/2 (即 1/4 cycle)
-        let pi_over_2 = Angle::QUARTER;
+        // Angle stores theta/pi: the U2 theta=pi/2 constant is HALF.
+        let pi_over_2 = Angle::HALF;
         self.apply_u(qubit, pi_over_2, phi, lam, side);
     }
     /// U3(theta, phi, lam)
@@ -405,6 +408,156 @@ mod tests {
         let mut ps = PathSum::new(num_qubits);
         ps.set_auto_reduce(false); // Disable auto-reduce to inspect raw expansion state
         ps
+    }
+
+    // An independent amplitude oracle: enumerate ALL fresh path variables
+    // in the unreduced one-qubit PathSum. In contrast to API verdict tests,
+    // this does not call Reduction, WMC, or compare two copies of apply_u.
+    // The complex exponential is used only as a numerical crosscheck for
+    // small rational-pi gate matrices, never as a strict source certificate.
+    fn unreduced_one_qubit_operator(
+        ps: &PathSum,
+    ) -> [[num_complex::Complex64; 2]; 2] {
+        use num_complex::Complex64;
+        use std::f64::consts::PI;
+        assert_eq!(ps.v.num_qubits, 1);
+        assert_eq!(ps.f.functions.len(), 1);
+        let mut fresh: Vec<u32> = ps.v.path_vars.iter()
+            .copied().filter(|&v| v >= 1).collect();
+        fresh.sort_unstable();
+        assert!(fresh.len() <= 5, "Bound exhaustive oracle size");
+        let mut matrix = [[Complex64::new(0.0, 0.0); 2]; 2];
+        let normalization = ((1u32 << fresh.len()) as f64).sqrt();
+        for input in 0..2u32 {
+            for mask in 0..(1u32 << fresh.len()) {
+                let mut assignment = input;
+                for (j, &id) in fresh.iter().enumerate() {
+                    assert!(id < 32);
+                    if (mask & (1u32 << j)) != 0 {
+                        assignment |= 1u32 << id;
+                    }
+                }
+                let is_true = |mono: &Vec<u32>| -> bool {
+                    mono.iter().all(|&id| (assignment & (1u32 << id)) != 0)
+                };
+                let output = ps.f.functions[0].iter()
+                    .fold(false, |acc, mono| acc ^ is_true(mono));
+                let mut cycle = 0.0;
+                for (mono, coeff) in &ps.p.terms {
+                    assert!(coeff.symbols.is_empty(),
+                            "Only exact rational-pi gates supported");
+                    if is_true(mono) {
+                        cycle += coeff.constant.numer as f64
+                            / coeff.constant.denom as f64;
+                    }
+                }
+                let value = Complex64::from_polar(1.0, 2.0 * PI * cycle)
+                    / normalization;
+                matrix[output as usize][input as usize] += value;
+            }
+        }
+        matrix
+    }
+
+    fn assert_matrix_matches(
+        actual: [[num_complex::Complex64; 2]; 2],
+        expected: [[num_complex::Complex64; 2]; 2],
+        context: &str,
+    ) {
+        for row in 0..2 {
+            for col in 0..2 {
+                assert!(
+                    (actual[row][col] - expected[row][col]).norm() < 1e-11,
+                    "{context}: matrix[{row}][{col}] was {:?}, expected {:?}",
+                    actual[row][col], expected[row][col]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_one_qubit_raw_pathsum_against_independent_unitary_matrices() {
+        use num_complex::Complex64 as C;
+        use std::f64::consts::PI;
+        let i = C::new(0.0, 1.0);
+        let e = |angle: f64| C::from_polar(1.0, angle);
+
+        for (theta, phi, lambda, t, p, l) in [
+            (Angle::ZERO, Angle::ZERO, Angle::ZERO, 0.0, 0.0, 0.0),
+            (Angle::HALF, Angle::QUARTER, Angle::THREE_QUARTERS,
+             PI / 2.0, PI / 4.0, 3.0 * PI / 4.0),
+            (Angle::QUARTER, Angle::HALF, Angle::QUARTER,
+             PI / 4.0, PI / 2.0, PI / 4.0),
+            (Angle::HALF, Angle::ZERO, Angle::ZERO,
+             PI / 2.0, 0.0, 0.0),
+        ] {
+            let c = (t / 2.0).cos();
+            let s = (t / 2.0).sin();
+            // Independently specified Qiskit U(theta,phi,lambda) matrix;
+            // NOT derived from Rust apply_u() or from a solver verdict.
+            let target = [
+                [C::new(c, 0.0), -e(l) * s],
+                [e(p) * s, e(p + l) * c],
+            ];
+            for side in [Side::Ket, Side::Bra] {
+                let mut ps = setup_test_env(1);
+                ps.apply_u3(0, theta.clone(), phi.clone(), lambda.clone(), side);
+                let got = unreduced_one_qubit_operator(&ps);
+                let reference = if matches!(side, Side::Bra) {
+                    [
+                        [target[0][0].conj(), target[1][0].conj()],
+                        [target[0][1].conj(), target[1][1].conj()],
+                    ]
+                } else {
+                    target
+                };
+                assert_matrix_matches(got, reference, "U3 analytic unitary");
+
+                let mut same = setup_test_env(1);
+                same.apply_u(0, theta.clone(), phi.clone(), lambda.clone(), side);
+                assert_eq!(same.p.terms, ps.p.terms, "U and U3 phase mismatch");
+                assert_eq!(same.f.functions, ps.f.functions, "U and U3 output mismatch");
+                assert_eq!(same.v.path_vars, ps.v.path_vars, "U and U3 path variables differ");
+            }
+        }
+
+        for (theta, radians) in [
+            (Angle::ZERO, 0.0),
+            (Angle::HALF, PI / 2.0),
+            (Angle::QUARTER, PI / 4.0),
+            (Angle::new_constant(crate::rational::FreeRational::new(-1, 4)),
+             -PI / 4.0),
+        ] {
+            let c = (radians / 2.0).cos();
+            let s = (radians / 2.0).sin();
+            let rx = [[C::new(c,0.0), -i*s], [-i*s, C::new(c,0.0)]];
+            let ry = [[C::new(c,0.0), C::new(-s,0.0)],
+                      [C::new(s,0.0), C::new(c,0.0)]];
+            let rz = [[e(-radians/2.0), C::new(0.0,0.0)],
+                      [C::new(0.0,0.0), e(radians/2.0)]];
+            for (name, expected) in [("rx", rx), ("ry", ry), ("rz", rz)] {
+                for side in [Side::Ket, Side::Bra] {
+                    let mut ps = setup_test_env(1);
+                    match name {
+                        "rx" => ps.apply_rx(0,theta.clone(),side),
+                        "ry" => ps.apply_ry(0,theta.clone(),side),
+                        "rz" => ps.apply_rz(0,theta.clone(),side),
+                        _ => unreachable!(),
+                    }
+                    let target = if matches!(side,Side::Bra) {
+                        [
+                            [expected[0][0].conj(),expected[1][0].conj()],
+                            [expected[0][1].conj(),expected[1][1].conj()],
+                        ]
+                    } else {
+                        expected
+                    };
+                    assert_matrix_matches(
+                        unreduced_one_qubit_operator(&ps), target, name
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -535,15 +688,64 @@ mod tests {
     }
 
     #[test]
+    fn test_u2_matches_u3_pi_over_two_as_raw_pathsum() {
+        // Qiskit U2(phi, lambda) = U3(pi/2, phi, lambda).
+        // Angles store theta/pi, therefore pi/2 is Angle::HALF.
+        // Compare unsimplified polynomial/Boolean tensors so a
+        // near-identity numerical tolerance cannot hide a theta bug.
+        for (phi, lam) in [
+            (Angle::ZERO, Angle::ZERO),
+            (Angle::QUARTER, Angle::THREE_QUARTERS),
+            (Angle::HALF, Angle::QUARTER),
+        ] {
+            for side in [Side::Ket, Side::Bra] {
+                let mut u2 = setup_test_env(1);
+                let mut u3 = setup_test_env(1);
+                u2.apply_u2(0, phi.clone(), lam.clone(), side);
+                u3.apply_u3(0, Angle::HALF, phi.clone(), lam.clone(), side);
+                assert_eq!(u2.p.terms, u3.p.terms,
+                    "U2 phase polynomial must equal U3(pi/2,phi,lambda) on both sides");
+                assert_eq!(u2.f.functions, u3.f.functions,
+                    "U2 Boolean output must match U3(pi/2,phi,lambda)");
+                assert_eq!(u2.v.path_vars, u3.v.path_vars,
+                    "U2 path variable structure differs");
+            }
+        }
+    }
+
+    #[test]
     fn test_apply_p() {
         let mut ps = setup_test_env(1);
-        
-        let phase = Angle::QUARTER;
-        ps.apply_p(0, phase, Side::Ket);
-        
-        assert!(ps.p.terms[&vec![0]].is_pure_quarter(), "P gate should add relative phase");
-        
-        assert!(!ps.p.terms.contains_key(&vec![]), "P gate MUST NOT add global phase");
+        // P(pi/4) contributes (pi/4)/(2*pi) = 1/8 to phase polynomial.
+        ps.apply_p(0, Angle::QUARTER, Side::Ket);
+        assert!(
+            ps.p.terms[&vec![0]].is_pure_fraction(1, 8),
+            "P(pi/4) must contribute 1/8 cycle, not 1/4"
+        );
+        assert!(!ps.p.terms.contains_key(&vec![]), "P must not add global phase");
+    }
+
+    #[test]
+    fn test_p_u1_relative_phase_unit_contract() {
+        let mut p_half = setup_test_env(1);
+        p_half.apply_p(0, Angle::HALF, Side::Ket);
+        assert!(p_half.p.terms[&vec![0]].is_pure_quarter(),
+                "P(pi/2) must be S, not Z");
+
+        let mut u1_half = setup_test_env(1);
+        u1_half.apply_u1(0, Angle::HALF, Side::Ket);
+        assert_eq!(u1_half.p.terms, p_half.p.terms,
+                   "U1(pi/2) must match P(pi/2)");
+
+        let mut p_bra = setup_test_env(1);
+        p_bra.apply_p(0, Angle::HALF, Side::Bra);
+        assert!(p_bra.p.terms[&vec![0]].is_pure_three_quarters(),
+                "Bra(P(pi/2)) must contribute -1/4 cycle");
+
+        let mut p_pi = setup_test_env(1);
+        p_pi.apply_p(0, Angle::new_constant(crate::rational::FreeRational::new(1, 1)), Side::Ket);
+        assert!(p_pi.p.terms[&vec![0]].is_pure_half(),
+                "P(pi) must be Z, not Identity");
     }
 
     #[test]

@@ -70,7 +70,13 @@ def test_real_solvers_near_existing_decision_boundaries(backend, solver, angle, 
     circuit.h(0)
     circuit.rz(angle, 0)
     circuit.h(0)
-    result = check_equivalence(identity, circuit, method='wmc_only', tool_name=solver, backend=backend)
+    # Pin the historical 1e-6 policy explicitly: this test records old
+    # numeric acceptance behavior, not the currently configured default.
+    result = check_equivalence(
+        identity, circuit, method='wmc_only', tool_name=solver,
+        backend=backend, wmc_magnitude_tolerance=1e-6,
+        wmc_phase_tolerance=1e-6,
+    )
     if accepted:
         assert result.equivalent in {'equivalent', 'equivalent*'}
     else:

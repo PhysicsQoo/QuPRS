@@ -1,0 +1,112 @@
+name: Dev Fast CI
+
+# Check only code-affecting dev PRs; the 12-platform matrix covers dev integration pushes.
+# No required status is configured on dev, so documentation-only PRs need no CI status.
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'rust/**'
+      - 'benchmarks/**'
+      - 'scripts/paper_corpus_audit.py'
+      - 'scripts/check_benchmark_evidence.py'
+      - 'docs/development/paper-corpus-manifest.json'
+      - 'GPMC'
+      - '.gitmodules'
+      - 'pyproject.toml'
+      - 'MANIFEST.in'
+      - 'scripts/install_linux_deps.sh'
+      - '.github/workflows/dev-fast.yml'
+      - '.github/workflows/pytest.yml'
+      - '.github/workflows/native-cross-platform-pr.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-fast-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast-source-correctness:
+    name: Dev / Fast Source Correctness
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BINARY_DIR: src/QuPRS/utils
+    steps:
+      - name: Check out exact source with solvers
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Verify paper benchmark input integrity
+        run: python scripts/paper_corpus_audit.py --json "$RUNNER_TEMP/paper_corpus_sha256.json"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: dev-fast-linux-rust-v1
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Cache compiled solver tools
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-dev-fast-ganak-2.8.0-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+
+      - name: Build Rust/Python package with existing development extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+
+      - name: Verify bundled native solver distribution
+        run: python -m QuPRS.utils.ganak_distribution
+
+      - name: Run locked Rust correctness tests
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum
+
+      - name: Run all Python correctness tests without report/coverage duplication
+        id: python_correctness
+        run: python -m pytest -n auto -q -ra --junitxml=dev-fast-pytest.xml
+
+      - name: Audit representative benchmark outcomes
+        if: ${{ !cancelled() && steps.python_correctness.outcome != 'skipped' }}
+        run: |
+          python scripts/check_benchmark_evidence.py \
+            --junit dev-fast-pytest.xml \
+            --json dev-fast-benchmark-evidence.json \
+            --markdown dev-fast-benchmark-evidence.md
+
+      - name: Upload Python test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-fast-pytest
+          path: |
+            dev-fast-pytest.xml
+            dev-fast-benchmark-evidence.json
+            dev-fast-benchmark-evidence.md
+          if-no-files-found: ignore
+          retention-days: 14

@@ -4,7 +4,7 @@ name: Release-Ready Main
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main]
   workflow_dispatch:
 
 # Never publish on this workflow. Called package builder publishes only on v* tag pushes.
@@ -19,6 +19,8 @@ jobs:
 
   installed-artifacts:
     name: Installed artifacts
+    # Complete the supported source/solver matrix before building release archives.
+    needs: source-correctness
     uses: ./.github/workflows/release-artifact-ci.yml
 
   release-parity:
@@ -68,7 +70,7 @@ jobs:
             if (negative !== 'success') failures.push(`Release negative tests: ${negative}`);
 
             // A release PR must originate from this repo's integration branch.
-            // Other dev PRs can use this workflow as a fail-closed integration smoke.
+            // Non-main PRs use Dev Fast CI; manual release acceptance remains available.
             if (context.eventName === 'pull_request') {
               const pull = context.payload.pull_request;
               if (pull.base.ref === 'main') {

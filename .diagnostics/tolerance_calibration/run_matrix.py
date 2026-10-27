@@ -190,8 +190,10 @@ def main():
     (OUT / "summary.json").write_text(
         json.dumps(summary, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
-    # On this experiment branch, check the phase-only fallback candidate.
-    for case, hybrid_expected in (
+    # Check the released strict-source interpretation separately from the
+    # opt-in approximate contract (followup_matrix.py). A strict hybrid
+    # preserves early not_equivalent; WMC-only uses a numeric acceptance band.
+    for case, wmc_expected in (
         ("rz_0p0002", "equivalent"),
         ("rz_0p001", "not_equivalent"),
         ("rz_2e_m8", "equivalent"),
@@ -203,14 +205,14 @@ def main():
             and x["source_kind"] == "qiskit"
         ]
         by_method = {x["method"]: x for x in relevant}
-        assert by_method["reduction_rules"].get("verdict") == "unknown", (
+        assert by_method["reduction_rules"].get("verdict") == "not_equivalent", (
             case, by_method
         )
-        assert by_method["hybrid"].get("verdict") == hybrid_expected, (
+        assert by_method["hybrid"].get("verdict") == "not_equivalent", (
             case, by_method
         )
-        assert by_method["hybrid"].get("wmc_solver_invoked"), case
-        assert by_method["wmc_only"].get("verdict") == hybrid_expected, (
+        assert not by_method["hybrid"].get("wmc_solver_invoked"), case
+        assert by_method["wmc_only"].get("verdict") == wmc_expected, (
             case, by_method
         )
 
@@ -223,7 +225,7 @@ def main():
         assert item.get("verdict") == "not_equivalent", (method, item)
     assert not negative["hybrid"].get("wmc_solver_invoked"), negative
 
-    summary["focused_rust_phase_fallback_gate"] = "PASS"
+    summary["focused_rust_legacy_source_gate"] = "PASS"
     (OUT / "summary.json").write_text(
         json.dumps(summary, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )

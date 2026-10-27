@@ -124,7 +124,17 @@ def rotation_budget():
     for preserve in (False,True):
         for tau in (1e-6,1e-10):
             for name in ("repeated","combined"):
-                assert ref[(tau,preserve,name,"wmc_only")]["verdict"] == "not_equivalent"
+                # The deliberate "legacy_gate_snap" A/B arm reproduces the
+                # *historical* WMC-only phase-loss bug; it is not an accepted
+                # correctness result. The source default is tested separately.
+                expected = (
+                    "equivalent"
+                    if tau == 1e-6 and not preserve and name == "repeated"
+                    else "not_equivalent"
+                )
+                assert ref[(tau,preserve,name,"wmc_only")]["verdict"] == expected, (
+                    tau, preserve, name, ref[(tau,preserve,name,"wmc_only")]
+                )
     # Compare the normalized weighted count, not just the final status.
     for tau in (1e-6,1e-10):
         assert (ref[(tau,True,"repeated","wmc_only")]["log_wmc"]

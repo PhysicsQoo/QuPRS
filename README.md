@@ -218,6 +218,41 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
   result = check_equivalence(circuit1, circuit2, method = "wmc_only",)
   ```
+
+### Phase preservation and reduction tolerance
+
+The Python backend retains **nonzero input phase coefficients** while
+constructing the PathSum. In particular, a long sequence of small rotations
+is not silently erased gate by gate merely because each rotation is below
+the local reduction tolerance. The Elim, HH and omega reduction rules still
+use the configured tolerance to match and simplify terms.
+
+`config.set_tolerance()` controls the **process-wide Python RR tolerance**
+(default `1e-10` in phase-coefficient units). Changing it invalidates
+tolerance-dependent cached simplifications. It accepts only finite positive
+numeric values (not booleans). It is not a thread-local or per-call setting.
+
+```python
+from QuPRS import check_equivalence, config
+
+config.set_tolerance(1e-10)
+result = check_equivalence(
+    circuit1, circuit2, method="hybrid", backend="python",
+    wmc_magnitude_tolerance=1e-8,
+    wmc_phase_tolerance=1e-8,
+)
+print(result.equivalent)
+```
+
+RR coefficient matching and the **separate** WMC numerical classification
+thresholds are not interchangeable. Preserving input phases can change a
+previous `equivalent` result into `unknown` (RR alone) or
+`not_equivalent` (Hybrid/WMC), because the earlier result had discarded
+information. A floating WMC acceptance is not a strict equivalence
+certificate, and a WMC magnitude tolerance of `1e-8` is **not**
+the QCEC projective circuit-distance tolerance of `1e-8`.
+See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
+
 ### Solver subprocess reliability and timeout limits
 
 On **Linux** and **macOS**, both backends supervise each invocation of the

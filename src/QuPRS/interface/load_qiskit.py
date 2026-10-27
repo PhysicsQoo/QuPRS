@@ -188,8 +188,11 @@ def check_equivalence(
               (WMC). This is the recommended mode.
             - 'reduction_rules': Uses only Reduction Rules. If reduction is
               incomplete, returns 'unknown'.
-            - 'wmc_only': Uses only Weighted Model Counting (WMC), without any
-              reduction.
+            - 'wmc_only': Uses Weighted Model Counting (WMC), without
+              reduction-rule matching. Python still normalizes phase
+              coefficients while building the PathSum, but preserves
+              small nonzero input phases rather than removing them
+              using the local reduction tolerance.
         strategy (str, optional): Internal strategy for handling quantum gates.
             Default is "Difference".
             - 'Difference': Uses a difference-based strategy.
@@ -212,6 +215,9 @@ def check_equivalence(
         wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
             acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
             Independent of reduction tolerance and not a formal proof bound.
+            The Python RR tolerance is set with config.set_tolerance();
+            it is process-global, invalidates dependent caches when changed,
+            and affects RR matching, not gate-source phase preservation.
         wmc_phase_tolerance (float | None): WMC phase threshold separating
             "equivalent" and "equivalent*" for near-unit magnitudes.
             None uses config.WMC_PHASE_TOLERANCE.

@@ -62,9 +62,13 @@ The projective Hilbert--Schmidt metric,
 D(U,V)=\sqrt{1-|\mathrm{Tr}(U^\dagger V)|^2/4^n},
 \]
 
-and its explicit user-defined distance boundary will be integrated
-alongside automatic near-boundary `unknown` handling in a subsequent
-verified implementation stage before the v0.14.0 release.
+supports an explicit user-supplied `approximate_distance_tolerance=epsilon`
+boundary. Its stable magnitude-defect threshold is
+`epsilon**2 / (1 + sqrt(1-epsilon**2))`. A fixed 3e-9 empirical guard
+returns `unknown` for unresolved boundaries or precision-limited results.
+This engineering guard is **not** a certified error enclosure for arbitrary
+CNF encodings, normalization or external solver rounding. Omission of the
+approximate option preserves the existing WMC magnitude/phase thresholds.
 
 Python local RR coefficient tolerance is configured using process-global
 `config.set_tolerance()`; the Rust native symbolic reduction engine has

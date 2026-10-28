@@ -172,6 +172,7 @@ def check_equivalence(
     backend: str = "python",
     wmc_magnitude_tolerance: float | None = None,
     wmc_phase_tolerance: float | None = None,
+    approximate_distance_tolerance: float | None = None,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -217,6 +218,11 @@ def check_equivalence(
         wmc_phase_tolerance (float | None): WMC phase threshold separating
             "equivalent" and "equivalent*" for near-unit magnitudes.
             None uses config.WMC_PHASE_TOLERANCE.
+        approximate_distance_tolerance (float | None): Optional projective
+            Hilbert-Schmidt distance threshold in (0, 1). None preserves
+            existing numerical magnitude semantics. Near-boundary counts
+            may return unknown; this is not a formal solver error certificate.
+            Cannot be combined with an explicit WMC magnitude tolerance.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -224,6 +230,13 @@ def check_equivalence(
     """
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout must be a positive integer number of seconds")
+    if approximate_distance_tolerance is not None:
+        eps = approximate_distance_tolerance
+        if (isinstance(eps, bool) or not isinstance(eps, (int, float))
+            or not math.isfinite(eps) or not 0 < eps < 1):
+            raise ValueError("approximate_distance_tolerance must be finite and in (0, 1)")
+        if wmc_magnitude_tolerance is not None:
+            raise ValueError("approximate_distance_tolerance conflicts with explicit wmc_magnitude_tolerance")
     if wmc_magnitude_tolerance is None:
         wmc_magnitude_tolerance = config.WMC_MAGNITUDE_TOLERANCE
     if wmc_phase_tolerance is None:
@@ -309,6 +322,7 @@ def check_equivalence(
                                     safe_mode=safe_mode,
                                     wmc_magnitude_tolerance=wmc_magnitude_tolerance,
                                     wmc_phase_tolerance=wmc_phase_tolerance,
+                                    approximate_distance_tolerance=approximate_distance_tolerance,
                                 )
                         finally:
                             if previous_path is None:
@@ -334,8 +348,9 @@ def check_equivalence(
             
         # WMC classification is numerical evidence, not an exact proof.
         rust_wmc_numerical_verdict = (
-            mapped_equiv if rust_res.get("wmc_solver_time_sec") is not None
-            and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent")
+            rust_res.get("wmc_numerical_verdict", mapped_equiv)
+            if rust_res.get("wmc_solver_time_sec") is not None
+            and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent", "unknown")
             else None
         )
 
@@ -361,6 +376,8 @@ def check_equivalence(
             wmc_numerical_verdict=rust_wmc_numerical_verdict,
             wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
+            approximate_distance_tolerance=approximate_distance_tolerance,
+            decision_basis=rust_res.get("decision_basis"),
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -388,6 +405,8 @@ def check_equivalence(
             equivalent="not_equivalent",
             wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
+            approximate_distance_tolerance=approximate_distance_tolerance,
+            decision_basis="structural",
             verification_time=0.0,
             pathsum_time=0.0,
             final_pathsum="N/A",
@@ -470,14 +489,18 @@ def check_equivalence(
                 else:
                     equivalent = "unknown"
             elif len(pathsum_circuit.pathvar) == 0:
-                equivalent = "not_equivalent"
+                # Strict non-equality alone does not establish D > epsilon.
+                equivalent = ("unknown" if approximate_distance_tolerance is not None
+                              else "not_equivalent")
             else:
                 equivalent = "unknown"
 
         # If reduction is incomplete or WMC-only, run weighted model counting
         if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.wmc_solvers import classify_weighted_count
+            from QuPRS.utils.wmc_solvers import (
+                classify_weighted_count, classify_approximate_weighted_count,
+            )
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -509,11 +532,18 @@ def check_equivalence(
                     temp_name, tool_name, timeout=max(0.0, deadline - time.monotonic())
                 )
                 tool_time = round(time.time() - tool_start_time, 3)
-                equivalent, log_wmc = classify_weighted_count(
-                    complex_number[0], complex_number[1], expect,
-                    magnitude_tolerance=wmc_magnitude_tolerance,
-                    phase_tolerance=wmc_phase_tolerance,
-                )
+                if approximate_distance_tolerance is None:
+                    equivalent, log_wmc = classify_weighted_count(
+                        complex_number[0], complex_number[1], expect,
+                        magnitude_tolerance=wmc_magnitude_tolerance,
+                        phase_tolerance=wmc_phase_tolerance,
+                    )
+                else:
+                    equivalent, log_wmc = classify_approximate_weighted_count(
+                        complex_number[0], complex_number[1], expect,
+                        distance_tolerance=approximate_distance_tolerance,
+                        phase_tolerance=wmc_phase_tolerance,
+                    )
                 # Preserve the numeric verdict as an observation. It is not
                 # an independent proof of source-exact equivalence.
                 wmc_numerical_verdict = equivalent
@@ -575,6 +605,14 @@ def check_equivalence(
         expect=expect,
         log_wmc=log_wmc,
         wmc_numerical_verdict=wmc_numerical_verdict,
+        approximate_distance_tolerance=approximate_distance_tolerance,
+        decision_basis=("numerical_approximate" if approximate_distance_tolerance is not None and tool_time is not None
+                        and equivalent in ("equivalent", "equivalent*", "not_equivalent")
+                        else "numerical_legacy" if tool_time is not None and approximate_distance_tolerance is None
+                        and equivalent in ("equivalent", "equivalent*", "not_equivalent")
+                        else "inconclusive" if equivalent == "unknown"
+                        else "symbolic" if tool_time is None and equivalent in ("equivalent", "equivalent*", "not_equivalent")
+                        else None),
         wmc_magnitude_tolerance=wmc_magnitude_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
     )
@@ -629,6 +667,8 @@ class EquivalenceCheckResult:
     log_wmc: Optional[float] = None
     # Numerical solver verdict is diagnostic, not an exact-equivalence proof.
     wmc_numerical_verdict: Optional[str] = None
+    approximate_distance_tolerance: Optional[float] = None
+    decision_basis: Optional[str] = None
     # Effective thresholds recorded for reproducible numerical verdicts.
     wmc_magnitude_tolerance: float | None = None
     wmc_phase_tolerance: float | None = None

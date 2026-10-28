@@ -229,3 +229,50 @@ def test_ganak_too_strict_magnitude_gate_rejects_a_true_identity(depth):
     )
     assert answer.equivalent == "not_equivalent"
     assert answer.tool_time is not None
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("bad", (0, 1, -1e-8, float("nan"), float("inf"), False, True, "1e-8"))
+def test_public_distance_rejects_invalid_parameters_before_verification(backend, bad):
+    with pytest.raises(ValueError, match="approximate_distance_tolerance"):
+        check_equivalence(
+            qasm(), qasm(), backend=backend, method="reduction_rules",
+            approximate_distance_tolerance=bad,
+        )
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_distance_and_magnitude_parameters_are_mutually_exclusive(backend):
+    with pytest.raises(ValueError, match="conflicts"):
+        check_equivalence(
+            qasm(), qasm(), backend=backend, method="reduction_rules",
+            approximate_distance_tolerance=EPS, wmc_magnitude_tolerance=1e-6,
+        )
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_opt_in_exact_rr_fast_path_retains_proof_provenance(backend):
+    result = check_equivalence(
+        qasm(), qasm(), backend=backend, method="hybrid",
+        approximate_distance_tolerance=EPS,
+    )
+    assert result.equivalent == "equivalent"
+    assert result.tool_time is None
+    assert result.decision_basis == "symbolic"
+    assert result.approximate_distance_tolerance == EPS
+
+
+def test_distance_classification_guard_at_the_reference_boundary():
+    from QuPRS.utils.wmc_solvers import classify_approximate_weighted_count
+    eps = 2e-4
+    tau = trace_defect_from_distance(eps)
+    for defect, expected in (
+        (tau - 6e-9, "equivalent"),
+        (tau, "unknown"),
+        (tau + 6e-9, "not_equivalent"),
+    ):
+        result, _ = classify_approximate_weighted_count(
+            4.0 * (1.0 - defect), 0.0, 2.0,
+            distance_tolerance=eps, phase_tolerance=1e-8,
+        )
+        assert result == expected, (defect, result)

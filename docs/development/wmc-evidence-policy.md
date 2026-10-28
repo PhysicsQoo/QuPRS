@@ -13,7 +13,8 @@ The normalized trace magnitude is
 m=\frac{|\mathrm{Tr}(U^\dagger V)|}{2^n}.
 \]
 
-The current WMC decision threshold is based on `|m - 1|` with a
+Without an opt-in projective distance, the current WMC decision threshold
+is based on `|m - 1|` with a
 default `wmc_magnitude_tolerance=1e-8`, not a distance certificate.
 The independent phase threshold `wmc_phase_tolerance=1e-8`
 separates `equivalent` from `equivalent*` once the magnitude gate passes.
@@ -43,9 +44,14 @@ print(result.equivalent)             # Numerical classification
 print(result.wmc_numerical_verdict)  # Original solver-derived observation
 ```
 
-`wmc_numerical_verdict` is populated when WMC supplies a definite numeric
-classification, including the Hybrid fallback path; it is `None` when
-reduction alone settles the comparison or no solver observation exists.
+`wmc_numerical_verdict` records the final classification from an
+**actually invoked** external WMC solver, including `unknown` when
+precision is insufficient. It is `None` when reduction alone settles
+the comparison, or in the Rust empty-CNF analytic fast path where no
+solver process is launched. The Rust result's `wmc_solver_invoked`
+flag and `decision_basis="analytic_empty_cnf"` distinguish this case.
+Legacy timing fields may still be present for compatibility, and are
+not proof that an external child process was started.
 
 There is no `wmc_policy="conservative"` option in the updated API.
 Previous callers explicitly setting `wmc_policy` must remove that

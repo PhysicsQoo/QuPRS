@@ -276,3 +276,43 @@ def test_distance_classification_guard_at_the_reference_boundary():
             distance_tolerance=eps, phase_tolerance=1e-8,
         )
         assert result == expected, (defect, result)
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_distance_mode_ignores_mutable_legacy_magnitude_default(backend):
+    """The opt-in distance API does not inherit an unrelated WMC default."""
+    original = config.WMC_MAGNITUDE_TOLERANCE
+    try:
+        config.WMC_MAGNITUDE_TOLERANCE = 1e-6
+        result = check_equivalence(
+            qasm(), qasm(), backend=backend, method="reduction_rules",
+            approximate_distance_tolerance=EPS,
+        )
+        assert result.equivalent == "equivalent"
+        assert result.decision_basis == "symbolic"
+    finally:
+        config.WMC_MAGNITUDE_TOLERANCE = original
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_structural_mismatch_has_consistent_provenance(backend):
+    different_size = qasm().replace("qreg q[1]", "qreg q[2]")
+    result = check_equivalence(
+        qasm(), different_size, backend=backend, method="hybrid",
+        approximate_distance_tolerance=EPS,
+    )
+    assert result.equivalent == "not_equivalent"
+    assert result.tool_time is None
+    assert result.decision_basis == "structural"
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_explicit_default_wmc_magnitude_is_not_a_distance_conflict(backend):
+    """The canonical unused WMC default is accepted by all public backends."""
+    result = check_equivalence(
+        qasm(), qasm(), backend=backend, method="reduction_rules",
+        approximate_distance_tolerance=EPS,
+        wmc_magnitude_tolerance=1e-8,
+    )
+    assert result.equivalent == "equivalent"
+    assert result.approximate_distance_tolerance == EPS

@@ -76,6 +76,50 @@ pub struct EquivalenceCheckResult {
     pub stage_ledger: Option<ExclusiveLedger>,
 }
 
+/// Per-request verification configuration shared by native callers and the Python FFI.
+///
+/// This controls verification dispatch and WMC classification; it does not
+/// alter the separate symbolic reduction rules. The projective-distance
+/// criterion is introduced by a later semantic change, not silently emulated
+/// by the magnitude threshold in this options object.
+#[derive(Debug, Clone)]
+pub struct VerificationOptions {
+    pub method: VerificationMethod,
+    pub strategy: VerificationStrategy,
+    pub tool_name: String,
+    pub timeout_secs: u64,
+    pub wmc_magnitude_tolerance: f64,
+    pub wmc_phase_tolerance: f64,
+}
+
+impl Default for VerificationOptions {
+    fn default() -> Self {
+        Self {
+            method: VerificationMethod::Hybrid,
+            strategy: VerificationStrategy::Difference,
+            tool_name: "gpmc".to_string(),
+            timeout_secs: 600,
+            wmc_magnitude_tolerance: 1e-8,
+            wmc_phase_tolerance: 1e-8,
+        }
+    }
+}
+
+/// Typed entry point for native callers. All entry points share the same
+/// validation, Path-sum execution and WMC classification implementation.
+pub fn check_equivalence_with_options(
+    num_qubits: usize,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+    options: &VerificationOptions,
+) -> Result<EquivalenceCheckResult> {
+    check_equivalence_with_tolerances(
+        num_qubits, gates1, gates2, options.method, options.strategy,
+        &options.tool_name, options.timeout_secs,
+        options.wmc_magnitude_tolerance, options.wmc_phase_tolerance,
+    )
+}
+
 /// Main entry point for equivalence checking with strategy optimization and WMC fallback
 pub fn check_equivalence(
     num_qubits: usize,
@@ -86,10 +130,14 @@ pub fn check_equivalence(
     tool_name: &str,
     timeout_secs: u64, // Solver subprocess deadline; strategy-stage abort remains cooperative
 ) -> Result<EquivalenceCheckResult> {
-    // Preserve the historical native-core entrypoint for direct Rust callers.
-    check_equivalence_with_tolerances(
-        num_qubits, gates1, gates2, method, strategy, tool_name, timeout_secs,
-        1e-6, 1e-6,
+    // Keep the legacy function signature, but use the same documented
+    // v0.14.0 default thresholds as the Python and PyO3 entry points.
+    check_equivalence_with_options(
+        num_qubits, gates1, gates2,
+        &VerificationOptions {
+            method, strategy, tool_name: tool_name.to_owned(), timeout_secs,
+            ..VerificationOptions::default()
+        },
     )
 }
 

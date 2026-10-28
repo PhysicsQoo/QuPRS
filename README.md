@@ -137,7 +137,7 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 
 ## Equivalence Checking
 
-> **Numerical and source-semantic limits (v0.13.4 candidate):**
+> **Numerical and source-semantic limits (v0.14.0 candidate):**
 > Rust preserves supported QASM2 literal decimal-radian angles separately from
 > symbolic multiples of pi through its PathSum/phase representation. Strict
 > source-literal comparison can therefore disagree with historical approximate
@@ -145,12 +145,21 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > numerical distance is tiny. The Python Qiskit-object path has different
 > input-precision provenance; do not infer recovered source literals from f64.
 > Ganak and GPMC produce floating weighted counts, not general proof
-> certificates: default `wmc_policy="legacy"` numerical acceptance can still
-> report positive results for genuinely inequivalent near-identity rotations.
-> Use `wmc_policy="conservative"` to retain the numeric observation as a
-> diagnostic and return `unknown` for uncertified external WMC results.
+> certificates: a numerical acceptance band can still include strictly
+> inequivalent near-identity rotations. There is no selectable `wmc_policy`;
+> the solver-derived observation is available as `wmc_numerical_verdict`.
+> The optional `approximate_distance_tolerance` uses projective circuit
+> distance with a conservative empirical boundary guard. An inconclusive
+> comparison returns `unknown`; this is not a certified solver error bound.
 > A numerical tolerance cannot make the underlying input operators exactly
-> equal. See [formal semantics](docs/development/equivalence-semantics.md),
+> equal.
+> For example, `check_equivalence(a, b, method="hybrid", backend="rust",
+> approximate_distance_tolerance=2e-4)` has the same distance criterion as
+> `backend="python"`. An explicit **nondefault**
+> `wmc_magnitude_tolerance` conflicts; `1e-8` is allowed but unused in
+> distance mode, regardless of the mutable legacy WMC default.
+> The `decision_basis` field identifies whether
+> a verdict was symbolic, numerical or inconclusive. See [formal semantics](docs/development/equivalence-semantics.md),
 > [WMC evidence](docs/development/wmc-evidence-policy.md), and
 > [QASM source-angle representation](docs/development/exact-angle-representation.md).
 

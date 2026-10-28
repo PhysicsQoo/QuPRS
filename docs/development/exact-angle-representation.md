@@ -81,8 +81,8 @@ input-independent phase from qubit-dependent relative phases.
    Distinguish strict source inequivalence from *approximate* transpilation
    equivalence and record a numerical oracle's metric explicitly.
 3. Track finite-precision WMC complex-weight conversion and solver output
-   separately (see WMC evidence policy); `wmc_policy="conservative"` is a compatibility-aware
-   opt-in response to uncertified numerical counts, not an MPFR proof.
+   separately (see WMC evidence policy). A floating-point numerical
+   observation is not an MPFR or source-exact proof.
 4. For Qiskit `QuantumCircuit` inputs already represented as binary64,
    document the input precision; no parser can reconstruct original unrounded
    source angles from those values.

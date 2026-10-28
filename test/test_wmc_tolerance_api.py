@@ -41,7 +41,8 @@ def test_user_selected_wmc_tolerance_changes_only_numeric_classification(backend
     assert strict.wmc_phase_tolerance == 1e-10
     assert loose.wmc_magnitude_tolerance == 1e-6
     assert loose.wmc_phase_tolerance == 1e-6
-    assert strict.wmc_policy == loose.wmc_policy == "legacy"
+    assert strict.wmc_numerical_verdict == strict.equivalent
+    assert loose.wmc_numerical_verdict == loose.equivalent
 
 
 @pytest.mark.parametrize("backend", ["python", "rust"])
@@ -65,15 +66,16 @@ def test_proposed_default_accepts_exact_identity_and_rejects_known_near_identity
 
 @pytest.mark.parametrize("backend", ["python", "rust"])
 @pytest.mark.parametrize("solver", ["gpmc", "ganak"])
-def test_conservative_mode_downgrades_uncertified_numeric_verdict(backend, solver):
+def test_numerical_solver_verdict_remains_observable_without_policy(backend, solver):
     a, b = pair(0.001)
     result = check_equivalence(
         a, b, backend=backend, tool_name=solver, method="wmc_only",
-        strategy="Naive", timeout=60, wmc_policy="conservative",
+        strategy="Naive", timeout=60,
         wmc_magnitude_tolerance=1e-10, wmc_phase_tolerance=1e-10,
     )
-    assert result.equivalent == "unknown"
+    assert result.equivalent == "not_equivalent"
     assert result.wmc_numerical_verdict == "not_equivalent"
+    assert result.tool_time is not None
     assert result.wmc_magnitude_tolerance == 1e-10
 
 

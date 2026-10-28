@@ -118,6 +118,12 @@ magnitude-defect guard returns `unknown` for uncertain boundary results;
 it is **not a certified solver error enclosure**. A projective `1e-8`
 distance is below ordinary float64 normalized-magnitude resolution.
 The `decision_basis` field marks numerical versus symbolic evidence.
+In distance mode, the separately configurable legacy
+`config.WMC_MAGNITUDE_TOLERANCE` is ignored; both backends use the
+same projective epsilon. The canonical `wmc_magnitude_tolerance=1e-8`
+may be explicitly supplied, but a different magnitude threshold is
+incompatible with a projective distance request. WMC-only and Hybrid
+numerical outcomes are still heuristic, not source-exact proofs.
 For controlled comparisons record the tolerance, solver, backend,
 raw count and source commit. Verified interval certificates remain
 separate research artifacts.

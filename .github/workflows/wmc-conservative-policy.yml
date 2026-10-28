@@ -58,6 +58,15 @@ jobs:
             --junitxml=wmc-evidence-results/policy-junit.xml \
             2>&1 | tee wmc-evidence-results/policy-test-log.txt
 
+      - name: Run public and native projective-distance conformance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_numerical_tolerance_contract.py \
+            --junitxml=wmc-evidence-results/distance-junit.xml \
+            2>&1 | tee wmc-evidence-results/distance-test-log.txt
+
       - name: Run existing historical numerical boundary controls
         shell: bash
         run: |
@@ -82,6 +91,7 @@ jobs:
           sha256sum \
             src/QuPRS/interface/load_qiskit.py \
             test/test_wmc_evidence_contract.py \
+            test/test_numerical_tolerance_contract.py \
             test/test_wmc_numerics.py \
             .github/workflows/wmc-conservative-policy.yml \
             docs/development/wmc-evidence-policy.md \

@@ -45,7 +45,8 @@ dependencies = [
 dev = [
     "ipykernel",
     "build",
-    "pytest",
+    # pytest-codspeed relies on fixture internals removed in pytest 9.
+    "pytest>=8,<9",
     "pytest-xdist",
     "pytest-cov",
     "flake8",

@@ -110,11 +110,17 @@ result = check_equivalence(
 ~~~
 
 There is no public `wmc_policy` switch. A floating WMC positive or
-negative is not automatically a source-exact proof. The next verification
-stage will implement explicit projective-distance and near-boundary
-`unknown` classification. For controlled comparisons record the tolerance,
-solver, backend, raw count and source commit. Strict bounds from the bounded
-diagonal-family reference remain a separate research artifact.
+negative is not automatically a source-exact proof. The optional
+`approximate_distance_tolerance=epsilon` selects the projective
+Hilbert--Schmidt distance, with stable magnitude-defect boundary
+`epsilon**2 / (1 + sqrt(1 - epsilon**2))`. A fixed 3e-9 empirical
+magnitude-defect guard returns `unknown` for uncertain boundary results;
+it is **not a certified solver error enclosure**. A projective `1e-8`
+distance is below ordinary float64 normalized-magnitude resolution.
+The `decision_basis` field marks numerical versus symbolic evidence.
+For controlled comparisons record the tolerance, solver, backend,
+raw count and source commit. Verified interval certificates remain
+separate research artifacts.
 
 Acceptance requires:
 1. Same result across Python/Rust and GPMC/Ganak for true identity and

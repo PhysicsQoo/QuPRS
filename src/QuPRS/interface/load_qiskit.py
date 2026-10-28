@@ -412,6 +412,7 @@ def check_equivalence(
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
             decision_basis="structural",
+            wmc_solver_invoked=False,
             verification_time=0.0,
             pathsum_time=0.0,
             final_pathsum="N/A",
@@ -463,6 +464,7 @@ def check_equivalence(
         log_wmc = None
         expect = None
         wmc_numerical_verdict = None
+        wmc_solver_invoked = False
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
@@ -533,6 +535,7 @@ def check_equivalence(
                 # Run weighted model counting (WMC)
                 tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
                 tool_start_time = time.time()
+                wmc_solver_invoked = True
                 complex_number = run_wmc(
                     temp_name, tool_name, timeout=max(0.0, deadline - time.monotonic())
                 )
@@ -610,6 +613,7 @@ def check_equivalence(
         expect=expect,
         log_wmc=log_wmc,
         wmc_numerical_verdict=wmc_numerical_verdict,
+        wmc_solver_invoked=wmc_solver_invoked,
         approximate_distance_tolerance=approximate_distance_tolerance,
         decision_basis=("numerical_approximate" if approximate_distance_tolerance is not None and tool_time is not None
                         and equivalent in ("equivalent", "equivalent*", "not_equivalent")

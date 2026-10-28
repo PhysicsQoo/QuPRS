@@ -60,6 +60,15 @@ jobs:
           python -m pytest -q -ra -s test/test_numerical_tolerance_contract_research.py \
             --junitxml=focused-tolerance-evidence/junit.xml \
             2>&1 | tee focused-tolerance-evidence/pytest.log
+      - name: Run native precision transport comparison (research only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p focused-tolerance-evidence
+          python -m pytest -q -ra -s \
+            .diagnostics/tolerance_calibration/test_native_precision_transport.py \
+            --junitxml=focused-tolerance-evidence/precision-junit.xml \
+            2>&1 | tee focused-tolerance-evidence/precision-test.log
       - name: Record evidence and checksum
         if: always()
         shell: bash
@@ -71,6 +80,7 @@ jobs:
           python --version > focused-tolerance-evidence/python-version.txt
           rustc --version > focused-tolerance-evidence/rustc-version.txt
           sha256sum test/test_numerical_tolerance_contract_research.py \
+            .diagnostics/tolerance_calibration/test_native_precision_transport.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > focused-tolerance-evidence/source-files-sha256.txt
           (

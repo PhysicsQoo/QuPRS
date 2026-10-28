@@ -153,6 +153,24 @@ def test_public_distance_api_contract_when_implemented(backend, theta, expected)
     assert result.equivalent == expected
 
 
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_public_sub_f64_distance_guard_needs_unknown_or_certified_bound(backend):
+    """WMC float output cannot by itself resolve a projective D of 1e-8."""
+    if "approximate_distance_tolerance" not in inspect.signature(check_equivalence).parameters:
+        pytest.xfail("public distance uncertainty contract is not implemented")
+    left, right = qasm(), qasm("rz(0.00000002) q[0];\n")
+    result = check_equivalence(
+        left, right, method="wmc_only", backend=backend, tool_name="gpmc",
+        strategy="Naive", timeout=45, approximate_distance_tolerance=1e-8,
+    )
+    # A definite answer is permitted only with valid numerical/symbolic
+    # certification, never because a rounded-to-one f64 count looks exact.
+    if result.equivalent != "unknown":
+        assert getattr(result, "distance_interval_certified", False), (
+            backend, result.equivalent, "uncertified near-boundary verdict"
+        )
+
+
 def test_multi_step_cancellation_preserves_net_rotation_in_python_wmc():
     """Local tiny rotations and cancellations must not erase a larger residue."""
     identity = QuantumCircuit(1)

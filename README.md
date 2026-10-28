@@ -145,10 +145,11 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > numerical distance is tiny. The Python Qiskit-object path has different
 > input-precision provenance; do not infer recovered source literals from f64.
 > Ganak and GPMC produce floating weighted counts, not general proof
-> certificates: default `wmc_policy="legacy"` numerical acceptance can still
-> report positive results for genuinely inequivalent near-identity rotations.
-> Use `wmc_policy="conservative"` to retain the numeric observation as a
-> diagnostic and return `unknown` for uncertified external WMC results.
+> certificates: a numerical acceptance band can still include strictly
+> inequivalent near-identity rotations. There is no selectable `wmc_policy`;
+> the solver-derived observation is available as `wmc_numerical_verdict`.
+> Distance-aware uncertainty handling is under development and is not yet
+> a certified arbitrary-circuit error bound.
 > A numerical tolerance cannot make the underlying input operators exactly
 > equal. See [formal semantics](docs/development/equivalence-semantics.md),
 > [WMC evidence](docs/development/wmc-evidence-policy.md), and

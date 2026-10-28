@@ -56,10 +56,12 @@ magnitude errors around `9.3e-10` (60 H gates) and `2.0e-9`
 (80 H gates). The current WMC public default `1e-8` remains unchanged;
 these depth-specific observations are not universal error estimates.
 
-The current **public Python API** defaults are magnitude 1e-8 and
-phase 1e-8. These are numerical heuristics, not exact certificates. The historical values were 1e-6 each. Direct callers of the
-legacy Rust-core function retain its historical defaults; the Python API
-passes its validated current per-call settings to the Rust FFI explicitly.
+All **Python, PyO3 and Rust crate API** defaults are magnitude 1e-8 and
+phase 1e-8. These are numerical heuristics, not exact certificates. The
+historical Rust direct-call values were 1e-6 each; native callers requiring
+them must explicitly select those thresholds. The Rust crate additionally
+exposes a typed `VerificationOptions` interface alongside the existing
+function signatures.
 Both backend paths must agree on selected settings and outcomes.
 
 The magnitude classifier compares the normalized weighted trace with unit
@@ -101,18 +103,18 @@ References:
 ~~~python
 result = check_equivalence(
     original, optimized, method="wmc_only",
-    wmc_policy="conservative",
     wmc_magnitude_tolerance=1e-8,
 )
-# Uncertified solver floating-point observations remain "unknown";
-# result.wmc_numerical_verdict retains the threshold-based diagnostic.
+# result.equivalent is the current numerical classification;
+# result.wmc_numerical_verdict explicitly records the solver observation.
 ~~~
 
-Use wmc_policy="conservative" when an uncertified numeric WMC result
-must not be exposed as a strict mathematical verdict. For controlled
-legacy comparisons, specify the tolerance and record it with the solver,
-backend, raw count, and source commit. Strict interval bounds from the
-bounded diagonal-family reference are a separate research artifact.
+There is no public `wmc_policy` switch. A floating WMC positive or
+negative is not automatically a source-exact proof. The next verification
+stage will implement explicit projective-distance and near-boundary
+`unknown` classification. For controlled comparisons record the tolerance,
+solver, backend, raw count and source commit. Strict bounds from the bounded
+diagonal-family reference remain a separate research artifact.
 
 Acceptance requires:
 1. Same result across Python/Rust and GPMC/Ganak for true identity and

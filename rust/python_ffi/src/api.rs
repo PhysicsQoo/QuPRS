@@ -161,7 +161,7 @@ pub fn check_equivalence(
         dict.set_item("decision_basis", result.decision_basis)?;
         dict.set_item("approximate_distance_tolerance", result.approximate_distance_tolerance)?;
         if result.wmc_time.is_some() {
-            dict.set_item("wmc_numerical_verdict", status_str)?;
+            dict.set_item("wmc_numerical_verdict", result.status.to_string())?;
         }
         
         dict.set_item("qubits", result.qubit_num)?;

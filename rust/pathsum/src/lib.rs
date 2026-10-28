@@ -367,3 +367,54 @@ mod exact_global_phase_verdict_tests {
         assert!(r.tool_time.is_none());
     }
 }
+
+#[cfg(test)]
+mod verification_options_contract_tests {
+    use super::*;
+
+    #[test]
+    fn native_default_thresholds_match_python_public_defaults() {
+        let options = VerificationOptions::default();
+        assert_eq!(options.method, VerificationMethod::Hybrid);
+        assert_eq!(options.strategy, VerificationStrategy::Difference);
+        assert_eq!(options.tool_name, "gpmc");
+        assert_eq!(options.timeout_secs, 600);
+        assert_eq!(options.wmc_magnitude_tolerance, 1e-8);
+        assert_eq!(options.wmc_phase_tolerance, 1e-8);
+    }
+
+    #[test]
+    fn legacy_and_typed_native_entrypoints_share_reduction_results() {
+        let old = check_equivalence(
+            1, &[], &[], VerificationMethod::ReductionRules,
+            VerificationStrategy::Naive, "gpmc", 20,
+        ).expect("legacy native verification");
+        let typed = check_equivalence_with_options(
+            1, &[], &[],
+            &VerificationOptions {
+                method: VerificationMethod::ReductionRules,
+                strategy: VerificationStrategy::Naive,
+                timeout_secs: 20,
+                ..VerificationOptions::default()
+            },
+        ).expect("typed native verification");
+        assert_eq!(old.status, EquivalenceStatus::Equivalent);
+        assert_eq!(typed.status, old.status);
+        assert!(old.tool_time.is_none());
+        assert!(typed.tool_time.is_none());
+    }
+
+    #[test]
+    fn typed_options_reject_invalid_thresholds_before_solver() {
+        let bad = VerificationOptions {
+            wmc_magnitude_tolerance: f64::NAN,
+            ..VerificationOptions::default()
+        };
+        assert!(check_equivalence_with_options(1, &[], &[], &bad).is_err());
+        let bad = VerificationOptions {
+            wmc_phase_tolerance: 0.0,
+            ..VerificationOptions::default()
+        };
+        assert!(check_equivalence_with_options(1, &[], &[], &bad).is_err());
+    }
+}

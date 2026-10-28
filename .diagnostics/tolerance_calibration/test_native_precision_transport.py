@@ -61,7 +61,8 @@ def test_focused_native_precision_transport_evidence():
     }
     prefixes = (
         "c s exact double prec-sci", "c s exact arb cpx",
-        "c s exact quadruple float", "c s exact arb frac",
+        "c s exact quadruple float", "c s exact octuple float",
+        "c s exact arb frac",
     )
 
     def sign_im(part):
@@ -217,3 +218,11 @@ def test_focused_native_precision_transport_evidence():
         and (x.get("returncode") != 0 or "real_decimal" not in x.get("parsed_raw", {}))
     ]
     assert not baseline_failures, "Default native precision cases failed; inspect artifact"
+    high_precision_format_failures = [
+        x for x in evidence["native"]
+        if x["solver"] == "ganak" and x["variant"].startswith("bits256")
+        and (x.get("returncode") != 0 or "real_decimal" not in x.get("parsed_raw", {}))
+    ]
+    assert not high_precision_format_failures, (
+        "Ganak 256-bit raw count output not recognized; inspect artifact"
+    )

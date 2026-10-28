@@ -296,7 +296,7 @@ jobs:
           path: tolerance-calibration-results/
           retention-days: 30
           if-no-files-found: error
-ganak-printer-paired-source:
+  ganak-printer-paired-source:
     name: Ganak v2.8.0 same-source printer A/B
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04

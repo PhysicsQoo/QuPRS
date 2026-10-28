@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-8, wmc_phase_tolerance=1e-8))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-8, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=None))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -53,6 +53,7 @@ pub fn check_equivalence(
     safe_mode: bool,
     wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
+    approximate_distance_tolerance: Option<f64>,
 ) -> PyResult<PyObject> {
     // The Python safe_mode worker isolation has no Rust FFI equivalent.
     // Never silently claim that the requested isolation is active.
@@ -71,6 +72,18 @@ pub fn check_equivalence(
         ));
     }
 
+    if let Some(eps) = approximate_distance_tolerance {
+        if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
+            return Err(PyValueError::new_err(
+                "approximate_distance_tolerance must be finite and in (0, 1)"
+            ));
+        }
+        if wmc_magnitude_tolerance != 1e-8 {
+            return Err(PyValueError::new_err(
+                "approximate_distance_tolerance conflicts with nondefault wmc_magnitude_tolerance"
+            ));
+        }
+    }
     // Diagnostics-only FFI phase clock: default results are unchanged.
     // This is an extra opt-in and deliberately does not affect solver timing.
     let ffi_clock_enabled = std::env::var("QUPRS_FFI_PHASE_TIMING")
@@ -122,6 +135,7 @@ pub fn check_equivalence(
         timeout_secs: timeout,
         wmc_magnitude_tolerance,
         wmc_phase_tolerance,
+        approximate_distance_tolerance,
     };
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
@@ -144,6 +158,11 @@ pub fn check_equivalence(
         };
 
         dict.set_item("status", status_str)?;
+        dict.set_item("decision_basis", result.decision_basis)?;
+        dict.set_item("approximate_distance_tolerance", result.approximate_distance_tolerance)?;
+        if result.wmc_time.is_some() {
+            dict.set_item("wmc_numerical_verdict", status_str)?;
+        }
         
         dict.set_item("qubits", result.qubit_num)?;
         dict.set_item("gates1", result.gate_num1)?;

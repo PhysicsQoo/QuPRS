@@ -328,10 +328,11 @@ def test_direct_pyo3_structural_mismatch_has_explicit_provenance():
     assert raw["wmc_solver_invoked"] is False
 
 
-def test_public_rust_wmc_observation_identifies_real_solver_invocation():
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_public_wmc_observation_identifies_real_solver_invocation(backend):
     result = check_equivalence(
         qasm(), qasm("rz(0.001) q[0];\n"),
-        backend="rust", method="wmc_only", strategy="Naive",
+        backend=backend, method="wmc_only", strategy="Naive",
         tool_name="gpmc", timeout=45,
     )
     assert result.wmc_solver_invoked is True

@@ -53,7 +53,9 @@ cmake -S "$repo_dir" -B "$repo_dir/build" \
   -DBUILD_SHARED_LIBS=ON \
   -DSTATIC_BINARY=OFF \
   -DENABLE_TESTING=OFF
-cmake --build "$repo_dir/build" --target ganak --parallel 4
+cmake --build "$repo_dir/build" --target ganak-bin --parallel 4
+# The Ganak executable is the ganak-bin CMake target; ganak is libganak.
+export LD_LIBRARY_PATH="$repo_dir/build/lib:/usr/local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 test -x "$repo_dir/build/ganak"
 cp "$repo_dir/build/ganak" "$out/ganak-baseline"
 sha256sum "$out/ganak-baseline" >> "$out/binary-sha256.txt"
@@ -92,12 +94,11 @@ test "$(git -C "$repo_dir" diff --name-only)" = "src/main.cpp"
 test -s "$out/ganak-printer.patch"
 sha256sum "$out/ganak-printer.patch" >> "$out/provenance-sha256.txt"
 
-cmake --build "$repo_dir/build" --target ganak --parallel 4
+cmake --build "$repo_dir/build" --target ganak-bin --parallel 4
 cp "$repo_dir/build/ganak" "$out/ganak-candidate"
 sha256sum "$out/ganak-candidate" >> "$out/binary-sha256.txt"
 "$out/ganak-candidate" --version > "$out/candidate-version.txt"
 ldd "$out/ganak-candidate" > "$out/candidate-ldd.txt"
-export LD_LIBRARY_PATH="$repo_dir/build/lib:/usr/local/lib"
 python3 .diagnostics/tolerance_calibration/ganak_printer_ab.py \
   --baseline "$out/ganak-baseline" --candidate "$out/ganak-candidate" \
   --output "$out/observations.json"

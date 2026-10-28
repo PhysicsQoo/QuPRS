@@ -48,8 +48,9 @@ print(result.wmc_numerical_verdict)  # Original solver-derived observation
 **actually invoked** external WMC solver, including `unknown` when
 precision is insufficient. It is `None` when reduction alone settles
 the comparison, or in the Rust empty-CNF analytic fast path where no
-solver process is launched. The Rust result's `wmc_solver_invoked`
-flag and `decision_basis="analytic_empty_cnf"` distinguish this case.
+solver process is launched. Both backend results expose `wmc_solver_invoked`; the Rust
+`decision_basis="analytic_empty_cnf"` additionally identifies the
+no-child shortcut.
 Legacy timing fields may still be present for compatibility, and are
 not proof that an external child process was started.
 

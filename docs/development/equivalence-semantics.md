@@ -99,11 +99,13 @@ between Ganak and GPMC without explicit user selection.
    symbolic pi coefficients, through the Rust PathSum phase operations.
    Conversion at the external weighted-complex-solver boundary remains finite
    precision; exact source representation is **not** a general WMC certificate.
-3. **Remaining known limitation:** the default floating WMC `legacy` result
-   can call strictly inequivalent near-identity rotations equivalent.
-   The opt-in `wmc_policy="conservative"` preserves the numeric observation
-   but reports `unknown` without a sound certificate. Strict and approximate
-   Qiskit-transpilation relations (including Graphstate16) are separate.
+3. **Remaining known limitation:** floating WMC thresholds can classify
+   strictly inequivalent near-identity rotations as numerically equivalent.
+   There is no selectable `wmc_policy`; the solver observation remains
+   available through `wmc_numerical_verdict`. Distance-aware classification
+   and automatic numerical uncertainty handling require further verification.
+   Strict and approximate Qiskit-transpilation relations (including
+   Graphstate16) remain separate.
 4. **Release gate:** source-pinned QPE, Graphstate16, CP/U2/SX and global-phase
    oracle controls, both backends and both independent solvers, must be checked
    again at the actual RC SHA. Those prior-run findings are not substitutes.

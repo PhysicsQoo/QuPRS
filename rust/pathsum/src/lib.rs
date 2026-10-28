@@ -75,6 +75,8 @@ pub struct EquivalenceCheckResult {
     pub approximate_distance_tolerance: Option<f64>,
     /// Classification provenance; numerical verdicts are not exact proofs.
     pub decision_basis: &'static str,
+    /// True only when an external weighted counter was invoked.
+    pub solver_invoked: bool,
     pub final_ps: PathSum, 
     /// Present only when QUPRS_STAGE_LEDGER=1, never populated in ordinary runs.
     pub stage_ledger: Option<ExclusiveLedger>,
@@ -268,6 +270,7 @@ fn check_equivalence_with_tolerances_mode(
     let mut to_dimacs_time = None;
     let mut tool_time = None;
     let mut wmc_time = None;
+    let mut solver_invoked = false;
 
     if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
         let _wmc_scope = diagnostics::span("wmc_total");
@@ -294,6 +297,7 @@ fn check_equivalence_with_tolerances_mode(
         let raw_amplitude = if cnf_string.contains("p cnf 0 0") {
             Some(num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0))
         } else {
+            solver_invoked = true;
             match wmc_mgr.solve_with_deadline(tool_name, deadline) {
                 Ok(value) => Some(value),
                 Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
@@ -351,6 +355,8 @@ fn check_equivalence_with_tolerances_mode(
 
     let decision_basis = if status == EquivalenceStatus::Unknown {
         "inconclusive"
+    } else if wmc_time.is_some() && !solver_invoked {
+        "analytic_empty_cnf"
     } else if wmc_time.is_some() && approximate_distance_tolerance.is_some() {
         "numerical_approximate"
     } else if wmc_time.is_some() {
@@ -373,6 +379,7 @@ fn check_equivalence_with_tolerances_mode(
         tool_name: tool_name.to_string(),
         approximate_distance_tolerance,
         decision_basis,
+        solver_invoked,
         final_ps: ps_miter,
         stage_ledger: stage_session.as_ref().map(|session| session.snapshot(total_time, ps_time)),
     })

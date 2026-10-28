@@ -61,6 +61,33 @@ jobs:
           python -m pytest -q -ra -s test/test_numerical_tolerance_contract_research.py \
             --junitxml=focused-tolerance-evidence/junit.xml \
             2>&1 | tee focused-tolerance-evidence/pytest.log
+      - name: Verify Python and Rust solver precision-format parsers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p focused-tolerance-evidence
+          python -m pytest -q -ra test/test_wmc_solver_adapters.py             --junitxml=focused-tolerance-evidence/parser-python-junit.xml             2>&1 | tee focused-tolerance-evidence/parser-python.log
+          cargo test --manifest-path rust/pathsum/Cargo.toml             mode6_complex_scientific_output -- --nocapture             2>&1 | tee focused-tolerance-evidence/parser-rust.log
+
+      - name: Check MPFR count-output digit transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          cc -std=c11 -Wall -Wextra -Werror             .diagnostics/tolerance_calibration/mpfr_result_printer_probe.c             -lmpfr -lgmp -o /tmp/quprs-mpfr-printer
+          /tmp/quprs-mpfr-printer | tee focused-tolerance-evidence/mpfr-printer.log
+          python - <<'PY'
+          from decimal import Decimal
+          from pathlib import Path
+          output = dict(
+              row.split(' ', 1) for row in
+              Path('focused-tolerance-evidence/mpfr-printer.log').read_text().splitlines()
+          )
+          exact = Decimal('0.99999999999999994746875')
+          assert Decimal(output['short']) == Decimal('1')
+          assert abs(Decimal(output['long']) - exact) < Decimal('1e-35')
+          print('MPFR_PRINT_TRANSPORT_PASS')
+          PY
+
       - name: Run native precision transport comparison (research only)
         shell: bash
         run: |
@@ -81,6 +108,10 @@ jobs:
           python --version > focused-tolerance-evidence/python-version.txt
           rustc --version > focused-tolerance-evidence/rustc-version.txt
           sha256sum test/test_numerical_tolerance_contract_research.py \
+            test/test_wmc_solver_adapters.py \
+            src/QuPRS/utils/wmc_solvers.py \
+            rust/pathsum/src/wmc.rs \
+            .diagnostics/tolerance_calibration/mpfr_result_printer_probe.c \
             .diagnostics/tolerance_calibration/test_native_precision_transport.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > focused-tolerance-evidence/source-files-sha256.txt

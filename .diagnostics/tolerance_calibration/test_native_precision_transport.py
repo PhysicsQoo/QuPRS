@@ -31,7 +31,18 @@ def test_focused_native_precision_transport_evidence():
         "git", "diff", "--name-only", base, "HEAD", "--",
         "src/QuPRS", "rust/pathsum", "rust/python_ffi", "GPMC",
     ], text=True).strip()
-    assert not source_diff, "Production source changed relative to precision baseline: " + source_diff
+    # This experiment may carry only the two transport-parser fixes.
+    # All numerical solver implementations and other production sources
+    # remain pinned to the original research baseline.
+    parser_paths = {
+        "src/QuPRS/utils/wmc_solvers.py",
+        "rust/pathsum/src/wmc.rs",
+    }
+    changed = set(source_diff.splitlines()) if source_diff else set()
+    assert changed <= parser_paths, (
+        "Unexpected production source changes relative to precision baseline: "
+        + repr(sorted(changed - parser_paths))
+    )
     assert subprocess.check_output(
         ["git", "rev-parse", "HEAD:GPMC"], text=True
     ).strip() == gpmc_rev

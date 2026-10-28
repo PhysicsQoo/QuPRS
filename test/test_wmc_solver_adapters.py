@@ -14,6 +14,34 @@ from QuPRS.interface.ps2wmc import run_wmc
 def test_count_formats(line, expected):
     assert parse_count_line(line) == expected
 
+
+@pytest.mark.parametrize('precision_label', [
+    'half', 'single', 'double', 'quadruple', 'octuple',
+])
+def test_ganak_mpfr_result_prefix_tracks_precision(precision_label):
+    line = (
+        f'c s exact {precision_label} float '
+        '1.00000000e+00 - 2.50000000e-21i'
+    )
+    assert parse_count_line(line) == complex(1.0, -2.5e-21)
+
+
+def test_ganak_octuple_prefix_needs_word_boundary():
+    assert parse_count_line('c s exact octuple floating 1') is None
+    assert parse_count_line('c s exact octuple float 1.00000000e+00') == 1.0
+
+
+def test_ganak_f64_parse_is_not_high_precision_evidence():
+    from decimal import Decimal
+    exact_decimal = Decimal('0.99999999999999994746875')
+    # Even with an unrounded Solver result, the legacy public WMC
+    # transport currently reduces these numbers to binary64.
+    rounded = parse_count_line(
+        'c s exact octuple float 0.99999999999999994746875 + 0.00000000e+00i'
+    )
+    assert rounded == complex(1.0, 0.0)
+    assert exact_decimal < Decimal(str(rounded.real))
+
 def test_solver_modes_are_independent():
     assert SOLVER_ARGUMENTS['ganak'] == ('--mode=6',)
     assert SOLVER_ARGUMENTS['gpmc'] == ('-mode=1',)

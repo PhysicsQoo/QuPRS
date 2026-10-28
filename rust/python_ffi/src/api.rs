@@ -148,7 +148,7 @@ pub fn check_equivalence(
         let dict_build_start = ffi_clock_enabled.then(Instant::now);
         let dict = PyDict::new_bound(py);
         
-        let status_str = match result.status {
+        let status_str = match &result.status {
             EquivalenceStatus::Equivalent => "Equivalent",
             EquivalenceStatus::EquivalentUpToGlobalPhase => "Equivalent (Up to Global Phase)",
             EquivalenceStatus::NotEquivalent => "Not Equivalent",

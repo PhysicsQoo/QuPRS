@@ -137,7 +137,7 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 
 ## Equivalence Checking
 
-> **Numerical and source-semantic limits (v0.13.4 candidate):**
+> **Numerical and source-semantic limits (v0.14.0 candidate):**
 > Rust preserves supported QASM2 literal decimal-radian angles separately from
 > symbolic multiples of pi through its PathSum/phase representation. Strict
 > source-literal comparison can therefore disagree with historical approximate
@@ -155,8 +155,10 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > equal.
 > For example, `check_equivalence(a, b, method="hybrid", backend="rust",
 > approximate_distance_tolerance=2e-4)` has the same distance criterion as
-> `backend="python"`. It cannot be combined with a separately supplied
-> `wmc_magnitude_tolerance`. The `decision_basis` field identifies whether
+> `backend="python"`. An explicit **nondefault**
+> `wmc_magnitude_tolerance` conflicts; `1e-8` is allowed but unused in
+> distance mode, regardless of the mutable legacy WMC default.
+> The `decision_basis` field identifies whether
 > a verdict was symbolic, numerical or inconclusive. See [formal semantics](docs/development/equivalence-semantics.md),
 > [WMC evidence](docs/development/wmc-evidence-policy.md), and
 > [QASM source-angle representation](docs/development/exact-angle-representation.md).

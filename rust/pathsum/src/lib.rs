@@ -474,6 +474,48 @@ mod verification_options_contract_tests {
     }
 
     #[test]
+    fn typed_approximate_distance_preserves_rr_fast_path_and_conservative_negative() {
+        use crate::ir::QuantumOp;
+        use crate::rational::{Angle, FreeRational};
+        let opts = VerificationOptions {
+            method: VerificationMethod::ReductionRules,
+            strategy: VerificationStrategy::Naive,
+            approximate_distance_tolerance: Some(2e-4),
+            ..VerificationOptions::default()
+        };
+        let exact = check_equivalence_with_options(1, &[], &[], &opts).unwrap();
+        assert_eq!(exact.status, EquivalenceStatus::Equivalent);
+        assert_eq!(exact.decision_basis, "symbolic");
+        assert!(exact.tool_time.is_none());
+        // An exact nonzero RZ residual proves strict source inequivalence;
+        // by itself it does not prove D > the user's approximate threshold.
+        let rotated = vec![QuantumOp::RZ(
+            0, Angle::new_constant(FreeRational::new(1, 20_000)),
+        )];
+        let unresolved = check_equivalence_with_options(
+            1, &[], &rotated, &opts,
+        ).unwrap();
+        assert_eq!(unresolved.status, EquivalenceStatus::Unknown);
+        assert_eq!(unresolved.decision_basis, "inconclusive");
+        assert!(unresolved.tool_time.is_none());
+    }
+
+    #[test]
+    fn typed_approximate_distance_rejects_conflicting_inputs() {
+        let invalid = VerificationOptions {
+            approximate_distance_tolerance: Some(f64::NAN),
+            ..VerificationOptions::default()
+        };
+        assert!(check_equivalence_with_options(1, &[], &[], &invalid).is_err());
+        let invalid = VerificationOptions {
+            approximate_distance_tolerance: Some(2e-4),
+            wmc_magnitude_tolerance: 1e-6,
+            ..VerificationOptions::default()
+        };
+        assert!(check_equivalence_with_options(1, &[], &[], &invalid).is_err());
+    }
+
+    #[test]
     fn typed_options_reject_invalid_thresholds_before_solver() {
         let bad = VerificationOptions {
             wmc_magnitude_tolerance: f64::NAN,

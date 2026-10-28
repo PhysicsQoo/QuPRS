@@ -8,8 +8,8 @@ use std::path::Path;
 use std::time::Instant;
 
 use pathsum::{
-    check_equivalence_with_tolerances as core_check_equivalence_with_tolerances,
-    VerificationMethod, VerificationStrategy, EquivalenceStatus,
+    check_equivalence_with_options as core_check_equivalence_with_options,
+    VerificationOptions, VerificationMethod, VerificationStrategy, EquivalenceStatus,
     ir::QuantumOp, qasm,
 };
 use crate::circuit::QuantumCircuit;
@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-8, wmc_phase_tolerance=1e-8))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -54,7 +54,13 @@ pub fn check_equivalence(
     wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
 ) -> PyResult<PyObject> {
-    let _ = safe_mode;
+    // The Python safe_mode worker isolation has no Rust FFI equivalent.
+    // Never silently claim that the requested isolation is active.
+    if safe_mode {
+        return Err(PyValueError::new_err(
+            "safe_mode is not supported by the Rust backend"
+        ));
+    }
     if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
         || wmc_magnitude_tolerance >= 1.0
         || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
@@ -109,13 +115,17 @@ pub fn check_equivalence(
     let tool_name_owned = tool_name.to_lowercase();
 
     let native_bridge_start = ffi_clock_enabled.then(Instant::now);
+    let options = VerificationOptions {
+        method: rs_method,
+        strategy: rs_strategy,
+        tool_name: tool_name_owned,
+        timeout_secs: timeout,
+        wmc_magnitude_tolerance,
+        wmc_phase_tolerance,
+    };
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
-            core_check_equivalence_with_tolerances(
-                system_qubits, &ops1, &ops2, rs_method, rs_strategy,
-                &tool_name_owned, timeout, wmc_magnitude_tolerance,
-                wmc_phase_tolerance,
-            )
+            core_check_equivalence_with_options(system_qubits, &ops1, &ops2, &options)
         })
     }).map_err(|e| PyValueError::new_err(format!("Verification Engine Failed: {}", e)))?;
     let native_bridge_ns = native_bridge_start.map(|start| start.elapsed().as_nanos() as u64);

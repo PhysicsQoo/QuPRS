@@ -296,3 +296,71 @@ jobs:
           path: tolerance-calibration-results/
           retention-days: 30
           if-no-files-found: error
+ganak-printer-paired-source:
+    name: Ganak v2.8.0 same-source printer A/B
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Check out pinned experimental scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install source-build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config help2man \
+            libgmp-dev libmpfr-dev zlib1g-dev curl git time
+
+      - name: Build baseline and printer-only candidate, run paired native CNFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ganak-ab-evidence
+          bash .diagnostics/tolerance_calibration/build_ganak_printer_ab.sh \
+            2>&1 | tee ganak-ab-evidence/build.log
+
+      - name: Seal source and result identities
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ganak-ab-evidence
+          git rev-parse HEAD > ganak-ab-evidence/quprs-source-head.txt
+          git rev-parse 'HEAD^{tree}' > ganak-ab-evidence/quprs-source-tree.txt
+          python --version > ganak-ab-evidence/python-version.txt
+          cmake --version | head -n 1 > ganak-ab-evidence/cmake-version.txt
+          sha256sum \
+            .diagnostics/tolerance_calibration/build_ganak_printer_ab.sh \
+            .diagnostics/tolerance_calibration/ganak_printer_ab.py \
+            .github/workflows/tolerance-calibration-opt-in.yml \
+            > ganak-ab-evidence/experiment-source-sha256.txt
+          (
+            cd ganak-ab-evidence
+            find . -type f ! -name SHA256SUMS -print0 | sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload paired baseline and high-precision candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ganak-printer-paired-source-evidence
+          path: ganak-ab-evidence/
+          retention-days: 30
+          if-no-files-found: error

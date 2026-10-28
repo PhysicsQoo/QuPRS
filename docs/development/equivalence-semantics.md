@@ -40,6 +40,18 @@ The optimal global-phase adjusted, dimension-normalized Frobenius distance is
 `D_gp(U,V) = min_φ ||U-e^{iφ}V||_F / √d
             = √(2-2|Tr(U†V)|/d).`
 
+The v0.14.0 optional `approximate_distance_tolerance` uses the
+**projective Hilbert--Schmidt distance** rather than the phase-adjusted
+normalized Frobenius distance above. Writing `m=|Tr(U†V)|/d`:
+
+`D_proj(U,V)=√(1-m²)`, whereas `D_gp(U,V)=√(2-2m)`.
+
+In particular `D_proj²=D_gp²-D_gp⁴/4`; at `m=√3/2`,
+`D_proj=0.5` but `D_gp≈0.517638`. The stable projective
+threshold uses `1-m ≤ epsilon²/(1+√(1-epsilon²))`, with a
+**non-certified empirical** numerical guard. These metric tolerances
+must not be conflated with one another or with other tools' settings.
+
 These are **mathematical identities**, not permission to test an approximate
 floating value for equality. A dense numerical oracle with finite tolerance
 is a *diagnostic reference*, not by itself an exact certificate.
@@ -68,25 +80,32 @@ claim. A counterexample at one valid assignment disproves the universal claim.
 No automatic inference of this universal contract from ordinary QASM decimal
 constants is intended.
 
-## Intended result/status semantics
+## Result/status semantics and evidence provenance
 
-| Public Python status | Mathematical meaning / required evidence |
+A result string is a **classification**, not by itself a formal proof.
+The same string can arise from exact symbolic reasoning, tolerance-dependent
+Python reductions, or finite-precision WMC.
+
+| Status | Current interpretation |
 | --- | --- |
-| `equivalent` | Exact equality established, not merely a near-one floating trace |
-| `equivalent*` | Global-phase equality established, with nonzero phase |
-| `not_equivalent` | Proven inequivalence within the declared equivalence model |
-| `unknown` | Evidence is insufficient; neither equivalence nor inequivalence proved |
-| `Timeout` | Request/solver budget exhausted; not a negative mathematical result |
-| `MemoryOut` | Memory/resource exhaustion; not a negative mathematical result |
-| exception | Unsupported/invalid input, solver failure, malformed output, or internal error; not a negative mathematical result |
+| `equivalent` | Symbolic identity or numerical near-identity under the selected thresholds; WMC acceptance is not proof of exact equality. |
+| `equivalent*` | Symbolic up-to-global-phase result or numerically accepted trace with phase above the phase threshold. |
+| `not_equivalent` | Structural mismatch, strict symbolic counterexample, or numerical WMC rejection; numerical negatives are not universal source-exact proofs. |
+| `unknown` | Insufficient symbolic evidence or an unresolved numerical boundary. |
+| `Timeout`, `MemoryOut` | Resource limit, not physical non-equivalence. |
+| exception | Invalid input, missing solver or failed parsing, not non-equivalence. |
 
-The Rust FFI uses display variants such as `Equivalent`, `Not Equivalent`
-and `Equivalent (Up to Global Phase)`; the Python facade translates them.
-An `Unknown` returned from reduction must not silently become `Equivalent`
-on the strength of a rounded WMC result. Solver errors must not switch
-between Ganak and GPMC without explicit user selection.
+`decision_basis` distinguishes `structural`, `symbolic`,
+`numerical_legacy`, `numerical_approximate`,
+`analytic_empty_cnf`, `inconclusive` and `execution_limit`.
+A `symbolic` label means no external WMC, not necessarily a
+machine-checkable certificate for Python's tolerance-based reductions.
+`wmc_numerical_verdict` can include `unknown` after a real solver;
+`wmc_solver_invoked` on Rust indicates whether an external solver
+was actually launched. Rust FFI display strings are normalized by
+the Python facade. Solver failures do not silently select a different solver.
 
-**Implementation status for the v0.13.4 candidate (2026-10-27):**
+**Implementation status for the v0.14.0 candidate (2026-10-28):**
 
 1. **Historical pre-fix findings (2026-10-22):** the source-angle RED and
    default WMC negative-control results in the archived
@@ -102,8 +121,8 @@ between Ganak and GPMC without explicit user selection.
 3. **Remaining known limitation:** floating WMC thresholds can classify
    strictly inequivalent near-identity rotations as numerically equivalent.
    There is no selectable `wmc_policy`; the solver observation remains
-   available through `wmc_numerical_verdict`. Distance-aware classification
-   and automatic numerical uncertainty handling require further verification.
+   available through `wmc_numerical_verdict`. An opt-in projective-distance classifier now handles uncertain
+   numerical boundaries with an empirical rather than certified error guard.
    Strict and approximate Qiskit-transpilation relations (including
    Graphstate16) remain separate.
 4. **Release gate:** source-pinned QPE, Graphstate16, CP/U2/SX and global-phase

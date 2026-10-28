@@ -222,7 +222,8 @@ def check_equivalence(
             Hilbert-Schmidt distance threshold in (0, 1). None preserves
             existing numerical magnitude semantics. Near-boundary counts
             may return unknown; this is not a formal solver error certificate.
-            Cannot be combined with an explicit WMC magnitude tolerance.
+            A nondefault explicit WMC magnitude tolerance conflicts; an
+            explicit 1e-8 is accepted but unused by the distance classifier.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -235,9 +236,12 @@ def check_equivalence(
         if (isinstance(eps, bool) or not isinstance(eps, (int, float))
             or not math.isfinite(eps) or not 0 < eps < 1):
             raise ValueError("approximate_distance_tolerance must be finite and in (0, 1)")
-        if wmc_magnitude_tolerance is not None:
-            raise ValueError("approximate_distance_tolerance conflicts with explicit wmc_magnitude_tolerance")
-    if wmc_magnitude_tolerance is None:
+        if wmc_magnitude_tolerance is not None and wmc_magnitude_tolerance != 1e-8:
+            raise ValueError("approximate_distance_tolerance conflicts with nondefault wmc_magnitude_tolerance")
+        # The magnitude threshold is unused in distance mode. Do not inherit
+        # mutable legacy defaults: the PyO3 and native Rust APIs use 1e-8.
+        wmc_magnitude_tolerance = 1e-8
+    elif wmc_magnitude_tolerance is None:
         wmc_magnitude_tolerance = config.WMC_MAGNITUDE_TOLERANCE
     if wmc_phase_tolerance is None:
         wmc_phase_tolerance = config.WMC_PHASE_TOLERANCE
@@ -348,7 +352,7 @@ def check_equivalence(
             
         # WMC classification is numerical evidence, not an exact proof.
         rust_wmc_numerical_verdict = (
-            rust_res.get("wmc_numerical_verdict", mapped_equiv)
+            rust_res.get("wmc_numerical_verdict")
             if rust_res.get("wmc_solver_time_sec") is not None
             and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent", "unknown")
             else None
@@ -378,6 +382,7 @@ def check_equivalence(
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
             decision_basis=rust_res.get("decision_basis"),
+            wmc_solver_invoked=rust_res.get("wmc_solver_invoked"),
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -669,6 +674,8 @@ class EquivalenceCheckResult:
     wmc_numerical_verdict: Optional[str] = None
     approximate_distance_tolerance: Optional[float] = None
     decision_basis: Optional[str] = None
+    # For Rust WMC: distinguish an actual solver process from an analytic shortcut.
+    wmc_solver_invoked: Optional[bool] = None
     # Effective thresholds recorded for reproducible numerical verdicts.
     wmc_magnitude_tolerance: float | None = None
     wmc_phase_tolerance: float | None = None

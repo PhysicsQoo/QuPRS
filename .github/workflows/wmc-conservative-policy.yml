@@ -5,8 +5,16 @@ on:
     branches: [dev]
     paths:
       - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/utils/wmc_solvers.py'
+      - 'src/QuPRS/config.py'
+      - 'rust/pathsum/src/lib.rs'
+      - 'rust/python_ffi/src/api.rs'
       - 'test/test_wmc_evidence_contract.py'
+      - 'test/test_numerical_tolerance_contract.py'
+      - 'test/test_wmc_tolerance_api.py'
       - 'docs/development/wmc-evidence-policy.md'
+      - 'docs/development/wmc-numerical-tolerance.md'
+      - 'docs/development/equivalence-semantics.md'
       - '.github/workflows/wmc-conservative-policy.yml'
   workflow_dispatch:
 

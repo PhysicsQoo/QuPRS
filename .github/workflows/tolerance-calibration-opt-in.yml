@@ -88,6 +88,26 @@ jobs:
           print('MPFR_PRINT_TRANSPORT_PASS')
           PY
 
+      - name: Verify printed-count projective distance in Python Decimal and Rust MPFR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p focused-tolerance-evidence
+          python .diagnostics/tolerance_calibration/precision_transport_probe.py \
+            --out focused-tolerance-evidence \
+            2>&1 | tee focused-tolerance-evidence/transport-python.log
+          cargo test --release \
+            --manifest-path .diagnostics/tolerance_calibration/rust_precision_transport/Cargo.toml \
+            2>&1 | tee focused-tolerance-evidence/transport-rust-tests.log
+          cargo run --release \
+            --manifest-path .diagnostics/tolerance_calibration/rust_precision_transport/Cargo.toml \
+            -- focused-tolerance-evidence/transport-input.tsv \
+            focused-tolerance-evidence/transport-rust.tsv \
+            2>&1 | tee focused-tolerance-evidence/transport-rust.log
+          python .diagnostics/tolerance_calibration/precision_transport_probe.py \
+            --out focused-tolerance-evidence --verify \
+            2>&1 | tee focused-tolerance-evidence/transport-parity.log
+
       - name: Run native precision transport comparison (research only)
         shell: bash
         run: |
@@ -112,6 +132,10 @@ jobs:
             src/QuPRS/utils/wmc_solvers.py \
             rust/pathsum/src/wmc.rs \
             .diagnostics/tolerance_calibration/mpfr_result_printer_probe.c \
+            .diagnostics/tolerance_calibration/high_precision_count_fixture.tsv \
+            .diagnostics/tolerance_calibration/precision_transport_probe.py \
+            .diagnostics/tolerance_calibration/rust_precision_transport/Cargo.toml \
+            .diagnostics/tolerance_calibration/rust_precision_transport/src/main.rs \
             .diagnostics/tolerance_calibration/test_native_precision_transport.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > focused-tolerance-evidence/source-files-sha256.txt

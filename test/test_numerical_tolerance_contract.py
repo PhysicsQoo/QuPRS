@@ -316,3 +316,24 @@ def test_explicit_default_wmc_magnitude_is_not_a_distance_conflict(backend):
     )
     assert result.equivalent == "equivalent"
     assert result.approximate_distance_tolerance == EPS
+
+
+def test_direct_pyo3_structural_mismatch_has_explicit_provenance():
+    two = qasm().replace("qreg q[1]", "qreg q[2]")
+    raw = _pathsum_rust.check_equivalence(
+        qasm(), two, method="hybrid", approximate_distance_tolerance=EPS,
+    )
+    assert raw["status"] == "Not Equivalent"
+    assert raw["decision_basis"] == "structural"
+    assert raw["wmc_solver_invoked"] is False
+
+
+def test_public_rust_wmc_observation_identifies_real_solver_invocation():
+    result = check_equivalence(
+        qasm(), qasm("rz(0.001) q[0];\n"),
+        backend="rust", method="wmc_only", strategy="Naive",
+        tool_name="gpmc", timeout=45,
+    )
+    assert result.wmc_solver_invoked is True
+    assert result.decision_basis == "numerical_legacy"
+    assert result.wmc_numerical_verdict == result.equivalent

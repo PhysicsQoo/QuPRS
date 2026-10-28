@@ -8,9 +8,11 @@ Significant user-facing changes to QuPRS are summarized here. See [GitHub Releas
 - Preserve nonzero phase coefficients at Python gate-to-PathSum construction time, independently of the tolerance used by Elim/HH/omega local reduction matching. This prevents large collections of individually tiny Rz rotations from disappearing before RR, Hybrid or WMC-only can account for their accumulated effect.
 - Invalidate cached tolerance-dependent Python reductions when `config.set_tolerance()` changes its value; reject non-finite, Boolean and nonpositive settings.
 
-### Compatibility
-- The public `check_equivalence()` signature, supported `method` values and current RR/WMC default thresholds are unchanged. Some previous `equivalent` decisions can become `unknown` or `not_equivalent` where small nonzero phases were previously discarded.
-- `config.set_tolerance()` remains a process-global setting and is not safe for simultaneous per-thread changes. Floating Ganak/GPMC numerical decisions remain heuristic; no new strict approximation-distance API or universal solver precision guarantee is introduced.
+### API and compatibility (v0.14.0 work in progress)
+- Remove the public `wmc_policy` argument and result field; passing the old keyword now raises `TypeError`. The `wmc_numerical_verdict` diagnostic remains observable when WMC is invoked.
+- Add native Rust `VerificationOptions` and `check_equivalence_with_options()`, preserving existing Rust signatures. Rust crate and PyO3 WMC magnitude/phase defaults now match the Python public defaults (`1e-8` each); direct Rust callers relying on the old `1e-6` defaults should pass them explicitly.
+- Rust FFI rejects `safe_mode=True` instead of silently ignoring it; Python backend safe mode is unchanged.
+- `config.set_tolerance()` remains a process-global Python RR setting, not a Rust per-call knob. Solver classifications remain numerical heuristics; a projective-distance API and near-boundary `unknown` policy are not implemented by this initial integration step and remain required before v0.14.0 release.
 
 ## 0.13.4 (unreleased)
 

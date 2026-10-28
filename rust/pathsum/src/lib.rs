@@ -71,6 +71,10 @@ pub struct EquivalenceCheckResult {
     pub tool_time: Option<f64>,
     pub wmc_time: Option<f64>,
     pub tool_name: String,
+    /// Requested projective-distance threshold, if the approximate mode ran.
+    pub approximate_distance_tolerance: Option<f64>,
+    /// Classification provenance; numerical verdicts are not exact proofs.
+    pub decision_basis: &'static str,
     pub final_ps: PathSum, 
     /// Present only when QUPRS_STAGE_LEDGER=1, never populated in ordinary runs.
     pub stage_ledger: Option<ExclusiveLedger>,
@@ -80,8 +84,8 @@ pub struct EquivalenceCheckResult {
 ///
 /// This controls verification dispatch and WMC classification; it does not
 /// alter the separate symbolic reduction rules. The projective-distance
-/// criterion is introduced by a later semantic change, not silently emulated
-/// by the magnitude threshold in this options object.
+/// criterion is separate from the magnitude threshold; an explicit distance
+/// takes precedence only when the magnitude setting remains at its default.
 #[derive(Debug, Clone)]
 pub struct VerificationOptions {
     pub method: VerificationMethod,
@@ -90,6 +94,7 @@ pub struct VerificationOptions {
     pub timeout_secs: u64,
     pub wmc_magnitude_tolerance: f64,
     pub wmc_phase_tolerance: f64,
+    pub approximate_distance_tolerance: Option<f64>,
 }
 
 impl Default for VerificationOptions {
@@ -101,6 +106,7 @@ impl Default for VerificationOptions {
             timeout_secs: 600,
             wmc_magnitude_tolerance: 1e-8,
             wmc_phase_tolerance: 1e-8,
+            approximate_distance_tolerance: None,
         }
     }
 }
@@ -113,10 +119,11 @@ pub fn check_equivalence_with_options(
     gates2: &[QuantumOp],
     options: &VerificationOptions,
 ) -> Result<EquivalenceCheckResult> {
-    check_equivalence_with_tolerances(
+    check_equivalence_with_tolerances_mode(
         num_qubits, gates1, gates2, options.method, options.strategy,
         &options.tool_name, options.timeout_secs,
         options.wmc_magnitude_tolerance, options.wmc_phase_tolerance,
+        options.approximate_distance_tolerance,
     )
 }
 
@@ -154,6 +161,24 @@ pub fn check_equivalence_with_tolerances(
     wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
 ) -> Result<EquivalenceCheckResult> {
+    check_equivalence_with_tolerances_mode(
+        num_qubits, gates1, gates2, method, strategy, tool_name,
+        timeout_secs, wmc_magnitude_tolerance, wmc_phase_tolerance, None,
+    )
+}
+
+fn check_equivalence_with_tolerances_mode(
+    num_qubits: usize,
+    gates1: &[QuantumOp],
+    gates2: &[QuantumOp],
+    method: VerificationMethod,
+    strategy: VerificationStrategy,
+    tool_name: &str,
+    timeout_secs: u64,
+    wmc_magnitude_tolerance: f64,
+    wmc_phase_tolerance: f64,
+    approximate_distance_tolerance: Option<f64>,
+) -> Result<EquivalenceCheckResult> {
     if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
         || wmc_magnitude_tolerance >= 1.0
         || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
@@ -163,6 +188,20 @@ pub fn check_equivalence_with_tolerances(
             "WMC magnitude and phase tolerances must be finite in (0, 1)"
         ));
     }
+    let distance_defect_threshold = if let Some(eps) = approximate_distance_tolerance {
+        if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
+            return Err(anyhow::anyhow!(
+                "approximate_distance_tolerance must be finite and in (0, 1)"
+            ));
+        }
+        if wmc_magnitude_tolerance != 1e-8 {
+            return Err(anyhow::anyhow!(
+                "approximate_distance_tolerance conflicts with nondefault wmc_magnitude_tolerance"
+            ));
+        }
+        let sq = eps * eps;
+        Some(sq / (1.0 + (1.0 - sq).sqrt()))
+    } else { None };
     let global_start = Instant::now();
     let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
@@ -211,9 +250,10 @@ pub fn check_equivalence_with_tolerances(
             // If the state is not Identity, but there are no internal path variables left,
             // it means it reduced to a definitive non-equivalent Boolean state.
             let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-            if num_active_vars == 0 {
+            if num_active_vars == 0 && approximate_distance_tolerance.is_none() {
                 status = EquivalenceStatus::NotEquivalent;
             } else {
+                // A strict source residual is not proof of D > epsilon.
                 status = EquivalenceStatus::Unknown;
             }
         }
@@ -274,7 +314,25 @@ pub fn check_equivalence_with_tolerances(
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
         let norm = final_amplitude.norm();
-        if (norm - 1.0).abs() < wmc_magnitude_tolerance {
+        // The guard reflects observed solver precision, NOT a certified error bound.
+        const APPROX_MAG_GUARD: f64 = 3e-9;
+        if let Some(threshold) = distance_defect_threshold {
+            let defect = 1.0 - norm;
+            status = if !norm.is_finite() || defect < -APPROX_MAG_GUARD
+                || (defect - threshold).abs() <= APPROX_MAG_GUARD
+            {
+                EquivalenceStatus::Unknown
+            } else if defect > threshold + APPROX_MAG_GUARD {
+                EquivalenceStatus::NotEquivalent
+            } else {
+                let theta = final_amplitude.im.atan2(final_amplitude.re);
+                if theta.abs() < wmc_phase_tolerance {
+                    EquivalenceStatus::Equivalent
+                } else {
+                    EquivalenceStatus::EquivalentUpToGlobalPhase
+                }
+            };
+        } else if (norm - 1.0).abs() < wmc_magnitude_tolerance {
             let theta = final_amplitude.im.atan2(final_amplitude.re);
             info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
             if theta.abs() < wmc_phase_tolerance {
@@ -291,6 +349,15 @@ pub fn check_equivalence_with_tolerances(
 
     let total_time = global_start.elapsed().as_secs_f64();
 
+    let decision_basis = if status == EquivalenceStatus::Unknown {
+        "inconclusive"
+    } else if wmc_time.is_some() && approximate_distance_tolerance.is_some() {
+        "numerical_approximate"
+    } else if wmc_time.is_some() {
+        "numerical_legacy"
+    } else if status == EquivalenceStatus::Timeout || status == EquivalenceStatus::MemoryOut {
+        "execution_limit"
+    } else { "symbolic" };
     Ok(EquivalenceCheckResult {
         qubit_num: num_qubits,
         gate_num1: gates1.len(),
@@ -304,6 +371,8 @@ pub fn check_equivalence_with_tolerances(
         tool_time,
         wmc_time,
         tool_name: tool_name.to_string(),
+        approximate_distance_tolerance,
+        decision_basis,
         final_ps: ps_miter,
         stage_ledger: stage_session.as_ref().map(|session| session.snapshot(total_time, ps_time)),
     })

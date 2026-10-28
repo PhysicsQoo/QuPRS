@@ -170,7 +170,6 @@ def check_equivalence(
     timeout: int = 600,
     safe_mode: bool = False,
     backend: str = "python",
-    wmc_policy: str = "legacy",
     wmc_magnitude_tolerance: float | None = None,
     wmc_phase_tolerance: float | None = None,
 ):
@@ -209,9 +208,6 @@ def check_equivalence(
             and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
-        wmc_policy (str, optional): "legacy" preserves the heuristic verdict
-            policy; "conservative" returns "unknown" for uncertified numeric
-            WMC outcomes while retaining result.wmc_numerical_verdict.
         wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
             acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
             Independent of reduction tolerance and not a formal proof bound.
@@ -228,8 +224,6 @@ def check_equivalence(
     """
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout must be a positive integer number of seconds")
-    if wmc_policy not in ("legacy", "conservative"):
-        raise ValueError("wmc_policy must be 'legacy' or 'conservative'")
     if wmc_magnitude_tolerance is None:
         wmc_magnitude_tolerance = config.WMC_MAGNITUDE_TOLERANCE
     if wmc_phase_tolerance is None:
@@ -338,16 +332,12 @@ def check_equivalence(
         elif rust_res.get("status") == "Unknown":
             mapped_equiv = "unknown"
             
-        rust_wmc_numerical_verdict = None
-        if (
-            wmc_policy == "conservative"
+        # WMC classification is numerical evidence, not an exact proof.
+        rust_wmc_numerical_verdict = (
+            mapped_equiv if rust_res.get("wmc_solver_time_sec") is not None
             and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent")
-            and (method == "wmc_only" or rust_res.get("wmc_solver_time_sec") is not None)
-        ):
-            # The Rust status is a solver-derived numeric classification, not
-            # a certified enclosure. Preserve it as an observation only.
-            rust_wmc_numerical_verdict = mapped_equiv
-            mapped_equiv = "unknown"
+            else None
+        )
 
         return EquivalenceCheckResult(
             qubit_num=rust_res.get("qubits", 0),
@@ -368,7 +358,6 @@ def check_equivalence(
             CNF=None,
             expect=None,
             log_wmc=None,
-            wmc_policy=wmc_policy,
             wmc_numerical_verdict=rust_wmc_numerical_verdict,
             wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
@@ -397,7 +386,6 @@ def check_equivalence(
             method=method,
             strategy=strategy,
             equivalent="not_equivalent",
-            wmc_policy=wmc_policy,
             wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
             verification_time=0.0,
@@ -526,12 +514,9 @@ def check_equivalence(
                     magnitude_tolerance=wmc_magnitude_tolerance,
                     phase_tolerance=wmc_phase_tolerance,
                 )
-                if wmc_policy == "conservative":
-                    # The external count does not carry a rigorous error bound.
-                    # Retain the unmodified heuristic output for diagnostics,
-                    # but do not assert either mathematical verdict from it.
-                    wmc_numerical_verdict = equivalent
-                    equivalent = "unknown"
+                # Preserve the numeric verdict as an observation. It is not
+                # an independent proof of source-exact equivalence.
+                wmc_numerical_verdict = equivalent
                 wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or
@@ -589,7 +574,6 @@ def check_equivalence(
         CNF=CNF,
         expect=expect,
         log_wmc=log_wmc,
-        wmc_policy=wmc_policy,
         wmc_numerical_verdict=wmc_numerical_verdict,
         wmc_magnitude_tolerance=wmc_magnitude_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
@@ -643,9 +627,8 @@ class EquivalenceCheckResult:
     CNF: Optional[str] = None
     expect: Optional[float] = None
     log_wmc: Optional[float] = None
-    # Legacy numeric verdict remains observable even when policy is conservative.
+    # Numerical solver verdict is diagnostic, not an exact-equivalence proof.
     wmc_numerical_verdict: Optional[str] = None
-    wmc_policy: str = "legacy"
     # Effective thresholds recorded for reproducible numerical verdicts.
     wmc_magnitude_tolerance: float | None = None
     wmc_phase_tolerance: float | None = None

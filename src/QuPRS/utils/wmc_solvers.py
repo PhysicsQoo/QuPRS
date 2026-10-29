@@ -11,7 +11,11 @@ SOLVER_ARGUMENTS = {
 RESULT_PREFIXES = (
     "c s exact double prec-sci",
     "c s exact arb cpx",
+    "c s exact half float",
+    "c s exact single float",
+    "c s exact double float",
     "c s exact quadruple float",
+    "c s exact octuple float",
     "c s exact arb frac",
 )
 

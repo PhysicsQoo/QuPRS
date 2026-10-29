@@ -151,20 +151,18 @@ def anf_to_cnf(anf):
 
 # Convert polynomial P to weighted logical expressions
 def P_to_wlogi(P):
+    """Encode only nontrivial Boolean-controlled phase coefficients.
+
+    For integer k and Boolean monomial m, exp(2*pi*i*k*m) = 1.
+    """
     if P == 0:
         return []
-    args = P.as_coefficients_dict()
-    output = [
-        (
-            (v, algebraic_to_logical(k))
-            if v != 0 and v != 1
-            else (k, algebraic_to_logical(v))
-        )
-        for k, v in args.items()
-        if v != 0
-    ]
+    output = []
+    for monomial, coefficient in P.as_coefficients_dict().items():
+        if coefficient == 0 or isinstance(coefficient, (int, se.Integer)):
+            continue
+        output.append((coefficient, algebraic_to_logical(monomial)))
     return output
-
 
 # Convert CNF to clauses
 def cnf_to_clauses(cnf, symbols_map, flag=False):

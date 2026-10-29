@@ -35,7 +35,9 @@ fn parse_real_count(value: &str) -> Result<f64> {
 
 pub(crate) fn parse_count_line(line: &str) -> Result<Option<Complex<f64>>> {
     let prefixes = ["c s exact double prec-sci", "c s exact arb cpx",
-        "c s exact quadruple float", "c s exact arb frac"];
+        "c s exact half float", "c s exact single float",
+        "c s exact double float", "c s exact quadruple float",
+        "c s exact octuple float", "c s exact arb frac"];
     let Some(value) = prefixes.iter().find_map(|prefix| {
         line.strip_prefix(prefix).filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
     }) else { return Ok(None); };
@@ -390,7 +392,12 @@ mod count_parser_tests {
         ] {
             assert_eq!(parse_count_line(&format!("c s exact quadruple float {value}")).unwrap(), Some(expected));
         }
+        for label in ["half", "single", "double", "quadruple", "octuple"] {
+            let line = format!("c s exact {label} float 1.00000000e+00 - 2.50000000e-21i");
+            assert_eq!(parse_count_line(&line).unwrap(), Some(Complex::new(1.0, -2.5e-21)));
+        }
         assert!(parse_count_line("c s exact quadruple floating 1").unwrap().is_none());
+        assert!(parse_count_line("c s exact octuple floating 1").unwrap().is_none());
         for value in ["nan", "inf", "1e999", "1 + infi", "1e-2-3e+i"] {
             assert!(parse_count_line(&format!("c s exact quadruple float {value}")).is_err());
         }

@@ -192,3 +192,19 @@ def classify_observed_distance(
     if not math.isfinite(phase):
         return "unknown", PrintedDistanceEvidence("unknown", "unresolved_phase")
     return ("equivalent" if abs(phase) < phase_tolerance else "equivalent*"), evidence
+
+
+def approximate_printed_log2(count: PrintedCount) -> float:
+    """Diagnostic log2(|count|) without f64 conversion of the raw count.
+
+    Normalized magnitude comparisons must still use rational intervals;
+    this float is for reporting only, including beyond binary64 count range.
+    """
+    re, im = abs(count.real), abs(count.imag)
+    scale = max(re, im)
+    if scale == 0:
+        return float("-inf")
+    return (
+        math.log2(scale.numerator) - math.log2(scale.denominator)
+        + math.log2(math.hypot(float(re / scale), float(im / scale)))
+    )

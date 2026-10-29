@@ -572,6 +572,7 @@ def check_equivalence(
                     from QuPRS.utils.gpmc_cnf_metadata import (
                         gpmc_cnf_budget_metadata,
                     )
+                    from QuPRS.utils.precision_count import approximate_printed_log2
                     nvars, nweights, max_weight_sq = gpmc_cnf_budget_metadata(CNF)
                     eligible = (
                         nvars <= MAX_BUDGET_VARS and nweights <= nvars
@@ -606,18 +607,14 @@ def check_equivalence(
                         wmc_precision_reason = budget.reason
                         wmc_printed_verdict = budget.printed_status
                         wmc_numeric_model_bound = budget.normalized_count_uncertainty
-                        _, log_wmc = classify_approximate_weighted_count(
-                            float(counted.real), float(counted.imag), expect,
-                            distance_tolerance=approximate_distance_tolerance,
-                            phase_tolerance=wmc_phase_tolerance,
-                        )
+                        log_wmc = approximate_printed_log2(counted)
                     else:
                         # General CNF: retain native GPMC MPFR precision and
                         # cross-check 60/90-digit replays without converting to
                         # binary64. This is an empirical numerical observation:
                         # source-weight and solver arithmetic are not certified.
                         from QuPRS.utils.precision_count import (
-                            classify_observed_distance,
+                            classify_observed_distance, approximate_printed_log2,
                         )
                         first = run_wmc(
                             temp_name, tool_name,
@@ -655,11 +652,7 @@ def check_equivalence(
                             wmc_phase_tolerance,
                         )[0]
                         wmc_numeric_model_bound = str(uncertainty)
-                        _, log_wmc = classify_approximate_weighted_count(
-                            float(counted.real), float(counted.imag), expect,
-                            distance_tolerance=approximate_distance_tolerance,
-                            phase_tolerance=wmc_phase_tolerance,
-                        )
+                        log_wmc = approximate_printed_log2(counted)
                 else:
                     if approximate_distance_tolerance is None:
                         complex_number = run_wmc(
@@ -677,7 +670,7 @@ def check_equivalence(
                         # printed representation; keep those digits and expose
                         # insufficient resolution instead of a 3e-9 guard.
                         from QuPRS.utils.precision_count import (
-                            classify_observed_distance,
+                            classify_observed_distance, approximate_printed_log2,
                         )
                         # Obtain the typed result through the SAME solver;
                         # the non-distance branch retains its old one-run API.
@@ -694,11 +687,7 @@ def check_equivalence(
                             "ganak_printed_uncertified_" + evidence.reason
                         )
                         wmc_printed_verdict = equivalent
-                        _, log_wmc = classify_approximate_weighted_count(
-                            float(counted.real), float(counted.imag), expect,
-                            distance_tolerance=approximate_distance_tolerance,
-                            phase_tolerance=wmc_phase_tolerance,
-                        )
+                        log_wmc = approximate_printed_log2(counted)
                 tool_time = round(time.time() - tool_start_time, 3)
                 # Preserve the numeric verdict as an observation. It is not
                 # an independent proof of source-exact equivalence.

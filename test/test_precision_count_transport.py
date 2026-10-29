@@ -122,3 +122,18 @@ def test_printed_distance_rejects_invalid_component_error():
     observed = count("1/1", "c s exact arb frac")
     with pytest.raises(ValueError, match="Component error"):
         classify_printed_distance(observed, 0, 1e-8, component_error=Fraction(-1))
+
+
+def test_printed_log_diagnostic_handles_counts_beyond_f64_range():
+    from QuPRS.utils.precision_count import approximate_printed_log2
+    enormous = PrintedCount(
+        Fraction(1 << 1300), Fraction(0), Fraction(0), Fraction(0),
+        "c s exact arb frac",
+    )
+    assert approximate_printed_log2(enormous) == 1300.0
+    complex_count = PrintedCount(
+        Fraction(3), Fraction(4), Fraction(0), Fraction(0),
+        "c s exact arb frac",
+    )
+    assert abs(approximate_printed_log2(complex_count) -
+               2.321928094887362) < 1e-13

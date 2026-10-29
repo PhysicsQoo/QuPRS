@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 import mpmath as mp
 import sympy as sp
@@ -131,11 +132,32 @@ def compute_case(case):
         if theta:
             right.rz(theta, 0)
         start = time.monotonic()
-        result = check_equivalence(
-            left, right, backend="python", method="wmc_only",
-            strategy="Naive", tool_name="gpmc", timeout=20,
-            approximate_distance_tolerance=1e-8,
-        )
+        if name == "qft_style_identity_2":
+            # Retain exact source CNF on a failing identity control, before
+            # either metadata validation or Solver parse can obscure it.
+            from QuPRS.interface import ps2wmc
+            original = ps2wmc.to_DIMACS
+
+            def preserve_identity_cnf(pathsum, filename="wmc.cnf", tool_name="gpmc"):
+                payload = original(pathsum, filename, tool_name)
+                OUT.mkdir(exist_ok=True)
+                (OUT / "gpmc-model-qft-style-identity-input.cnf").write_text(
+                    payload, encoding="utf-8"
+                )
+                return payload
+
+            with patch.object(ps2wmc, "to_DIMACS", side_effect=preserve_identity_cnf):
+                result = check_equivalence(
+                    left, right, backend="python", method="wmc_only",
+                    strategy="Naive", tool_name="gpmc", timeout=20,
+                    approximate_distance_tolerance=1e-8,
+                )
+        else:
+            result = check_equivalence(
+                left, right, backend="python", method="wmc_only",
+                strategy="Naive", tool_name="gpmc", timeout=20,
+                approximate_distance_tolerance=1e-8,
+            )
         api_sec = time.monotonic() - start
         cnf = result.CNF
         if not cnf or not result.wmc_solver_invoked:
@@ -249,6 +271,19 @@ def worker(name):
             "error": f"{type(error).__name__}: {error}"[:700],
             "source_head": os.environ.get("GITHUB_SHA"),
         }
+        if name == "qft_style_identity_2":
+            saved = OUT / "gpmc-model-qft-style-identity-input.cnf"
+            if saved.exists():
+                text = saved.read_text()
+                record["captured_identity_cnf_sha256"] = hashlib.sha256(
+                    text.encode()
+                ).hexdigest()
+                record["all_positive_weight_lines"] = [
+                    line[:260] for line in text.splitlines()
+                    if line.startswith("c p weight ") and
+                    not line.startswith("c p weight -")
+                ][:40]
+                record["identity_cnf_retained"] = saved.name
     print("GPMC_MODEL_CASE=" + json.dumps(record, sort_keys=True, default=str),
           flush=True)
 

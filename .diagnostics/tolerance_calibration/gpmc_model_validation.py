@@ -387,6 +387,21 @@ def outer():
     ), core
     print("GPMC_MODEL_STRESS_CORE_PASS=4", flush=True)
 
+    # The exact two-qubit QFT-style identity was an original source encoder
+    # regression. Treat successful numeric weights as a required smoke gate,
+    # even though large-case arithmetic convergence remains report-only.
+    identity = next(r for r in all_results
+                    if r["case"] == "qft_style_identity_2")
+    assert identity["execution_status"] == "observed", identity
+    assert identity["source_phase_weight_audit"]["status"] == "observed"
+    captured = OUT / "gpmc-model-qft-style-identity-input.cnf"
+    assert captured.is_file(), "Missing retained identity CNF"
+    data = captured.read_text()
+    assert "cos(" not in data and "sin(" not in data, (
+        "Non-numeric phase weight leaked into GPMC CNF"
+    )
+    print("GPMC_MODEL_IDENTITY_WEIGHT_GATE_PASS=1", flush=True)
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

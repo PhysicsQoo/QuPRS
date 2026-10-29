@@ -528,12 +528,28 @@ The separation is essential:
 3. Bounded exhaustive counts are intended as research/acceptance
    oracles, not the production Hybrid backend or an unbounded fallback.
 
-The current small-circuit stress CI #40819863493 passed its four
-mandatory Rz cases and recorded three further algorithm-family cases,
-but its separate two-qubit QFT-style identity control failed CNF weight
-metadata parsing (`Invalid decimal CNF weight`). The follow-up must
-preserve that failed observation, identify the malformed token, and
-not count the 8-case report as 8 scientific passes.
+The initial stress CI #40819863493 observed 7/8 cases and
+revealed a failure in two-qubit QFT-style identity CNF weight encoding.
+The exact-CNF-oracle CI #40820880063 preserved the invalid weight
+token `cos(6.28318530717958647692528676655901*y_0*q_0)`.
+The bug was not GPMC rounding: Python's `P_to_wlogi` accidentally
+used the Boolean monomial as its numerical phase weight when the
+coefficient equalled 1. Integer-cycle Boolean phase terms are
+identities because `exp(2*pi*i*k*m)=1` for integral `k` and
+Boolean `m`. Source commit b94f147d removes these exact trivial
+terms during WMC encoding; it does not change RR tolerance or
+the paper's Hybrid final-PathSum handoff.
+
+Native CI [#40821850934](https://github.com/PhysicsQoo/QuPRS/actions/runs/40821850934)
+verified **8/8 observed stress cases**, including QFT-style identity
+returning numerical `equivalent` with numeric-only weights, plus the
+focused integer-phase tests (2/2 passed) and exact CNF arithmetic
+oracles (11/11 passed). Exactly four core Rz cases were independently
+enumerated in exact rational arithmetic; QFT2 (15 variables), QPE2
+(22 variables) and graph3 (37 variables) exceed the 12-variable
+enumeration cap, so those remain high-precision *observations*, not
+exact-CNF oracle certifications. The error model still lacks a
+general source-angle-to-weight and Solver-arithmetic proof.
 
 ### Native Rust MPFR weight prototype — source-exact phase transport
 

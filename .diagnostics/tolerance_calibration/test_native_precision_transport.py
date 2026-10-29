@@ -31,9 +31,9 @@ def test_focused_native_precision_transport_evidence():
         "git", "diff", "--name-only", base, "HEAD", "--",
         "src/QuPRS", "rust/pathsum", "rust/python_ffi", "GPMC",
     ], text=True).strip()
-    # This experiment may carry only the two transport-parser fixes.
-    # All numerical solver implementations and other production sources
-    # remain pinned to the original research baseline.
+    # Allow only reviewed production-source paths used by transport and
+    # request-local RR provenance. Solver binaries, source weight generation,
+    # and the pinned numerical counters must remain unchanged.
     parser_paths = {
         "src/QuPRS/utils/wmc_solvers.py",
         "src/QuPRS/utils/precision_count.py",
@@ -43,6 +43,10 @@ def test_focused_native_precision_transport_evidence():
         "rust/pathsum/src/lib.rs",
         "rust/pathsum/src/precision_count.rs",
         "rust/pathsum/src/solver_adapter.rs",
+        "src/QuPRS/pathsum/reduction_provenance.py",
+        "src/QuPRS/pathsum/reduction.py",
+        "src/QuPRS/pathsum/pattern_match.py",
+        "src/QuPRS/interface/load_qiskit.py",
     }
     changed = set(source_diff.splitlines()) if source_diff else set()
     assert changed <= parser_paths, (

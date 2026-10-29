@@ -151,18 +151,22 @@ def anf_to_cnf(anf):
 
 # Convert polynomial P to weighted logical expressions
 def P_to_wlogi(P):
+    """Map phase coefficients to Boolean-weighted terms.
+
+    An integer coefficient contributes exp(2*pi*i*k*m) = 1 for a
+    Boolean monomial m and must not become a symbolic CNF weight.
+    """
     if P == 0:
         return []
     args = P.as_coefficients_dict()
-    output = [
-        (
-            (v, algebraic_to_logical(k))
-            if v != 0 and v != 1
-            else (k, algebraic_to_logical(v))
-        )
-        for k, v in args.items()
-        if v != 0
-    ]
+    output = []
+    for monomial, coefficient in args.items():
+        if coefficient == 0 or isinstance(coefficient, (int, se.Integer)):
+            # The old coefficient==1 branch made the *monomial* a
+            # numerical weight, emitting illegal cos(2*pi*y*q) strings.
+            # Any integer-multiple-of-2*pi phase is trivial for Boolean m.
+            continue
+        output.append((coefficient, algebraic_to_logical(monomial)))
     return output
 
 

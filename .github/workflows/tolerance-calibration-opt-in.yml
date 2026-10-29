@@ -11,6 +11,7 @@ on:
       - 'test/test_rr_approximation_provenance.py'
       - 'test/test_wmc_distance_resolution_research.py'
       - 'test/test_gpmc_precision_budget.py'
+      - 'test/test_wmc_integer_phase_encoding.py'
       - 'src/QuPRS/utils/gpmc_distance_budget.py'
       - 'src/QuPRS/utils/gpmc_cnf_metadata.py'
       - 'src/QuPRS/pathsum/reduction_provenance.py'
@@ -164,6 +165,13 @@ jobs:
           python -m pytest -q -ra test/test_gpmc_precision_budget.py \
             --junitxml=focused-tolerance-evidence/gpmc-budget-junit.xml \
             2>&1 | tee focused-tolerance-evidence/gpmc-budget.log
+      - name: Ensure integer-cycle phases produce numeric WMC weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra test/test_wmc_integer_phase_encoding.py \
+            --junitxml=focused-tolerance-evidence/wmc-integer-phase-junit.xml \
+            2>&1 | tee focused-tolerance-evidence/wmc-integer-phase.log
       - name: Independently enumerate small printed GPMC CNFs with exact rational arithmetic
         shell: bash
         run: |
@@ -239,6 +247,7 @@ jobs:
             test/test_rr_approximation_provenance.py \
             test/test_wmc_distance_resolution_research.py \
             test/test_gpmc_precision_budget.py \
+            test/test_wmc_integer_phase_encoding.py \
             src/QuPRS/utils/gpmc_distance_budget.py \
             src/QuPRS/utils/gpmc_cnf_metadata.py \
             src/QuPRS/interface/ps2wmc.py \

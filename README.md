@@ -262,17 +262,23 @@ certificate, and a WMC magnitude tolerance of `1e-8` is **not**
 the QCEC projective circuit-distance tolerance of `1e-8`.
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
-**v0.14.0 experimental RR provenance:** The Python RR and Hybrid paths
-track when local reduction tolerance has changed a *nonconstant* phase
-coefficient, including near-omega matches. Such an approximation is not
-an exact equivalence certificate. Without a trusted accumulated distance
-bound, the result becomes `unknown`; Hybrid does not use the already
-approximated path sum as independent WMC evidence. Exact HH/omega/Elim and
-global-phase-only normalization are retained. The diagnostic fields
-`rr_approximation_events` (bounded tuple) and
-`rr_approximation_unbounded` are currently Python-specific and do not
-make any claim about the Rust backend. They are research-branch
-semantics, pending full release validation.
+**v0.14.0 experimental RR provenance:** Python RR and Hybrid continue
+using the original Path-sum reduction architecture. A tolerance-based
+phase deletion or near-special rule match that would change the exact
+phase is **skipped**, and the residual Path-sum is retained. If exact RR
+remains inconclusive, Hybrid runs WMC on **that final reduced Path-sum**,
+not on a fresh circuit-to-Path-sum conversion. This can return
+`not_equivalent` if the WMC numerical evidence supports it; a separate
+finite-precision Solver uncertainty band can still yield `unknown`.
+
+The diagnostic tuple `rr_approximation_events` records skipped events
+with `applied=False`. The Python-only Boolean
+`rr_approximation_unbounded` flags loss that could not be prevented or
+audited, not a measured projective distance. The worker-based
+`safe_mode` path does not yet transport provenance from its worker;
+it remains conservatively inconclusive when source fidelity cannot be
+established. These are research-branch semantics pending final API
+parity and release validation, not claims about Rust RR behavior.
 
 ### Solver subprocess reliability and timeout limits
 

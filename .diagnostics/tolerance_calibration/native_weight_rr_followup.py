@@ -322,12 +322,16 @@ def rr_full_circuits():
                     row["statistics"]=result.Statistics.get_reduction_counts()
                     row["events"]=events[:100]
                     row["event_total"]=len(events)
-                    row["potential_false_positive"]=(
+                    # The RR coefficient tolerance and requested WMC
+                    # projective-distance criterion are different contracts.
+                    # Acceptance under a loose RR tolerance is not evidence
+                    # of a bug in the RR rules themselves.
+                    row["rr_acceptance_outside_distance_threshold"]=(
                         name=="hsh_vs_small_rz"
                         and result.equivalent in ("equivalent","equivalent*")
                     )
-                    if row["potential_false_positive"]:
-                        row["scientific_flag"]="APPROX_DISTANCE_FALSE_POSITIVE_CANDIDATE"
+                    if row["rr_acceptance_outside_distance_threshold"]:
+                        row["scientific_flag"]="RR_TOLERANCE_DISTANCE_CONTRACT_MISMATCH"
                 except Exception as e:
                     row["error"]=type(e).__name__+": "+str(e)[:600]
                     row["status"]="execution_error"

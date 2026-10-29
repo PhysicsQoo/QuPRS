@@ -296,7 +296,7 @@ printed-output precision observations into definite public
 approximate-distance outcomes. Do not reinterpret the current empirical
 3e-9 boundary guard as that missing global bound.
 
-### Confirmed complete-circuit RR counterexample and native weight A/B
+### Confirmed RR tolerance versus distance-threshold contrast and native weight A/B
 
 Follow-up native evidence:
 [initial RED CI #40804436447](https://github.com/PhysicsQoo/QuPRS/actions/runs/40804436447)
@@ -319,11 +319,11 @@ D = abs(sin(theta/2)) = abs(sin(pi*1e-7)) ~ 3.14159265358974e-7.
 
 | RR tolerance | Reduction-rules result | Hybrid result | WMC-only result |
 | --- | --- | --- | --- |
-| 1e-6 | equivalent **(false positive relative to epsilonD=1e-8)** | equivalent **(same)** | unknown |
+| 1e-6 | equivalent (RR-tolerance acceptance) | equivalent (RR completes) | unknown |
 | 1e-10 | unknown | unknown | unknown |
 
-**The observed issue is NOT a triggered near-omega reduction.** The faulty
-pair exercised HH, while the RR phase normalizer
+**The observed approximation is NOT a triggered near-omega reduction.**
+The loose-tolerance pair exercised HH, while the RR phase normalizer
 reduce_expression(..., drop_small=True) removed a nonzero constant
 phase around 5e-8 and a path-variable coefficient near 1-1e-7 (the
 near-integer residual modulo one is nonzero). With the looser RR
@@ -334,14 +334,15 @@ control H-S-H-vs-I fired as designed in the corrected run; therefore
 the no-omega result in the first run was an **experiment fixture gap**,
 not evidence that omega is unreachable.
 
-This is a scientific correctness regression candidate under a deliberately
-loose, user-configured RR tolerance; it does **not** prove that the default
-tolerance is unsafe. v0.14.0 must preserve RR-first performance while
-distinguishing exact reductions from tolerance-based coefficient deletion.
-If an approximate RR change cannot be assigned a defensible propagated
-distance bound, the public approximate-distance result must not be
-promoted to equivalence solely from that reduced path sum. A conservative
-unknown or independent unreduced source evaluation is required.
+This observation illustrates **different tolerance contracts**, not a
+bug in RR's chosen approximation. RR's configured coefficient tolerance
+does not prove an independently chosen projective distance threshold.
+Hybrid is designed to accept RR's outcome; WMC runs only when RR is
+inconclusive, on the final RR-reduced Path-sum. Tighter RR tolerance
+can leave the phase for WMC. A user requiring a guaranteed physical
+distance threshold needs a calibrated relation/bound, not an implicit
+override or a different Hybrid algorithm. The original public RR
+default is not shown unsafe by a deliberately looser test setting.
 
 Native weight A/B on unchanged Rust-generated CNF:
 four Rz literals x GPMC/Ganak x (f64, 128-bit, 256-bit oracle
@@ -407,6 +408,30 @@ diagnostic and cannot by itself certify solver internal error.
 Do not reduce the guard solely to force a desired verdict.
 No `wmc_policy` is introduced. Final public Python/Rust/PyO3 API
 and compatibility documents remain pending v0.14.0 validation.
+
+Native [CI #40812292716](https://github.com/PhysicsQoo/QuPRS/actions/runs/40812292716)
+on commit d81eff6f4cb07d79d829ef9b393d95e248657ba0 confirms the
+restored RR+Hybrid behavior (12/12 focused tests PASS). It also ran
+four native *printed-count* checks of H-S-H versus
+H-S-Rz(2*pi*1e-7)-H at strict RR tolerance 1e-10:
+
+| Native solver | Input to WMC | Existing public verdict | Printed-only distance verdict |
+| --- | --- | --- | --- |
+| GPMC | RR final Path-sum (Hybrid) | unknown | not_equivalent |
+| GPMC | unreduced Path-sum (WMC-only) | unknown | not_equivalent |
+| Ganak | RR final Path-sum (Hybrid) | unknown | unknown |
+| Ganak | unreduced Path-sum (WMC-only) | unknown | unknown |
+
+For GPMC, observed normalized magnitude error against an independent
+110-decimal-digit source-parameter reference was about 1.53e-29
+for both cases. Ganak stock mode-6 output rounded the real count to
+exactly 4 or 8 in these cases, losing the ~4.9348e-14 normalized
+magnitude defect. This establishes that the **printed decimal
+resolution** is adequate for GPMC on this fixture but inadequate for
+stock Ganak. It does not certify GPMC's internal arithmetic error or
+establish a general safe guard. Therefore the public classifier still
+returns unknown; a distinct error-budget study is required before
+promoting printed-only evidence to a definitive public verdict.
 
 ### Native Rust MPFR weight prototype — source-exact phase transport
 

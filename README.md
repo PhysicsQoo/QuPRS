@@ -282,6 +282,15 @@ operator-distance bound. Python `safe_mode` worker events currently
 do not cross the process boundary. Final Python/Rust/PyO3 parity and
 numerical guarantees remain v0.14.0 release gates.
 
+The current WMC projective-distance classifier retains an empirical
+magnitude guard of 3e-9. A native research run confirmed that for
+H-S-H versus H-S-Rz(2*pi*1e-7)-H at RR tolerance 1e-10,
+GPMC's unrounded-decimal output supports a *printed-only*
+`not_equivalent` observation while the public API conservatively returns
+`unknown`. Stock Ganak's short printed count cannot resolve the same
+case. Neither observation is a full solver arithmetic certificate.
+See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
+
 ### Solver subprocess reliability and timeout limits
 
 On **Linux** and **macOS**, both backends supervise each invocation of the

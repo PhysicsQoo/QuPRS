@@ -170,6 +170,16 @@ jobs:
           set -euo pipefail
           python -u .diagnostics/tolerance_calibration/native_weight_rr_followup.py \
             2>&1 | tee focused-tolerance-evidence/native-weight-rr-followup.log
+      - name: Audit native Rust MPFR phase-to-weight precision against solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path \
+            .diagnostics/tolerance_calibration/rust_precision_transport/Cargo.toml \
+            --bin phase_weight_mpfr -- --nocapture \
+            2>&1 | tee focused-tolerance-evidence/native-rust-mpfr-weights-tests.log
+          python -u .diagnostics/tolerance_calibration/native_rust_mpfr_weight_ab.py \
+            2>&1 | tee focused-tolerance-evidence/native-rust-mpfr-weight-ab.log
       - name: Record evidence and checksum
         if: always()
         shell: bash
@@ -183,6 +193,8 @@ jobs:
           sha256sum .diagnostics/tolerance_calibration/native_rz_rr_probe.py \
             .diagnostics/tolerance_calibration/rust_native_weight_audit.py \
             .diagnostics/tolerance_calibration/native_weight_rr_followup.py \
+            .diagnostics/tolerance_calibration/native_rust_mpfr_weight_ab.py \
+            .diagnostics/tolerance_calibration/rust_precision_transport/src/bin/phase_weight_mpfr.rs \
             test/test_numerical_tolerance_contract_research.py \
             test/test_precision_count_transport.py \
             test/test_rr_approximation_provenance.py \

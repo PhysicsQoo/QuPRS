@@ -94,3 +94,22 @@ def test_gpmc_precision_transport_uses_selected_adapter_no_switch(monkeypatch):
     assert called==[("gpmc",("-mode=1","-prec=90"),True)]
     with pytest.raises(ValueError):
         ps2wmc.run_wmc("sample.cnf",tool_name="ganak",precision_digits=90)
+
+def test_model_positive_phase_uses_shared_observed_distance_contract():
+    from QuPRS.utils.precision_count import classify_observed_distance
+    count = parse_printed_count_line(
+        "c s exact double prec-sci 0.0 + 1." + "0" * 90 + "e+00i"
+    )
+    observed = classify_gpmc_budgeted_count(
+        count, expected_twice_log2=0, distance_tolerance=1e-8,
+        precision_digits=90, cnf_vars=1, number_of_weights=1,
+        maximum_weight_magnitude_squared=Fraction(1),
+        independent_count=count, phase_tolerance=1e-8,
+    )
+    same_contract, magnitude = classify_observed_distance(
+        count, 0, 1e-8, 1e-8,
+        component_error=Fraction(observed.normalized_count_uncertainty),
+    )
+    assert magnitude.status == "equivalent"
+    assert observed.status == same_contract == "equivalent*"
+    assert not observed.solver_arithmetic_certified

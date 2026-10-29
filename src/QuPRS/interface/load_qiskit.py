@@ -533,9 +533,7 @@ def check_equivalence(
             method == "hybrid" and equivalent == "unknown"
         ):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.wmc_solvers import (
-                classify_weighted_count, classify_approximate_weighted_count,
-            )
+            from QuPRS.utils.wmc_solvers import classify_weighted_count
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -686,7 +684,7 @@ def check_equivalence(
                         wmc_precision_reason = (
                             "ganak_printed_uncertified_" + evidence.reason
                         )
-                        wmc_printed_verdict = equivalent
+                        wmc_printed_verdict = evidence.status
                         log_wmc = approximate_printed_log2(counted)
                 tool_time = round(time.time() - tool_start_time, 3)
                 # Preserve the numeric verdict as an observation. It is not

@@ -7,9 +7,10 @@ small CNFs with bounded weights and explicit GPMC precision provenance.
 """
 from dataclasses import dataclass
 from fractions import Fraction
-import math
 
-from .precision_count import PrintedCount, classify_printed_distance
+from .precision_count import (
+    PrintedCount, classify_printed_distance, classify_observed_distance,
+)
 
 MAX_BUDGET_VARS = 18
 SOURCE_WEIGHT_BITS = 100  # Margin below Python's 113-bit weight construction.
@@ -102,8 +103,10 @@ def classify_gpmc_budgeted_count(
     elif verdict.status == replay.status == "equivalent":
         # A positive classification remains numerical, not an exact proof;
         # retain the public global-phase distinction.
-        phase = math.atan2(float(count.imag), float(count.real))
-        status = ("equivalent" if abs(phase) < phase_tolerance else "equivalent*")
+        status, _ = classify_observed_distance(
+            count, expected_twice_log2, distance_tolerance,
+            phase_tolerance, component_error=component_error,
+        )
         reason = "modelled_count_inside_distance_threshold"
     else:
         status,reason="unknown","modeled_uncertainty_intersects_threshold"

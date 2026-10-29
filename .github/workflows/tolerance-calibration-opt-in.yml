@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -288,6 +288,92 @@ jobs:
         with:
           name: focused-tolerance-contract-evidence
           path: focused-tolerance-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  public-single-pass-boundary:
+    # Scoped experiment only: do not rerun 95-case pilots or old precision
+    # replays on a code-review or release branch.
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(boundary):')
+    name: Experimental single-solve public output and QPE boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+      PUBLIC_DEV_SHA: '55e78c7597966617c1a193b89056ff4e99c3ddfb'
+    steps:
+      - name: Check out existing experimental branch and native GPMC
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install native solver build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+      - name: Materialize exact public dev source without changing any Git checkout
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASELINE="$RUNNER_TEMP/public-dev-source"
+          mkdir -p "$BASELINE" "$RUNNER_TEMP/public-boundary-evidence"
+          git cat-file -e "$PUBLIC_DEV_SHA^{commit}"
+          git archive "$PUBLIC_DEV_SHA" | tar -x -C "$BASELINE"
+          rm -rf "$BASELINE/GPMC"
+          ln -s "$GITHUB_WORKSPACE/GPMC" "$BASELINE/GPMC"
+          printf '%s\n' "$PUBLIC_DEV_SHA" > "$BASELINE/PUBLIC_DEV_BASELINE_SHA.txt"
+          test "$(git rev-parse "$PUBLIC_DEV_SHA:GPMC")" = "$(git rev-parse "HEAD:GPMC")"
+          printf '%s\n' "$PUBLIC_DEV_SHA" > "$RUNNER_TEMP/public-boundary-evidence/dev-sha.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/public-boundary-evidence/experiment-sha.txt"
+          printf 'source=%s\n' "$BASELINE" >> "$GITHUB_OUTPUT"
+      - name: Build and install exact public dev verifier and selected native solvers
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+          python -m pip check
+      - name: Run bounded raw GPMC printed-count and Rust QPE source study
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/public_api_boundary_probe.py" \
+            --expected-dev-sha "$PUBLIC_DEV_SHA" \
+            --output "$RUNNER_TEMP/public-boundary-evidence" \
+            2>&1 | tee "$RUNNER_TEMP/public-boundary-evidence/study.log"
+      - name: Seal exact source and experimental report hashes
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/public-boundary-evidence"
+          sha256sum .diagnostics/tolerance_calibration/public_api_boundary_probe.py \
+            .github/workflows/tolerance-calibration-opt-in.yml > "$OUT/study-source-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload bounded numerical experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-public-single-pass-boundary-experiment
+          path: ${{ runner.temp }}/public-boundary-evidence/
           retention-days: 30
           if-no-files-found: error
 

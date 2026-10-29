@@ -111,12 +111,24 @@ result = check_equivalence(
 
 There is no public `wmc_policy` switch. A floating WMC positive or
 negative is not automatically a source-exact proof. The optional
-`approximate_distance_tolerance=epsilon` selects the projective
-Hilbert--Schmidt distance, with stable magnitude-defect boundary
-`epsilon**2 / (1 + sqrt(1 - epsilon**2))`. A fixed 3e-9 empirical
-magnitude-defect guard returns `unknown` for uncertain boundary results;
-it is **not a certified solver error enclosure**. A projective `1e-8`
-distance is below ordinary float64 normalized-magnitude resolution.
+`approximate_distance_tolerance=epsilon` selects projective
+Hilbert--Schmidt distance. Python and native Rust (also reached via PyO3)
+compare the exact-rational squared-magnitude interval of the printed
+complex solver count to `2**k * (1 - epsilon**2)`. Printing resolution
+and separately declared count-component uncertainty are included; the
+fixed historical `3e-9` heuristic is not used in this public distance
+path. A projective `1e-8` distance is below ordinary float64
+normalized-magnitude resolution.
+
+GPMC distance mode requests 90 *decimal* precision digits in one solver
+invocation. Python applies a conditional source-weight and MPFR operation
+allowance; native Rust conservatively accounts for its currently binary64
+weight creation. Ganak retains its native mode-6 printer precision and
+returns `unknown` when that output cannot distinguish the threshold.
+None of these numerical allowances certifies the full source-angle,
+reduction-rule, or solver arithmetic error. Solver selection never changes.
+No automatic 60/90 replay is performed on the release-facing path;
+replays remain restricted to separately scoped research workflows.
 The `decision_basis` field marks numerical versus symbolic evidence.
 In distance mode, the separately configurable legacy
 `config.WMC_MAGNITUDE_TOLERANCE` is ignored; both backends use the

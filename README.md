@@ -148,9 +148,13 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > certificates: a numerical acceptance band can still include strictly
 > inequivalent near-identity rotations. There is no selectable `wmc_policy`;
 > the solver-derived observation is available as `wmc_numerical_verdict`.
-> The optional `approximate_distance_tolerance` uses projective circuit
-> distance with a conservative empirical boundary guard. An inconclusive
-> comparison returns `unknown`; this is not a certified solver error bound.
+> The optional `approximate_distance_tolerance` compares rational
+> squared-magnitude intervals derived from the solver's original printed
+> count (before any binary64 result conversion). GPMC is invoked once with
+> 90 decimal working digits; Ganak mode 6 is invoked once using its native
+> printed precision. Their numerical uncertainty models remain conditional,
+> not source-exact or solver-arithmetic certificates. Insufficient precision
+> returns `unknown`, rather than applying a fixed `3e-9` cutoff.
 > A numerical tolerance cannot make the underlying input operators exactly
 > equal.
 > For example, `check_equivalence(a, b, method="hybrid", backend="rust",

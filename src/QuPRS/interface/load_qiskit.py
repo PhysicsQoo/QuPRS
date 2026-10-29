@@ -224,6 +224,8 @@ def check_equivalence(
             may return unknown; this is not a formal solver error certificate.
             A nondefault explicit WMC magnitude tolerance conflicts; an
             explicit 1e-8 is accepted but unused by the distance classifier.
+            Python RR retains its existing tolerance semantics. Hybrid
+            passes the final RR-reduced PathSum to WMC only if RR is inconclusive.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -382,6 +384,8 @@ def check_equivalence(
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
             decision_basis=rust_res.get("decision_basis"),
+            wmc_printed_verdict=rust_res.get("wmc_printed_verdict"),
+            wmc_precision_reason=rust_res.get("wmc_precision_reason"),
             wmc_solver_invoked=rust_res.get("wmc_solver_invoked"),
         )
     try:
@@ -465,6 +469,9 @@ def check_equivalence(
         expect = None
         wmc_numerical_verdict = None
         wmc_solver_invoked = False
+        wmc_precision_reason = None
+        wmc_printed_verdict = None
+        wmc_numeric_model_bound = None
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
@@ -502,12 +509,14 @@ def check_equivalence(
             else:
                 equivalent = "unknown"
 
-        # If reduction is incomplete or WMC-only, run weighted model counting
-        if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
+        # Preserve the published hybrid algorithm: WMC consumes the final
+        # RR residual only when reduction itself remains inconclusive.
+        # Diagnostic tolerance events do not override RR's verdict.
+        if method == "wmc_only" or (
+            method == "hybrid" and equivalent == "unknown"
+        ):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.wmc_solvers import (
-                classify_weighted_count, classify_approximate_weighted_count,
-            )
+            from QuPRS.utils.wmc_solvers import classify_weighted_count
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -536,22 +545,65 @@ def check_equivalence(
                 tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
                 tool_start_time = time.time()
                 wmc_solver_invoked = True
-                complex_number = run_wmc(
-                    temp_name, tool_name, timeout=max(0.0, deadline - time.monotonic())
-                )
-                tool_time = round(time.time() - tool_start_time, 3)
                 if approximate_distance_tolerance is None:
+                    complex_number = run_wmc(
+                        temp_name, tool_name,
+                        timeout=max(0.0, deadline - time.monotonic()),
+                    )
                     equivalent, log_wmc = classify_weighted_count(
                         complex_number[0], complex_number[1], expect,
                         magnitude_tolerance=wmc_magnitude_tolerance,
                         phase_tolerance=wmc_phase_tolerance,
                     )
                 else:
-                    equivalent, log_wmc = classify_approximate_weighted_count(
-                        complex_number[0], complex_number[1], expect,
-                        distance_tolerance=approximate_distance_tolerance,
-                        phase_tolerance=wmc_phase_tolerance,
+                    from QuPRS.utils.precision_count import (
+                        classify_observed_distance, approximate_printed_log2,
                     )
+                    # Exactly one selected external solver invocation per WMC.
+                    # The -prec value is in decimal digits, not binary bits.
+                    counted = run_wmc(
+                        temp_name, tool_name,
+                        timeout=max(0.0, deadline - time.monotonic()),
+                        preserve_count=True,
+                        precision_digits=90 if tool_name == "gpmc" else None,
+                    )
+                    twice = int(round(2 * expect))
+                    if tool_name == "gpmc":
+                        from QuPRS.utils.gpmc_cnf_metadata import (
+                            gpmc_cnf_budget_metadata,
+                        )
+                        from QuPRS.utils.gpmc_distance_budget import (
+                            classify_gpmc_single_count,
+                        )
+                        nvars, nweights, max_weight_sq = (
+                            gpmc_cnf_budget_metadata(CNF)
+                        )
+                        budget = classify_gpmc_single_count(
+                            counted,
+                            expected_twice_log2=twice,
+                            distance_tolerance=approximate_distance_tolerance,
+                            phase_tolerance=wmc_phase_tolerance,
+                            cnf_vars=nvars, number_of_weights=nweights,
+                            maximum_weight_magnitude_squared=max_weight_sq,
+                            precision_digits=90,
+                        )
+                        equivalent = budget.status
+                        wmc_printed_verdict = budget.printed_status
+                        wmc_precision_reason = budget.reason
+                        wmc_numeric_model_bound = budget.component_error
+                    else:
+                        # Ganak mode-6 may expose only nine significant
+                        # printed digits; unresolved precision stays unknown.
+                        equivalent, evidence = classify_observed_distance(
+                            counted, twice, approximate_distance_tolerance,
+                            wmc_phase_tolerance,
+                        )
+                        wmc_printed_verdict = evidence.status
+                        wmc_precision_reason = (
+                            "ganak_printed_uncertified_" + evidence.reason
+                        )
+                    log_wmc = approximate_printed_log2(counted)
+                tool_time = round(time.time() - tool_start_time, 3)
                 # Preserve the numeric verdict as an observation. It is not
                 # an independent proof of source-exact equivalence.
                 wmc_numerical_verdict = equivalent
@@ -614,6 +666,9 @@ def check_equivalence(
         log_wmc=log_wmc,
         wmc_numerical_verdict=wmc_numerical_verdict,
         wmc_solver_invoked=wmc_solver_invoked,
+        wmc_precision_reason=wmc_precision_reason,
+        wmc_printed_verdict=wmc_printed_verdict,
+        wmc_numeric_model_bound=wmc_numeric_model_bound,
         approximate_distance_tolerance=approximate_distance_tolerance,
         decision_basis=("numerical_approximate" if approximate_distance_tolerance is not None and tool_time is not None
                         and equivalent in ("equivalent", "equivalent*", "not_equivalent")
@@ -676,6 +731,10 @@ class EquivalenceCheckResult:
     log_wmc: Optional[float] = None
     # Numerical solver verdict is diagnostic, not an exact-equivalence proof.
     wmc_numerical_verdict: Optional[str] = None
+    # Numerical GPMC error-model diagnostics; NOT a formal proof certificate.
+    wmc_precision_reason: Optional[str] = None
+    wmc_printed_verdict: Optional[str] = None
+    wmc_numeric_model_bound: Optional[str] = None
     approximate_distance_tolerance: Optional[float] = None
     decision_basis: Optional[str] = None
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.

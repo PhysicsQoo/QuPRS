@@ -151,20 +151,26 @@ def anf_to_cnf(anf):
 
 # Convert polynomial P to weighted logical expressions
 def P_to_wlogi(P):
+    """Encode nontrivial Boolean-controlled phases and scalar global phases.
+
+    Integer coefficients on Boolean monomials give unit weights, but
+    a noninteger scalar must remain visible (e.g., 1/4 produces i).
+    SymEngine may represent a scalar as either {1: c} or {c: 1}
+    in as_coefficients_dict(); both shapes must be preserved.
+    """
     if P == 0:
         return []
-    args = P.as_coefficients_dict()
-    output = [
-        (
-            (v, algebraic_to_logical(k))
-            if v != 0 and v != 1
-            else (k, algebraic_to_logical(v))
-        )
-        for k, v in args.items()
-        if v != 0
-    ]
+    output = []
+    for monomial, coefficient in P.as_coefficients_dict().items():
+        if coefficient == 0:
+            continue
+        if not getattr(monomial, "free_symbols", ()):
+            scalar = monomial * coefficient
+            if scalar != 0 and not isinstance(scalar, (int, se.Integer)):
+                output.append((scalar, sp.true))
+        elif not isinstance(coefficient, (int, se.Integer)):
+            output.append((coefficient, algebraic_to_logical(monomial)))
     return output
-
 
 # Convert CNF to clauses
 def cnf_to_clauses(cnf, symbols_map, flag=False):
@@ -250,16 +256,31 @@ def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
     return DIMACS_text
 
 
-def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0):
-    """Run the selected adapter; retain the public (real, imag) tuple."""
+def run_wmc(
+    file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0, *,
+    preserve_count=False, precision_digits=None,
+):
+    """Execute selected WMC solver without f64 output loss when requested.
+
+    Optional GPMC -prec controls the actual MPFR working precision AND
+    printed precision. Never silently change the user's selected solver.
+    """
+    from dataclasses import replace
     from QuPRS.utils.solver_adapter import get_solver_adapter, execute_solver
     from QuPRS.utils.solver_process import run as run_solver
 
+    adapter = get_solver_adapter(tool_name)
+    if precision_digits is not None:
+        if tool_name != "gpmc" or type(precision_digits) is not int or not 30 <= precision_digits <= 200:
+            raise ValueError("Explicit precision_digits supports GPMC integer digits in [30, 200]")
+        adapter = replace(adapter, arguments=(*adapter.arguments, f"-prec={precision_digits}"))
+
     result = execute_solver(
-        get_solver_adapter(tool_name), file, timeout,
+        adapter, file, timeout,
         resource_resolver=WMC, process_runner=run_solver,
+        capture_decimal=preserve_count,
     )
-    return result.count.real, result.count.imag
+    return result.count if preserve_count else (result.count.real, result.count.imag)
 
 if __name__ == "__main__":
     # from pathsum.pathsum import PathSum, F, Register

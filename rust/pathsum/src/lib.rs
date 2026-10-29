@@ -9,6 +9,7 @@ pub mod reduction;
 pub mod strategy;
 pub mod stats;    
 pub mod wmc;
+pub mod precision_count;
 mod solver_adapter;
 mod wmc_problem;
 pub mod solver_result;
@@ -71,6 +72,9 @@ pub struct EquivalenceCheckResult {
     pub tool_time: Option<f64>,
     pub wmc_time: Option<f64>,
     pub tool_name: String,
+    /// Distinguish printed solver evidence from end-to-end certified bounds.
+    pub wmc_printed_verdict: Option<&'static str>,
+    pub wmc_precision_reason: Option<&'static str>,
     /// Requested projective-distance threshold, if the approximate mode ran.
     pub approximate_distance_tolerance: Option<f64>,
     /// Classification provenance; numerical verdicts are not exact proofs.
@@ -271,6 +275,8 @@ fn check_equivalence_with_tolerances_mode(
     let mut tool_time = None;
     let mut wmc_time = None;
     let mut solver_invoked = false;
+    let mut wmc_printed_verdict: Option<&'static str> = None;
+    let mut wmc_precision_reason: Option<&'static str> = None;
 
     if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
         let _wmc_scope = diagnostics::span("wmc_total");
@@ -294,22 +300,92 @@ fn check_equivalence_with_tolerances_mode(
         // No extra path variables does NOT imply the trace is tautologically
         // satisfiable: e.g. Tr(X) = 0 imposes contradictory CNF clauses.
         // Bypass the solver only for a genuinely empty zero-variable CNF.
+        let mut printed_count = None;
         let raw_amplitude = if cnf_string.contains("p cnf 0 0") {
             Some(num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0))
         } else {
             solver_invoked = true;
-            match wmc_mgr.solve_with_deadline(tool_name, deadline) {
-                Ok(value) => Some(value),
-                Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
-                    status = EquivalenceStatus::Timeout;
-                    None
+            if approximate_distance_tolerance.is_some() {
+                match wmc_mgr.solve_with_deadline_distance_printed(tool_name, deadline) {
+                    Ok(value) => { printed_count = Some(value); None }
+                    Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
+                        status = EquivalenceStatus::Timeout;
+                        None
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) => return Err(error),
+            } else {
+                match wmc_mgr.solve_with_deadline(tool_name, deadline) {
+                    Ok(value) => Some(value),
+                    Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
+                        status = EquivalenceStatus::Timeout;
+                        None
+                    }
+                    Err(error) => return Err(error),
+                }
             }
         };
         tool_time = Some(tool_start.elapsed().as_secs_f64());
 
-        if let Some(raw_amplitude) = raw_amplitude {
+        if let (Some(count), Some(eps)) = (&printed_count, approximate_distance_tolerance) {
+            use num_bigint::BigInt;
+            use num_rational::BigRational;
+            use num_traits::{Signed, ToPrimitive, Zero};
+            // Conditional input conversion allowance: source phases are
+            // currently converted to f64 complex weights before WMC.
+            // This is NOT a bound on arbitrary solver internal arithmetic.
+            let twice = num_qubits.checked_mul(2)
+                .and_then(|v| v.checked_add(num_active_vars))
+                .ok_or_else(|| anyhow::anyhow!("WMC normalization overflow"))?;
+            let twice: i32 = twice.try_into()
+                .map_err(|_| anyhow::anyhow!("WMC normalization outside exact transport range"))?;
+            let normal_scale = BigRational::from_integer(BigInt::from(2))
+                .pow((twice + 1) / 2);
+            let weight_factor = BigInt::from(wmc_mgr.numerical_weight_count().saturating_add(1));
+            let input_error = normal_scale *
+                BigRational::new(weight_factor, BigInt::from(1_u64 << 49));
+            let printed = crate::precision_count::classify_with_uncertainty(
+                count, twice, &eps.to_string(), &BigRational::zero(),
+            )?;
+            let observed = crate::precision_count::classify_with_uncertainty(
+                count, twice, &eps.to_string(), &input_error,
+            )?;
+            use crate::precision_count::PrintedVerdict;
+            wmc_printed_verdict = Some(match printed {
+                PrintedVerdict::Equivalent => "equivalent",
+                PrintedVerdict::NotEquivalent => "not_equivalent",
+                PrintedVerdict::UnknownResolution => "unknown",
+                PrintedVerdict::UnknownOvershoot => "unknown",
+            });
+            wmc_precision_reason = Some(match observed {
+                PrintedVerdict::UnknownResolution => "uncertain_f64_input_or_print_resolution",
+                PrintedVerdict::UnknownOvershoot => "nonphysical_printed_magnitude",
+                _ => "conditional_f64_weight_precision_not_solver_certified",
+            });
+            status = match observed {
+                PrintedVerdict::NotEquivalent => EquivalenceStatus::NotEquivalent,
+                PrintedVerdict::Equivalent => {
+                    let r = count.real.clone();
+                    let i = count.imag.clone();
+                    let scale = r.abs() + i.abs();
+                    if scale.is_zero() { EquivalenceStatus::Unknown } else {
+                        let x = (r / &scale).to_f64();
+                        let y = (i / &scale).to_f64();
+                        match (x, y) {
+                            (Some(re), Some(im)) if re.is_finite() && im.is_finite() => {
+                                if im.atan2(re).abs() < wmc_phase_tolerance {
+                                    EquivalenceStatus::Equivalent
+                                } else { EquivalenceStatus::EquivalentUpToGlobalPhase }
+                            }
+                            _ => EquivalenceStatus::Unknown,
+                        }
+                    }
+                }
+                PrintedVerdict::UnknownResolution | PrintedVerdict::UnknownOvershoot =>
+                    EquivalenceStatus::Unknown,
+            };
+            wmc_time = Some(wmc_start.elapsed().as_secs_f64());
+        } else if let Some(raw_amplitude) = raw_amplitude {
         let _classification_scope = diagnostics::span("classification");
         let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
         let final_amplitude = raw_amplitude * normalization_factor;
@@ -318,24 +394,10 @@ fn check_equivalence_with_tolerances_mode(
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
         let norm = final_amplitude.norm();
-        // The guard reflects observed solver precision, NOT a certified error bound.
-        const APPROX_MAG_GUARD: f64 = 3e-9;
-        if let Some(threshold) = distance_defect_threshold {
-            let defect = 1.0 - norm;
-            status = if !norm.is_finite() || defect < -APPROX_MAG_GUARD
-                || (defect - threshold).abs() <= APPROX_MAG_GUARD
-            {
-                EquivalenceStatus::Unknown
-            } else if defect > threshold + APPROX_MAG_GUARD {
-                EquivalenceStatus::NotEquivalent
-            } else {
-                let theta = final_amplitude.im.atan2(final_amplitude.re);
-                if theta.abs() < wmc_phase_tolerance {
-                    EquivalenceStatus::Equivalent
-                } else {
-                    EquivalenceStatus::EquivalentUpToGlobalPhase
-                }
-            };
+        if distance_defect_threshold.is_some() {
+            // Empty CNF analytic shortcut: a known exact normalized identity.
+            status = EquivalenceStatus::Equivalent;
+            wmc_precision_reason = Some("analytic_empty_cnf");
         } else if (norm - 1.0).abs() < wmc_magnitude_tolerance {
             let theta = final_amplitude.im.atan2(final_amplitude.re);
             info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
@@ -377,6 +439,8 @@ fn check_equivalence_with_tolerances_mode(
         tool_time,
         wmc_time,
         tool_name: tool_name.to_string(),
+        wmc_printed_verdict,
+        wmc_precision_reason,
         approximate_distance_tolerance,
         decision_basis,
         solver_invoked,

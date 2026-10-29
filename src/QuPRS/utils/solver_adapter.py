@@ -5,6 +5,7 @@ from threading import RLock
 from typing import Callable, ContextManager
 
 from QuPRS.utils.wmc_solvers import SOLVER_ARGUMENTS, parse_count_line
+from QuPRS.utils.precision_count import PrintedCount, parse_printed_solver_output
 
 
 class SolverExecutionError(RuntimeError):
@@ -25,7 +26,7 @@ class SolverCapabilities:
 @dataclass(frozen=True)
 class SolverResult:
     solver_id: str
-    count: complex
+    count: complex | PrintedCount
     arguments: tuple[str, ...]
     returncode: int
     elapsed_seconds: float
@@ -46,6 +47,16 @@ class SolverAdapter:
 
     def verify_binary(self, executable, timeout):
         pass
+
+    def parse_output_precise(self, stdout):
+        """Retain exact decimal text through the selected solver boundary.
+
+        This is a printed-value observation, NOT a Solver error certificate.
+        """
+        try:
+            return parse_printed_solver_output(stdout)
+        except ValueError as exc:
+            raise SolverResultError(str(exc)) from exc
 
     def parse_output(self, stdout):
         count = None
@@ -114,7 +125,7 @@ def registered_solver_adapter(adapter):
                 del _EXTENSIONS[adapter.solver_id]
 
 
-def execute_solver(adapter, cnf_path, timeout, *, resource_resolver, process_runner):
+def execute_solver(adapter, cnf_path, timeout, *, resource_resolver, process_runner, capture_decimal=False):
     """Invoke the explicitly selected solver, preserving process supervision."""
     import time
     from QuPRS.utils.solver_process import SOLVER_ENV_LOCK, SolverTimeout
@@ -144,6 +155,7 @@ def execute_solver(adapter, cnf_path, timeout, *, resource_resolver, process_run
             f"command={command!r}\nstdout={output.stdout}\nstderr={output.stderr}"
         )
     return SolverResult(
-        adapter.solver_id, adapter.parse_output(output.stdout),
+        adapter.solver_id, (adapter.parse_output_precise(output.stdout) if capture_decimal
+                            else adapter.parse_output(output.stdout)),
         adapter.arguments, output.returncode, time.monotonic() - started,
     )

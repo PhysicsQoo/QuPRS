@@ -151,24 +151,26 @@ def anf_to_cnf(anf):
 
 # Convert polynomial P to weighted logical expressions
 def P_to_wlogi(P):
-    """Map phase coefficients to Boolean-weighted terms.
+    """Encode nontrivial Boolean-controlled phases and scalar global phases.
 
-    An integer coefficient contributes exp(2*pi*i*k*m) = 1 for a
-    Boolean monomial m and must not become a symbolic CNF weight.
+    Integer coefficients on Boolean monomials give unit weights, but
+    a noninteger scalar must remain visible (e.g., 1/4 produces i).
+    SymEngine may represent a scalar as either {1: c} or {c: 1}
+    in as_coefficients_dict(); both shapes must be preserved.
     """
     if P == 0:
         return []
-    args = P.as_coefficients_dict()
     output = []
-    for monomial, coefficient in args.items():
-        if coefficient == 0 or isinstance(coefficient, (int, se.Integer)):
-            # The old coefficient==1 branch made the *monomial* a
-            # numerical weight, emitting illegal cos(2*pi*y*q) strings.
-            # Any integer-multiple-of-2*pi phase is trivial for Boolean m.
+    for monomial, coefficient in P.as_coefficients_dict().items():
+        if coefficient == 0:
             continue
-        output.append((coefficient, algebraic_to_logical(monomial)))
+        if not getattr(monomial, "free_symbols", ()):
+            scalar = monomial * coefficient
+            if scalar != 0 and not isinstance(scalar, (int, se.Integer)):
+                output.append((scalar, sp.true))
+        elif not isinstance(coefficient, (int, se.Integer)):
+            output.append((coefficient, algebraic_to_logical(monomial)))
     return output
-
 
 # Convert CNF to clauses
 def cnf_to_clauses(cnf, symbols_map, flag=False):

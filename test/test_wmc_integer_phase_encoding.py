@@ -35,3 +35,17 @@ def test_exact_qft_style_identity_emits_only_numeric_complex_weights():
     assert "sin(" not in result.CNF
     assert result.wmc_solver_invoked
     assert result.equivalent in ("equivalent", "equivalent*"), result
+
+def test_scalar_global_phase_is_not_discarded():
+    import sympy as sp
+
+    quarter = P_to_wlogi(se.Rational(1, 4))
+    assert len(quarter) == 1
+    assert quarter[0][0] == se.Rational(1, 4)
+    assert quarter[0][1] == sp.true
+
+    y = se.Symbol("y")
+    mixed = P_to_wlogi(se.Rational(1, 4) + y)
+    assert len(mixed) == 1
+    assert mixed[0][0] == se.Rational(1, 4)
+    assert mixed[0][1] == sp.true

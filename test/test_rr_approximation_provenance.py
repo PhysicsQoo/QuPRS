@@ -40,22 +40,37 @@ def hsh(extra_rz=0.0):
 def test_near_hh_nonconstant_phase_no_longer_proves_equivalence(method):
     left = hsh()
     right = hsh(2 * math.pi * 1e-7)
-    with tolerance(1e-6):
-        observed = check_equivalence(
+    from unittest.mock import patch
+    from QuPRS.interface import ps2wmc
+    captured = []
+    real_to_dimacs = ps2wmc.to_DIMACS
+
+    def observed_to_dimacs(pathsum, filename="wmc.cnf", tool_name="gpmc"):
+        captured.append(pathsum)
+        return real_to_dimacs(pathsum, filename, tool_name)
+
+    with tolerance(1e-6), patch.object(
+        ps2wmc, "to_DIMACS", side_effect=observed_to_dimacs
+    ):
+        result = check_equivalence(
             left, right, method=method, strategy="Naive",
             backend="python", tool_name="gpmc",
             approximate_distance_tolerance=1e-8, timeout=15,
         )
-    assert observed.equivalent == "unknown", observed
-    assert observed.decision_basis == "inconclusive"
-    assert observed.rr_approximation_unbounded
+    assert result.equivalent == "unknown", result
+    assert not result.rr_approximation_unbounded
     assert any(
-        event["kind"] == "phase_normalization" and event["nonconstant"]
-        for event in observed.rr_approximation_events
-    ), observed.rr_approximation_events
-    # Never feed a lossy reduced path sum into WMC to "confirm" the identity.
-    assert observed.wmc_solver_invoked is False
-    assert observed.wmc_numerical_verdict is None
+        e["kind"] == "phase_normalization"
+        and e["nonconstant"] and not e["applied"]
+        for e in result.rr_approximation_events
+    )
+    if method == "hybrid":
+        assert result.wmc_solver_invoked
+        assert len(captured) == 1 and captured[0] is result.final_pathsum
+        assert result.wmc_numerical_verdict == "unknown"
+    else:
+        assert not result.wmc_solver_invoked
+        assert not captured
 
 
 @pytest.mark.parametrize("method", ["reduction_rules", "hybrid"])
@@ -115,6 +130,31 @@ def test_near_omega_match_records_unbounded_approximation():
     assert match[0] is not None
     assert evidence.unbounded
     assert any(e["kind"] == "omega_coefficient_match" for e in evidence.events)
+
+
+def test_preservation_skips_numerical_phase_deletion():
+    x = se.Symbol("x")
+    delta = se.Rational(1, 10_000_000)
+    with tolerance(1e-6):
+        with capture_rr_provenance(preserve_source=True) as evidence:
+            assert tracked_reduce_expression(delta) == delta
+            assert tracked_reduce_expression(delta*x) == delta*x
+    assert evidence.total_events == 2
+    assert not evidence.unbounded
+    assert all(not event["applied"] for event in evidence.events)
+
+
+def test_preservation_rejects_near_omega_match():
+    y, x = se.symbols("y x")
+    delta = se.Rational(1, 10_000_000)
+    phase = y * (se.Rational(1, 4) + delta + x/2)
+    with tolerance(1e-6):
+        with capture_rr_provenance(preserve_source=True) as evidence:
+            match = match_omega(phase, (y,), (y,), (x,))
+    assert match[0] is None
+    assert not evidence.unbounded
+    assert any(e["kind"] == "omega_coefficient_match"
+               and not e["applied"] for e in evidence.events)
 
 
 def test_no_provenance_spills_into_independent_circuit_request():

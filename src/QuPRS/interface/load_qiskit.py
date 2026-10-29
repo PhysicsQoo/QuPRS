@@ -225,10 +225,13 @@ def check_equivalence(
             may return unknown; this is not a formal solver error certificate.
             A nondefault explicit WMC magnitude tolerance conflicts; an
             explicit 1e-8 is accepted but unused by the distance classifier.
-            Python RR-only and Hybrid return unknown when a tolerance-based
-            nonconstant phase change has no certified propagated error bound.
-            RR provenance is reported in rr_approximation_events. Exact
-            reduction and global-phase-only normalization remain usable.
+            Python RR-only and Hybrid skip tolerance-based phase deletions
+            and near-rule matches that would alter the source semantics.
+            The final faithful reduction PathSum is passed directly to WMC
+            when Hybrid RR remains inconclusive; it is not regenerated from
+            the original circuits. Skipped changes are diagnostic in
+            rr_approximation_events. RR-only can remain unknown if exact
+            reduction is incomplete.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -473,7 +476,9 @@ def check_equivalence(
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        with capture_rr_provenance() as rr_evidence:
+        # Preserve the source-exact residual through every admitted RR.
+        # Hybrid WMC must consume this final PathSum, not rebuild the input.
+        with capture_rr_provenance(preserve_source=method != "wmc_only") as rr_evidence:
             if safe_mode:
                 elapsed_so_far = time.time() - start_time
                 remaining_time = max(1, int(timeout - elapsed_so_far))
@@ -520,9 +525,9 @@ def check_equivalence(
             else:
                 equivalent = "unknown"
 
-        # A tolerance-based nonconstant phase change may hide a genuine
-        # unitary difference. It is not an exact RR proof, regardless of the
-        # final path-sum shape. Never pass its already-reduced state to WMC.
+        # Source fidelity is maintained by skipping lossy RR changes.
+        # Only safe_mode's untracked worker path remains fail-closed.
+        # Hybrid WMC consumes the exact residual PathSum produced by RR.
         if rr_unbounded and equivalent in (
             "equivalent", "equivalent*", "not_equivalent",
         ):

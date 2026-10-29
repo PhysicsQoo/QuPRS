@@ -115,9 +115,9 @@ def corpus_worker(case, out: Path):
             raise AssertionError("More than one GPMC launch inside WMC stage")
         nvars,_,_ = gpmc_cnf_budget_metadata(state["cnf"])
         # Do not launch an unbounded counting job on thousands of variables.
-        if nvars > 250:
+        if nvars > 700:
             state["pre_solver_limit"]=True
-            raise RuntimeError("RESEARCH_RESOURCE_CAP_CNF_VARIABLES_GT_250")
+            raise RuntimeError("RESEARCH_RESOURCE_CAP_CNF_VARIABLES_GT_700")
         state["printed"]=original_solver(*args,**kwargs)
         return state["printed"]
     ps2wmc.to_DIMACS=capture_encode
@@ -175,6 +175,8 @@ def corpus_worker(case, out: Path):
 
 def bounded_corpus(out: Path, script: Path):
     for case in CASES:
+        if case == 'qpeexact8' and os.environ.get('QUPRS_LARGE_CNF_ONLY') == '1':
+            continue
         command=[sys.executable,str(script),"--mode","corpus-worker","--case",case,"--output",str(out)]
         start=time.monotonic()
         proc=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,

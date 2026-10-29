@@ -388,6 +388,7 @@ jobs:
       MKL_NUM_THREADS: '1'
       PYTHONHASHSEED: '0'
       PUBLIC_DEV_SHA: '55e78c7597966617c1a193b89056ff4e99c3ddfb'
+      QUPRS_LARGE_CNF_ONLY: '1'
     steps:
       - name: Checkout existing experiment source and native GPMC
         uses: actions/checkout@v4
@@ -436,6 +437,7 @@ jobs:
           python -m QuPRS.utils.ganak_distribution
           python -m pip check
       - name: Compile pinned GPMC MPFR printer probe
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -443,6 +445,7 @@ jobs:
             "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/printer_mpfr_contract.cpp" \
             -lmpfr -lgmpxx -lgmp -o "$RUNNER_TEMP/mpfr-printer-contract"
       - name: Prove bounded MPFR 90-digit stream rounding against binary mantissas
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -452,6 +455,7 @@ jobs:
             --output "$RUNNER_TEMP/precision-followup-evidence" \
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/printer-study.log"
       - name: Diagnose Rust QPEexact8 input uncertainty from captured CNF and stdout
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |

@@ -461,9 +461,11 @@ The public result exposes wmc_printed_verdict, wmc_precision_reason
 and wmc_numeric_model_bound. Only robust numerical
 not_equivalent observations are eligible for promotion; modeled
 inside-threshold results remain unknown until exact source-side
-and Solver error certification is available. Inputs that exceed
-the model limits, disagree between precision runs, or have an
-interval intersecting the threshold remain unknown.
+and Solver error certification is available. Inputs that exceed the small-CNF model limits keep the existing
+single-run GPMC numerical classifier and its empirical 3e-9 guard,
+rather than being automatically forced to unknown. Eligible inputs
+that disagree between precision runs or have an uncertainty interval
+intersecting the distance threshold remain unknown.
 The original fixed 3e-9 guard remains the fallback for Ganak
 and other numeric paths. This experimental GPMC behavior is not
 yet an accepted cross-backend API guarantee.

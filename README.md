@@ -297,7 +297,8 @@ explicit **conditional numerical error model** instead of discarding
 count digits via binary64. This can report model-based not_equivalent
 where the evidence is separated from the distance boundary; it is
 not a formal arithmetic or source-angle error certificate.
-Unsupported or ambiguous cases remain unknown. This experimental
+Large unsupported CNFs retain the previous one-run classifier;
+within the model, ambiguous cases remain unknown. This experimental
 behavior and its extra Solver cost are not a stable release contract.
 
 ### Solver subprocess reliability and timeout limits

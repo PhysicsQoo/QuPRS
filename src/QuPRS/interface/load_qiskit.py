@@ -563,44 +563,67 @@ def check_equivalence(
                 tool_start_time = time.time()
                 wmc_solver_invoked = True
                 if approximate_distance_tolerance is not None and tool_name == "gpmc":
+                    from fractions import Fraction
                     from QuPRS.utils.gpmc_distance_budget import (
-                        classify_gpmc_budgeted_count,
+                        MAX_BUDGET_VARS, classify_gpmc_budgeted_count,
                     )
                     from QuPRS.utils.gpmc_cnf_metadata import (
                         gpmc_cnf_budget_metadata,
                     )
-                    # An explicit GPMC precision sweep checks reproducibility
-                    # before admitting the bounded numerical model. Do not
-                    # infer an arithmetic certificate from printed digits.
-                    first = run_wmc(
-                        temp_name, tool_name,
-                        timeout=max(0.0, deadline - time.monotonic()),
-                        preserve_count=True, precision_digits=60,
-                    )
-                    counted = run_wmc(
-                        temp_name, tool_name,
-                        timeout=max(0.0, deadline - time.monotonic()),
-                        preserve_count=True, precision_digits=90,
-                    )
                     nvars, nweights, max_weight_sq = gpmc_cnf_budget_metadata(CNF)
-                    budget = classify_gpmc_budgeted_count(
-                        counted, expected_twice_log2=int(round(2 * expect)),
-                        distance_tolerance=approximate_distance_tolerance,
-                        precision_digits=90, cnf_vars=nvars,
-                        number_of_weights=nweights,
-                        maximum_weight_magnitude_squared=max_weight_sq,
-                        independent_count=first,
-                        phase_tolerance=wmc_phase_tolerance,
+                    eligible = (
+                        nvars <= MAX_BUDGET_VARS and nweights <= nvars
+                        and max_weight_sq <= (
+                            Fraction(1) + Fraction(1, 2**60)
+                        )**2
                     )
-                    equivalent = budget.status
-                    wmc_precision_reason = budget.reason
-                    wmc_printed_verdict = budget.printed_status
-                    wmc_numeric_model_bound = budget.normalized_count_uncertainty
-                    _, log_wmc = classify_approximate_weighted_count(
-                        float(counted.real), float(counted.imag), expect,
-                        distance_tolerance=approximate_distance_tolerance,
-                        phase_tolerance=wmc_phase_tolerance,
-                    )
+                    if eligible:
+                        # Two distinct MPFR working precisions. For bounded
+                        # CNFs, compare both before using the conditional
+                        # engineering error model. No solver certificate.
+                        first = run_wmc(
+                            temp_name, tool_name,
+                            timeout=max(0.0, deadline - time.monotonic()),
+                            preserve_count=True, precision_digits=60,
+                        )
+                        counted = run_wmc(
+                            temp_name, tool_name,
+                            timeout=max(0.0, deadline - time.monotonic()),
+                            preserve_count=True, precision_digits=90,
+                        )
+                        budget = classify_gpmc_budgeted_count(
+                            counted, expected_twice_log2=int(round(2 * expect)),
+                            distance_tolerance=approximate_distance_tolerance,
+                            precision_digits=90, cnf_vars=nvars,
+                            number_of_weights=nweights,
+                            maximum_weight_magnitude_squared=max_weight_sq,
+                            independent_count=first,
+                            phase_tolerance=wmc_phase_tolerance,
+                        )
+                        equivalent = budget.status
+                        wmc_precision_reason = budget.reason
+                        wmc_printed_verdict = budget.printed_status
+                        wmc_numeric_model_bound = budget.normalized_count_uncertainty
+                        _, log_wmc = classify_approximate_weighted_count(
+                            float(counted.real), float(counted.imag), expect,
+                            distance_tolerance=approximate_distance_tolerance,
+                            phase_tolerance=wmc_phase_tolerance,
+                        )
+                    else:
+                        # Large/general CNFs keep the previously validated
+                        # one-run numerical contract and its original guard.
+                        # Do not make them unknown merely because the new
+                        # small-CNF model is inapplicable.
+                        complex_number = run_wmc(
+                            temp_name, tool_name,
+                            timeout=max(0.0, deadline - time.monotonic()),
+                        )
+                        equivalent, log_wmc = classify_approximate_weighted_count(
+                            complex_number[0], complex_number[1], expect,
+                            distance_tolerance=approximate_distance_tolerance,
+                            phase_tolerance=wmc_phase_tolerance,
+                        )
+                        wmc_precision_reason = "legacy_guard_unsupported_model"
                 else:
                     complex_number = run_wmc(
                         temp_name, tool_name,

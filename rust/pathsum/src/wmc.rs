@@ -270,6 +270,19 @@ impl WmcManager {
         self.solve_with_adapter_printed(selected, deadline)
     }
 
+    /// Typed result for the public distance-mode verifier, preserving the
+    /// selected solver (GPMC -prec=90, native Ganak mode 6).
+    pub fn solve_with_deadline_distance_printed(
+        &self, tool_name: &str, deadline: Option<std::time::Instant>,
+    ) -> Result<crate::precision_count::PrintedCount> {
+        self.solve_with_adapter_printed(
+            crate::solver_adapter::distance_adapter_for(tool_name)?, deadline,
+        )
+    }
+
+    /// Number of phase-weight literals used in a conditional f64 input budget.
+    pub fn numerical_weight_count(&self) -> usize { self.weights.len() }
+
     pub(crate) fn solve_with_adapter_printed(
         &self,
         adapter: &dyn crate::solver_adapter::SolverAdapter,

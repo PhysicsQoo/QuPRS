@@ -389,6 +389,8 @@ def check_equivalence(
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
             decision_basis=rust_res.get("decision_basis"),
+            wmc_printed_verdict=rust_res.get("wmc_printed_verdict"),
+            wmc_precision_reason=rust_res.get("wmc_precision_reason"),
             wmc_solver_invoked=rust_res.get("wmc_solver_invoked"),
         )
     try:

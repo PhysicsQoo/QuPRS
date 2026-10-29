@@ -137,6 +137,102 @@ Acceptance requires:
    default and permit explicit per-call strict policy.
 4. No change to the TACAS Reduction-first Hybrid or solver selection.
 
+## v0.14.0 development: precision-aware WMC transport
+
+This section describes the **experimental source implementation** on the
+numerical-tolerance development branch. It does not announce a released API,
+and it does not change the current public distance-classification semantics.
+
+### Current public verification contract
+
+~~~python
+from QuPRS import check_equivalence
+
+result = check_equivalence(
+    original, optimized,
+    backend="rust",                # or "python"
+    method="wmc_only",             # or "hybrid"
+    tool_name="ganak",             # or "gpmc"
+    approximate_distance_tolerance=2e-4,
+    wmc_phase_tolerance=1e-8,
+)
+print(result.equivalent, result.decision_basis, result.wmc_numerical_verdict)
+~~~
+
+**approximate_distance_tolerance** is an optional, finite projective
+Hilbert--Schmidt distance threshold strictly in (0, 1). It is **not** the
+same quantity as **wmc_magnitude_tolerance**: the latter is the legacy
+normalized magnitude-defect budget and must be left at its canonical 1e-8
+value if explicitly supplied alongside the projective threshold.
+The symbolic reduction tolerance is independently managed by
+**config.set_tolerance()**. No **wmc_policy** argument exists.
+
+The possible overall labels remain **equivalent**, **equivalent***,
+**not_equivalent**, **unknown**, plus separate timeout/resource outcomes.
+**wmc_numerical_verdict** records an external-counter observation, not an
+exact proof. Inconclusive numerical evidence stays **unknown**; a Solver
+crash, malformed output or timeout is never rebranded as inequivalence.
+
+### Internal precision-aware transport under integration
+
+Python's **QuPRS.utils.precision_count.PrintedCount** stores the real and
+imaginary solver count as exact rational conversions of the decimal text,
+with separate **printed-format half-last-unit** values. The opt-in internal
+**run_wmc(..., preserve_count=True)** returns that record; ordinary
+**run_wmc()** retains its existing two-float return shape. Rust's
+**pathsum::precision_count::PrintedCount** uses **BigRational**;
+**WmcManager::solve_with_deadline_printed** reuses the same Solver subprocess
+supervisor and preserves the text before **Complex<f64>** conversion. Legacy
+Rust **solve_with_deadline** remains unchanged.
+
+Given the integer normalization exponent k = 2n + number of additional
+path variables, both precision-aware implementations compare
+
+\[
+  |\operatorname{Count}|^2
+  \quad\text{to}\quad
+  2^k(1-\varepsilon^2)
+\]
+
+with exact rational arithmetic, widening real and imaginary printed
+values separately by their formatting half-units. This avoids *additional*
+binary64 cancellation in the final normalized magnitude comparison.
+An output such as **1.00000000e+00** with insufficient printed precision is
+**unknown** at a sufficiently narrow distance threshold, while an output
+whose **entire** printed interval lies above the physically normalized
+unit magnitude is also **unknown**.
+
+**Critical limitation:** these intervals cover only rounding of the
+solver's *printed* count, not error in the solver's internal arithmetic,
+input weight creation, phase reductions or QASM conversion. They cannot
+certify that a solver computed the correct mathematical trace. No native
+Ganak distribution has yet been replaced by the research printer variant;
+its v2.8.0 mode-6 output remains limited to nine significant digits.
+Do not treat an internal printed-only numerical verdict as a new
+source-exact equivalence proof.
+
+### Remaining error sources and release documentation gate
+
+| Stage | Current implementation | Required release evidence |
+| --- | --- | --- |
+| QASM/source angle | Rust QASM2 retains supported pi/decimal-radian literals; Qiskit numeric circuit objects may already be binary64 | Separate input provenance, literal-vs-object tests |
+| Python phase to weight | SymEngine evalf(113) emits phase weights | Precision sweep, comparison to independent high-precision oracle |
+| Rust phase to weight | Exact PhaseCoeff is converted to binary64 before sin/cos | High-precision conversion and native near-threshold regression |
+| Python reduction | Elim, HH, omega may use local tolerance to match/drop terms | Bound or track approximate reductions and their accumulated effect |
+| Rust reduction | Exact rational special-coefficient matching | Confirm no hidden lossy branch or untracked approximation |
+| GPMC/Ganak computation | Floating/MPFR arithmetic, no global count error certificate | Identify actual arithmetic precision and defensible limits for each Solver |
+| Solver output | Precision-aware text parser; Ganak native printer still fixed to %.8Re | Reproducible source-pinned binary build, full output precision, hashes |
+| Normalization and distance | Rational printed-count path, not yet connected to public distance verdict | Python/Rust public API parity, boundary and unknown regression |
+| End-to-end decision | Existing numerical heuristic and 3e-9 empirical guard | Provenance, conservative unknown, original-paper representative cases |
+
+Before shipping v0.14.0, update **the README, Python public API
+docstrings, Rust crate/PyO3 API documentation, and this policy page**
+together with one complete example per backend. Document parameter
+defaults, allowed range, return statuses, numerical/proof provenance,
+legacy-call compatibility, known Solver limitations, and how timeout,
+**unknown**, and Solver exceptions differ. The release gate must verify
+these docs against the tested implementation, not just a proposed API.
+
 ## Candidate-selection evidence
 
 The initial 1e-10 public default candidate failed the native historical

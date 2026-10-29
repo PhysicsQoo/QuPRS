@@ -9,6 +9,7 @@ pub mod reduction;
 pub mod strategy;
 pub mod stats;    
 pub mod wmc;
+pub mod precision_count;
 mod solver_adapter;
 mod wmc_problem;
 pub mod solver_result;

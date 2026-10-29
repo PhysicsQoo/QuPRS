@@ -250,16 +250,21 @@ def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
     return DIMACS_text
 
 
-def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0):
-    """Run the selected adapter; retain the public (real, imag) tuple."""
+def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0, *, preserve_count=False):
+    """Run the selected adapter. Preserve legacy tuples unless explicitly requested.
+
+    preserve_count returns PrintedCount retaining rational text values and
+    printed-rounding units. It does not certify Solver internal error.
+    """
     from QuPRS.utils.solver_adapter import get_solver_adapter, execute_solver
     from QuPRS.utils.solver_process import run as run_solver
 
     result = execute_solver(
         get_solver_adapter(tool_name), file, timeout,
         resource_resolver=WMC, process_runner=run_solver,
+        capture_decimal=preserve_count,
     )
-    return result.count.real, result.count.imag
+    return result.count if preserve_count else (result.count.real, result.count.imag)
 
 if __name__ == "__main__":
     # from pathsum.pathsum import PathSum, F, Register

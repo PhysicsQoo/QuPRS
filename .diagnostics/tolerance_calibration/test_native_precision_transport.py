@@ -36,7 +36,12 @@ def test_focused_native_precision_transport_evidence():
     # remain pinned to the original research baseline.
     parser_paths = {
         "src/QuPRS/utils/wmc_solvers.py",
+        "src/QuPRS/utils/precision_count.py",
+        "src/QuPRS/utils/solver_adapter.py",
+        "src/QuPRS/interface/ps2wmc.py",
         "rust/pathsum/src/wmc.rs",
+        "rust/pathsum/src/lib.rs",
+        "rust/pathsum/src/precision_count.rs",
     }
     changed = set(source_diff.splitlines()) if source_diff else set()
     assert changed <= parser_paths, (

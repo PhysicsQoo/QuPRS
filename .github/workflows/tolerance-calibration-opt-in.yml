@@ -108,6 +108,18 @@ jobs:
             --out focused-tolerance-evidence --verify \
             2>&1 | tee focused-tolerance-evidence/transport-parity.log
 
+      - name: Validate production precision-count consumer contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p focused-tolerance-evidence
+          python -m pytest -q -ra test/test_precision_count_transport.py \
+            --junitxml=focused-tolerance-evidence/production-precision-python-junit.xml \
+            2>&1 | tee focused-tolerance-evidence/production-precision-python.log
+          cargo test --manifest-path rust/pathsum/Cargo.toml \
+            precision_count::tests -- --nocapture \
+            2>&1 | tee focused-tolerance-evidence/production-precision-rust.log
+
       - name: Run native precision transport comparison (research only)
         shell: bash
         run: |
@@ -128,6 +140,12 @@ jobs:
           python --version > focused-tolerance-evidence/python-version.txt
           rustc --version > focused-tolerance-evidence/rustc-version.txt
           sha256sum test/test_numerical_tolerance_contract_research.py \
+            test/test_precision_count_transport.py \
+            src/QuPRS/utils/precision_count.py \
+            src/QuPRS/utils/solver_adapter.py \
+            src/QuPRS/interface/ps2wmc.py \
+            rust/pathsum/src/precision_count.rs \
+            rust/pathsum/src/lib.rs \
             test/test_wmc_solver_adapters.py \
             src/QuPRS/utils/wmc_solvers.py \
             rust/pathsum/src/wmc.rs \
@@ -322,7 +340,9 @@ jobs:
           if-no-files-found: error
   ganak-printer-paired-source:
     name: Ganak v2.8.0 same-source printer A/B
-    if: github.event_name == 'push'
+    # Re-run the pinned source-building A/B only on explicit demand.
+    # Producer source and its 48 native observations are unchanged.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

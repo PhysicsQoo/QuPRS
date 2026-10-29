@@ -322,3 +322,137 @@ CNFs, where sum/cancel structure is different.
   corrective implementation only after additional source-pinned real-CNF
   counterexamples/negative controls pass, never by relaxing the public
   distance tolerance or adding a second production Solver run.
+
+
+## Phase 4 — original QPEexact8 and QFT16 source-weight A/B (2026-10-30)
+
+**Experimental branch only.** Research source commit
+`49217d442c2f09ca3c996688578842bc69d69e7a`,
+[Actions #40969660098](https://github.com/PhysicsQoo/QuPRS/actions/runs/40969660098):
+**SUCCESS**. Artifact
+[12939907212](https://github.com/PhysicsQoo/QuPRS/actions/runs/40969660098/artifacts/12939907212),
+ZIP SHA256
+`bfc4b985cb8f1d6aa099adc9cf10e7b68a4e6321065f700b157a1045e80c4ce1`;
+ZIP CRC and 25/25 internal SHA256SUMS independently verified.
+
+### Method and source separation
+
+The public APIs, including actual Python QFT16 and Rust QPEexact8,
+were installed from fixed **dev**
+`55e78c7597966617c1a193b89056ff4e99c3ddfb`.
+A `#[cfg(test)]`-only diagnostic unit test on the existing
+**experiment** Rust pathsum reconstructed QPEexact8's native miter
+from exactly pinned QASM source pair hashes
+`8d514d06f7c9e81abda1042796cc34227624c9ed66097bee1ce5e97a87884dda` /
+`227ab45a4eb033889aa57bb53e54938e74d757fea30eaa3d276b495048dc6141`.
+It emitted native source rational cycle/radian coefficients attached to
+individual weighted literals, without snapping approximate weights to
+"nearest root". The miter had **31 CNF variables, 17 numerical weights,
+six active path variables, normalization exponent twice=22**.
+The experiment CNF and the public dev CNF differed in raw byte hashes
+(HashMap output order / variable labels need not be identical), but the
+**actual baseline GPMC printed complex count matched exactly** and
+the CNF header/weight shape agreed. That is strong observational
+comparability, not byte-for-byte source identity.
+
+### QPEexact8 Rust: source-trace A/B actually solved with GPMC
+
+There were **10 exact quarter-cycle terms**, **two eighth-cycle
+nonquarter terms**, **five source-radians nonzero terms**.
+Only source-proven exact quarter cycles were replaced with
+algebraic exact complex values; none were selected based on closeness.
+
+Every candidate below used the *same miter clauses* and one independent
+experimental native GPMC invocation at `-prec=90`.
+`D²` is reconstructed from the printed count magnitude and the
+normalization factor; it is NOT a certified quantum distance.
+
+| Study input | Printed normalized magnitude defect | Printed candidate D² |
+| --- | ---: | ---: |
+| Stock native Rust f64 | 1.2871134580104743e-17 | 2.5742269160209487e-17 |
+| Only 10 source-exact Clifford quarters | 1.2871134580104702e-17 | 2.5742269160209404e-17 |
+| All 17 weights regenerated from exact source phase by 125-digit independent trigonometry (exact quarter values special-cased) | 3.423050778880919e-31 | 6.846101557761838e-31 |
+
+**Result:** fixing only Clifford phases does essentially nothing to
+the QPE8 count defect; precision loss from eighth-cycle and/or nonzero
+source-radian terms is material. All-source high-precision weight
+replacement can greatly reduce the **observed** count defect on this
+particular miter. This does NOT certify either source-to-weight or
+solver-internal arithmetic. It also does not update the public
+Rust classifier's conditional f64 input bound, which currently
+forces `unknown` at epsilon_D=1e-8.
+
+For context, the stock Rust output implied candidate
+`D ≈ 5.07368e-9` while the all-source precision candidate implied
+`D ≈ 8.274e-16`. These are model-free distances from the observed
+counts **only**, with source/solver unknowns omitted. Do not treat
+the candidate as a proof of QASM exact equivalence.
+
+### QFT16 Python: exact-source quarter cycles do not affect result
+
+The **actual pinned public dev QFT16** WMC-only CNF had 400
+positive numerical weights. Of these, the parsed phase expressions
+provided **167 proven rational quarter cycles**. A further
+11 numeric weights lay within 1e-12 of a quarter-unit root but their
+parsed phase expression did NOT prove that relation. These 11 were
+**not** snapped or promoted to exact Clifford phases.
+
+Real native GPMC count, before versus after modifying only
+the 167 source-proven quarter weights, was **identical** to
+90-decimal-digit printed precision. Both had printed
+normalized magnitude defect approximately
+`1.13691752980537e-30` and candidate
+`D² ≈ 2.27383505961075e-30`. Public verdict remained
+`unknown` with reason
+`single_pass_uncertified_insufficient_printed_resolution`;
+that is not a solver arithmetic counterexample. Fixing source-proven
+quarter cycles therefore **does not resolve QFT16**.
+
+### Negative control and scope
+
+A physically different QASM pair, identity vs one-qubit
+`Rz(0.01)`, returned `not_equivalent` under
+`epsilon_D=1e-8` in pinned public Python WMC-only.
+This is ONE bounded negative control, not a full equivalence
+regression certification of any proposed model.
+
+**Scientific promotion decision:** do not open a PR on this evidence.
+Two distinct tasks remain:
+1. For Rust, investigate source-accurate non-Clifford/eighth/radian
+   weights and a defensible composition bound for the *actual*
+   QPE8 miter; arithmetic correctness must not be inferred from
+   two numerical Solver runs.
+2. For QFT16, investigate the true source representation for the
+   remaining 233 terms and the published Solver MPFR arithmetic
+   guarantees / count-cancellation structure, rather than
+   manufacturing equivalence by a permissive threshold or by snapping
+   eleven near-Clifford weights.
+
+No production algorithm changes, no added solver replay in
+the public code path, no new PR/branch/worktree.
+
+### Independent post-run source-category error attribution
+
+Using the artifact's exact `SOURCE_WEIGHT_AUDIT` rational phase
+coefficients and the actual research-miter CNF weight decimals, an
+independent 115-digit oracle measured the absolute complex weight
+differences by *proven source category*:
+
+| QPE8 source phase category | Terms | Maximum individual | Sum of absolute differences |
+| --- | ---: | ---: | ---: |
+| Exact quarter cycles | 10 | 1.837e-16 | 1.225e-15 |
+| Exact eighth cycles (nonquarter) | 2 | 2.337e-16 | 3.126e-16 |
+| Nonzero source radians | 5 | 1.789e-16 | 4.809e-16 |
+
+Notably, **the exact quarter-cycle category has the largest
+sum of absolute single-weight errors**, yet replacing precisely
+those ten terms produced essentially no change in the
+*normalized count-magnitude defect*. This is direct evidence that
+a simplistic sum of independent weight errors is not an
+informative estimator of this particular trace's cancellation and
+global-phase structure. It is nevertheless a possible conservative
+input perturbation bound; these experiments do not invalidate
+mathematically proven upper bounds. The stronger all-source
+weight reconstruction changes the miter count materially, and
+the separate eighth and source-radian contributions should be
+investigated without assuming their effects add monotonically.

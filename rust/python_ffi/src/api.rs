@@ -8,8 +8,8 @@ use std::path::Path;
 use std::time::Instant;
 
 use pathsum::{
-    check_equivalence_with_tolerances_mode as core_check_equivalence_with_tolerances_mode,
-    VerificationMethod, VerificationStrategy, EquivalenceStatus,
+    check_equivalence_with_options as core_check_equivalence_with_options,
+    VerificationOptions, VerificationMethod, VerificationStrategy, EquivalenceStatus,
     ir::QuantumOp, qasm,
 };
 use crate::circuit::QuantumCircuit;
@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6, approximate_distance_tolerance=None))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-8, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=None))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -55,20 +55,15 @@ pub fn check_equivalence(
     wmc_phase_tolerance: f64,
     approximate_distance_tolerance: Option<f64>,
 ) -> PyResult<PyObject> {
-    let _ = safe_mode;
-    // Stable mapping: projective-Hilbert-Schmidt D -> trace magnitude defect.
-    // No promise of numerical certification is made by this conversion.
-    let effective_magnitude_tolerance = if let Some(eps) = approximate_distance_tolerance {
-        if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
-            return Err(PyValueError::new_err("approximate_distance_tolerance must be finite in (0, 1)"));
-        }
-        let sq = eps * eps;
-        sq / (1.0 + (1.0 - sq).sqrt())
-    } else {
-        wmc_magnitude_tolerance
-    };
-    if !effective_magnitude_tolerance.is_finite() || effective_magnitude_tolerance <= 0.0
-        || effective_magnitude_tolerance >= 1.0
+    // The Python safe_mode worker isolation has no Rust FFI equivalent.
+    // Never silently claim that the requested isolation is active.
+    if safe_mode {
+        return Err(PyValueError::new_err(
+            "safe_mode is not supported by the Rust backend"
+        ));
+    }
+    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
+        || wmc_magnitude_tolerance >= 1.0
         || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
         || wmc_phase_tolerance >= 1.0
     {
@@ -77,6 +72,18 @@ pub fn check_equivalence(
         ));
     }
 
+    if let Some(eps) = approximate_distance_tolerance {
+        if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
+            return Err(PyValueError::new_err(
+                "approximate_distance_tolerance must be finite and in (0, 1)"
+            ));
+        }
+        if wmc_magnitude_tolerance != 1e-8 {
+            return Err(PyValueError::new_err(
+                "approximate_distance_tolerance conflicts with nondefault wmc_magnitude_tolerance"
+            ));
+        }
+    }
     // Diagnostics-only FFI phase clock: default results are unchanged.
     // This is an extra opt-in and deliberately does not affect solver timing.
     let ffi_clock_enabled = std::env::var("QUPRS_FFI_PHASE_TIMING")
@@ -92,6 +99,9 @@ pub fn check_equivalence(
         return Python::with_gil(|py| {
             let dict = PyDict::new_bound(py);
             dict.set_item("status", "Not Equivalent")?;
+            dict.set_item("decision_basis", "structural")?;
+            dict.set_item("approximate_distance_tolerance", approximate_distance_tolerance)?;
+            dict.set_item("wmc_solver_invoked", false)?;
             dict.set_item("qubits", system_qubits)?;
             dict.set_item("gates1", ops1.len())?;
             dict.set_item("gates2", ops2.len())?;
@@ -121,13 +131,18 @@ pub fn check_equivalence(
     let tool_name_owned = tool_name.to_lowercase();
 
     let native_bridge_start = ffi_clock_enabled.then(Instant::now);
+    let options = VerificationOptions {
+        method: rs_method,
+        strategy: rs_strategy,
+        tool_name: tool_name_owned,
+        timeout_secs: timeout,
+        wmc_magnitude_tolerance,
+        wmc_phase_tolerance,
+        approximate_distance_tolerance,
+    };
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {
-            core_check_equivalence_with_tolerances_mode(
-                system_qubits, &ops1, &ops2, rs_method, rs_strategy,
-                &tool_name_owned, timeout, effective_magnitude_tolerance,
-                wmc_phase_tolerance, approximate_distance_tolerance.is_some(),
-            )
+            core_check_equivalence_with_options(system_qubits, &ops1, &ops2, &options)
         })
     }).map_err(|e| PyValueError::new_err(format!("Verification Engine Failed: {}", e)))?;
     let native_bridge_ns = native_bridge_start.map(|start| start.elapsed().as_nanos() as u64);
@@ -136,7 +151,7 @@ pub fn check_equivalence(
         let dict_build_start = ffi_clock_enabled.then(Instant::now);
         let dict = PyDict::new_bound(py);
         
-        let status_str = match result.status {
+        let status_str = match &result.status {
             EquivalenceStatus::Equivalent => "Equivalent",
             EquivalenceStatus::EquivalentUpToGlobalPhase => "Equivalent (Up to Global Phase)",
             EquivalenceStatus::NotEquivalent => "Not Equivalent",
@@ -146,6 +161,12 @@ pub fn check_equivalence(
         };
 
         dict.set_item("status", status_str)?;
+        dict.set_item("decision_basis", result.decision_basis)?;
+        dict.set_item("wmc_solver_invoked", result.solver_invoked)?;
+        dict.set_item("approximate_distance_tolerance", result.approximate_distance_tolerance)?;
+        if result.wmc_time.is_some() && result.solver_invoked {
+            dict.set_item("wmc_numerical_verdict", result.status.to_string())?;
+        }
         
         dict.set_item("qubits", result.qubit_num)?;
         dict.set_item("gates1", result.gate_num1)?;

@@ -137,7 +137,7 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 
 ## Equivalence Checking
 
-> **Numerical and source-semantic limits (v0.13.4 candidate):**
+> **Numerical and source-semantic limits (v0.14.0 candidate):**
 > Rust preserves supported QASM2 literal decimal-radian angles separately from
 > symbolic multiples of pi through its PathSum/phase representation. Strict
 > source-literal comparison can therefore disagree with historical approximate
@@ -145,12 +145,21 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > numerical distance is tiny. The Python Qiskit-object path has different
 > input-precision provenance; do not infer recovered source literals from f64.
 > Ganak and GPMC produce floating weighted counts, not general proof
-> certificates: default `wmc_policy="legacy"` numerical acceptance can still
-> report positive results for genuinely inequivalent near-identity rotations.
-> Use `wmc_policy="conservative"` to retain the numeric observation as a
-> diagnostic and return `unknown` for uncertified external WMC results.
+> certificates: a numerical acceptance band can still include strictly
+> inequivalent near-identity rotations. There is no selectable `wmc_policy`;
+> the solver-derived observation is available as `wmc_numerical_verdict`.
+> The optional `approximate_distance_tolerance` uses projective circuit
+> distance with a conservative empirical boundary guard. An inconclusive
+> comparison returns `unknown`; this is not a certified solver error bound.
 > A numerical tolerance cannot make the underlying input operators exactly
-> equal. See [formal semantics](docs/development/equivalence-semantics.md),
+> equal.
+> For example, `check_equivalence(a, b, method="hybrid", backend="rust",
+> approximate_distance_tolerance=2e-4)` has the same distance criterion as
+> `backend="python"`. An explicit **nondefault**
+> `wmc_magnitude_tolerance` conflicts; `1e-8` is allowed but unused in
+> distance mode, regardless of the mutable legacy WMC default.
+> The `decision_basis` field identifies whether
+> a verdict was symbolic, numerical or inconclusive. See [formal semantics](docs/development/equivalence-semantics.md),
 > [WMC evidence](docs/development/wmc-evidence-policy.md), and
 > [QASM source-angle representation](docs/development/exact-angle-representation.md).
 
@@ -218,6 +227,41 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
   result = check_equivalence(circuit1, circuit2, method = "wmc_only",)
   ```
+
+### Phase preservation and reduction tolerance
+
+The Python backend retains **nonzero input phase coefficients** while
+constructing the PathSum. In particular, a long sequence of small rotations
+is not silently erased gate by gate merely because each rotation is below
+the local reduction tolerance. The Elim, HH and omega reduction rules still
+use the configured tolerance to match and simplify terms.
+
+`config.set_tolerance()` controls the **process-wide Python RR tolerance**
+(default `1e-10` in phase-coefficient units). Changing it invalidates
+tolerance-dependent cached simplifications. It accepts only finite positive
+numeric values (not booleans). It is not a thread-local or per-call setting.
+
+```python
+from QuPRS import check_equivalence, config
+
+config.set_tolerance(1e-10)
+result = check_equivalence(
+    circuit1, circuit2, method="hybrid", backend="python",
+    wmc_magnitude_tolerance=1e-8,
+    wmc_phase_tolerance=1e-8,
+)
+print(result.equivalent)
+```
+
+RR coefficient matching and the **separate** WMC numerical classification
+thresholds are not interchangeable. Preserving input phases can change a
+previous `equivalent` result into `unknown` (RR alone) or
+`not_equivalent` (Hybrid/WMC), because the earlier result had discarded
+information. A floating WMC acceptance is not a strict equivalence
+certificate, and a WMC magnitude tolerance of `1e-8` is **not**
+the QCEC projective circuit-distance tolerance of `1e-8`.
+See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
+
 ### Solver subprocess reliability and timeout limits
 
 On **Linux** and **macOS**, both backends supervise each invocation of the

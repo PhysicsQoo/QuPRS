@@ -2,6 +2,20 @@
 
 Significant user-facing changes to QuPRS are summarized here. See [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases) for published packages and release dates.
 
+## Unreleased
+
+### Fixed
+- Preserve nonzero phase coefficients at Python gate-to-PathSum construction time, independently of the tolerance used by Elim/HH/omega local reduction matching. This prevents large collections of individually tiny Rz rotations from disappearing before RR, Hybrid or WMC-only can account for their accumulated effect.
+- Invalidate cached tolerance-dependent Python reductions when `config.set_tolerance()` changes its value; reject non-finite, Boolean and nonpositive settings.
+
+### API and compatibility (v0.14.0 work in progress)
+- Remove the public `wmc_policy` argument and result field; passing the old keyword now raises `TypeError`. The `wmc_numerical_verdict` diagnostic remains observable when WMC is invoked.
+- Add native Rust `VerificationOptions` and `check_equivalence_with_options()`, preserving existing Rust signatures. Rust crate and PyO3 WMC magnitude/phase defaults now match the Python public defaults (`1e-8` each); direct Rust callers relying on the old `1e-6` defaults should pass them explicitly.
+- Rust FFI rejects `safe_mode=True` instead of silently ignoring it; Python backend safe mode is unchanged.
+- Add opt-in `approximate_distance_tolerance` to Python, PyO3 and typed Rust options. Stable projective-distance conversion with a fixed empirical 3e-9 guard returns `unknown` near unresolved numerical boundaries; this is not a certified solver error bound.
+- In approximate mode RR strict source inequivalence need not imply distance beyond epsilon: RR-only can be inconclusive and Hybrid may fall through to WMC; symbolic positive RR fast paths stay unchanged.
+- `config.set_tolerance()` remains a process-global Python RR setting, not a Rust per-call knob; external weighted Solver evidence is not a universal exact-equivalence proof.
+
 ## 0.13.4 (unreleased)
 
 ### Scientific semantics and correctness

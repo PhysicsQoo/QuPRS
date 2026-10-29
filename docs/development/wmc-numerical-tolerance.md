@@ -23,12 +23,45 @@ the returned result. When omitted, the public API reads defaults from
 config.WMC_MAGNITUDE_TOLERANCE and config.WMC_PHASE_TOLERANCE. Explicit values must be finite numbers
 strictly between 0 and 1. Invalid values fail before native execution.
 config.set_tolerance() governs Python symbolic reduction only; changing
-it is **not** a way to tune the WMC numeric classifier.
+it is **not** a way to tune the WMC numeric classifier. Changing the
+process-global RR coefficient tolerance invalidates tolerance-dependent
+symbolic caches; it must be a finite positive number (not a bool).
+It is not a per-call or thread-local setting.
 
-The current **public Python API** defaults are magnitude 1e-8 and
-phase 1e-8. These are numerical heuristics, not exact certificates. The historical values were 1e-6 each. Direct callers of the
-legacy Rust-core function retain its historical defaults; the Python API
-passes its validated current per-call settings to the Rust FFI explicitly.
+## Source-phase preservation versus RR matching
+
+For the Python backend, gate construction preserves nonzero input phase
+coefficients even when individual coefficients are smaller than
+`config.TOLERANCE`. The Elim/HH/omega matching rules retain their
+existing local coefficient tolerance. This separation prevents
+an accumulation of tiny rotations from being silently erased
+before RR/Hybrid or WMC-only examines the resulting circuit.
+
+For example, `Rz(3e-6)` repeated 200 times is the same rotation as
+`Rz(0.0006)`, with projective Hilbert--Schmidt distance from
+identity `abs(sin(0.0006/2)) ≈ 3e-4` and ideal normalized
+trace-magnitude defect `1 - abs(cos(0.0006/2)) ≈ 4.5e-8`.
+With an RR coefficient tolerance of `1e-6`, the old gate-local
+snapping policy could erase all 200 small rotations even though the
+combined rotation exceeds a WMC magnitude tolerance of `1e-8`.
+The phase-preserving construction keeps both representations visible
+to WMC and lets RR report `unknown` when reduction is incomplete.
+
+This is a correctness fix for premature phase deletion, **not** a
+mathematical proof that arbitrary repeated approximate RR reductions
+have an error bound, or that Ganak/GPMC can certify QCEC's
+`1e-8` projective circuit-distance tolerance. In controlled
+identity tests, Ganak's rounded complex count has exhibited normalized
+magnitude errors around `9.3e-10` (60 H gates) and `2.0e-9`
+(80 H gates). The current WMC public default `1e-8` remains unchanged;
+these depth-specific observations are not universal error estimates.
+
+All **Python, PyO3 and Rust crate API** defaults are magnitude 1e-8 and
+phase 1e-8. These are numerical heuristics, not exact certificates. The
+historical Rust direct-call values were 1e-6 each; native callers requiring
+them must explicitly select those thresholds. The Rust crate additionally
+exposes a typed `VerificationOptions` interface alongside the existing
+function signatures.
 Both backend paths must agree on selected settings and outcomes.
 
 The magnitude classifier compares the normalized weighted trace with unit
@@ -70,18 +103,30 @@ References:
 ~~~python
 result = check_equivalence(
     original, optimized, method="wmc_only",
-    wmc_policy="conservative",
     wmc_magnitude_tolerance=1e-8,
 )
-# Uncertified solver floating-point observations remain "unknown";
-# result.wmc_numerical_verdict retains the threshold-based diagnostic.
+# result.equivalent is the current numerical classification;
+# result.wmc_numerical_verdict explicitly records the solver observation.
 ~~~
 
-Use wmc_policy="conservative" when an uncertified numeric WMC result
-must not be exposed as a strict mathematical verdict. For controlled
-legacy comparisons, specify the tolerance and record it with the solver,
-backend, raw count, and source commit. Strict interval bounds from the
-bounded diagonal-family reference are a separate research artifact.
+There is no public `wmc_policy` switch. A floating WMC positive or
+negative is not automatically a source-exact proof. The optional
+`approximate_distance_tolerance=epsilon` selects the projective
+Hilbert--Schmidt distance, with stable magnitude-defect boundary
+`epsilon**2 / (1 + sqrt(1 - epsilon**2))`. A fixed 3e-9 empirical
+magnitude-defect guard returns `unknown` for uncertain boundary results;
+it is **not a certified solver error enclosure**. A projective `1e-8`
+distance is below ordinary float64 normalized-magnitude resolution.
+The `decision_basis` field marks numerical versus symbolic evidence.
+In distance mode, the separately configurable legacy
+`config.WMC_MAGNITUDE_TOLERANCE` is ignored; both backends use the
+same projective epsilon. The canonical `wmc_magnitude_tolerance=1e-8`
+may be explicitly supplied, but a different magnitude threshold is
+incompatible with a projective distance request. WMC-only and Hybrid
+numerical outcomes are still heuristic, not source-exact proofs.
+For controlled comparisons record the tolerance, solver, backend,
+raw count and source commit. Verified interval certificates remain
+separate research artifacts.
 
 Acceptance requires:
 1. Same result across Python/Rust and GPMC/Ganak for true identity and

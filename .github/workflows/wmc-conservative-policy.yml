@@ -1,12 +1,20 @@
-name: Opt-in Conservative WMC Evidence Policy
+name: WMC Numerical Evidence Contract
 
 on:
   pull_request:
     branches: [dev]
     paths:
       - 'src/QuPRS/interface/load_qiskit.py'
-      - 'test/test_wmc_conservative_policy.py'
+      - 'src/QuPRS/utils/wmc_solvers.py'
+      - 'src/QuPRS/config.py'
+      - 'rust/pathsum/src/lib.rs'
+      - 'rust/python_ffi/src/api.rs'
+      - 'test/test_wmc_evidence_contract.py'
+      - 'test/test_numerical_tolerance_contract.py'
+      - 'test/test_wmc_tolerance_api.py'
       - 'docs/development/wmc-evidence-policy.md'
+      - 'docs/development/wmc-numerical-tolerance.md'
+      - 'docs/development/equivalence-semantics.md'
       - '.github/workflows/wmc-conservative-policy.yml'
   workflow_dispatch:
 
@@ -14,8 +22,8 @@ permissions:
   contents: read
 
 jobs:
-  conservative-wmc-policy:
-    name: Python Rust GPMC Ganak conservative WMC evidence
+  wmc-evidence-contract:
+    name: Python Rust GPMC Ganak numerical evidence
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -48,15 +56,24 @@ jobs:
           maturin develop --release -E dev
           python -m QuPRS.utils.ganak_distribution
 
-      - name: Run source-pinned conservative policy native regressions
+      - name: Run source-pinned WMC numerical evidence regressions
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p conservative-wmc-results
+          mkdir -p wmc-evidence-results
           python -m pytest -q -ra \
-            test/test_wmc_conservative_policy.py \
-            --junitxml=conservative-wmc-results/policy-junit.xml \
-            2>&1 | tee conservative-wmc-results/policy-test-log.txt
+            test/test_wmc_evidence_contract.py \
+            --junitxml=wmc-evidence-results/policy-junit.xml \
+            2>&1 | tee wmc-evidence-results/policy-test-log.txt
+
+      - name: Run public and native projective-distance conformance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_numerical_tolerance_contract.py \
+            --junitxml=wmc-evidence-results/distance-junit.xml \
+            2>&1 | tee wmc-evidence-results/distance-test-log.txt
 
       - name: Run existing historical numerical boundary controls
         shell: bash
@@ -64,30 +81,31 @@ jobs:
           set -euo pipefail
           python -m pytest -q -ra \
             test/test_wmc_numerics.py \
-            --junitxml=conservative-wmc-results/legacy-junit.xml \
-            2>&1 | tee conservative-wmc-results/legacy-test-log.txt
+            --junitxml=wmc-evidence-results/legacy-junit.xml \
+            2>&1 | tee wmc-evidence-results/legacy-test-log.txt
 
       - name: Seal exact HEAD, dependency and test evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p conservative-wmc-results
-          git rev-parse HEAD > conservative-wmc-results/source-head.txt
-          git rev-parse 'HEAD^{tree}' > conservative-wmc-results/source-tree.txt
-          python --version > conservative-wmc-results/python-version.txt 2>&1
-          python -m pip freeze > conservative-wmc-results/python-packages.txt
-          rustc --version > conservative-wmc-results/rustc-version.txt 2>&1
-          uname -a > conservative-wmc-results/kernel.txt
+          mkdir -p wmc-evidence-results
+          git rev-parse HEAD > wmc-evidence-results/source-head.txt
+          git rev-parse 'HEAD^{tree}' > wmc-evidence-results/source-tree.txt
+          python --version > wmc-evidence-results/python-version.txt 2>&1
+          python -m pip freeze > wmc-evidence-results/python-packages.txt
+          rustc --version > wmc-evidence-results/rustc-version.txt 2>&1
+          uname -a > wmc-evidence-results/kernel.txt
           sha256sum \
             src/QuPRS/interface/load_qiskit.py \
-            test/test_wmc_conservative_policy.py \
+            test/test_wmc_evidence_contract.py \
+            test/test_numerical_tolerance_contract.py \
             test/test_wmc_numerics.py \
             .github/workflows/wmc-conservative-policy.yml \
             docs/development/wmc-evidence-policy.md \
-            > conservative-wmc-results/source-files-sha256.txt
+            > wmc-evidence-results/source-files-sha256.txt
           (
-            cd conservative-wmc-results
+            cd wmc-evidence-results
             find . -type f ! -name SHA256SUMS -print0 | sort -z | \
               xargs -0 -r sha256sum > SHA256SUMS
             sha256sum -c SHA256SUMS
@@ -97,7 +115,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: conservative-wmc-evidence
-          path: conservative-wmc-results/
+          name: wmc-numerical-evidence
+          path: wmc-evidence-results/
           retention-days: 30
           if-no-files-found: error

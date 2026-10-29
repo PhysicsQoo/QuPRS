@@ -25,7 +25,7 @@ def test_focused_native_precision_transport_evidence():
     from QuPRS.utils.solver_process import run as run_solver
     from QuPRS.utils import WMC
 
-    base = "0aa69c149df4f7b33768bc713c619f1e3cb13a4a"
+    base = "b122962eccb9b686cb614b6e84f539e8b5cd9a14"
     gpmc_rev = "a1bda3489e959d3695b6798d327c5a1fc1bed305"
     source_diff = subprocess.check_output([
         "git", "diff", "--name-only", base, "HEAD", "--",

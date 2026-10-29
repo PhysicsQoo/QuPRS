@@ -153,5 +153,10 @@ mod tests {
             &MockAdapter, Some(Instant::now() + Duration::from_secs(15)),
         ).unwrap();
         assert_eq!(got, Complex::new(3.0, 4.0));
+        let precise = manager.solve_with_adapter_printed(
+            &MockAdapter, Some(Instant::now() + Duration::from_secs(15)),
+        ).unwrap();
+        assert_eq!(precise.real.to_string(), "3");
+        assert_eq!(precise.imag.to_string(), "4");
     }
 }

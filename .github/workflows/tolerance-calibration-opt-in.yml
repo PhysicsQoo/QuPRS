@@ -7,6 +7,15 @@ on:
     paths:
       - '.diagnostics/tolerance_calibration/**'
       - 'test/test_numerical_tolerance_contract_research.py'
+      - 'test/test_precision_count_transport.py'
+      - 'src/QuPRS/utils/precision_count.py'
+      - 'src/QuPRS/utils/wmc_solvers.py'
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/interface/ps2wmc.py'
+      - 'rust/pathsum/src/precision_count.rs'
+      - 'rust/pathsum/src/solver_adapter.rs'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'rust/pathsum/src/lib.rs'
       - '.github/workflows/tolerance-calibration-opt-in.yml'
   workflow_dispatch:
 
@@ -119,6 +128,9 @@ jobs:
           cargo test --manifest-path rust/pathsum/Cargo.toml \
             precision_count::tests -- --nocapture \
             2>&1 | tee focused-tolerance-evidence/production-precision-rust.log
+          cargo test --manifest-path rust/pathsum/Cargo.toml \
+            third_adapter_runs_via_existing_supervisor -- --nocapture \
+            2>&1 | tee focused-tolerance-evidence/production-precision-rust-solver.log
 
       - name: Run native precision transport comparison (research only)
         shell: bash
@@ -145,6 +157,7 @@ jobs:
             src/QuPRS/utils/solver_adapter.py \
             src/QuPRS/interface/ps2wmc.py \
             rust/pathsum/src/precision_count.rs \
+            rust/pathsum/src/solver_adapter.rs \
             rust/pathsum/src/lib.rs \
             test/test_wmc_solver_adapters.py \
             src/QuPRS/utils/wmc_solvers.py \

@@ -42,6 +42,7 @@ def test_focused_native_precision_transport_evidence():
         "rust/pathsum/src/wmc.rs",
         "rust/pathsum/src/lib.rs",
         "rust/pathsum/src/precision_count.rs",
+        "rust/pathsum/src/solver_adapter.rs",
     }
     changed = set(source_diff.splitlines()) if source_diff else set()
     assert changed <= parser_paths, (

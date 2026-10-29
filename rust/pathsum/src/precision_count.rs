@@ -114,7 +114,7 @@ pub fn parse_line(line: &str) -> Result<Option<PrintedCount>> {
     }))
 }
 
-pub fn parse_stdout(stdout: &str) -> Result<PrintedCount> {
+pub fn parse_stdout_optional(stdout: &str) -> Result<Option<PrintedCount>> {
     let mut found: Option<PrintedCount> = None;
     for line in stdout.lines() {
         if let Some(value) = parse_line(line)? {
@@ -126,7 +126,11 @@ pub fn parse_stdout(stdout: &str) -> Result<PrintedCount> {
             if found.is_none() { found = Some(value); }
         }
     }
-    found.ok_or_else(|| anyhow!("No recognizable high-precision solver count"))
+    Ok(found)
+}
+
+pub fn parse_stdout(stdout: &str) -> Result<PrintedCount> {
+    parse_stdout_optional(stdout)?.ok_or_else(|| anyhow!("No recognizable high-precision solver count"))
 }
 
 pub fn classify(

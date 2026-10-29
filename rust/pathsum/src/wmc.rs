@@ -259,11 +259,42 @@ impl WmcManager {
             exact_count_certificate: false,
         })
     }
+    /// Preserve the solver's original decimal result through a typed boundary.
+    /// The returned precision interval covers printed digits only.
+    pub fn solve_with_deadline_printed(
+        &self,
+        tool_name: &str,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<crate::precision_count::PrintedCount> {
+        let selected = crate::solver_adapter::adapter_for(tool_name)?;
+        self.solve_with_adapter_printed(selected, deadline)
+    }
+
+    pub(crate) fn solve_with_adapter_printed(
+        &self,
+        adapter: &dyn crate::solver_adapter::SolverAdapter,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<crate::precision_count::PrintedCount> {
+        self.run_solver_with_parser(adapter, deadline, crate::precision_count::parse_stdout_optional)
+    }
+
     pub(crate) fn solve_with_adapter(
         &self,
         adapter: &dyn crate::solver_adapter::SolverAdapter,
         deadline: Option<std::time::Instant>,
     ) -> Result<Complex<f64>> {
+        self.run_solver_with_parser(adapter, deadline, |stdout| adapter.parse_count(stdout))
+    }
+
+    fn run_solver_with_parser<T, F>(
+        &self,
+        adapter: &dyn crate::solver_adapter::SolverAdapter,
+        deadline: Option<std::time::Instant>,
+        parser: F,
+    ) -> Result<T>
+    where
+        F: Fn(&str) -> Result<Option<T>>,
+    {
         let tool_name = adapter.id();
         use std::fs::OpenOptions;
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -306,7 +337,7 @@ impl WmcManager {
         drop(file);
         drop(_timed_write);
 
-        let result = (|| -> Result<Complex<f64>> {
+        let result = (|| -> Result<T> {
             let exe_path = adapter.executable_path();
             adapter.preflight(&exe_path, deadline)?;
             let args: Vec<String> = adapter.arguments()
@@ -335,15 +366,15 @@ impl WmcManager {
                 trace!(target: "wmc", "{} raw stderr:\n{}", tool_name, stderr_str);
             }
 
-            let result_val = adapter.parse_count(&stdout_str).map_err(|error| {
+            let result_val = parser(&stdout_str).map_err(|error| {
                 anyhow!(crate::solver_result::SolverFailure::new(
                     crate::solver_result::SolverFailureKind::MalformedCount,
                     tool_name,
                     error.to_string(),
                 ))
             })?;
-            if let Some(count) = result_val {
-                info!(target: "wmc", "{} result parsed: {}", tool_name, count);
+            if result_val.is_some() {
+                info!(target: "wmc", "{} result parsed", tool_name);
             }
             result_val.ok_or_else(|| anyhow!(crate::solver_result::SolverFailure::new(
                 crate::solver_result::SolverFailureKind::MissingCount,

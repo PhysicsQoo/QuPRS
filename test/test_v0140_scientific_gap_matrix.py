@@ -136,3 +136,47 @@ def test_qpeexact8_fixed_source_approximate_diagnostic(backend, record_property)
         assert result.decision_basis in (
             "symbolic", "numerical_approximate", "structural",
         )
+
+
+@pytest.mark.parametrize("variables", (12, 128, 160, 512))
+def test_native_gpmc_forced_unit_cnf_numerical_model(
+    tmp_path, variables, record_property
+):
+    """One *actual* 90-digit GPMC solve at each bounded CNF size.
+
+    Every positive unit clause forces the sole satisfying assignment; its
+    mathematically exact printed-CNF weighted count is 1+0i. This measures
+    whether the conditional numerical model becomes unknown despite a clean
+    native printed count, without claiming a paper QFT benchmark result.
+    """
+    from QuPRS.interface.ps2wmc import run_wmc
+    from QuPRS.utils.gpmc_cnf_metadata import gpmc_cnf_budget_metadata
+
+    c = (
+        f"p cnf {variables} {variables}\nc t wmc\n"
+        "c p weight 1 1.0 0.0 0\n"
+        "c p weight -1 1.0 0.0 0\n"
+        + "".join(f"{j} 0\n" for j in range(1, variables + 1))
+    )
+    file = tmp_path / f"exact-unit-{variables}.cnf"
+    file.write_text(c)
+    result = run_wmc(
+        str(file), tool_name="gpmc", timeout=25,
+        preserve_count=True, precision_digits=90,
+    )
+    assert result.real == Fraction(1)
+    assert result.imag == Fraction(0)
+    n, weights, maximum = gpmc_cnf_budget_metadata(c)
+    evidence = classify_gpmc_single_count(
+        result, expected_twice_log2=0, distance_tolerance=1e-8,
+        phase_tolerance=1e-8, cnf_vars=n, number_of_weights=weights,
+        maximum_weight_magnitude_squared=maximum, precision_digits=90,
+    )
+    assert evidence.printed_status == "equivalent"
+    assert evidence.status == ("equivalent" if variables == 12 else "unknown")
+    record_property("test_family", "unit_forced_cnf_not_circuit")
+    record_property("native_solver_invocations", "1")
+    record_property("native_count", "1+0i")
+    record_property("cnf_variables", variables)
+    record_property("model_verdict", evidence.status)
+    record_property("model_reason", evidence.reason)

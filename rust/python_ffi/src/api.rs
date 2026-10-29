@@ -163,6 +163,8 @@ pub fn check_equivalence(
         dict.set_item("status", status_str)?;
         dict.set_item("decision_basis", result.decision_basis)?;
         dict.set_item("wmc_solver_invoked", result.solver_invoked)?;
+        dict.set_item("wmc_printed_verdict", result.wmc_printed_verdict)?;
+        dict.set_item("wmc_precision_reason", result.wmc_precision_reason)?;
         dict.set_item("approximate_distance_tolerance", result.approximate_distance_tolerance)?;
         if result.wmc_time.is_some() && result.solver_invoked {
             dict.set_item("wmc_numerical_verdict", result.status.to_string())?;

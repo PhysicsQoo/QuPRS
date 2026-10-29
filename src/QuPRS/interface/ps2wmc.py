@@ -151,18 +151,24 @@ def anf_to_cnf(anf):
 
 # Convert polynomial P to weighted logical expressions
 def P_to_wlogi(P):
-    """Encode only nontrivial Boolean-controlled phase coefficients.
+    """Map phase coefficients to Boolean-weighted terms.
 
-    For integer k and Boolean monomial m, exp(2*pi*i*k*m) = 1.
+    An integer coefficient contributes exp(2*pi*i*k*m) = 1 for a
+    Boolean monomial m and must not become a symbolic CNF weight.
     """
     if P == 0:
         return []
+    args = P.as_coefficients_dict()
     output = []
-    for monomial, coefficient in P.as_coefficients_dict().items():
+    for monomial, coefficient in args.items():
         if coefficient == 0 or isinstance(coefficient, (int, se.Integer)):
+            # The old coefficient==1 branch made the *monomial* a
+            # numerical weight, emitting illegal cos(2*pi*y*q) strings.
+            # Any integer-multiple-of-2*pi phase is trivial for Boolean m.
             continue
         output.append((coefficient, algebraic_to_logical(monomial)))
     return output
+
 
 # Convert CNF to clauses
 def cnf_to_clauses(cnf, symbols_map, flag=False):
@@ -248,16 +254,31 @@ def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
     return DIMACS_text
 
 
-def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0):
-    """Run the selected adapter; retain the public (real, imag) tuple."""
+def run_wmc(
+    file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0, *,
+    preserve_count=False, precision_digits=None,
+):
+    """Execute selected WMC solver without f64 output loss when requested.
+
+    Optional GPMC -prec controls the actual MPFR working precision AND
+    printed precision. Never silently change the user's selected solver.
+    """
+    from dataclasses import replace
     from QuPRS.utils.solver_adapter import get_solver_adapter, execute_solver
     from QuPRS.utils.solver_process import run as run_solver
 
+    adapter = get_solver_adapter(tool_name)
+    if precision_digits is not None:
+        if tool_name != "gpmc" or type(precision_digits) is not int or not 30 <= precision_digits <= 200:
+            raise ValueError("Explicit precision_digits supports GPMC integer digits in [30, 200]")
+        adapter = replace(adapter, arguments=(*adapter.arguments, f"-prec={precision_digits}"))
+
     result = execute_solver(
-        get_solver_adapter(tool_name), file, timeout,
+        adapter, file, timeout,
         resource_resolver=WMC, process_runner=run_solver,
+        capture_decimal=preserve_count,
     )
-    return result.count.real, result.count.imag
+    return result.count if preserve_count else (result.count.real, result.count.imag)
 
 if __name__ == "__main__":
     # from pathsum.pathsum import PathSum, F, Register

@@ -34,8 +34,11 @@ pub(crate) trait SolverAdapter: Sync {
 }
 pub(crate) struct GpmcAdapter;
 pub(crate) struct GanakAdapter;
+/// Distance-mode GPMC retains high-precision solver output and MPFR working digits.
+pub(crate) struct GpmcDistanceAdapter;
 static GPMC: GpmcAdapter = GpmcAdapter;
 static GANAK: GanakAdapter = GanakAdapter;
+static GPMC_DISTANCE: GpmcDistanceAdapter = GpmcDistanceAdapter;
 pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
     match id {
         "gpmc" => Ok(&GPMC),
@@ -45,6 +48,22 @@ pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
             id,
             format!("Unsupported tool name: {}", id),
         ))),
+    }
+}
+/// Keep the selected solver identity unchanged; only request more GPMC digits.
+pub(crate) fn distance_adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
+    match id {
+        "gpmc" => Ok(&GPMC_DISTANCE),
+        _ => adapter_for(id),
+    }
+}
+impl SolverAdapter for GpmcDistanceAdapter {
+    fn id(&self) -> &'static str { "gpmc" }
+    fn arguments(&self) -> &'static [&'static str] { &["-mode=1", "-prec=90"] }
+    fn capabilities(&self) -> SolverCapabilities { GpmcAdapter.capabilities() }
+    fn executable_path(&self) -> String { GpmcAdapter.executable_path() }
+    fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String) {
+        GpmcAdapter.weight_lines(var, weight)
     }
 }
 impl SolverAdapter for GpmcAdapter {
@@ -105,6 +124,8 @@ mod tests {
         let b = adapter_for("ganak").unwrap();
         assert_eq!(a.arguments(), &["-mode=1"]);
         assert_eq!(b.arguments(), &["--mode=6"]);
+        assert_eq!(distance_adapter_for("gpmc").unwrap().arguments(), &["-mode=1", "-prec=90"]);
+        assert_eq!(distance_adapter_for("ganak").unwrap().arguments(), &["--mode=6"]);
         assert_eq!(a.capabilities().grammar, WeightGrammar::Pair);
         assert_eq!(b.capabilities().grammar, WeightGrammar::ComplexI);
         assert!(a.capabilities().complex_weights && b.capabilities().complex_weights);
@@ -153,5 +174,10 @@ mod tests {
             &MockAdapter, Some(Instant::now() + Duration::from_secs(15)),
         ).unwrap();
         assert_eq!(got, Complex::new(3.0, 4.0));
+        let precise = manager.solve_with_adapter_printed(
+            &MockAdapter, Some(Instant::now() + Duration::from_secs(15)),
+        ).unwrap();
+        assert_eq!(precise.real.to_string(), "3");
+        assert_eq!(precise.imag.to_string(), "4");
     }
 }

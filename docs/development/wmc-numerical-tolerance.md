@@ -256,6 +256,46 @@ legacy-call compatibility, known Solver limitations, and how timeout,
 **unknown**, and Solver exceptions differ. The release gate must verify
 these docs against the tested implementation, not just a proposed API.
 
+## Native source-weight and local-RR calibration (experimental)
+
+A bounded follow-up on the v0.14.0 research branch checked the actual Rust
+QASM2-source-to-WMC serialization path and positive RR matcher controls.
+The source and native CI results are at
+[CI #40802857299](https://github.com/PhysicsQoo/QuPRS/actions/runs/40802857299)
+(commit bcb8a6164893379556410144e07e3c3d37d17af0). The source-specific
+values below are **measurements and local analytic controls**, not general
+error bounds.
+
+- Rust preserves separate exact-rational decimal-radian phase coefficients
+  for two Rz literals differing by 1e-30 rad; the literals have the same
+  binary64 representation and eventually generate *identical* positive
+  complex CNF weight bytes for both GPMC and Ganak. This identifies a
+  confirmed source-information loss at the current binary64
+  phase-to-weight interface.
+- The actual two positive phase weights from Rz(2e-8) have a **sum of
+  complex absolute errors** about 7.0e-17 relative to an independent
+  110-decimal-place phase oracle. At Rz(2e-4), the corresponding two-weight
+  error sum is about 7.92e-17. This sum is neither an output count error
+  bound nor a projective-distance error estimate.
+- Direct positive matcher controls hit exact HH and omega patterns at both
+  tested RR tolerances. A near-omega coefficient 1/4 + 1e-7 is accepted
+  at RR tolerance 1e-6 but not 1e-10. The current low-level symbolic
+  normalizer also drops the phase term 1e-7*x at the looser tolerance.
+  For the *independent local* one-qubit diagonal operator
+  diag(1, exp(2*pi*i*1e-7)), erasing that term creates projective
+  distance |sin(pi*1e-7)| about 3.14159e-7. This controls one local
+  approximation; it does not prove the full path-sum or a sequence of
+  reductions has this error.
+- The earlier full-circuit repeated-Rz fixtures did **not** trigger
+  HH/omega matcher events. Therefore the positive direct matcher
+  control and full-circuit accumulated-RR error remain separate questions.
+
+The next numerical gate must retain phase/weight provenance and bound all
+material source-to-weight, RR and solver stages before promoting
+printed-output precision observations into definite public
+approximate-distance outcomes. Do not reinterpret the current empirical
+3e-9 boundary guard as that missing global bound.
+
 ## Candidate-selection evidence
 
 The initial 1e-10 public default candidate failed the native historical

@@ -262,6 +262,18 @@ certificate, and a WMC magnitude tolerance of `1e-8` is **not**
 the QCEC projective circuit-distance tolerance of `1e-8`.
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
+**v0.14.0 experimental RR provenance:** The Python RR and Hybrid paths
+track when local reduction tolerance has changed a *nonconstant* phase
+coefficient, including near-omega matches. Such an approximation is not
+an exact equivalence certificate. Without a trusted accumulated distance
+bound, the result becomes `unknown`; Hybrid does not use the already
+approximated path sum as independent WMC evidence. Exact HH/omega/Elim and
+global-phase-only normalization are retained. The diagnostic fields
+`rr_approximation_events` (bounded tuple) and
+`rr_approximation_unbounded` are currently Python-specific and do not
+make any claim about the Rust backend. They are research-branch
+semantics, pending full release validation.
+
 ### Solver subprocess reliability and timeout limits
 
 On **Linux** and **macOS**, both backends supervise each invocation of the

@@ -31,13 +31,15 @@ def test_focused_native_precision_transport_evidence():
         "git", "diff", "--name-only", base, "HEAD", "--",
         "src/QuPRS", "rust/pathsum", "rust/python_ffi", "GPMC",
     ], text=True).strip()
-    # Allow only reviewed production-source paths used by transport and
-    # request-local RR provenance. Solver binaries, source weight generation,
-    # and the pinned numerical counters must remain unchanged.
+    # Allow reviewed transport, RR provenance and bounded GPMC numerical
+    # classifier source paths. Solver binaries, source weight generation,
+    # and pinned numerical counters must remain unchanged.
     parser_paths = {
         "src/QuPRS/utils/wmc_solvers.py",
         "src/QuPRS/utils/precision_count.py",
         "src/QuPRS/utils/solver_adapter.py",
+        "src/QuPRS/utils/gpmc_cnf_metadata.py",
+        "src/QuPRS/utils/gpmc_distance_budget.py",
         "src/QuPRS/interface/ps2wmc.py",
         "rust/pathsum/src/wmc.rs",
         "rust/pathsum/src/lib.rs",

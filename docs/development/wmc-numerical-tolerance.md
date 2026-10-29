@@ -458,10 +458,11 @@ remain **numerical model-based classifications**, never rigorous
 solver/circuit distance certificates.
 
 The public result exposes wmc_printed_verdict, wmc_precision_reason
-and wmc_numeric_model_bound. Only robust numerical
-not_equivalent observations are eligible for promotion; modeled
-inside-threshold results remain unknown until exact source-side
-and Solver error certification is available. Inputs that exceed the small-CNF model limits keep the existing
+and wmc_numeric_model_bound. A result with the full **conditional
+model interval** below the distance threshold can return numerical
+not_equivalent, while a full inside-threshold interval retains
+equivalent or equivalent* (phase classification remains numerical,
+not formally certified). Inputs that exceed the small-CNF model limits keep the existing
 single-run GPMC numerical classifier and its empirical 3e-9 guard,
 rather than being automatically forced to unknown. Eligible inputs
 that disagree between precision runs or have an uncertainty interval
@@ -469,6 +470,42 @@ intersecting the distance threshold remain unknown.
 The original fixed 3e-9 guard remains the fallback for Ganak
 and other numeric paths. This experimental GPMC behavior is not
 yet an accepted cross-backend API guarantee.
+
+### P0 acceptance and next-phase model validation
+
+**P0 small-case implementation and native acceptance: COMPLETE** on
+[CI #40816520742](https://github.com/PhysicsQoo/QuPRS/actions/runs/40816520742),
+source `0b0890bbc8cb1dfd5a6248df28d7d627f276d583`.
+The H-S-H versus H-S-Rz(2*pi*1e-7)-H control with strict RR tolerance
+1e-10 is now numerical not_equivalent using Python/GPMC Hybrid and
+WMC-only. This acceptance is not a formal GPMC arithmetic certificate,
+not a general 18-variable error theorem, and not v0.14.0 release
+approval. The broader issue remains in progress.
+
+The next **report-only**, source-pinned opt-in gate is
+`.diagnostics/tolerance_calibration/gpmc_model_validation.py`.
+It uses one-qubit small-phase inside/outside and cancellation controls,
+plus explicitly **small QFT-style, phase-estimation-style and
+graph-state-style decompositions**, not the full QFT16/QPEexact8/
+Graphstate16 corpus. Each case runs in a child with a 45-second wall
+cap; it records source circuit float-angle text, the actual final
+WMC-only PathSum/CNF and SHA256, positive phase-weight differences
+from an independently evaluated Sympy/mpmath trig oracle using the
+**same parsed PathSum phase**, native GPMC count results at
+30/60/90/120 MPFR decimal digits, output rounding units, model
+eligibility, observed normalized magnitude error and wall time.
+
+The distinction is fundamental: **precision convergence of 60 vs
+90 digits is not a proof that both are close to the mathematically
+correct count.** The Sympy/mpmath phase oracle cannot detect errors
+already introduced when parsing Qiskit source angles; nor can a
+hand-picked operation allowance replace a checked bound on GPMC
+preprocessing, multiplication, addition, branching and cancellation.
+If an observation exceeds the conditional model, or if representative
+cancellation / near-boundary cases contradict a public verdict, retain
+the evidence and revise the model before wider deployment. Do not
+replace the original RR/Hybrid algorithm, silently select a different
+solver, or add wmc_policy.
 
 ### Native Rust MPFR weight prototype — source-exact phase transport
 

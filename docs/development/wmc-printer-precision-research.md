@@ -231,3 +231,94 @@ operation budgets using actual CNF structure rather than a coarse
 for any candidate provider-bound precision rule. Keep RR-first Hybrid,
 one production GPMC solve, separate source/solver/printing uncertainty
 and appropriate \`unknown\` outcomes.
+
+
+## Phase 3 — actual native Rust source-weight gaps and exact separable CNFs
+
+Research-only source commit `0b9f38929e2de4bb074016c8e0e1798509063bc4`,
+[Actions #40896543559](https://github.com/PhysicsQoo/QuPRS/actions/runs/40896543559)
+**SUCCESS**, evidence [artifact 12906424706](https://github.com/PhysicsQoo/QuPRS/actions/runs/40896543559/artifacts/12906424706)
+ZIP sha256 `0694727f289dadd7af138334a19824ca905cb50e6ff907450a3b4bbc976f70be`,
+ZIP CRC PASS and 44/44 internal SHA256SUMS PASS. The experiment was run on
+the **existing** experiment branch only, with no PR or dev/main changes.
+The standard public Python/Rust verifier was built from pinned dev
+`55e78c7597966617c1a193b89056ff4e99c3ddfb`, while the dedicated
+experimental Rust pathsum unit test was compiled from the experiment source
+(with extra `#[cfg(test)]` logging). Do not conflate those two source trees.
+
+### Native phase-to-binary64 weight audit
+
+Source exact rational phase coefficients and **actual native Rust f64 bit
+patterns**, not decimal copies of input angles, were independently checked
+with 120-digit mpmath trigonometry or algebraic exact quarter-turn weights.
+Ten observed native terms:
+
+| Source | Max observed complex absolute error | Exact quarter-cycle in source |
+| --- | ---: | --- |
+| S | 6.123233995736766e-17 | yes |
+| S† | 1.836970198721030e-16 | yes |
+| Z | 1.224646799147353e-16 | yes |
+| H | 1.224646799147353e-16 | yes |
+| T | 7.915761506067900e-17 | no |
+| T† | 2.357323367686493e-16 | no |
+| Rz(0.0002) | 5.488275696634135e-17 | no |
+| Rz(pi/2) | 2.357323367686493e-16 | one quarter-cycle, one eighth-cycle |
+
+For S, the native weight was approximately
+`6.123233995736766e-17 + 1i` instead of exact `i`. For Z,
+it was approximately `-1 + 1.2246467991473532e-16i` instead of
+exact `-1`. This directly isolates avoidable trigonometric residue for
+source coefficients exactly congruent to 0, 1/4, 1/2 or 3/4 modulo a full
+cycle *without a nonzero radian remainder*. It does not establish that
+changing these terms alone resolves Rust QPEexact8 `unknown`.
+For eighth-cycle/T and arbitrary decimal radians, source-preserving
+higher-precision weight evaluation remains a separate research path.
+
+### Native GPMC vs *independent exact rational printed-CNF count*
+
+One GPMC invocation per `(CNF, precision)` pair: 7 disjoint/separable
+weighted-CNF families at 30 and 90 decimal digits, total **14/14 native
+count observations**. The expected complex answer was calculated exactly
+by multiplying independent literal weight sums from the original emitted
+decimal CNF, **without running a second solver as oracle**.
+This is an observed arithmetic error, *not* a general GPMC error bound.
+
+| CNF family | Variables | Independent exact count | GPMC 30-digit absolute error | GPMC 90-digit absolute error |
+| --- | ---: | ---: | ---: | ---: |
+| balanced | 64 | 1 | 0 | 0 |
+| balanced | 256 | 1 | 0 | 0 |
+| balanced | 512 | 1 | 0 | 0 |
+| two real cancellations | 64 | 1e-40 | 4.45381424e-51 | 9.79495089e-111 |
+| four real cancellations | 256 | 1e-80 | 8.90762849e-91 | 1.95899018e-150 |
+| four real cancellations | 512 | 1e-80 | 8.90762849e-91 | 1.95899018e-150 |
+| two complex cancellations | 128 | 1e-40 | 4.45381424e-51 | 9.79495089e-111 |
+
+All inputs were parsed through the selected native GPMC and exact original
+decimal literals; no unsupported signed-complex case was silently discarded.
+Even 512 variables yielded exact count 1 in the balanced family while the
+existing **assumed**, variable-only conditional solver bound scales as
+`2^(2*n+20-bits)`, i.e. `2^748` in absolute count units at 90 digits
+for `n=512`. For matching four-cancellation families, expanding the number
+of neutral/independent variables from 256 to 512 did not change the
+observed count error. These data strongly support studying CNF/component
+structure and actual weighted arithmetic work instead of treating
+`2^(2*n)` as an empirically representative error estimate. But they do
+**not** establish a valid upper bound for entangled QFT/QPE/Graphstate/QAOA
+CNFs, where sum/cancel structure is different.
+
+### Acceptance decision
+
+- **Confirmed experimental fact:** exact Clifford quarter-cycle phases can
+  be represented without native `sin(pi)`/ `cos(pi/2)` residue.
+- **Confirmed experimental fact:** GPMC performed much more accurately than
+  the existing broad n-only conditional model on this bounded separable cohort.
+- **Not yet resolved:** a sound general GPMC weighted-count arithmetic
+  enclosure, including actual component counts, cancellation and complex
+  weights of original algorithm CNFs.
+- **Not yet resolved:** whether refined native source weights make
+  Rust QPEexact8 decisive at epsilon_D=1e-8, including strictness and
+  non-Clifford source angles. No threshold or source angle was loosened.
+- **Release policy:** remain experimental. Promote a narrowly validated
+  corrective implementation only after additional source-pinned real-CNF
+  counterexamples/negative controls pass, never by relaxing the public
+  distance tolerance or adding a second production Solver run.

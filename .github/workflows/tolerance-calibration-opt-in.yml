@@ -148,6 +148,15 @@ jobs:
           mkdir -p focused-tolerance-evidence
           python -u .diagnostics/tolerance_calibration/native_rz_rr_probe.py \
             2>&1 | tee focused-tolerance-evidence/native-rz-rr-probe.log
+      - name: Audit Rust native source-to-CNF weight bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/pathsum/Cargo.toml \
+            native_rz_weight_bytes_audit -- --nocapture \
+            2>&1 | tee focused-tolerance-evidence/native-rust-weight.log
+          python .diagnostics/tolerance_calibration/rust_native_weight_audit.py \
+            2>&1 | tee focused-tolerance-evidence/native-rust-weight-audit.log
       - name: Record evidence and checksum
         if: always()
         shell: bash
@@ -159,6 +168,7 @@ jobs:
           python --version > focused-tolerance-evidence/python-version.txt
           rustc --version > focused-tolerance-evidence/rustc-version.txt
           sha256sum .diagnostics/tolerance_calibration/native_rz_rr_probe.py \
+            .diagnostics/tolerance_calibration/rust_native_weight_audit.py \
             test/test_numerical_tolerance_contract_research.py \
             test/test_precision_count_transport.py \
             src/QuPRS/utils/precision_count.py \

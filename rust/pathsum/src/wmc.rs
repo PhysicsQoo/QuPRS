@@ -693,3 +693,54 @@ mod count_parser_tests {
     }
 
 }
+
+
+#[cfg(test)]
+mod native_rz_weight_research {
+    use super::WmcManager;
+    use crate::pathsum::PathSum;
+
+    /// Empirical native weight bytes; not a solver/RR arithmetic error bound.
+    #[test]
+    fn native_rz_weight_bytes_audit() {
+        for (label, source) in [
+            ("sub_f64_defect", "0.00000002"),
+            ("resolved_control", "0.0002"),
+            ("literal_alias_a", "0.000000020000000000000000000000"),
+            ("literal_alias_b", "0.000000020000000000000000000001"),
+        ] {
+            let qasm = format!(
+                "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nrz({source}) q[0];\n"
+            );
+            let (operations, qubits) = crate::qasm::parse_qasm_str(&qasm)
+                .expect("bounded source Rz must parse");
+            let mut ps = PathSum::new(qubits);
+            for operation in &operations { operation.apply(&mut ps, false); }
+            let mut phases = 0;
+            for (mono, coefficient) in &ps.p.terms {
+                let (num, den) = coefficient.radians.as_ref()
+                    .map(|r| (r.numer().to_string(), r.denom().to_string()))
+                    .unwrap_or_else(|| ("0".to_string(), "1".to_string()));
+                println!(
+                    "RUST_PHASE\t{label}\t{source}\t{}\t{}\t{num}\t{den}\t{:?}",
+                    coefficient.constant.numer, coefficient.constant.denom, mono
+                );
+                phases += 1;
+            }
+            let mut manager = WmcManager::new(&ps);
+            manager.encode_trace(&ps).expect("Rz trace must encode");
+            assert_eq!(manager.weights.len(), phases);
+            assert!(phases >= 1);
+            for solver in ["gpmc", "ganak"] {
+                let text = manager.to_dimacs_string(solver);
+                let mut positive = 0;
+                for line in text.lines().filter(|l| l.starts_with("c p weight ")) {
+                    println!("RUST_WEIGHT\t{label}\t{solver}\t{line}");
+                    let var: i32 = line.split_whitespace().nth(3).unwrap().parse().unwrap();
+                    if var > 0 { positive += 1; }
+                }
+                assert_eq!(positive, phases, "missing phase weight for {label}");
+            }
+        }
+    }
+}

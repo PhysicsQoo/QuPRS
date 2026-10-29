@@ -242,21 +242,85 @@ def rr_observation():
     return [r for r in EVIDENCE if r.get("group") == "rr_local_approximation" and r.get("error")]
 
 
+
+def rr_positive_controls():
+    """Exercise actual exact HH, exact omega, near-omega, and tolerance deletion.
+
+    The diagonal diag(1,exp(2*pi*i*delta)) gives an independent physical
+    distance for deleting delta*x, not a bound for the full RR algorithm.
+    """
+    import symengine as se
+    x, y = se.Symbol("rr_positive_x"), se.Symbol("rr_positive_y")
+    delta = se.Rational(1, 10_000_000)
+    previous = config.get_tolerance()
+    rows = []
+    try:
+        for tau in (1e-6, 1e-10):
+            config.set_tolerance(tau)
+            dropped = RED.reduce_expression(delta * x)
+            hh = MATCH.match_HH(y * x / 2, (y,), (x, y), (x,))
+            exact_omega = MATCH.match_omega(
+                y * (se.Rational(1, 4) + x / 2), (y,), (y,), (x,),
+            )
+            near_omega = MATCH.match_omega(
+                y * (se.Rational(1, 4) + delta + x / 2),
+                (y,), (y,), (x,),
+            )
+            with mp.workdps(100):
+                physical_distance = mp.nstr(
+                    abs(mp.sin(mp.pi / mp.mpf("10000000"))), 90,
+                )
+                local_amplitude_diff = mp.nstr(
+                    2 * abs(mp.sin(mp.pi / mp.mpf("10000000"))), 90,
+                )
+            row = {
+                "group": "rr_event_positive_control",
+                "angle_label": "small_coefficient_and_near_omega",
+                "backend": "python", "solver": "none",
+                "rr_tolerance": tau,
+                "hh_matched": hh[0] is not None,
+                "exact_omega_matched": exact_omega[0] is not None,
+                "near_omega_matched": near_omega[0] is not None,
+                "small_coefficient_dropped": dropped == se.S.Zero,
+                "small_coeff_before": str(delta*x),
+                "small_coeff_after": str(dropped),
+                "oracle_projective_distance_if_delta_x_erased": physical_distance,
+                "oracle_local_phase_amplitude_delta": local_amplitude_diff,
+                "whole_rr_error_certified": False,
+                "source_commit": os.getenv("GITHUB_SHA"),
+            }
+            if not row["hh_matched"] or not row["exact_omega_matched"]:
+                row["error"] = "HH or omega positive matcher control missed"
+            if tau == 1e-6 and (not row["near_omega_matched"] or
+                               not row["small_coefficient_dropped"]):
+                row["error"] = "Loose RR tolerance did not activate near match/drop"
+            if tau == 1e-10 and (row["near_omega_matched"] or
+                                row["small_coefficient_dropped"]):
+                row["error"] = "Strict RR tolerance unexpectedly activated approximate rule"
+            emit(row)
+            rows.append(row)
+    finally:
+        config.set_tolerance(previous)
+    return [r for r in rows if r.get("error")]
+
+
 def main():
     if DEST.exists():
         DEST.unlink()
     errors = native_rz()
     errors.extend(rr_observation())
+    errors.extend(rr_positive_controls())
     summary = {
         "source_commit": os.environ.get("GITHUB_SHA"),
         "total": len(EVIDENCE), "native_rz": sum(r["group"]=="rz_source_transport" for r in EVIDENCE),
         "rr": sum(r["group"]=="rr_local_approximation" for r in EVIDENCE),
+        "rr_positive": sum(r["group"]=="rr_event_positive_control" for r in EVIDENCE),
         "errors": len(errors),
         "unknown": sum(r.get("status")=="unknown" for r in EVIDENCE),
         "solver_binaries": ["gpmc", "ganak"],
         "scope": "bounded native observations; no certified arithmetic/RR error interval",
         "limitations": [
-            "Python CNF weights captured; Rust source-to-CNF weight trace not yet captured",
+            "Rust CNF weight bytes captured in a separate native cargo-test log",
             "Qiskit QuantumCircuit float angles do not restore source-literal provenance",
             "RR event records do not estimate a global accumulated numerical error",
             "Stock Ganak's nine-digit stdout resolution remains unchanged",
@@ -265,7 +329,7 @@ def main():
     (OUT / "native-rz-source-rr-summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print("NATIVE_RZ_RR_SUMMARY "+json.dumps(summary,sort_keys=True),flush=True)
-    assert summary["native_rz"] == 16 and summary["rr"] == 4
+    assert summary["native_rz"] == 16 and summary["rr"] == 4 and summary["rr_positive"] == 2
     if errors:
         raise SystemExit("NATIVE_RZ_RR_EXPERIMENT_HAS_ERRORS: " + str(len(errors)))
 

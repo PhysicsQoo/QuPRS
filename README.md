@@ -282,24 +282,28 @@ operator-distance bound. Python `safe_mode` worker events currently
 do not cross the process boundary. Final Python/Rust/PyO3 parity and
 numerical guarantees remain v0.14.0 release gates.
 
-The current WMC projective-distance classifier retains an empirical
-magnitude guard of 3e-9. A native research run confirmed that for
-H-S-H versus H-S-Rz(2*pi*1e-7)-H at RR tolerance 1e-10,
-GPMC's unrounded-decimal output supports a *printed-only*
-`not_equivalent` observation while the public API conservatively returns
-`unknown`. Stock Ganak's short printed count cannot resolve the same
-case. Neither observation is a full solver arithmetic certificate.
-See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
+The 2026-10-28 distance-mode prototype used a fixed empirical magnitude
+guard of `3e-9`. This was not a solver arithmetic bound; for tight
+projective-distance tolerances it frequently returned `unknown` even
+when precision-replayed GPMC counts had distinguishable printed values.
 
-In the opt-in v0.14.0 research branch, GPMC distance mode performs
-60-/90-decimal-digit MPFR precision replay on bounded CNFs and uses an
-explicit **conditional numerical error model** instead of discarding
-count digits via binary64. This can report model-based not_equivalent
-where the evidence is separated from the distance boundary; it is
-not a formal arithmetic or source-angle error certificate.
-Large unsupported CNFs retain the previous one-run classifier;
-within the model, ambiguous cases remain unknown. This experimental
-behavior and its extra Solver cost are not a stable release contract.
+The opt-in v0.14.0 research branch replaces this distance-mode mechanism
+in stages: Python GPMC retains 60/90 decimal MPFR count replays, with a
+conditional small-CNF model and a separate, *uncertified* general-CNF
+replay-observation path. Python Ganak mode 6 retains its actual decimal
+printed count and reports inadequate print resolution. Rust/PyO3
+distance-mode calls use exact-rational count-interval comparisons with
+90-digit GPMC output or stock Ganak output, plus an explicitly conditional
+binary64 phase-weight input allowance. The numerical results are not
+source-exact or solver-arithmetic certificates. In particular, higher
+GPMC output precision cannot recover source-weight precision already lost
+in Rust `f64` phase evaluation.
+
+The historical non-distance WMC magnitude/phase tolerance behavior,
+configurable RR reductions, independent solver selection, and RR-first
+Hybrid handoff are unchanged. These experimental changes require native
+cross-backend and performance validation before release.
+See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
 ### Solver subprocess reliability and timeout limits
 

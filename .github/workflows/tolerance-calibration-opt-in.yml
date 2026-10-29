@@ -27,6 +27,7 @@ on:
       - 'rust/pathsum/src/solver_adapter.rs'
       - 'rust/pathsum/src/wmc.rs'
       - 'rust/pathsum/src/lib.rs'
+      - 'rust/python_ffi/src/api.rs'
       - '.github/workflows/tolerance-calibration-opt-in.yml'
   workflow_dispatch:
 
@@ -262,6 +263,7 @@ jobs:
             rust/pathsum/src/precision_count.rs \
             rust/pathsum/src/solver_adapter.rs \
             rust/pathsum/src/lib.rs \
+            rust/python_ffi/src/api.rs \
             test/test_wmc_solver_adapters.py \
             src/QuPRS/utils/wmc_solvers.py \
             rust/pathsum/src/wmc.rs \

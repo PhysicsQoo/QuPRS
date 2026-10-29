@@ -394,9 +394,9 @@ has analytic projective distance abs(sin(pi*1e-7)) ≈ 3.14e-7.
 RR tolerance 1e-6 can accept it as equivalent according to RR's
 configured approximation semantics; RR tolerance 1e-10 leaves it
 unknown and Hybrid passes the resulting Path-sum to WMC.
-The current numerical projective-distance classifier uses a separate
-empirical normalized magnitude guard 3e-9, so WMC may remain unknown
-even for a distinguishable input at distance threshold 1e-8.
+The earlier 2026-10-28 numerical projective-distance prototype used a
+fixed empirical normalized magnitude guard 3e-9; this historical experiment
+could remain unknown despite a distinguishable count at distance 1e-8.
 Changing RR tolerance does not fix that unrelated solver-numerical
 resolution limitation.
 
@@ -462,14 +462,21 @@ and wmc_numeric_model_bound. A result with the full **conditional
 model interval** below the distance threshold can return numerical
 not_equivalent, while a full inside-threshold interval retains
 equivalent or equivalent* (phase classification remains numerical,
-not formally certified). Inputs that exceed the small-CNF model limits keep the existing
-single-run GPMC numerical classifier and its empirical 3e-9 guard,
-rather than being automatically forced to unknown. Eligible inputs
-that disagree between precision runs or have an uncertainty interval
-intersecting the distance threshold remain unknown.
-The original fixed 3e-9 guard remains the fallback for Ganak
-and other numeric paths. This experimental GPMC behavior is not
-yet an accepted cross-backend API guarantee.
+not formally certified). The latest experiment replaces the old
+large/general-CNF GPMC single-run binary64/3e-9 fallback with 60/90
+MPFR replay counts and a conditional, empirically calibrated interval.
+Python Ganak uses its selected mode-6 solver's original printed decimals,
+returning unknown if that precision cannot separate the requested threshold.
+Rust/PyO3 public distance mode uses typed printed counts with GPMC
+`-prec=90` or unmodified Ganak mode 6 and a conditional binary64
+source-weight allowance, retaining diagnostics for both the printed-only
+and model-based classifications. This is not a verified universal error
+bound for GPMC, Ganak, or original QASM source angles.
+
+The fixed 3e-9 threshold is no longer the decision criterion on these
+experimental distance-mode paths. The no-distance historical magnitude
+API and RR-first Hybrid behavior remain unchanged. Full source-level and
+cross-backend acceptance are still required before a stable release.
 
 ### P0 acceptance and next-phase model validation
 

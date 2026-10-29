@@ -9,7 +9,7 @@ v0.14.0 dev exact-tree and is not rerun on this older experimental branch.
 def test_focused_native_precision_transport_evidence():
     """Bounded native A/B evidence on the existing WMC CI runner.
 
-    Experimental source is unchanged. Raw decimal Solver output is preserved
+    Only the allowlisted verifier/transport experiment source can change. Raw decimal Solver output is preserved
     before Python or Rust converts it to binary64. This test does not claim a
     numerical error certificate.
     """
@@ -45,6 +45,7 @@ def test_focused_native_precision_transport_evidence():
         "rust/pathsum/src/lib.rs",
         "rust/pathsum/src/precision_count.rs",
         "rust/pathsum/src/solver_adapter.rs",
+        "rust/python_ffi/src/api.rs",
         "src/QuPRS/pathsum/reduction_provenance.py",
         "src/QuPRS/pathsum/reduction.py",
         "src/QuPRS/pathsum/pattern_match.py",

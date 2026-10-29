@@ -612,34 +612,90 @@ def check_equivalence(
                             phase_tolerance=wmc_phase_tolerance,
                         )
                     else:
-                        # Large/general CNFs keep the previously validated
-                        # one-run numerical contract and its original guard.
-                        # Do not make them unknown merely because the new
-                        # small-CNF model is inapplicable.
+                        # General CNF: retain native GPMC MPFR precision and
+                        # cross-check 60/90-digit replays without converting to
+                        # binary64. This is an empirical numerical observation:
+                        # source-weight and solver arithmetic are not certified.
+                        from QuPRS.utils.precision_count import (
+                            classify_observed_distance,
+                        )
+                        first = run_wmc(
+                            temp_name, tool_name,
+                            timeout=max(0.0, deadline - time.monotonic()),
+                            preserve_count=True, precision_digits=60,
+                        )
+                        counted = run_wmc(
+                            temp_name, tool_name,
+                            timeout=max(0.0, deadline - time.monotonic()),
+                            preserve_count=True, precision_digits=90,
+                        )
+                        twice = int(round(2 * expect))
+                        scale = Fraction(2) ** ((twice + 1) // 2)
+                        # Conservative *conditional* source-weight allowance
+                        # plus observed precision disagreement in count units.
+                        source_component = scale * Fraction(nweights + 1, 2**100)
+                        replay_component = 2 * max(
+                            abs(counted.real - first.real),
+                            abs(counted.imag - first.imag),
+                        )
+                        uncertainty = (
+                            source_component + replay_component +
+                            max(first.real_print_half_unit,
+                                first.imag_print_half_unit)
+                        )
+                        equivalent, observed = classify_observed_distance(
+                            counted, twice, approximate_distance_tolerance,
+                            wmc_phase_tolerance, component_error=uncertainty,
+                        )
+                        wmc_precision_reason = (
+                            "general_gpmc_replay_uncertified_" + observed.reason
+                        )
+                        wmc_printed_verdict = classify_observed_distance(
+                            counted, twice, approximate_distance_tolerance,
+                            wmc_phase_tolerance,
+                        )[0]
+                        wmc_numeric_model_bound = str(uncertainty)
+                        _, log_wmc = classify_approximate_weighted_count(
+                            float(counted.real), float(counted.imag), expect,
+                            distance_tolerance=approximate_distance_tolerance,
+                            phase_tolerance=wmc_phase_tolerance,
+                        )
+                else:
+                    if approximate_distance_tolerance is None:
                         complex_number = run_wmc(
                             temp_name, tool_name,
                             timeout=max(0.0, deadline - time.monotonic()),
                         )
-                        equivalent, log_wmc = classify_approximate_weighted_count(
-                            complex_number[0], complex_number[1], expect,
-                            distance_tolerance=approximate_distance_tolerance,
-                            phase_tolerance=wmc_phase_tolerance,
-                        )
-                        wmc_precision_reason = "legacy_guard_unsupported_model"
-                else:
-                    complex_number = run_wmc(
-                        temp_name, tool_name,
-                        timeout=max(0.0, deadline - time.monotonic()),
-                    )
-                    if approximate_distance_tolerance is None:
+
                         equivalent, log_wmc = classify_weighted_count(
                             complex_number[0], complex_number[1], expect,
                             magnitude_tolerance=wmc_magnitude_tolerance,
                             phase_tolerance=wmc_phase_tolerance,
                         )
                     else:
-                        equivalent, log_wmc = classify_approximate_weighted_count(
-                            complex_number[0], complex_number[1], expect,
+                        # Native Ganak mode-6 precision is limited by its
+                        # printed representation; keep those digits and expose
+                        # insufficient resolution instead of a 3e-9 guard.
+                        from QuPRS.utils.precision_count import (
+                            classify_observed_distance,
+                        )
+                        # Obtain the typed result through the SAME solver;
+                        # the non-distance branch retains its old one-run API.
+                        counted = run_wmc(
+                            temp_name, tool_name,
+                            timeout=max(0.0, deadline - time.monotonic()),
+                            preserve_count=True,
+                        )
+                        equivalent, evidence = classify_observed_distance(
+                            counted, int(round(2 * expect)),
+                            approximate_distance_tolerance, wmc_phase_tolerance,
+                        )
+                        wmc_precision_reason = (
+                            "ganak_printed_uncertified_" + evidence.reason
+                        )
+                        wmc_printed_verdict = equivalent
+                        _, log_wmc = classify_approximate_weighted_count(
+                            float(counted.real), float(counted.imag), expect,
                             distance_tolerance=approximate_distance_tolerance,
                             phase_tolerance=wmc_phase_tolerance,
                         )

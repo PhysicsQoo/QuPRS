@@ -235,3 +235,60 @@ def test_ganak_too_strict_magnitude_gate_rejects_a_true_identity(depth):
     )
     assert answer.equivalent == "not_equivalent"
     assert answer.tool_time is not None
+
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("solver", SOLVERS)
+@pytest.mark.parametrize("method", ("hybrid", "wmc_only"))
+@pytest.mark.parametrize("theta,expected", [
+    ("0.00032", "equivalent"), ("0.00048", "not_equivalent"),
+])
+def test_public_native_solver_distance_precision_parity(
+    backend, solver, method, theta, expected
+):
+    """End-to-end real solver and public API: unambiguous distance controls."""
+    left, right = qasm(), qasm("rz(" + theta + ") q[0];\\n")
+    result = check_equivalence(
+        left, right, backend=backend, method=method, tool_name=solver,
+        strategy="Naive", timeout=45, approximate_distance_tolerance=EPS,
+    )
+    assert result.equivalent == expected, (backend, solver, method, theta, result.equivalent)
+    assert result.wmc_solver_invoked is True, (backend, solver, method)
+    assert result.decision_basis == "numerical_approximate"
+    assert result.wmc_precision_reason is not None, (backend, solver, method)
+
+
+def test_general_gpmc_cnf_uses_native_precision_replay():
+    """A real 3Q graph-style CNF exercises the general-CNF numerical path."""
+    left = QuantumCircuit(3)
+    for q in range(3):
+        left.h(q)
+    left.cx(0, 1)
+    left.cx(1, 2)
+    right = left.copy()
+    right.rz(0.01, 0)
+    assert not Operator(left).equiv(Operator(right), atol=1e-10, rtol=0)
+    result = check_equivalence(
+        left, right, backend="python", method="wmc_only",
+        strategy="Naive", tool_name="gpmc", timeout=45,
+        approximate_distance_tolerance=2e-4,
+    )
+    assert result.equivalent == "not_equivalent", result.equivalent
+    assert result.wmc_solver_invoked
+    assert result.wmc_precision_reason.startswith("general_gpmc_replay_uncertified_")
+    assert result.wmc_printed_verdict == "not_equivalent"
+    assert result.wmc_numeric_model_bound is not None
+
+
+def test_ganak_printed_precision_exposes_tight_distance_floor():
+    """A real Ganak mode-6 count cannot silently become a 1e-8 certificate."""
+    result = check_equivalence(
+        qasm(), qasm("rz(0.00000002) q[0];\n"),
+        backend="python", method="wmc_only", strategy="Naive",
+        tool_name="ganak", timeout=45,
+        approximate_distance_tolerance=1e-8,
+    )
+    assert result.equivalent == "unknown", result.equivalent
+    assert result.wmc_solver_invoked
+    assert result.wmc_precision_reason.startswith("ganak_printed_uncertified_")

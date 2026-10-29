@@ -165,3 +165,30 @@ def classify_printed_distance(
     if magnitude_sq_lower >= threshold:
         return PrintedDistanceEvidence("equivalent", "printed_distance_within_threshold")
     return PrintedDistanceEvidence("unknown", "insufficient_printed_resolution")
+
+
+def classify_observed_distance(
+    count: PrintedCount, normalization_twice_log2: int,
+    distance_tolerance: float, phase_tolerance: float,
+    *, component_error: Fraction = Fraction(0),
+) -> tuple[str, PrintedDistanceEvidence]:
+    """Numerical label for a high-precision printed complex count.
+
+    The interval comparison is exact rational; the caller must separately
+    justify any source/solver arithmetic assumptions behind component_error.
+    Phase classification divides by an exact rational L1 scale before float
+    conversion, preventing overflow for large counts.
+    """
+    evidence = classify_printed_distance(
+        count, normalization_twice_log2, distance_tolerance,
+        component_error=component_error,
+    )
+    if evidence.status != "equivalent":
+        return evidence.status, evidence
+    scale = abs(count.real) + abs(count.imag)
+    if scale == 0:
+        return "unknown", PrintedDistanceEvidence("unknown", "zero_phase_reference")
+    phase = math.atan2(float(count.imag / scale), float(count.real / scale))
+    if not math.isfinite(phase):
+        return "unknown", PrintedDistanceEvidence("unknown", "unresolved_phase")
+    return ("equivalent" if abs(phase) < phase_tolerance else "equivalent*"), evidence

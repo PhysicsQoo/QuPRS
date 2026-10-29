@@ -424,7 +424,7 @@ jobs:
           printf 'source=%s\n' "$DEST" >> "$GITHUB_OUTPUT"
       - name: Build pinned public Python Rust verifier and native solvers
         shell: bash
-        working-directory: \${{ steps.source.outputs.source }}
+        working-directory: ${{ steps.source.outputs.source }}
         run: |
           set -euo pipefail
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
@@ -440,7 +440,7 @@ jobs:
             -lmpfr -lgmpxx -lgmp -o "$RUNNER_TEMP/mpfr-printer-contract"
       - name: Prove bounded MPFR 90-digit stream rounding against binary mantissas
         shell: bash
-        working-directory: \${{ steps.source.outputs.source }}
+        working-directory: ${{ steps.source.outputs.source }}
         run: |
           set -euo pipefail
           python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/precision_followup_v2.py" \
@@ -449,7 +449,7 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/printer-study.log"
       - name: Diagnose Rust QPEexact8 input uncertainty from captured CNF and stdout
         shell: bash
-        working-directory: \${{ steps.source.outputs.source }}
+        working-directory: ${{ steps.source.outputs.source }}
         run: |
           set -euo pipefail
           python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/precision_followup_v2.py" \
@@ -457,7 +457,7 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/rust-qpe-study.log"
       - name: Generate real algorithm-family CNFs with bounded solving
         shell: bash
-        working-directory: \${{ steps.source.outputs.source }}
+        working-directory: ${{ steps.source.outputs.source }}
         run: |
           set -euo pipefail
           python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/precision_followup_v2.py" \
@@ -482,7 +482,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-mpfr-cnf-rust-qpe-science-v2
-          path: \${{ runner.temp }}/precision-followup-evidence/
+          path: ${{ runner.temp }}/precision-followup-evidence/
           retention-days: 30
           if-no-files-found: error
 

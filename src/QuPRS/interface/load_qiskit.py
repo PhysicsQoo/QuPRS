@@ -590,6 +590,7 @@ def check_equivalence(
                         number_of_weights=nweights,
                         maximum_weight_magnitude_squared=max_weight_sq,
                         independent_count=first,
+                        phase_tolerance=wmc_phase_tolerance,
                     )
                     equivalent = budget.status
                     wmc_precision_reason = budget.reason

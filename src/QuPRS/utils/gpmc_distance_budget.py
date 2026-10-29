@@ -38,6 +38,7 @@ def classify_gpmc_budgeted_count(
     distance_tolerance: float, precision_digits: int,
     cnf_vars: int, number_of_weights: int, maximum_weight_magnitude_squared: Fraction,
     independent_count: PrintedCount | None = None,
+    phase_tolerance: float = 1e-8,
 ):
     """Calculate a conditional numerical verdict with explicit assumptions.
 
@@ -102,9 +103,11 @@ def classify_gpmc_budgeted_count(
     elif hi < target and hi2 < target:
         status,reason="not_equivalent","modelled_count_below_distance_threshold"
     elif lo >= target and lo2 >= target:
-        # Preserve a conservative public unknown for near-equivalence until
-        # independent source identity/global-phase claims are reviewed.
-        status,reason="unknown","inside_threshold_without_certified_source"
+        # A positive classification remains numerical, not an exact proof;
+        # retain the public global-phase distinction.
+        phase = math.atan2(float(count.imag), float(count.real))
+        status = ("equivalent" if abs(phase) < phase_tolerance else "equivalent*")
+        reason = "modelled_count_inside_distance_threshold"
     else:
         status,reason="unknown","modeled_uncertainty_intersects_threshold"
     return GpmcDistanceBudget(

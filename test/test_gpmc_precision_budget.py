@@ -58,9 +58,11 @@ def test_model_fails_closed_on_replay_disagreement():
     assert r.reason=="precision_replay_disagreement"
 
 
-def test_model_never_promotes_printed_equivalent_without_source_certification():
+def test_model_inside_threshold_is_numerical_not_a_certificate():
     r=classify("1.000000000000000000000000000000000000000000000000000000000000e+00")
-    assert r.status == "unknown"
+    assert r.status == "equivalent"
+    assert r.reason == "modelled_count_inside_distance_threshold"
+    assert not r.solver_arithmetic_certified
 
 
 def test_gpmc_cnf_metadata_validates_literal_weights():

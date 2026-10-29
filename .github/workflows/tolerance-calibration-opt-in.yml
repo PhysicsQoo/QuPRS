@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -378,7 +378,7 @@ jobs:
           if-no-files-found: error
 
   experimental-precision-followup:
-    if: github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'research(precision):') || startsWith(github.event.head_commit.message, 'research(fidelity):') || startsWith(github.event.head_commit.message, 'research(realcase):'))
+    if: github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'research(precision):') || startsWith(github.event.head_commit.message, 'research(fidelity):') || startsWith(github.event.head_commit.message, 'research(realcase):') || startsWith(github.event.head_commit.message, 'research(split):'))
     name: Experimental MPFR printer actual-CNF and Rust QPE source boundaries
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -437,7 +437,7 @@ jobs:
           python -m QuPRS.utils.ganak_distribution
           python -m pip check
       - name: Compile pinned GPMC MPFR printer probe
-        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') }}
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') && !contains(github.event.head_commit.message, 'split-only') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -445,7 +445,7 @@ jobs:
             "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/printer_mpfr_contract.cpp" \
             -lmpfr -lgmpxx -lgmp -o "$RUNNER_TEMP/mpfr-printer-contract"
       - name: Prove bounded MPFR 90-digit stream rounding against binary mantissas
-        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') }}
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') && !contains(github.event.head_commit.message, 'split-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -455,7 +455,7 @@ jobs:
             --output "$RUNNER_TEMP/precision-followup-evidence" \
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/printer-study.log"
       - name: Diagnose Rust QPEexact8 input uncertainty from captured CNF and stdout
-        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') }}
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') && !contains(github.event.head_commit.message, 'split-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -464,7 +464,7 @@ jobs:
             --mode rust --output "$RUNNER_TEMP/precision-followup-evidence" \
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/rust-qpe-study.log"
       - name: Generate real algorithm-family CNFs with bounded solving
-        if: ${{ !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') }}
+        if: ${{ !contains(github.event.head_commit.message, 'fidelity-only') && !contains(github.event.head_commit.message, 'realcase-only') && !contains(github.event.head_commit.message, 'split-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -495,7 +495,7 @@ jobs:
             --output "$OUT" \
             2>&1 | tee "$OUT/exact-separable-gpmc.log"
       - name: Capture source-exact Rust QPE miter from unchanged experimental encoder
-        if: ${{ contains(github.event.head_commit.message, 'realcase-only') }}
+        if: ${{ contains(github.event.head_commit.message, 'realcase-only') || contains(github.event.head_commit.message, 'split-only') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -513,6 +513,16 @@ jobs:
           python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/real_qpe_qft_source_weights.py" \
             --output "$OUT" --rust-native-log "$OUT/rust-native-source-qpe-miter.log" \
             2>&1 | tee "$OUT/real-source-weight-comparison.log"
+      - name: QPE 2 eighth-cycle and 5 source-radian weighted-count A/B plus true QASM negatives
+        if: ${{ contains(github.event.head_commit.message, 'split-only') }}
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/precision-followup-evidence"
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/qpe_split_and_source_negative_study.py" \
+            --output "$OUT" --rust-native-log "$OUT/rust-native-source-qpe-miter.log" \
+            2>&1 | tee "$OUT/qpe-split-source-negative.log"
       - name: Seal source provenance and study evidence
         if: always()
         shell: bash
@@ -523,6 +533,7 @@ jobs:
           git rev-parse 'HEAD^{tree}' > "$OUT/experiment-tree.txt"
           sha256sum .diagnostics/tolerance_calibration/printer_mpfr_contract.cpp \
             .diagnostics/tolerance_calibration/precision_followup_v2.py \
+            .diagnostics/tolerance_calibration/qpe_split_and_source_negative_study.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > "$OUT/study-source-sha256.txt"
           (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \

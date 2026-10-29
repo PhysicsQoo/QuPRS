@@ -157,6 +157,12 @@ jobs:
             2>&1 | tee focused-tolerance-evidence/native-rust-weight.log
           python .diagnostics/tolerance_calibration/rust_native_weight_audit.py \
             2>&1 | tee focused-tolerance-evidence/native-rust-weight-audit.log
+      - name: Compare Rust CNF f64 against high-precision weight candidates and circuit RR
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/tolerance_calibration/native_weight_rr_followup.py \
+            2>&1 | tee focused-tolerance-evidence/native-weight-rr-followup.log
       - name: Record evidence and checksum
         if: always()
         shell: bash
@@ -169,6 +175,7 @@ jobs:
           rustc --version > focused-tolerance-evidence/rustc-version.txt
           sha256sum .diagnostics/tolerance_calibration/native_rz_rr_probe.py \
             .diagnostics/tolerance_calibration/rust_native_weight_audit.py \
+            .diagnostics/tolerance_calibration/native_weight_rr_followup.py \
             test/test_numerical_tolerance_contract_research.py \
             test/test_precision_count_transport.py \
             src/QuPRS/utils/precision_count.py \

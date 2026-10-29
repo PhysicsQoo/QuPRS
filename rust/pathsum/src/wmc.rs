@@ -717,13 +717,17 @@ mod native_rz_weight_research {
             let mut ps = PathSum::new(qubits);
             for operation in &operations { operation.apply(&mut ps, false); }
             let mut phases = 0;
-            for (mono, coefficient) in &ps.p.terms {
+            for (index, (mono, coefficient)) in ps.p.terms.iter().enumerate() {
                 let (num, den) = coefficient.radians.as_ref()
                     .map(|r| (r.numer().to_string(), r.denom().to_string()))
                     .unwrap_or_else(|| ("0".to_string(), "1".to_string()));
                 println!(
                     "RUST_PHASE\t{label}\t{source}\t{}\t{}\t{num}\t{den}\t{:?}",
                     coefficient.constant.numer, coefficient.constant.denom, mono
+                );
+                println!(
+                    "RUST_PHASE_ID\t{label}\t{}\t{}\t{}\t{num}\t{den}",
+                    index + 1, coefficient.constant.numer, coefficient.constant.denom
                 );
                 phases += 1;
             }
@@ -740,6 +744,11 @@ mod native_rz_weight_research {
                     if var > 0 { positive += 1; }
                 }
                 assert_eq!(positive, phases, "missing phase weight for {label}");
+                println!("RUST_CNF_START\t{label}\t{solver}");
+                for line in text.lines() {
+                    println!("RUST_CNF_LINE\t{line}");
+                }
+                println!("RUST_CNF_END\t{label}\t{solver}");
             }
         }
     }

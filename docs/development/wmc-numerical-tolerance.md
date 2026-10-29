@@ -396,6 +396,49 @@ this behavior may be described as verified. Future v0.14.0 release
 documentation must define the final Python/Rust/PyO3 diagnostic contract
 and backward compatibility together, without introducing wmc_policy.
 
+### Native Rust MPFR weight prototype — source-exact phase transport
+
+Follow-up [CI #40808551076](https://github.com/PhysicsQoo/QuPRS/actions/runs/40808551076)
+at source commit 3f2d281cbb15ad4a39e2a16ae7fdb17ae87e6b23
+successfully exercised a **research-only Rust MPFR implementation**, using
+the already-pinned Rug diagnostic crate with its Float/Std features. The
+binary calculates cos(2*pi*c + 2*r), sin(2*pi*c + 2*r) directly from the
+actual Rust QASM2 phase coefficient rational numerators/denominators,
+at 128 and 256 bits; it does not convert the input coefficient to f64.
+The emitted high-precision decimal values replace the original positive
+weights in the ACTUAL Rust-generated CNF and are submitted to native
+GPMC and stock Ganak.
+
+The experiment checked four source Rz literals, two precisions, and two
+solvers for **16 native weighted counts**, with independently computed
+Python mpmath weight references. All rows passed the bounded cross-oracle
+check; even QASM literals differing by 1e-30 rad remain different
+through the Rust MPFR weight serializer.
+
+| Actual complex trace absolute error | Rust native MPFR 128-bit | Rust native MPFR 256-bit |
+| --- | ---: | ---: |
+| Rz(2e-8), GPMC | ~8.33e-34 | ~8.33e-34 |
+| Rz(2e-8), stock Ganak | ~1e-16 | ~1e-16 |
+| Rz(2e-4), GPMC | ~4.44e-30 | ~4.44e-30 |
+| Rz(2e-4), stock Ganak | ~8.33e-18 | ~8.33e-18 |
+
+These are measured errors in the *printed complex count* relative to
+the analytic trace, not a certified MPFR/GPMC/Ganak arithmetic bound.
+They match the earlier independently generated Python high-precision
+weight candidates. There is no improvement at 256 bits in these two
+small circuits because another stage of the observed pipeline controls
+the output resolution; this **does not** establish a universal 128-bit
+accuracy limit.
+
+The Rust MPFR tool is under the diagnostic directory, **not** the
+installed pathsum crate or public Python/PyO3 API. Production integration
+still requires dependency/build-system review, native decimal serialization
+in the actual Rust WMC path, Linux/macOS packaging, time/memory profiling,
+Ganak source-pinned high-precision printer conformance, larger representative
+circuits, and an explicit numerical/provenance verdict contract. Keeping
+this implementation in an opt-in experiment avoids accidental performance
+and packaging regressions before those gates are passed.
+
 ## Candidate-selection evidence
 
 The initial 1e-10 public default candidate failed the native historical

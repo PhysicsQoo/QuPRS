@@ -202,6 +202,29 @@ An output such as **1.00000000e+00** with insufficient printed precision is
 whose **entire** printed interval lies above the physically normalized
 unit magnitude is also **unknown**.
 
+### What the existing empirical guard cannot resolve
+
+The current approximate classifier retains an empirical normalized-magnitude
+guard of 3e-9. It is **not** an internal Solver arithmetic bound. Near exact
+equivalence the projective-distance threshold has magnitude deficit
+
+\[
+\delta_{\mathrm{threshold}} =
+\frac{\varepsilon^2}{1+\sqrt{1-\varepsilon^2}}.
+\]
+
+At epsilon = 1e-8, this is about 5e-17, so the fixed guard is about
+**60 million times larger** than the threshold; at epsilon = 2e-8
+it is about **15 million times larger**. A normalized exact-identity
+WMC result in this mode can consequently remain **unknown**, even
+though the circuits are equal. The guard is comparable to the distance
+criterion only around epsilon ~= 7.75e-5. This is a *numerical resolution
+floor of the current heuristic*, not a lower bound on the actual circuit
+distance or an estimate of all Solver error.
+
+This result motivates separate high-precision weight and Solver-arithmetic
+evidence instead of reducing the empirical guard without justification.
+
 **Critical limitation:** these intervals cover only rounding of the
 solver's *printed* count, not error in the solver's internal arithmetic,
 input weight creation, phase reductions or QASM conversion. They cannot

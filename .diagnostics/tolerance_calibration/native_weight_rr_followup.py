@@ -45,14 +45,11 @@ def parse_rust_test_log():
     cases={}
     current=None
     for raw in LOG.read_text().splitlines():
-        if "RUST_PHASE_ID\t" in raw:
-            _, tail=raw.split("RUST_PHASE_ID\t",1)
-            label,idx,cn,cd,rn,rd=tail.split("\t")
-            cases.setdefault(label,{"phases":{},"cnfs":{}})
-            phases=cases[label]["phases"]
-            idx=int(idx)
-            assert idx not in phases
-            phases[idx]=((cn,cd),(rn,rd))
+        if "RUST_PHASE\t" in raw:
+            _, tail=raw.split("RUST_PHASE\t",1)
+            label,source,cn,cd,rn,rd,mono=tail.split("\t",6)
+            obj=cases.setdefault(label,{"phases":{},"cnfs":{},"terms":[]})
+            obj["terms"].append(((cn,cd),(rn,rd),mono))
         elif "RUST_CNF_START\t" in raw:
             assert current is None
             label,solver=raw.split("RUST_CNF_START\t",1)[1].split("\t")
@@ -70,7 +67,35 @@ def parse_rust_test_log():
     assert set(cases)==expected,(set(cases),expected)
     for label,case in cases.items():
         assert set(case["cnfs"])=={"gpmc","ganak"}
-        assert len(case["phases"])==2
+        assert len(case["terms"])==2
+        # Derive actual phase-var IDs from real CNF and 110-digit source
+        # phases. The variable IDs are NOT the ordinal index of phase terms:
+        # a monomial can allocate Tseitin input variables between them.
+        # A two-term exhaustive assignment is deterministic and cheap.
+        with mp.workdps(110):
+            expected=[]
+            for pi_ratio,rad,_ in case["terms"]:
+                angle=2*mp.pi*rational(pi_ratio)+2*rational(rad)
+                expected.append(mp.mpc(mp.cos(angle),mp.sin(angle)))
+            observed=[]
+            for line in case["cnfs"]["gpmc"].splitlines():
+                if line.startswith("c p weight "):
+                    t=line.split()
+                    variable=int(t[3])
+                    if variable>0:
+                        observed.append((variable,mp.mpc(mp.mpf(t[4]),mp.mpf(t[5]))))
+            assert len(observed)==len(expected),(label,observed)
+            assignments=[
+                (mp.fsum(abs(observed[j][1]-expected[i])
+                         for i,j in enumerate(order)),order)
+                for order in __import__("itertools").permutations(range(len(observed)))
+            ]
+            best,order=min(assignments,key=lambda a:a[0])
+            assert best < mp.mpf("1e-12"),(label,best)
+            case["phases"]={
+                observed[j][0]:case["terms"][i][:2]
+                for i,j in enumerate(order)
+            }
     return cases
 
 def mp_weights(phases,bits):
@@ -227,7 +252,8 @@ def rr_full_circuits():
     cases=[
         ("h_h_identity",QuantumCircuit(1),build_qc(("h","h")), "0"),
         ("hsh_exact",baseline_hsh,build_qc(("h","s","h")),"0"),
-        ("hsh_vs_near_omega",baseline_hsh,build_qc(("h","s","h"),perturb),
+        ("hsh_nonidentity",QuantumCircuit(1),baseline_hsh,"analytic_hsh"),
+        ("hsh_vs_small_rz",baseline_hsh,build_qc(("h","s","h"),perturb),
          "analytic_2pi_1e-7"),
     ]
     rows=[]
@@ -237,6 +263,19 @@ def rr_full_circuits():
                 events=[]
                 omega=RED.match_omega
                 hh=RED.match_HH
+                normalizer=RED.reduce_expression
+                def track_normalizer(expr,*args,**kwargs):
+                    after=normalizer(expr,*args,**kwargs)
+                    if str(expr)!=str(after):
+                        events.append({
+                            "rule":"phase_normalizer",
+                            "before_phase":str(expr)[:480],
+                            "after_phase":str(after)[:480],
+                            "phase_delta_excerpt":str(expr-after)[:480],
+                            "drop_small":kwargs.get("drop_small",True),
+                            "approximate_rule_bound_certified":False,
+                        })
+                    return after
                 def wrap(method_name, fn):
                     def inner(*args,**kwargs):
                         outcome=fn(*args,**kwargs)
@@ -257,8 +296,10 @@ def rr_full_circuits():
                     "label":name,"solver":"gpmc" if method!="reduction_rules" else "none",
                     "variant":method,"rr_tolerance":tolerance,
                     "independent_projective_distance": (
+                        "0" if theta=="0" else
                         mp.nstr(abs(mp.sin(mp.pi*mp.mpf("1e-7"))),90)
-                        if theta!="0" else "0"
+                        if theta=="analytic_2pi_1e-7" else
+                        mp.nstr(mp.sqrt(mp.mpf("0.5")),90)
                     ),
                     "certified_global_rr_error":False,
                 }
@@ -269,6 +310,8 @@ def rr_full_circuits():
                                                         wrap("omega",omega)))
                         stack.enter_context(patch.object(RED,"match_HH",
                                                         wrap("HH",hh)))
+                        stack.enter_context(patch.object(
+                            RED,"reduce_expression",track_normalizer))
                         result=check_equivalence(
                             reference,optimized,
                             method=method,backend="python",strategy="Naive",
@@ -280,7 +323,7 @@ def rr_full_circuits():
                     row["events"]=events[:100]
                     row["event_total"]=len(events)
                     row["potential_false_positive"]=(
-                        name=="hsh_vs_near_omega"
+                        name=="hsh_vs_small_rz"
                         and result.equivalent in ("equivalent","equivalent*")
                     )
                     if row["potential_false_positive"]:
@@ -291,7 +334,7 @@ def rr_full_circuits():
                 finally:
                     config.set_tolerance(previous)
                 record(row);rows.append(row)
-    assert len(rows)==18
+    assert len(rows)==24
     assert all(r["status"]!="execution_error" for r in rows)
     # A useful circuit-level RR control must trigger actual reduction rules.
     # Reaching HH or Omega through the full circuit is a research gate.
@@ -317,6 +360,7 @@ def main():
         "rr_execution_errors":sum("error" in r for r in rr),
         "hh_events":sum(e["rule"]=="HH" for r in rr for e in r.get("events",[])),
         "omega_events":sum(e["rule"]=="omega" for r in rr for e in r.get("events",[])),
+        "phase_normalizer_events":sum(e["rule"]=="phase_normalizer" for r in rr for e in r.get("events",[])),
         "scientific_flags":[{"case":r["label"],"tolerance":r["rr_tolerance"],
             "method":r["variant"],"flag":r["scientific_flag"]}
             for r in rr if "scientific_flag" in r],

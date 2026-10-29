@@ -8,6 +8,7 @@ on:
       - '.diagnostics/tolerance_calibration/**'
       - 'test/test_numerical_tolerance_contract_research.py'
       - 'test/test_precision_count_transport.py'
+      - '.diagnostics/tolerance_calibration/printed_distance_parity.tsv'
       - 'test/test_rr_approximation_provenance.py'
       - 'test/test_wmc_distance_resolution_research.py'
       - 'test/test_gpmc_precision_budget.py'
@@ -266,6 +267,7 @@ jobs:
             rust/pathsum/src/wmc.rs \
             .diagnostics/tolerance_calibration/mpfr_result_printer_probe.c \
             .diagnostics/tolerance_calibration/high_precision_count_fixture.tsv \
+            .diagnostics/tolerance_calibration/printed_distance_parity.tsv \
             .diagnostics/tolerance_calibration/precision_transport_probe.py \
             .diagnostics/tolerance_calibration/rust_precision_transport/Cargo.toml \
             .diagnostics/tolerance_calibration/rust_precision_transport/src/main.rs \

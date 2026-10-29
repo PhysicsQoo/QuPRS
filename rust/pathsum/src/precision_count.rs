@@ -136,10 +136,23 @@ pub fn parse_stdout(stdout: &str) -> Result<PrintedCount> {
 pub fn classify(
     count: &PrintedCount, normalization_twice_log2: i32, distance: &str,
 ) -> Result<PrintedVerdict> {
+    classify_with_uncertainty(count, normalization_twice_log2, distance, &BigRational::zero())
+}
+
+/// Shared Python/Rust rational squared-magnitude contract. The supplied
+/// absolute real/imaginary count error is additional to printed rounding.
+/// Callers must independently justify this bound; it is not a solver proof.
+pub fn classify_with_uncertainty(
+    count: &PrintedCount, normalization_twice_log2: i32, distance: &str,
+    component_error: &BigRational,
+) -> Result<PrintedVerdict> {
     if normalization_twice_log2.abs() > MAX_EXP {
         return Err(anyhow!("Normalization outside bounded precision transport"));
     }
     let (eps, _) = component(distance)?;
+    if component_error.is_negative() {
+        return Err(anyhow!("Component count error must be nonnegative"));
+    }
     let zero = BigRational::zero();
     let one = BigRational::from_integer(BigInt::from(1));
     if eps <= zero || eps >= one {
@@ -150,10 +163,10 @@ pub fn classify(
     let threshold = &normal_sq * (&one - &eps * &eps);
     let re = count.real.abs();
     let im = count.imag.abs();
-    let min_re = (&re - &count.real_half_unit).max(BigRational::zero());
-    let min_im = (&im - &count.imag_half_unit).max(BigRational::zero());
-    let max_re = &re + &count.real_half_unit;
-    let max_im = &im + &count.imag_half_unit;
+    let min_re = (&re - &count.real_half_unit - component_error).max(BigRational::zero());
+    let min_im = (&im - &count.imag_half_unit - component_error).max(BigRational::zero());
+    let max_re = &re + &count.real_half_unit + component_error;
+    let max_im = &im + &count.imag_half_unit + component_error;
     let low = &min_re * &min_re + &min_im * &min_im;
     let high = &max_re * &max_re + &max_im * &max_im;
     if low > normal_sq { Ok(PrintedVerdict::UnknownOvershoot) }
@@ -197,6 +210,37 @@ mod tests {
         for value in ["nan", "inf", "1e9999", "1/0"] {
             assert!(parse_stdout(&format!("c s exact quadruple float {value}")).is_err());
         }
+    }
+
+
+    #[test]
+    fn python_rust_printed_distance_contract_fixtures() {
+        let fixtures = include_str!("../../../.diagnostics/tolerance_calibration/printed_distance_parity.tsv");
+        let mut observed = 0;
+        for line in fixtures.lines().filter(|line| !line.is_empty() && !line.starts_with('#')) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            assert_eq!(fields.len(), 6, "malformed fixture: {line}");
+            let count = parse_stdout(fields[1]).unwrap();
+            let k: i32 = fields[2].parse().unwrap();
+            let (extra_error, _) = component(fields[4]).unwrap();
+            let expected = match fields[5] {
+                "equivalent" => PrintedVerdict::Equivalent,
+                "not_equivalent" => PrintedVerdict::NotEquivalent,
+                "unknown_resolution" => PrintedVerdict::UnknownResolution,
+                "unknown_overshoot" => PrintedVerdict::UnknownOvershoot,
+                other => panic!("unrecognized fixture verdict: {other}"),
+            };
+            assert_eq!(
+                classify_with_uncertainty(&count, k, fields[3], &extra_error).unwrap(),
+                expected, "fixture {}", fields[0],
+            );
+            observed += 1;
+        }
+        assert!(observed >= 10);
+        let count = parse_stdout("c s exact arb frac 1/1").unwrap();
+        assert!(classify_with_uncertainty(
+            &count, 0, "1e-8", &-BigRational::from_integer(BigInt::from(1))
+        ).is_err());
     }
 
     #[test]

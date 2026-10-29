@@ -2,6 +2,7 @@
 from decimal import Decimal
 from fractions import Fraction
 import pytest
+from pathlib import Path
 
 from QuPRS.utils.precision_count import (
     PrintedCount, classify_printed_distance, parse_printed_count_line,
@@ -95,3 +96,29 @@ def test_adapter_native_transport_uses_decimal_before_legacy_float():
     assert precise.count.real < Fraction(1)
     assert legacy.count == complex(1.0, 0.0)
     assert classify_printed_distance(precise.count, 0, 1e-8).status == "not_equivalent"
+
+
+@pytest.mark.parametrize("row", [
+    line for line in (
+        Path(__file__).resolve().parents[1]
+        / ".diagnostics/tolerance_calibration/printed_distance_parity.tsv"
+    ).read_text().splitlines()
+    if line and not line.startswith("#")
+])
+def test_python_rust_printed_distance_contract(row):
+    name, stdout, exponent, epsilon, component_error, expected = row.split("\t")
+    verdict = classify_printed_distance(
+        parse_printed_solver_output(stdout), int(exponent), float(epsilon),
+        component_error=Fraction(Decimal(component_error)),
+    )
+    assert (
+        ("unknown_overshoot" if verdict.reason == "nonphysical_magnitude_overshoot"
+         else "unknown_resolution" if verdict.status == "unknown"
+         else verdict.status)
+    ) == expected, name
+
+
+def test_printed_distance_rejects_invalid_component_error():
+    observed = count("1/1", "c s exact arb frac")
+    with pytest.raises(ValueError, match="Component error"):
+        classify_printed_distance(observed, 0, 1e-8, component_error=Fraction(-1))

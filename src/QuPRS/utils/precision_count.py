@@ -122,7 +122,8 @@ def parse_printed_solver_output(stdout: str) -> PrintedCount:
 
 
 def classify_printed_distance(
-    count: PrintedCount, expected_twice_log2: int, distance_tolerance: float
+    count: PrintedCount, expected_twice_log2: int, distance_tolerance: float,
+    *, component_error: Fraction = Fraction(0),
 ) -> PrintedDistanceEvidence:
     """Compare |count|^2 against 2^k (1 - eps^2) without a f64 cast.
 
@@ -130,6 +131,10 @@ def classify_printed_distance(
     includes known print-resolution ambiguity and nonphysical overshoot.
     Caller must separately account for unbounded solver arithmetic/source
     weight error and must not advertise this as an equivalence proof.
+
+    component_error is a caller-supplied absolute count-unit error bound for
+    EACH real/imaginary component, in addition to stdout rounding. Its validity
+    is the caller's responsibility; this routine never certifies it.
     """
     if not isinstance(expected_twice_log2, int) or isinstance(expected_twice_log2, bool):
         raise ValueError("Normalization exponent must be an integer")
@@ -141,14 +146,16 @@ def classify_printed_distance(
     if not math.isfinite(epsilon) or not 0 < epsilon < 1:
         raise ValueError("Distance tolerance must be finite in (0, 1)")
     eps = Fraction(Decimal(str(epsilon)))
+    if not isinstance(component_error, Fraction) or component_error < 0:
+        raise ValueError("Component error must be a nonnegative Fraction")
     norm_squared = Fraction(2) ** expected_twice_log2
     threshold = norm_squared * (1 - eps * eps)
 
     r, i = abs(count.real), abs(count.imag)
-    lo_re = max(Fraction(0), r - count.real_print_half_unit)
-    lo_im = max(Fraction(0), i - count.imag_print_half_unit)
-    hi_re = r + count.real_print_half_unit
-    hi_im = i + count.imag_print_half_unit
+    lo_re = max(Fraction(0), r - count.real_print_half_unit - component_error)
+    lo_im = max(Fraction(0), i - count.imag_print_half_unit - component_error)
+    hi_re = r + count.real_print_half_unit + component_error
+    hi_im = i + count.imag_print_half_unit + component_error
     magnitude_sq_lower = lo_re * lo_re + lo_im * lo_im
     magnitude_sq_upper = hi_re * hi_re + hi_im * hi_im
     if magnitude_sq_lower > norm_squared:

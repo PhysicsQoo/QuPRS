@@ -7,10 +7,9 @@ small CNFs with bounded weights and explicit GPMC precision provenance.
 """
 from dataclasses import dataclass
 from fractions import Fraction
-from decimal import Decimal
 import math
 
-from .precision_count import PrintedCount, PrintedDistanceEvidence, classify_printed_distance
+from .precision_count import PrintedCount, classify_printed_distance
 
 MAX_BUDGET_VARS = 18
 SOURCE_WEIGHT_BITS = 100  # Margin below Python's 113-bit weight construction.
@@ -85,24 +84,22 @@ def classify_gpmc_budgeted_count(
         )
     # Two runs must produce the same side of the normalized magnitude
     # distance threshold after including model and printed-rounding error.
-    norm_sq=Fraction(2)**expected_twice_log2
-    epsilon=Fraction(Decimal(str(distance_tolerance)))
-    target=norm_sq*(1-epsilon*epsilon)
-    def interval(c):
-        re=abs(c.real); im=abs(c.imag)
-        e_re=component_error + c.real_print_half_unit
-        e_im=component_error + c.imag_print_half_unit
-        lower=(max(Fraction(0),re-e_re)**2 +
-               max(Fraction(0),im-e_im)**2)
-        upper=(re+e_re)**2+(im+e_im)**2
-        return lower,upper
-    lo,hi=interval(count)
-    lo2,hi2=interval(independent_count)
-    if lo > norm_sq or lo2 > norm_sq:
+    # Use the same exact-rational magnitude interval contract as Rust
+    # precision_count::classify_with_uncertainty. Solver/source error remains
+    # a conditional assumption supplied by this model, not certification.
+    verdict = classify_printed_distance(
+        count, expected_twice_log2, distance_tolerance,
+        component_error=component_error,
+    )
+    replay = classify_printed_distance(
+        independent_count, expected_twice_log2, distance_tolerance,
+        component_error=component_error,
+    )
+    if "nonphysical_magnitude_overshoot" in (verdict.reason, replay.reason):
         status,reason="unknown","modeled_nonphysical_overshoot"
-    elif hi < target and hi2 < target:
+    elif verdict.status == replay.status == "not_equivalent":
         status,reason="not_equivalent","modelled_count_below_distance_threshold"
-    elif lo >= target and lo2 >= target:
+    elif verdict.status == replay.status == "equivalent":
         # A positive classification remains numerical, not an exact proof;
         # retain the public global-phase distinction.
         phase = math.atan2(float(count.imag), float(count.real))

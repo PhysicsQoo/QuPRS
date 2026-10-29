@@ -250,17 +250,27 @@ def to_DIMACS(pathsum, filename="wmc.cnf", tool_name="gpmc"):
     return DIMACS_text
 
 
-def run_wmc(file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0, *, preserve_count=False):
-    """Run the selected adapter. Preserve legacy tuples unless explicitly requested.
+def run_wmc(
+    file="wmc.cnf", tool_name="gpmc", timeout: float = 600.0, *,
+    preserve_count=False, precision_digits=None,
+):
+    """Execute selected WMC solver without f64 output loss when requested.
 
-    preserve_count returns PrintedCount retaining rational text values and
-    printed-rounding units. It does not certify Solver internal error.
+    Optional GPMC -prec controls the actual MPFR working precision AND
+    printed precision. Never silently change the user's selected solver.
     """
+    from dataclasses import replace
     from QuPRS.utils.solver_adapter import get_solver_adapter, execute_solver
     from QuPRS.utils.solver_process import run as run_solver
 
+    adapter = get_solver_adapter(tool_name)
+    if precision_digits is not None:
+        if tool_name != "gpmc" or type(precision_digits) is not int or not 30 <= precision_digits <= 200:
+            raise ValueError("Explicit precision_digits supports GPMC integer digits in [30, 200]")
+        adapter = replace(adapter, arguments=(*adapter.arguments, f"-prec={precision_digits}"))
+
     result = execute_solver(
-        get_solver_adapter(tool_name), file, timeout,
+        adapter, file, timeout,
         resource_resolver=WMC, process_runner=run_solver,
         capture_decimal=preserve_count,
     )

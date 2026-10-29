@@ -70,11 +70,15 @@ def analyze_native_wmc():
             original_dimacs = ps2wmc.to_DIMACS
 
             def observe_run(file="wmc.cnf", tool_name="gpmc", timeout=600.0, **kwargs):
-                assert not kwargs, "Unexpected WMC public invocation"
-                value = original_run(file, tool_name, timeout, preserve_count=True)
+                value = original_run(
+                    file, tool_name, timeout, preserve_count=True,
+                    precision_digits=kwargs.get("precision_digits"),
+                )
                 assert isinstance(value, PrintedCount)
                 raw.append(value)
-                return float(value.real), float(value.imag)
+                return value if kwargs.get("preserve_count") else (
+                    float(value.real), float(value.imag)
+                )
 
             def observe_dimacs(pathsum, filename="wmc.cnf", tool_name="gpmc"):
                 incoming.append(pathsum)
@@ -103,13 +107,13 @@ def analyze_native_wmc():
                         approximate_distance_tolerance=1e-8,
                     )
                 assert result.wmc_solver_invoked
-                assert len(raw) == 1 and len(incoming) == 1
+                assert len(raw) == (2 if solver == "gpmc" else 1) and len(incoming) == 1
                 # The actual final PathSum is the one provided to WMC.
                 assert incoming[0] is result.final_pathsum
                 assert result.expect is not None
                 exponent = int(2 * result.expect)
                 assert exponent == 2 * result.expect
-                value = raw[0]
+                value = raw[-1]
                 printed = classify_printed_distance(value, exponent, 1e-8)
                 with mp.workdps(110):
                     norm = mp.power(2, mp.mpf(exponent) / 2)
@@ -134,10 +138,15 @@ def analyze_native_wmc():
                     "printed_imag_half_unit": str(value.imag_print_half_unit),
                     "printed_count_format": value.format_name,
                     "wmc_input_is_final_rr_pathsum": True,
+                    "precision_replay_runs": len(raw),
+                    "precision_reason": result.wmc_precision_reason,
+                    "precision_model_component_bound": result.wmc_numeric_model_bound,
                     "final_pathvars": result.final_pathsum.num_pathvar,
                 })
-                if result.equivalent != "unknown":
-                    raise AssertionError("Public guard changed without authorized precision budget")
+                expected_public = "not_equivalent" if solver == "gpmc" else "unknown"
+                assert result.equivalent == expected_public, (
+                    solver,method,result.equivalent,result.wmc_precision_reason
+                )
             except Exception as exc:
                 row["status"] = "error"
                 row["error"] = type(exc).__name__ + ": " + str(exc)[:650]
@@ -161,6 +170,9 @@ def test_native_printed_distance_resolution_at_hybrid_boundary():
     )
     assert len(rows) == 4
     assert not errors
-    assert all(r["public_equivalent"] == "unknown" for r in rows)
+    assert all(
+        r["public_equivalent"] == ("not_equivalent" if r["solver"]=="gpmc" else "unknown")
+        for r in rows
+    )
     assert all(r["wmc_input_is_final_rr_pathsum"] for r in rows)
     assert all(not r["printed_only_certified_solver_bound"] for r in rows)

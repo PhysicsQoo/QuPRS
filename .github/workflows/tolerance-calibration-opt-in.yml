@@ -10,6 +10,9 @@ on:
       - 'test/test_precision_count_transport.py'
       - 'test/test_rr_approximation_provenance.py'
       - 'test/test_wmc_distance_resolution_research.py'
+      - 'test/test_gpmc_precision_budget.py'
+      - 'src/QuPRS/utils/gpmc_distance_budget.py'
+      - 'src/QuPRS/utils/gpmc_cnf_metadata.py'
       - 'src/QuPRS/pathsum/reduction_provenance.py'
       - 'src/QuPRS/pathsum/reduction.py'
       - 'src/QuPRS/pathsum/pattern_match.py'
@@ -154,6 +157,13 @@ jobs:
           python -m pytest -q -ra test/test_rr_approximation_provenance.py \
             --junitxml=focused-tolerance-evidence/rr-provenance-junit.xml \
             2>&1 | tee focused-tolerance-evidence/rr-provenance.log
+      - name: Test GPMC budget/replay and fail-closed conditions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra test/test_gpmc_precision_budget.py \
+            --junitxml=focused-tolerance-evidence/gpmc-budget-junit.xml \
+            2>&1 | tee focused-tolerance-evidence/gpmc-budget.log
       - name: Characterize native WMC printed-count distance resolution
         shell: bash
         run: |
@@ -212,6 +222,10 @@ jobs:
             test/test_precision_count_transport.py \
             test/test_rr_approximation_provenance.py \
             test/test_wmc_distance_resolution_research.py \
+            test/test_gpmc_precision_budget.py \
+            src/QuPRS/utils/gpmc_distance_budget.py \
+            src/QuPRS/utils/gpmc_cnf_metadata.py \
+            src/QuPRS/interface/ps2wmc.py \
             src/QuPRS/pathsum/reduction_provenance.py \
             src/QuPRS/pathsum/reduction.py \
             src/QuPRS/pathsum/pattern_match.py \

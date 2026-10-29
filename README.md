@@ -291,6 +291,15 @@ GPMC's unrounded-decimal output supports a *printed-only*
 case. Neither observation is a full solver arithmetic certificate.
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
+In the opt-in v0.14.0 research branch, GPMC distance mode performs
+60-/90-decimal-digit MPFR precision replay on bounded CNFs and uses an
+explicit **conditional numerical error model** instead of discarding
+count digits via binary64. This can report model-based not_equivalent
+where the evidence is separated from the distance boundary; it is
+not a formal arithmetic or source-angle error certificate.
+Unsupported or ambiguous cases remain unknown. This experimental
+behavior and its extra Solver cost are not a stable release contract.
+
 ### Solver subprocess reliability and timeout limits
 
 On **Linux** and **macOS**, both backends supervise each invocation of the

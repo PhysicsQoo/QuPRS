@@ -81,14 +81,18 @@ def test_strict_rr_unknown_hybrid_uses_final_pathsum_for_wmc(method):
             backend="python", tool_name="gpmc",
             approximate_distance_tolerance=1e-8, timeout=15,
         )
-    assert result.equivalent == "unknown", result
-    assert result.decision_basis == "inconclusive"
     assert not result.rr_approximation_unbounded
     if method == "hybrid":
+        assert result.equivalent == "not_equivalent", result
+        assert result.decision_basis == "numerical_approximate"
         assert result.wmc_solver_invoked
         assert len(passed) == 1 and passed[0] is result.final_pathsum
-        assert result.wmc_numerical_verdict == "unknown"
+        assert result.wmc_numerical_verdict == "not_equivalent"
+        assert result.wmc_precision_reason == "modelled_count_below_distance_threshold"
+        assert result.wmc_printed_verdict == "not_equivalent"
     else:
+        assert result.equivalent == "unknown", result
+        assert result.decision_basis == "inconclusive"
         assert not result.wmc_solver_invoked
         assert passed == []
 

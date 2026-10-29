@@ -433,6 +433,41 @@ establish a general safe guard. Therefore the public classifier still
 returns unknown; a distinct error-budget study is required before
 promoting printed-only evidence to a definitive public verdict.
 
+### Conditional GPMC precision-replay research classifier
+
+On the opt-in experiment branch, Python GPMC approximate-distance mode
+retains exact decimal PrintedCount values instead of converting them
+through f64. It requests two independent GPMC invocations at **60 and
+90 decimal MPFR working digits** (GPMC -prec affects internal MPFR
+arithmetic and output printing) on the **same final RR PathSum CNF**.
+The second invocation supplies the classifier's count, and the first
+is an explicit precision-stability cross-check. Other solver choices
+remain unchanged; ordinary non-distance GPMC calls retain their
+original arguments.
+
+The initial **conditional** magnitude-error model is intentionally
+limited to small CNFs (at most 18 variables), phase weights with
+observed squared modulus approximately one, and a factor
+2^(2*n+20) multiplied by (2^-100 + 2^-p). The 100-bit term is
+a **conservative engineering assumption** relative to the current
+113-bit Python source-to-weight computation; p is the MPFR
+working precision inferred from requested decimal digits.
+The model is *not* a verified upper bound for arbitrary GPMC
+preprocessing/caching or source-angle parsing. Results therefore
+remain **numerical model-based classifications**, never rigorous
+solver/circuit distance certificates.
+
+The public result exposes wmc_printed_verdict, wmc_precision_reason
+and wmc_numeric_model_bound. Only robust numerical
+not_equivalent observations are eligible for promotion; modeled
+inside-threshold results remain unknown until exact source-side
+and Solver error certification is available. Inputs that exceed
+the model limits, disagree between precision runs, or have an
+interval intersecting the threshold remain unknown.
+The original fixed 3e-9 guard remains the fallback for Ganak
+and other numeric paths. This experimental GPMC behavior is not
+yet an accepted cross-backend API guarantee.
+
 ### Native Rust MPFR weight prototype — source-exact phase transport
 
 Follow-up [CI #40808551076](https://github.com/PhysicsQoo/QuPRS/actions/runs/40808551076)

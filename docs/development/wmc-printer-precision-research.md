@@ -456,3 +456,107 @@ mathematically proven upper bounds. The stronger all-source
 weight reconstruction changes the miter count materially, and
 the separate eighth and source-radian contributions should be
 investigated without assuming their effects add monotonically.
+
+
+## Phase 5 — separated QPEexact8 eighth-cycle and source-radian contributions; genuine source-negative controls
+
+Date: 2026-10-30 (Taipei). Strict research-only continuation on
+`experiment/numerical-tolerance-calibration-20261027`, study commit
+`106b91d31ef87d5fb3396578f5ef8f9463512bda`.
+
+- [Source-pinned opt-in Actions #40975823758](https://github.com/PhysicsQoo/QuPRS/actions/runs/40975823758):
+  **SUCCESS**.
+- [Native evidence artifact 12942328264](https://github.com/PhysicsQoo/QuPRS/actions/runs/40975823758/artifacts/12942328264):
+  ZIP SHA256 `b435408ccea03b3ad70d8057ab24897693418119317d4a0ff96eb2db8d1c1449`,
+  ZIP CRC verified and **30/30** internal SHA256SUMS verified.
+- Tested public APIs still built from pinned dev
+  `55e78c7597966617c1a193b89056ff4e99c3ddfb`.
+  Source-phase logging and miter-CNF reconstruction are
+  `#[cfg(test)]` research-only Rust code on the existing experiment
+  branch, not the public dev build. The exact original source pair
+  SHA256 remains `8d514d06f7c9e81abda1042796cc34227624c9ed66097bee1ce5e97a87884dda` /
+  `227ab45a4eb033889aa57bb53e54938e74d757fea30eaa3d276b495048dc6141`.
+- Each candidate has the **same** 31-variable miter CNF *clauses*
+  and normalization exponent twice=22. Individual CNF weight bytes
+  differ deliberately, while solver settings are fixed to
+  GPMC `-prec=90`. Six native counting invocations in the
+  *experiment* are six different candidate trials, **not** production
+  WMC replay or a second production Solver pass.
+
+### Exact-source category A/B (printed-count diagnostics, not a certificate)
+
+The native rational phase terms contained exactly 10 known quarter-cycle,
+two eighth-cycle-but-not-quarter and five nonzero-source-radian weights.
+Only the source-rational categories were used to choose replacement
+weights; proximity to 1, -1, i, -i played **no role**.
+
+| Candidate | Changed weights | Printed GPMC candidate D_proj² |
+| --- | ---: | ---: |
+| Baseline native f64 | 0 | 2.5742269160209487e-17 |
+| Source-exact eighth cycles only | 2 | 1.2447467565562121e-17 |
+| Nonzero source radians only | 5 | 1.3294801594648057e-17 |
+| Both eighth cycles and radians | 7 | 7.055440585634822e-31 |
+| Quarter cycles only | 10 | 2.5742269160209404e-17 |
+| All seventeen from source phase | 17 | 6.846101557761838e-31 |
+
+Both non-Clifford categories affect the observed magnitude defect,
+and jointly nearly remove it; fixing only quarter-cycle terms is
+insufficient. The observed magnitude-defect second-order interaction
+`defect(eighth+radians) - defect(eighth) - defect(radians) + defect(base)`
+was approximately `6.91647e-33`, small in this cohort but **not**
+a general additivity law. Do not replace a defensible worst-case error
+bound with this observed error, and do not assert that these
+printed candidate distances are source-unitary or GPMC arithmetic
+certificates.
+
+### Genuine mutated QASM non-equivalence controls at D epsilon=1e-8
+
+The original original-corpus QASM bytes for QPEexact8 and QFT16
+were preserved. Separate real QASM files append the genuine gate
+`rz(0.01) q[0];`, once to the original input and once to the
+transpiled target. All four altered QASM files, source hashes and
+native Solver observations are in artifact 12942328264.
+
+The **original circuit vs its own mutated circuit** is independently
+non-equivalent, with a known global-phase-invariant distance for any
+unitary `U`: `D_proj(U, Rz(0.01) U)=|sin(0.005)|`,
+approximately `0.004999979166692708` (unitary conjugation invariance).
+This is far above `1e-8`, regardless of algorithm family.
+In the **original vs mutated transpiled** controls, the original
+cross-implementation baseline has not been independently certified,
+so only observed API/solver statuses are asserted.
+
+| Original benchmark / API | Self-source mutation | Modified transpiled target |
+| --- | --- | --- |
+| QPEexact8 Rust Hybrid | `not_equivalent` | `not_equivalent` |
+| QPEexact8 Python WMC-only | `unknown` | `unknown` |
+| QFT16 Python WMC-only | `unknown` | `unknown` |
+
+All six public API calls completed and invoked native GPMC once.
+For **all six**, the selected Solver's printed-count classification
+was `not_equivalent`. Rust QPEexact8 Hybrid promoted the negative to
+`not_equivalent`, whereas the four Python WMC-only cases remained
+`unknown` with reason
+`single_pass_uncertified_insufficient_printed_resolution`.
+None returned `equivalent` or `equivalent*`: the tested known-negative
+self-pairs had no false-positive classification, but Python's negative
+decision coverage is poor at this threshold. **Unknown is not a pass**.
+
+This demonstrates the current incomplete numerical model affects
+both positive and negative conclusions, rather than merely blocking
+positive equivalence. The printed negative alone cannot justify
+reclassifying every unresolved large-CNF case without sound
+solver-error and input-weight bounds.
+
+### Research decision
+
+Do not promote a production PR yet. Focus a next **bounded**
+experiment on deriving an error *enclosure* from actual solver
+weighted arithmetic and source-to-weight rounding for realistic
+QPE/QFT miter CNFs, including cancellation, interval direction and
+negative controls. For Rust, higher-precision representation of the
+two eighth and five nonzero-radian source coefficients is more
+effective than Clifford-only special-casing in this observed pair.
+Maintain an unknown region when a certified bound cannot decide.
+Do not alter RR-first Hybrid dispatch, public epsilon, production
+single Solver invocation or introduce a global fixed guard.

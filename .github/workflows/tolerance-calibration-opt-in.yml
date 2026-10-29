@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -378,7 +378,7 @@ jobs:
           if-no-files-found: error
 
   experimental-precision-followup:
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(precision):')
+    if: github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'research(precision):') || startsWith(github.event.head_commit.message, 'research(fidelity):'))
     name: Experimental MPFR printer actual-CNF and Rust QPE source boundaries
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -437,7 +437,7 @@ jobs:
           python -m QuPRS.utils.ganak_distribution
           python -m pip check
       - name: Compile pinned GPMC MPFR printer probe
-        if: ${{ !contains(github.event.head_commit.message, 'large-only') }}
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -445,7 +445,7 @@ jobs:
             "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/printer_mpfr_contract.cpp" \
             -lmpfr -lgmpxx -lgmp -o "$RUNNER_TEMP/mpfr-printer-contract"
       - name: Prove bounded MPFR 90-digit stream rounding against binary mantissas
-        if: ${{ !contains(github.event.head_commit.message, 'large-only') }}
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -455,7 +455,7 @@ jobs:
             --output "$RUNNER_TEMP/precision-followup-evidence" \
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/printer-study.log"
       - name: Diagnose Rust QPEexact8 input uncertainty from captured CNF and stdout
-        if: ${{ !contains(github.event.head_commit.message, 'large-only') }}
+        if: ${{ !contains(github.event.head_commit.message, 'large-only') && !contains(github.event.head_commit.message, 'fidelity-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -464,6 +464,7 @@ jobs:
             --mode rust --output "$RUNNER_TEMP/precision-followup-evidence" \
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/rust-qpe-study.log"
       - name: Generate real algorithm-family CNFs with bounded solving
+        if: ${{ !contains(github.event.head_commit.message, 'fidelity-only') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -471,6 +472,28 @@ jobs:
           python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/precision_followup_v2.py" \
             --mode corpus --output "$RUNNER_TEMP/precision-followup-evidence" \
             2>&1 | tee "$RUNNER_TEMP/precision-followup-evidence/real-cnf-study.log"
+      - name: Audit experimental native Rust source rational phase and f64 weight
+        if: ${{ contains(github.event.head_commit.message, 'fidelity-only') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/precision-followup-evidence"
+          cargo test --manifest-path "$GITHUB_WORKSPACE/rust/pathsum/Cargo.toml" \
+            native_phase_precision_clifford_controls -- --nocapture \
+            2>&1 | tee "$OUT/source-native-rust-test.log"
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/source_phase_weight_oracle.py" \
+            --log "$OUT/source-native-rust-test.log" --output "$OUT" \
+            2>&1 | tee "$OUT/source-phase-oracle.log"
+      - name: Measure exact printed-CNF arithmetic versus actual native GPMC
+        if: ${{ contains(github.event.head_commit.message, 'fidelity-only') }}
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/precision-followup-evidence"
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/exact_separable_gpmc_study.py" \
+            --output "$OUT" \
+            2>&1 | tee "$OUT/exact-separable-gpmc.log"
       - name: Seal source provenance and study evidence
         if: always()
         shell: bash

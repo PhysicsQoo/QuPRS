@@ -117,6 +117,16 @@ impl WmcManager {
             let z_i = self.next_var_id;
             self.next_var_id += 1;
             
+            // Strictly research-only, enabled only by the focused native test.
+            #[cfg(test)]
+            if let Ok(case) = std::env::var("QUPRS_RESEARCH_PHASE_AUDIT") {
+                let (rn, rd) = coeff.radians.as_ref().map(|r|
+                    (r.numer().to_string(), r.denom().to_string())
+                ).unwrap_or_else(|| ("0".into(), "1".into()));
+                println!("SOURCE_WEIGHT_AUDIT\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    case, z_i, coeff.constant.numer, coeff.constant.denom,
+                    rn, rd, weight.re.to_bits(), weight.im.to_bits());
+            }
             self.weights.insert(z_i, weight);
 
             if mono.is_empty() {
@@ -763,6 +773,48 @@ mod native_rz_weight_research {
                 }
                 println!("RUST_CNF_END\t{label}\t{solver}");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod phase_fidelity_scoped_research {
+    use super::WmcManager;
+    use crate::pathsum::PathSum;
+
+    #[test]
+    fn native_phase_precision_clifford_controls() {
+        for (label, gate) in [
+            ("s_gate", "s q[0];"),
+            ("sdg_gate", "sdg q[0];"),
+            ("t_gate", "t q[0];"),
+            ("tdg_gate", "tdg q[0];"),
+            ("z_gate", "z q[0];"),
+            ("h_gate", "h q[0];"),
+            ("rz_small", "rz(0.0002) q[0];"),
+            ("rz_pi_half", "rz(pi/2) q[0];"),
+        ] {
+            let qasm=format!("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\n{gate}\n");
+            let parsed=crate::qasm::parse_qasm_str(&qasm);
+            let (operations, qubits)=match parsed {
+                Ok(value) => value,
+                Err(error) => {
+                    println!("SOURCE_WEIGHT_SKIPPED\t{}\t{}",label,error);
+                    if matches!(label,"s_gate"|"t_gate"|"z_gate"|"rz_small") {
+                        panic!("required source gate {} did not parse",label);
+                    }
+                    continue
+                }
+            };
+            let mut ps=PathSum::new(qubits);
+            for operation in &operations { operation.apply(&mut ps,false); }
+            std::env::set_var("QUPRS_RESEARCH_PHASE_AUDIT",label);
+            let mut manager=WmcManager::new(&ps);
+            manager.encode_trace(&ps).expect("native phase trace must encode");
+            std::env::remove_var("QUPRS_RESEARCH_PHASE_AUDIT");
+            println!("SOURCE_WEIGHT_CASE\t{}\t{}\t{}",label,
+                ps.p.terms.len(),manager.numerical_weight_count());
+            assert_eq!(manager.numerical_weight_count(),ps.p.terms.len());
         }
     }
 }

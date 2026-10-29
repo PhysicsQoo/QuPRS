@@ -225,13 +225,12 @@ def check_equivalence(
             may return unknown; this is not a formal solver error certificate.
             A nondefault explicit WMC magnitude tolerance conflicts; an
             explicit 1e-8 is accepted but unused by the distance classifier.
-            Python RR-only and Hybrid skip tolerance-based phase deletions
-            and near-rule matches that would alter the source semantics.
-            The final faithful reduction PathSum is passed directly to WMC
-            when Hybrid RR remains inconclusive; it is not regenerated from
-            the original circuits. Skipped changes are diagnostic in
-            rr_approximation_events. RR-only can remain unknown if exact
-            reduction is incomplete.
+            Python RR tolerances retain their historical approximation
+            semantics. If RR returns unknown, Hybrid runs WMC on the final
+            RR-reduced PathSum, without rebuilding the input circuits.
+            rr_approximation_events records tolerance-influenced operations
+            for diagnostics; it does not change the chosen RR verdict or
+            assert a projective-distance error bound.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -476,9 +475,9 @@ def check_equivalence(
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        # Preserve the source-exact residual through every admitted RR.
-        # Hybrid WMC must consume this final PathSum, not rebuild the input.
-        with capture_rr_provenance(preserve_source=method != "wmc_only") as rr_evidence:
+        # Observe toleranced RR without changing its historical semantics.
+        # Hybrid WMC receives the final RR PathSum if RR remains unknown.
+        with capture_rr_provenance() as rr_evidence:
             if safe_mode:
                 elapsed_so_far = time.time() - start_time
                 remaining_time = max(1, int(timeout - elapsed_so_far))
@@ -487,12 +486,9 @@ def check_equivalence(
                 )
             else:
                 pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
-        # The worker-based safe_run returns only a PathSum, not its RR
-        # provenance. Never certify an RR verdict from missing evidence.
-        rr_unbounded = (
-            method != "wmc_only"
-            and (rr_evidence.unbounded or safe_mode)
-        )
+        # Worker-based safe_run returns a PathSum but does not transport
+        # diagnostic events. Do not fabricate provenance for worker results.
+        rr_unbounded = rr_evidence.unbounded
         if safe_mode and method != "wmc_only":
             rr_evidence.record(
                 "worker_provenance_unavailable", "worker", "unobserved",
@@ -525,18 +521,11 @@ def check_equivalence(
             else:
                 equivalent = "unknown"
 
-        # Source fidelity is maintained by skipping lossy RR changes.
-        # Only safe_mode's untracked worker path remains fail-closed.
-        # Hybrid WMC consumes the exact residual PathSum produced by RR.
-        if rr_unbounded and equivalent in (
-            "equivalent", "equivalent*", "not_equivalent",
-        ):
-            equivalent = "unknown"
-
-        # If reduction is incomplete or WMC-only, run weighted model counting
+        # Preserve the published hybrid algorithm: WMC consumes the final
+        # RR residual only when reduction itself remains inconclusive.
+        # Diagnostic tolerance events do not override RR's verdict.
         if method == "wmc_only" or (
             method == "hybrid" and equivalent == "unknown"
-            and not rr_unbounded
         ):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
             from QuPRS.utils.wmc_solvers import (
@@ -714,8 +703,8 @@ class EquivalenceCheckResult:
     wmc_numerical_verdict: Optional[str] = None
     approximate_distance_tolerance: Optional[float] = None
     decision_basis: Optional[str] = None
-    # Request-local RR provenance: approximate nonconstant reductions may
-    # only yield inconclusive results without a trustworthy distance bound.
+    # Diagnostic only: whether RR used non-exact coefficient reductions.
+    # This is NOT a projective distance error estimate or a verdict override.
     rr_approximation_events: tuple[dict, ...] = ()
     rr_approximation_unbounded: bool = False
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.

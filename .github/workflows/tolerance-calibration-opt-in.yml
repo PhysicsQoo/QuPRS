@@ -9,6 +9,7 @@ on:
       - 'test/test_numerical_tolerance_contract_research.py'
       - 'test/test_precision_count_transport.py'
       - 'test/test_rr_approximation_provenance.py'
+      - 'test/test_wmc_distance_resolution_research.py'
       - 'src/QuPRS/pathsum/reduction_provenance.py'
       - 'src/QuPRS/pathsum/reduction.py'
       - 'src/QuPRS/pathsum/pattern_match.py'
@@ -153,6 +154,13 @@ jobs:
           python -m pytest -q -ra test/test_rr_approximation_provenance.py \
             --junitxml=focused-tolerance-evidence/rr-provenance-junit.xml \
             2>&1 | tee focused-tolerance-evidence/rr-provenance.log
+      - name: Characterize native WMC printed-count distance resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra -s test/test_wmc_distance_resolution_research.py \
+            --junitxml=focused-tolerance-evidence/wmc-resolution-junit.xml \
+            2>&1 | tee focused-tolerance-evidence/wmc-resolution.log
       - name: Native Rz source and RR precision observations
         shell: bash
         run: |
@@ -203,6 +211,7 @@ jobs:
             test/test_numerical_tolerance_contract_research.py \
             test/test_precision_count_transport.py \
             test/test_rr_approximation_provenance.py \
+            test/test_wmc_distance_resolution_research.py \
             src/QuPRS/pathsum/reduction_provenance.py \
             src/QuPRS/pathsum/reduction.py \
             src/QuPRS/pathsum/pattern_match.py \

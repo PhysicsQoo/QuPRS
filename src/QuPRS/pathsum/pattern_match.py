@@ -7,7 +7,7 @@ from QuPRS import config
 from QuPRS.utils.util import algebraic_to_logical, logical_to_algebraic
 from .reduction_provenance import (
     tracked_reduce_expression as reduce_expression,
-    allow_omega_match,
+    record_approximate_omega,
 )
 
 
@@ -68,14 +68,6 @@ def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
                 else:
                     break
 
-                # Source-preserving Hybrid may use only exact omega
-                # coefficients. Near matches must leave the term for WMC.
-                if not allow_omega_match(
-                    term, se.Rational(1, 4) if return_flag
-                    else se.Rational(3, 4),
-                ):
-                    continue
-
                 Q_val = 2 * (coeff - term)
                 Q_val = reduce_expression(Q_val, 2)
 
@@ -84,6 +76,10 @@ def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
                     and reduce_expression(Q_val).is_zero
                 ):
                     R_val = (P_expanded - yo_val * coeff).expand()
+                    record_approximate_omega(
+                        term, se.Rational(1, 4) if return_flag
+                        else se.Rational(3, 4),
+                    )
                     return yo_val, Q_val, R_val, return_flag
 
     return None, None, None, None

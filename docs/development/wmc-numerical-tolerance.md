@@ -363,51 +363,50 @@ internal solver precision and error-propagation analysis is required for
 general correctness claims. Do not infer that 128 bits always suffices
 from these tiny fixtures.
 
-### Experimental faithful RR residual for Hybrid (not yet released)
+### Restored RR tolerance semantics and diagnostic provenance
 
-The Python research path preserves QuPRS's original Hybrid architecture:
-it applies allowed RR operations to a Path-sum and, if the result is
-inconclusive, submits **the final RR-reduced Path-sum** to weighted model
-counting. The WMC fallback must not rebuild the original circuit.
+The research branch retains the published Hybrid algorithm: build
+a Path-sum, execute the configured RR reductions, and **only when RR
+cannot decide**, pass the **final reduced Path-sum** to WMC. Hybrid
+does not restart from the original circuit.
 
-To prevent the reproducible false-positive from nonzero phase deletion,
-request-local RR provenance compares tolerance-aware phase normalization
-with no-small-coefficient-dropping normalization. When they differ,
-source-preserving RR uses the faithful expression, records a skipped
-`phase_normalization` event (`applied=False`), and continues attempting
-other safe reductions. A near-special omega coefficient is similarly
-rejected rather than applying an approximate omega identity. The guard
-also preserves nonzero scalar/global phase coefficients so the separate
-`equivalent` and `equivalent*` labels are not silently conflated.
+The configured `config.TOLERANCE` is an RR coefficient-matching and
+simplification tolerance, **not** a projective-distance threshold.
+Nonzero phase terms may be dropped when RR allows that approximation;
+near-special omega coefficients may also be accepted within RR
+tolerance. A successful RR result is accepted by Hybrid as before.
+No unconditional fail-closed unknown and no source-preserving
+reduction override are added.
 
-If exact reductions leave residual path variables or nontrivial phases,
-RR-only remains `unknown`; Hybrid runs WMC on **the same final faithful
-Path-sum**. This is still the published algorithmic architecture. The
-`rr_approximation_events` diagnostic describes skipped source-altering
-operations. `rr_approximation_unbounded` is set when an unverified
-change is actually applied or a worker provides no evidence, **not**
-simply because a candidate approximation was skipped. Neither field
-is an accumulated numerical error certificate.
+Request-local `rr_approximation_events` records applied tolerance
+changes; `rr_approximation_unbounded` reports that their effect on the
+projective distance has **not been bounded**. These fields are
+diagnostic, not a reason to override an RR result or to make a
+claim of rigorous equivalence at an independent distance threshold.
+Python safe_mode events are not transported from workers; absence
+of events is not proof that no approximation occurred in a worker.
+The Rust backend has independent RR behavior and does not yet
+provide the same diagnostic fields.
 
-Worker-based Python `safe_mode` does not yet transport provenance from
-the worker; results from that path cannot silently claim a proven exact
-RR residual. The Rust backend has its own reduction and reporting
-semantics; no Python event recording or certified Rust RR bound follows
-from this experimental implementation.
+The known one-qubit H-S-H versus H-S-Rz(2*pi*1e-7)-H example
+has analytic projective distance abs(sin(pi*1e-7)) ≈ 3.14e-7.
+RR tolerance 1e-6 can accept it as equivalent according to RR's
+configured approximation semantics; RR tolerance 1e-10 leaves it
+unknown and Hybrid passes the resulting Path-sum to WMC.
+The current numerical projective-distance classifier uses a separate
+empirical normalized magnitude guard 3e-9, so WMC may remain unknown
+even for a distinguishable input at distance threshold 1e-8.
+Changing RR tolerance does not fix that unrelated solver-numerical
+resolution limitation.
 
-The known H-S-H versus H-S-Rz(2*pi*1e-7)-H control uses
-`approximate_distance_tolerance=1e-8` and RR tolerance `1e-6`.
-The source-preserving code must prevent the previous RR false-positive;
-in Hybrid it must **invoke WMC on the final reduced Path-sum**, even
-if WMC's present empirical magnitude guard still returns `unknown`.
-The WMC guard is a separate numerical-resolution problem: it must not
-be silently reduced or replaced with the RR coefficient tolerance.
-Verify exact HH/omega, request isolation, and the final-Path-sum object
-identity passed into `to_DIMACS` before declaring this experiment green.
-
-Final public README, Python, Rust and PyO3 API documentation and
-backwards compatibility remain a v0.14.0 release gate; do not add
-`wmc_policy`.
+The next precision gate must distinguish: source-to-weight error;
+native GPMC/Ganak count arithmetic; printed-output rounding interval;
+and any projective-distance error estimate. The decimal
+`classify_printed_distance` decision is an explicitly *printed-only*
+diagnostic and cannot by itself certify solver internal error.
+Do not reduce the guard solely to force a desired verdict.
+No `wmc_policy` is introduced. Final public Python/Rust/PyO3 API
+and compatibility documents remain pending v0.14.0 validation.
 
 ### Native Rust MPFR weight prototype — source-exact phase transport
 

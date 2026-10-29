@@ -262,23 +262,25 @@ certificate, and a WMC magnitude tolerance of `1e-8` is **not**
 the QCEC projective circuit-distance tolerance of `1e-8`.
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
-**v0.14.0 experimental RR provenance:** Python RR and Hybrid continue
-using the original Path-sum reduction architecture. A tolerance-based
-phase deletion or near-special rule match that would change the exact
-phase is **skipped**, and the residual Path-sum is retained. If exact RR
-remains inconclusive, Hybrid runs WMC on **that final reduced Path-sum**,
-not on a fresh circuit-to-Path-sum conversion. This can return
-`not_equivalent` if the WMC numerical evidence supports it; a separate
-finite-precision Solver uncertainty band can still yield `unknown`.
+**v0.14.0 experimental RR tolerance diagnostics:** Python RR retains
+its existing coefficient-tolerance semantics. When the configured RR
+tolerance permits a small-coefficient deletion or a near-omega match,
+RR applies the rule; the diagnostic tuple `rr_approximation_events`
+records the actual operation (`applied=True`). This diagnostic does
+not change the verdict. `rr_approximation_unbounded` means that the
+recorded nonconstant approximation has **no established projective
+distance error bound**; it is not a quantitative estimate.
 
-The diagnostic tuple `rr_approximation_events` records skipped events
-with `applied=False`. The Python-only Boolean
-`rr_approximation_unbounded` flags loss that could not be prevented or
-audited, not a measured projective distance. The worker-based
-`safe_mode` path does not yet transport provenance from its worker;
-it remains conservatively inconclusive when source fidelity cannot be
-established. These are research-branch semantics pending final API
-parity and release validation, not claims about Rust RR behavior.
+Hybrid follows the original Path-sum algorithm: if RR returns
+`unknown`, WMC receives the **final RR-reduced Path-sum** rather
+than a regenerated circuit. A loose RR tolerance can return
+`equivalent` before WMC even when an independently chosen, tighter
+projective-distance criterion would not be met. Users who require
+that distance criterion must understand that the independent RR
+coefficient tolerance is not automatically converted into an
+operator-distance bound. Python `safe_mode` worker events currently
+do not cross the process boundary. Final Python/Rust/PyO3 parity and
+numerical guarantees remain v0.14.0 release gates.
 
 ### Solver subprocess reliability and timeout limits
 

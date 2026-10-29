@@ -296,6 +296,73 @@ printed-output precision observations into definite public
 approximate-distance outcomes. Do not reinterpret the current empirical
 3e-9 boundary guard as that missing global bound.
 
+### Confirmed complete-circuit RR counterexample and native weight A/B
+
+Follow-up native evidence:
+[initial RED CI #40804436447](https://github.com/PhysicsQoo/QuPRS/actions/runs/40804436447)
+and [corrected diagnostic CI #40805062128](https://github.com/PhysicsQoo/QuPRS/actions/runs/40805062128),
+at source commit 34d567be86cdf84edbb0835041bd97cfe0c46db8.
+The first workflow failed because the originally selected complete-circuit
+fixtures did not activate an omega matcher; the corrected independent
+H-S-H-vs-I control did and completed successfully. Both runs preserved
+the actual science observations.
+
+The *actual full-circuit* Python comparison is
+
+- reference: H-S-H
+- candidate: H-S-Rz(theta)-H, with theta = 2*pi*1e-7 radians
+- requested projective-distance threshold: 1e-8.
+
+By unitary invariance the relative operator is unitarily conjugate to
+Rz(theta), hence its exact projective distance is
+D = abs(sin(theta/2)) = abs(sin(pi*1e-7)) ~ 3.14159265358974e-7.
+
+| RR tolerance | Reduction-rules result | Hybrid result | WMC-only result |
+| --- | --- | --- | --- |
+| 1e-6 | equivalent **(false positive relative to epsilonD=1e-8)** | equivalent **(same)** | unknown |
+| 1e-10 | unknown | unknown | unknown |
+
+**The observed issue is NOT a triggered near-omega reduction.** The faulty
+pair exercised HH, while the RR phase normalizer
+reduce_expression(..., drop_small=True) removed a nonzero constant
+phase around 5e-8 and a path-variable coefficient near 1-1e-7 (the
+near-integer residual modulo one is nonzero). With the looser RR
+tolerance this converts a nontrivial Rz discrepancy into an apparently
+exact HH-reducible identity. With 1e-10 RR tolerance, the residue
+survives and the comparison stays unknown. Independent exact-omega
+control H-S-H-vs-I fired as designed in the corrected run; therefore
+the no-omega result in the first run was an **experiment fixture gap**,
+not evidence that omega is unreachable.
+
+This is a scientific correctness regression candidate under a deliberately
+loose, user-configured RR tolerance; it does **not** prove that the default
+tolerance is unsafe. v0.14.0 must preserve RR-first performance while
+distinguishing exact reductions from tolerance-based coefficient deletion.
+If an approximate RR change cannot be assigned a defensible propagated
+distance bound, the public approximate-distance result must not be
+promoted to equivalence solely from that reduced path sum. A conservative
+unknown or independent unreduced source evaluation is required.
+
+Native weight A/B on unchanged Rust-generated CNF:
+four Rz literals x GPMC/Ganak x (f64, 128-bit, 256-bit oracle
+phase-weight replacements) = **24 successful Solver invocations**.
+The high-precision replacements were generated with research mpmath
+at the nominated precision; they do **not** constitute a finished Rust
+MPFR trigonometric implementation or a solver arithmetic certificate.
+
+| Rz trace absolute count error | Existing Rust f64 input | 128-bit replacement | 256-bit replacement |
+| --- | ---: | ---: | ---: |
+| 2e-8 rad, GPMC | ~8.0e-17 | ~8.33e-34 | ~8.33e-34 |
+| 2e-8 rad, stock Ganak | ~1.0e-16 | ~1.0e-16 | ~1.0e-16 |
+| 2e-4 rad, GPMC | ~1.05e-16 | ~4.44e-30 | ~4.44e-30 |
+
+The stock Ganak result remains limited by its short printed output.
+The GPMC results demonstrate case-specific improvement from retaining
+source phase precision through CNF weight construction, but further
+internal solver precision and error-propagation analysis is required for
+general correctness claims. Do not infer that 128 bits always suffices
+from these tiny fixtures.
+
 ## Candidate-selection evidence
 
 The initial 1e-10 public default candidate failed the native historical

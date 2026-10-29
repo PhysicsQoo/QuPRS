@@ -600,3 +600,47 @@ mod verification_options_contract_tests {
         assert!(check_equivalence_with_options(1, &[], &[], &bad).is_err());
     }
 }
+
+#[cfg(test)]
+mod experimental_qpe_source_phase_miter {
+    use super::*;
+
+    #[test]
+    fn pinned_qpeexact8_source_phase_to_native_cnf() {
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../benchmarks/MQTBench");
+        let name="qpeexact_nativegates_ibm_qiskit_opt0_8.qasm";
+        let left=std::fs::read_to_string(root.join(name)).expect("original qpe QASM");
+        let right=std::fs::read_to_string(root.join("h,ry,rz,cx").join(name))
+            .expect("transpiled qpe QASM");
+        let (a, na)=crate::qasm::parse_qasm_str(&left).expect("native original parser");
+        let (b, nb)=crate::qasm::parse_qasm_str(&right).expect("native transpiled parser");
+        assert_eq!(na,8);
+        assert_eq!(nb,na);
+        let regs=vec![crate::pathsum::Register::new("q",na)];
+        let mut ps=PathSum::quantum_circuit(&regs,None);
+        ps.set_auto_reduce(true);
+        let mut m=VerificationStrategy::Proportional.run(ps,&a,&b);
+        m.full_reduce();
+        let active=m.v.path_vars.len()-na;
+        let twice=2*na+active;
+        std::env::set_var("QUPRS_RESEARCH_PHASE_AUDIT","qpeexact8");
+        let mut mgr=WmcManager::new(&m);
+        mgr.encode_trace(&m).expect("native trace encoding");
+        std::env::remove_var("QUPRS_RESEARCH_PHASE_AUDIT");
+        let cnf=mgr.to_dimacs_string("gpmc");
+        let first=cnf.lines().next().expect("DIMACS header");
+        let vars:usize=first.split_whitespace().nth(2).unwrap().parse().unwrap();
+        let weights=mgr.numerical_weight_count();
+        println!("SOURCE_QPE_MITER\t{}\t{}\t{}\t{}",
+                 vars,weights,twice,active);
+        // Source-pinned previous public dev QPE8 observation: 31/17.
+        assert_eq!((vars,weights),(31,17),
+                   "experiment native miter diverged from prior public dev CNF");
+        let output=std::env::var("QUPRS_RESEARCH_QPE_OUTPUT")
+            .expect("explicit experimental output directory required");
+        let out=std::path::Path::new(&output);
+        std::fs::create_dir_all(out).unwrap();
+        std::fs::write(out.join("rust-qpeexact8-source-miter.cnf"),cnf).unwrap();
+    }
+}

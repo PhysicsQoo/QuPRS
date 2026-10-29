@@ -111,3 +111,123 @@ particular QPEexact8 verdict is caused by such an alias.
 
 This note does not justify widening `epsilon`, reintroducing a fixed guard,
 or adding a second GPMC production solve.
+
+
+## Phase 2: actual 90-digit MPFR, real algorithm CNFs, Rust source (2026-10-29)
+
+**Research-only, no PR or production algorithm change.** The pinned public
+verifier remained dev \`55e78c7597966617c1a193b89056ff4e99c3ddfb\`
+and GPMC gitlink \`a1bda3489e959d3695b6798d327c5a1fc1bed305\`.
+All experimental code runs on
+\`experiment/numerical-tolerance-calibration-20261027\`.
+
+### 1. Real MPFR printer precision (not a general solver certificate)
+
+- Research commit \`f5e7b1ad42d5863fe7ad59255ec811c6da7b843e\`,
+  [scoped Actions #40884902755](https://github.com/PhysicsQoo/QuPRS/actions/runs/40884902755):
+  **SUCCESS**.
+- [Artifact 12902920146](https://github.com/PhysicsQoo/QuPRS/actions/runs/40884902755/artifacts/12902920146)
+  ZIP SHA-256 \`04e361a2bdaf0323be8a276ba89fe86e07d46fa76b1e04aa7418396cc27a64a9\`,
+  verified ZIP CRC and 28/28 SHA256SUMS.
+- The C++ probe includes the exact pinned \`mpfr/mpreal.h\`, sets
+  \`mpfr::digits2bits(90)\` (299 bits) and the same
+  \`std::ostringstream::precision(90)\` behavior as GPMC. It independently
+  extracts the exact **binary** MPFR mantissa and exponent using
+  \`mpfr_get_z_2exp\`. The Python reference reconstructs the exact rational
+  and checks the candidate *decimal printing* enclosure.
+- Eight controls including \`1\`, \`-2\`, near-unit decimal inputs,
+  very small/large magnitudes, negative fractional values and zero:
+  **8/8 enclosure tests passed**.
+- The candidate is a *provider-specific* stream-format bound, not evidence
+  for all MPFR arithmetic and not valid for Ganak without its own contract.
+  In particular, a short integer \`1\` from the pinned
+  \`c o precision 90\` and \`%.*Rg\` printer should not automatically have
+  a half-unit rounding error of \`1/2\`.
+
+### 2. Native Rust QPEexact8 with unchanged source and solver count
+
+The source pair SHA256 is unchanged:
+\`8d514d06f7c9e81abda1042796cc34227624c9ed66097bee1ce5e97a87884dda\` /
+\`227ab45a4eb033889aa57bb53e54938e74d757fea30eaa3d276b495048dc6141\`.
+
+| Rust method, epsilon_D | Solver | Native printed verdict | Public verdict |
+| --- | --- | --- | --- |
+| RR, 1e-8 | not invoked | N/A | \`unknown\` |
+| Hybrid, 1e-8 | GPMC once | \`equivalent\` | \`unknown\` |
+| Hybrid, 1e-6 | GPMC once | \`equivalent\` | \`equivalent*\` |
+
+Both Hybrid counts produced identical 90-digit native stdout on the same
+31-variable CNF containing **17 numerical weights**. The conditional Rust
+normalized component input bound is at least
+\`(17+1) / 2^49 ≈ 3.19744e-14\`, compared with an approximate normalized
+magnitude defect of \`5e-17\` at \`epsilon_D=1e-8\`. Hence the conservative
+input error term alone explains why the positive classifier can remain
+unresolved, without proving actual weight errors that large. Widening the
+requested epsilon to \`1e-6\` changes the policy outcome; it is **not a
+scientifically valid fix** for a stricter requested threshold.
+
+Inspection of the *actual captured Rust CNF decimal weight bytes* shows
+trigonometric binary64 residues such as \`-1.0000000000000000e0 +
+1.2246467991473532e-16i\`. Of the 17 positive weighted literals,
+the maximum absolute decimal \`||w||² - 1|\` is approximately
+\`2.65896032e-17\`. This is observable source-to-weight numerical drift
+and needs phase-polynomial source attribution before deciding which
+Clifford phases can be made exact. It is **not** by itself a bound on the
+output WMC count or a proof of an incorrect public verdict.
+
+### 3. Actual original-corpus WMC-only CNFs with one native GPMC count each
+
+The first cohort captured the exact emitted CNFs and solved QPEexact8;
+a bounded second cohort raised only the *research* source-CNF cap from
+250 to 700 for the other three original-corpus pairs.
+
+- Research commit \`6bef0ffd098b5676c42d12e81b5a75e631c63979\`
+  [scoped Actions #40885739008](https://github.com/PhysicsQoo/QuPRS/actions/runs/40885739008)
+  **SUCCESS**; printer and Rust QPE already-evidenced stages intentionally skipped.
+- [Artifact 12902208791](https://github.com/PhysicsQoo/QuPRS/actions/runs/40885739008/artifacts/12902208791)
+  ZIP SHA-256 \`da6544b2a38dbe522cdb45303f1c5ecffaa1084adfb8d153ed2671233a236675\`,
+  ZIP CRC and 15/15 SHA256SUMS verified.
+- Each workload uses the existing *WMC-only* API, one native GPMC
+  \`-prec=90\` counting invocation on its emitted CNF, a separate worker
+  with wall/memory cap and source SHA256. No production replay or alternative
+  solver fallback.
+
+| Original pair | Actual CNF variables | Weighted literals | GPMC printed value classification | Public epsilon_D=1e-8 verdict | Reason |
+| --- | ---: | ---: | --- | --- | --- |
+| QPEexact8 | 246 | 175 | \`equivalent\` | \`unknown\` | conditionally model-insufficient |
+| QFT16 | 486 | 400 | \`equivalent\` | \`unknown\` | conditionally model-insufficient |
+| Graphstate16 | 623 | 423 | \`equivalent\` | \`unknown\` | unsupported beyond 512-variable model |
+| QAOA7 | 624 | 433 | \`equivalent\` | \`unknown\` | unsupported beyond 512-variable model |
+
+All four actual solvers completed; no resource timeout in these four.
+But **4/4 unknown is specific to WMC-only, epsilon_D=1e-8, these
+sources and this candidate model**. Existing original RR-first Hybrid may
+resolve without WMC; do not extrapolate the rate to Hybrid, to all circuits,
+or to strict paper correctness results. The raw printed count classification
+does not account for source-angle, weight, or solver arithmetic uncertainty
+and must not be advertised as a proven equivalent result.
+
+The conditional Solver operation-error exponent
+\`2*n+20 - (floor(90*log2(10))-2)\` is respectively
+\`216\` (QPE8), \`696\` (QFT16), \`970\` (Graphstate16) and
+\`972\` (QAOA7), where the latter two are outside the model's n<=512
+scope. These are **assumed error allowances in absolute count units**,
+not measured actual GPMC errors. The rapid growth and coarse n-only
+scaling, along with the >512 cutoff, are the present obstacles to
+numerically decisive large-CNF WMC-only verdicts.
+
+### Promotion decision
+
+**No production PR yet.** These results verify the pinned MPFR printer
+rounding issue and exhibit overly broad Rust and large-CNF conditional
+error assumptions. They do **not** provide a rigorous source-weight /
+GPMC internal arithmetic enclosure for arbitrary quantum circuits.
+
+Next research: compare actual per-phase Rust source exact coefficients
+against their f64 and high-precision weights, including precise Clifford
+quarter turns; audit meaningful GPMC solver arithmetic/cancellation
+operation budgets using actual CNF structure rather than a coarse
+\`2^(2*n)\` allowance; add numerical adversarial/cancellation controls
+for any candidate provider-bound precision rule. Keep RR-first Hybrid,
+one production GPMC solve, separate source/solver/printing uncertainty
+and appropriate \`unknown\` outcomes.

@@ -507,6 +507,34 @@ the evidence and revise the model before wider deployment. Do not
 replace the original RR/Hybrid algorithm, silently select a different
 solver, or add wmc_policy.
 
+### Independent exact-rational count of printed GPMC CNFs
+
+Follow-up validation adds an independent solver-free enumerator in
+`.diagnostics/tolerance_calibration/exact_gpmc_cnf_oracle.py`.
+For at most 12 Boolean variables and supported plain complex-weighted
+CNFs, it enumerates satisfying assignments and sums their weighted
+complex products using Python exact `Fraction`, with **no GPMC or
+MPFR arithmetic**. The current stress study compares its exact
+printed-CNF count with native GPMC's 120-digit result and checks
+the distance boundary against that independent sum.
+
+The separation is essential:
+
+1. This oracle can detect an incorrect GPMC count **relative to
+   the decimal weights actually printed into its CNF**.
+2. It does **not** certify that those printed weights equal the exact
+   original quantum-circuit phase; that still requires an independent
+   source-to-weight error bound.
+3. Bounded exhaustive counts are intended as research/acceptance
+   oracles, not the production Hybrid backend or an unbounded fallback.
+
+The current small-circuit stress CI #40819863493 passed its four
+mandatory Rz cases and recorded three further algorithm-family cases,
+but its separate two-qubit QFT-style identity control failed CNF weight
+metadata parsing (`Invalid decimal CNF weight`). The follow-up must
+preserve that failed observation, identify the malformed token, and
+not count the 8-case report as 8 scientific passes.
+
 ### Native Rust MPFR weight prototype — source-exact phase transport
 
 Follow-up [CI #40808551076](https://github.com/PhysicsQoo/QuPRS/actions/runs/40808551076)

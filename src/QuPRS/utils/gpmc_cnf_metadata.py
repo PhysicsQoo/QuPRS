@@ -32,8 +32,11 @@ def gpmc_cnf_budget_metadata(dimacs: str):
             try:
                 real=Fraction(Decimal(tokens[4]))
                 imag=Fraction(Decimal(tokens[5]))
-            except InvalidOperation as exc:
-                raise ValueError("Invalid decimal CNF weight") from exc
+            except (InvalidOperation, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    "Invalid decimal CNF weight: "
+                    + repr((tokens[4][:64], tokens[5][:64]))
+                ) from exc
             max_sq=max(max_sq, real*real+imag*imag)
     if n is None or any(i > n for i in weight_ids):
         raise ValueError("CNF weight metadata inconsistent")

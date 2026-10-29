@@ -164,6 +164,13 @@ jobs:
           python -m pytest -q -ra test/test_gpmc_precision_budget.py \
             --junitxml=focused-tolerance-evidence/gpmc-budget-junit.xml \
             2>&1 | tee focused-tolerance-evidence/gpmc-budget.log
+      - name: Independently enumerate small printed GPMC CNFs with exact rational arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra .diagnostics/tolerance_calibration/test_exact_gpmc_cnf_oracle.py \
+            --junitxml=focused-tolerance-evidence/exact-cnf-junit.xml \
+            2>&1 | tee focused-tolerance-evidence/exact-cnf.log
       - name: Stress GPMC precision model across rotations, cancellations and small algorithm families
         shell: bash
         run: |
@@ -223,6 +230,8 @@ jobs:
             .diagnostics/tolerance_calibration/rust_native_weight_audit.py \
             .diagnostics/tolerance_calibration/native_weight_rr_followup.py \
             .diagnostics/tolerance_calibration/gpmc_model_validation.py \
+            .diagnostics/tolerance_calibration/exact_gpmc_cnf_oracle.py \
+            .diagnostics/tolerance_calibration/test_exact_gpmc_cnf_oracle.py \
             .diagnostics/tolerance_calibration/native_rust_mpfr_weight_ab.py \
             .diagnostics/tolerance_calibration/rust_precision_transport/src/bin/phase_weight_mpfr.rs \
             test/test_numerical_tolerance_contract_research.py \

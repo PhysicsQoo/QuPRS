@@ -26,6 +26,9 @@ from qiskit import QuantumCircuit
 from QuPRS import check_equivalence, config
 from QuPRS.interface.ps2wmc import P_to_wlogi, run_wmc
 from QuPRS.utils.gpmc_cnf_metadata import gpmc_cnf_budget_metadata
+from exact_gpmc_cnf_oracle import (
+    count_printed_cnf_exact, exact_count_distance_classification,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "focused-tolerance-evidence"
@@ -171,17 +174,23 @@ def compute_case(case):
             assert abs(normalization_twice - 2 * result.expect) < 1e-8
 
         weight = source_weight_audit(result.final_pathsum, cnf)
+        # An independent exact-rational reference for the *printed* CNF.
+        # This does not use the solver or reparse the input quantum circuit.
+        independent = count_printed_cnf_exact(cnf)
         rows = []
         with tempfile.NamedTemporaryFile(mode="w", suffix=".cnf", delete=False) as f:
             cnfpath = f.name
             f.write(cnf)
         try:
+            count120 = None
             for precision in (30, 60, 90, 120):
                 t = time.monotonic()
                 count = run_wmc(
                     cnfpath, "gpmc", timeout=12,
                     preserve_count=True, precision_digits=precision,
                 )
+                if precision == 120:
+                    count120 = count
                 with mp.workdps(105):
                     real = m(count.real)
                     imag = m(count.imag)
@@ -207,6 +216,32 @@ def compute_case(case):
                 mp.mpf(rows[-1]["normalized_trace_magnitude"])
             )
             budget = getattr(result, "wmc_numeric_model_bound", None)
+            cnf_reference = {
+                "status": independent["status"],
+                "scope": "exact rational of printed CNF; not source-unitary exact",
+            }
+            if independent["status"] == "observed":
+                cnf_reference.update({
+                    "enumerated_assignments": independent["assignments_visited"],
+                    "satisfying_assignments": independent["satisfying_assignments"],
+                    "real_rational": str(independent["real"]),
+                    "imag_rational": str(independent["imag"]),
+                    "threshold_classification": exact_count_distance_classification(
+                        independent["real"], independent["imag"],
+                        normalization_twice, 1e-8,
+                    ),
+                })
+                reference_count = mp.mpc(m(independent["real"]), m(independent["imag"]))
+                actual_count = mp.mpc(m(count120.real), m(count120.imag))
+                cnf_reference["gpmc_120_count_complex_abs_error"] = mp.nstr(
+                    abs(actual_count - reference_count), 80,
+                )
+                cnf_reference["exact_printed_cnf_normalized_defect"] = mp.nstr(
+                    1 - abs(reference_count) / norm, 80,
+                )
+            else:
+                cnf_reference["reason"] = independent.get("reason")
+                cnf_reference["variables"] = independent.get("variables")
             # The model is a componentwise unnormalized-count allowance.
             budget_normalized = (
                 mp.sqrt(2) * m(Fraction(budget)) / norm
@@ -246,6 +281,7 @@ def compute_case(case):
                 "api_elapsed_seconds": round(api_sec, 6),
                 "final_path_variables": result.final_pathsum.num_pathvar,
                 "source_phase_weight_audit": weight,
+                "printed_cnf_exact_reference": cnf_reference,
                 "precision_replay": rows,
                 "observations": summary,
                 "certificate": False,
@@ -332,15 +368,23 @@ def outer():
         "science_scope": "REPORT ONLY, NO CERTIFIED WMC ERROR BOUND",
     }, indent=2, sort_keys=True)+"\n")
     assert len(all_results) == len(CASES)
-    # Only deterministic core Rz controls are mandatory. The bigger
-    # representative circuits are research-only and may exceed resource caps.
+    # The Rz core is independently checked by exact-rational CNF counting.
+    # Larger representative circuits may exceed bounded resources.
     core = [r for r in all_results if r["case"] in (
         "rz_far", "rz_near_inside", "rz_near_outside", "rz_cancel"
     )]
     assert all(r["execution_status"] == "observed" for r in core), core
+    assert all(len(r["precision_replay"]) == 4 for r in core)
     assert all(
-        len(r["precision_replay"]) == 4 for r in core
-    )
+        r.get("printed_cnf_exact_reference", {}).get("status") == "observed"
+        for r in core
+    ), core
+    assert all(
+        r["printed_cnf_exact_reference"]["threshold_classification"]
+        == ("not_equivalent" if r["api_verdict"] == "not_equivalent"
+            else "inside_threshold")
+        for r in core
+    ), core
     print("GPMC_MODEL_STRESS_CORE_PASS=4", flush=True)
 
 

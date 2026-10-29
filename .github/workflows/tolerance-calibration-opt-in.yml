@@ -418,7 +418,11 @@ jobs:
           git cat-file -e "$PUBLIC_DEV_SHA^{commit}"
           test "$(git rev-parse "$PUBLIC_DEV_SHA:GPMC")" = "$(git rev-parse 'HEAD:GPMC')"
           git archive "$PUBLIC_DEV_SHA" | tar -x -C "$DEST"
+          # git archive can materialize a placeholder GPMC directory: replace it
+          # before linking the exact checked-out gitlink, rather than nesting.
+          rm -rf "$DEST/GPMC"
           ln -s "$GITHUB_WORKSPACE/GPMC" "$DEST/GPMC"
+          test -f "$DEST/GPMC/CMakeLists.txt"
           git rev-parse HEAD > "$RUNNER_TEMP/precision-followup-evidence/experiment-sha.txt"
           printf '%s\n' "$PUBLIC_DEV_SHA" > "$RUNNER_TEMP/precision-followup-evidence/dev-sha.txt"
           printf 'source=%s\n' "$DEST" >> "$GITHUB_OUTPUT"

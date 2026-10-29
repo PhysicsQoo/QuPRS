@@ -4,10 +4,10 @@ import symengine as se
 import sympy as sp
 
 from QuPRS import config
-from QuPRS.utils.util import (
-    algebraic_to_logical,
-    logical_to_algebraic,
-    reduce_expression,
+from QuPRS.utils.util import algebraic_to_logical, logical_to_algebraic
+from .reduction_provenance import (
+    tracked_reduce_expression as reduce_expression,
+    record_approximate_omega,
 )
 
 
@@ -76,6 +76,10 @@ def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
                     and reduce_expression(Q_val).is_zero
                 ):
                     R_val = (P_expanded - yo_val * coeff).expand()
+                    record_approximate_omega(
+                        term, se.Rational(1, 4) if return_flag
+                        else se.Rational(3, 4),
+                    )
                     return yo_val, Q_val, R_val, return_flag
 
     return None, None, None, None

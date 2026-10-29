@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from QuPRS.utils.util import reduce_expression
+from .reduction_provenance import tracked_reduce_expression as reduce_expression
 
 from .pattern_match import (
     HH_reduction,

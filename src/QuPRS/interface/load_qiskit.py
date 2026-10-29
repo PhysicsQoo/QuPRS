@@ -12,6 +12,7 @@ from QuPRS import config
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 from QuPRS.pathsum.statistics import StatisticsManager
+from QuPRS.pathsum.reduction_provenance import capture_rr_provenance
 from QuPRS.utils.verification_timeout import VerificationTimeout
 from QuPRS.utils.solver_process import SolverTimeout
 from QuPRS.utils.util import set_safe_memory_limit
@@ -224,6 +225,10 @@ def check_equivalence(
             may return unknown; this is not a formal solver error certificate.
             A nondefault explicit WMC magnitude tolerance conflicts; an
             explicit 1e-8 is accepted but unused by the distance classifier.
+            Python RR-only and Hybrid return unknown when a tolerance-based
+            nonconstant phase change has no certified propagated error bound.
+            RR provenance is reported in rr_approximation_events. Exact
+            reduction and global-phase-only normalization remain usable.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -468,14 +473,27 @@ def check_equivalence(
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        if safe_mode:
-            elapsed_so_far = time.time() - start_time
-            remaining_time = max(1, int(timeout - elapsed_so_far))
-            pathsum_circuit = strategy_obj.safe_run(
-                pathsum_circuit, gates1, gates2, timeout=remaining_time
+        with capture_rr_provenance() as rr_evidence:
+            if safe_mode:
+                elapsed_so_far = time.time() - start_time
+                remaining_time = max(1, int(timeout - elapsed_so_far))
+                pathsum_circuit = strategy_obj.safe_run(
+                    pathsum_circuit, gates1, gates2, timeout=remaining_time
+                )
+            else:
+                pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
+        # The worker-based safe_run returns only a PathSum, not its RR
+        # provenance. Never certify an RR verdict from missing evidence.
+        rr_unbounded = (
+            method != "wmc_only"
+            and (rr_evidence.unbounded or safe_mode)
+        )
+        if safe_mode and method != "wmc_only":
+            rr_evidence.record(
+                "worker_provenance_unavailable", "worker", "unobserved",
+                nonconstant=True,
+                detail="safe_run does not transport RR reduction evidence",
             )
-        else:
-            pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 
@@ -502,8 +520,19 @@ def check_equivalence(
             else:
                 equivalent = "unknown"
 
+        # A tolerance-based nonconstant phase change may hide a genuine
+        # unitary difference. It is not an exact RR proof, regardless of the
+        # final path-sum shape. Never pass its already-reduced state to WMC.
+        if rr_unbounded and equivalent in (
+            "equivalent", "equivalent*", "not_equivalent",
+        ):
+            equivalent = "unknown"
+
         # If reduction is incomplete or WMC-only, run weighted model counting
-        if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
+        if method == "wmc_only" or (
+            method == "hybrid" and equivalent == "unknown"
+            and not rr_unbounded
+        ):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
             from QuPRS.utils.wmc_solvers import (
                 classify_weighted_count, classify_approximate_weighted_count,
@@ -624,6 +653,8 @@ def check_equivalence(
                         else None),
         wmc_magnitude_tolerance=wmc_magnitude_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
+        rr_approximation_events=tuple(rr_evidence.events),
+        rr_approximation_unbounded=rr_unbounded,
     )
     return Result
 
@@ -678,6 +709,10 @@ class EquivalenceCheckResult:
     wmc_numerical_verdict: Optional[str] = None
     approximate_distance_tolerance: Optional[float] = None
     decision_basis: Optional[str] = None
+    # Request-local RR provenance: approximate nonconstant reductions may
+    # only yield inconclusive results without a trustworthy distance bound.
+    rr_approximation_events: tuple[dict, ...] = ()
+    rr_approximation_unbounded: bool = False
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.
     wmc_solver_invoked: Optional[bool] = None
     # Effective thresholds recorded for reproducible numerical verdicts.

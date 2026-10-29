@@ -248,7 +248,7 @@ def test_public_native_solver_distance_precision_parity(
     backend, solver, method, theta, expected
 ):
     """End-to-end real solver and public API: unambiguous distance controls."""
-    left, right = qasm(), qasm("rz(" + theta + ") q[0];\\n")
+    left, right = qasm(), qasm("rz(" + theta + ") q[0];" + chr(10))
     result = check_equivalence(
         left, right, backend=backend, method=method, tool_name=solver,
         strategy="Naive", timeout=45, approximate_distance_tolerance=EPS,
@@ -284,7 +284,7 @@ def test_general_gpmc_cnf_uses_native_precision_replay():
 def test_ganak_printed_precision_exposes_tight_distance_floor():
     """A real Ganak mode-6 count cannot silently become a 1e-8 certificate."""
     result = check_equivalence(
-        qasm(), qasm("rz(0.00000002) q[0];\n"),
+        qasm(), qasm("rz(0.00000002) q[0];" + chr(10)),
         backend="python", method="wmc_only", strategy="Naive",
         tool_name="ganak", timeout=45,
         approximate_distance_tolerance=1e-8,

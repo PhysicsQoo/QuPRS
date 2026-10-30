@@ -49,7 +49,11 @@ impl<'a> WmcProblem<'a> {
         let _timed_serialize = crate::diagnostics::span("cnf_serialize");
         let mut out = String::new();
         out.push_str(&format!("p cnf {} {}\nc t wmc\n", self.variables, self.clauses.len()));
-        for (var, weight) in self.weights {
+        // Canonical order for reproducible CNF input and paired profiling.
+        // This does not change the Boolean constraints or weighted models.
+        let mut sorted_weights: Vec<_> = self.weights.iter().collect();
+        sorted_weights.sort_unstable_by_key(|(var, _)| **var);
+        for (var, weight) in sorted_weights {
             let (positive, negative) = adapter.weight_lines(*var, *weight);
             out.push_str(&positive);
             out.push_str(&negative);
@@ -82,6 +86,28 @@ mod tests {
         assert!(gpmc.ends_with("1 -2 0\n2 0\n"));
         assert!(ganak.ends_with("1 -2 0\n2 0\n"));
     }
+    #[test]
+    fn canonical_weight_lines_are_independent_of_insertion_order() {
+        let mut one = HashMap::new();
+        one.insert(3, Complex::new(0.75, 0.125));
+        one.insert(1, Complex::new(-0.5, 0.25));
+        let mut two = HashMap::new();
+        two.insert(1, Complex::new(-0.5, 0.25));
+        two.insert(3, Complex::new(0.75, 0.125));
+        let clauses = vec![vec![1, -3], vec![3]];
+        for solver in ["gpmc", "ganak"] {
+            let adapter = adapter_for(solver).unwrap();
+            let lhs = WmcProblem::new(3, &clauses, &one).serialize(adapter);
+            let rhs = WmcProblem::new(3, &clauses, &two).serialize(adapter);
+            assert_eq!(lhs, rhs);
+            let positive_ids: Vec<_> = lhs.lines()
+                .filter(|line| line.starts_with("c p weight ") && !line.starts_with("c p weight -"))
+                .map(|line| line.split_whitespace().nth(3).unwrap().parse::<i32>().unwrap())
+                .collect();
+            assert_eq!(positive_ids, vec![1, 3]);
+        }
+    }
+
     #[test]
     fn invalid_literal_weight_and_nonfinite_fail_closed() {
         let mut weights=HashMap::new();

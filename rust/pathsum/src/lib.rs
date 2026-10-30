@@ -642,5 +642,33 @@ mod experimental_qpe_source_phase_miter {
         let out=std::path::Path::new(&output);
         std::fs::create_dir_all(out).unwrap();
         std::fs::write(out.join("rust-qpeexact8-source-miter.cnf"),cnf).unwrap();
+        // Research-only genuine modified-source negative. This captures the
+        // native phase coefficients on the *exact same CNF* used in the
+        // experimental structure-aware bound, not the differently numbered
+        // public dev CNF. The source text is not modified in-place.
+        let mutated = format!("{}\nrz(0.01) q[0];\n",left.trim_end());
+        let (negative,nn)=crate::qasm::parse_qasm_str(&mutated)
+            .expect("native QPE source with physical Rz(0.01)");
+        assert_eq!(nn,na);
+        let mut pn=PathSum::quantum_circuit(&regs,None);
+        pn.set_auto_reduce(true);
+        let mut mn=VerificationStrategy::Proportional.run(pn,&a,&negative);
+        mn.full_reduce();
+        let neg_active=mn.v.path_vars.len()-na;
+        let neg_twice=2*na+neg_active;
+        std::env::set_var("QUPRS_RESEARCH_PHASE_AUDIT","qpeexact8_self_negative");
+        let mut neg_mgr=WmcManager::new(&mn);
+        neg_mgr.encode_trace(&mn).expect("native QPE negative trace encoding");
+        std::env::remove_var("QUPRS_RESEARCH_PHASE_AUDIT");
+        let neg_cnf=neg_mgr.to_dimacs_string("gpmc");
+        let neg_vars:usize=neg_cnf.lines().next().unwrap()
+            .split_whitespace().nth(2).unwrap().parse().unwrap();
+        let neg_weights=neg_mgr.numerical_weight_count();
+        println!("SOURCE_NEG_MITER\t{}\t{}\t{}\t{}",
+                 neg_vars,neg_weights,neg_twice,neg_active);
+        assert_eq!((neg_vars,neg_weights),(10,2),
+                   "research source-negative miter changed shape");
+        std::fs::write(out.join("rust-qpeexact8-self-negative-source-miter.cnf"),neg_cnf)
+            .unwrap();
     }
 }

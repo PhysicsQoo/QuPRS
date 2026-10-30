@@ -127,6 +127,31 @@ jobs:
             test/test_wmc_distance_single_pass.py \
             --junitxml="$RUNNER_TEMP/cnf-study/printed-cnf-oreacle-junit.xml" \
             | tee "$RUNNER_TEMP/cnf-study/printed-cnf-oracle.stdout"
+      - name: Public distance boundary and unknown controls
+        run: |
+          set -o pipefail
+          python scripts/experiments/public_distance_boundary_probe.py \
+            --out "$RUNNER_TEMP/cnf-study/public-boundary.json" \
+            2>&1 | tee "$RUNNER_TEMP/cnf-study/public-boundary.stdout"
+      - name: Public compiled small-unitary Python/Rust parity diagnostic
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          failed=0
+          for case in grover4 qaoa7; do
+            for backend in python rust; do
+              set +e
+              timeout -k 5s 65s python scripts/experiments/public_compiled_precision_parity.py \
+                --case "$case" --backend "$backend" \
+                --out "$RUNNER_TEMP/cnf-study/public-compiled-$case-$backend.json" \
+                2>&1 | tee "$RUNNER_TEMP/cnf-study/public-compiled-$case-$backend.stdout"
+              code=$?
+              set -e
+              echo "PUBLIC_COMPILED_EXIT case=$case backend=$backend code=$code"
+              if [ "$code" -ne 0 ]; then failed=1; fi
+            done
+          done
+          exit "$failed"
       - name: Single-solve original GPMC and Ganak printed-precision audit
         run: |
           set -o pipefail
@@ -174,3 +199,46 @@ jobs:
           path: ${{ runner.temp }}/cnf-study/
           if-no-files-found: warn
           retention-days: 7
+
+  macos-native-wheel-smoke:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install macOS native dependencies
+        run: |
+          brew install gmp mpfr cmake pkg-config
+          python -m pip install maturin
+      - name: Source-exact native MPFR check
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mpfr-lib"
+          cc -std=c11 -O2 -Wall -Wextra -Werror=implicit-function-declaration \
+            -I"$(brew --prefix mpfr)/include" -I"$(brew --prefix gmp)/include" \
+            -c scripts/experiments/mpfr_weight_bridge.c \
+            -o "$RUNNER_TEMP/mpfr-lib/bridge.o"
+          ar rcs "$RUNNER_TEMP/mpfr-lib/libquprs_exp_mpfr.a" "$RUNNER_TEMP/mpfr-lib/bridge.o"
+          export PKG_CONFIG_PATH="$(brew --prefix mpfr)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig"
+          export RUSTFLAGS="-L native=$RUNNER_TEMP/mpfr-lib -L native=$(brew --prefix mpfr)/lib -L native=$(brew --prefix gmp)/lib -l mpfr -l gmp"
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            --features mpfr-experiment \
+            experimental_native_mpfr_precision_and_exact_clifford_fast_path -- --nocapture
+      - name: macOS wheel build smoke
+        run: |
+          python -m pip wheel . --no-deps --no-build-isolation --wheel-dir "$RUNNER_TEMP/wheels"
+          python - <<'PY'
+          import os,pathlib,zipfile
+          wheels=list((pathlib.Path(os.environ["RUNNER_TEMP"])/"wheels").glob("*.whl"))
+          assert len(wheels)==1,wheels
+          with zipfile.ZipFile(wheels[0]) as f:
+              assert any("_pathsum_rust" in p for p in f.namelist())
+          print("MACOS_WHEEL_STRUCTURE_PASS",wheels[0].name)
+          PY

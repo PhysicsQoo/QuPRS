@@ -175,21 +175,9 @@ def test_zero_path_variable_wmc_never_forces_equivalence(solver, backend, gate, 
         identity, target,
         method="wmc_only", backend=backend, tool_name=solver, timeout=60,
     )
-    if gate == "id" and solver == "ganak" and outcome.equivalent == "unknown":
-        # At D=1e-8, the printed Ganak count may not resolve the
-        # 1e-16 squared-magnitude margin even for a source-exact identity.
-        # This is a numerical limitation, not a reason to shortcut WMC-only
-        # or weaken the exact X/Z negative controls.
-        assert outcome.wmc_solver_invoked is True
-        assert outcome.wmc_printed_verdict == "unknown"
-        assert any(
-            reason in (outcome.wmc_precision_reason or "")
-            for reason in ("resolution", "nonphysical")
-        ), outcome.wmc_precision_reason
-    else:
-        assert outcome.equivalent == expected, (
-            f"Expected {expected} by Qiskit Operator for {gate}, "
-            f"got {outcome.equivalent} with {backend}/{solver}"
-        )
+    assert outcome.equivalent == expected, (
+        f"Expected {expected} by Qiskit Operator for {gate}, "
+        f"got {outcome.equivalent} with {backend}/{solver}"
+    )
     assert outcome.tool_name == solver
     assert outcome.tool_time is not None

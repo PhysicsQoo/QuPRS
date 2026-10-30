@@ -171,3 +171,44 @@ def test_rr_only_near_zero_obeys_same_per_call_tolerance_across_backends(backend
         assert result.wmc_solver_invoked is False
         assert result.tool_time is None
     assert outcomes == ["equivalent", "not_equivalent"]
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("method", ("reduction_rules", "hybrid"))
+@pytest.mark.parametrize("distance_tolerance", (1e-6, 1e-12))
+def test_rr_decision_is_independent_of_wmc_distance_tolerance(
+    backend, method, distance_tolerance,
+):
+    # Source rotation is nonzero and its real projective distance is much
+    # larger than 1e-12. A deliberately loose RR tolerance accepts it
+    # in BOTH RR-only and the RR stage of Hybrid without any WMC solver.
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+    result = check_equivalence(
+        qasm, qasm + "rz(0.000000001) q[0];\n",
+        backend=backend, method=method, strategy="Naive",
+        tool_name="gpmc", rr_tolerance=1e-8,
+        approximate_distance_tolerance=distance_tolerance,
+    )
+    assert result.equivalent == "equivalent", (
+        backend, method, distance_tolerance, result.equivalent,
+    )
+    assert result.tool_time is None
+    assert result.wmc_time is None
+    assert result.wmc_solver_invoked is False
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("distance_tolerance", (1e-6, 1e-12))
+def test_rr_only_strict_tolerance_does_not_inherit_wmc_distance(
+    backend, distance_tolerance,
+):
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+    result = check_equivalence(
+        qasm, qasm + "rz(0.000000001) q[0];\n",
+        backend=backend, method="reduction_rules", strategy="Naive",
+        rr_tolerance=1e-12,
+        approximate_distance_tolerance=distance_tolerance,
+    )
+    assert result.equivalent == "not_equivalent"
+    assert result.wmc_solver_invoked is False
+    assert result.tool_time is None

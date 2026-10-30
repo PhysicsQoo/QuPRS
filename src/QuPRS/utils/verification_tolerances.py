@@ -7,6 +7,17 @@ from math import isfinite
 
 DEFAULT_RR_TOLERANCE = 1e-10
 _rr_tolerance = ContextVar("quprs_rr_tolerance", default=DEFAULT_RR_TOLERANCE)
+# Per-call evidence, not part of the cache key or a process-global flag.
+_rr_approximation_used = ContextVar("quprs_rr_approximation_used", default=False)
+
+
+def record_rr_approximation():
+    """Mark a tolerance-dependent RR transformation in the current call."""
+    _rr_approximation_used.set(True)
+
+
+def rr_approximation_used():
+    return _rr_approximation_used.get()
 
 
 def validate_rr_tolerance(value):
@@ -44,7 +55,11 @@ def per_call_rr_tolerance(fn):
         value = bound.arguments.get("rr_tolerance")
         if value is None:
             value = DEFAULT_RR_TOLERANCE
-        with scoped_rr_tolerance(value):
-            return fn(*args, **kwargs)
+        token = _rr_approximation_used.set(False)
+        try:
+            with scoped_rr_tolerance(value):
+                return fn(*args, **kwargs)
+        finally:
+            _rr_approximation_used.reset(token)
 
     return wrapper

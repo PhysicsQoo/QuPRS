@@ -9,7 +9,9 @@ import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3
 
 from QuPRS import config
-from QuPRS.utils.verification_tolerances import current_rr_tolerance, per_call_rr_tolerance
+from QuPRS.utils.verification_tolerances import (
+    current_rr_tolerance, per_call_rr_tolerance, rr_approximation_used,
+)
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 from QuPRS.pathsum.statistics import StatisticsManager
@@ -688,6 +690,12 @@ def check_equivalence(
         wmc_printed_verdict=wmc_printed_verdict,
         wmc_print_resolution_distance=wmc_print_resolution_distance,
         wmc_numeric_model_bound=wmc_numeric_model_bound,
+        rr_approximate=(
+            rr_approximation_used()
+            and equivalent in ("equivalent", "equivalent*")
+            and not wmc_solver_invoked
+            and method != "wmc_only"
+        ),
         approximate_distance_tolerance=approximate_distance_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
     )
@@ -752,8 +760,8 @@ class EquivalenceCheckResult:
     approximate_distance_tolerance: Optional[float] = None
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.
     wmc_solver_invoked: Optional[bool] = None
-    # True only when native RR used a conservative residual-phase bound,
-    # rather than a source-exact symbolic identity.
+    # True when an accepted RR verdict relied on a tolerance-dependent
+    # phase reduction or native conservative residual-phase bound.
     rr_approximate: bool = False
     # Effective thresholds recorded for reproducible numerical verdicts.
     wmc_phase_tolerance: float | None = None

@@ -103,14 +103,19 @@ must never be classified positive by this shortcut.
   Python and native Rust. Native RR-only also uses a conservative
   aggregate bound for nonzero diagonal residual phase in cycles;
   it does not enforce a separate exact-nonzero rejection rule.
-  Hybrid additionally respects the independent projective-distance cap.
-  Neither mode rewrites the original source phase.
+  Hybrid applies that same RR criterion, without consulting WMC's
+  projective-distance tolerance during the RR stage. Neither mode
+  rewrites the original source phase.
 - `approximate_distance_tolerance`: numerical projective-distance
   acceptance, now the sole WMC metric.
 
 Hybrid retains reduction-first operation and calls WMC only if RR is
-inconclusive. There is no second solver invocation for higher precision,
-no implicit solver fallback, and no modification of Ganak/GPMC source.
+inconclusive. An approximate RR success satisfies the configured RR
+acceptance criterion, **not** an independent guarantee of
+`approximate_distance_tolerance`. This avoids treating the two tolerances
+as interchangeable. There is no second solver invocation for higher
+precision, no implicit solver fallback, and no modification of
+Ganak/GPMC source.
 
 The classifier's printed-output interval is a **conditional numerical
 observation**, not a certified bound on solver arithmetic, CNF

@@ -254,7 +254,7 @@ result = check_equivalence(
     circuit1, circuit2, method="hybrid", backend="python",
     rr_tolerance=1e-10,
     phase_tolerance=1e-8,
-    approximate_distance_tolerance=1.4e-4,
+    approximate_distance_tolerance=1e-8,  # QCEC-scale opt-in research target
 )
 print(result.equivalent)
 ```

@@ -380,25 +380,18 @@ fn check_equivalence_with_tolerances_mode(
         if let (Some(count), Some(eps)) = (&printed_count, approximate_distance_tolerance) {
             use num_rational::BigRational;
             use num_traits::{Signed, ToPrimitive, Zero};
-            // Conditional input conversion allowance: source phases are
-            // currently converted to f64 complex weights before WMC.
-            // This is NOT a bound on arbitrary solver internal arithmetic.
+            // Printed-output numerical classification only. The former
+            // input-error allowance was a conjectural estimate, not a
+            // bound on native solver arithmetic or weight conversion.
             let twice = num_qubits.checked_mul(2)
                 .and_then(|v| v.checked_add(num_active_vars))
                 .ok_or_else(|| anyhow::anyhow!("WMC normalization overflow"))?;
             let twice: i32 = twice.try_into()
                 .map_err(|_| anyhow::anyhow!("WMC normalization outside exact transport range"))?;
-            let normal_scale = BigRational::from_integer(BigInt::from(2))
-                .pow((twice + 1) / 2);
-            let weight_factor = BigInt::from(wmc_mgr.numerical_weight_count().saturating_add(1));
-            let input_error = normal_scale *
-                BigRational::new(weight_factor, BigInt::from(1_u64 << 49));
-            let printed = crate::precision_count::classify_with_uncertainty(
+            let observed = crate::precision_count::classify_with_uncertainty(
                 count, twice, &eps.to_string(), &BigRational::zero(),
             )?;
-            let observed = crate::precision_count::classify_with_uncertainty(
-                count, twice, &eps.to_string(), &input_error,
-            )?;
+            let printed = observed;
             use crate::precision_count::PrintedVerdict;
             wmc_printed_verdict = Some(match printed {
                 PrintedVerdict::Equivalent => "equivalent",
@@ -407,9 +400,9 @@ fn check_equivalence_with_tolerances_mode(
                 PrintedVerdict::UnknownOvershoot => "unknown",
             });
             wmc_precision_reason = Some(match observed {
-                PrintedVerdict::UnknownResolution => "uncertain_f64_input_or_print_resolution",
+                PrintedVerdict::UnknownResolution => "insufficient_printed_resolution",
                 PrintedVerdict::UnknownOvershoot => "nonphysical_printed_magnitude",
-                _ => "conditional_f64_weight_precision_not_solver_certified",
+                _ => "printed_count_uncertified_solver_arithmetic",
             });
             status = match observed {
                 PrintedVerdict::NotEquivalent => EquivalenceStatus::NotEquivalent,

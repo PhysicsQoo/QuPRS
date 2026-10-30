@@ -22,7 +22,7 @@ from QuPRS import check_equivalence
 result = check_equivalence(
     circuit1, circuit2, backend="python", method="hybrid",
     rr_tolerance=1e-10, phase_tolerance=1e-8,
-    approximate_distance_tolerance=1.4e-4,
+    approximate_distance_tolerance=1e-8,  # experimental QCEC-scale setting
 )
 ```
 
@@ -86,3 +86,34 @@ called by the public verifier. Its CNF-size operation-error formula was
 never a formally proven GPMC solver bound. These results are numerical
 observations, not certificates of source-exact equivalence or solver
 arithmetic accuracy.
+
+### Target release resolution and performance acceptance
+
+QCEC currently defaults to non-approximate equivalence checking. Its explicitly
+enabled projective Hilbert--Schmidt approximate checker has a documented
+distance threshold of `1e-8`; its regular DD trace threshold is a different
+criterion. The **QuPRS v0.14.0 resolution goal** is a default projective
+distance at most `1e-8`, while retaining the original three public result
+labels and resource/error handling. This goal is NOT yet verified across
+every GPMC/Ganak and Python/Rust combination.
+
+At `eps_D=1e-8`, the normalized trace-magnitude defect is about `5e-17`.
+Successful classification may require more than binary64 input weights and
+the solver's native short printed decimal count. GPMC's optional MPFR path,
+Rust weight conversion, and Ganak output precision need real solver-specific
+acceptance evidence. Do not claim this epsilon is reliable merely by setting
+the API default or by allowing solver failures to return equivalence.
+
+Negative controls include `I` vs `Rz(0.00010)`, `Rz(0.00020)`, and
+`Rz(2.5e-8)`: their projective distances are *strictly greater* than
+`1e-8` and must not be accepted as `equivalent` in WMC-only mode.
+Positive controls include true identities, the source-pinned Graphstate16
+pair (known bounded approximate distance), and representative original
+paper families. Compare Python/Rust and Ganak/GPMC. Any remaining
+`unknown` due to print precision must be documented, not hidden.
+
+Performance acceptance is separate. CodSpeed Simulation across different
+CI CPUs is not a same-hardware causal regression test. Verify the whole
+suite and representative Python QAOA7/QFT16/VQE4/Grover4 with matched-runner
+A/B walltime and checks that default Hybrid does not perform a second WMC
+solve. Optimization must preserve all RR, phase, and cache correctness tests.

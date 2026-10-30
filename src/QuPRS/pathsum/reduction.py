@@ -27,7 +27,19 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
     if not pathsum._stats.is_reduction_enabled():
         return pathsum
 
-    new_P = reduce_expression(pathsum.P)
+    # Preserve scalar source phase independently of the RR coefficient
+    # matching tolerance. Otherwise a tiny nonzero global phase can be
+    # erased before the separate phase_tolerance check runs.
+    expanded = pathsum.P.expand()
+    terms = expanded.args if expanded.is_Add else (expanded,)
+    scalar = sum((term for term in terms if not term.free_symbols), 0)
+    new_P = reduce_expression(expanded)
+    if scalar != 0:
+        reduced_scalar = reduce_expression(scalar)
+        if reduced_scalar != scalar:
+            new_P = reduce_expression(
+                new_P + scalar - reduced_scalar, drop_small=False
+            )
 
     # Find path variables that can be reduced
     free_symbols = set().union(

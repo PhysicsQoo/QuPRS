@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -576,6 +576,149 @@ jobs:
         with:
           name: native-mpfr-cnf-rust-qpe-science-v2
           path: ${{ runner.temp }}/precision-followup-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  experimental-real-triad:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(triad):')
+    name: Scoped QFT source intervals SAT dDNNF miter and GPMC cost comparison
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PUBLIC_DEV_SHA: '55e78c7597966617c1a193b89056ff4e99c3ddfb'
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout existing experiment source and GPMC gitlink
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned-source build and independent SAT prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2' 'python-sat>=1.8.dev13,<2'
+      - name: Materialize public dev tree without switching checkout
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST="$RUNNER_TEMP/triad-public-dev"
+          OUT="$RUNNER_TEMP/triad-evidence"
+          mkdir -p "$DEST" "$OUT"
+          git cat-file -e "$PUBLIC_DEV_SHA^{commit}"
+          test "$(git rev-parse "$PUBLIC_DEV_SHA:GPMC")" = "$(git rev-parse 'HEAD:GPMC')"
+          git archive "$PUBLIC_DEV_SHA" | tar -x -C "$DEST"
+          rm -rf "$DEST/GPMC"
+          ln -s "$GITHUB_WORKSPACE/GPMC" "$DEST/GPMC"
+          git rev-parse HEAD > "$OUT/research-head.txt"
+          printf '%s\n' "$PUBLIC_DEV_SHA" > "$OUT/public-dev-sha.txt"
+          git rev-parse HEAD:GPMC > "$OUT/pinned-gpmc-sha.txt"
+          printf 'source=%s\n' "$DEST" >> "$GITHUB_OUTPUT"
+      - name: Build pinned dev public API and native solver
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pip check
+      - name: Download prior exact source-pinned CNF and NNF witnesses
+        uses: actions/download-artifact@v4
+        with:
+          name: native-mpfr-cnf-rust-qpe-science-v2
+          run-id: 40977618673
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/triad-input
+      - name: Independently verify original evidence bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/triad-input"; sha256sum -c SHA256SUMS) \
+            2>&1 | tee "$RUNNER_TEMP/triad-evidence/input-hashes.log"
+      - name: Bound actual Python QFT source phase to printed GPMC weights
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/qft_source_weight_interval_study.py" \
+            --output "$RUNNER_TEMP/triad-evidence" \
+            2>&1 | tee "$RUNNER_TEMP/triad-evidence/qft-source-phase-interval.log"
+      - name: Matched GPMC -ddnnf versus normal performance on one runner
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/gpmc_matched_mode_benchmark.py" \
+            --artifact-folder "$RUNNER_TEMP/triad-input" \
+            --output "$RUNNER_TEMP/triad-evidence" \
+            2>&1 | tee "$RUNNER_TEMP/triad-evidence/paired-native-gpmc-study.log"
+      - name: Non-exhaustive independent SAT miter for both QPE real CNFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/tolerance_calibration/dnnf_cnf_sat_miter.py \
+            --artifact-folder "$RUNNER_TEMP/triad-input" \
+            --output "$RUNNER_TEMP/triad-evidence" \
+            --case qpeexact8-baseline --case qpeexact8-self_negative \
+            2>&1 | tee "$RUNNER_TEMP/triad-evidence/qpe-independent-sat-miter.log"
+      - name: Bounded SAT miter attempt for large QFT16 cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          for CASE in qft16-baseline qft16-self_negative; do
+            set +e
+            (ulimit -v 5000000; timeout --signal=TERM 70s python -u \
+              .diagnostics/tolerance_calibration/dnnf_cnf_sat_miter.py \
+              --artifact-folder "$RUNNER_TEMP/triad-input" \
+              --output "$RUNNER_TEMP/triad-evidence" --case "$CASE") \
+              > "$RUNNER_TEMP/triad-evidence/sat-$CASE.log" 2>&1
+            RC=$?
+            set -e
+            cat "$RUNNER_TEMP/triad-evidence/sat-$CASE.log"
+            echo "SAT_MITER_CASE $CASE exit=$RC" | tee -a \
+              "$RUNNER_TEMP/triad-evidence/large-sat-attempts.txt"
+            if [ "$RC" -ne 0 ]; then
+              echo "SAT_MITER_NOT_VERIFIED $CASE" | tee -a \
+                "$RUNNER_TEMP/triad-evidence/large-sat-attempts.txt"
+            fi
+          done
+      - name: Seal scoped study evidence and source identities
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/triad-evidence"
+          mkdir -p "$OUT"
+          sha256sum \
+            .diagnostics/tolerance_calibration/qft_source_weight_interval_study.py \
+            .diagnostics/tolerance_calibration/gpmc_matched_mode_benchmark.py \
+            .diagnostics/tolerance_calibration/dnnf_cnf_sat_miter.py \
+            .github/workflows/tolerance-calibration-opt-in.yml \
+            > "$OUT/research-scripts-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload three-pillar research results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpe-qft-triad-source-sat-benchmark
+          path: ${{ runner.temp }}/triad-evidence/
           retention-days: 30
           if-no-files-found: error
 

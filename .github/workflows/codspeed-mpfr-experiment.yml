@@ -48,6 +48,9 @@ jobs:
             -c scripts/experiments/mpfr_weight_bridge.c \
             -o "$RUNNER_TEMP/mpfr-lib/bridge.o"
           ar rcs "$RUNNER_TEMP/mpfr-lib/libquprs_exp_mpfr.a" "$RUNNER_TEMP/mpfr-lib/bridge.o"
+          cc -std=c11 -O2 -fPIC -shared scripts/experiments/mpfr_weight_bridge.c \
+            -o "$RUNNER_TEMP/mpfr-lib/libquprs_cpu_weights.so" -lmpfr -lgmp -lm
+          echo "QUPRS_CODSPEED_NATIVE_LIB=$RUNNER_TEMP/mpfr-lib/libquprs_cpu_weights.so" >> "$GITHUB_ENV"
           export RUSTFLAGS="-L native=$RUNNER_TEMP/mpfr-lib -l mpfr -l gmp"
           cargo test --locked --release --lib --no-run --message-format=json \
             --manifest-path rust/Cargo.toml -p pathsum --features mpfr-experiment \
@@ -70,13 +73,13 @@ jobs:
               f.write(f"QUPRS_CODSPEED_BINARY={binary}\n")
           print("Pinned native test executable", binary)
           PY
-      - name: CodSpeed Simulation - only source-phase weight CPU
+      - name: CodSpeed Simulation - in-process native phase weight kernel
         uses: CodSpeedHQ/action@v5
         with:
           mode: simulation
           cycle-estimation: 'true'
-          simulation-track-subprocess: 'true'
-          run: pytest -q scripts/experiments/test_codspeed_mpfr.py --codspeed -k test_native_weight_cpu
+          simulation-track-subprocess: 'false'
+          run: pytest -q scripts/experiments/test_codspeed_mpfr.py --codspeed -k test_inprocess_phase_weight_cpu
       - name: CodSpeed WallTime - complete native GPMC paths
         uses: CodSpeedHQ/action@v5
         with:

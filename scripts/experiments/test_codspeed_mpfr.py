@@ -25,12 +25,37 @@ def _run(test_name: str, variant: str, case: str | None = None):
     assert "1 passed" in run.stdout, (run.stdout, run.stderr)
     return run.returncode
 
-@pytest.mark.parametrize("variant", ("f64", "mpfr"))
-def test_native_weight_cpu(benchmark, variant):
-    # Simulation with subprocess tracking; no GPMC executable is used.
-    assert benchmark(_run,
-        "experimental_mpfr_bridge::experimental_codspeed_weight_case",
-        variant) == 0
+# In-process C/MPFR CPU kernel (not a subprocess or full Rust weight pipeline).
+import ctypes
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def _inprocess_lib():
+    lib=ctypes.CDLL(os.environ["QUPRS_CODSPEED_NATIVE_LIB"])
+    prototype=[ctypes.c_char_p]*4+[ctypes.c_ulong,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_size_t]
+    for name in ("quprs_exp_f64_phase_weight","quprs_exp_mpfr_phase_weight"):
+        f=getattr(lib,name)
+        f.argtypes=prototype
+        f.restype=ctypes.c_int
+    return lib
+
+@lru_cache(maxsize=1)
+def _phase_inputs():
+    return [(b"0",b"1",str(317*k).encode(),b"10000000000000000") for k in range(1,25)]
+
+def _cpu_kernel(variant):
+    function=getattr(_inprocess_lib(),"quprs_exp_"+variant+"_phase_weight")
+    real=ctypes.create_string_buffer(160)
+    imag=ctypes.create_string_buffer(160)
+    for a,b,c,d in _phase_inputs():
+        assert function(a,b,c,d,192,real,imag,160)==0
+    return 24
+
+@pytest.mark.parametrize("variant",("f64","mpfr"))
+def test_inprocess_phase_weight_cpu(benchmark,variant):
+    _inprocess_lib()
+    _phase_inputs()
+    assert benchmark(_cpu_kernel,variant)==24
 
 @pytest.mark.parametrize("case", ("grover4", "qaoa7", "graphstate16", "qft16"))
 @pytest.mark.parametrize("variant", ("f64", "mpfr"))

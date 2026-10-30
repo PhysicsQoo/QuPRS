@@ -6,6 +6,8 @@
 #include <mpfr.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 
 static int set_ratio(mpfr_t result, const char *numer, const char *denom) {
     mpfr_prec_t p = mpfr_get_prec(result);
@@ -59,4 +61,19 @@ done:
     mpfr_clear(cycles);
     mpfr_clear(pi);
     return status;
+}
+
+/* Same lexical ratio input, explicit binary64 control, test-only. */
+int quprs_exp_f64_phase_weight(
+    const char *a, const char *b, const char *c, const char *d,
+    unsigned long bits, char *out_re, char *out_im, size_t cap) {
+    (void)bits;
+    if (!a || !b || !c || !d || !out_re || !out_im || cap<64) return -3;
+    double db=strtod(b,0), dd=strtod(d,0);
+    if (db==0.0 || dd==0.0) return -4;
+    double theta=2.0*(strtod(a,0)/db*acos(-1.0)+strtod(c,0)/dd);
+    if(!isfinite(theta)) return -4;
+    int nr=snprintf(out_re,cap,"%.16e",cos(theta));
+    int ni=snprintf(out_im,cap,"%.16e",sin(theta));
+    return nr>=0 && ni>=0 && (size_t)nr<cap && (size_t)ni<cap ? 0 : -5;
 }

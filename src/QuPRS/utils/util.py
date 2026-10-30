@@ -10,7 +10,9 @@ import sympy as sp
 from qiskit.circuit import Parameter, ParameterExpression
 from qiskit.circuit.tools.pi_check import pi_check
 
-from QuPRS.utils.verification_tolerances import current_rr_tolerance, validate_rr_tolerance
+from QuPRS.utils.verification_tolerances import (
+    current_rr_tolerance, validate_rr_tolerance, record_rr_approximation,
+)
 from QuPRS.cache_manager.cache_decorator import tracked_lru_cache
 
 _one_div_pi = 1 / se.pi
@@ -84,8 +86,12 @@ def algebraic_to_logical(expr: sp.Expr | se.Expr) -> sp.Expr:
 
 @tracked_lru_cache(maxsize=524288)
 def _process_term_cached(term: se.Expr, mod_coeffs, linearize, drop_small, rr_tolerance):
+    """Return (normalized term, tolerance-discarded flag).
 
-    # WMC-only source ingestion should preserve small nonzero phase terms.
+    The flag is cached *with* the result: an LRU cache hit must not erase
+    per-call approximation provenance. Exact modulo reductions do not count
+    as numerical approximations.
+    """
     tolerance = rr_tolerance if drop_small else 0
 
     if term.is_Mul:
@@ -112,49 +118,56 @@ def _process_term_cached(term: se.Expr, mod_coeffs, linearize, drop_small, rr_to
         if mod_coeffs and not pi_flag:
             coeff = coeff % mod_coeffs
             if coeff <= tolerance or coeff >= mod_coeffs - tolerance:
-                return se.S.Zero
+                return se.S.Zero, bool(drop_small and coeff != 0)
 
-        return se.Mul(coeff, *noncoeffs)
+        return se.Mul(coeff, *noncoeffs), False
     elif term.is_Number:
         term = term % mod_coeffs
         if term <= tolerance or term >= mod_coeffs - tolerance:
-            return se.S.Zero
-        return term
+            return se.S.Zero, bool(drop_small and term != 0)
+        return term, False
     else:
         if mod_coeffs == 1:
-            return se.S.Zero
+            return se.S.Zero, False
         else:
-            return term
+            return term, False
 
 
 def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *, rr_tolerance=None):
     """Normalize a term with explicit tolerance in the LRU cache key."""
     tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
-    return _process_term_cached(term, mod_coeffs, linearize, drop_small, tol)
+    value, dropped = _process_term_cached(term, mod_coeffs, linearize, drop_small, tol)
+    if dropped:
+        record_rr_approximation()
+    return value
 
 
 @tracked_lru_cache(maxsize=65536)
 def _reduce_expression_cached(expr: se.Expr, mod_coeffs, linearize, drop_small, rr_tolerance):
-    # Internal reduction receives an already validated, immutable call-local
-    # threshold. Avoid repeated validation and public adapter wrappers per term.
+    # Cache both the value and approximation evidence, not side effects.
+    # This ensures independent verifications remain correct after LRU hits.
     expanded_expr = expr.expand()
     if expanded_expr.is_Add:
-        # Process each term in the expanded expression
-        processed_terms = [
-            _process_term_cached(term, mod_coeffs, linearize, drop_small, rr_tolerance) for term in expanded_expr.args
+        processed = [
+            _process_term_cached(term, mod_coeffs, linearize, drop_small, rr_tolerance)
+            for term in expanded_expr.args
         ]
-        # Combine the processed terms
-        result = se.Add(*processed_terms)
+        result = se.Add(*(value for value, _ in processed))
+        discarded = any(dropped for _, dropped in processed)
     else:
-        # Process the single term
-        result = _process_term_cached(expanded_expr, mod_coeffs, linearize, drop_small, rr_tolerance)
-    return result
+        result, discarded = _process_term_cached(
+            expanded_expr, mod_coeffs, linearize, drop_small, rr_tolerance
+        )
+    return result, discarded
 
 
 def reduce_expression(expr: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *, rr_tolerance=None):
     """Reduce phase with per-request tolerance as an LRU key component."""
     tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
-    return _reduce_expression_cached(expr, mod_coeffs, linearize, drop_small, tol)
+    value, discarded = _reduce_expression_cached(expr, mod_coeffs, linearize, drop_small, tol)
+    if discarded:
+        record_rr_approximation()
+    return value
 
 
 @tracked_lru_cache(maxsize=1024)

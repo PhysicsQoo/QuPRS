@@ -256,6 +256,13 @@ def test_gpmc_qcec_scale_positive_controls(backend, case, record_property, monke
             ("gpmc_qcec_imag_sign", 0 if raw.imag == 0 else (1 if raw.imag > 0 else -1)),
         ):
             record_property(key, str(value))
+    # A confirmed exact positive must remain a definite equivalence.
+    # Keep this assertion even when the separate source-weight probe
+    # is diagnostic-only.
+    if case in ("h60", "h80"):
+        assert result.equivalent == "equivalent", (
+            case, backend, result.equivalent, result.wmc_precision_reason,
+        )
     # Exact identities and the source-pinned Graphstate16 pair are
     # independently within epsilon. QFT16 is a paper-intended positive,
     # not an independent exact-distance certificate.

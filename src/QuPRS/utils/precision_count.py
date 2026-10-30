@@ -151,6 +151,63 @@ def parse_printed_solver_output(stdout: str) -> PrintedCount:
     return found
 
 
+
+def exactly_count_unweighted_tautology(
+    dimacs_text: str, expected_twice_log2: int,
+) -> bool:
+    """Prove a trivial WMC count without trusting decimal solver output.
+
+    Only accept a well-formed, *unweighted* CNF whose every clause is a
+    Boolean tautology (including the clause-free CNF). It therefore has
+    exactly 2**variables satisfying assignments. Match that exact integer
+    power against the required trace normalization. This is not a generic
+    SAT/tautology checker and deliberately rejects anything nontrivial.
+    """
+    if not isinstance(expected_twice_log2, int) or isinstance(expected_twice_log2, bool):
+        return False
+    header = None
+    clauses = 0
+    for raw in dimacs_text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("c"):
+            if line.startswith("c p weight "):
+                return False
+            continue
+        if line.startswith("p "):
+            parts = line.split()
+            if header is not None or len(parts) != 4 or parts[:2] != ["p", "cnf"]:
+                return False
+            try:
+                variables, expected_clauses = map(int, parts[2:])
+            except ValueError:
+                return False
+            if variables < 0 or expected_clauses < 0:
+                return False
+            header = (variables, expected_clauses)
+            continue
+        if header is None:
+            return False
+        try:
+            literals = [int(value) for value in line.split()]
+        except ValueError:
+            return False
+        if not literals or literals[-1] != 0 or 0 in literals[:-1]:
+            return False
+        if any(abs(lit) > header[0] for lit in literals[:-1]):
+            return False
+        if not any(-lit in set(literals[:-1]) for lit in literals[:-1]):
+            return False
+        clauses += 1
+
+    return (
+        header is not None
+        and clauses == header[1]
+        and expected_twice_log2 == 2 * header[0]
+    )
+
+
 def classify_printed_distance(
     count: PrintedCount, expected_twice_log2: int, distance_tolerance: float,
     *, component_error: Fraction = Fraction(0),

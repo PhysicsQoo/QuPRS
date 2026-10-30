@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -744,6 +744,73 @@ jobs:
         with:
           name: qpe-qft-triad-source-sat-benchmark
           path: ${{ runner.temp }}/triad-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  offline-qft-functional-cnf-proof:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(functional):')
+    name: QFT16 two-copy CNF uniqueness bounded SAT experiment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout existing research scripts
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Configure Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install independent SAT dependency
+        shell: bash
+        run: python -m pip install 'python-sat>=1.8.dev13,<2'
+      - name: Reuse archived original QFT16 CNF/NNF without GPMC run
+        uses: actions/download-artifact@v4
+        with:
+          name: native-mpfr-cnf-rust-qpe-science-v2
+          run-id: 40977618673
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/functional-source
+      - name: Verify archived file hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/functional-results"
+          (cd "$RUNNER_TEMP/functional-source"; sha256sum -c SHA256SUMS) \
+            > "$RUNNER_TEMP/functional-results/source-hash-check.log"
+      - name: Prove functional extension of original QFT CNF using two-copy SAT miter
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -v 5000000
+          timeout --signal=TERM 250s python -u \
+            .diagnostics/tolerance_calibration/qft_cnf_functional_uniqueness.py \
+            --artifact-folder "$RUNNER_TEMP/functional-source" \
+            --output "$RUNNER_TEMP/functional-results" \
+            2>&1 | tee "$RUNNER_TEMP/functional-results/qft-functional-uniqueness.log"
+      - name: Seal research evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/functional-results"
+          mkdir -p "$OUT"
+          git rev-parse HEAD > "$OUT/experiment-head.txt"
+          sha256sum .diagnostics/tolerance_calibration/qft_cnf_functional_uniqueness.py \
+                     .github/workflows/tolerance-calibration-opt-in.yml \
+            > "$OUT/script-sources-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload functional structure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qft16-independent-functional-cnf-uniqueness
+          path: ${{ runner.temp }}/functional-results/
           retention-days: 30
           if-no-files-found: error
 

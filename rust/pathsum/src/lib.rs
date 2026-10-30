@@ -633,3 +633,6 @@ mod verification_options_contract_tests {
 
 #[cfg(test)]
 mod experimental_weight_boundary;
+
+#[cfg(all(test, feature = "mpfr-experiment"))]
+mod experimental_mpfr_bridge;

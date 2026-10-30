@@ -19,7 +19,7 @@ fn exact_ratio_scaled(r: &BigRational, s: &BigInt) -> BigInt {
     (r.numer() * s) / r.denom()
 }
 
-fn fixed_trig(coeff: &PhaseCoeff) -> (BigInt, BigInt) {
+pub(super) fn fixed_trig(coeff: &PhaseCoeff) -> (BigInt, BigInt) {
     assert!(coeff.symbols.is_empty(), "unbound source symbols cannot be weights");
     let s = scale();
     let pi = pi_scaled();

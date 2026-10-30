@@ -213,3 +213,31 @@ def test_exact_unweighted_tautology_rejects_invalid_norm_and_bad_headers():
     for dimacs in ("p cnf -1 0", "p cnf 1 -1", "p cnf 1 0\np cnf 1 0",
                    "p cnf 1 0\nnot-a-clause"):
         assert not exactly_count_unweighted_tautology(dimacs, 2)
+
+
+@pytest.mark.parametrize("digits", [4, 8, 15])
+def test_ganak_warning_resolution_comes_from_actual_printed_digits(digits):
+    from QuPRS.utils.precision_count import ganak_print_resolution_distance
+
+    token = "1." + "0" * digits + "e+00"
+    count = parse_printed_count_line("c s exact quadruple float " + token + " + 0e+00i")
+    observed = ganak_print_resolution_distance(count, 0, 1e-8)
+    assert observed is not None
+    # The exact printed half-unit is 0.5 * 10**-digits, so the
+    # normalized squared-magnitude interval span is exactly 2*10**-digits.
+    assert observed == pytest.approx((2 * 10**-digits)**0.5, rel=1e-10)
+    assert ganak_print_resolution_distance(count, 0, observed * 1.01) is None
+
+
+def test_ganak_warning_scales_with_trace_normalization_and_count():
+    from QuPRS.utils.precision_count import ganak_print_resolution_distance
+
+    count1 = count("1.00000000e+00 + 0e+00i", "c s exact quadruple float")
+    count4 = count("4.00000000e+00 + 0e+00i", "c s exact quadruple float")
+    d1 = ganak_print_resolution_distance(count1, 0, 1e-8)
+    d4 = ganak_print_resolution_distance(count4, 4, 1e-8)
+    assert d1 is not None and d4 is not None
+    assert d4 == pytest.approx(d1, rel=1e-12)
+    gpmc = count("1.00000000e+00 + 0e+00i", "c s exact double prec-sci")
+    assert ganak_print_resolution_distance(gpmc, 0, 1e-8) is None
+    assert ganak_print_resolution_distance(count1, 0, 2e-4) is None

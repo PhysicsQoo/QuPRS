@@ -630,6 +630,62 @@ mod verification_options_contract_tests {
     }
 
     #[test]
+    fn custom_rr_tolerance_changes_near_identity_without_mutating_source() {
+        use crate::ir::QuantumOp;
+        use crate::rational::{Angle, FreeRational};
+        // Source-exact Rz(pi/1e9) is not the identity, but has a
+        // non-global phase residual much smaller than a 1e-8 cycle
+        // RR coefficient threshold.
+        let near = vec![QuantumOp::RZ(
+            0, Angle::new_constant(FreeRational::new(1, 1_000_000_000)),
+        )];
+        let mut settings = VerificationOptions {
+            method: VerificationMethod::ReductionRules,
+            strategy: VerificationStrategy::Naive,
+            rr_tolerance: 1e-8,
+            ..VerificationOptions::default()
+        };
+        let accepted = check_equivalence_with_options(1, &[], &near, &settings).unwrap();
+        assert_eq!(accepted.status, EquivalenceStatus::Equivalent);
+        assert!(accepted.rr_approximate);
+        assert!(!accepted.solver_invoked);
+        assert!(accepted.tool_time.is_none());
+        assert!(!accepted.final_ps.p.terms.is_empty(),
+                "RR must not discard exact source residual phases");
+        settings.rr_tolerance = 1e-12;
+        let strict = check_equivalence_with_options(1, &[], &near, &settings).unwrap();
+        assert_eq!(strict.status, EquivalenceStatus::NotEquivalent);
+        assert!(!strict.rr_approximate);
+        assert!(!strict.solver_invoked);
+    }
+
+    #[test]
+    fn rr_residual_aggregate_bound_and_hybrid_cap_are_independent() {
+        use crate::rational::Rational;
+        let mut ps = PathSum::new(2);
+        let coeff = PhaseCoeff::new_constant(Rational::new(1, 100_000_000));
+        ps.p.add_term(vec![0], coeff.clone());
+        ps.p.add_term(vec![1], coeff);
+        assert!(!rr_within_tolerance(
+            &ps, 1.5e-8, VerificationMethod::ReductionRules, 1e-8
+        ), "sum of two 1e-8 cycle terms must exceed 1.5e-8");
+        assert!(rr_within_tolerance(
+            &ps, 3e-8, VerificationMethod::ReductionRules, 1e-8
+        ));
+        assert!(!rr_within_tolerance(
+            &ps, 3e-8, VerificationMethod::Hybrid, 1e-8
+        ), "Hybrid cannot silently override the 1e-8 distance threshold");
+        assert!(rr_within_tolerance(
+            &ps, 3e-8, VerificationMethod::Hybrid, 1e-6
+        ));
+        ps.p.add_term(
+            vec![0, 1], PhaseCoeff::new_symbolic(42, crate::rational::FreeRational::new(1, 10))
+        );
+        assert!(rr_residual_upper_cycles(&ps).is_none(),
+                "unbound symbolic phase must fail closed");
+    }
+
+    #[test]
     fn typed_approximate_distance_rejects_conflicting_inputs() {
         let invalid = VerificationOptions {
             approximate_distance_tolerance: Some(f64::NAN),

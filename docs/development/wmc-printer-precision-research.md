@@ -1794,3 +1794,215 @@ cache numerics and flags an independent low-cache crash,
 but **does not close the general GPMC forward-error theorem**.
 No production classifier change or `unknown` promotion is
 authorized by these controls alone.
+
+
+## Phase 13 — deterministic extension and cheaply available model-count bounds
+
+**2026-10-30 | research-only; existing branch and pinned public dev.**
+Experimental source commits:
+`1f1a320d52d31b81e0064f9a8267f07849b243ab`
+(offline four original CNFs, five adversarial controls) and
+`9f4cf10b80f9dcf2ae47703c067714285752b3a4`
+(actual pinned-dev Python QFT16 PathSum dependency audit).
+Public `dev` remains
+`55e78c7597966617c1a193b89056ff4e99c3ddfb`;
+neither the solver, classifier nor Python/Rust public API changed.
+
+### Formal model-count lemma and provenance guard
+
+Suppose a particular source-generated CNF is the conjunction
+of a base formula `H(X)` with exact Boolean definitions
+
+```
+z_1 <-> g_1(X)
+z_2 <-> g_2(X)
+...
+z_m <-> g_m(X)
+```
+
+for distinct weighted phase variables `z_i`, with no
+unproven forward references or missing converse implication.
+Then every base `X` assignment has at most one `Z`
+extension, regardless of whether `H(X)` accepts that
+assignment. Consequently, **without counting models**:
+
+```text
+N_sat(CNF) <= 2^|X| = 2^(n_DIMACS - m_weighted_phase_variables).
+```
+
+For the current Python emitter `ps2wmc.py`,
+`wlogi_to_clauses` creates one fresh `z_i` per
+phase coefficient and `encode_equivalence(z_i, logi)`
+emits both directions of the definition (including
+constant `True/False` and singleton/AND/OR cases).
+For the Rust `WmcManager`, `encode_phase_polynomial`
+creates fresh `z_i` and explicitly emits the
+`z_i <-> monomial` clauses (including constants
+and one/multiple sources). The distinct Rust source
+`VariableManager.path_vars` **includes the original
+input variables `x_i`**; Python's `pathvar` and Rust's
+`path_vars` therefore cannot simply be equated to
+the same number of free Boolean degrees of freedom.
+
+The broad bound `2^(n-m)` is safe only when the
+input came from the trusted complete phase-definition
+emitter, and the clause/literal invariants hold.
+**An arbitrary weighted DIMACS with `m` weighted
+variables does NOT necessarily have those variables
+functionally determined**. Never infer a certificate
+merely from the presence of weight comments or
+`gpmc_cnf_budget_metadata(n,m,max_sq)` if
+source provenance is missing.
+
+### Independent checked DRUP for four real source-pinned CNFs
+
+The same four source-pinned QPEexact8 (Rust) / QFT16
+(Python) original and physical source-negative CNFs
+were checked offline by two-copy original-CNF SAT
+miter, **sharing every nonweighted variable** and
+duplicating precisely its weighted `z_i` variables.
+A Glucose4 DRUP refutation of the possibility that
+the two copies differ was independently checked by
+a separate RUP verifier, including the empty clause.
+
+| Source-pinned real CNF | DIMACS `n` | Weighted `m` | Base variables `n-m` | Proved `N_sat` bound | Checked RUP additions |
+| --- | ---: | ---: | ---: | --- | ---: |
+| Rust QPEexact8 baseline | 31 | 17 | 14 | `2^14` | 39 |
+| Rust QPEexact8 self-negative | 10 | 2 | 8 | `2^8` | 4 |
+| Python QFT16 baseline | 486 | 400 | 86 | `2^86` | 1160 |
+| Python QFT16 self-negative | 465 | 385 | 80 | `2^80` | 1154 |
+
+All four source-pinned Boolean functionals were
+UNSAT in the two-copy miter, and all RUP additions
+and empty-clause derivations were independently
+validated. These checks are fixed-instance
+proof certificates, distinct from the source-level
+universal lemma. Runtime for each large QFT16
+proof/check was **1.42/1.84 seconds** on one
+hosted runner; neither required running GPMC.
+
+**Adversarial controls:** five small source-shaped
+examples gave three accepted true-function definitions
+(AND, XOR, forced phase weight), and two *rejected*
+broken encodings (remove one converse AND clause;
+leave a weighted variable unconstrained). The two
+rejections produced SAT witnesses whose original
+CNF assignments were independently checked for
+same base / different weighted variable.
+Therefore the test does not incorrectly bless an
+arbitrary weighted literal.
+
+[Actions #40998197952](https://github.com/PhysicsQoo/QuPRS/actions/runs/40998197952)
+**SUCCESS**, immutable
+[artifact 12951904243](https://github.com/PhysicsQoo/QuPRS/actions/runs/40998197952/artifacts/12951904243).
+ZIP SHA256
+`e68fda4f11d893ccc16e7dc1982f11c9a7b16f22e4117c55afc7e8fbe8349c21`,
+CRC PASS, **21/21** internal SHA256SUMS independently
+verified. Source SHA
+`1f1a320d52d31b81e0064f9a8267f07849b243ab`.
+
+### Tighter path-only bounds require another proof obligation
+
+A `2^k` bound based on **only the Path-sum
+path variables** additionally requires proving that
+every output variable is a Boolean function of the
+path variables and perhaps other output functions
+on a directed acyclic dependency graph. For
+ordinary `PathSum.QuantumCircuit` representation,
+input `x_i` symbols may appear directly in outputs,
+and the initial inputs must be included in the
+free basis unless separately constrained.
+Thus a `pathvar` field is not automatically
+a universal tight counting bound.
+
+The actual pinned `dev` Python QFT16 API
+was run **once** (WMC-only, unchanged public
+`unknown` result) to inspect `final_pathsum`
+and reproduce the original exact CNF SHA256
+`20ee9e55eb1fc644d08daf130d180ded46f06f67897fa46f57b4f4ef4ef7f8f1`.
+It contained exactly **70 path variables,
+16 output variables and 400 phase weights**.
+All 16 output Boolean expressions had *zero*
+cross-output dependencies and referenced only
+the declared path-variable set. The entire
+phase expression used no undeclared symbols.
+A deterministic topological output evaluation
+therefore certifies at most one output/aux
+assignment per path variable assignment:
+
+```text
+N_sat(QFT16 baseline) <= 2^70, from the actual PathSum source.
+```
+
+This reproduces the tighter Phase 9 fixed QFT16
+two-copy SAT+DRUP upper bound by an independent
+source-level dependency argument. It does not
+make the tight bound valid for every PathSum:
+the source proof relies on full emitted iff
+definitions and the dependency guard.
+Seven synthetic guard controls passed the expected
+accept/reject classification, including rejection
+of self-dependency, mutual cycles, undeclared
+output or phase symbols and output/path overlap.
+
+[Actions #40998482414](https://github.com/PhysicsQoo/QuPRS/actions/runs/40998482414)
+**SUCCESS**,
+[artifact 12951964651](https://github.com/PhysicsQoo/QuPRS/actions/runs/40998482414/artifacts/12951964651);
+ZIP SHA256
+`a95fd476fbb325af4dd0dd0a7400a376400a405a10f80b17eec2eb6b62c6a8b5`,
+CRC PASS and **5/5** internal SHA256SUMS
+independently verified.
+
+The QFT16 source-negative `2^64` tight
+bound remains covered by the independent
+Phase 9 checked DRUP certificate. No claim
+is made that the source-level Python check
+was also run on that modified-source case.
+
+### Practical low-cost implementation recommendation
+
+1. Derive a trusted **definitional-phase-literals**
+   provenance flag at the existing PathSum encoder
+   boundary. When true, `n` and `m` are already
+   counted; `N_sat_upper=2^(n-m)` requires no
+   SAT, d-DNNF, extra GPMC call, or numerical solve.
+2. Permit an optional **tighter** `2^k`
+   certificate only if all output/input degrees
+   of freedom are accounted for and the
+   Boolean-expression dependency graph is
+   independently established acyclic.
+   Guard against name collision, undeclared
+   symbol, self-dependency and incomplete
+   helper-variable definitions; otherwise
+   **fall back to the conservative trusted-encoder
+   `2^(n-m)` bound**.
+3. Arbitrary weighted CNF inputs, untrusted
+   source exporters and unknown Rust/Python
+   side effects must not be assigned the
+   trusted-source certificate. Rust source
+   `var_map` and initial `x_i` semantics
+   must be checked independently from Python.
+4. Before any public API promotion, certify
+   that the GPMC native arithmetic DAG including
+   weighted preprocessing and cache reuse
+   faithfully evaluates the emitted quantized
+   CNF weight polynomial, and incorporate source
+   phase error plus MPFR solver and decimal
+   printer rounding independently.
+5. A real production candidate must preserve
+   RR-first Hybrid and **one WMC Solver call**
+   and pass end-to-end Python/Rust + both
+   Solvers + **full CodSpeed v5** performance.
+   These proof tools stay **offline**; source
+   bookkeeping in the hot path should piggyback
+   existing symbol/weight collection and must
+   be benchmarked before enabling.
+
+**Decision:** Phase 13 closes a substantial
+*structural* part of the counting upper-bound
+problem for the current trusted encoders and
+provides a genuine QFT16 path-only source
+certificate. It does **not** finish the
+general GPMC native forward-error theorem or
+authorize the public verifier to replace an
+unresolved `unknown`.

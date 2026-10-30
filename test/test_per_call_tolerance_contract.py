@@ -212,3 +212,39 @@ def test_rr_only_strict_tolerance_does_not_inherit_wmc_distance(
     assert result.equivalent == "not_equivalent"
     assert result.wmc_solver_invoked is False
     assert result.tool_time is None
+
+
+@pytest.mark.parametrize("method", ("reduction_rules", "hybrid"))
+@pytest.mark.parametrize("angle,rr_tolerance", (
+    ("0", 1e-10),
+    ("0.000000001", 1e-8),
+    ("0.000000001", 1e-12),
+))
+def test_backend_parity_includes_rr_approximation_provenance(
+    method, angle, rr_tolerance,
+):
+    """Equal status alone cannot mask different RR evidence semantics.
+
+    Both APIs receive the same QASM source and all effective tolerance
+    parameters. Hybrid must not invoke WMC when RR is decisive.
+    """
+    header = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+    source = header + f"rz({angle}) q[0];\n"
+    results = {
+        backend: check_equivalence(
+            header, source, backend=backend, method=method,
+            strategy="Naive", rr_tolerance=rr_tolerance,
+            phase_tolerance=1e-8,
+            approximate_distance_tolerance=1e-12,
+        )
+        for backend in ("python", "rust")
+    }
+    py, rust = results["python"], results["rust"]
+    assert py.equivalent == rust.equivalent, results
+    assert py.rr_approximate == rust.rr_approximate, (
+        "A tolerance-dependent RR acceptance must be labeled equally "
+        "by Python and Rust", method, angle, rr_tolerance, results,
+    )
+    assert py.wmc_solver_invoked is False
+    assert rust.wmc_solver_invoked is False
+    assert py.tool_time is None and rust.tool_time is None

@@ -525,7 +525,7 @@ mod verification_options_contract_tests {
     }
 
     #[test]
-    fn typed_approximate_distance_preserves_rr_fast_path_and_conservative_negative() {
+    fn typed_approximate_distance_preserves_rr_fast_path_and_strict_negative() {
         use crate::ir::QuantumOp;
         use crate::rational::{Angle, FreeRational};
         let opts = VerificationOptions {
@@ -538,15 +538,16 @@ mod verification_options_contract_tests {
         assert_eq!(exact.status, EquivalenceStatus::Equivalent);
         assert!(exact.wmc_time.is_none());
         assert!(exact.tool_time.is_none());
-        // An exact nonzero RZ residual proves strict source inequivalence;
-        // by itself it does not prove D > the user's approximate threshold.
+        // RR-only reports source-exact inequivalence; it does not infer
+        // projective-distance separation from that strict verdict.
+        // Hybrid/WMC-only retain the independent distance predicate.
         let rotated = vec![QuantumOp::RZ(
             0, Angle::new_constant(FreeRational::new(1, 20_000)),
         )];
         let unresolved = check_equivalence_with_options(
             1, &[], &rotated, &opts,
         ).unwrap();
-        assert_eq!(unresolved.status, EquivalenceStatus::Unknown);
+        assert_eq!(unresolved.status, EquivalenceStatus::NotEquivalent);
         assert!(unresolved.wmc_time.is_none());
         assert!(unresolved.tool_time.is_none());
     }

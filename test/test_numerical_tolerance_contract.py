@@ -112,7 +112,7 @@ def test_reference_uncertainty_guard_has_three_distinct_outcomes():
     ("0.00048", "not_equivalent"),
 ])
 def test_native_distance_mode_has_no_early_strict_negative(solver, theta, expected):
-    """Native opt-in path: strict RR negative must not preempt distance mode."""
+    """RR-only is strict; Hybrid/WMC-only use projective distance."""
     left, right = qasm(), qasm("rz(" + theta + ") q[0];\n")
     with solver_binary(solver):
         rr = _pathsum_rust.check_equivalence(
@@ -127,7 +127,7 @@ def test_native_distance_mode_has_no_early_strict_negative(solver, theta, expect
             left, right, method="wmc_only", strategy="Naive",
             tool_name=solver, timeout=45, approximate_distance_tolerance=EPS,
         )
-    assert normalize_status(rr) == "unknown", (solver, theta, rr)
+    assert normalize_status(rr) == "not_equivalent", (solver, theta, rr)
     assert normalize_status(hybrid) == expected, (solver, theta, hybrid)
     assert normalize_status(wmc) == expected, (solver, theta, wmc)
     assert "wmc_solver_time_sec" in hybrid

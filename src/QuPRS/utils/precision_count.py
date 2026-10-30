@@ -298,6 +298,7 @@ def classify_observed_distance(
     count: PrintedCount, normalization_twice_log2: int,
     distance_tolerance: float, phase_tolerance: float,
     *, component_error: Fraction = Fraction(0),
+    ganak_point_estimate: bool = False,
 ) -> tuple[str, PrintedDistanceEvidence]:
     """Numerical label for a high-precision printed complex count.
 
@@ -310,7 +311,19 @@ def classify_observed_distance(
         count, normalization_twice_log2, distance_tolerance,
         component_error=component_error,
     )
-    if evidence.status != "equivalent":
+    if evidence.status == "unknown" and ganak_point_estimate and (
+        evidence.reason == "insufficient_printed_resolution"
+    ):
+        # The strict output-format interval cannot decide at this epsilon.
+        # As an explicitly uncertified Ganak observation, use the printed
+        # complex count's center point; retain the 'unknown' raw evidence
+        # for diagnostics and emit the caller's resolution warning.
+        norm_squared = Fraction(2) ** normalization_twice_log2
+        eps = Fraction(Decimal(str(distance_tolerance)))
+        magnitude_sq = count.real**2 + count.imag**2
+        if magnitude_sq < norm_squared * (1 - eps**2):
+            return "not_equivalent", evidence
+    elif evidence.status != "equivalent":
         return evidence.status, evidence
     scale = abs(count.real) + abs(count.imag)
     if scale == 0:

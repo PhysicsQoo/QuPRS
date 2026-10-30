@@ -99,7 +99,7 @@ def test_rr_global_phase_label_respects_per_call_tolerance(backend):
         )
         assert result.equivalent == expected
         assert result.tool_time is None
-        assert result.decision_basis == "symbolic"
+        assert result.wmc_time is None
 
 @pytest.mark.parametrize("backend", ["python", "rust"])
 def test_result_execution_metadata_replaces_redundant_basis(backend):

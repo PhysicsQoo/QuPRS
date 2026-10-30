@@ -49,3 +49,24 @@ were removed without compatibility aliases as a deliberate v0.14.0 breaking
 change. The historical TACAS'26 v0.9.1 archive remains unchanged.
 `wmc_magnitude_tolerance` and `wmc_phase_tolerance` remain compatibility
 controls in the candidate; do not confuse them with the new three-way design.
+
+### Solver execution failures
+
+A user-selected `approximate_distance_tolerance` is a **numerical acceptance
+threshold**, not a solver-process failure policy. Both legacy magnitude mode
+and distance mode distinguish:
+
+- Timed-out verification or external counter: `Timeout`.
+- Solver process nonzero exit, unavailable executable, malformed/nonfinite
+  output or unsupported executable: explicit solver-specific exception with
+  available diagnostic context; never `not_equivalent` or `unknown`.
+- A successfully completed WMC whose *valid* numeric output cannot resolve
+  the distance acceptance boundary may still return `unknown`; this is not
+  an execution failure. Its prevalence must be measured before choosing the
+  shipped default, rather than blindly accepting uncertain evidence.
+
+For a starting point, a `1e-8` normalized-magnitude defect corresponds to
+`D_proj=sqrt(2e-8-1e-16)\u22481.4142e-4`. This is a compatibility candidate,
+**not yet a validated v0.14.0 default**. The release gate requires real
+GPMC/Ganak positive and labeled-negative benchmarks, Python/Rust parity,
+near-threshold precision checks, and no unnecessary extra solver invocation.

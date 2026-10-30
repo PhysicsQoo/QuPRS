@@ -32,8 +32,9 @@ PROCESS_SCENARIOS = [
 
 @pytest.mark.skipif(os.name != "posix", reason="Controlled POSIX solver executable")
 @pytest.mark.parametrize("backend,solver,failure", PROCESS_SCENARIOS)
+@pytest.mark.parametrize("distance_tolerance", [None, 2e-4])
 def test_public_wmc_solver_failure_is_never_inequivalence(
-    tmp_path, monkeypatch, backend, solver, failure
+    tmp_path, monkeypatch, backend, solver, failure, distance_tolerance
 ):
     """Exercise the public API, actual subprocess policy and Rust FFI path."""
     executable = tmp_path / ("controlled-" + solver)
@@ -77,6 +78,7 @@ def test_public_wmc_solver_failure_is_never_inequivalence(
         return check_equivalence(
             identity, hh, backend=backend, method="wmc_only",
             tool_name=solver, timeout=4,
+            approximate_distance_tolerance=distance_tolerance,
         )
 
     if failure == "timeout":

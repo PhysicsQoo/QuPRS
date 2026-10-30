@@ -61,6 +61,9 @@ def test_rust_rr_agrees_with_independent_diagonal_oracle(left, right, expected):
     result = check_equivalence(
         source_a, source_b, method="reduction_rules", backend="rust",
         strategy="Naive", tool_name="gpmc", timeout=30,
+        # Independent source oracle treats any nonzero global phase as nonzero.
+        # Use a tighter phase label threshold for these fixed test cases.
+        phase_tolerance=1e-12,
     )
     assert result.equivalent == expected
     assert result.tool_time is None

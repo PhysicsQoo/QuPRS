@@ -133,6 +133,28 @@ jobs:
           python scripts/experiments/solver_stdout_precision_probe.py \
             --json "$RUNNER_TEMP/cnf-study/solver-stdout-precision.json" \
             | tee "$RUNNER_TEMP/cnf-study/solver-stdout-precision.stdout"
+      - name: Independent matrix and QCEC source/compiled oracle
+        run: |
+          set -o pipefail
+          python -m venv "$RUNNER_TEMP/qcec-independent-venv"
+          "$RUNNER_TEMP/qcec-independent-venv/bin/python" -m pip install \
+            "mqt-qcec==3.11.0" numpy
+          failed=0
+          for case in grover4 qaoa7 graphstate16 qft16; do
+            echo "EXPERIMENT_INDEPENDENT_BEGIN case=$case"
+            set +e
+            timeout -k 5s 75s \
+              "$RUNNER_TEMP/qcec-independent-venv/bin/python" \
+              scripts/experiments/compiled_pair_independent_oracle.py \
+              --case "$case" \
+              --out "$RUNNER_TEMP/cnf-study/independent-$case.json" \
+              2>&1 | tee "$RUNNER_TEMP/cnf-study/independent-$case.stdout"
+            rc=$?
+            set -e
+            echo "EXPERIMENT_INDEPENDENT_EXIT case=$case code=$rc"
+            if [ "$rc" -ne 0 ]; then failed=1; fi
+          done
+          exit "$failed"
       - name: Upload bounded experimental evidence
         if: always()
         uses: actions/upload-artifact@v4

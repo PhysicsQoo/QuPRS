@@ -630,3 +630,6 @@ mod verification_options_contract_tests {
         assert!(check_equivalence_with_options(1, &[], &[], &bad).is_err());
     }
 }
+
+#[cfg(test)]
+mod experimental_weight_boundary;

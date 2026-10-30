@@ -59,6 +59,12 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
             experiment_free_var_contract -- --nocapture \
             2>&1 | tee "$RUNNER_TEMP/cnf-study/native-rust.log"
+      - name: Native Rust source-to-35-digit weight A/B experiment
+        run: |
+          set -o pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            experimental_rust_weight_boundary -- --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/cnf-study/native-weight-boundary.log"
       - name: Production Python SymEngine precision and actual solver parity
         run: |
           set -o pipefail

@@ -107,6 +107,42 @@ jobs:
             --output gpmc-native-phase15/phase16 \
             2>&1 | tee gpmc-native-phase15/phase16.log
 
+      - name: Identify previously sealed weighted-CNF source cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p17-cnf"
+          python3 - "$RUNNER_TEMP/qft-phase8" "$RUNNER_TEMP/p17-cnf" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          sys.path.insert(0, ".diagnostics/tolerance_calibration")
+          from gpmc_dag_exponent_probe import CASES
+          source, destination = map(pathlib.Path, sys.argv[1:])
+          by_hash={v[0]: k for k,v in CASES.items()}
+          found={}
+          for path in source.rglob("*.cnf"):
+              digest=hashlib.sha256(path.read_bytes()).hexdigest()
+              if digest in by_hash:
+                  label=by_hash[digest]
+                  (destination / (label+".cnf")).write_bytes(path.read_bytes())
+                  found[label]=digest
+          if "qft16-baseline" not in found:
+              raise SystemExit("P17_QFT16_PINNED_CNF_MISSING")
+          print("P17_MATCHED_INPUT_HASHES", found, flush=True)
+          PY
+
+      - name: Matched native arithmetic DAG q-amplification study
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -u .diagnostics/tolerance_calibration/gpmc_dag_exponent_probe.py \
+            --source GPMC \
+            --baseline "$RUNNER_TEMP/gpmc-build/gpmc" \
+            --artifact-folder "$RUNNER_TEMP/p17-cnf" \
+            --output gpmc-native-phase15/phase17 \
+            2>&1 | tee gpmc-native-phase15/phase17.log
+
       - name: Seal available evidence
         if: always()
         shell: bash

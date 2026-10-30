@@ -197,7 +197,11 @@ pub fn check_equivalence(
         if let Some(wmc_time) = result.wmc_time {
             dict.set_item("wmc_time_sec", wmc_time)?;
             dict.set_item("wmc_dimacs_time_sec", result.to_dimacs_time.unwrap_or(0.0))?;
-            dict.set_item("wmc_solver_time_sec", result.tool_time.unwrap_or(0.0))?;
+            // An exact CNF count does not launch a solver; do not report a
+            // fabricated zero-duration subprocess observation.
+            if result.solver_invoked {
+                dict.set_item("wmc_solver_time_sec", result.tool_time.unwrap_or(0.0))?;
+            }
         }
         let mut stage_materialize_ns = None;
         if let Some(ledger) = &result.stage_ledger {

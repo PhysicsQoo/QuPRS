@@ -243,3 +243,17 @@ def test_ganak_warning_scales_with_trace_normalization_and_count():
     gpmc = count("1.00000000e+00 + 0e+00i", "c s exact double prec-sci")
     assert ganak_print_resolution_distance(gpmc, 0, 1e-8) is None
     assert ganak_print_resolution_distance(count1, 0, 2e-4) is None
+
+
+def test_ganak_midpoint_verdict_preserves_unresolved_raw_printed_evidence():
+    from QuPRS.utils.precision_count import classify_observed_distance
+
+    observed = count("1.00000000e+00 + 0e+00i", "c s exact quadruple float")
+    raw, evidence = classify_observed_distance(observed, 0, 1e-8, 1e-8)
+    numeric, observed_evidence = classify_observed_distance(
+        observed, 0, 1e-8, 1e-8, ganak_point_estimate=True,
+    )
+    assert raw == "unknown"
+    assert evidence.reason == "insufficient_printed_resolution"
+    assert numeric == "equivalent"
+    assert observed_evidence == evidence

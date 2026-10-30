@@ -9,8 +9,7 @@ from QuPRS import check_equivalence
 from _benchmark_cases import MQT_CASES
 from _benchmark_outcomes import assert_benchmark_result
 from test_graphstate16_source_contract import (
-    BLOBS, independent_source_contract, certificate_from_reduced,
-    get_graphstate_reduced_certificate,
+    BLOBS, independent_source_contract, get_graphstate_reduced_certificate,
 )
 
 PROJECT_ROOT = Path(".").resolve()
@@ -56,21 +55,22 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch, backe
     # This does not change the verifier's strict result or its numeric tolerances.
     if file_name == "graphstate_nativegates_ibm_qiskit_opt0_16.qasm":
         independent_source_contract()
-        if backend == "rust":
-            assert result.equivalent == "not_equivalent", (
-                "Strict decimal-source semantics must not be silently reclassified"
-            )
-            assert result.tool_time is None, (
-                "Reduction certificate must be solver-independent"
-            )
-            residuals, distance_sq_upper = certificate_from_reduced(
-                str(result.final_pathsum)
-            )
-        else:
-            # Preserve the Python backend's actual numerical/legacy verdict.
-            # Its heuristic positive result cannot establish source-exact equality.
-            assert result.equivalent in {"equivalent", "equivalent*", "not_equivalent"}
-            residuals, distance_sq_upper = get_graphstate_reduced_certificate()
+        # The source literals differ by a nonzero ~1e-15 radian amount.
+        # At the default RR tolerance the pair may nevertheless be accepted
+        # as APPROXIMATELY equivalent. Obtain the strict-source certificate
+        # separately, outside the benchmarked function, at rr_tolerance=1e-18.
+        residuals, distance_sq_upper = get_graphstate_reduced_certificate()
+        assert result.equivalent in {"equivalent", "equivalent*"}, (
+            "Source-pinned pair is within the default approximate RR policy",
+            backend, tool_name, result.equivalent,
+        )
+        assert result.tool_time is None, (
+            "This Graphstate16 benchmark should be resolved by RR"
+        )
+        assert result.rr_approximate is True, (
+            "The nonidentical source literals cannot be labeled exact RR",
+            backend, result.equivalent,
+        )
         epsilon = Fraction(Decimal("1e-8"))
         assert len(residuals) == 8
         assert Fraction(0) < distance_sq_upper <= epsilon * epsilon

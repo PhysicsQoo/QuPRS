@@ -69,7 +69,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/experimental-mpfr-lib"
-          cc -std=c11 -O2 -c scripts/experiments/mpfr_weight_bridge.c \
+          cc -std=c11 -O2 -Wall -Wextra -Werror=implicit-function-declaration -c scripts/experiments/mpfr_weight_bridge.c \
             -o "$RUNNER_TEMP/experimental-mpfr-lib/bridge.o"
           ar rcs "$RUNNER_TEMP/experimental-mpfr-lib/libquprs_exp_mpfr.a" \
             "$RUNNER_TEMP/experimental-mpfr-lib/bridge.o"

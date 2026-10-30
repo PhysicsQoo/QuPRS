@@ -2,6 +2,7 @@
  * Accepts decimal integer numerators/denominators from native PhaseCoeff.
  * Returns exp(i*(2*pi*cycles+2*radians)) with MPFR precision, not f64.
  */
+#include <stdio.h>
 #include <mpfr.h>
 #include <stddef.h>
 #include <string.h>

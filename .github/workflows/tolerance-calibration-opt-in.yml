@@ -524,7 +524,7 @@ jobs:
             --output "$OUT" --rust-native-log "$OUT/rust-native-source-qpe-miter.log" \
             2>&1 | tee "$OUT/qpe-split-source-negative.log"
       - name: Exact-rational evaluation of GPMC emitted dDNNF for real QPE QFT CNFs
-        if: ${{ contains(github.event.head_commit.message, 'bound-only') }}
+        if: ${{ startsWith(github.event.head_commit.message, 'research(bound):') }}
         shell: bash
         working-directory: ${{ steps.source.outputs.source }}
         run: |
@@ -542,6 +542,16 @@ jobs:
           python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/mpfr_directed_phase_bound.py" \
             --output "$OUT" --rust-native-log "$OUT/rust-native-source-qpe-miter.log" \
             2>&1 | tee "$OUT/mpfr-directed-source-bound.log"
+      - name: Independently exhaustively match small source-negative CNF and dDNNF
+        if: ${{ contains(github.event.head_commit.message, 'sourcebound-only') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/precision-followup-evidence"
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/exhaustive_small_dnnf_cnf.py" \
+            --cnf "$OUT/qpeexact8_self_negative.cnf" \
+            --nnf "$OUT/qpeexact8_self_negative.nnf" \
+            2>&1 | tee "$OUT/independent-negative-cnf-nnf-exhaustive.log"
       - name: Seal source provenance and study evidence
         if: always()
         shell: bash
@@ -555,6 +565,7 @@ jobs:
             .diagnostics/tolerance_calibration/qpe_split_and_source_negative_study.py \
             .diagnostics/tolerance_calibration/dnnf_exact_arithmetic_research.py \
             .diagnostics/tolerance_calibration/mpfr_directed_phase_bound.py \
+            .diagnostics/tolerance_calibration/exhaustive_small_dnnf_cnf.py \
             .github/workflows/tolerance-calibration-opt-in.yml \
             > "$OUT/study-source-sha256.txt"
           (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \

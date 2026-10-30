@@ -725,3 +725,123 @@ a justified automatic production fallback or mandatory extra solve.
   `unknown` when evidence is insufficient, and **one solver
   invocation per actual WMC stage**. Never use empirical printed
   digits alone, arbitrary guards, or forced equivalence.
+
+
+## Phase 7 — MPFR-directed source coefficients and a single GPMC d-DNNF run (2026-10-30)
+
+**Scope:** Existing experiment branch only; public dev pinned at
+`55e78c7597966617c1a193b89056ff4e99c3ddfb`.
+Source-pinned research commit
+`dd73b9bb954f65dc9a50623c8280cba105df6d95`,
+[Actions #40984501155](https://github.com/PhysicsQoo/QuPRS/actions/runs/40984501155)
+**SUCCESS**. Preserved [artifact 12946073052](https://github.com/PhysicsQoo/QuPRS/actions/runs/40984501155/artifacts/12946073052)
+ZIP SHA256 `6ba05604e636516f55a0bad67d7b37148ef179d3d1cbb063764fd5a985283174`,
+ZIP CRC verified and **39/39** internal SHA256SUMS checked.
+
+### What was actually proven about the fixed Rust source
+
+The experiment's `#[cfg(test)]` source-miter producer emitted the original
+QPEexact8 pair and a **physically changed true self-pair**
+`U` versus `Rz(0.01)U`. It recorded each exact Rust
+`PhaseCoefficient` as rational cycles plus rational source radians,
+then recorded the corresponding actual printed decimal CNF weight.
+Source-to-miter trace and normalization for the specific sources
+are still semantic obligations; no unconditional claim is made for
+all QASM or all Python inputs.
+
+The separate Linux-x86_64, 384-bit MPFR audit used directed
+rounding for `pi`, exact-rational coefficients and all interval
+arithmetic. It enclosed the **true** sine/cosine by evaluating a
+correctly directed endpoint and expanding its range with the global
+1-Lipschitz bound. Every actual printed CNF decimal weight was
+compared as an exact `Fraction` against the MPFR binary endpoints,
+not a high-precision but uncertified `mpmath` approximation.
+A sound component L1 difference upper bound also bounds the
+complex Euclidean absolute weight error.
+
+| Exact source QPE miter | Positive numerical weights | Largest proven source-to-CNF weight L1 error | Bound status |
+| --- | ---: | ---: | --- |
+| Original QPEexact8 | 17 | ≤3.3000000000000000e-16 | <2^-51 |
+| Physically mutated QPE8 self-negative | 2 | ≤1.7962800372021307e-17 | <2^-51 |
+
+These **specific input-wise** interval enclosures establish
+`delta <= 2^-49` for both Rust examples, replacing the prior
+**unproven** 2^-49 assumption *for these examples only*. They also
+demonstrate that 2^-100 cannot be assumed for the stock native
+binary64 Rust phase weights.
+
+For each of those *same* experiment-source CNFs the native GPMC was
+invoked **once** at 90-decimal-digit working precision with
+`-ddnnf -nnfout=...`, emitting its usual weighted count plus the
+d-DNNF witness in the same process. Independent exact rational
+NNF evaluation and integer model-count checking gave:
+
+| Source-specific miter | CNF vars / source weights | N_sat | Source-only normalized WMC uncertainty | Conditional D=1e-8 classification |
+| --- | --- | ---: | ---: | --- |
+| QPE8 baseline | 31 / 17 | 2^11 | ≤5.610000000081637e-15 | unknown |
+| QPE8 `Rz(0.01)` self-negative | 10 / 2 | 2^8 | ≤3.592560074407529e-17 | not_equivalent |
+
+The weight uncertainty above uses the proven input-specific
+`delta` and the derived telescoping bound
+`N_sat * m * delta * (1+2^-40)^(m-1)`. The exact rational
+d-DNNF evaluation removes MPFR arithmetic rounding in the
+independent reference calculation; **this alone does not prove**
+the d-DNNF is faithfully compiled from an arbitrary CNF.
+
+### Stronger independent fixed-negative CNF semantics check
+
+For the 10-variable negative QPE8 witness the CNF SHA256
+`b965d82a7bf4900350a2cbef028ff51506b9bb0f426859c1be9432207872d2d7`
+and emitted NNF SHA256
+`2bcfab3dfd9dbcb0252505b24fba934cff10753004954a324d4e651cb6cd41a0`
+match the earlier sealed Phase 6 negative case **byte-for-byte**.
+An independent Boolean truth-table evaluator enumerated all
+`2^10=1024` assignments and obtained **0 mismatches** between
+the original CNF clauses and the d-DNNF variable-map/fixed/free
+constraints. Both had exactly 256 satisfying assignments.
+The independent, reproducible bounded verifier is
+`.diagnostics/tolerance_calibration/exhaustive_small_dnnf_cnf.py`.
+
+This closes the d-DNNF-to-CNF semantic obligation for this **one
+fixed 10-variable negative instance**, not QPE baseline
+or the general large QFT compilation process.
+
+### Native single-solve GPMC structure/cost boundary
+
+Pinned GPMC `core/Main.cc` counts once, prints the usual
+weighted count, and then emits d-DNNF through `doDNNF` when
+`-ddnnf -nnfout` is enabled. Source inspection and actual
+stdout agree. At fixed QFT16 baseline the same native execution
+reported 200121 internal counting nodes, 1587167 edges,
+1.66 s native walltime, ~123 MB peak RSS and produced an ~8.07 MB
+d-DNNF. A separate independent integer-only walk on the
+200887-node emitted d-DNNF computed `N_sat=2^70`
+in ~0.26 s. Full Python rational complex reconstruction
+took ~34–40 s; this higher cost is **not** the d-DNNF
+compilation cost itself.
+
+Therefore it is **feasible** to obtain meaningful structure
+within a single selected GPMC process and evaluate exact
+integer model counts without an extra Solver invocation.
+It is **not yet justified** as an always-on default:
+`-ddnnf` affects solver-side execution state, output size,
+and memory; a paired, controlled A/B is still required.
+
+**Scientific certification boundary:** The QPE8 negative fixed
+source now combines directed weight intervals, an exact rational
+NNF computation and exhaustive CNF–NNF equivalence, supporting
+the conditional numerical negative without relaxing epsilon.
+A general `not_equivalent` promotion still needs a reliable
+and preferably inexpensive way to certify *each emitted source
+weight* and *each original CNF / emitted witness* in the selected
+Python/Rust public path. In particular, Python QFT16's SymEngine
+`evalf(113)` is not an automatically certified source-to-weight
+error interval, and the d-DNNF's >200k nodes are not covered by
+the small-case exhaustive check.
+
+**Research workflow correction:** The earlier sourcebound-only
+experiment name contained the substring `bound-only`, which
+unintentionally selected the prior four-case d-DNNF study as
+well. The gating is now narrowed to the exact research(bound):
+prefix, so future source-bound studies do not repeat QFT16.
+This does not affect any production code or main/dev workflow.

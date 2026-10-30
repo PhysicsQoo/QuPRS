@@ -209,6 +209,29 @@ pub fn classify_with_uncertainty(
 }
 
 
+
+/// Ganak's explicitly uncertified midpoint verdict is used only when the
+/// strict printed-rounding interval straddles the requested distance.
+/// Keep the raw PrintedVerdict intact for diagnostics and warning metadata.
+pub fn ganak_midpoint_verdict(
+    count: &PrintedCount, normalization_twice_log2: i32, epsilon: &str,
+    raw: PrintedVerdict,
+) -> Result<PrintedVerdict> {
+    if raw != PrintedVerdict::UnknownResolution {
+        return Ok(raw);
+    }
+    let (eps, _) = component(epsilon)?;
+    let one = BigRational::from_integer(BigInt::from(1));
+    let normal_sq = BigRational::from_integer(BigInt::from(2))
+        .pow(normalization_twice_log2);
+    let midpoint_sq = &count.real * &count.real + &count.imag * &count.imag;
+    if midpoint_sq >= normal_sq * (&one - &eps * &eps) {
+        Ok(PrintedVerdict::Equivalent)
+    } else {
+        Ok(PrintedVerdict::NotEquivalent)
+    }
+}
+
 /// Derive the finite-output projective-distance resolution from *actual*
 /// Ganak printed count tokens, their rounding intervals, and the trace
 /// normalization. None means the requested epsilon is resolvable from the

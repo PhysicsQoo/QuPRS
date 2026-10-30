@@ -45,6 +45,9 @@ def test_default_distance_accepts_identity_and_rejects_known_rotation(backend, s
         method="wmc_only", strategy="Naive", timeout=60,
     )
     assert identical.equivalent == "equivalent"
+    assert identical.wmc_precision_reason == "analytic_unweighted_tautology"
+    assert identical.wmc_solver_invoked is False
+    assert identical.wmc_printed_verdict is None
     assert identical.approximate_distance_tolerance == config.DEFAULT_DISTANCE_TOLERANCE
     assert identical.wmc_phase_tolerance == config.WMC_PHASE_TOLERANCE
     a, b = pair(0.001)
@@ -116,3 +119,22 @@ def test_existing_symbolic_tolerance_remains_independent():
         assert result.equivalent == "equivalent"
         assert result.wmc_phase_tolerance == value
     assert current_rr_tolerance() == before
+
+
+@pytest.mark.parametrize("qubits", (1, 2, 4))
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("solver", ("gpmc", "ganak"))
+def test_exact_unweighted_wmc_identity_does_not_depend_on_solver_printing(
+    qubits, backend, solver,
+):
+    identity = QuantumCircuit(qubits)
+    result = check_equivalence(
+        identity, identity, method="wmc_only", backend=backend,
+        tool_name=solver, timeout=45,
+        approximate_distance_tolerance=1e-8,
+    )
+    assert result.equivalent == "equivalent"
+    assert result.wmc_precision_reason == "analytic_unweighted_tautology"
+    assert result.wmc_solver_invoked is False
+    assert result.wmc_printed_verdict is None
+    assert result.tool_time is None

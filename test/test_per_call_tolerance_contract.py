@@ -154,3 +154,20 @@ def test_direct_ffi_result_omits_redundant_basis():
     assert "decision_basis" not in result
     assert result["wmc_solver_invoked"] is False
     assert "wmc_time_sec" not in result
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_rr_only_near_zero_obeys_same_per_call_tolerance_across_backends(backend):
+    identity = QuantumCircuit(1)
+    tiny = QuantumCircuit(1)
+    tiny.rz(1e-9, 0)
+    outcomes = []
+    for rr_tolerance in (1e-8, 1e-12):
+        result = check_equivalence(
+            identity, tiny, backend=backend, method="reduction_rules",
+            strategy="Naive", rr_tolerance=rr_tolerance,
+        )
+        outcomes.append(result.equivalent)
+        assert result.wmc_solver_invoked is False
+        assert result.tool_time is None
+    assert outcomes == ["equivalent", "not_equivalent"]

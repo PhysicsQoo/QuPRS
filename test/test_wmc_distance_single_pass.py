@@ -107,3 +107,52 @@ def test_true_h80_identity_not_blocked_by_speculative_gpmc_budget():
     assert result.wmc_printed_verdict == "equivalent"
     assert result.equivalent == "equivalent"
     assert result.wmc_precision_reason.startswith("gpmc_printed_uncertified_")
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_real_ganak_warns_from_observed_output_granularity(backend):
+    identity = PREFIX
+    candidate = rotated("0.00000002")
+    with pytest.warns(RuntimeWarning, match="Ganak printed-count rounding resolution"):
+        result = check_equivalence(
+            identity, candidate, backend=backend,
+            method="wmc_only", strategy="Naive", tool_name="ganak",
+            approximate_distance_tolerance=1e-8,
+        )
+    assert result.wmc_solver_invoked is True
+    assert result.wmc_print_resolution_distance is not None
+    assert result.wmc_print_resolution_distance > 1e-8
+    assert result.wmc_precision_reason is not None
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_ganak_no_resolution_warning_for_loose_requested_precision(backend):
+    import warnings
+
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter("always", RuntimeWarning)
+        result = check_equivalence(
+            PREFIX, rotated("0.00000002"), backend=backend,
+            method="wmc_only", strategy="Naive", tool_name="ganak",
+            approximate_distance_tolerance=2e-4,
+        )
+    assert result.wmc_solver_invoked is True
+    assert result.wmc_print_resolution_distance is None
+    assert not [w for w in observed if "Ganak printed-count" in str(w.message)]
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_analytic_identity_emits_no_ganak_precision_warning(backend):
+    import warnings
+
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter("always", RuntimeWarning)
+        result = check_equivalence(
+            PREFIX, PREFIX, backend=backend,
+            method="wmc_only", tool_name="ganak",
+            approximate_distance_tolerance=1e-8,
+        )
+    assert result.equivalent == "equivalent"
+    assert result.wmc_solver_invoked is False
+    assert result.wmc_print_resolution_distance is None
+    assert not [w for w in observed if "Ganak printed-count" in str(w.message)]

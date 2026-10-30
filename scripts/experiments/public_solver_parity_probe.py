@@ -14,6 +14,7 @@ from time import perf_counter
 import numpy as np
 from qiskit import qasm2
 from qiskit.quantum_info import Operator
+from mpmath import mp
 from QuPRS import check_equivalence
 
 HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
@@ -33,12 +34,26 @@ RZ_CONTROLS = ("0.0001", "0.0002", "0.00048", "0.000000025")
 def matrix_distance(lhs, rhs):
     one = Operator(qasm2.loads(HEADER + lhs + "\n")).data
     two = Operator(qasm2.loads(HEADER + rhs + "\n")).data
-    value = np.trace(two.conj().T @ one) / 2
-    return math.sqrt(max(0.0, 1.0 - min(1.0, abs(value) ** 2)))
+    # Numerically stable D_proj: compute the Frobenius residual before
+    # squaring, avoiding cancellation in 1 - |trace / d|**2 near identity.
+    overlap = np.trace(two.conj().T @ one)
+    phase = overlap / abs(overlap) if abs(overlap) else complex(1.0, 0.0)
+    residual = two.conj().T @ one - phase * np.eye(2, dtype=complex)
+    a = float(np.linalg.norm(residual, ord="fro") ** 2 / 4.0)
+    return math.sqrt(max(0.0, 2.0 * a - a * a))
 
 
 def run_one(name, lhs, rhs, backend, solver, *, is_rotation=False):
     oracle = matrix_distance(lhs, rhs)
+    if is_rotation:
+        # The original lexical Rz angle has an independent exact-form
+        # physical formula; neither this oracle nor the high-precision
+        # reference is computed by QuPRS.
+        source_angle = rhs.split("rz(", 1)[1].split(")", 1)[0]
+        with mp.workdps(90):
+            analytic_oracle = float(abs(mp.sin(mp.mpf(source_angle) / 2)))
+        assert abs(oracle - analytic_oracle) < 1e-12, (source_angle, oracle, analytic_oracle)
+        oracle = analytic_oracle
     start = perf_counter()
     result = check_equivalence(
         HEADER + lhs + "\n", HEADER + rhs + "\n",

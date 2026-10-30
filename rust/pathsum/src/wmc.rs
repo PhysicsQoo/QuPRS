@@ -197,15 +197,13 @@ impl WmcManager {
     }
 
     pub fn encode_trace(&mut self, ps: &PathSum) -> Result<()> {
-        self.encode_trace_experimental(ps, true)
+        self.encode_trace_experimental(ps, 2)
     }
 
-    // Only this experimental branch exposes the old/new A/B selection.
-    fn encode_trace_experimental(&mut self, ps: &PathSum, reserve_free: bool) -> Result<()> {
-        // EXPERIMENT ONLY: explicitly represent every free path variable,
-        // even when it does not occur in a phase or output monomial.
-        // Otherwise a lazy DIMACS map drops its factor of two in WMC.
-        if reserve_free {
+    // 0=unmodified lazy mapping; 1=eager reservation; 2=lazy finalization.
+    // Experiment branch only; final mode avoids changing active variable IDs.
+    fn encode_trace_experimental(&mut self, ps: &PathSum, reserve_mode: u8) -> Result<()> {
+        if reserve_mode == 1 {
             let mut path_vars: Vec<u32> = ps.v.path_vars.iter().copied().collect();
             path_vars.sort_unstable();
             for path_var in path_vars { self.get_dimacs_var(path_var); }
@@ -220,6 +218,15 @@ impl WmcManager {
             
             self.clauses.push(vec![-a, b]); // a -> b
             self.clauses.push(vec![a, -b]); // b -> a
+        }
+        if reserve_mode == 2 && self.var_map.len() < ps.v.path_vars.len() {
+            // Only genuinely orphaned path variables are added. The normal
+            // path keeps its previous numbering and allocation behavior.
+            let mut unused: Vec<u32> = ps.v.path_vars.iter()
+                .filter(|v| !self.var_map.contains_key(v))
+                .copied().collect();
+            unused.sort_unstable();
+            for path_var in unused { self.get_dimacs_var(path_var); }
         }
         Ok(())
     }
@@ -729,8 +736,11 @@ mod experiment_free_var_contract {
         let _unused_y = ps.v.get_fresh_var();
         assert_eq!(ps.v.path_vars.len(), 2);
         let mut legacy = WmcManager::new(&ps);
-        legacy.encode_trace_experimental(&ps, false).unwrap();
+        legacy.encode_trace_experimental(&ps, 0).unwrap();
         assert_eq!(legacy.next_var_id - 1, 1);
+        let mut eager = WmcManager::new(&ps);
+        eager.encode_trace_experimental(&ps, 1).unwrap();
+        assert_eq!(eager.next_var_id - 1, 2);
         let mut wmc = WmcManager::new(&ps);
         wmc.encode_trace(&ps).unwrap();
         let text = wmc.to_dimacs_string("gpmc");
@@ -754,23 +764,35 @@ mod experiment_free_var_contract {
         let mut ps = PathSum::new(16);
         for _ in 0..8 { ps.v.get_fresh_var(); }
         let reps = 2400;
-        for reserve in [false, true] {
+        for mode in [0_u8, 1, 2] {
             let mut samples = Vec::new();
             for _ in 0..5 {
                 let start = Instant::now();
                 for _ in 0..reps {
                     let mut manager = WmcManager::new(&ps);
-                    manager.encode_trace_experimental(&ps, reserve).unwrap();
-                    let expected = if reserve { 24 } else { 16 };
+                    manager.encode_trace_experimental(&ps, mode).unwrap();
+                    let expected = if mode == 0 { 16 } else { 24 };
                     assert_eq!(manager.next_var_id - 1, expected);
                 }
                 samples.push(start.elapsed().as_nanos() / reps);
             }
             samples.sort();
             eprintln!(
-                "EXPERIMENT_SOURCE_ENCODING reserve_free={} median_ns={} nvars={} nclauses=32",
-                reserve, samples[2], if reserve { 24 } else { 16 }
+                "EXPERIMENT_SOURCE_ENCODING mode={} median_ns={} nvars={} nclauses=32",
+                mode, samples[2], if mode == 0 { 16 } else { 24 }
             );
+        }
+        // Normal PathSum: reservation should not incur the pathological
+        // orphan-allocation cost on every CNF conversion.
+        let normal = PathSum::new(16);
+        for mode in [0_u8, 2] {
+            let start = Instant::now();
+            for _ in 0..reps {
+                let mut manager = WmcManager::new(&normal);
+                manager.encode_trace_experimental(&normal, mode).unwrap();
+            }
+            eprintln!("EXPERIMENT_NORMAL_ENCODING mode={} mean_ns={}",
+                mode, start.elapsed().as_nanos() / reps);
         }
     }
 }

@@ -72,6 +72,20 @@ def annotate(source: Path, dest: Path):
           "    this->p17_rounding_exponent = 0;\n"
           "    return *this;\n}")
     patch(cpp,
+          "Complex &Complex::operator=(const std::string &s)\n{\n"
+          "    // mpc_set_str(value, s.c_str(), 0, MPC_RNDNN);\n"
+          "    // return *this;\n"
+          "    this->real = mpfr::mpreal(s);\n"
+          "    this->imag = mpfr::mpreal(0);\n"
+          "    return *this;\n}",
+          "Complex &Complex::operator=(const std::string &s)\n{\n"
+          "    // mpc_set_str(value, s.c_str(), 0, MPC_RNDNN);\n"
+          "    // return *this;\n"
+          "    this->real = mpfr::mpreal(s);\n"
+          "    this->imag = mpfr::mpreal(0);\n"
+          "    this->p17_rounding_exponent = 0;\n"
+          "    return *this;\n}")
+    patch(cpp,
           "Complex Complex::operator+(const Complex &v) const\n{\n"
           "    return Complex(real + v.real, imag + v.imag);\n}",
           "Complex Complex::operator+(const Complex &v) const\n{\n"

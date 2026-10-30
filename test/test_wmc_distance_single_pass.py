@@ -91,9 +91,7 @@ def test_native_ganak_insufficient_printed_resolution():
     assert observed.equivalent in ("equivalent", "equivalent*")
     assert observed.wmc_printed_verdict == "unknown"
     assert observed.wmc_print_resolution_distance is not None
-    assert observed.wmc_precision_reason.startswith(
-        "ganak_printed_uncertified_insufficient_printed_resolution"
-    )
+    assert observed.wmc_precision_reason == "ganak_point_estimate_resolution_limited"
 
 
 def test_true_h80_identity_not_blocked_by_speculative_gpmc_budget():

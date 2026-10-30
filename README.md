@@ -155,9 +155,14 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > distance threshold. A normalized trace-magnitude defect of `1e-8` is
 > **not** a projective distance of `1e-8`.
 > Solver counts are processed from their original printed complex values;
-> GPMC uses one call with 90 decimal output digits, while Ganak retains
-> its native printed precision. Inadequate resolution yields `unknown`
-> rather than a fabricated exact-equivalence certificate.
+> For nontrivial CNFs, GPMC uses one call with 90 decimal output digits,
+> while Ganak retains its native printed precision. Inadequate resolution
+> yields `unknown` rather than a fabricated exact-equivalence certificate.
+> An **unweighted, tautological CNF** matching the exact trace normalization
+> is counted algebraically (including one-qubit I versus I), with
+> `wmc_solver_invoked=False` and `analytic_unweighted_tautology` provenance.
+> This exact WMC shortcut is not an RR fallback; constrained or weighted
+> CNFs still go through the selected solver.
 > `rr_tolerance` and `phase_tolerance` are independent and do not
 > change original gate angles. No solver source code is modified.
 > See [formal semantics](docs/development/equivalence-semantics.md) and

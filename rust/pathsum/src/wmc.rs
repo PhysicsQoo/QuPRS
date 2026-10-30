@@ -758,6 +758,195 @@ mod experiment_free_var_contract {
         assert_eq!(satisfying, 4, "input x and unused path y must both be free");
     }
 
+
+    fn generated_sequences(max_len: usize) -> Vec<Vec<crate::ir::QuantumOp>> {
+        use crate::ir::QuantumOp;
+        let mut all = vec![vec![]];
+        let mut current = vec![vec![]];
+        for _ in 0..max_len {
+            let mut next = Vec::new();
+            for prefix in current {
+                for gate in [QuantumOp::H(0), QuantumOp::X(0), QuantumOp::Z(0)] {
+                    let mut candidate = prefix.clone();
+                    candidate.push(gate);
+                    next.push(candidate);
+                }
+            }
+            all.extend(next.iter().cloned());
+            current = next;
+        }
+        all
+    }
+
+    fn orphan_vars(ps: &PathSum) -> Vec<u32> {
+        let mut present = ps.p.get_used_vars();
+        present.extend(ps.f.get_used_vars());
+        let mut missing: Vec<u32> = ps.v.path_vars.iter()
+            .filter(|v| !present.contains(*v)).copied().collect();
+        missing.sort_unstable();
+        missing
+    }
+
+    #[test]
+    fn exhaustive_bounded_public_miter_orphan_reachability() {
+        use crate::ir::QuantumOp;
+        use crate::strategy::VerificationStrategy;
+        let one_qubit = generated_sequences(3);
+        let two_qubit: Vec<Vec<QuantumOp>> = vec![
+            vec![],
+            vec![QuantumOp::H(0)],
+            vec![QuantumOp::H(1)],
+            vec![QuantumOp::CX(0, 1)],
+            vec![QuantumOp::CZ(0, 1)],
+            vec![QuantumOp::H(0), QuantumOp::CX(0, 1)],
+            vec![QuantumOp::CX(0, 1), QuantumOp::H(1)],
+            vec![QuantumOp::H(0), QuantumOp::CX(0, 1), QuantumOp::H(0)],
+            vec![QuantumOp::H(0), QuantumOp::CZ(0, 1), QuantumOp::H(1)],
+        ];
+        let strategies = [
+            VerificationStrategy::Naive, VerificationStrategy::Difference,
+            VerificationStrategy::Proportional, VerificationStrategy::Straightforward,
+        ];
+        let mut trials=0usize;
+        let mut orphan_cases=0usize;
+        let mut witnessed=Vec::new();
+        for (qubits, sequences) in [(1usize, &one_qubit), (2, &two_qubit)] {
+            for lhs in sequences {
+                for rhs in sequences {
+                    for strategy in strategies {
+                        let mut initial = PathSum::new(qubits);
+                        initial.set_auto_reduce(false); // actual WmcOnly dispatch
+                        let ps = strategy.run(initial, lhs, rhs);
+                        let missing = orphan_vars(&ps);
+                        trials += 1;
+                        if !missing.is_empty() {
+                            orphan_cases += 1;
+                            let mut legacy=WmcManager::new(&ps);
+                            legacy.encode_trace_experimental(&ps, 0).unwrap();
+                            let mut candidate=WmcManager::new(&ps);
+                            candidate.encode_trace_experimental(&ps, 2).unwrap();
+                            assert_eq!(
+                                candidate.next_var_id-legacy.next_var_id,
+                                missing.len() as i32,
+                                "all missing live path variables must be encoded exactly once"
+                            );
+                            if witnessed.len() < 8 {
+                                witnessed.push(format!(
+                                    "n={} strategy={strategy:?} lhs={lhs:?} rhs={rhs:?} missing={missing:?} old_vars={} new_vars={}",
+                                    qubits, legacy.next_var_id-1, candidate.next_var_id-1
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("EXPERIMENT_REACHABLE_MITER examined={} orphan_cases={} first={:?}",
+            trials, orphan_cases, witnessed);
+        assert_eq!(trials, (one_qubit.len()*one_qubit.len()
+            + two_qubit.len()*two_qubit.len())*strategies.len());
+    }
+
+    type M2 = [[num_complex::Complex<f64>;2];2];
+    fn matrix_for_ops(gates: &[crate::ir::QuantumOp]) -> M2 {
+        use crate::ir::QuantumOp;
+        use num_complex::Complex;
+        let zero = Complex::new(0.,0.);
+        let one = Complex::new(1.,0.);
+        let mut result = [[one,zero],[zero,one]];
+        for gate in gates {
+            let next = match gate {
+                QuantumOp::H(0) => {
+                    let v=1.0f64/std::f64::consts::SQRT_2;
+                    [[Complex::new(v,0.),Complex::new(v,0.)],
+                     [Complex::new(v,0.),Complex::new(-v,0.)]]
+                }
+                QuantumOp::X(0) => [[zero,one],[one,zero]],
+                QuantumOp::Z(0) => [[one,zero],[zero,-one]],
+                _ => panic!("unsupported oracle gate: {gate:?}"),
+            };
+            let mut temp = [[zero,zero],[zero,zero]];
+            for row in 0..2 {
+                for col in 0..2 {
+                    for k in 0..2 { temp[row][col] += next[row][k]*result[k][col]; }
+                }
+            }
+            result=temp;
+        }
+        result
+    }
+
+    #[test]
+    fn public_wmc_only_solver_vs_independent_1q_matrix_oracle() {
+        use crate::ir::QuantumOp;
+        use crate::strategy::VerificationStrategy;
+        use crate::{VerificationMethod, VerificationOptions, EquivalenceStatus};
+        use num_complex::Complex;
+        use std::time::{Duration, Instant};
+        let cases: Vec<(&str,Vec<QuantumOp>,Vec<QuantumOp>)> = vec![
+            ("identity",vec![],vec![]),
+            ("h",vec![],vec![QuantumOp::H(0)]),
+            ("h2",vec![],vec![QuantumOp::H(0),QuantumOp::H(0)]),
+            ("x",vec![],vec![QuantumOp::X(0)]),
+            ("z",vec![],vec![QuantumOp::Z(0)]),
+            ("h_vs_h",vec![QuantumOp::H(0)],vec![QuantumOp::H(0)]),
+            ("hzh",vec![],vec![QuantumOp::H(0),QuantumOp::Z(0),QuantumOp::H(0)]),
+            ("x_vs_hzh",vec![QuantumOp::X(0)],vec![QuantumOp::H(0),QuantumOp::Z(0),QuantumOp::H(0)]),
+        ];
+        for solver in ["gpmc","ganak"] {
+            for (case,lhs,rhs) in &cases {
+                let mut ps=PathSum::new(1);
+                ps.set_auto_reduce(false);
+                let ps=VerificationStrategy::Naive.run(ps,lhs,rhs);
+                let missing=orphan_vars(&ps);
+                let mut legacy=WmcManager::new(&ps);
+                legacy.encode_trace_experimental(&ps,0).unwrap();
+                let mut candidate=WmcManager::new(&ps);
+                candidate.encode_trace_experimental(&ps,2).unwrap();
+                let mut reference=Complex::new(0.0,0.0);
+                let lm=matrix_for_ops(lhs);
+                let rm=matrix_for_ops(rhs);
+                for i in 0..2 { for j in 0..2 {
+                    reference += lm[i][j] * rm[i][j].conj();
+                }}
+                let path_count=ps.v.path_vars.len()-1;
+                let target=reference * 2f64.powf((path_count as f64)/2.0);
+                let actual=candidate.solve_with_deadline(
+                    solver,Some(Instant::now()+Duration::from_secs(45))).unwrap();
+                let error=(actual-target).norm();
+                eprintln!("EXPERIMENT_PUBLIC_SOLVER solver={} case={} path_count={} orphans={} raw={:?} expected={:?} abs_error={:.8e}",
+                    solver, case,path_count,missing.len(),actual,target,error);
+                assert!(error <= 2e-7 * target.norm().max(1.0),
+                    "solver={solver} case={case} raw={actual:?} expected={target:?}");
+                if missing.is_empty() {
+                    assert_eq!(legacy.to_dimacs_string(solver), candidate.to_dimacs_string(solver),
+                        "ordinary unmodified CNF must be byte-identical");
+                } else {
+                    let original=legacy.solve_with_deadline(
+                        solver,Some(Instant::now()+Duration::from_secs(45))).unwrap();
+                    let expected_legacy=actual/2f64.powi(missing.len() as i32);
+                    assert!((original-expected_legacy).norm() <= 2e-7*actual.norm().max(1.0));
+                }
+                // Test the public verification entry point, not only WmcManager.
+                let opts=VerificationOptions {
+                    method:VerificationMethod::WmcOnly,
+                    strategy:VerificationStrategy::Naive,
+                    tool_name:solver.to_string(),
+                    timeout_secs:45,
+                    ..VerificationOptions::default()
+                };
+                let verified=crate::check_equivalence_with_options(1,lhs,rhs,&opts).unwrap();
+                assert!(verified.solver_invoked);
+                let expected_equal=reference.norm() > 1.99999999;
+                assert_eq!(
+                    verified.status==EquivalenceStatus::Equivalent,expected_equal,
+                    "public verifier mismatch solver={solver} case={case} status={:?} oracle={reference:?}",
+                    verified.status);
+            }
+        }
+    }
+
+
     #[test]
     fn compare_single_runner_encoding_cost_only() {
         use std::time::Instant;

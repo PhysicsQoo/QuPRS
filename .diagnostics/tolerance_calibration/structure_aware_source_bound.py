@@ -148,13 +148,16 @@ def evaluate_case(source:Path,case:str,twice:int,sha:str):
     }
     for bits in (49,100):
         E=source_error_bound(nsat,len(positive),bits)
-        upper=abs(r)+abs(i)+E
-        lower=max(Fraction(0),max(abs(r),abs(i))-E)
-        # Fully rational check against projective-distance squared threshold.
+        # Squared rational comparisons avoid floating square roots entirely.
+        # Negative: sqrt(|C|²)+E < sqrt(T).
+        # Positive: sqrt(|C|²)-E >= sqrt(T).
+        c2=r*r+i*i
         threshold=norm_squared*(1-eps_squared)
-        if upper*upper<threshold:
+        negative_gap=threshold-c2-E*E
+        positive_gap=c2-threshold-E*E
+        if negative_gap>0 and negative_gap*negative_gap>4*E*E*c2:
             tag="conditional_not_equivalent"
-        elif lower*lower>=threshold:
+        elif positive_gap>=0 and positive_gap*positive_gap>=4*E*E*threshold:
             tag="conditional_within_distance"
         else:
             tag="unknown"

@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -554,6 +554,64 @@ jobs:
         with:
           name: native-mpfr-cnf-rust-qpe-science-v2
           path: ${{ runner.temp }}/precision-followup-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  offline-dnnf-source-uncertainty:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(structure):')
+    name: Experimental dDNNF exact source-bound offline replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout only existing experiment scripts
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reuse immutable prior real CNF dDNNF artifact, no Solver run
+        uses: actions/download-artifact@v4
+        with:
+          name: native-mpfr-cnf-rust-qpe-science-v2
+          run-id: 40977618673
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/dnnf-previous-artifact
+      - name: Check archived hashes and compute exact rational structural bounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          IN="$RUNNER_TEMP/dnnf-previous-artifact"
+          OUT="$RUNNER_TEMP/dnnf-bound-results"
+          mkdir -p "$OUT"
+          (cd "$IN"; sha256sum -c SHA256SUMS) 2>&1 | tee "$OUT/input-integrity.log"
+          python -u .diagnostics/tolerance_calibration/structure_aware_source_bound.py \
+            --artifact-folder "$IN" --output "$OUT" \
+            2>&1 | tee "$OUT/structure-aware-bound.log"
+      - name: Seal evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/dnnf-bound-results"
+          mkdir -p "$OUT"
+          git rev-parse HEAD > "$OUT/research-source-sha.txt"
+          sha256sum .diagnostics/tolerance_calibration/structure_aware_source_bound.py \
+                     .diagnostics/tolerance_calibration/dnnf_exact_arithmetic_research.py \
+                     .github/workflows/tolerance-calibration-opt-in.yml > "$OUT/research-scripts-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload bounded offline dDNNF structural evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-weight-dnnf-structure-bound
+          path: ${{ runner.temp }}/dnnf-bound-results/
           retention-days: 30
           if-no-files-found: error
 

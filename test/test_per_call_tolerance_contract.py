@@ -258,3 +258,21 @@ def test_backend_parity_includes_rr_approximation_provenance(
         # MUST invoke WMC. Requiring no solver here was an incorrect test.
         assert method == "hybrid" and rr_tolerance == 1e-12
         assert py.wmc_solver_invoked
+
+
+@pytest.mark.parametrize("theta,expected_approximate", (
+    (0.0, False),
+    (1e-9, True),
+))
+def test_python_spawn_safe_mode_preserves_rr_provenance(theta, expected_approximate):
+    """Spawned RR result transports approximation evidence to its parent."""
+    lhs = QuantumCircuit(1)
+    rhs = QuantumCircuit(1)
+    rhs.rz(theta, 0)
+    result = check_equivalence(
+        lhs, rhs, backend="python", method="reduction_rules",
+        strategy="Naive", rr_tolerance=1e-8, safe_mode=True, timeout=60,
+    )
+    assert result.equivalent == "equivalent"
+    assert result.rr_approximate is expected_approximate
+    assert not result.wmc_solver_invoked

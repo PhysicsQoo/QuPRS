@@ -59,6 +59,22 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
             experiment_free_var_contract -- --nocapture \
             2>&1 | tee "$RUNNER_TEMP/cnf-study/native-rust.log"
+      - name: Production Python SymEngine precision and actual solver parity
+        run: |
+          set -o pipefail
+          python -m pip install -e . "pytest>=8,<9" mpmath
+          python scripts/profile_wmc_weight_precision.py --samples 48 --repeats 5 \
+            --json-file "$RUNNER_TEMP/cnf-study/symengine-weight-profile.json" \
+            | tee "$RUNNER_TEMP/cnf-study/symengine-weight-profile.stdout"
+          python scripts/experiments/public_solver_parity_probe.py \
+            --json "$RUNNER_TEMP/cnf-study/public-solver-parity.json" \
+            | tee "$RUNNER_TEMP/cnf-study/public-solver-parity.stdout"
+          python -m pytest -q \
+            test/test_v0140_source_weight_oracle.py \
+            test/test_v0140_exact_printed_cnf.py \
+            test/test_wmc_distance_single_pass.py \
+            --junitxml="$RUNNER_TEMP/cnf-study/printed-cnf-oreacle-junit.xml" \
+            | tee "$RUNNER_TEMP/cnf-study/printed-cnf-oracle.stdout"
       - name: Upload bounded experimental evidence
         if: always()
         uses: actions/upload-artifact@v4

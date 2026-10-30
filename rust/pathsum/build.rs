@@ -27,10 +27,16 @@ fn main() {
         let library = output.join("libquprs_exp_mpfr.a");
         let includes = pkg_config::probe_library("mpfr")
             .expect("The high-precision GPMC feature requires MPFR headers");
+        // Homebrew stores GMP and MPFR in separate keg-only include dirs.
+        // mpfr.h imports gmp.h; MPFR's own .pc include flags may omit GMP.
+        let gmp_includes = pkg_config::probe_library("gmp")
+            .expect("The high-precision GPMC feature requires GMP headers");
         let compiler = env::var("CC").unwrap_or_else(|_|"cc".to_string());
         let mut cc = std::process::Command::new(compiler);
         cc.args(["-std=c11","-O2","-fPIC","-c"]).arg(&input).arg("-o").arg(&obj);
-        for path in &includes.include_paths { cc.arg(format!("-I{}",path.display())); }
+        for path in includes.include_paths.iter().chain(gmp_includes.include_paths.iter()) {
+            cc.arg(format!("-I{}",path.display()));
+        }
         assert!(cc.status().expect("C compiler missing").success(),"MPFR C bridge build failed");
         let archiver = env::var("AR").unwrap_or_else(|_|"ar".to_string());
         assert!(std::process::Command::new(archiver).args(["rcs"])

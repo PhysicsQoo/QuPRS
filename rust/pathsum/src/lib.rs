@@ -394,31 +394,28 @@ fn check_equivalence_with_distance_mode(
         to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
         let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-        let expected_log2 = (num_qubits as f64) + (num_active_vars as f64) / 2.0;
 
         let tool_start = Instant::now();
-        // No extra path variables does NOT imply the trace is tautologically
-        // satisfiable: e.g. Tr(X) = 0 imposes contradictory CNF clauses.
-        // Bypass the solver only for a genuinely empty zero-variable CNF.
-        let mut printed_count = None;
-        // This is an exact WMC identity, derived from the encoded CNF,
-        // not a reduction-rule fallback or a floating-count guess.
+        // No path variables alone does NOT prove identity (Tr(X) = 0).
+        // Prove the encoded WMC exactly: an unweighted tautological CNF
+        // has 2^variables satisfying assignments, which must equal the
+        // expected unnormalized trace. Never use a floating shortcut.
         let expected_twice_log2 = num_qubits.checked_mul(2)
             .and_then(|twice_n| twice_n.checked_add(num_active_vars))
             .ok_or_else(|| anyhow::anyhow!("WMC normalization overflow"))?;
-        let raw_amplitude = if wmc_mgr.has_exact_unweighted_tautology(expected_twice_log2) {
-            Some(num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0))
-        } else {
+        let analytic_identity =
+            wmc_mgr.has_exact_unweighted_tautology(expected_twice_log2);
+        let mut printed_count = None;
+        if !analytic_identity {
             solver_invoked = true;
             match wmc_mgr.solve_with_deadline_distance_printed(tool_name, deadline) {
-                Ok(value) => { printed_count = Some(value); None }
+                Ok(value) => { printed_count = Some(value); }
                 Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
                     status = EquivalenceStatus::Timeout;
-                    None
                 }
                 Err(error) => return Err(error),
             }
-        };
+        }
         tool_time = solver_invoked.then(|| tool_start.elapsed().as_secs_f64());
 
         if let Some(count) = &printed_count {
@@ -471,18 +468,12 @@ fn check_equivalence_with_distance_mode(
                     EquivalenceStatus::Unknown,
             };
             wmc_time = Some(wmc_start.elapsed().as_secs_f64());
-        } else if let Some(raw_amplitude) = raw_amplitude {
-        let _classification_scope = diagnostics::span("classification");
-        let normalization_factor = 1.0 / 2.0_f64.powf(expected_log2);
-        let final_amplitude = raw_amplitude * normalization_factor;
-        info!(target: "wmc", "{} log2 result : {:.4}", tool_name, raw_amplitude.norm().log2());
-        info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
-        wmc_time = Some(wmc_start.elapsed().as_secs_f64());
-
-        // Exact tautological unweighted CNF: a structurally proven WMC count.
-        let _ = final_amplitude;
-        status = EquivalenceStatus::Equivalent;
-        wmc_precision_reason = Some("analytic_unweighted_tautology");
+        } else if analytic_identity {
+            // This is an exact count proof, not a finite-precision observation.
+            let _classification_scope = diagnostics::span("classification");
+            wmc_time = Some(wmc_start.elapsed().as_secs_f64());
+            status = EquivalenceStatus::Equivalent;
+            wmc_precision_reason = Some("analytic_unweighted_tautology");
         }
     }
 

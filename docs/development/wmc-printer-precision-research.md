@@ -1025,3 +1025,200 @@ default single-Solver contract must remain.
    numerical model with an empirical observed gap.
 5. No new PR, dev/main change, worktree, API policy,
    fixed guard or second Solver run in production.
+
+
+## Phase 9 — fixed-QFT16 semantic closure with independently checked DRUP, plus fast-path retention
+
+**Date: 2026-10-30.** Continuation only on the existing
+`experiment/numerical-tolerance-calibration-20261027` branch.
+All actual public-code execution for experimental source studies
+remained pinned to `dev` SHA
+`55e78c7597966617c1a193b89056ff4e99c3ddfb`;
+no public `dev`/`main` changes, new PR, or isolated worktree.
+No change to public `RR -> Hybrid -> WMC`, one selected native
+WMC invocation, solver precision or distance tolerance.
+
+### A. Original QFT16 source-angle transport to Qiskit and to Python PathSum
+
+First, the actual QFT16 QASM source strings were interpreted as exact
+expressions `a*pi+b`, with rational `a,b`. The source file SHA256
+identities remained
+`39b6889497a4e98098b6bb2b4563ace2fb660f4cc3fe8d0763d3f69fc200d865`
+and
+`aa85188d731454bd85b0fe2ae089ab8e6b812501730eee5f1651ac11d7b7fcbc`.
+The actual installed Qiskit QASM2 reader preserved gate order
+and gate identity.
+
+- Native QFT16: 408 `Rx/Ry/Rz` rotations, all textual rational
+  multiples of `pi`; directed 384-bit MPFR total circuit
+  operator-norm `QASM angle -> Qiskit binary64 angle` bound
+  `2.7554581010756223e-15`.
+- Transpiled QFT16: 279 rotations, including 260 rational-`pi`
+  and 19 literal decimal-radian rotations; the corresponding bound
+  is `2.5228091399995012e-15`.
+- Both circuits' angle-conversion bounds add to
+  `5.2782672410751235e-15` by telescoping the rotation
+  unitary gate differences (each bounded by half the angle gap),
+  **conditional on standard ideal Rx/Ry/Rz gate semantics**.
+
+Source-mapping research commit
+`dd7041583dcfecab60238a9b4bade4fddca629d9`,
+[Actions #40988974715](https://github.com/PhysicsQoo/QuPRS/actions/runs/40988974715)
+**SUCCESS**, [artifact 12947708815](https://github.com/PhysicsQoo/QuPRS/actions/runs/40988974715/artifacts/12947708815),
+ZIP SHA256
+`b1db6504bacabcb195271e4ad0069bb2b5f1f8f0f51074a8c9964df8e076f725`,
+ZIP CRC and **17/17** SHA256SUMS verified.
+
+A follow-up source-transport audit independently evaluated the *actual
+installed* `QuPRS.utils.util.div_pi(theta)` for **every QFT16
+rotation**, comparing the returned `SymEngine Rational` against the
+exact corresponding binary64 `float(theta/np.pi)`. It enclosed the
+direct error from the original exact QASM angle to the
+`div_pi(theta)*pi` angle using 384-bit outward-rounded MPFR.
+
+The actual `div_pi` conversion bound was **much smaller** than
+the previous intermediate QASM-to-Qiskit error estimate:
+
+| Source QFT16 circuit | Rotations checked | Direct total operator-norm bound, source QASM -> Python PathSum `div_pi` |
+| --- | ---: | ---: |
+| Native | 408 | 2.2841499771392332e-114 |
+| Transpiled | 279 | 9.7306251010202006e-16 |
+| Both | 687 | 9.7306251010202006e-16 |
+
+The native QASM rotation ratios largely cancel their intermediate
+binary64 rounding when divided by the same `np.pi`; these are
+*directly enclosed actual coefficients*, not a general rule
+about Qiskit rounding.
+The transpiled source still contains 19 decimal-radian rotations.
+No snapping to the nearest rational-`pi` value was performed.
+
+Follow-up experiment commit
+`18a46e723086865c081778707ca56f9284ced96f`,
+[Actions #40990378475](https://github.com/PhysicsQoo/QuPRS/actions/runs/40990378475)
+**SUCCESS**, [artifact 12949176144](https://github.com/PhysicsQoo/QuPRS/actions/runs/40990378475/artifacts/12949176144),
+ZIP SHA256
+`66f6dcf185fc3103daf55fb89c65cde8040cd473c1707e9d5d09d9f59e431c31`,
+ZIP CRC and **7/7** SHA256SUMS independently verified.
+
+**Limits:** These are source-angle-conversion bounds conditional
+on the implemented `Rx,Ry,Rz` matching the textbook unitary gates;
+they do not independently certify the full PathSum gate implementation,
+reduction rules, or equivalence-preserving Qiskit transpilation.
+The earlier Phase 8 MPFR study independently bounds the
+**400 actual encoded rational phases -> CNF weights** by
+`9.021117345986986392e-34` per complex L1 weight.
+
+### B. The large QFT16 CNF <=> d-DNNF Boolean semantics are now checked for both fixed cases
+
+Prior Phase 8 independently verified every original CNF clause
+`dDNNF => CNF` (QFT baseline 1144/1144; QFT self-negative
+1105/1105), including variable mapping and AND decomposability.
+Direct large d-DNNF-XOR-SAT verification had timed out,
+so the next research did **not** rerun that 200k-node SAT miter.
+
+Instead, a two-copy original-CNF *functional extension* SAT miter
+shares exactly the PathSum path variables (baseline 70;
+self-negative 64) while independently duplicating the 16
+output bits and all phase-weight/Tseitin variables.
+The miter adds the condition that at least one derived variable differs.
+Its UNSAT proves a given free-path assignment determines **at most
+one** complete original-CNF assignment.
+Thus the original CNF model count is at most `2^k`.
+Independent exact integer evaluation of the verified deterministic,
+decomposable NNF produces **exactly `2^k`** models.
+Since NNF models are a subset of CNF models and saturate
+the CNF upper bound, the two Boolean formulas are equal.
+
+A first SAT check using independent CaDiCaL returned
+UNSAT in under 0.02 s for each QFT16 case.
+Experiment commit
+`8ea36571d9281359decf445d97639e2d0f1cb2e9`,
+[Actions #40989426673](https://github.com/PhysicsQoo/QuPRS/actions/runs/40989426673)
+**SUCCESS**, [artifact 12947694405](https://github.com/PhysicsQoo/QuPRS/actions/runs/40989426673/artifacts/12947694405);
+ZIP SHA256
+`d73ac63345afdc921086d7845e507fdde5d63079978f195fa13f68afa04ee771`,
+ZIP CRC and **5/5** internal SHA256SUMS verified.
+
+To avoid trusting a black-box SAT status alone, a second
+Glucose4 `with_proof=True` run emitted complete **DRUP
+refutations** of the actual two-copy CNF formula, and a
+separate self-contained checker independently validated **each
+RUP clause addition** by assumption-based unit propagation.
+Deletions are safely ignored (retained earlier clauses have already
+been proven implied), and both proofs ended with the independently
+checked empty clause.
+
+| Fixed QFT16 case | Original vars | Independent NNF models | Functional miter clauses | Checked DRUP additions | Checked empty clause |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Baseline | 486 | 2^70 | 3953 | 1297 | yes |
+| `Rz(0.01)` self-negative | 465 | 2^64 | 3815 | 1225 | yes |
+
+The original CNF / emitted NNF exact SHA256 identities and generated
+functional-miter CNF / DRUP SHA256 are in the evidence artifact.
+The RUP checker took about **3.07 / 2.42 seconds** respectively
+in this *offline* hosted-runner study.
+Both fixed statements now admit a **checked Boolean proof**:
+```
+CNF == emitted(d-DNNF), for precisely these source-pinned instances.
+```
+
+Checked-proof experiment commit
+`86736e7665344c7847148009086f86c138323114`,
+[Actions #40989900413](https://github.com/PhysicsQoo/QuPRS/actions/runs/40989900413)
+**SUCCESS**, [artifact 12949160325](https://github.com/PhysicsQoo/QuPRS/actions/runs/40989900413/artifacts/12949160325);
+ZIP SHA256
+`251ccc3a6238761d50f084870a3cd0896a38ab51643993e258f24e23d6b297d0`,
+ZIP CRC and **9/9** internal SHA256SUMS independently verified.
+
+**Limits:** The proof validates two fixed Boolean CNF↔d-DNNF
+semantics, **not** all future CNFs, the GPMC compiler generally,
+arbitrary-angle QASM-to-PathSum semantics or the entire solver's
+floating arithmetic. However, *for these exact pinned CNFs*, the
+independent rational NNF evaluator now has a checked semantic basis
+for **exact weighted counting of the displayed decimal input
+weights**. This is stronger than the previous conditional
+compiler-faithfulness hypothesis.
+
+### C. No micro-precision performance regression in the production path
+
+This is a *binding promotion criterion for research candidates*, not
+a claim that a modified production runtime has already passed CI.
+The production branch remains unchanged.
+
+1. Keep `RR -> Hybrid -> WMC` and original RR tolerance/reduction
+   hit rate; **RR-resolved Hybrid must never launch GPMC**.
+2. At most **one native Solver invocation** per WMC stage; never
+   replay GPMC to establish confidence in ordinary verification.
+3. Do **not** turn on `-ddnnf` globally: the matched real QFT16
+   study measured **1.39–1.42x** elapsed time and **~2.29x** peak
+   RSS compared with default, for identical output counts.
+4. No automatic `Fraction` re-evaluation of large d-DNNFs,
+   no SAT/DRUP/MPFR proving subprocess, and no 200k-node NNF
+   expansion in the ordinary public fast path. Keep these in
+   separate research or release-admission diagnostics.
+5. Source-angle provenance, weighted counting theorem and
+   trusted precision metadata may be precomputed for pinned
+   benchmark fixtures, but general public inputs cannot be
+   silently assigned those benchmark-specific guarantees.
+6. Scientific ambiguity can remain `unknown` only when
+   the **actual** evidence interval crosses the requested
+   distance boundary. Do not force an answer with a fixed
+   empirical `3e-9` guard, change the user's epsilon or
+   introduce `wmc_policy`.
+7. Before any production promotion, demand actual
+   same-environment **end-to-end Python/Rust and GPMC/Ganak
+   correctness + CodSpeed v5 full benchmark-set** regressions:
+   representative QPE, QFT, QAOA and Grover, not one cherry-picked
+   benchmark, including native walltime and RSS. No meaningful
+   performance or algorithmic regression is acceptable for
+   handling numerical noise.
+
+**Decision:** Fixed QFT16 source/Boolean evidence is substantially
+closed, and the research-only exact oracle can be used as a
+release correctness fixture. A *general-purpose cheap
+Solver-arithmetic error enclosure* is still required before
+altering the public WMC classifier. Do NOT equate the exact
+CNF/NNF proof with an unconditional guarantee about GPMC
+MPFR arithmetic on every future input. The right next design
+is lightweight one-pass numerical evidence or bounded native
+rounding guarantees, with all heavy proof tooling offline.

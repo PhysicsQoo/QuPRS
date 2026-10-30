@@ -593,6 +593,7 @@ def check_equivalence(
                     equivalent, evidence = classify_observed_distance(
                         counted, twice, approximate_distance_tolerance,
                         wmc_phase_tolerance,
+                        ganak_point_estimate=(tool_name == "ganak"),
                     )
                     wmc_printed_verdict = evidence.status
                     if tool_name == "ganak":

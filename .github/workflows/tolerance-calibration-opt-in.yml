@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):') && !startsWith(github.event.head_commit.message, 'research(accounting):') && !startsWith(github.event.head_commit.message, 'research(ioaudit):') && !startsWith(github.event.head_commit.message, 'research(exactoracle):') && !startsWith(github.event.head_commit.message, 'research(qperup):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):') && !startsWith(github.event.head_commit.message, 'research(accounting):') && !startsWith(github.event.head_commit.message, 'research(ioaudit):') && !startsWith(github.event.head_commit.message, 'research(exactoracle):') && !startsWith(github.event.head_commit.message, 'research(qperup):') && !startsWith(github.event.head_commit.message, 'research(ablation):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -1121,6 +1121,80 @@ jobs:
         with:
           name: qpe-fixed-cnf-nnf-independent-checked-drup
           path: ${{ runner.temp }}/qpe-drup-results/
+          retention-days: 30
+          if-no-files-found: error
+
+  research-gpmc-structure-ablation:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(ablation):')
+    name: Pinned GPMC preprocessing/cache structural ablations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout exact experiment and GPMC Gitlink
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native GPMC prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Download original sealed QPE and QFT weighted CNF
+        uses: actions/download-artifact@v4
+        with:
+          name: native-mpfr-cnf-rust-qpe-science-v2
+          run-id: 40977618673
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/ablation-input
+      - name: Check source identities and exact native Gitlink
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/ablation-evidence"
+          mkdir -p "$OUT"
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          test "$(git -C GPMC rev-parse HEAD)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          git rev-parse HEAD > "$OUT/research-head.txt"
+          (cd "$RUNNER_TEMP/ablation-input"; sha256sum -c SHA256SUMS) \
+            > "$OUT/source-hash-check.log"
+      - name: Compare source-pinned weighted results under bounded preprocessing and cache changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM 510s python -u \
+            .diagnostics/tolerance_calibration/gpmc_preproc_cache_ablation.py \
+            --gpmc-source "$GITHUB_WORKSPACE/GPMC" \
+            --artifact-folder "$RUNNER_TEMP/ablation-input" \
+            --output "$RUNNER_TEMP/ablation-evidence" \
+            2>&1 | tee "$RUNNER_TEMP/ablation-evidence/ablation.log"
+      - name: Seal experiment evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/ablation-evidence"
+          mkdir -p "$OUT"
+          sha256sum .diagnostics/tolerance_calibration/gpmc_preproc_cache_ablation.py \
+                     .github/workflows/tolerance-calibration-opt-in.yml \
+            > "$OUT/scripts-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+             xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Preserve four-case ablation data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpmc-native-preproc-cache-control-matrix
+          path: ${{ runner.temp }}/ablation-evidence/
           retention-days: 30
           if-no-files-found: error
 

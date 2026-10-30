@@ -42,10 +42,25 @@ impl<'a> WmcProblem<'a> {
         Ok(())
     }
 
-    /// Render exactly the historical solver-specific DIMACS bytes.
-    /// Adapter dispatch, numerical tolerances and solver process behavior
-    /// remain owned by their existing components.
+    /// The normal path remains monomorphized for the historical f64 adapter.
     pub(crate) fn serialize(&self, adapter: &dyn SolverAdapter) -> String {
+        self.serialize_with(|var, weight| adapter.weight_lines(var,weight))
+    }
+
+    #[cfg(feature="high-precision-gpmc")]
+    pub(crate) fn serialize_precise_gpmc(
+        &self, weights: &HashMap<i32,(String,String)>
+    ) -> String {
+        assert_eq!(weights.len(), self.weights.len());
+        self.serialize_with(|var, _| {
+            let (re,im)=weights.get(&var).expect("missing precise source-phase weight");
+            (format!("c p weight {var} {re} {im} 0\n"),
+             format!("c p weight -{var} 1.0 0.0 0\n"))
+        })
+    }
+
+    fn serialize_with<F>(&self, format_weight:F)->String
+    where F: Fn(i32,Complex<f64>)->(String,String) {
         let _timed_serialize = crate::diagnostics::span("cnf_serialize");
         let mut out = String::new();
         out.push_str(&format!("p cnf {} {}\nc t wmc\n", self.variables, self.clauses.len()));
@@ -54,7 +69,7 @@ impl<'a> WmcProblem<'a> {
         let mut sorted_weights: Vec<_> = self.weights.iter().collect();
         sorted_weights.sort_unstable_by_key(|(var, _)| **var);
         for (var, weight) in sorted_weights {
-            let (positive, negative) = adapter.weight_lines(*var, *weight);
+            let (positive, negative) = format_weight(*var, *weight);
             out.push_str(&positive);
             out.push_str(&negative);
         }

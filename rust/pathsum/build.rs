@@ -18,6 +18,29 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    if env::var_os("CARGO_FEATURE_HIGH_PRECISION_GPMC").is_some() {
+        // No additional Cargo crate or solver patch. Keep the native bridge
+        // behind an opt-in feature until static wheel portability is proven.
+        let output = PathBuf::from(env::var("OUT_DIR").unwrap());
+        let input = manifest_dir.join("native/mpfr_weight_bridge.c");
+        let obj = output.join("quprs_mpfr_bridge.o");
+        let library = output.join("libquprs_exp_mpfr.a");
+        let includes = pkg_config::probe_library("mpfr")
+            .expect("The high-precision GPMC feature requires MPFR headers");
+        let compiler = env::var("CC").unwrap_or_else(|_|"cc".to_string());
+        let mut cc = std::process::Command::new(compiler);
+        cc.args(["-std=c11","-O2","-fPIC","-c"]).arg(&input).arg("-o").arg(&obj);
+        for path in &includes.include_paths { cc.arg(format!("-I{}",path.display())); }
+        assert!(cc.status().expect("C compiler missing").success(),"MPFR C bridge build failed");
+        let archiver = env::var("AR").unwrap_or_else(|_|"ar".to_string());
+        assert!(std::process::Command::new(archiver).args(["rcs"])
+            .arg(&library).arg(&obj).status().expect("archiver missing").success());
+        println!("cargo:rustc-link-search=native={}",output.display());
+        println!("cargo:rustc-link-lib=static=quprs_exp_mpfr");
+        println!("cargo:rustc-link-lib=mpfr");
+        println!("cargo:rustc-link-lib=gmp");
+        println!("cargo:rerun-if-changed={}",input.display());
+    }
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 

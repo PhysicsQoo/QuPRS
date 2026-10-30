@@ -12,6 +12,8 @@ pub mod wmc;
 pub mod precision_count;
 mod solver_adapter;
 mod wmc_problem;
+#[cfg(feature="high-precision-gpmc")]
+mod precise_weight;
 pub mod solver_result;
 mod diagnostics;
 pub use diagnostics::ExclusiveLedger;
@@ -333,7 +335,13 @@ fn check_equivalence_with_tolerances_mode(
         let wmc_start = Instant::now();
         
         let mut wmc_mgr = WmcManager::new(&ps_miter);
-        
+        // Feature-gated candidate. Use only for GPMC projective-distance
+        // requests; the ordinary fast path and Ganak are unchanged.
+        #[cfg(feature="high-precision-gpmc")]
+        if approximate_distance_tolerance.is_some() && tool_name == "gpmc" {
+            wmc_mgr.enable_precise_gpmc_weights();
+        }
+
         {
             let _encode_scope = diagnostics::span("cnf_encode");
             wmc_mgr.encode_trace(&ps_miter)?;

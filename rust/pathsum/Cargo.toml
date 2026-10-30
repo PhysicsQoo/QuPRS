@@ -33,3 +33,4 @@ proptest = "1.0"
 
 [features]
 mpfr-experiment = [] # test-only bridge; opt-in experimental CI, no production dependency
+high-precision-gpmc = [] # opt-in release candidate; never globally uses MPFR

@@ -19,3 +19,6 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.21.2", features = ["extension-module", "abi3-py38"] }
 pathsum = { path = "../pathsum" }
+
+[features]
+high-precision-gpmc = ["pathsum/high-precision-gpmc"]

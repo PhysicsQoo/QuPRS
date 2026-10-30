@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -748,7 +748,7 @@ jobs:
           if-no-files-found: error
 
   offline-qft-functional-cnf-proof:
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(functional):')
+    if: github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'research(functional):') || startsWith(github.event.head_commit.message, 'research(rup):'))
     name: QFT16 two-copy CNF uniqueness bounded SAT experiment
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -783,6 +783,7 @@ jobs:
           (cd "$RUNNER_TEMP/functional-source"; sha256sum -c SHA256SUMS) \
             > "$RUNNER_TEMP/functional-results/source-hash-check.log"
       - name: Prove functional extension of original QFT CNF using two-copy SAT miter
+        if: ${{ startsWith(github.event.head_commit.message, 'research(functional):') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -792,6 +793,17 @@ jobs:
             --artifact-folder "$RUNNER_TEMP/functional-source" \
             --output "$RUNNER_TEMP/functional-results" \
             2>&1 | tee "$RUNNER_TEMP/functional-results/qft-functional-uniqueness.log"
+      - name: Independently check logged DRUP refutations on exact QFT16 functional miters
+        if: ${{ startsWith(github.event.head_commit.message, 'research(rup):') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -v 5000000
+          timeout --signal=TERM 220s python -u \
+            .diagnostics/tolerance_calibration/qft_checked_functional_rup.py \
+            --artifact-folder "$RUNNER_TEMP/functional-source" \
+            --output "$RUNNER_TEMP/functional-results" \
+            2>&1 | tee "$RUNNER_TEMP/functional-results/checked-rup-refutations.log"
       - name: Seal research evidence
         if: always()
         shell: bash
@@ -801,6 +813,7 @@ jobs:
           mkdir -p "$OUT"
           git rev-parse HEAD > "$OUT/experiment-head.txt"
           sha256sum .diagnostics/tolerance_calibration/qft_cnf_functional_uniqueness.py \
+                     .diagnostics/tolerance_calibration/qft_checked_functional_rup.py \
                      .github/workflows/tolerance-calibration-opt-in.yml \
             > "$OUT/script-sources-sha256.txt"
           (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \

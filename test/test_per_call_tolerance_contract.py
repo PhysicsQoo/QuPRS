@@ -65,12 +65,40 @@ def test_invalid_rr_tolerance_fails_before_solver(bad):
         check_equivalence(QuantumCircuit(1), QuantumCircuit(1), rr_tolerance=bad)
 
 
-def test_rust_custom_rr_tolerance_fails_closed_until_numeric_rules_supported():
-    with pytest.raises(ValueError, match="custom rr_tolerance is not supported"):
-        check_equivalence(
-            QuantumCircuit(1), QuantumCircuit(1), backend="rust",
-            method="reduction_rules", rr_tolerance=1e-6,
+@pytest.mark.parametrize("backend", ["python", "rust"])
+def test_custom_rr_tolerance_accepted_with_per_call_scope(backend):
+    identity = QuantumCircuit(1)
+    for tolerance in (1e-6, 1e-12):
+        result = check_equivalence(
+            identity, identity, backend=backend,
+            method="reduction_rules", rr_tolerance=tolerance,
         )
+        assert result.equivalent == "equivalent"
+        assert result.wmc_solver_invoked is False
+    assert current_rr_tolerance() == DEFAULT_RR_TOLERANCE
+
+
+def test_public_rust_rr_tolerance_changes_near_diagonal_verdict():
+    # The Rust core uses a conservative *aggregate* phase bound without
+    # modifying exact source angles. Exercise that path through the PyO3
+    # public backend, not just the native crate's unit tests.
+    identity = QuantumCircuit(1)
+    near = QuantumCircuit(1)
+    near.rz(1e-9, 0)
+    loose = check_equivalence(
+        identity, near, backend="rust",
+        method="reduction_rules", strategy="Naive", rr_tolerance=1e-8,
+    )
+    strict = check_equivalence(
+        identity, near, backend="rust",
+        method="reduction_rules", strategy="Naive", rr_tolerance=1e-12,
+    )
+    assert loose.equivalent in ("equivalent", "equivalent*")
+    assert loose.rr_approximate is True
+    assert strict.equivalent == "not_equivalent"
+    assert strict.rr_approximate is False
+    assert loose.wmc_solver_invoked is False
+    assert strict.wmc_solver_invoked is False
 
 
 def test_spawned_safe_mode_receives_rr_context():

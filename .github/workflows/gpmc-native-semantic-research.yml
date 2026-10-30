@@ -97,6 +97,16 @@ jobs:
             --output gpmc-native-phase15/cache-trace \
             2>&1 | tee gpmc-native-phase15/cache-trace.log
 
+      - name: Native DefVE and conditional UNSAT cache controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -u .diagnostics/tolerance_calibration/gpmc_native_phase16.py \
+            --source GPMC \
+            --baseline "$RUNNER_TEMP/gpmc-build/gpmc" \
+            --output gpmc-native-phase15/phase16 \
+            2>&1 | tee gpmc-native-phase15/phase16.log
+
       - name: Seal available evidence
         if: always()
         shell: bash

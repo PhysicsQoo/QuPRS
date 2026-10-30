@@ -130,3 +130,46 @@ def test_qcec_scale_distance_never_accepts_known_outside_rotation(
         backend, solver, angle, distance, result.equivalent,
         result.wmc_precision_reason,
     )
+
+
+def test_ganak_mpfr_mode6_print_precision_probe(tmp_path, record_property):
+    """Research-only: determine whether the bundled Ganak prints enough digits.
+
+    This does NOT change the production CLI or rerun production WMC.
+    A forced one-variable complex weight has true magnitude 1-5e-17.
+    The difference is at the scale required for projective D≈1e-8.
+    """
+    from QuPRS.utils import WMC
+    from QuPRS.utils.solver_process import run
+    from QuPRS.utils.precision_count import parse_printed_solver_output
+    from fractions import Fraction
+
+    cnf = tmp_path / "precision-probe.cnf"
+    cnf.write_text(
+        "p cnf 1 1\nc t wmc\n"
+        "c p weight 1 0.99999999999999995 + 0.0i 0\n"
+        "c p weight -1 1.0 + 0.0i 0\n"
+        "1 0\n"
+    )
+    with WMC("ganak") as exe:
+        observed = run(
+            [str(exe), "--mode=6", "--mpfrprec", "256", str(cnf)],
+            timeout=25,
+        )
+    record_property("ganak_probe_returncode", str(observed.returncode))
+    record_property("ganak_probe_count_line", "|".join(
+        line for line in observed.stdout.splitlines()
+        if line.startswith("c s exact ")
+    )[:1000])
+    if observed.returncode:
+        pytest.skip("Bundled Ganak did not accept --mpfrprec 256: "
+                    + observed.stderr[-220:])
+    count = parse_printed_solver_output(observed.stdout)
+    # No asserted minimum precision: the purpose is to measure how
+    # much of the configured MPFR internal precision reaches stdout.
+    record_property("ganak_probe_real_count", str(count.real))
+    record_property("ganak_probe_real_print_half_unit",
+                    str(count.real_print_half_unit))
+    record_property("ganak_probe_can_resolve_5e-17",
+                    str(count.real_print_half_unit < Fraction(5, 10**17)))
+    assert count.real > 0

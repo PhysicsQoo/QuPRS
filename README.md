@@ -279,6 +279,30 @@ High-precision weights do not certify solver arithmetic. The native
 high-resolution feature is enabled in standard source builds; repaired
 platform wheels must package their GMP/MPFR shared libraries portably.
 
+### Rust CLI verification tolerances
+
+The native CLI uses the same typed Rust `VerificationOptions` as the public
+Rust library. When omitted, the default projective-distance threshold is
+`1e-8`; the global-phase labeling threshold is independently `1e-8`
+radians.
+
+```bash
+cargo run --manifest-path rust/Cargo.toml -p QuPRS_cli -- \
+  circuit1.qasm circuit2.qasm --method wmc-only --tool gpmc \
+  --approximate-distance-tolerance 1e-8 --phase-tolerance 1e-8
+```
+
+The shorter aliases `--distance-tolerance` and
+`--wmc-phase-tolerance` are also accepted. The obsolete
+`--wmc-magnitude-tolerance` option is **not supported**. Passing distance
+or phase tolerances without a second circuit is an error, because
+single-circuit CLI mode only reduces the PathSum and does not verify a pair.
+
+The `--quiet` output remains machine-readable and prints only the verdict.
+Normal output reports the selected solver and distance threshold when WMC
+is used. An `unknown` verdict represents insufficient numerical evidence,
+not an automatic solver retry.
+
 ### Solver subprocess reliability and timeout limits
 
 On **Linux** and **macOS**, both backends supervise each invocation of the

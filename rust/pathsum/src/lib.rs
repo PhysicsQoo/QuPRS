@@ -90,9 +90,8 @@ pub struct EquivalenceCheckResult {
 /// Per-request verification configuration shared by native callers and the Python FFI.
 ///
 /// This controls verification dispatch and WMC classification; it does not
-/// alter the separate symbolic reduction rules. The projective-distance
-/// criterion is separate from the magnitude threshold; an explicit distance
-/// takes precedence only when the magnitude setting remains at its default.
+/// alter the separate symbolic reduction rules. A projective-distance
+/// threshold is the sole WMC numerical acceptance metric.
 #[derive(Debug, Clone)]
 pub struct VerificationOptions {
     pub method: VerificationMethod,

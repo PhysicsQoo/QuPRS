@@ -39,6 +39,17 @@ pub struct Cli {
     /// WMC Solver tool (gpmc or ganak)
     #[arg(long, default_value = "gpmc")]
     pub tool: String,
+
+    /// Projective Hilbert-Schmidt distance epsilon (default: 1e-8).
+    /// This is the only WMC numerical acceptance metric.
+    #[arg(long = "approximate-distance-tolerance", visible_alias = "distance-tolerance",
+          value_name = "EPSILON")]
+    pub approximate_distance_tolerance: Option<f64>,
+
+    /// Global-phase labeling tolerance, in radians (default: 1e-8).
+    #[arg(long = "phase-tolerance", visible_alias = "wmc-phase-tolerance",
+          value_name = "RADIANS")]
+    pub phase_tolerance: Option<f64>,
     
     /// Suppress all output except the final verification result
     #[arg(short, long, conflicts_with = "verbose")]
@@ -58,4 +69,48 @@ pub enum StrategyMode {
     Straightforward,
     Proportional,
     Difference,
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn cli_defaults_inherit_typed_verifier_defaults() {
+        let cli = Cli::try_parse_from(["QuPRS-CLI", "a.qasm", "b.qasm"]).unwrap();
+        assert_eq!(cli.tool, "gpmc");
+        assert_eq!(cli.method, MethodArg::Hybrid);
+        assert_eq!(cli.approximate_distance_tolerance, None);
+        assert_eq!(cli.phase_tolerance, None);
+    }
+
+    #[test]
+    fn cli_exposes_only_distance_and_phase_overrides() {
+        let cli = Cli::try_parse_from([
+            "QuPRS-CLI", "a.qasm", "b.qasm", "--method", "wmc-only",
+            "--tool", "ganak",
+            "--approximate-distance-tolerance", "2e-4",
+            "--phase-tolerance", "1e-6",
+        ]).unwrap();
+        assert_eq!(cli.method, MethodArg::WmcOnly);
+        assert_eq!(cli.tool, "ganak");
+        assert_eq!(cli.approximate_distance_tolerance, Some(2e-4));
+        assert_eq!(cli.phase_tolerance, Some(1e-6));
+
+        let alias = Cli::try_parse_from([
+            "QuPRS-CLI", "a.qasm", "b.qasm",
+            "--distance-tolerance", "1e-8",
+            "--wmc-phase-tolerance", "1e-8",
+        ]).unwrap();
+        assert_eq!(alias.approximate_distance_tolerance, Some(1e-8));
+        assert_eq!(alias.phase_tolerance, Some(1e-8));
+    }
+
+    #[test]
+    fn obsolete_magnitude_flag_is_not_accepted() {
+        assert!(Cli::try_parse_from([
+            "QuPRS-CLI", "a.qasm", "b.qasm",
+            "--wmc-magnitude-tolerance", "1e-6",
+        ]).is_err());
+    }
 }

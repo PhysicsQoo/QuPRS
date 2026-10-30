@@ -6,7 +6,8 @@ use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use pathsum::{
-    check_equivalence,
+    check_equivalence_with_options,
+    VerificationOptions,
     VerificationMethod,
     VerificationStrategy,
     PathSum,
@@ -58,14 +59,22 @@ pub fn run_dual_circuit_mode(cli: &Cli, file2_path: &std::path::Path) -> Result<
         None
     };
 
-    let result = check_equivalence(
-        system_qubits,
-        &ops1,
-        &ops2,
+    let mut options = VerificationOptions {
         method,
         strategy,
-        &cli.tool,
-        cli.timeout,
+        tool_name: cli.tool.clone(),
+        timeout_secs: cli.timeout,
+        ..VerificationOptions::default()
+    };
+    if let Some(epsilon) = cli.approximate_distance_tolerance {
+        options.approximate_distance_tolerance = Some(epsilon);
+    }
+    if let Some(radians) = cli.phase_tolerance {
+        options.phase_tolerance = radians;
+        options.wmc_phase_tolerance = radians;
+    }
+    let result = check_equivalence_with_options(
+        system_qubits, &ops1, &ops2, &options,
     ).context("Core verification engine failed")?;
 
     if let Some(pb) = pb {
@@ -95,6 +104,11 @@ pub fn run_dual_circuit_mode(cli: &Cli, file2_path: &std::path::Path) -> Result<
 
 /// Executes the single-circuit reduction mode (Mode B)
 pub fn run_single_circuit_mode(cli: &Cli) -> Result<()> {
+    if cli.approximate_distance_tolerance.is_some() || cli.phase_tolerance.is_some() {
+        anyhow::bail!(
+            "distance and phase tolerances require two circuits for verification"
+        );
+    }
     let (ops1, num_qubits1) = pathsum::qasm::parse_file(&cli.file1)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 

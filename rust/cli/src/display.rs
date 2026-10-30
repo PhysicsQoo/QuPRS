@@ -27,7 +27,18 @@ pub fn display_summary(res: &EquivalenceCheckResult, quiet: bool) {
     if let Some(wmc_t) = res.wmc_time {
         println!("   ├─ WMC Total:      {:.3} s", wmc_t);
         println!("   │  ├─ DIMACS:      {:.3} s", res.to_dimacs_time.unwrap_or(0.0));
-        println!("   │  └─ GPMC Solver: {:.3} s", res.tool_time.unwrap_or(0.0));
+        if res.solver_invoked {
+            println!("   │  └─ {} Solver: {:.3} s",
+                     res.tool_name.to_ascii_uppercase(), res.tool_time.unwrap_or(0.0));
+        } else {
+            println!("   │  └─ Solver:      not invoked (analytic shortcut)");
+        }
+        if let Some(epsilon) = res.approximate_distance_tolerance {
+            println!("   ├─ Distance eps:   {:.6e}", epsilon);
+        }
+        if let Some(reason) = res.wmc_precision_reason {
+            println!("   ├─ WMC evidence:   {}", reason);
+        }
     }
 
     println!("   └─ Status:         {}", res.status.to_string().dimmed());

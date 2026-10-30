@@ -51,10 +51,30 @@ binary64 normalized `m` or a fixed empirical guard.
 
 GPMC requests 90 decimal printed digits in **one** solver invocation.
 Ganak retains its own mode-6 output precision. Both use one
-projective-distance classifier; `unknown` remains possible when printed
+projective-distance classifier when an external solve is needed; `unknown` remains possible when printed
 precision cannot distinguish the boundary, when a reported magnitude
 overshoots physical normalization, or when source/solver numerical
 evidence is unresolved.
+
+## Exact unweighted CNF cases
+
+A structurally unweighted CNF whose every clause is tautological has
+**exactly** `2**variables` satisfying assignments, regardless of how many
+digits an external solver can print. QuPRS verifies this against the
+expected trace normalization exponent and directly returns `equivalent`
+when they match. This is a restricted, exact WMC counting proof, not an
+RR fallback, approximate magnitude threshold, general SAT simplifier or
+unchecked identity assumption. It also applies when `method="wmc_only"`.
+
+For example, comparing a one-qubit identity against itself is a
+definitive `equivalent` for Python, PyO3/native Rust, GPMC and Ganak.
+The exact counting shortcut records
+`wmc_precision_reason="analytic_unweighted_tautology"`,
+`wmc_solver_invoked=False`, and no printed solver verdict/time.
+CNFs with nontrivial weighted phases, any nontautological clause, or a
+normalization mismatch **must** continue through the requested solver
+and normal finite-precision classification. Identity versus X or Z
+must never be classified positive by this shortcut.
 
 ## Separate knobs and no solver retry
 

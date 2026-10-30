@@ -338,6 +338,23 @@ mod tests {
     }
 
     #[test]
+    fn ganak_midpoint_does_not_erase_raw_unknown_resolution() {
+        let count = parse_stdout(
+            "c s exact quadruple float 1.00000000e+00 + 0e+00i"
+        ).unwrap();
+        let printed = classify(&count, 0, "1e-8").unwrap();
+        assert_eq!(printed, PrintedVerdict::UnknownResolution);
+        assert_eq!(
+            ganak_midpoint_verdict(&count, 0, "1e-8", printed).unwrap(),
+            PrintedVerdict::Equivalent,
+        );
+        assert_eq!(
+            classify(&count, 0, "1e-8").unwrap(),
+            PrintedVerdict::UnknownResolution,
+        );
+    }
+
+    #[test]
     fn dynamic_ganak_resolution_depends_on_printed_digits_and_trace_scale() {
         let a = parse_stdout(
             "c s exact quadruple float 1.00000000e+00 + 0e+00i"

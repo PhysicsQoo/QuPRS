@@ -156,8 +156,12 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > **not** a projective distance of `1e-8`.
 > Solver counts are processed from their original printed complex values;
 > For nontrivial CNFs, GPMC uses one call with 90 decimal output digits,
-> while Ganak retains its native printed precision. Inadequate resolution
-> yields `unknown` rather than a fabricated exact-equivalence certificate.
+> while Ganak retains its native printed precision. Ganak uses its printed
+> count's center-point numerical result when rounding intervals are too
+> coarse, and emits a **dynamic warning** calculated from the actual
+> printed complex rounding interval and trace normalization. This result
+> is not certified at the requested distance precision. GPMC can still
+> report `unknown` when resolution is insufficient.
 > An **unweighted, tautological CNF** matching the exact trace normalization
 > is counted algebraically (including one-qubit I versus I), with
 > `wmc_solver_invoked=False` and `analytic_unweighted_tautology` provenance.
@@ -277,9 +281,12 @@ and 48 significant decimal output digits, without a premature `f64`
 conversion. Clifford quarter-cycle weights are exact special values.
 
 No extra Solver invocation is added. Ganak retains its own input format
-and numerical precision; it uses the same printed-count distance classifier.
-The old magnitude-mode selector is not available. A tighter distance tolerance
-can produce `unknown` when a solver's output is insufficiently resolved.
+and numerical precision. When its actual printed-output rounding interval
+cannot resolve the requested distance, QuPRS reports an observed
+resolution-scale warning and uses Ganak's numerical midpoint estimate,
+not an unconditional exact-equivalence certificate. GPMC retains the
+printed-interval verdict, including `unknown` where appropriate.
+The old magnitude-mode selector is not available.
 High-precision weights do not certify solver arithmetic. The native
 high-resolution feature is enabled in standard source builds; repaired
 platform wheels must package their GMP/MPFR shared libraries portably.
@@ -312,10 +319,12 @@ The shorter aliases `--distance-tolerance` and
 or phase tolerances without a second circuit is an error, because
 single-circuit CLI mode only reduces the PathSum and does not verify a pair.
 
-The `--quiet` output remains machine-readable and prints only the verdict.
-Normal output reports the selected solver and distance threshold when WMC
-is used. An `unknown` verdict represents insufficient numerical evidence,
-not an automatic solver retry.
+The `--quiet` **stdout** remains machine-readable and prints only
+the verdict; an observed Ganak resolution warning is printed separately
+on **stderr**. Normal output reports the selected solver, requested
+distance threshold and warning diagnostics when WMC is used. Ganak's
+uncertified midpoint result is distinguished from its raw printed
+interval status; no automatic solver retry occurs.
 
 ### Solver subprocess reliability and timeout limits
 

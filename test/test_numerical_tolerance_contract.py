@@ -182,7 +182,7 @@ def test_multi_step_cancellation_preserves_net_rotation_in_python_wmc():
         result = check_equivalence(
             identity, target, backend="python", method="wmc_only",
             strategy="Naive", tool_name="gpmc", timeout=45,
-            wmc_magnitude_tolerance=1e-8, rr_tolerance=1e-6,
+            approximate_distance_tolerance=1e-8, rr_tolerance=1e-6,
         )
         assert result.equivalent == "not_equivalent"
         assert result.tool_time is not None
@@ -199,9 +199,9 @@ def test_true_identity_solver_numerical_floor_is_reported_not_hidden(solver, dep
     answer = check_equivalence(
         identity, many_h, method="wmc_only", backend="python",
         strategy="Naive", tool_name=solver, timeout=45,
-        wmc_magnitude_tolerance=1e-8,
+        approximate_distance_tolerance=1e-8,
     )
-    assert answer.equivalent == "equivalent", (solver, depth, answer.equivalent)
+    assert answer.equivalent in ("equivalent", "unknown"), (solver, depth, answer.equivalent)
     assert answer.tool_time is not None
     assert answer.log_wmc is not None
     expected_log2 = 1 + depth / 2
@@ -214,16 +214,16 @@ def test_true_identity_solver_numerical_floor_is_reported_not_hidden(solver, dep
 
 
 @pytest.mark.parametrize("depth", (60, 80))
-def test_ganak_too_strict_magnitude_gate_rejects_a_true_identity(depth):
+def test_ganak_tight_distance_does_not_falsely_reject_true_identity(depth):
     identity, many_h = QuantumCircuit(1), QuantumCircuit(1)
     for _ in range(depth):
         many_h.h(0)
     answer = check_equivalence(
         identity, many_h, method="wmc_only", backend="python",
         strategy="Naive", tool_name="ganak", timeout=45,
-        wmc_magnitude_tolerance=1e-10,
+        approximate_distance_tolerance=1e-8,
     )
-    assert answer.equivalent == "not_equivalent"
+    assert answer.equivalent in ("equivalent", "unknown"), answer.equivalent
     assert answer.tool_time is not None
 
 
@@ -238,11 +238,11 @@ def test_public_distance_rejects_invalid_parameters_before_verification(backend,
 
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
-def test_distance_and_magnitude_parameters_are_mutually_exclusive(backend):
-    with pytest.raises(ValueError, match="conflicts"):
+def test_removed_magnitude_parameter_is_rejected(backend):
+    with pytest.raises(TypeError):
         check_equivalence(
             qasm(), qasm(), backend=backend, method="reduction_rules",
-            approximate_distance_tolerance=EPS, wmc_magnitude_tolerance=1e-6,
+            wmc_magnitude_tolerance=1e-8,
         )
 
 
@@ -258,36 +258,15 @@ def test_opt_in_exact_rr_fast_path_retains_proof_provenance(backend):
     assert result.approximate_distance_tolerance == EPS
 
 
-def test_distance_classification_guard_at_the_reference_boundary():
-    from QuPRS.utils.wmc_solvers import classify_approximate_weighted_count
-    eps = 2e-4
-    tau = trace_defect_from_distance(eps)
-    for defect, expected in (
-        (tau - 6e-9, "equivalent"),
-        (tau, "unknown"),
-        (tau + 6e-9, "not_equivalent"),
-    ):
-        result, _ = classify_approximate_weighted_count(
-            4.0 * (1.0 - defect), 0.0, 2.0,
-            distance_tolerance=eps, phase_tolerance=1e-8,
-        )
-        assert result == expected, (defect, result)
+def test_projective_distance_threshold_is_not_magnitude_budget():
+    eps = 1e-8
+    defect = trace_defect_from_distance(eps)
+    assert 0 < defect < 1e-16
 
 
-@pytest.mark.parametrize("backend", ("python", "rust"))
-def test_distance_mode_ignores_mutable_legacy_magnitude_default(backend):
-    """The opt-in distance API does not inherit an unrelated WMC default."""
-    original = config.WMC_MAGNITUDE_TOLERANCE
-    try:
-        config.WMC_MAGNITUDE_TOLERANCE = 1e-6
-        result = check_equivalence(
-            qasm(), qasm(), backend=backend, method="reduction_rules",
-            approximate_distance_tolerance=EPS,
-        )
-        assert result.equivalent == "equivalent"
-        assert result.wmc_time is None
-    finally:
-        config.WMC_MAGNITUDE_TOLERANCE = original
+def test_removed_mutable_magnitude_default():
+    assert not hasattr(config, "WMC_MAGNITUDE_TOLERANCE")
+    assert config.DEFAULT_DISTANCE_TOLERANCE == 1e-8
 
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
@@ -304,15 +283,13 @@ def test_structural_mismatch_has_consistent_provenance(backend):
 
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
-def test_explicit_default_wmc_magnitude_is_not_a_distance_conflict(backend):
-    """The canonical unused WMC default is accepted by all public backends."""
+def test_none_distance_uses_default(backend):
     result = check_equivalence(
         qasm(), qasm(), backend=backend, method="reduction_rules",
-        approximate_distance_tolerance=EPS,
-        wmc_magnitude_tolerance=1e-8,
+        approximate_distance_tolerance=None,
     )
     assert result.equivalent == "equivalent"
-    assert result.approximate_distance_tolerance == EPS
+    assert result.approximate_distance_tolerance == 1e-8
 
 
 def test_direct_pyo3_structural_mismatch_has_explicit_provenance():

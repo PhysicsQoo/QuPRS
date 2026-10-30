@@ -172,9 +172,8 @@ def check_equivalence(
     timeout: int = 600,
     safe_mode: bool = False,
     backend: str = "python",
-    wmc_magnitude_tolerance: float | None = None,
     wmc_phase_tolerance: float | None = None,
-    approximate_distance_tolerance: float | None = None,
+    approximate_distance_tolerance: float | None = 1e-8,
     rr_tolerance: float | None = None,
     phase_tolerance: float | None = None,
 ):
@@ -217,24 +216,13 @@ def check_equivalence(
             Defaults to 1e-10. Preserves small source phase terms.
         phase_tolerance (float | None): Phase zero classification in radians
             for RR and WMC; conflicts with a different wmc_phase_tolerance.
-        wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
-            acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
-            Independent of reduction tolerance and not a formal proof bound.
-            Use rr_tolerance=... on each verification. Reduction caches
-            include the per-call value in their cache key; there is no
-            mutable process-global RR tolerance. This setting affects RR
-            matching, not gate-source phase preservation.
         wmc_phase_tolerance (float | None): WMC phase threshold separating
             "equivalent" and "equivalent*" for near-unit magnitudes.
             None uses config.WMC_PHASE_TOLERANCE.
-        approximate_distance_tolerance (float | None): Optional projective
-            Hilbert-Schmidt distance threshold in (0, 1). None preserves
-            existing numerical magnitude semantics. Near-boundary counts
-            may return unknown; this is not a formal solver error certificate.
-            A nondefault explicit WMC magnitude tolerance conflicts; an
-            explicit 1e-8 is accepted but unused by the distance classifier.
-            Python RR retains its existing tolerance semantics. Hybrid
-            passes the final RR-reduced PathSum to WMC only if RR is inconclusive.
+        approximate_distance_tolerance (float | None): Projective Hilbert-Schmidt
+            distance threshold in (0, 1), default 1e-8. None means the
+            same default, not the removed magnitude classifier. Near-boundary
+            printed Solver output may return unknown, not a formal certificate.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -247,28 +235,20 @@ def check_equivalence(
         wmc_phase_tolerance = phase_tolerance
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout must be a positive integer number of seconds")
-    if approximate_distance_tolerance is not None:
-        eps = approximate_distance_tolerance
-        if (isinstance(eps, bool) or not isinstance(eps, (int, float))
-            or not math.isfinite(eps) or not 0 < eps < 1):
-            raise ValueError("approximate_distance_tolerance must be finite and in (0, 1)")
-        if wmc_magnitude_tolerance is not None and wmc_magnitude_tolerance != 1e-8:
-            raise ValueError("approximate_distance_tolerance conflicts with nondefault wmc_magnitude_tolerance")
-        # The magnitude threshold is unused in distance mode. Do not inherit
-        # mutable legacy defaults: the PyO3 and native Rust APIs use 1e-8.
-        wmc_magnitude_tolerance = 1e-8
-    elif wmc_magnitude_tolerance is None:
-        wmc_magnitude_tolerance = config.WMC_MAGNITUDE_TOLERANCE
+    # One public WMC metric: projective distance, default 1e-8.
+    if approximate_distance_tolerance is None:
+        approximate_distance_tolerance = 1e-8
+    eps = approximate_distance_tolerance
+    if (isinstance(eps, bool) or not isinstance(eps, (int, float))
+        or not math.isfinite(eps) or not 0 < eps < 1):
+        raise ValueError("approximate_distance_tolerance must be finite and in (0, 1)")
     if wmc_phase_tolerance is None:
         wmc_phase_tolerance = config.WMC_PHASE_TOLERANCE
-    for name, threshold in (
-        ("wmc_magnitude_tolerance", wmc_magnitude_tolerance),
-        ("wmc_phase_tolerance", wmc_phase_tolerance),
-    ):
-        if (isinstance(threshold, bool)
-            or not isinstance(threshold, (int, float))
-            or not math.isfinite(threshold) or not 0 < threshold < 1):
-            raise ValueError(f"{name} must be finite and in (0, 1)")
+    if (isinstance(wmc_phase_tolerance, bool)
+        or not isinstance(wmc_phase_tolerance, (int, float))
+        or not math.isfinite(wmc_phase_tolerance)
+        or not 0 < wmc_phase_tolerance < 1):
+        raise ValueError("wmc_phase_tolerance must be finite and in (0, 1)")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -340,7 +320,6 @@ def check_equivalence(
                                     tool_name=tool_name,
                                     timeout=remaining,
                                     safe_mode=safe_mode,
-                                    wmc_magnitude_tolerance=wmc_magnitude_tolerance,
                                     wmc_phase_tolerance=wmc_phase_tolerance,
                                     approximate_distance_tolerance=approximate_distance_tolerance,
                                     rr_tolerance=rr_tolerance,
@@ -396,7 +375,6 @@ def check_equivalence(
             expect=None,
             log_wmc=None,
             wmc_numerical_verdict=rust_wmc_numerical_verdict,
-            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
             wmc_printed_verdict=rust_res.get("wmc_printed_verdict"),
@@ -426,7 +404,6 @@ def check_equivalence(
             method=method,
             strategy=strategy,
             equivalent="not_equivalent",
-            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
             wmc_solver_invoked=False,
@@ -523,8 +500,7 @@ def check_equivalence(
                     equivalent = "unknown"
             elif len(pathsum_circuit.pathvar) == 0:
                 # Strict non-equality alone does not establish D > epsilon.
-                equivalent = ("unknown" if approximate_distance_tolerance is not None
-                              else "not_equivalent")
+                equivalent = "unknown"
             else:
                 equivalent = "unknown"
 
@@ -535,7 +511,6 @@ def check_equivalence(
             method == "hybrid" and equivalent == "unknown"
         ):
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.wmc_solvers import classify_weighted_count
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -564,41 +539,25 @@ def check_equivalence(
                 tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
                 tool_start_time = time.time()
                 wmc_solver_invoked = True
-                if approximate_distance_tolerance is None:
-                    complex_number = run_wmc(
-                        temp_name, tool_name,
-                        timeout=max(0.0, deadline - time.monotonic()),
-                    )
-                    equivalent, log_wmc = classify_weighted_count(
-                        complex_number[0], complex_number[1], expect,
-                        magnitude_tolerance=wmc_magnitude_tolerance,
-                        phase_tolerance=wmc_phase_tolerance,
-                    )
-                else:
-                    from QuPRS.utils.precision_count import (
-                        classify_observed_distance, approximate_printed_log2,
-                    )
-                    # Exactly one selected external solver invocation per WMC.
-                    # The -prec value is in decimal digits, not binary bits.
-                    counted = run_wmc(
-                        temp_name, tool_name,
-                        timeout=max(0.0, deadline - time.monotonic()),
-                        preserve_count=True,
-                        precision_digits=90 if tool_name == "gpmc" else None,
-                    )
-                    twice = int(round(2 * expect))
-                    # A common printed-count classifier for both solvers.
-                    # Experimental CNF-size and solver-arithmetic allowances
-                    # are not validated general numerical error bounds.
-                    equivalent, evidence = classify_observed_distance(
-                        counted, twice, approximate_distance_tolerance,
-                        wmc_phase_tolerance,
-                    )
-                    wmc_printed_verdict = evidence.status
-                    wmc_precision_reason = (
-                        tool_name + "_printed_uncertified_" + evidence.reason
-                    )
-                    log_wmc = approximate_printed_log2(counted)
+                from QuPRS.utils.precision_count import (
+                    classify_observed_distance, approximate_printed_log2,
+                )
+                counted = run_wmc(
+                    temp_name, tool_name,
+                    timeout=max(0.0, deadline - time.monotonic()),
+                    preserve_count=True,
+                    precision_digits=90 if tool_name == "gpmc" else None,
+                )
+                twice = int(round(2 * expect))
+                equivalent, evidence = classify_observed_distance(
+                    counted, twice, approximate_distance_tolerance,
+                    wmc_phase_tolerance,
+                )
+                wmc_printed_verdict = evidence.status
+                wmc_precision_reason = (
+                    tool_name + "_printed_uncertified_" + evidence.reason
+                )
+                log_wmc = approximate_printed_log2(counted)
                 tool_time = round(time.time() - tool_start_time, 3)
                 # Preserve the numeric verdict as an observation. It is not
                 # an independent proof of source-exact equivalence.
@@ -666,7 +625,6 @@ def check_equivalence(
         wmc_printed_verdict=wmc_printed_verdict,
         wmc_numeric_model_bound=wmc_numeric_model_bound,
         approximate_distance_tolerance=approximate_distance_tolerance,
-        wmc_magnitude_tolerance=wmc_magnitude_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
     )
     return Result
@@ -728,7 +686,6 @@ class EquivalenceCheckResult:
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.
     wmc_solver_invoked: Optional[bool] = None
     # Effective thresholds recorded for reproducible numerical verdicts.
-    wmc_magnitude_tolerance: float | None = None
     wmc_phase_tolerance: float | None = None
 
     @staticmethod

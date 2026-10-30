@@ -5,7 +5,7 @@ Two explicitly separate kinds of evidence:
 * Controlled external GPMC stdout to isolate the Python/Rust FLOATING COUNT
   classification boundary. A substituted WMC count is NOT a physics oracle.
 
-Only native-scalar normalization is fixed; solver policies, reduction rules,\nand numerical tolerances are unchanged.
+The projective-distance classifier is the only public WMC numerical policy.
 """
 from contextlib import contextmanager
 import os
@@ -33,18 +33,18 @@ def test_plain_integer_coefficients_are_valid_logical_inputs(coefficient, logica
 @pytest.mark.parametrize(
     "angle,expected",
     [(0.0025, "equivalent"), (0.0031, "not_equivalent")],
-    ids=("inside-magnitude-budget", "outside-magnitude-budget"),
+    ids=("inside-distance-budget", "outside-distance-budget"),
 )
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("solver", SOLVERS)
-def test_real_solver_magnitude_policy_is_not_physical_equivalence(
+def test_real_solver_projective_policy_is_not_source_exact_equivalence(
     angle, expected, backend, solver
 ):
     """An inequivalent RZ circuit may pass an explicitly approximate WMC gate.
 
     The independent operator/mathematical oracle says the circuits are NOT
-    equal even up to global phase for any nonzero tested angle. The distinct
-    numerical policy accepts |Tr(U†V)|/2 when it lies within 1e-6 of unity.
+    equal even up to global phase for any nonzero tested angle. The
+    numerical distance tolerance is an explicitly approximate criterion.
     """
     identity, target = QuantumCircuit(1), QuantumCircuit(1)
     target.h(0)
@@ -58,10 +58,9 @@ def test_real_solver_magnitude_policy_is_not_physical_equivalence(
         theta = mp.mpf(str(angle))
         normalized_trace = mp.cos(theta / 2)
         # Independent high-precision derivation, not QuPRS's WMC classifier.
-        # Pin the historical heuristic boundary independently of API defaults.
-        trace_budget = mp.mpf("1e-6")
+        distance = abs(mp.sin(theta / 2))
         predicted = (
-            "equivalent" if abs(normalized_trace - 1) < trace_budget
+            "equivalent" if distance < mp.mpf("0.0014142132")
             else "not_equivalent"
         )
         assert predicted == expected
@@ -72,7 +71,7 @@ def test_real_solver_magnitude_policy_is_not_physical_equivalence(
     result = check_equivalence(
         identity, target, backend=backend, tool_name=solver,
         method="wmc_only", timeout=60,
-        wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6,
+        approximate_distance_tolerance=0.0014142132, wmc_phase_tolerance=1e-6,
     )
     assert result.equivalent == expected, (
         f"solver={solver}, backend={backend}, angle={angle}, "
@@ -130,26 +129,27 @@ def test_controlled_solver_count_agrees_across_python_and_rust(
     tolerance/classification parity only, NOT the circuit's physical relation.
     Rust uses its real FFI and parser, not a mocked Rust result dictionary.
     """
-    with mp.workdps(70):
-        tol = (config.WMC_PHASE_TOLERANCE if kind == "phase"
-               else config.WMC_MAGNITUDE_TOLERANCE)
-        offset = mp.mpf(str(factor)) * mp.mpf(str(tol))
+    # Explicit 2e-4 projective distance; high-resolution fake stdout
+    # isolates the parser and classifier, not real Solver arithmetic.
+    epsilon = mp.mpf("0.0002")
+    with mp.workdps(90):
         if kind == "phase":
-            expected_count = mp.mpc(4) * mp.exp(1j * offset)
-            assert ("equivalent" if abs(offset) < mp.mpf(str(tol))
+            phase = mp.mpf(str(factor)) * mp.mpf(str(config.WMC_PHASE_TOLERANCE))
+            real = mp.nstr(4 * mp.cos(phase), 75)
+            imag_val = 4 * mp.sin(phase)
+            imag = mp.nstr(imag_val, 75)
+            assert ("equivalent" if abs(phase) < mp.mpf(str(config.WMC_PHASE_TOLERANCE))
                     else "equivalent*") == expected
         else:
-            expected_count = mp.mpc(4 * (1 - offset))
-            assert ("equivalent" if abs(offset) < mp.mpf(str(tol))
+            threshold = epsilon**2 / (1 + mp.sqrt(1 - epsilon**2))
+            deficit = mp.mpf(str(factor)) * threshold
+            real = mp.nstr(4 * (1 - deficit), 75)
+            imag_val = mp.mpf("0")
+            imag = "0"
+            assert ("equivalent" if deficit < threshold
                     else "not_equivalent") == expected
-        real, imag = float(expected_count.real), float(expected_count.imag)
+    complex_number = real + ("+" if imag_val >= 0 else "") + imag + "i"
 
-    # GPMC's parser accepts complex counts from this existing result prefix.
-    # Writing at 17 significant digits keeps the fake output stable and
-    # avoids conflating solver printing precision with classifier precision.
-    complex_number = (
-        f"{real:.17g} {'+' if imag >= 0 else '-'} {abs(imag):.17g}i"
-    )
     fake = tmp_path / "fixed-count-gpmc"
     fake.write_text(
         "#!/bin/sh\n"
@@ -180,6 +180,7 @@ def test_controlled_solver_count_agrees_across_python_and_rust(
     result = check_equivalence(
         identity, hh, backend=backend, tool_name="gpmc",
         method="wmc_only", timeout=15,
+        approximate_distance_tolerance=2e-4,
     )
     assert result.equivalent == expected, (
         f"backend={backend}, count={complex_number}, kind={kind}, "

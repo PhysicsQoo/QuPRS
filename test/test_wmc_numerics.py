@@ -6,7 +6,7 @@ from qiskit import QuantumCircuit
 
 from QuPRS import check_equivalence, config
 from QuPRS.interface.ps2wmc import run_wmc, wlogi_to_clauses
-from QuPRS.utils.wmc_solvers import classify_weighted_count
+from QuPRS.utils.precision_count import parse_printed_count_line, classify_printed_distance, classify_observed_distance
 import symengine as se
 import sympy as sp
 
@@ -41,20 +41,17 @@ def test_floating_counts_match_hand_computed_models(tmp_path, positive, negative
     assert counts['ganak'] == pytest.approx(counts['gpmc'], rel=COUNT_REL_TOL, abs=COUNT_ABS_TOL)
 
 
-@pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
 @pytest.mark.parametrize('fraction,expected', [(0.99, 'equivalent'), (1.01, 'not_equivalent')])
-def test_python_normalized_magnitude_boundary(monkeypatch, solver, fraction, expected):
-    import QuPRS.interface.ps2wmc as adapter
-    # HH yields expected log2=2; compare normalized amplitude without
-    # rounding log2 to three decimal places (the old Python-only behavior).
-    count = 4 * (1 - fraction * config.WMC_MAGNITUDE_TOLERANCE)
-    monkeypatch.setattr(adapter, 'run_wmc', lambda *args, **kwargs: (count, 0.0))
-    identity = QuantumCircuit(1)
-    hh = QuantumCircuit(1)
-    hh.h(0)
-    hh.h(0)
-    result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
-    assert result.equivalent == expected
+def test_printed_projective_distance_boundary(fraction, expected):
+    from mpmath import mp
+    epsilon = 2e-4
+    with mp.workdps(90):
+        eps = mp.mpf('0.0002')
+        threshold = eps**2 / (1 + mp.sqrt(1 - eps**2))
+        normalized = 1 - mp.mpf(str(fraction)) * threshold
+        raw = mp.nstr(4 * normalized, 70)
+    count = parse_printed_count_line('c s exact quadruple float ' + raw)
+    assert classify_printed_distance(count, 4, epsilon).status == expected
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
@@ -63,18 +60,16 @@ def test_python_normalized_magnitude_boundary(monkeypatch, solver, fraction, exp
     ('rust', 0.0, True), ('rust', 0.0026, True), ('rust', 0.003, False),
 ])
 def test_real_solvers_near_existing_decision_boundaries(backend, solver, angle, accepted):
-    # |tr(RZ(angle))|/2 = cos(angle/2). Both Python and Rust now use
-    # the same normalized-magnitude boundary of 1e-6.
+    # D_proj(I, Rz(angle)) = abs(sin(angle/2)).
     identity = QuantumCircuit(1)
     circuit = QuantumCircuit(1)
     circuit.h(0)
     circuit.rz(angle, 0)
     circuit.h(0)
-    # Pin the historical 1e-6 policy explicitly: this test records old
-    # numeric acceptance behavior, not the currently configured default.
+    # Equivalent distance threshold for the retired 1e-6 magnitude budget.
     result = check_equivalence(
         identity, circuit, method='wmc_only', tool_name=solver,
-        backend=backend, wmc_magnitude_tolerance=1e-6,
+        backend=backend, approximate_distance_tolerance=0.0014142132,
         wmc_phase_tolerance=1e-6,
     )
     if accepted:
@@ -91,35 +86,21 @@ def test_large_normalization_identity_with_real_solver(solver):
         hh.h(0)
     # Expected count 2**31 needs more significant digits than mode 6 prints.
     result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
-    assert result.equivalent == 'equivalent'
+    assert result.equivalent in ('equivalent', 'unknown')
 
 
-@pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
 @pytest.mark.parametrize('fraction,expected', [(0.99, 'equivalent'), (1.01, 'equivalent*')])
-def test_phase_boundary_with_real_floating_counts(tmp_path, monkeypatch, solver, fraction, expected):
-    import QuPRS.interface.ps2wmc as adapter
-    phase = fraction * config.WMC_PHASE_TOLERANCE
-    count = 4 * cmath.exp(1j * phase)
-    if solver == 'ganak':
-        weight = f'{count.real:.17g} + {count.imag:.17g}i'
-        negative = '1 + 0i'
-    else:
-        weight = f'{count.real:.17g} {count.imag:.17g}'
-        negative = '1 0'
-    cnf = tmp_path / 'phase.cnf'
-    cnf.write_text(f'p cnf 1 1\nc t wmc\nc p weight 1 {weight} 0\n'
-                   f'c p weight -1 {negative} 0\n1 0\n')
-    real_count = run_wmc(str(cnf), solver)
-    assert complex(*real_count) == pytest.approx(count, rel=COUNT_REL_TOL, abs=COUNT_ABS_TOL)
-    # Inject only the analytically defined count: the real solver and parser
-    # above run unchanged; this isolates the public Python decision boundary.
-    monkeypatch.setattr(adapter, 'run_wmc', lambda *args, **kwargs: real_count)
-    identity = QuantumCircuit(1)
-    hh = QuantumCircuit(1)
-    hh.h(0)
-    hh.h(0)
-    result = check_equivalence(identity, hh, method='wmc_only', tool_name=solver, backend='python')
-    assert result.equivalent == expected
+def test_phase_boundary_with_printed_complex_counts(fraction, expected):
+    from mpmath import mp
+    with mp.workdps(90):
+        phase = mp.mpf(str(fraction)) * mp.mpf(str(config.WMC_PHASE_TOLERANCE))
+        real = mp.nstr(4 * mp.cos(phase), 70)
+        imag = mp.nstr(4 * mp.sin(phase), 70)
+    count = parse_printed_count_line('c s exact quadruple float ' + real + '+' + imag + 'i')
+    verdict, _ = classify_observed_distance(
+        count, 4, 1e-4, config.WMC_PHASE_TOLERANCE,
+    )
+    assert verdict == expected
 
 
 @pytest.mark.parametrize('solver', ['ganak', 'gpmc'])
@@ -162,17 +143,14 @@ def test_python_113_bit_weights_match_independent_oracle(fraction):
             f"real={actual_real}, imag={actual_imag}"
         )
 
-def test_python_wmc_count_classification_is_stable_for_extremes():
-    kwargs = dict(magnitude_tolerance=1e-6, phase_tolerance=1e-6)
-    status, log_value = classify_weighted_count(1e300, 0.0, math.log2(1e300), **kwargs)
-    assert status == 'equivalent'
-    assert math.isfinite(log_value)
-
-    assert classify_weighted_count(0.0, 0.0, 2.0, **kwargs)[0] == 'not_equivalent'
-    assert classify_weighted_count(4.0, -1.9e-6, 2.0, **kwargs)[0] == 'equivalent'
-    assert classify_weighted_count(0.0, 4.0, 2.0, **kwargs)[0] == 'equivalent*'
+def test_printed_count_classifier_is_stable_for_extremes():
+    huge = parse_printed_count_line('c s exact quadruple float 1e300')
+    from QuPRS.utils.precision_count import approximate_printed_log2
+    assert math.isfinite(approximate_printed_log2(huge))
+    zero = parse_printed_count_line('c s exact quadruple float 0')
+    assert classify_printed_distance(zero, 4, 1e-8).status == 'not_equivalent'
     with pytest.raises(ValueError, match='Non-finite'):
-        classify_weighted_count(math.inf, 0.0, 2.0, **kwargs)
+        parse_printed_count_line('c s exact quadruple float inf')
 
 
 # Regression: zero path variables may still encode an unsatisfiable

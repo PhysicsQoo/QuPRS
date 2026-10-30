@@ -99,7 +99,6 @@ pub struct VerificationOptions {
     pub strategy: VerificationStrategy,
     pub tool_name: String,
     pub timeout_secs: u64,
-    pub wmc_magnitude_tolerance: f64,
     pub wmc_phase_tolerance: f64, // Compatibility alias for numerical WMC callers.
     pub rr_tolerance: f64,
     pub phase_tolerance: f64,
@@ -113,11 +112,10 @@ impl Default for VerificationOptions {
             strategy: VerificationStrategy::Difference,
             tool_name: "gpmc".to_string(),
             timeout_secs: 600,
-            wmc_magnitude_tolerance: 1e-8,
             wmc_phase_tolerance: 1e-8,
             rr_tolerance: 1e-10,
             phase_tolerance: 1e-8,
-            approximate_distance_tolerance: None,
+            approximate_distance_tolerance: Some(1e-8),
         }
     }
 }
@@ -151,10 +149,10 @@ pub fn check_equivalence_with_options(
     } else {
         options.wmc_phase_tolerance
     };
-    check_equivalence_with_tolerances_mode(
+    check_equivalence_with_distance_mode(
         num_qubits, gates1, gates2, options.method, options.strategy,
         &options.tool_name, options.timeout_secs,
-        options.wmc_magnitude_tolerance, effective_phase,
+        effective_phase,
         options.approximate_distance_tolerance,
     )
 }
@@ -203,9 +201,7 @@ pub fn check_equivalence(
     )
 }
 
-/// WMC decision thresholds are per-request policy, not symbolic reduction rules.
-/// This does not change the selected model counter or any PathSum transformation.
-pub fn check_equivalence_with_tolerances(
+fn check_equivalence_with_distance_mode(
     num_qubits: usize,
     gates1: &[QuantumOp],
     gates2: &[QuantumOp],
@@ -213,50 +209,20 @@ pub fn check_equivalence_with_tolerances(
     strategy: VerificationStrategy,
     tool_name: &str,
     timeout_secs: u64,
-    wmc_magnitude_tolerance: f64,
-    wmc_phase_tolerance: f64,
-) -> Result<EquivalenceCheckResult> {
-    check_equivalence_with_tolerances_mode(
-        num_qubits, gates1, gates2, method, strategy, tool_name,
-        timeout_secs, wmc_magnitude_tolerance, wmc_phase_tolerance, None,
-    )
-}
-
-fn check_equivalence_with_tolerances_mode(
-    num_qubits: usize,
-    gates1: &[QuantumOp],
-    gates2: &[QuantumOp],
-    method: VerificationMethod,
-    strategy: VerificationStrategy,
-    tool_name: &str,
-    timeout_secs: u64,
-    wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
     approximate_distance_tolerance: Option<f64>,
 ) -> Result<EquivalenceCheckResult> {
-    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
-        || wmc_magnitude_tolerance >= 1.0
-        || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
-        || wmc_phase_tolerance >= 1.0
-    {
+    if !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
+        || wmc_phase_tolerance >= 1.0 {
+        return Err(anyhow::anyhow!("WMC phase tolerance must be finite in (0, 1)"));
+    }
+    let eps = approximate_distance_tolerance.unwrap_or(1e-8);
+    if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
         return Err(anyhow::anyhow!(
-            "WMC magnitude and phase tolerances must be finite in (0, 1)"
+            "approximate_distance_tolerance must be finite and in (0, 1)"
         ));
     }
-    let distance_defect_threshold = if let Some(eps) = approximate_distance_tolerance {
-        if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
-            return Err(anyhow::anyhow!(
-                "approximate_distance_tolerance must be finite and in (0, 1)"
-            ));
-        }
-        if wmc_magnitude_tolerance != 1e-8 {
-            return Err(anyhow::anyhow!(
-                "approximate_distance_tolerance conflicts with nondefault wmc_magnitude_tolerance"
-            ));
-        }
-        let sq = eps * eps;
-        Some(sq / (1.0 + (1.0 - sq).sqrt()))
-    } else { None };
+    let approximate_distance_tolerance = Some(eps);
     let global_start = Instant::now();
     let stage_session = diagnostics::Session::from_environment();
     if timeout_secs == 0 {
@@ -308,12 +274,9 @@ fn check_equivalence_with_tolerances_mode(
             // If the state is not Identity, but there are no internal path variables left,
             // it means it reduced to a definitive non-equivalent Boolean state.
             let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-            if num_active_vars == 0 && approximate_distance_tolerance.is_none() {
-                status = EquivalenceStatus::NotEquivalent;
-            } else {
-                // A strict source residual is not proof of D > epsilon.
-                status = EquivalenceStatus::Unknown;
-            }
+            let _ = num_active_vars;
+            // Source-exact inequality is insufficient to establish D > epsilon.
+            status = EquivalenceStatus::Unknown;
         }
     }
 
@@ -338,7 +301,7 @@ fn check_equivalence_with_tolerances_mode(
         // High-precision source weights are selected only for GPMC's
         // projective-distance mode. All other modes retain their fast path.
         #[cfg(feature="high-precision-gpmc")]
-        if approximate_distance_tolerance.is_some() && tool_name == "gpmc" {
+        if tool_name == "gpmc" {
             wmc_mgr.enable_precise_gpmc_weights();
         }
 
@@ -363,29 +326,18 @@ fn check_equivalence_with_tolerances_mode(
             Some(num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0))
         } else {
             solver_invoked = true;
-            if approximate_distance_tolerance.is_some() {
-                match wmc_mgr.solve_with_deadline_distance_printed(tool_name, deadline) {
-                    Ok(value) => { printed_count = Some(value); None }
-                    Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
-                        status = EquivalenceStatus::Timeout;
-                        None
-                    }
-                    Err(error) => return Err(error),
+            match wmc_mgr.solve_with_deadline_distance_printed(tool_name, deadline) {
+                Ok(value) => { printed_count = Some(value); None }
+                Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
+                    status = EquivalenceStatus::Timeout;
+                    None
                 }
-            } else {
-                match wmc_mgr.solve_with_deadline(tool_name, deadline) {
-                    Ok(value) => Some(value),
-                    Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
-                        status = EquivalenceStatus::Timeout;
-                        None
-                    }
-                    Err(error) => return Err(error),
-                }
+                Err(error) => return Err(error),
             }
         };
         tool_time = Some(tool_start.elapsed().as_secs_f64());
 
-        if let (Some(count), Some(eps)) = (&printed_count, approximate_distance_tolerance) {
+        if let Some(count) = &printed_count {
             use num_rational::BigRational;
             use num_traits::{Signed, ToPrimitive, Zero};
             // Printed-output numerical classification only. The former
@@ -443,23 +395,10 @@ fn check_equivalence_with_tolerances_mode(
         info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
-        let norm = final_amplitude.norm();
-        if distance_defect_threshold.is_some() {
-            // Empty CNF analytic shortcut: a known exact normalized identity.
-            status = EquivalenceStatus::Equivalent;
-            wmc_precision_reason = Some("analytic_empty_cnf");
-        } else if (norm - 1.0).abs() < wmc_magnitude_tolerance {
-            let theta = final_amplitude.im.atan2(final_amplitude.re);
-            info!(target: "wmc", "Final amplitude phase: {:.4} rad", theta);
-            if theta.abs() < wmc_phase_tolerance {
-                status = EquivalenceStatus::Equivalent;
-            } else {
-                status = EquivalenceStatus::EquivalentUpToGlobalPhase;
-            }
-        } else {
-            debug!("WMC Normalization Failed. Expected norm: 1.0, Got: {:.4}", norm);
-            status = EquivalenceStatus::NotEquivalent;
-        }
+        // Empty-CNF shortcut: a structurally known identity.
+        let _ = final_amplitude;
+        status = EquivalenceStatus::Equivalent;
+        wmc_precision_reason = Some("analytic_empty_cnf");
         }
     }
 
@@ -557,8 +496,8 @@ mod verification_options_contract_tests {
         assert_eq!(options.strategy, VerificationStrategy::Difference);
         assert_eq!(options.tool_name, "gpmc");
         assert_eq!(options.timeout_secs, 600);
-        assert_eq!(options.wmc_magnitude_tolerance, 1e-8);
         assert_eq!(options.wmc_phase_tolerance, 1e-8);
+        assert_eq!(options.approximate_distance_tolerance, Some(1e-8));
     }
 
     #[test]
@@ -616,21 +555,16 @@ mod verification_options_contract_tests {
             ..VerificationOptions::default()
         };
         assert!(check_equivalence_with_options(1, &[], &[], &invalid).is_err());
-        let invalid = VerificationOptions {
-            approximate_distance_tolerance: Some(2e-4),
-            wmc_magnitude_tolerance: 1e-6,
+        let defaulted = VerificationOptions {
+            approximate_distance_tolerance: None,
             ..VerificationOptions::default()
         };
-        assert!(check_equivalence_with_options(1, &[], &[], &invalid).is_err());
+        let result = check_equivalence_with_options(1, &[], &[], &defaulted).unwrap();
+        assert_eq!(result.approximate_distance_tolerance, Some(1e-8));
     }
 
     #[test]
     fn typed_options_reject_invalid_thresholds_before_solver() {
-        let bad = VerificationOptions {
-            wmc_magnitude_tolerance: f64::NAN,
-            ..VerificationOptions::default()
-        };
-        assert!(check_equivalence_with_options(1, &[], &[], &bad).is_err());
         let bad = VerificationOptions {
             wmc_phase_tolerance: 0.0,
             ..VerificationOptions::default()

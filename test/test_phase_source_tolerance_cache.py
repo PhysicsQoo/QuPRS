@@ -70,7 +70,7 @@ def test_nonzero_gate_phase_survives_construction_for_all_methods(
             strategy="Naive",
             tool_name="gpmc",
             timeout=30,
-            wmc_magnitude_tolerance=1e-8,
+            approximate_distance_tolerance=1e-8,
             phase_tolerance=1e-8,
             rr_tolerance=tolerance,
         )

@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-8, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=None, rr_tolerance=1e-10, phase_tolerance=None))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=Some(1e-8), rr_tolerance=1e-10, phase_tolerance=None))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -51,7 +51,6 @@ pub fn check_equivalence(
     tool_name: &str,
     timeout: u64,
     safe_mode: bool,
-    wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
     approximate_distance_tolerance: Option<f64>,
     rr_tolerance: f64,
@@ -64,16 +63,13 @@ pub fn check_equivalence(
             "safe_mode is not supported by the Rust backend"
         ));
     }
-    if !wmc_magnitude_tolerance.is_finite() || wmc_magnitude_tolerance <= 0.0
-        || wmc_magnitude_tolerance >= 1.0
-        || !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
+    if !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
         || wmc_phase_tolerance >= 1.0
     {
         return Err(PyValueError::new_err(
-            "WMC magnitude and phase tolerances must be finite in (0, 1)"
+            "WMC phase tolerance must be finite in (0, 1)"
         ));
     }
-
     if !rr_tolerance.is_finite() || rr_tolerance <= 0.0 {
         return Err(PyValueError::new_err("rr_tolerance must be finite and positive"));
     }
@@ -90,17 +86,14 @@ pub fn check_equivalence(
         && wmc_phase_tolerance != effective_phase {
         return Err(PyValueError::new_err("phase_tolerance conflicts with wmc_phase_tolerance"));
     }
-    if let Some(eps) = approximate_distance_tolerance {
-        if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
-            return Err(PyValueError::new_err(
-                "approximate_distance_tolerance must be finite and in (0, 1)"
-            ));
-        }
-        if wmc_magnitude_tolerance != 1e-8 {
-            return Err(PyValueError::new_err(
-                "approximate_distance_tolerance conflicts with nondefault wmc_magnitude_tolerance"
-            ));
-        }
+    // None means the same projective-distance default, never magnitude mode.
+    let approximate_distance_tolerance =
+        Some(approximate_distance_tolerance.unwrap_or(1e-8));
+    let eps = approximate_distance_tolerance.unwrap();
+    if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
+        return Err(PyValueError::new_err(
+            "approximate_distance_tolerance must be finite and in (0, 1)"
+        ));
     }
     // Diagnostics-only FFI phase clock: default results are unchanged.
     // This is an extra opt-in and deliberately does not affect solver timing.
@@ -153,7 +146,6 @@ pub fn check_equivalence(
         strategy: rs_strategy,
         tool_name: tool_name_owned,
         timeout_secs: timeout,
-        wmc_magnitude_tolerance,
         wmc_phase_tolerance,
         rr_tolerance,
         phase_tolerance: effective_phase,

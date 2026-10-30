@@ -560,3 +560,168 @@ effective than Clifford-only special-casing in this observed pair.
 Maintain an unknown region when a certified bound cannot decide.
 Do not alter RR-first Hybrid dispatch, public epsilon, production
 single Solver invocation or introduce a global fixed guard.
+
+
+## Phase 6 — QPE/QFT real-CNF d-DNNF exact arithmetic and structure-aware error enclosure
+
+**Date:** 2026-10-30. **No production modification or PR.** Research
+branch `experiment/numerical-tolerance-calibration-20261027` continued
+from dev source `55e78c7597966617c1a193b89056ff4e99c3ddfb`.
+The experiments are *reference-oracle research*, not a proposed routine
+second GPMC solve in the public verifier.
+
+### Primary four actual-CNF d-DNNF experiments
+
+Research commit `5c5a8d5951b223e6c279514ca88ce58b0ec1e829`,
+[Actions #40977618673](https://github.com/PhysicsQoo/QuPRS/actions/runs/40977618673)
+**SUCCESS**. [Artifact 12943466270](https://github.com/PhysicsQoo/QuPRS/actions/runs/40977618673/artifacts/12943466270)
+ZIP SHA256 `464cfc088d03537ad4ed90bbc5f552da6bf75ec78e021206ea95534e20619eb8`,
+CRC PASS, 26/26 internal SHA256SUMS PASS.
+
+GPMC `-ddnnf -nnfout` generated actual counting circuits from the
+original source-pinned QPEexact8 Rust Hybrid and QFT16 Python WMC-only
+miters and from each algorithm's physically changed source
+`Rz(0.01)` self-pair. An independent Python evaluator multiplied and
+added **exact rational representations** of every complex *printed
+decimal CNF weight*, rather than MPFR arithmetic, and independently
+compared the exact rational results with the native GPMC 90-digit
+weighted counts.
+
+| Source-pinned real CNF | d-DNNF nodes | Max absolute printed GPMC versus exact rational component discrepancy |
+| --- | ---: | ---: |
+| QPEexact8 baseline | 83 | 4.35e-87 |
+| QPEexact8 self-source mutation | 1 | 1.19e-90 |
+| QFT16 baseline | 200887 | 8.34e-75 |
+| QFT16 self-source mutation | 200725 | 2.13e-75 |
+
+These are **observed** Solver arithmetic differences on the emitted
+CNF, not global a priori error bounds. For the separately evaluated
+d-DNNF, no arithmetic rounding is present: integer/rational addition
+and multiplication are exact.
+
+### Independent structural checks on sealed d-DNNF
+
+A second local analysis of the four sealed NNF artifacts confirmed
+that every `O decision_variable 2 left right` node had opposite
+decision-variable literals **implied by its children**, hence the
+two alternatives are disjoint. Every `A` node had disjoint
+variable support among its children, hence was decomposable.
+Original-variable mappings were complete and occurred exactly once;
+there were no unsupported deleted original variables.
+
+In total, the four real circuits passed **133431/133431** OR
+decision-disjointness checks, **266727/266727** AND
+decomposability checks, with no duplicate/missing variable maps.
+
+**Remaining gap:** this verifies deterministic/decomposable structure
+of the *emitted* graph; it is **not** a separate proof that GPMC's
+preprocessor and d-DNNF conversion exactly preserve the entire
+original input CNF. Faithfulness must be independently established
+before using the circuit as a formally certified verifier oracle.
+
+### Exact integer model counts and source-weight perturbation theorem
+
+The same d-DNNFs can be evaluated in the *integer counting* semiring
+(OR as integer sum, AND as product) to obtain the **actual number
+of satisfying assignments** of the compiled representation:
+
+| Real CNF | CNF variables | Weighted phase literals | N_sat |
+| --- | ---: | ---: | ---: |
+| QPE8 baseline | 31 | 17 | 2^11 |
+| QPE8 self-negative | 10 | 2 | 2^8 |
+| QFT16 baseline | 486 | 400 | 2^70 |
+| QFT16 self-negative | 465 | 385 | 2^64 |
+
+Each negative literal's weight is exactly 1 and each displayed
+phase-weight magnitude is bounded by `M=1+2^-40` from the actual
+decimal CNF coefficients. Suppose every corresponding *ideal*
+phase weight has magnitude 1 and has complex absolute error at most
+`delta` relative to the displayed decimal coefficient.
+The telescoping product bound, applied to at most `m` weighted
+phase literals in each satisfying assignment, yields
+
+```text
+|WMC(ideal source phases) - WMC(printed CNF phases)|
+  <= N_sat * m * delta * M^(m-1).
+```
+
+This inequality is **mathematically rigorous under its assumptions**.
+It is not the old empirical `2^(2*CNF_vars)` Solver error allowance.
+The d-DNNF evaluator uses only rational arithmetic; this bound
+describes *source-weight perturbation*, not GPMC MPFR errors.
+
+### Offline rational-threshold classification
+
+Research commit `aaa7115ef5f5323a577f99788b6cbbb6923b4f5e`,
+[offline Actions #40978779185](https://github.com/PhysicsQoo/QuPRS/actions/runs/40978779185)
+**SUCCESS**, using the **existing** artifact above: it launched
+**zero GPMC solver processes**.
+[Artifact 12943832517](https://github.com/PhysicsQoo/QuPRS/actions/runs/40978779185/artifacts/12943832517)
+ZIP SHA256 `2ff7f485245c971279687464ecaa121b583fe7fdaabd392859bbd6f9aa07ecd0`,
+CRC PASS, 5/5 internal SHA256SUMS PASS.
+All source CNF SHA256 values are pinned in
+`.diagnostics/tolerance_calibration/structure_aware_source_bound.py`.
+The magnitude-vs-distance comparison used *rational squared*
+inequalities; there is no binary64 rounding of the WMC count.
+
+| Original source-pinned pair | Per-weight delta <= 2^-49 (assumption) | Per-weight delta <= 2^-100 (assumption) |
+| --- | --- | --- |
+| QPEexact8 baseline | unknown | conditionally within D=1e-8 |
+| QPEexact8 self-negative Rz(0.01) | conditionally not_equivalent | conditionally not_equivalent |
+| QFT16 baseline | unknown | conditionally within D=1e-8 |
+| QFT16 self-negative Rz(0.01) | conditionally not_equivalent | conditionally not_equivalent |
+
+The **normalized** source-weight uncertainty radii at the less
+optimistic `delta=2^-49` are approximately:
+QPE8 baseline `3.02e-14`; QPE8 negative `3.55e-15`;
+QFT16 baseline `3.73e-7`; QFT16 negative `4.48e-8`.
+These are far below the real self-negative separation for the
+two physically altered circuits, `D_proj=|sin(0.005)|≈0.0049999792`.
+The source-weight upper bounds are far below the negative *normalized
+trace-magnitude* defect (approximately 1.25e-5) as well.
+
+At `delta=2^-100`, QFT16 baseline normalized input bound falls to
+`1.65e-22`, much smaller than the distance-threshold magnitude
+defect `5e-17`, and can produce a conditional positive verdict.
+The **actual pinned Rust QPE8 f64 weights are not certified
+to satisfy delta=2^-100**; that hypothetical positive result is not a
+valid reason to promote the current Rust status.
+
+### Certification boundaries and production decision
+
+All statuses in the table are explicitly **conditional**.
+Neither `delta=2^-49` nor `delta=2^-100` has been proven as a
+uniform bound on Qiskit/QASM -> Path-sum -> numerical weights for all
+these sources. In addition, a graph satisfying the checked local
+d-DNNF properties has not been independently proven equivalent to
+the complete original weighted CNF; and the QFT-negative
+normalization exponent should be read back as an explicit public
+result before release promotion.
+
+This is nevertheless a stronger, structure-sensitive **mathematical
+error analysis** than the n-only GPMC MPFR heuristic. It provides a
+clear bounded route to `not_equivalent` on true QPE/QFT negatives
+*without* arbitrarily widening the user's distance threshold.
+The required remaining step is to close those **two** proof obligations,
+not to treat repeated Solver agreement as a numerical certificate.
+
+Cost: actual QFT d-DNNF compilation and exact rational evaluation
+took about **34–40 seconds per real case** on the hosted runner,
+versus approximately 1–2 seconds for the previous native GPMC WMC
+call. The technique is therefore a research reference/oracle, **not**
+a justified automatic production fallback or mandatory extra solve.
+
+**Next before a formal PR:**
+- Establish a rigorous, source-identity-aware upper bound on each
+  Qiskit/Python/Rust emitted phase weight (including arbitrary
+  decimal radian literals and eighth-cycle phases).
+- Independently check the d-DNNF/compiler-to-original-CNF mapping
+  beyond local decision/decomposition checks, with small exhaustive
+  fixtures and/or SAT-backed miter certificates.
+- Determine whether an efficient *single-pass* WMC implementation
+  can expose enough support-count/structural information for a
+  scalable bound without constructing a full 200k-node exact graph.
+- Preserve RR-first Hybrid, independent Solver selection,
+  `unknown` when evidence is insufficient, and **one solver
+  invocation per actual WMC stage**. Never use empirical printed
+  digits alone, arbitrary guards, or forced equivalence.

@@ -26,7 +26,7 @@ fn exact_special_weight(phase:&PhaseCoeff)->Option<(&'static str,&'static str)> 
         _ => None,
     }
 }
-fn mpfr_weight(phase:&PhaseCoeff)->(String,String) {
+pub(crate) fn mpfr_weight(phase:&PhaseCoeff)->(String,String) {
     if let Some((re,im))=exact_special_weight(phase) {
         return (re.into(),im.into());
     }
@@ -147,4 +147,169 @@ fn experimental_native_mpfr_selective_paired_cost() {
     eprintln!("EXPERIMENT_MPFR_COST phase_samples=24 paired_reps=7 f64_plus_text_median_ns={:.3} mpfr_192bit_plus_48digit_text_median_ns={:.3} ratio={:.3}",
         fast[3],high[3],high[3]/fast[3]);
     assert!(fast[3]>0.0 && high[3]>0.0);
+}
+
+
+#[cfg(target_os="linux")]
+mod end_to_end {
+    use super::*;
+    use crate::wmc::WmcManager;
+    use crate::pathsum::PathSum;
+    use crate::strategy::VerificationStrategy;
+    use crate::precision_count::{PrintedCount,PrintedVerdict};
+    use std::fs;
+    use std::path::{Path,PathBuf};
+    use std::process::Command;
+    use std::sync::atomic::{AtomicUsize,Ordering};
+    use std::time::{Duration,Instant};
+    static TRIAL_ID:AtomicUsize=AtomicUsize::new(0);
+
+    struct ScopedFile(PathBuf);
+    impl Drop for ScopedFile { fn drop(&mut self){let _=fs::remove_file(&self.0);} }
+    fn temporary(ext:&str)->ScopedFile {
+        let n=TRIAL_ID.fetch_add(1,Ordering::Relaxed);
+        ScopedFile(std::env::temp_dir().join(format!(
+            "quprs-exp-e2e-{}-{n}.{ext}",std::process::id())))
+    }
+    fn gpmc_once(cnf:&str,limit:Duration)->anyhow::Result<(PrintedCount,f64,u64)> {
+        // Existing supervised child process; /usr/bin/time provides peak child
+        // RSS (KiB) without a second WMC invocation or solver source patch.
+        let input=temporary("cnf");
+        let usage=temporary("usage");
+        fs::write(&input.0,cnf)?;
+        let adapter=crate::solver_adapter::distance_adapter_for("gpmc")?;
+        let mut cmd=Command::new("/usr/bin/time");
+        cmd.args(["-f","%M %e","-o"]).arg(&usage.0)
+            .arg(adapter.executable_path())
+            .args(adapter.arguments())
+            .arg(&input.0);
+        let begin=Instant::now();
+        let result=crate::solver_process::run(&mut cmd,Some(begin+limit));
+        let elapsed=begin.elapsed().as_secs_f64();
+        match result {
+            Ok(out)=>{
+                if !out.status.success() {
+                    return Err(anyhow::anyhow!("real GPMC failed: status={} stderr={}",
+                        out.status,String::from_utf8_lossy(&out.stderr)));
+                }
+                let printed=crate::precision_count::parse_stdout(
+                    &String::from_utf8_lossy(&out.stdout))?;
+                let time_txt=fs::read_to_string(&usage.0)?;
+                let fields:Vec<_>=time_txt.split_whitespace().collect();
+                if fields.len()<2 {return Err(anyhow::anyhow!("missing /usr/bin/time RSS"))}
+                let rss=fields[0].parse::<u64>()?;
+                Ok((printed,elapsed,rss))
+            }
+            Err(error)=>Err(error)
+        }
+    }
+    fn strip_nonunitary_qasm(source:&str)->String {
+        source.lines().filter(|line|{
+            let s=line.trim();
+            !s.starts_with("measure ") && !s.starts_with("barrier ")
+                && !s.starts_with("reset ") && !s.starts_with("creg ")
+        }).collect::<Vec<_>>().join("\n")
+    }
+    fn normalized_verdict(count:&PrintedCount, n:usize, npaths:usize)->anyhow::Result<PrintedVerdict> {
+        let twice= n.checked_add(npaths).ok_or_else(||anyhow::anyhow!("overflow"))?;
+        Ok(crate::precision_count::classify(count,twice.try_into()?,"1e-8")?)
+    }
+    fn median(v:&mut [f64])->f64 {
+        v.sort_by(|a,b|a.partial_cmp(b).unwrap());v[v.len()/2]
+    }
+    fn trim_weight(cnf:&str)->Vec<&str> {
+        cnf.lines().filter(|line| !line.starts_with("c p weight ")).collect()
+    }
+    fn benchmark_one(name:&str,qasm_path:&Path, repeats:usize, solve_seconds:u64)->anyhow::Result<()> {
+        let qasm=strip_nonunitary_qasm(&fs::read_to_string(qasm_path)?);
+        let (base,n)=crate::qasm::parse_qasm_str(&qasm)
+            .map_err(|s|anyhow::anyhow!("{} qasm parse: {}",name,s))?;
+        // Independent physical oracle: V = Rz(theta) U, so
+        // |Tr(U†V)|/2^n = |cos(theta/2)| for every circuit U.
+        const THETA:&str="0.000000025";
+        let mut perturbed=base.clone();
+        perturbed.push(crate::ir::QuantumOp::RZ(
+            0,crate::rational::Angle::from_qasm_str(THETA)
+                .map_err(|s|anyhow::anyhow!(s))?));
+        let t0=Instant::now();
+        let mut ps=PathSum::new(n);
+        ps.set_auto_reduce(true);
+        let miter=VerificationStrategy::Difference.run(ps,&base,&perturbed);
+        let pathsum_s=t0.elapsed().as_secs_f64();
+        let mut manager=WmcManager::new(&miter);
+        let enc=Instant::now();
+        manager.encode_trace(&miter)?;
+        let encoding_s=enc.elapsed().as_secs_f64();
+        let serial=Instant::now();
+        let low=manager.to_dimacs_string("gpmc");
+        let low_serial_s=serial.elapsed().as_secs_f64();
+        let serial=Instant::now();
+        let high=manager.experimental_precise_gpmc_cnf();
+        let high_serial_s=serial.elapsed().as_secs_f64();
+        assert_eq!(trim_weight(&low),trim_weight(&high),
+            "MPFR candidate must not modify logical clauses or variable IDs");
+        let weight_terms=manager.numerical_weight_count();
+        let nonclifford=manager.experimental_phase_weights.iter()
+            .filter(|(_,phase)|phase.radians.is_some()
+                || !matches!((phase.constant.numer,phase.constant.denom),
+                    (0,1)|(1,4)|(1,2)|(3,4)))
+            .count();
+        let mut timings=[Vec::new(),Vec::new()];
+        let mut rss=[Vec::new(),Vec::new()];
+        let mut verdicts=[Vec::new(),Vec::new()];
+        let mut timeout=[false,false];
+        for k in 0..repeats {
+            for idx in if k%2==0 {[0,1]} else {[1,0]} {
+                let selected=if idx==0 {&low}else{&high};
+                match gpmc_once(selected,Duration::from_secs(solve_seconds)) {
+                    Ok((count,elapsed,r))=>{
+                        let observed=normalized_verdict(&count,n,miter.v.path_vars.len())?;
+                        assert_ne!(observed,PrintedVerdict::Equivalent,
+                            "incorrect positive equivalence for D=1.25e-8 case={name} variant={idx}");
+                        eprintln!("EXPERIMENT_END_TO_END_SAMPLE case={name} n={n} rep={k} variant={} gpmc_wall_s={elapsed:.6} rss_kib={r} verdict={observed:?}",
+                            if idx==0 {"f64"} else {"mpfr"});
+                        timings[idx].push(elapsed);
+                        rss[idx].push(r as f64);
+                        verdicts[idx].push(format!("{observed:?}"));
+                    }
+                    Err(e)=>{
+                        let message=format!("{e:#}");
+                        if e.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() {
+                            timeout[idx]=true;
+                            eprintln!("EXPERIMENT_END_TO_END_TIMEOUT case={name} n={n} rep={k} variant={} seconds={solve_seconds}",
+                                if idx==0 {"f64"} else {"mpfr"});
+                        } else {return Err(anyhow::anyhow!("case={name} variant={idx} {message}"))}
+                    }
+                }
+                if timeout[idx] {break;}
+            }
+            if timeout.iter().any(|x|*x) {break;}
+        }
+        let baseline=if !timings[0].is_empty(){median(&mut timings[0])}else{f64::NAN};
+        let candidate=if !timings[1].is_empty(){median(&mut timings[1])}else{f64::NAN};
+        let baseline_rss=if !rss[0].is_empty(){median(&mut rss[0])}else{f64::NAN};
+        let candidate_rss=if !rss[1].is_empty(){median(&mut rss[1])}else{f64::NAN};
+        let overhead=high_serial_s-low_serial_s;
+        let ratio=if baseline.is_finite(){(candidate+high_serial_s)/(baseline+low_serial_s)}else{f64::NAN};
+        eprintln!("EXPERIMENT_END_TO_END_SUMMARY case={name} gates={} n={} pathsum_s={pathsum_s:.6} cnf_encode_s={encoding_s:.6} weights={} expensive_weights={} cnf_vars={} cnf_clauses={} cnf_bytes_f64={} cnf_bytes_mpfr={} f64_serialize_s={low_serial_s:.6} mpfr_serialize_s={high_serial_s:.6} delta_serialize_s={overhead:.6} f64_solver_median_s={baseline:.6} mpfr_solver_median_s={candidate:.6} f64_rss_kib={baseline_rss:.0} mpfr_rss_kib={candidate_rss:.0} solver_plus_serialize_ratio={ratio:.5} f64_verdict={:?} mpfr_verdict={:?} timeout_f64={} timeout_mpfr={} oracle_D=1.25e-8",
+            base.len(),weight_terms,manager.to_dimacs_string("gpmc").lines().next().unwrap_or(""),
+            low.len(),high.len(),verdicts[0],verdicts[1],timeout[0],timeout[1]);
+        Ok(())
+    }
+    #[test]
+    fn experimental_end_to_end_algorithm_weight_ab() {
+        let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let cases=[
+            ("grover4","benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm"),
+            ("qaoa7","benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+            ("graphstate16","benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm"),
+            ("qft16","benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm"),
+        ];
+        for (name,file) in cases {
+            let path=root.join(file);
+            if let Err(e)=benchmark_one(name,&path,2,12) {
+                panic!("bounded public-corpus end-to-end experiment {name}: {e:#}");
+            }
+        }
+    }
 }

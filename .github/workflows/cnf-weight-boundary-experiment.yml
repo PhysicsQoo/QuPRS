@@ -77,6 +77,14 @@ jobs:
             cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
               --features mpfr-experiment experimental_native_mpfr -- --nocapture \
               2>&1 | tee "$RUNNER_TEMP/cnf-study/mpfr-native-weight.log"
+      - name: Native real-algorithm CNF weights -> single GPMC solve A/B
+        run: |
+          set -o pipefail
+          sudo apt-get install -y time
+          RUSTFLAGS="-L native=$RUNNER_TEMP/experimental-mpfr-lib -l mpfr -l gmp" \
+            cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+              --features mpfr-experiment experimental_end_to_end_algorithm_weight_ab \
+              -- --nocapture 2>&1 | tee "$RUNNER_TEMP/cnf-study/mpfr-end-to-end.log"
       - name: Production Python SymEngine precision and actual solver parity
         run: |
           set -o pipefail

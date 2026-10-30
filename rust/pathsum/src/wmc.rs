@@ -62,6 +62,8 @@ pub struct WmcManager {
     weights: HashMap<i32, Complex<f64>>, 
     var_map: HashMap<u32, i32>,
     next_var_id: i32,
+    #[cfg(all(test,feature="mpfr-experiment"))]
+    experimental_phase_weights: Vec<(i32,crate::rational::PhaseCoeff)>,
 }
 
 impl WmcManager {
@@ -71,6 +73,8 @@ impl WmcManager {
             weights: HashMap::new(),
             var_map: HashMap::new(),
             next_var_id: 1, 
+            #[cfg(all(test,feature="mpfr-experiment"))]
+            experimental_phase_weights: Vec::new(),
         };
         manager
     }
@@ -118,6 +122,8 @@ impl WmcManager {
             self.next_var_id += 1;
             
             self.weights.insert(z_i, weight);
+            #[cfg(all(test,feature="mpfr-experiment"))]
+            self.experimental_phase_weights.push((z_i, coeff.clone()));
 
             if mono.is_empty() {
                 self.clauses.push(vec![z_i]);
@@ -229,6 +235,37 @@ impl WmcManager {
             for path_var in unused { self.get_dimacs_var(path_var); }
         }
         Ok(())
+    }
+
+    #[cfg(all(test,feature="mpfr-experiment"))]
+    pub(crate) fn experimental_precise_gpmc_cnf(&self)->String {
+        // The *only* experiment-mode difference is positive weight text.
+        // Preserve the CNF clauses, variables, weight IDs, and their ordering.
+        use std::collections::BTreeMap;
+        let replacements: BTreeMap<i32,(String,String)> =
+            self.experimental_phase_weights.iter()
+                .map(|(id,phase)|(*id,crate::experimental_mpfr_bridge::mpfr_weight(phase)))
+                .collect();
+        assert_eq!(replacements.len(), self.experimental_phase_weights.len());
+        let old=self.to_dimacs_string("gpmc");
+        let mut new=String::with_capacity(old.len()+replacements.len()*80);
+        let mut replaced=0_usize;
+        for line in old.lines() {
+            if let Some(id)=line.strip_prefix("c p weight ")
+                .and_then(|rest|rest.split_whitespace().next())
+                .and_then(|id|id.parse::<i32>().ok()) {
+                if let Some((re,im))=replacements.get(&id) {
+                    new.push_str(&format!("c p weight {id} {re} {im} 0\n"));
+                    replaced+=1;
+                    continue;
+                }
+            }
+            new.push_str(line);
+            new.push('\n');
+        }
+        assert_eq!(replaced, replacements.len(),
+            "every exact source phase must replace exactly one printed CNF weight");
+        new
     }
 
     pub fn to_dimacs_string(&self, tool_name: &str) -> String {

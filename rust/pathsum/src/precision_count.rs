@@ -208,6 +208,44 @@ pub fn classify_with_uncertainty(
     else { Ok(PrintedVerdict::UnknownResolution) }
 }
 
+
+/// Derive the finite-output projective-distance resolution from *actual*
+/// Ganak printed count tokens, their rounding intervals, and the trace
+/// normalization. None means the requested epsilon is resolvable from the
+/// print formatting at this count. This is NOT a solver arithmetic bound.
+pub fn ganak_print_resolution_distance(
+    count: &PrintedCount, normalization_twice_log2: i32, epsilon: &str,
+) -> Result<Option<f64>> {
+    use num_traits::ToPrimitive;
+    if count.format_name == "c s exact double prec-sci" {
+        return Ok(None); // GPMC has separate MPFR precision metadata.
+    }
+    if normalization_twice_log2.abs() > MAX_EXP {
+        return Ok(None);
+    }
+    let (eps, _) = component(epsilon)?;
+    let zero = BigRational::zero();
+    let one = BigRational::from_integer(BigInt::from(1));
+    if eps <= zero || eps >= one {
+        return Err(anyhow!("Distance tolerance must be in (0,1)"));
+    }
+    let re = count.real.abs();
+    let im = count.imag.abs();
+    let lo_re = (&re - &count.real_half_unit).max(BigRational::zero());
+    let lo_im = (&im - &count.imag_half_unit).max(BigRational::zero());
+    let hi_re = &re + &count.real_half_unit;
+    let hi_im = &im + &count.imag_half_unit;
+    let span_sq = &hi_re * &hi_re + &hi_im * &hi_im
+        - &lo_re * &lo_re - &lo_im * &lo_im;
+    let normal_sq = BigRational::from_integer(BigInt::from(2))
+        .pow(normalization_twice_log2);
+    let normalized_span = span_sq / normal_sq;
+    if normalized_span <= &eps * &eps {
+        return Ok(None);
+    }
+    Ok(Some(normalized_span.to_f64().unwrap_or(f64::INFINITY).sqrt()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

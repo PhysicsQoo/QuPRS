@@ -58,10 +58,19 @@ def annotate(source: Path, dest: Path):
           '}\n'
           '}\n')
     patch(cpp,
-          "    this->imag = mpfr::mpreal(0);\n    return *this;\n}\n",
+          "Complex &Complex::operator=(const int v)\n{\n"
+          "    // mpc_set_d_d(value, v, 0, MPC_RNDNN);\n"
+          "    // return *this;\n"
+          "    this->real = mpfr::mpreal(v);\n"
+          "    this->imag = mpfr::mpreal(0);\n"
+          "    return *this;\n}",
+          "Complex &Complex::operator=(const int v)\n{\n"
+          "    // mpc_set_d_d(value, v, 0, MPC_RNDNN);\n"
+          "    // return *this;\n"
+          "    this->real = mpfr::mpreal(v);\n"
           "    this->imag = mpfr::mpreal(0);\n"
           "    this->p17_rounding_exponent = 0;\n"
-          "    return *this;\n}\n")
+          "    return *this;\n}")
     patch(cpp,
           "Complex Complex::operator+(const Complex &v) const\n{\n"
           "    return Complex(real + v.real, imag + v.imag);\n}",
@@ -105,13 +114,13 @@ def annotate(source: Path, dest: Path):
           "    Complex r(real << u, imag << u);\n"
           "    r.p17_rounding_exponent=p17_rounding_exponent;\n"
           "    return r;\n}")
-    # This anchor is only in the Complex branch, not the mpz_class branch.
+    # Capture root result BEFORE diagnostics such as PrintLog10 change MPFR flags.
     patch(main,
-          "            Counter<Complex> S(config);\n            main_mc(S, filename);",
-          "            Counter<Complex> S(config);\n            main_mc(S, filename);\n"
-          "            std::fprintf(stderr,"
+          "static void printResult(bool sat, Mode mode, const Complex& result) {",
+          "static void printResult(bool sat, Mode mode, const Complex& result) {\n"
+          "    std::fprintf(stderr,"
           " \"P17_DAG q=%llu prec_bits=%ld uf=%d of=%d nan=%d erange=%d\\n\","
-          " (unsigned long long) S.getMC().p17_rounding_exponent,"
+          " (unsigned long long) result.p17_rounding_exponent,"
           " (long)mpfr::mpreal::get_default_prec(),"
           " (int)mpfr_underflow_p(),(int)mpfr_overflow_p(),"
           " (int)mpfr_nanflag_p(),(int)mpfr_erangeflag_p());")

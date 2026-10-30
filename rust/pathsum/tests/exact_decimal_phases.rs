@@ -51,15 +51,25 @@ fn decimal_rational_has_exact_source_provenance() {
 }
 
 #[test]
-fn tiny_nonzero_exact_radians_are_not_identity() {
-    assert_eq!(
-        check("", "rz(0.0000000001) q[0];"),
-        EquivalenceStatus::NotEquivalent,
-    );
-    assert_eq!(
-        check("", "rz(0.001) q[0];"),
-        EquivalenceStatus::NotEquivalent,
-    );
+fn tiny_nonzero_exact_radians_respect_rr_tolerance() {
+    // RR-only uses per-call tolerance, not a second strict-identity rule.
+    let (ops1, n) = parse_qasm_str(&qasm("")).unwrap();
+    let (ops2, _) = parse_qasm_str(&qasm("rz(0.0000000001) q[0];")).unwrap();
+    let mut options = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        strategy: VerificationStrategy::Naive,
+        ..VerificationOptions::default()
+    };
+    let approximate = check_equivalence_with_options(n, &ops1, &ops2, &options).unwrap();
+    assert_eq!(approximate.status, EquivalenceStatus::Equivalent);
+    assert!(approximate.rr_approximate);
+    assert!(!approximate.solver_invoked);
+    options.rr_tolerance = 1e-12;
+    let strict = check_equivalence_with_options(n, &ops1, &ops2, &options).unwrap();
+    assert_eq!(strict.status, EquivalenceStatus::NotEquivalent);
+    assert!(!strict.rr_approximate);
+    assert!(!strict.solver_invoked);
+    assert_eq!(check("", "rz(0.001) q[0];"), EquivalenceStatus::NotEquivalent);
 }
 
 #[test]
@@ -100,14 +110,23 @@ fn graphstate_rounded_complements_are_not_symbolic_pi_identities() {
     let second_sum = second_a.radians.unwrap() + second_b.radians.unwrap();
     assert_ne!(first_sum, second_sum);
     assert!(symbolic.radians.is_none());
-    assert_eq!(
-        check(first, symbolic_pi),
-        EquivalenceStatus::NotEquivalent,
-    );
-    assert_eq!(
-        check(second, symbolic_pi),
-        EquivalenceStatus::NotEquivalent,
-    );
+    // These residuals are tiny; default RR may accept them within
+    // tolerance. Use an explicit tighter per-call tolerance to establish
+    // their source-distinctness without inventing an exact-only RR rule.
+    let options = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        strategy: VerificationStrategy::Naive,
+        rr_tolerance: 1e-18,
+        ..VerificationOptions::default()
+    };
+    for input in [first, second] {
+        let (ops1, n) = parse_qasm_str(&qasm(input)).unwrap();
+        let (ops2, _) = parse_qasm_str(&qasm(symbolic_pi)).unwrap();
+        assert_eq!(
+            check_equivalence_with_options(n, &ops1, &ops2, &options).unwrap().status,
+            EquivalenceStatus::NotEquivalent,
+        );
+    }
 }
 
 #[test]
@@ -126,14 +145,23 @@ fn near_cancelled_decimal_source_retains_one_nanosecond_radian_residual() {
     assert_eq!(check("rz(0.0002) q[0];\nrz(-0.000199999) q[0];",
                      "rz(0.000000001) q[0];"),
                EquivalenceStatus::Equivalent);
+    // 1e-9 rad exceeds default RR tolerance, but a looser per-call
+    // threshold is allowed to classify it approximately equivalent.
     assert_eq!(check("", "rz(0.000000001) q[0];"),
                EquivalenceStatus::NotEquivalent);
 }
 
 #[test]
 fn symbolic_pi_remains_distinct_from_finite_decimal_approximation() {
-    assert_eq!(check("rz(pi/8) q[0];",
-                     "rz(0.39269908169872414) q[0];"),
+    let (ops1, n) = parse_qasm_str(&qasm("rz(pi/8) q[0];")).unwrap();
+    let (ops2, _) = parse_qasm_str(&qasm("rz(0.39269908169872414) q[0];")).unwrap();
+    let opts = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        strategy: VerificationStrategy::Naive,
+        rr_tolerance: 1e-20,
+        ..VerificationOptions::default()
+    };
+    assert_eq!(check_equivalence_with_options(n, &ops1, &ops2, &opts).unwrap().status,
                EquivalenceStatus::NotEquivalent);
 }
 

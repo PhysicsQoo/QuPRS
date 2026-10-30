@@ -6,6 +6,19 @@ use pathsum::stats::RuleStats;
 
 /// Helper function to display the final equivalence checking results
 pub fn display_summary(res: &EquivalenceCheckResult, quiet: bool) {
+    if let Some(resolution) = res.wmc_print_resolution_distance {
+        // The quiet mode's stdout remains a machine-readable verdict.
+        // This warning is based on the actual solver output, not a
+        // hard-coded Ganak precision or a certified arithmetic bound.
+        eprintln!(
+            "Warning: Ganak printed-count rounding resolution at this normalized count \
+             (estimated projective-distance scale {:.6e}) is coarser than requested \
+             approximate_distance_tolerance={:.6e}; the numerical verdict is \
+             solver-dependent and not certified at this resolution.",
+            resolution,
+            res.approximate_distance_tolerance.unwrap_or(1e-8),
+        );
+    }
     if quiet {
         // Output strictly the enum variant string for parsing by external scripts
         println!("{}", res.status);

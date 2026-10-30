@@ -845,3 +845,183 @@ unintentionally selected the prior four-case d-DNNF study as
 well. The gating is now narrowed to the exact research(bound):
 prefix, so future source-bound studies do not repeat QFT16.
 This does not affect any production code or main/dev workflow.
+
+
+## Phase 8 — Python QFT16 directed phase-weight bounds, large CNF implications and matched GPMC cost
+
+**2026-10-30 | research-only; no PR or dev/main update.**
+Existing branch `experiment/numerical-tolerance-calibration-20261027`.
+Pinned public dev `55e78c7597966617c1a193b89056ff4e99c3ddfb`,
+pinned GPMC `a1bda3489e959d3695b6798d327c5a1fc1bed305`.
+
+- Source-and-performance experiment commit `e222d14328d4d9619fe91734d577ba6ab263b6b2`:
+  [Actions #40986641177](https://github.com/PhysicsQoo/QuPRS/actions/runs/40986641177) **SUCCESS**,
+  [artifact 12947142574](https://github.com/PhysicsQoo/QuPRS/actions/runs/40986641177/artifacts/12947142574);
+  ZIP SHA256 `48c9059497cbf5830e366257187ef1b1bf1f9ef5eb26d6ba692a16ec9527ea8d`,
+  ZIP CRC PASS and **75/75** internal SHA256SUMS independently verified.
+- Standalone original-clause implication study commit `7efcf7a80dc8444afcc6cc9a3c573f685e6c6351`:
+  [Actions #40987636924](https://github.com/PhysicsQoo/QuPRS/actions/runs/40987636924) **SUCCESS**,
+  [artifact 12947533493](https://github.com/PhysicsQoo/QuPRS/actions/runs/40987636924/artifacts/12947533493);
+  ZIP SHA256 `1abfb222caf105f164d9b76c77952878cd1c871870121c4b37354c34e8dc58fa`,
+  ZIP CRC PASS and **6/6** internal SHA256SUMS independently verified.
+  This second job reused previous sealed CNF/NNF and native-phase evidence,
+  **zero additional GPMC Solver calls**.
+
+### 1. Python QFT16: actual 113-bit SymEngine-to-GPMC weights
+
+The original two QFT16 QASM hashes still matched:
+`39b6889497a4e98098b6bb2b4563ace2fb660f4cc3fe8d0763d3f69fc200d865` /
+`aa85188d731454bd85b0fe2ae089ab8e6b812501730eee5f1651ac11d7b7fcbc`.
+The pinned dev Python public `wmc_only` API executed **one** native GPMC
+call; outcome `unknown`, printed-only `equivalent`, reason
+`single_pass_uncertified_insufficient_printed_resolution`.
+Its CNF SHA256 was
+`20ee9e55eb1fc644d08daf130d180ded46f06f67897fa46f57b4f4ef4ef7f8f1`,
+**byte-identical** to the previous independently preserved Phase 6
+`qft16-baseline.cnf`. The first study script accidentally used
+a 61-character incomplete expected SHA and consequently marked its
+`matching_phase6_cnf` diagnostic false; the *actual* emitted SHA
+had always been the correct 64-character value. This bookkeeping
+error was corrected in the experiment branch and the offline recheck
+compared both source CNF byte hashes exactly; it did not rerun QFT.
+
+All **400/400** emitted Path-sum `P_to_wlogi` phase expressions,
+in the actual encoded order, evaluated to explicit **rational**
+numbers in symbolic representation. In particular, source
+coefficients such as
+`13703711448578501/36028797018963968` show that preserving
+an *exact rational value already produced by Qiskit/Path-sum* is
+not automatically preserving the *original ideal QASM angle*.
+This distinction is essential.
+
+A separate 384-bit MPFR **directed-rounding interval** oracle,
+including interval `pi`, exact rational numerator/denominator
+conversion and globally Lipschitz sine/cosine enclosure,
+compared each exact displayed CNF decimal to the ideal complex
+phase for that **encoded symbolic rational**. The maximum certified
+component-L1 complex difference was
+
+```text
+max_j |w_CNF,j - exp(2*pi*i * rational_phase_j)|_1
+    <= 9.021117345986986392e-34  < 2^-100  < 2^-49
+```
+
+This is an actual **per-weight proof for all 400 observed QFT16
+Path-sum rational phases**, conditional on the source expression being
+faithfully transported into the symbolic rational representation.
+It is not a blanket guarantee for arbitrary SymEngine expressions,
+for floating QASM inputs, or for arbitrary-angle Qiskit transpilation.
+The `evalf(113)` algorithm itself has not been proven correctly
+rounded for all expressions; instead the independently directed
+interval checks enclose the **actual emitted decimal weights** for
+these 400 sources.
+
+The proven `<2^-100` bound can be plugged into the previously derived
+structure-sensitive bound for this **same exact CNF**, yielding a
+*conditional* trace-magnitude positive within `epsilon_D=1e-8`.
+It cannot yet promote the public `unknown`, because
+original-QASM-to-encoded-phase semantics and complete
+CNF↔d-DNNF equivalence still need independent verification.
+
+### 2. Large CNF/d-DNNF semantic checks without enumeration
+
+An independent PySAT CaDiCaL 1.5.3 gate-Tseitin
+XOR miter checked
+`CNF != expand(vmap/fixed/free(dDNNF))`.
+QPEexact8 baseline (31 variables) and genuine self-negative
+(10 variables) both returned **UNSAT** promptly. No independently
+checked DRAT/LRAT proof was collected, so this is SAT-backed evidence,
+not a proof-carrying certificate.
+
+For each of QFT16 baseline and genuine self-negative, a bounded
+**70-second** full SAT-miter attempt exited **124 (timeout)**.
+There is no full QFT CNF↔NNF equivalence result from those runs.
+The overall Actions job remained success because these timeouts were
+explicitly recorded as `NOT_VERIFIED`, not treated as a passing proof.
+
+A separate, more effective *one-direction theorem check* was run
+on the exact same four originally sealed CNF/NNF byte pairs.
+For every original CNF clause `C_j`, set its literals FALSE and
+compute existential satisfiability of the whole d-DNNF under that
+partial assignment. This is exact under the verified
+**AND decomposability** property; OR combines satisfiable branches.
+Python arbitrary-size integer bitsets process **all clauses
+simultaneously**, without enumerating assignments, running the
+native GPMC a second time or calling SAT on every clause.
+
+| Source-pinned real CNF | CNF clauses | All clauses entailed by NNF? | Independent time |
+| --- | ---: | --- | ---: |
+| QPEexact8 baseline | 61 | yes | 0.0004s |
+| QPEexact8 self-negative | 19 | yes | 0.0001s |
+| QFT16 baseline | 1144 | yes | 0.8364s |
+| QFT16 self-negative | 1105 | yes | 0.7754s |
+
+Across all **2329/2329** clauses, no assignment represented by the
+emitted d-DNNF could violate any original CNF clause. Mapped
+original variables were verified complete and unique, and AND
+decomposability was independently rechecked.
+Thus for these actual four cases the independently interpreted
+emitted `d-DNNF => original CNF` implication has a
+non-enumerative proof.
+
+**Do not overstate:** the reverse
+`original CNF => emitted d-DNNF` is NOT shown for large QFT16.
+The single direction plus matching approximate GPMC count does not
+prove full logical equivalence. A complete proof could use a
+checkable SAT witness or another independently derived exact
+CNF model-count certificate; neither is presently available for
+QFT16.
+
+### 3. Fair paired GPMC mode A/B on a single Ubuntu runner
+
+Replayed **identical original source-pinned CNF bytes** from the
+previous artifact on *one hosted ubuntu-24.04 runner* and *one native
+pinned GPMC binary*. Each mode was independently launched three times
+in alternating order
+`default,ddnnf / ddnnf,default / default,ddnnf` with 90-decimal
+working digits, for QPE8 original/negative and QFT16
+original/negative, total **24 research-only Solver calls**.
+For every CNF, all six native printed complex counts matched
+**exactly as rational decimals** across modes and replicates.
+The measurements used GNU `time` elapsed seconds and peak RSS kB.
+
+| QFT16 source | Default median | -ddnnf median | Time ratio | Default RSS | -ddnnf RSS | RAM ratio | NNF bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 1.22s | 1.70s | 1.393x | 42168 kB | 96416 kB | 2.286x | 8066131 |
+| Self-negative | 1.20s | 1.70s | 1.417x | 42064 kB | 96220 kB | 2.287x | 8014921 |
+
+QPE8 timings were **0.00s** at this time utility's measurement
+resolution. Therefore QPE timing ratios are **undefined** and should
+not be interpreted as evidence of equivalent performance.
+Their small peak RSS differences are not general conclusions.
+All these timings are **single hosted-runner exploratory measurements**,
+not stable dedicated-host performance guarantees.
+
+**Decision:** `-ddnnf` can deliver a useful structural witness
+in the **same** native GPMC invocation, but costs about
+39–42% extra native walltime and 2.29x peak memory on this
+QFT16 pair. This is NOT currently justified as the default
+public production GPMC path. Evaluate an explicit, evidence-driven
+opt-in or cheaper in-process count/structure export only after
+source and semantic certificates are complete. The existing
+default single-Solver contract must remain.
+
+### Progress and outstanding proof obligations
+
+1. **Python weight frontier advanced:** all 400 actual QFT16
+   *encoded rational* phases have independently certified
+   <2^-100 emitted weight errors. Verify QASM -> Qiskit ->
+   encoded rational-phase source meaning separately;
+   do not conflate binary64 source angles and exact source QASM.
+2. **Large semantics improved:** 2329 exact original clauses
+   proved entailed by their d-DNNFs in <2 seconds total,
+   while both QFT full XOR SAT-miters timed out at 70s.
+   Need the reverse direction for large-CNF formal equivalence.
+3. **Runtime decision established:** enabling d-DNNF output
+   adds significant memory/time overhead despite one Solver
+   call and exact matching counts; keep public default off.
+4. Existing public `unknown` statuses, RR-first Hybrid and
+   fixed `epsilon_D` are unchanged. Do not replace solver
+   numerical model with an empirical observed gap.
+5. No new PR, dev/main change, worktree, API policy,
+   fixed guard or second Solver run in production.

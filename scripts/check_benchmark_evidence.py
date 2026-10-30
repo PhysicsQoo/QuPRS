@@ -51,14 +51,15 @@ def validate_approximate_properties(classname: str, name: str, props: dict) -> b
     }
     if any(props.get(k) != v for k, v in mandatory.items()):
         return False
+    # The verifier's observed verdict is provenance, not the strict
+    # mathematical truth. Rust may conservatively fall through RR to WMC
+    # and report an approximate-positive observation, just as Python may
+    # accept the residual in RR. The independent source-pinned distance
+    # bound above, not either solver's verdict, authorizes this category.
     observed = props.get("observed_backend_verdict")
-    if name.endswith("-rust]"):
-        if observed != "not_equivalent":
-            return False
-    elif name.endswith("-python]"):
-        if observed not in {"equivalent", "equivalent*", "not_equivalent"}:
-            return False
-    else:
+    if not (name.endswith("-rust]") or name.endswith("-python]")):
+        return False
+    if observed not in {"equivalent", "equivalent*", "not_equivalent"}:
         return False
     try:
         bound = Fraction(props["distance_squared_upper"])

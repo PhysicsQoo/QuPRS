@@ -182,3 +182,34 @@ def test_gpmc_mpreal_precision_is_scoped_to_reported_format_only():
             "c o precision 90\nc o precision 40\n"
             "c s exact double prec-sci 1 + 0i"
         )
+
+
+@pytest.mark.parametrize("dimacs,normalization,accepted", [
+    ("p cnf 1 0\nc t wmc\n", 2, True),
+    ("p cnf 1 2\nc t wmc\n-1 1 0\n1 -1 0\n", 2, True),
+    ("p cnf 2 2\nc t wmc\n1 -1 0\n2 -2 0\n", 4, True),
+    ("p cnf 1 0\nc t wmc\n", 4, False),
+    ("p cnf 1 1\nc t wmc\n1 0\n", 2, False),
+    ("p cnf 1 1\nc t wmc\n0\n", 2, False),
+    ("p cnf 1 2\nc t wmc\n1 0\n-1 0\n", 2, False),
+    ("p cnf 1 0\nc t wmc\nc p weight 1 1.0 0.0 0\n", 2, False),
+    ("p cnf 1 1\nc t wmc\n1 -1 0\n", 2, True),
+    ("p cnf 1 1\nc t wmc\n1 -1 2 0\n", 2, False),
+    ("p cnf 1 2\nc t wmc\n1 -1 0\n", 2, False),
+])
+def test_exact_unweighted_tautology_proof_is_not_general_sat_or_wmc(
+    dimacs, normalization, accepted,
+):
+    from QuPRS.utils.precision_count import exactly_count_unweighted_tautology
+
+    assert exactly_count_unweighted_tautology(dimacs, normalization) is accepted
+
+
+def test_exact_unweighted_tautology_rejects_invalid_norm_and_bad_headers():
+    from QuPRS.utils.precision_count import exactly_count_unweighted_tautology
+
+    for exponent in (True, 1.5, None):
+        assert not exactly_count_unweighted_tautology("p cnf 1 0", exponent)
+    for dimacs in ("p cnf -1 0", "p cnf 1 -1", "p cnf 1 0\np cnf 1 0",
+                   "p cnf 1 0\nnot-a-clause"):
+        assert not exactly_count_unweighted_tautology(dimacs, 2)

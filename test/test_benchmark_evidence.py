@@ -213,8 +213,11 @@ def test_approximate_backend_verdict_is_provenance_not_strict_truth():
               and k[1].endswith("-python]"))
     rust = next(k for k in cases if checker.authorized_approximate_case(*k)
                 and k[1].endswith("-rust]"))
+    # Backend verdicts describe the observed RR/Hybrid/WMC path, not
+    # source-exact truth. Rust may now report equivalent after WMC fallback.
     for case, raw in ((py, "equivalent"), (py, "not_equivalent"),
-                      (rust, "not_equivalent")):
+                      (rust, "not_equivalent"), (rust, "equivalent"),
+                      (rust, "equivalent*")):
         values = {
             "verification_status": checker.APPROXIMATE_REDUCED_BOUND,
             "strict_source_verdict": "not_equivalent",
@@ -226,10 +229,11 @@ def test_approximate_backend_verdict_is_provenance_not_strict_truth():
             "source_blobs": checker._PINNED_SOURCE_BLOBS,
         }
         assert checker.validate_approximate_properties(*case, values)
-    values["observed_backend_verdict"] = "equivalent"
-    assert not checker.validate_approximate_properties(*rust, values)
     values["observed_backend_verdict"] = "unknown"
     assert not checker.validate_approximate_properties(*py, values)
+    assert not checker.validate_approximate_properties(*rust, values)
+    values["observed_backend_verdict"] = "not_a_verdict"
+    assert not checker.validate_approximate_properties(*rust, values)
 
 def test_graphstate_missing_approximation_metadata_fails_closed(tmp_path):
     key = next(k for k in checker.expected_cases(real_catalog())

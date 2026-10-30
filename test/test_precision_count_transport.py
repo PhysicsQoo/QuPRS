@@ -237,7 +237,9 @@ def test_ganak_warning_scales_with_trace_normalization_and_count():
     d1 = ganak_print_resolution_distance(count1, 0, 1e-8)
     d4 = ganak_print_resolution_distance(count4, 4, 1e-8)
     assert d1 is not None and d4 is not None
-    assert d4 == pytest.approx(d1, rel=1e-12)
+    # Identical absolute printed units but a 4x trace count and 16x
+    # squared normalization yield one-half the distance-scale width.
+    assert d4 == pytest.approx(d1 / 2, rel=1e-12)
     gpmc = count("1.00000000e+00 + 0e+00i", "c s exact double prec-sci")
     assert ganak_print_resolution_distance(gpmc, 0, 1e-8) is None
     assert ganak_print_resolution_distance(count1, 0, 2e-4) is None

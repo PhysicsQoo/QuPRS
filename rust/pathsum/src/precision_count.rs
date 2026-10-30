@@ -315,6 +315,29 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_ganak_resolution_depends_on_printed_digits_and_trace_scale() {
+        let a = parse_stdout(
+            "c s exact quadruple float 1.00000000e+00 + 0e+00i"
+        ).unwrap();
+        let b = parse_stdout(
+            "c s exact quadruple float 4.00000000e+00 + 0e+00i"
+        ).unwrap();
+        let width_a = ganak_print_resolution_distance(&a, 0, "1e-8")
+            .unwrap().unwrap();
+        let width_b = ganak_print_resolution_distance(&b, 4, "1e-8")
+            .unwrap().unwrap();
+        assert!((width_a - (2e-8_f64).sqrt()).abs() < 1e-12);
+        assert!((width_b - width_a / 2.0).abs() < 1e-12);
+        assert!(ganak_print_resolution_distance(&a, 0, "2e-4")
+            .unwrap().is_none());
+        let gpmc = parse_stdout(
+            "c s exact double prec-sci 1.00000000e+00 + 0e+00i"
+        ).unwrap();
+        assert!(ganak_print_resolution_distance(&gpmc, 0, "1e-8")
+            .unwrap().is_none());
+    }
+
+    #[test]
     fn all_ganak_printed_format_names_recognized() {
         for name in ["half", "single", "double", "quadruple", "octuple"] {
             let input = format!("c s exact {name} float 1.0e+00 + 0e+00i");

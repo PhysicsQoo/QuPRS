@@ -523,7 +523,16 @@ def check_equivalence(
                         else "equivalent*"
                     )
                 else:
-                    equivalent = "unknown"
+                    # A fully reduced, path-variable-free diagonal with a
+                    # nonzero controlled phase is a RR-only counterexample
+                    # *after* configured local RR tolerance has been applied.
+                    # Hybrid still retains its independent distance criterion.
+                    equivalent = (
+                        "not_equivalent"
+                        if method == "reduction_rules"
+                        and len(pathsum_circuit.pathvar) == 0
+                        else "unknown"
+                    )
             elif len(pathsum_circuit.pathvar) == 0:
                 # Strict non-equality alone does not establish D > epsilon.
                 equivalent = ("not_equivalent" if method == "reduction_rules"

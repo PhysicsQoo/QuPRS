@@ -268,6 +268,29 @@ certificate, and a WMC magnitude tolerance of `1e-8` is **not**
 the QCEC projective circuit-distance tolerance of `1e-8`.
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
+### GPMC high-resolution CNF weights
+
+Rust preserves source `PhaseCoeff` angles through the CNF weight boundary.
+For **GPMC projective-distance requests** (those explicitly passing
+`approximate_distance_tolerance`), its default build produces complex
+weights from exact source fractions using **192-bit MPFR arithmetic**
+and 48 significant decimal output digits. Unlike the historical Rust
+path, this avoids conversion to `f64` before the complex weight is
+constructed. Quarter-cycle Clifford weights use exact special values.
+
+No extra solver invocation is added. Reduction Rules, ordinary
+magnitude-mode WMC and Ganak retain their existing fast/numeric paths.
+The API default remains a **magnitude-based criterion** unless the
+caller opts into projective distance, so a magnitude tolerance of
+`1e-8` must not be interpreted as projective distance `1e-8`.
+
+High-precision input does **not** certify solver arithmetic, output
+rounding across all intermediate steps, or symbolic exactness for arbitrary
+angles. `unknown` remains possible where numerical evidence is insufficient.
+The native high-resolution feature is enabled by default in source builds;
+Cargo builds can opt out using `--no-default-features`. Platform wheels
+must be repaired/audited so GMP and MPFR shared libraries are relocatable.
+
 ### Solver subprocess reliability and timeout limits
 
 On **Linux** and **macOS**, both backends supervise each invocation of the

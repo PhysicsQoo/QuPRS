@@ -143,6 +143,17 @@ jobs:
             --output gpmc-native-phase15/phase17 \
             2>&1 | tee gpmc-native-phase15/phase17.log
 
+      - name: Audit native complex DAG and nonnegative-semiring counterpart
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -u .diagnostics/tolerance_calibration/gpmc_forward_error_phase18.py \
+            --gpmc-source GPMC \
+            --baseline "$RUNNER_TEMP/gpmc-build/gpmc" \
+            --output gpmc-native-phase15/phase18 \
+            --random 40 \
+            2>&1 | tee gpmc-native-phase15/phase18.log
+
       - name: Seal available evidence
         if: always()
         shell: bash

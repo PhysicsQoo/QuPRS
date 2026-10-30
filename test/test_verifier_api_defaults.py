@@ -74,6 +74,11 @@ def test_python_public_api_retains_two_independent_wmc_defaults():
     assert "wmc_policy" not in params
     assert params["wmc_magnitude_tolerance"].default is None
     assert params["wmc_phase_tolerance"].default is None
+    assert params["rr_tolerance"].default is None
+    assert params["phase_tolerance"].default is None
+    assert not hasattr(config, "TOLERANCE")
+    assert not hasattr(config, "set_tolerance")
+    assert not hasattr(config, "get_tolerance")
     assert config.WMC_MAGNITUDE_TOLERANCE == 1e-8
     assert config.WMC_PHASE_TOLERANCE == 1e-8
     one = QuantumCircuit(1)

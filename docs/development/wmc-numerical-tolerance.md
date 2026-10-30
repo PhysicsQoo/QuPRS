@@ -22,17 +22,16 @@ Both fields are optional, evaluated per call and separately recorded in
 the returned result. When omitted, the public API reads defaults from
 config.WMC_MAGNITUDE_TOLERANCE and config.WMC_PHASE_TOLERANCE. Explicit values must be finite numbers
 strictly between 0 and 1. Invalid values fail before native execution.
-config.set_tolerance() governs Python symbolic reduction only; changing
+per-call `rr_tolerance` governs Python symbolic reduction only; changing
 it is **not** a way to tune the WMC numeric classifier. Changing the
-process-global RR coefficient tolerance invalidates tolerance-dependent
-symbolic caches; it must be a finite positive number (not a bool).
+per-call RR coefficient tolerance participates in symbolic cache keys; it must be a finite positive number (not a bool).
 It is not a per-call or thread-local setting.
 
 ## Source-phase preservation versus RR matching
 
 For the Python backend, gate construction preserves nonzero input phase
 coefficients even when individual coefficients are smaller than
-`config.TOLERANCE`. The Elim/HH/omega matching rules retain their
+`rr_tolerance`. The Elim/HH/omega matching rules retain their
 existing local coefficient tolerance. This separation prevents
 an accumulation of tiny rotations from being silently erased
 before RR/Hybrid or WMC-only examines the resulting circuit.

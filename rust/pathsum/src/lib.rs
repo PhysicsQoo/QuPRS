@@ -24,6 +24,7 @@ use wmc::WmcManager;
 use anyhow::Result;
 use std::time::Instant;
 use log::{info, debug};
+use num_traits::ToPrimitive;
 /// Verification Method Selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationMethod {
@@ -99,7 +100,9 @@ pub struct VerificationOptions {
     pub tool_name: String,
     pub timeout_secs: u64,
     pub wmc_magnitude_tolerance: f64,
-    pub wmc_phase_tolerance: f64,
+    pub wmc_phase_tolerance: f64, // Compatibility alias for numerical WMC callers.
+    pub rr_tolerance: f64,
+    pub phase_tolerance: f64,
     pub approximate_distance_tolerance: Option<f64>,
 }
 
@@ -112,6 +115,8 @@ impl Default for VerificationOptions {
             timeout_secs: 600,
             wmc_magnitude_tolerance: 1e-8,
             wmc_phase_tolerance: 1e-8,
+            rr_tolerance: 1e-10,
+            phase_tolerance: 1e-8,
             approximate_distance_tolerance: None,
         }
     }
@@ -125,12 +130,48 @@ pub fn check_equivalence_with_options(
     gates2: &[QuantumOp],
     options: &VerificationOptions,
 ) -> Result<EquivalenceCheckResult> {
+    if !options.rr_tolerance.is_finite() || options.rr_tolerance <= 0.0 {
+        return Err(anyhow::anyhow!("rr_tolerance must be finite and positive"));
+    }
+    // The Rust reduction engine uses exact PhaseCoeff matching. It must not
+    // silently interpret a nondefault numerical threshold as a proven rule.
+    if options.rr_tolerance != 1e-10 {
+        return Err(anyhow::anyhow!("custom rr_tolerance is not supported by Rust exact reduction rules"));
+    }
+    if !options.phase_tolerance.is_finite() || options.phase_tolerance <= 0.0
+        || options.phase_tolerance >= 1.0 {
+        return Err(anyhow::anyhow!("phase_tolerance must be finite in (0, 1) radians"));
+    }
+    if options.phase_tolerance != 1e-8 && options.wmc_phase_tolerance != 1e-8
+        && options.phase_tolerance != options.wmc_phase_tolerance {
+        return Err(anyhow::anyhow!("phase_tolerance conflicts with wmc_phase_tolerance"));
+    }
+    let effective_phase = if options.phase_tolerance != 1e-8 {
+        options.phase_tolerance
+    } else {
+        options.wmc_phase_tolerance
+    };
     check_equivalence_with_tolerances_mode(
         num_qubits, gates1, gates2, options.method, options.strategy,
         &options.tool_name, options.timeout_secs,
-        options.wmc_magnitude_tolerance, options.wmc_phase_tolerance,
+        options.wmc_magnitude_tolerance, effective_phase,
         options.approximate_distance_tolerance,
     )
+}
+
+/// Numerically classify a proven residual global phase as near zero.
+/// Exact symbolic zero is always handled before this heuristic label check.
+fn phase_near_zero(coeff: &PhaseCoeff, epsilon_rad: f64) -> bool {
+    if !coeff.symbols.is_empty() { return false; }
+    let source_radians = match &coeff.radians {
+        Some(r) => match r.to_f64() { Some(x) if x.is_finite() => x, _ => return false },
+        None => 0.0,
+    };
+    let cycles = coeff.constant.numer as f64 / coeff.constant.denom as f64
+        + source_radians / std::f64::consts::PI;
+    if !cycles.is_finite() { return false; }
+    let wrapped = cycles.rem_euclid(1.0);
+    std::f64::consts::TAU * wrapped.min(1.0 - wrapped) < epsilon_rad
 }
 
 /// Main entry point for equivalence checking with strategy optimization and WMC fallback
@@ -225,6 +266,7 @@ fn check_equivalence_with_tolerances_mode(
     ps.set_auto_reduce(reduction_enabled);
 
     let mut status = EquivalenceStatus::Unknown;
+    let mut numerical_phase_label = false;
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
@@ -247,6 +289,11 @@ fn check_equivalence_with_tolerances_mode(
                 // rational or symbolic scalar is *exactly* identity.
                 if phase_coeff.is_zero() {
                     status = EquivalenceStatus::Equivalent;
+                } else if phase_near_zero(&phase_coeff, wmc_phase_tolerance) {
+                    // Only the exact-vs-global-phase *label* is numerical;
+                    // the relation up to global phase came from symbolic RR.
+                    status = EquivalenceStatus::Equivalent;
+                    numerical_phase_label = true;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
                     log::debug!("Residual global phase: {} cycles", phase_coeff);
@@ -417,6 +464,8 @@ fn check_equivalence_with_tolerances_mode(
 
     let decision_basis = if status == EquivalenceStatus::Unknown {
         "inconclusive"
+    } else if numerical_phase_label {
+        "numerical_phase"
     } else if wmc_time.is_some() && !solver_invoked {
         "analytic_empty_cnf"
     } else if wmc_time.is_some() && approximate_distance_tolerance.is_some() {

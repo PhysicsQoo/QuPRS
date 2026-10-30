@@ -3,7 +3,7 @@ import math
 import symengine as se
 import sympy as sp
 
-from QuPRS import config
+from QuPRS.utils.verification_tolerances import current_rr_tolerance
 from QuPRS.utils.util import (
     algebraic_to_logical,
     logical_to_algebraic,
@@ -52,7 +52,7 @@ def match_HH(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
 
 
 def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
-    tolerance = config.TOLERANCE
+    tolerance = current_rr_tolerance()
     P_expanded = P.expand()
     valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
     for yo_val in reducible_vars:

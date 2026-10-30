@@ -240,7 +240,7 @@ is not silently erased gate by gate merely because each rotation is below
 the local reduction tolerance. The Elim, HH and omega reduction rules still
 use the configured tolerance to match and simplify terms.
 
-`config.set_tolerance()` controls the **process-wide Python RR tolerance**
+`rr_tolerance` controls the **per-verification Python RR tolerance**
 (default `1e-10` in phase-coefficient units). Changing it invalidates
 tolerance-dependent cached simplifications. It accepts only finite positive
 numeric values (not booleans). It is not a thread-local or per-call setting.
@@ -248,7 +248,7 @@ numeric values (not booleans). It is not a thread-local or per-call setting.
 ```python
 from QuPRS import check_equivalence, config
 
-config.set_tolerance(1e-10)
+# Set rr_tolerance=1e-10 on check_equivalence instead
 result = check_equivalence(
     circuit1, circuit2, method="hybrid", backend="python",
     wmc_magnitude_tolerance=1e-8,
@@ -388,7 +388,7 @@ Omitting either argument uses `config.WMC_MAGNITUDE_TOLERANCE` or
 and strictly between 0 and 1. The effective values are recorded with
 the result. The public Python interface passes the same values to the
 Rust backend; direct legacy Rust core callers keep their historical
-defaults. `config.TOLERANCE` remains the independent symbolic-reduction
+defaults. `rr_tolerance` remains the independent symbolic-reduction
 tolerance (default `1e-10`), **not** a WMC setting. Nonzero global phase
 gives `equivalent*` when the count magnitude passes the threshold.
 Python uses a scaled log-magnitude and signed `atan2`, avoiding overflow,

@@ -9,48 +9,33 @@ import pytest
 import symengine as se
 from qiskit import QuantumCircuit
 
-from QuPRS import check_equivalence, config
+from QuPRS import check_equivalence
+from QuPRS.utils.verification_tolerances import current_rr_tolerance, DEFAULT_RR_TOLERANCE
 from QuPRS.utils.util import reduce_expression
 
 
-@pytest.fixture
-def restore_reduction_tolerance():
-    original = config.get_tolerance()
-    try:
-        yield
-    finally:
-        config.set_tolerance(original)
-
-
-def test_reduction_cache_tracks_tolerance_switch_both_directions(
-    restore_reduction_tolerance,
-):
+def test_reduction_cache_tracks_tolerance_switch_both_directions():
     # 5e-7 cycles: nonzero at 1e-10, deleted at 1e-6.
     x = se.Symbol("tolerance_cache_probe")
     term = se.Rational(1, 2_000_000) * x
 
-    config.set_tolerance(1e-10)
-    retained = reduce_expression(term)
+    retained = reduce_expression(term, rr_tolerance=1e-10)
     assert retained != se.S.Zero
 
-    config.set_tolerance(1e-6)
-    assert reduce_expression(term) == se.S.Zero
-
-    config.set_tolerance(1e-10)
-    assert reduce_expression(term) == retained
+    assert reduce_expression(term, rr_tolerance=1e-6) == se.S.Zero
+    assert reduce_expression(term, rr_tolerance=1e-10) == retained
+    assert current_rr_tolerance() == DEFAULT_RR_TOLERANCE
 
 
 @pytest.mark.parametrize(
     "invalid",
     [True, False, None, "", "1e-8", 0, -1, math.nan, math.inf, -math.inf],
 )
-def test_invalid_symbolic_tolerance_does_not_change_configuration(
-    invalid, restore_reduction_tolerance,
-):
-    before = config.get_tolerance()
-    with pytest.raises(ValueError, match="Tolerance"):
-        config.set_tolerance(invalid)
-    assert config.get_tolerance() == before
+def test_invalid_per_call_rr_tolerance_rejected(invalid):
+    before = current_rr_tolerance()
+    with pytest.raises(ValueError, match="rr_tolerance"):
+        check_equivalence(QuantumCircuit(1), QuantumCircuit(1), rr_tolerance=invalid)
+    assert current_rr_tolerance() == before
 
 
 @pytest.mark.parametrize(
@@ -63,7 +48,7 @@ def test_invalid_symbolic_tolerance_does_not_change_configuration(
 )
 @pytest.mark.parametrize("tolerance", [1e-10, 1e-6])
 def test_nonzero_gate_phase_survives_construction_for_all_methods(
-    method, expected, tolerance, restore_reduction_tolerance,
+    method, expected, tolerance,
 ):
     # 200 * 3e-6 = 6e-4 radians; ideal normalized trace magnitude
     # defect is about 4.5e-8, greater than the 1e-8 WMC threshold.
@@ -74,7 +59,6 @@ def test_nonzero_gate_phase_survives_construction_for_all_methods(
         repeated.rz(3e-6, 0)
     combined.rz(0.0006, 0)
 
-    config.set_tolerance(tolerance)
     verdicts = []
     counts = []
     for target in (repeated, combined):
@@ -87,7 +71,8 @@ def test_nonzero_gate_phase_survives_construction_for_all_methods(
             tool_name="gpmc",
             timeout=30,
             wmc_magnitude_tolerance=1e-8,
-            wmc_phase_tolerance=1e-8,
+            phase_tolerance=1e-8,
+            rr_tolerance=tolerance,
         )
         assert result.equivalent == expected
         verdicts.append(result.equivalent)

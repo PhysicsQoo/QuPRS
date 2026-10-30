@@ -177,19 +177,14 @@ def test_multi_step_cancellation_preserves_net_rotation_in_python_wmc():
     total.rz(6e-4, 0)
     assert Operator(multi).equiv(Operator(total), atol=1e-10, rtol=0)
     assert not Operator(identity).equiv(Operator(total), atol=1e-8, rtol=0)
-    before = config.get_tolerance()
-    try:
-        config.set_tolerance(1e-6)
-        for target in (multi, total):
-            result = check_equivalence(
-                identity, target, backend="python", method="wmc_only",
-                strategy="Naive", tool_name="gpmc", timeout=45,
-                wmc_magnitude_tolerance=1e-8,
-            )
-            assert result.equivalent == "not_equivalent"
-            assert result.tool_time is not None
-    finally:
-        config.set_tolerance(before)
+    for target in (multi, total):
+        result = check_equivalence(
+            identity, target, backend="python", method="wmc_only",
+            strategy="Naive", tool_name="gpmc", timeout=45,
+            wmc_magnitude_tolerance=1e-8, rr_tolerance=1e-6,
+        )
+        assert result.equivalent == "not_equivalent"
+        assert result.tool_time is not None
 
 
 @pytest.mark.parametrize("solver", SOLVERS)

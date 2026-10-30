@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-8, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=None))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_magnitude_tolerance=1e-8, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=None, rr_tolerance=1e-10, phase_tolerance=None))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -54,6 +54,8 @@ pub fn check_equivalence(
     wmc_magnitude_tolerance: f64,
     wmc_phase_tolerance: f64,
     approximate_distance_tolerance: Option<f64>,
+    rr_tolerance: f64,
+    phase_tolerance: Option<f64>,
 ) -> PyResult<PyObject> {
     // The Python safe_mode worker isolation has no Rust FFI equivalent.
     // Never silently claim that the requested isolation is active.
@@ -72,6 +74,22 @@ pub fn check_equivalence(
         ));
     }
 
+    if !rr_tolerance.is_finite() || rr_tolerance <= 0.0 {
+        return Err(PyValueError::new_err("rr_tolerance must be finite and positive"));
+    }
+    if rr_tolerance != 1e-10 {
+        return Err(PyValueError::new_err(
+            "custom rr_tolerance is not supported by Rust exact reduction rules"
+        ));
+    }
+    let effective_phase = phase_tolerance.unwrap_or(wmc_phase_tolerance);
+    if !effective_phase.is_finite() || effective_phase <= 0.0 || effective_phase >= 1.0 {
+        return Err(PyValueError::new_err("phase_tolerance must be finite in (0, 1) radians"));
+    }
+    if phase_tolerance.is_some() && wmc_phase_tolerance != 1e-8
+        && wmc_phase_tolerance != effective_phase {
+        return Err(PyValueError::new_err("phase_tolerance conflicts with wmc_phase_tolerance"));
+    }
     if let Some(eps) = approximate_distance_tolerance {
         if !eps.is_finite() || eps <= 0.0 || eps >= 1.0 {
             return Err(PyValueError::new_err(
@@ -138,6 +156,8 @@ pub fn check_equivalence(
         timeout_secs: timeout,
         wmc_magnitude_tolerance,
         wmc_phase_tolerance,
+        rr_tolerance,
+        phase_tolerance: effective_phase,
         approximate_distance_tolerance,
     };
     let result = pyo3::Python::with_gil(|py| {

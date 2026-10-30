@@ -10,7 +10,7 @@ import sympy as sp
 from qiskit.circuit import Parameter, ParameterExpression
 from qiskit.circuit.tools.pi_check import pi_check
 
-from QuPRS import config
+from QuPRS.utils.verification_tolerances import current_rr_tolerance, validate_rr_tolerance
 from QuPRS.cache_manager.cache_decorator import tracked_lru_cache
 
 _one_div_pi = 1 / se.pi
@@ -83,10 +83,10 @@ def algebraic_to_logical(expr: sp.Expr | se.Expr) -> sp.Expr:
 
 
 @tracked_lru_cache(maxsize=524288)
-def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True):
+def _process_term_cached(term: se.Expr, mod_coeffs, linearize, drop_small, rr_tolerance):
 
     # WMC-only source ingestion should preserve small nonzero phase terms.
-    tolerance = config.TOLERANCE if drop_small else 0
+    tolerance = rr_tolerance if drop_small else 0
 
     if term.is_Mul:
         coeffs = []
@@ -127,20 +127,32 @@ def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True):
             return term
 
 
+def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *, rr_tolerance=None):
+    """Normalize a term with explicit tolerance in the LRU cache key."""
+    tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
+    return _process_term_cached(term, mod_coeffs, linearize, drop_small, tol)
+
+
 @tracked_lru_cache(maxsize=65536)
-def reduce_expression(expr: se.Expr, mod_coeffs=1, linearize=True, drop_small=True):
+def _reduce_expression_cached(expr: se.Expr, mod_coeffs, linearize, drop_small, rr_tolerance):
     expanded_expr = expr.expand()
     if expanded_expr.is_Add:
         # Process each term in the expanded expression
         processed_terms = [
-            process_term(term, mod_coeffs, linearize, drop_small) for term in expanded_expr.args
+            process_term(term, mod_coeffs, linearize, drop_small, rr_tolerance=rr_tolerance) for term in expanded_expr.args
         ]
         # Combine the processed terms
         result = se.Add(*processed_terms)
     else:
         # Process the single term
-        result = process_term(expanded_expr, mod_coeffs, linearize, drop_small)
+        result = process_term(expanded_expr, mod_coeffs, linearize, drop_small, rr_tolerance=rr_tolerance)
     return result
+
+
+def reduce_expression(expr: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *, rr_tolerance=None):
+    """Reduce phase with per-request tolerance as an LRU key component."""
+    tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
+    return _reduce_expression_cached(expr, mod_coeffs, linearize, drop_small, tol)
 
 
 @tracked_lru_cache(maxsize=1024)

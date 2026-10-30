@@ -9,6 +9,7 @@ import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3
 
 from QuPRS import config
+from QuPRS.utils.verification_tolerances import current_rr_tolerance, per_call_rr_tolerance
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 from QuPRS.pathsum.statistics import StatisticsManager
@@ -161,6 +162,7 @@ def _validate_rust_qasm_global_phase_contract(circuit1, circuit2) -> None:
 # =============================================================================
 
 
+@per_call_rr_tolerance
 def check_equivalence(
     circuit1: str | QuantumCircuit,
     circuit2: str | QuantumCircuit,
@@ -173,6 +175,8 @@ def check_equivalence(
     wmc_magnitude_tolerance: float | None = None,
     wmc_phase_tolerance: float | None = None,
     approximate_distance_tolerance: float | None = None,
+    rr_tolerance: float | None = None,
+    phase_tolerance: float | None = None,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -209,10 +213,14 @@ def check_equivalence(
             and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
+        rr_tolerance (float | None): Per-call RR numerical coefficient matching.
+            Defaults to 1e-10. Preserves small source phase terms.
+        phase_tolerance (float | None): Phase zero classification in radians
+            for RR and WMC; conflicts with a different wmc_phase_tolerance.
         wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
             acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
             Independent of reduction tolerance and not a formal proof bound.
-            The Python RR tolerance is set with config.set_tolerance();
+            The Python RR tolerance is set with rr_tolerance;
             it is process-global, invalidates dependent caches when changed,
             and affects RR matching, not gate-source phase preservation.
         wmc_phase_tolerance (float | None): WMC phase threshold separating
@@ -231,6 +239,11 @@ def check_equivalence(
         EquivalenceCheckResult: An object containing the result dictionary and the
             final PathSum circuit object.
     """
+    rr_tolerance = current_rr_tolerance()
+    if phase_tolerance is not None:
+        if wmc_phase_tolerance is not None and wmc_phase_tolerance != phase_tolerance:
+            raise ValueError("phase_tolerance conflicts with wmc_phase_tolerance")
+        wmc_phase_tolerance = phase_tolerance
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout must be a positive integer number of seconds")
     if approximate_distance_tolerance is not None:
@@ -329,6 +342,8 @@ def check_equivalence(
                                     wmc_magnitude_tolerance=wmc_magnitude_tolerance,
                                     wmc_phase_tolerance=wmc_phase_tolerance,
                                     approximate_distance_tolerance=approximate_distance_tolerance,
+                                    rr_tolerance=rr_tolerance,
+                                    phase_tolerance=wmc_phase_tolerance,
                                 )
                         finally:
                             if previous_path is None:
@@ -395,7 +410,6 @@ def check_equivalence(
     except ValueError as e:
         raise e
 
-    tolerance = config.TOLERANCE
 
     start_time = time.time()
     deadline = time.monotonic() + timeout
@@ -496,10 +510,11 @@ def check_equivalence(
                 #     filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
                 # )
                 if len(P_free_symbols) == 0:
-                    if pathsum_circuit.P < tolerance:
-                        equivalent = "equivalent"
-                    else:
-                        equivalent = "equivalent*"
+                    # Phase coefficients are in cycles; compare wrapped radians.
+                    cycles = float(pathsum_circuit.P.evalf()) % 1.0
+                    phase = (cycles * math.tau) % math.tau
+                    equivalent = ("equivalent" if min(phase, math.tau - phase)
+                                  < wmc_phase_tolerance else "equivalent*")
                 else:
                     equivalent = "unknown"
             elif len(pathsum_circuit.pathvar) == 0:

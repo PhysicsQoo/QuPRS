@@ -10,6 +10,7 @@ from qiskit import QuantumCircuit
 
 from QuPRS import check_equivalence, config
 from QuPRS.utils.wmc_solvers import classify_weighted_count
+from QuPRS.utils.verification_tolerances import current_rr_tolerance
 
 
 def pair(angle=None):
@@ -101,8 +102,8 @@ def test_phase_tolerance_controls_only_global_phase_label():
 
 
 def test_existing_symbolic_tolerance_remains_independent():
-    # Calling check_equivalence must not mutate the global reduction tolerance.
-    before = config.get_tolerance()
+    # Calling check_equivalence must not mutate another call's RR tolerance.
+    before = current_rr_tolerance()
     a, b = pair()
     for value in (1e-6, 1e-10):
         result = check_equivalence(
@@ -111,4 +112,4 @@ def test_existing_symbolic_tolerance_remains_independent():
         )
         assert result.equivalent == "equivalent"
         assert result.wmc_magnitude_tolerance == value
-    assert config.get_tolerance() == before
+    assert current_rr_tolerance() == before

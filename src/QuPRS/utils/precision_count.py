@@ -255,6 +255,45 @@ def classify_printed_distance(
     return PrintedDistanceEvidence("unknown", "insufficient_printed_resolution")
 
 
+
+def ganak_print_resolution_distance(
+    count: PrintedCount, expected_twice_log2: int, distance_tolerance: float,
+) -> float | None:
+    """Return an observed-output resolution warning threshold, if necessary.
+
+    The normalized *squared-magnitude* span from the actual printed
+    real/imaginary rounding intervals is
+        (max(|C|^2) - min(|C|^2)) / 2**expected_twice_log2.
+    Its square root expresses that span on the projective-distance
+    scale. Warn only when it exceeds the REQUESTED epsilon**2. This
+    measures output representation, NOT Ganak's internal arithmetic
+    accuracy or a formal error bound on the WMC computation.
+    """
+    if count.format_name == "c s exact double prec-sci":
+        return None  # GPMC is not Ganak.
+    if expected_twice_log2 < -_MAX_EXPONENT or expected_twice_log2 > _MAX_EXPONENT:
+        return None
+    eps = Fraction(Decimal(str(distance_tolerance)))
+    if not 0 < eps < 1:
+        return None
+    r, i = abs(count.real), abs(count.imag)
+    r_low = max(Fraction(0), r - count.real_print_half_unit)
+    i_low = max(Fraction(0), i - count.imag_print_half_unit)
+    r_high = r + count.real_print_half_unit
+    i_high = i + count.imag_print_half_unit
+    width = ((r_high*r_high + i_high*i_high)
+             - (r_low*r_low + i_low*i_low))
+    normalized_width = width / (Fraction(2) ** expected_twice_log2)
+    if normalized_width <= eps*eps:
+        return None
+    # This float is for the user-visible warning only; the decision to
+    # warn was made with exact rational comparison.
+    try:
+        return math.sqrt(float(normalized_width))
+    except OverflowError:
+        return float("inf")
+
+
 def classify_observed_distance(
     count: PrintedCount, normalization_twice_log2: int,
     distance_tolerance: float, phase_tolerance: float,

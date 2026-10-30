@@ -82,7 +82,7 @@ def instrument(original,scratch):
     shutil.copytree(original,scratch,ignore=shutil.ignore_patterns(".git","build","bin"))
     path=scratch/"c-mpfr/ComplexMPFR.cc"
     source=path.read_text()
-    marker="std::ostream &operator<<(std::ostream& os, Complex const &c)\n{"
+    marker="std::ostream &operator<<(std::ostream &os, Complex const &c)\n{"
     if source.count(marker)!=1:raise ValueError("Complex stream source signature not unique")
     modified='#include <cstdio>\n#include <cstdlib>\n'+source.replace(marker,marker+CXX)
     path.write_text(modified)

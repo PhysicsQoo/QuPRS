@@ -132,44 +132,42 @@ def test_qcec_scale_distance_never_accepts_known_outside_rotation(
     )
 
 
-def test_ganak_mpfr_mode6_print_precision_probe(tmp_path, record_property):
-    """Research-only: determine whether the bundled Ganak prints enough digits.
-
-    This does NOT change the production CLI or rerun production WMC.
-    A forced one-variable complex weight has true magnitude 1-5e-17.
-    The difference is at the scale required for projective D≈1e-8.
-    """
-    from QuPRS.utils import WMC
-    from QuPRS.utils.solver_process import run
-    from QuPRS.utils.precision_count import parse_printed_solver_output
-    from fractions import Fraction
-
-    cnf = tmp_path / "precision-probe.cnf"
-    cnf.write_text(
-        "p cnf 1 1\nc t wmc\n"
-        "c p weight 1 0.99999999999999995 + 0.0i 0\n"
-        "c p weight -1 1.0 + 0.0i 0\n"
-        "1 0\n"
+# Targeted positive-side feasibility gate for QCEC-scale projective distance.
+# This is evidence gathering, not a release-default change or solver patch.
+# Run one GPMC solve per verification; RR-first can resolve without WMC.
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("case", ("h60", "h80", "graphstate16", "qft16"))
+def test_gpmc_qcec_scale_positive_controls(backend, case, record_property):
+    left, right, truth, oracle_distance, method, strategy = circuit_pair(case)
+    epsilon = 1e-8
+    result = check_equivalence(
+        left, right,
+        backend=backend,
+        method=method,
+        strategy=strategy,
+        tool_name="gpmc",
+        timeout=75,
+        approximate_distance_tolerance=epsilon,
     )
-    with WMC("ganak") as exe:
-        observed = run(
-            [str(exe), "--mode=6", "--mpfrprec", "256", str(cnf)],
-            timeout=25,
-        )
-    record_property("ganak_probe_returncode", str(observed.returncode))
-    record_property("ganak_probe_count_line", "|".join(
-        line for line in observed.stdout.splitlines()
-        if line.startswith("c s exact ")
-    )[:1000])
-    if observed.returncode:
-        pytest.skip("Bundled Ganak did not accept --mpfrprec 256: "
-                    + observed.stderr[-220:])
-    count = parse_printed_solver_output(observed.stdout)
-    # No asserted minimum precision: the purpose is to measure how
-    # much of the configured MPFR internal precision reaches stdout.
-    record_property("ganak_probe_real_count", str(count.real))
-    record_property("ganak_probe_real_print_half_unit",
-                    str(count.real_print_half_unit))
-    record_property("ganak_probe_can_resolve_5e-17",
-                    str(count.real_print_half_unit < Fraction(5, 10**17)))
-    assert count.real > 0
+    for key, value in (
+        ("gpmc_qcec_positive_case", case),
+        ("gpmc_qcec_positive_backend", backend),
+        ("gpmc_qcec_positive_source_label", truth),
+        ("gpmc_qcec_positive_oracle_distance", oracle_distance),
+        ("gpmc_qcec_positive_result", result.equivalent),
+        ("gpmc_qcec_positive_reason", result.wmc_precision_reason),
+        ("gpmc_qcec_positive_printed", result.wmc_printed_verdict),
+        ("gpmc_qcec_positive_invoked", result.wmc_solver_invoked),
+        ("gpmc_qcec_positive_wmc_time", result.wmc_time),
+    ):
+        record_property(key, str(value))
+    # Exact identities and the source-pinned Graphstate16 pair are
+    # independently within epsilon. QFT16 is a paper-intended positive,
+    # not an independent exact-distance certificate.
+    # Inconclusive numerical evidence is explicitly retained rather than
+    # accepting an unjustified positive at this very tight threshold.
+    assert result.equivalent in ("equivalent", "equivalent*", "unknown"), (
+        case, backend, result.equivalent, result.wmc_precision_reason,
+    )
+    if oracle_distance is not None:
+        assert oracle_distance < epsilon

@@ -249,11 +249,7 @@ mod end_to_end {
         assert_eq!(trim_weight(&low),trim_weight(&high),
             "MPFR candidate must not modify logical clauses or variable IDs");
         let weight_terms=manager.numerical_weight_count();
-        let nonclifford=manager.experimental_phase_weights.iter()
-            .filter(|(_,phase)|phase.radians.is_some()
-                || !matches!((phase.constant.numer,phase.constant.denom),
-                    (0,1)|(1,4)|(1,2)|(3,4)))
-            .count();
+        let nonclifford=manager.experimental_nonclifford_weight_count();
         let mut timings=[Vec::new(),Vec::new()];
         let mut rss=[Vec::new(),Vec::new()];
         let mut verdicts=[Vec::new(),Vec::new()];

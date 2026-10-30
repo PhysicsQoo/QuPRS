@@ -238,6 +238,14 @@ impl WmcManager {
     }
 
     #[cfg(all(test,feature="mpfr-experiment"))]
+    pub(crate) fn experimental_nonclifford_weight_count(&self)->usize {
+        self.experimental_phase_weights.iter()
+            .filter(|(_,phase)|phase.radians.is_some()
+                || !matches!((phase.constant.numer,phase.constant.denom),
+                    (0,1)|(1,4)|(1,2)|(3,4)))
+            .count()
+    }
+    #[cfg(all(test,feature="mpfr-experiment"))]
     pub(crate) fn experimental_precise_gpmc_cnf(&self)->String {
         // The *only* experiment-mode difference is positive weight text.
         // Preserve the CNF clauses, variables, weight IDs, and their ordering.

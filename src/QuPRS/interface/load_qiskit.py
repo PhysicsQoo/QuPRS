@@ -380,6 +380,7 @@ def check_equivalence(
             wmc_printed_verdict=rust_res.get("wmc_printed_verdict"),
             wmc_precision_reason=rust_res.get("wmc_precision_reason"),
             wmc_solver_invoked=rust_res.get("wmc_solver_invoked"),
+            rr_approximate=rust_res.get("rr_approximate", False),
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -686,6 +687,9 @@ class EquivalenceCheckResult:
     approximate_distance_tolerance: Optional[float] = None
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.
     wmc_solver_invoked: Optional[bool] = None
+    # True only when native RR used a conservative residual-phase bound,
+    # rather than a source-exact symbolic identity.
+    rr_approximate: bool = False
     # Effective thresholds recorded for reproducible numerical verdicts.
     wmc_phase_tolerance: float | None = None
 

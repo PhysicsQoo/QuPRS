@@ -78,8 +78,11 @@ pub struct EquivalenceCheckResult {
     /// Distinguish printed solver evidence from end-to-end certified bounds.
     pub wmc_printed_verdict: Option<&'static str>,
     pub wmc_precision_reason: Option<&'static str>,
-    /// Requested projective-distance threshold, if the approximate mode ran.
+    /// Requested projective-distance threshold for WMC verification.
     pub approximate_distance_tolerance: Option<f64>,
+    /// RR-only/HYBRID used an analytic upper bound for a nonzero residual phase.
+    /// This is a tolerance-bounded approximate result, NOT exact source identity.
+    pub rr_approximate: bool,
     /// True only when an external weighted counter was invoked.
     pub solver_invoked: bool,
     pub final_ps: PathSum, 
@@ -130,11 +133,6 @@ pub fn check_equivalence_with_options(
     if !options.rr_tolerance.is_finite() || options.rr_tolerance <= 0.0 {
         return Err(anyhow::anyhow!("rr_tolerance must be finite and positive"));
     }
-    // The Rust reduction engine uses exact PhaseCoeff matching. It must not
-    // silently interpret a nondefault numerical threshold as a proven rule.
-    if options.rr_tolerance != 1e-10 {
-        return Err(anyhow::anyhow!("custom rr_tolerance is not supported by Rust exact reduction rules"));
-    }
     if !options.phase_tolerance.is_finite() || options.phase_tolerance <= 0.0
         || options.phase_tolerance >= 1.0 {
         return Err(anyhow::anyhow!("phase_tolerance must be finite in (0, 1) radians"));
@@ -152,8 +150,70 @@ pub fn check_equivalence_with_options(
         num_qubits, gates1, gates2, options.method, options.strategy,
         &options.tool_name, options.timeout_secs,
         effective_phase,
+        options.rr_tolerance,
         options.approximate_distance_tolerance,
     )
+}
+
+/// Conservatively bound a reduced diagonal residual's non-global phase,
+/// in *cycles*. A monomial evaluates to 0 or 1. For c in [0,1):
+///   |1-exp(2*pi*i*(c+r/pi))| <= 2*pi*min(c,1-c) + 2*|r|.
+/// Since pi>3, sum(min(c,1-c)+|r|/3) is a rigorous
+/// upper bound in cycles; no f64 PhaseCoeff truncation is performed.
+/// This applies ONLY when all path variables have been eliminated and
+/// the Boolean output is structurally the identity. Source phases and
+/// HH/Omega matching remain exact.
+fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    use num_traits::{Signed, Zero};
+    if ps.v.path_vars.iter().any(|&v| (v as usize) >= ps.v.num_qubits) {
+        return None;
+    }
+    if ps.f.functions.iter().enumerate().any(|(qubit, poly)| {
+        poly.len() != 1 || !poly.contains(&vec![qubit as u32])
+    }) {
+        return None;
+    }
+    let mut upper = BigRational::zero();
+    for (monomial, coeff) in &ps.p.terms {
+        if monomial.is_empty() { continue; } // global phase is irrelevant
+        if !coeff.symbols.is_empty() { return None; }
+        let numer = BigInt::from(coeff.constant.numer);
+        let denom = BigInt::from(coeff.constant.denom);
+        let nearest = if &numer * 2 <= denom {
+            numer
+        } else {
+            &denom - &numer
+        };
+        upper += BigRational::new(nearest, denom);
+        if let Some(radians) = &coeff.radians {
+            // The source stores exact radians; |r|/pi <= |r|/3.
+            upper += radians.abs() / BigRational::from_integer(BigInt::from(3));
+        }
+    }
+    Some(upper)
+}
+
+/// Compare a non-global residual against per-call RR tolerance. In
+/// Hybrid, additionally respect the distance criterion: 2*pi<7,
+/// so upper cycles < eps/7 implies D_proj <= epsilon.
+fn rr_within_tolerance(ps: &PathSum, rr_tolerance: f64,
+                       method: VerificationMethod, distance_epsilon: f64) -> bool {
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    use num_traits::Zero;
+    let Some(upper) = rr_residual_upper_cycles(ps) else { return false };
+    if upper.is_zero() { return false; }
+    let Some(mut cap) = BigRational::from_float(rr_tolerance) else { return false };
+    if method == VerificationMethod::Hybrid {
+        let Some(distance) = BigRational::from_float(distance_epsilon) else {
+            return false;
+        };
+        let distance_cycles = distance / BigRational::from_integer(BigInt::from(7));
+        if distance_cycles < cap { cap = distance_cycles; }
+    }
+    upper < cap
 }
 
 /// Classify an exact (possibly nonzero) residual global phase against
@@ -209,8 +269,12 @@ fn check_equivalence_with_distance_mode(
     tool_name: &str,
     timeout_secs: u64,
     wmc_phase_tolerance: f64,
+    rr_tolerance: f64,
     approximate_distance_tolerance: Option<f64>,
 ) -> Result<EquivalenceCheckResult> {
+    if !rr_tolerance.is_finite() || rr_tolerance <= 0.0 {
+        return Err(anyhow::anyhow!("rr_tolerance must be finite and positive"));
+    }
     if !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
         || wmc_phase_tolerance >= 1.0 {
         return Err(anyhow::anyhow!("WMC phase tolerance must be finite in (0, 1)"));
@@ -239,6 +303,7 @@ fn check_equivalence_with_distance_mode(
     ps.set_auto_reduce(reduction_enabled);
 
     let mut status = EquivalenceStatus::Unknown;
+    let mut rr_approximate = false;
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
@@ -270,15 +335,26 @@ fn check_equivalence_with_distance_mode(
                 }
             }
         } else {
-            // If the state is not Identity, but there are no internal path variables left,
-            // it means it reduced to a definitive non-equivalent Boolean state.
-            let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-            if method == VerificationMethod::ReductionRules && num_active_vars == 0 {
-                // RR-only reports the strict source-inequivalence certificate.
-                status = EquivalenceStatus::NotEquivalent;
+            // First allow a conservative, per-request approximate RR success
+            // for a *diagonal* residual with exact Boolean identity.
+            // The source phase polynomial is NEVER rounded or rewritten.
+            if rr_within_tolerance(&ps_miter, rr_tolerance, method, eps) {
+                rr_approximate = true;
+                let global = ps_miter.p.terms.get(&Vec::new())
+                    .cloned().unwrap_or(PhaseCoeff::ZERO);
+                status = if phase_within_tolerance(&global, wmc_phase_tolerance) {
+                    EquivalenceStatus::Equivalent
+                } else {
+                    EquivalenceStatus::EquivalentUpToGlobalPhase
+                };
             } else {
-                // Hybrid needs a distance check before a numerical negative.
-                status = EquivalenceStatus::Unknown;
+                let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
+                if method == VerificationMethod::ReductionRules && num_active_vars == 0 {
+                    // Strict source-negative, without claiming D>epsilon.
+                    status = EquivalenceStatus::NotEquivalent;
+                } else {
+                    status = EquivalenceStatus::Unknown;
+                }
             }
         }
     }
@@ -423,6 +499,7 @@ fn check_equivalence_with_distance_mode(
         wmc_printed_verdict,
         wmc_precision_reason,
         approximate_distance_tolerance,
+        rr_approximate,
         solver_invoked,
         final_ps: ps_miter,
         stage_ledger: stage_session.as_ref().map(|session| session.snapshot(total_time, ps_time)),

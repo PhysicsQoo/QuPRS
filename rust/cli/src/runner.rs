@@ -73,6 +73,9 @@ pub fn run_dual_circuit_mode(cli: &Cli, file2_path: &std::path::Path) -> Result<
         options.phase_tolerance = radians;
         options.wmc_phase_tolerance = radians;
     }
+    if let Some(rr) = cli.rr_tolerance {
+        options.rr_tolerance = rr;
+    }
     let result = check_equivalence_with_options(
         system_qubits, &ops1, &ops2, &options,
     ).context("Core verification engine failed")?;
@@ -104,9 +107,10 @@ pub fn run_dual_circuit_mode(cli: &Cli, file2_path: &std::path::Path) -> Result<
 
 /// Executes the single-circuit reduction mode (Mode B)
 pub fn run_single_circuit_mode(cli: &Cli) -> Result<()> {
-    if cli.approximate_distance_tolerance.is_some() || cli.phase_tolerance.is_some() {
+    if cli.approximate_distance_tolerance.is_some() || cli.phase_tolerance.is_some()
+        || cli.rr_tolerance.is_some() {
         anyhow::bail!(
-            "distance and phase tolerances require two circuits for verification"
+            "RR, distance and phase tolerances require two circuits for verification"
         );
     }
     let (ops1, num_qubits1) = pathsum::qasm::parse_file(&cli.file1)

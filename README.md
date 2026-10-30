@@ -289,8 +289,17 @@ radians.
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p QuPRS_cli -- \
   circuit1.qasm circuit2.qasm --method wmc-only --tool gpmc \
-  --approximate-distance-tolerance 1e-8 --phase-tolerance 1e-8
+  --approximate-distance-tolerance 1e-8 --phase-tolerance 1e-8 \
+  --rr-tolerance 1e-10
 ```
+
+`--rr-tolerance` independently bounds non-global residual phase in
+RR-only mode (cycles). Rust retains exact HH/Omega matching; it can
+accept a fully reduced diagonal residual only when the *sum* of its
+source-exact phase upper bounds is below the RR tolerance. Hybrid
+also caps approximate RR acceptance by its independent projective
+distance threshold. Results carry `rr_approximate=true` provenance;
+this is not a source-exact identity certificate.
 
 The shorter aliases `--distance-tolerance` and
 `--wmc-phase-tolerance` are also accepted. The obsolete

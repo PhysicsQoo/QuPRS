@@ -73,11 +73,6 @@ pub fn check_equivalence(
     if !rr_tolerance.is_finite() || rr_tolerance <= 0.0 {
         return Err(PyValueError::new_err("rr_tolerance must be finite and positive"));
     }
-    if rr_tolerance != 1e-10 {
-        return Err(PyValueError::new_err(
-            "custom rr_tolerance is not supported by Rust exact reduction rules"
-        ));
-    }
     let effective_phase = phase_tolerance.unwrap_or(wmc_phase_tolerance);
     if !effective_phase.is_finite() || effective_phase <= 0.0 || effective_phase >= 1.0 {
         return Err(PyValueError::new_err("phase_tolerance must be finite in (0, 1) radians"));
@@ -173,6 +168,7 @@ pub fn check_equivalence(
 
         dict.set_item("status", status_str)?;
         dict.set_item("wmc_solver_invoked", result.solver_invoked)?;
+        dict.set_item("rr_approximate", result.rr_approximate)?;
         dict.set_item("wmc_printed_verdict", result.wmc_printed_verdict)?;
         dict.set_item("wmc_precision_reason", result.wmc_precision_reason)?;
         dict.set_item("approximate_distance_tolerance", result.approximate_distance_tolerance)?;

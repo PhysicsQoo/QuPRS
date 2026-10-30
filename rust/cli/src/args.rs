@@ -46,6 +46,10 @@ pub struct Cli {
           value_name = "EPSILON")]
     pub approximate_distance_tolerance: Option<f64>,
 
+    /// RR residual-phase tolerance in cycles, independent of WMC (default 1e-10).
+    #[arg(long = "rr-tolerance", value_name = "CYCLES")]
+    pub rr_tolerance: Option<f64>,
+
     /// Global-phase labeling tolerance, in radians (default: 1e-8).
     #[arg(long = "phase-tolerance", visible_alias = "wmc-phase-tolerance",
           value_name = "RADIANS")]
@@ -82,6 +86,7 @@ mod tests {
         assert_eq!(cli.method, MethodArg::Hybrid);
         assert_eq!(cli.approximate_distance_tolerance, None);
         assert_eq!(cli.phase_tolerance, None);
+        assert_eq!(cli.rr_tolerance, None);
     }
 
     #[test]
@@ -91,11 +96,13 @@ mod tests {
             "--tool", "ganak",
             "--approximate-distance-tolerance", "2e-4",
             "--phase-tolerance", "1e-6",
+            "--rr-tolerance", "1e-9",
         ]).unwrap();
         assert_eq!(cli.method, MethodArg::WmcOnly);
         assert_eq!(cli.tool, "ganak");
         assert_eq!(cli.approximate_distance_tolerance, Some(2e-4));
         assert_eq!(cli.phase_tolerance, Some(1e-6));
+        assert_eq!(cli.rr_tolerance, Some(1e-9));
 
         let alias = Cli::try_parse_from([
             "QuPRS-CLI", "a.qasm", "b.qasm",

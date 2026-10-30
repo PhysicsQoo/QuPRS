@@ -3,7 +3,9 @@ import math
 import symengine as se
 import sympy as sp
 
-from QuPRS.utils.verification_tolerances import current_rr_tolerance
+from QuPRS.utils.verification_tolerances import (
+    current_rr_tolerance, record_rr_approximation,
+)
 from QuPRS.utils.util import (
     algebraic_to_logical,
     logical_to_algebraic,
@@ -76,6 +78,12 @@ def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
                     and reduce_expression(Q_val).is_zero
                 ):
                     R_val = (P_expanded - yo_val * coeff).expand()
+                    # Omega matching may accept a near-quarter coefficient
+                    # without dropping a term. Such acceptance is approximate
+                    # and must not be reported as source-exact.
+                    target = se.Rational(1, 4) if return_flag else se.Rational(3, 4)
+                    if term != target:
+                        record_rr_approximation()
                     return yo_val, Q_val, R_val, return_flag
 
     return None, None, None, None

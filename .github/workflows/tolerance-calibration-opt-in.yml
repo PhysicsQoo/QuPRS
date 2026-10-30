@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):') && !startsWith(github.event.head_commit.message, 'research(accounting):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -834,6 +834,80 @@ jobs:
         with:
           name: qft16-independent-functional-cnf-uniqueness
           path: ${{ runner.temp }}/functional-results/
+          retention-days: 30
+          if-no-files-found: error
+
+  native-gpmc-single-pass-accounting:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(accounting):')
+    name: Same-run GPMC Complex rounding operation census and controlled A-B
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout existing experiment and the original pinned GPMC source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install GPMC native research build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Retrieve original verified QFT and QPE weighted CNF inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: native-mpfr-cnf-rust-qpe-science-v2
+          run-id: 40977618673
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/accounting-source-input
+      - name: Check source SHA identities without modifying checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/accounting-results"
+          mkdir -p "$OUT"
+          test "$(git rev-parse 'HEAD:GPMC')" = 'a1bda3489e959d3695b6798d327c5a1fc1bed305'
+          test "$(git -C GPMC rev-parse HEAD)" = 'a1bda3489e959d3695b6798d327c5a1fc1bed305'
+          git rev-parse HEAD > "$OUT/research-head.txt"
+          git rev-parse HEAD:GPMC > "$OUT/gpmc-gitlink.txt"
+          (cd "$RUNNER_TEMP/accounting-source-input"; sha256sum -c SHA256SUMS) \
+            > "$OUT/original-evidence-hashcheck.log"
+      - name: Build original and probe GPMC from same source; run 24 native paired calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/tolerance_calibration/gpmc_onepass_roundoff_accounting.py \
+            --gpmc-source "$GITHUB_WORKSPACE/GPMC" \
+            --artifact-folder "$RUNNER_TEMP/accounting-source-input" \
+            --output "$RUNNER_TEMP/accounting-results" \
+            2>&1 | tee "$RUNNER_TEMP/accounting-results/native-roundoff-accounting.log"
+      - name: Seal scoped research-only evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/accounting-results"
+          mkdir -p "$OUT"
+          sha256sum .diagnostics/tolerance_calibration/gpmc_onepass_roundoff_accounting.py \
+                     .github/workflows/tolerance-calibration-opt-in.yml \
+             > "$OUT/research-scripts-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload signed research binary identities and per-run stdout logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpmc-single-pass-arithmetic-operation-census
+          path: ${{ runner.temp }}/accounting-results/
           retention-days: 30
           if-no-files-found: error
 

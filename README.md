@@ -264,9 +264,10 @@ print(result.equivalent)
 
 RR coefficient matching and the **separate** WMC numerical classification
 thresholds are not interchangeable. Preserving input phases can change a
-previous `equivalent` result into `unknown` (RR alone) or
-`not_equivalent` (Hybrid/WMC), because the earlier result had discarded
-information. A floating WMC acceptance is not a strict equivalence
+previous `equivalent` result into `not_equivalent` for a fully reduced,
+nonzero RR-only diagonal residual, or `unknown` when RR remains incomplete;
+Hybrid may then invoke WMC. These are distinct outcomes, not one universal
+RR fallback. A floating WMC acceptance is not a strict equivalence
 certificate, and a WMC magnitude tolerance of `1e-8` is **not**
 the QCEC projective circuit-distance tolerance of `1e-8`.
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
@@ -284,7 +285,11 @@ No extra Solver invocation is added. Ganak retains its own input format
 and numerical precision. When its actual printed-output rounding interval
 cannot resolve the requested distance, QuPRS reports an observed
 resolution-scale warning and uses Ganak's numerical midpoint estimate,
-not an unconditional exact-equivalence certificate. GPMC retains the
+not an unconditional exact-equivalence certificate. This may produce an
+`equivalent` or `not_equivalent` point estimate that disagrees with an
+independent circuit oracle when Ganak's printed precision is insufficient.
+Such a result is a **known external-Solver numerical limitation**, not a
+certified decision at the requested distance threshold. GPMC retains the
 printed-interval verdict, including `unknown` where appropriate.
 The old magnitude-mode selector is not available.
 High-precision weights do not certify solver arithmetic. The native

@@ -199,24 +199,15 @@ fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
     Some(upper)
 }
 
-/// Compare a non-global residual against per-call RR tolerance. In
-/// Hybrid, additionally respect the distance criterion: 2*pi<7,
-/// so upper cycles < eps/7 implies D_proj <= epsilon.
-fn rr_within_tolerance(ps: &PathSum, rr_tolerance: f64,
-                       method: VerificationMethod, distance_epsilon: f64) -> bool {
-    use num_bigint::BigInt;
+/// Compare a non-global residual against the per-call RR tolerance.
+/// RR-only and Hybrid use the SAME RR acceptance criterion. The
+/// independent projective-distance tolerance only applies if WMC runs.
+fn rr_within_tolerance(ps: &PathSum, rr_tolerance: f64) -> bool {
     use num_rational::BigRational;
     use num_traits::Zero;
     let Some(upper) = rr_residual_upper_cycles(ps) else { return false };
     if upper.is_zero() { return false; }
-    let Some(mut cap) = BigRational::from_float(rr_tolerance) else { return false };
-    if method == VerificationMethod::Hybrid {
-        let Some(distance) = BigRational::from_float(distance_epsilon) else {
-            return false;
-        };
-        let distance_cycles = distance / BigRational::from_integer(BigInt::from(7));
-        if distance_cycles < cap { cap = distance_cycles; }
-    }
+    let Some(cap) = BigRational::from_float(rr_tolerance) else { return false };
     upper < cap
 }
 
@@ -342,7 +333,7 @@ fn check_equivalence_with_distance_mode(
             // First allow a conservative, per-request approximate RR success
             // for a *diagonal* residual with exact Boolean identity.
             // The source phase polynomial is NEVER rounded or rewritten.
-            if rr_within_tolerance(&ps_miter, rr_tolerance, method, eps) {
+            if rr_within_tolerance(&ps_miter, rr_tolerance) {
                 rr_approximate = true;
                 let global = ps_miter.p.terms.get(&Vec::new())
                     .cloned().unwrap_or(PhaseCoeff::ZERO);
@@ -679,24 +670,18 @@ mod verification_options_contract_tests {
     }
 
     #[test]
-    fn rr_residual_aggregate_bound_and_hybrid_cap_are_independent() {
+    fn rr_residual_aggregate_bound_is_shared_by_rr_only_and_hybrid() {
         use crate::rational::Rational;
         let mut ps = PathSum::new(2);
         let coeff = PhaseCoeff::new_constant(Rational::new(1, 100_000_000));
         ps.p.add_term(vec![0], coeff.clone());
         ps.p.add_term(vec![1], coeff);
-        assert!(!rr_within_tolerance(
-            &ps, 1.5e-8, VerificationMethod::ReductionRules, 1e-8
-        ), "sum of two 1e-8 cycle terms must exceed 1.5e-8");
-        assert!(rr_within_tolerance(
-            &ps, 3e-8, VerificationMethod::ReductionRules, 1e-8
-        ));
-        assert!(!rr_within_tolerance(
-            &ps, 3e-8, VerificationMethod::Hybrid, 1e-8
-        ), "Hybrid cannot silently override the 1e-8 distance threshold");
-        assert!(rr_within_tolerance(
-            &ps, 3e-8, VerificationMethod::Hybrid, 1e-6
-        ));
+        assert!(!rr_within_tolerance(&ps, 1.5e-8),
+                "sum of two 1e-8 cycle terms must exceed 1.5e-8");
+        assert!(rr_within_tolerance(&ps, 3e-8),
+                "RR uses its own aggregate bound, independent of the WMC distance");
+        assert!(!rr_within_tolerance(&ps, 2e-8),
+                "RR requires a strict bound even at the exact threshold");
         ps.p.add_term(
             vec![0, 1], PhaseCoeff::new_symbolic(42, crate::rational::FreeRational::new(1, 10))
         );

@@ -13,7 +13,7 @@ import pytest
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Operator
 
-from QuPRS import check_equivalence, config
+from QuPRS import check_equivalence
 from QuPRS.utils.gpmc_distance_budget import classify_gpmc_single_count
 from QuPRS.utils.precision_count import parse_printed_count_line
 from _benchmark_cases import MQT_CASES
@@ -51,7 +51,6 @@ def test_rr_local_tolerance_does_not_certify_distance(record_property):
     This is a diagnostic of existing RR tolerance semantics; no rule is disabled.
     """
     theta = 2 * math.pi * 1e-7
-    original = config.get_tolerance()
     left, right = QuantumCircuit(1), QuantumCircuit(1)
     right.h(0)
     right.rz(theta, 0)
@@ -59,24 +58,21 @@ def test_rr_local_tolerance_does_not_certify_distance(record_property):
     assert Operator(left).equiv(Operator(left))
     source_distance = abs(math.sin(theta / 2))
     assert source_distance > 1e-8
-    try:
-        config.set_tolerance(1e-6)
-        rr = check_equivalence(
-            left, right, method="reduction_rules",
-            backend="python", strategy="Naive", timeout=30,
-        )
-        assert rr.equivalent in ("equivalent", "equivalent*", "unknown", "not_equivalent")
-        assert rr.wmc_solver_invoked is False
-        record_property("source_projective_distance", str(source_distance))
-        record_property("rr_local_tolerance", "1e-6")
-        record_property("rr_verdict", rr.equivalent)
-        record_property("strict_source_equality", "false")
-        record_property(
-            "rr_distance_mismatch_diagnostic",
-            rr.equivalent.startswith("equivalent") and source_distance > 1e-8,
-        )
-    finally:
-        config.set_tolerance(original)
+    rr = check_equivalence(
+        left, right, method="reduction_rules",
+        backend="python", strategy="Naive", timeout=30,
+        rr_tolerance=1e-6,
+    )
+    assert rr.equivalent in ("equivalent", "equivalent*", "unknown", "not_equivalent")
+    assert rr.wmc_solver_invoked is False
+    record_property("source_projective_distance", str(source_distance))
+    record_property("rr_local_tolerance", "1e-6")
+    record_property("rr_verdict", rr.equivalent)
+    record_property("strict_source_equality", "false")
+    record_property(
+        "rr_distance_mismatch_diagnostic",
+        rr.equivalent.startswith("equivalent") and source_distance > 1e-8,
+    )
 
 
 def test_representative_qft_graphstate_qaoa_remain_in_paper_ci():

@@ -705,4 +705,33 @@ mod count_parser_tests {
         }
     }
 
+    #[test]
+    fn experiment_unused_path_variable_cnf_accounting() {
+        // Structural experiment only: no external solver invocation.
+        // WMC normalization counts all PathSum variables, so a path
+        // variable absent from P and F still represents a free choice.
+        use super::*;
+        let mut ps = PathSum::new(1);
+        let unused = ps.v.get_fresh_var();
+        assert_eq!(ps.v.path_vars.len(), 2);
+
+        let mut native = WmcManager::new(&ps);
+        native.encode_trace(&ps).unwrap();
+        let before = native.to_dimacs_string("gpmc");
+        let before_header = before.lines().next().unwrap();
+        assert_eq!(before_header, "p cnf 1 2");
+        assert!(!native.var_map.contains_key(&unused));
+
+        // Candidate adjustment, scoped to this test: reserve the missing
+        // free variable before final CNF serialization. Do not mutate
+        // production output until end-to-end evidence is collected.
+        native.get_dimacs_var(unused);
+        let after = native.to_dimacs_string("gpmc");
+        assert!(after.starts_with("p cnf 2 2\n"));
+        // The clauses are tautologies on x0 only. The counts are thus
+        // 2 assignments before reservation and 4 afterwards.
+        assert_eq!(1usize << 1, 2);
+        assert_eq!(1usize << 2, 4);
+    }
+
 }

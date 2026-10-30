@@ -1385,3 +1385,235 @@ Python/Rust, both Solvers, QFT/QPE/QAOA/Grover, walltime/RSS
 and the complete CodSpeed v5 suite.
 Only a conclusive, performance-neutral or performance-positive
 candidate should move into dev.
+
+
+## Phase 11 — MPFR input/output and *a posteriori* exact WMC arithmetic evidence
+
+**2026-10-30, research-only.** All source and tests remain on
+`experiment/numerical-tolerance-calibration-20261027`;
+pinned public `dev` is
+`55e78c7597966617c1a193b89056ff4e99c3ddfb`.
+The public verifier, its selected Solver and the one-solve
+`RR -> Hybrid -> WMC` fast path were not modified.
+
+### A. Audited original native weighted-count arithmetic sources
+
+Inspected exactly pinned GPMC source gitlink
+`a1bda3489e959d3695b6798d327c5a1fc1bed305`.
+
+| Stage | Actual GPMC source | Count-path numerical behavior | Proof status |
+| --- | --- | --- | --- |
+| Decimal literals | `core/Instance.cc`, `mpfr/mpreal.h` | Input decimal strings converted to nearest MPFR at p bits; complex literal fields stored independently | Independently checked on all four fixed CNFs |
+| Preprocessor | `preprocessor/Preprocessor.cc` | Equivalent-variable weights combined with `*=`; compacted/free/assigned weights merged into `gweight` using `+` and `*=` | Arithmetic through covered operators; full general semantic preservation not formally proved |
+| Component decomposition | `core/Component.h`, `core/ComponentManager.cc` | Two-branch counts added; component products, branch weights and isolated weights combined by `+`, `*` | All actual complex operations counted in Phase 10 |
+| Component cache | `core/ComponentCache.cc` | Stores/reuses existing complex subcount via assignment; reuse does not invoke a new arithmetic operator | Cached-DAG subcounts are reused (not independent rounding at each use); general same-precision invariants and cache semantic correctness not formally proved |
+| Root | `core/Counter.cc` | `totalModels() * gweight` produces final complex WMC; unweighted `<<` shift path distinct | Actual p299 result captured as binary |
+| Binary to stdout | `core/Main.cc`, `c-mpfr/ComplexMPFR.cc`, `mpfr/mpreal.h` | Output uses `mpfr_asprintf` with MPFR's default rounding and `cout.precision(90)` | Individually checked with exact rational binary/decimal differences |
+
+**Important diagnostic distinction:** GPMC streams complex
+`gweight` values **during preprocessing** before it streams
+the final weighted count. A capture that assumes one
+`Complex::operator<<` event is incorrect. The corrected
+study selects the actual final result and retains all
+intermediate stream events as separate evidence.
+
+QFT16 uses **the cache heavily** (original ~133085 cache
+hits, true negative ~133020), so the existing precision
+experiments cannot be dismissed as cache-free examples.
+A correct general proof must treat cache entries as
+**shared DAG nodes** with one rounded value reused
+multiple times, not as fresh exact values.
+
+### B. Exact native MPFR input and printer tests
+
+Research source commit
+`baf64ddaad1217999675eed8d49b54a1e73ad41b`,
+[Actions #40994462820](https://github.com/PhysicsQoo/QuPRS/actions/runs/40994462820)
+**SUCCESS**,
+[artifact 12950164358](https://github.com/PhysicsQoo/QuPRS/actions/runs/40994462820/artifacts/12950164358).
+ZIP SHA256
+`cf4d13357117e9488e496175bf24643f0a0720a3ec2a284053be07ba6a0999b7`;
+ZIP CRC and all **13/13** SHA256SUMS independently checked.
+An isolated scratch build instruments only the original
+Complex output stream, not preprocessing, cache, count algorithm
+or public binary.
+
+Independent MPFR `mpfr_set_str` at p=299 nearest and
+base-2 exact MPFR extraction checked every positive and
+negative literal's printed decimal real and imaginary values.
+Each component satisfied the appropriate nearest relative
+binary rounding bound; the largest **complex L1** decimal
+to MPFR input error was:
+
+| Fixed CNF | Original literal weight records | Maximum absolute input L1 rounding |
+| --- | ---: | ---: |
+| QPEexact8 baseline | 34 | 3.90343178e-91 |
+| QPEexact8 self-negative | 4 | 3.77318235e-91 |
+| QFT16 baseline | 800 | 7.12783337e-91 |
+| QFT16 self-negative | 770 | 6.74271748e-91 |
+
+For **all four actual native final weighted counts**, the
+rounding mode was nearest (`rnd=0`), p=299 on both complex
+components; underflow, overflow, NaN, erange flags were all
+zero and both components were finite. Status was captured
+**before** `PrintLog10`, which may compute log10 of a negative
+real component and set unrelated MPFR flags.
+
+The exact MPFR binary count and the actual
+`mpfr_asprintf("%.90Rg")`-style printed decimal count
+were compared with integer `Fraction` arithmetic.
+Both components of all four results fell within the
+**90-significant-digit half-last-place decimal radius**.
+For example, QFT16 baseline's imaginary MPFR-to-printer
+difference was 2.40833e-75, inside the 5e-75 bound.
+The zero- and compact-integer-format corner cases are
+covered by the earlier MPFR printer contract study.
+All four current examples have a checked final
+stdout uncertainty, not an assumed 0.5 for a printed integer.
+
+### C. Exact original binary WMC error for four pinned CNFs
+
+The *independent* original CNF-to-emitted-d-DNNF Boolean
+equivalence for both QFT16 cases was previously established
+using checkable DRUP refutations in Phase 9. A separate
+small QPE baseline/negative direct-CNF-vs-d-DNNF
+Boolean XOR miter was subsequently checked via a
+Glucose4 proof and an independently implemented RUP verifier:
+
+- QPE8 baseline: CNF 31 vars / 61 clauses; NNF 83 nodes;
+  Boolean XOR miter 590 clauses; **196/196 RUP additions
+  accepted, empty clause checked**.
+- QPE8 self-negative: CNF 10 vars / 19 clauses; NNF one
+  node; XOR miter 148 clauses; **32/32 RUP additions
+  accepted, empty clause checked**.
+
+That proof used *no GPMC* and closed the prior QPE-baseline
+gap (its earlier CaDiCaL UNSAT did not have a checked proof).
+The fixed Boolean representations and all original-variable
+weight maps are now supported independently.
+Research commit `9a2bdada27737494c7a7040f51a5c757ac943b68`,
+[Actions #40995487313](https://github.com/PhysicsQoo/QuPRS/actions/runs/40995487313)
+**SUCCESS**, [artifact 12951440419](https://github.com/PhysicsQoo/QuPRS/actions/runs/40995487313/artifacts/12951440419),
+ZIP SHA256 `6ba0e92256eba4d7e560d192853995f842901e6276b88fbfff64aaa7c2cc347a`,
+CRC and **9/9 SHA256SUMS** independently checked.
+
+For those exact byte-pinned inputs, a zero-GPMC-solve
+offline audit evaluated the emitted d-DNNF with **exact
+rational arithmetic** on the original CNF decimal complex
+weights. It subtracted that result from the exact
+base-2 MPFR value captured **before decimal printing**.
+This determines the native arithmetic difference
+*exactly* as a rational number for each fixed pair.
+
+Research source commit
+`b541f0302b4023d73ee33e8506efcd23b8ee77c3`,
+[Actions #40995096158](https://github.com/PhysicsQoo/QuPRS/actions/runs/40995096158)
+**SUCCESS**,
+[artifact 12951295547](https://github.com/PhysicsQoo/QuPRS/actions/runs/40995096158/artifacts/12951295547),
+ZIP SHA256 `4055b639471a6005c422b49453d478733f426b3987bf3afbcc783d4a3b9ef681`,
+CRC and **6/6 SHA256SUMS** verified.
+
+| Fixed source CNF | Exact real-component count error | Exact imag-component count error | Exact normalized complex L1 error |
+| --- | ---: | ---: | ---: |
+| QPEexact8 baseline | 1.93906e-87 | 3.75434e-87 | 2.779979e-90 |
+| QPEexact8 self-negative | 1.31996e-88 | 1.19418e-90 | 5.202747e-91 |
+| QFT16 baseline | 2.66149e-75 | 1.07475e-74 | 5.954776e-90 |
+| QFT16 self-negative | 2.08519e-75 | 1.16913e-76 | 7.823458e-90 |
+
+These are verified **exact-input, fixed-instance arithmetic
+error measurements**, not a general Solver error theorem.
+Unlike previous differences derived from the printed
+decimal result, these values exclude printer-rounding
+uncertainty altogether.
+
+The Phase 10 engineering candidate
+`S * t/(1-t)`, `t=16*2^-p*(K+m+1)`,
+contains all four independently measured errors.
+This is *evidence of conservative behavior on the four
+source-pinned instances*, **not a proof** of the candidate
+enclosure on all future circuits.
+
+### D. Mathematical primitives and global proof boundary
+
+With MPFR round-to-nearest, p=299, all values finite and
+normal and `u=2^-p`, each real `mpfr_add` or
+`mpfr_mul` satisfies the standard relative rounding
+bound. Consequently, for the exact complex inputs
+`a,b`, the current four-real-product/two-sum
+implementation obeys conservative local norm bounds:
+
+```text
+||fl(a+b)-(a+b)||_2 <= u (||a||_2 + ||b||_2)
+||fl(a*b)-(a*b)||_2 <= sqrt(2) * (2*u + u^2) ||a||_2 ||b||_2
+```
+
+The larger coefficient `16u` used in Phase 10
+is deliberately conservative for these isolated primitives.
+Nearest input conversion contributes a separately checked
+rounding term; final decimal output has another separately
+checked half-last-place term.
+
+To lift those primitive theorems into a **general**
+`N_sat M^m * ((1+16u)^(K+m+1)-1)`
+global error enclosure, the following implementation-level
+obligations remain:
+
+1. **Arithmetic graph completeness:** prove the entire
+   executed WMC calculation is a faithful nonnegative-
+   coefficient sum-of-products DAG in the exact original
+   literal weights, including weighted preprocessing.
+   The `K` native counter only observes the four
+   `ComplexMPFR` operators; no uncovered rounded arithmetic,
+   precision-changing conversion or arithmetic-dependent
+   branch may silently enter the accepted certificate.
+2. **Cache precision and semantics:** prove cached values
+   are copied without extra precision loss at the same p
+   and the cached-DAG expansion represents each exact
+   original weighted model appropriately.
+3. **Exponent and rounding completeness:** establish
+   normal-operation invariants for *arbitrary accepted
+   inputs*, not only the four flag-clean samples,
+   and handle special values and cancellation explicitly.
+4. **General cost and input provenance:** establish a
+   cheap, sound upper bound for `K`, `N_sat`, `m`
+   and `M` available during the **single** native WMC
+   call, without constructing a full d-DNNF or rerunning
+   GPMC. Distinguish the exact source angle error from
+   Solver input decimal parsing and count arithmetic.
+5. **Solver separation:** do not apply GPMC-specific
+   error claims to Ganak without an independent native
+   implementation audit.
+
+The four fixed QFT/QPE outputs are now much more
+strongly certified as research oracle fixtures.
+However, **a fully general inexpensive GPMC
+counting-error bound is not yet proved**.
+A release classifier cannot simply adopt the Phase 10
+candidate. In particular, do not replace `unknown` by
+`equivalent` solely because these fixed tests have
+very small MPFR count errors.
+
+### E. Production performance and release boundary
+
+The ordinary dev/main verifier is unchanged. All
+directed MPFR, fractional WMC, SAT/DRUP, NNF and
+GPMC replays above were opt-in research only.
+The prior source-pinned same-run baseline/probe
+study found no measurable QFT16 time regression
+at 0.01s timing resolution; this is not a
+CodSpeed-wide production benchmark.
+
+No blanket `-ddnnf`, extra solver call, large
+Fraction computation, extra proof checking, or
+new fixed `3e-9` guard is acceptable in
+the public verification path. Keep RR-first,
+single Solver per WMC stage and genuine `unknown`
+when evidence is insufficient.
+
+Before any dev promotion, independently prove
+the remaining global DAG and metadata-bound
+obligations, then benchmark the *actual proposed
+Python/Rust public binaries* and Ganak/GPMC
+on representative QPE/QFT/QAOA/Grover and
+full CodSpeed v5. Any new correctness metadata
+must be designed to avoid material regression.

@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -580,7 +580,7 @@ jobs:
           if-no-files-found: error
 
   experimental-real-triad:
-    if: github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'research(triad):') || startsWith(github.event.head_commit.message, 'research(semantics):'))
+    if: github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'research(triad):') || startsWith(github.event.head_commit.message, 'research(semantics):') || startsWith(github.event.head_commit.message, 'research(divpi):'))
     name: Scoped QFT source intervals SAT dDNNF miter and GPMC cost comparison
     runs-on: ubuntu-24.04
     timeout-minutes: 22
@@ -691,6 +691,7 @@ jobs:
               .diagnostics/tolerance_calibration/dnnf_cnf_sat_miter.py \
             .diagnostics/tolerance_calibration/qft_qasm_angle_provenance_study.py \
             .diagnostics/tolerance_calibration/original_cnf_unweighted_count.py \
+            .diagnostics/tolerance_calibration/qft_pathsum_divpi_angle_study.py \
               --artifact-folder "$RUNNER_TEMP/triad-input" \
               --output "$RUNNER_TEMP/triad-evidence" --case "$CASE") \
               > "$RUNNER_TEMP/triad-evidence/sat-$CASE.log" 2>&1
@@ -723,6 +724,15 @@ jobs:
             --artifact-folder "$RUNNER_TEMP/triad-input" \
             --output "$RUNNER_TEMP/triad-evidence" \
             2>&1 | tee "$RUNNER_TEMP/triad-evidence/original-cnf-unweighted-count.log"
+      - name: Audit actual QFT16 QASM float to Python PathSum div_pi precision
+        if: ${{ startsWith(github.event.head_commit.message, 'research(divpi):') }}
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/qft_pathsum_divpi_angle_study.py" \
+            --output "$RUNNER_TEMP/triad-evidence" \
+            2>&1 | tee "$RUNNER_TEMP/triad-evidence/qft-source-pathsum-divpi.log"
       - name: Seal scoped study evidence and source identities
         if: always()
         shell: bash

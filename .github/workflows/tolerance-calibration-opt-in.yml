@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -719,6 +719,93 @@ jobs:
         with:
           name: qpe-qft-triad-source-sat-benchmark
           path: ${{ runner.temp }}/triad-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  offline-large-cnf-implication:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(implication):')
+    name: Independent large dDNNF-to-original-CNF implication checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout existing research-only scripts
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Configure Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download original QPE and QFT CNF and dDNNF evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: native-mpfr-cnf-rust-qpe-science-v2
+          run-id: 40977618673
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/implication-input
+      - name: Download previous QFT and same-host benchmark evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: qpe-qft-triad-source-sat-benchmark
+          run-id: 40986641177
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/triad-previous
+      - name: Check evidence and verify corrected phase study input fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/implication-results"
+          mkdir -p "$OUT"
+          (cd "$RUNNER_TEMP/implication-input"; sha256sum -c SHA256SUMS) \
+            | tee "$OUT/original-input-hashes.log"
+          (cd "$RUNNER_TEMP/triad-previous"; sha256sum -c SHA256SUMS) \
+            | tee "$OUT/triad-input-hashes.log"
+          python - <<'PY'
+          import hashlib,json,os,pathlib
+          a=pathlib.Path(os.environ['RUNNER_TEMP'])/'implication-input'/'qft16-baseline.cnf'
+          b=pathlib.Path(os.environ['RUNNER_TEMP'])/'triad-previous'/'qft16-phase-corpus.cnf'
+          j=json.loads((b.parent/'qft16-source-phase-interval.json').read_text())
+          expected=hashlib.sha256(a.read_bytes()).hexdigest()
+          observed=hashlib.sha256(b.read_bytes()).hexdigest()
+          assert expected==observed==j['summary']['qft_cnf_sha256'],(expected,observed)
+          print('QFT_SOURCE_CNFS_EXACT_BYTE_MATCH',expected)
+          PY
+      - name: Independently check every original clause with bit-parallel NNF conditioning
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u .diagnostics/tolerance_calibration/nnf_cnf_bitparallel_implication.py \
+            --artifact-folder "$RUNNER_TEMP/implication-input" \
+            --output "$RUNNER_TEMP/implication-results" \
+            --case qpeexact8-baseline \
+            --case qpeexact8-self_negative \
+            --case qft16-baseline \
+            --case qft16-self_negative \
+            2>&1 | tee "$RUNNER_TEMP/implication-results/nonenumerative-implication.log"
+      - name: Seal source and output hashes
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/implication-results"
+          mkdir -p "$OUT"
+          git rev-parse HEAD > "$OUT/experiment-head.txt"
+          sha256sum .diagnostics/tolerance_calibration/nnf_cnf_bitparallel_implication.py \
+                     .diagnostics/tolerance_calibration/qft_source_weight_interval_study.py \
+                     .github/workflows/tolerance-calibration-opt-in.yml \
+              > "$OUT/research-script-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+           xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload bounded original-clause implication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpe-qft-large-implication-structure-proof
+          path: ${{ runner.temp }}/implication-results/
           retention-days: 30
           if-no-files-found: error
 

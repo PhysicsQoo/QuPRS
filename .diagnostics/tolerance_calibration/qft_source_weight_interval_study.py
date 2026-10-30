@@ -21,7 +21,7 @@ from QuPRS import check_equivalence
 from QuPRS.interface import ps2wmc
 from mpfr_directed_phase_bound import Directed
 
-PREVIOUS_QFT_CNF_SHA="20ee9e55eb1fc644d08daf130d180ded46f06f67897fa46f57b4f4ef7f8f1"
+PREVIOUS_QFT_CNF_SHA="20ee9e55eb1fc644d08daf130d180ded46f06f67897fa46f57b4f4ef4ef7f8f1"
 QFT_SOURCE_SHA=[
  "39b6889497a4e98098b6bb2b4563ace2fb660f4cc3fe8d0763d3f69fc200d865",
  "aa85188d731454bd85b0fe2ae089ab8e6b812501730eee5f1651ac11d7b7fcbc",

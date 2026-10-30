@@ -10,6 +10,7 @@ ANG=("0.0000000099","0.0000000196","0.0000000199",
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--out",required=True,type=Path)
+    p.add_argument("--strict",action="store_true")
     args=p.parse_args()
     rows=[]
     with mp.workdps(90):
@@ -23,7 +24,12 @@ def main():
                 verdict=result.equivalent
                 assert verdict in ("equivalent","equivalent*","unknown","not_equivalent")
                 assert result.wmc_solver_invoked is True
-                # Only assert at points away from the unresolved numerical margin.
+                # A wrong positive/negative is never acceptable even when
+                # it is close to the threshold; unknown stays inconclusive.
+                if args.strict and distance<mp.mpf("1e-8"):
+                    assert verdict!="not_equivalent",(angle,backend,verdict)
+                if args.strict and distance>mp.mpf("1e-8"):
+                    assert verdict not in ("equivalent","equivalent*"),(angle,backend,verdict)
                 if distance<=mp.mpf("0.75e-8"):
                     assert verdict!="not_equivalent",(angle,backend,verdict)
                 if distance>=mp.mpf("1.75e-8"):

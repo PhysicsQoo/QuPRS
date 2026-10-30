@@ -152,6 +152,28 @@ jobs:
             done
           done
           exit "$failed"
+      - name: Opt-in production-path Rust high-precision compile and underflow guard
+        run: |
+          set -o pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            --features high-precision-gpmc native_source_exact_clifford_and_underflow_control \
+            -- --nocapture 2>&1 | tee "$RUNNER_TEMP/cnf-study/production-path-native-precise.stdout"
+      - name: Opt-in precision Rust/PyO3 public API scientific gate
+        run: |
+          set -o pipefail
+          python -m pip install maturin
+          mkdir -p "$RUNNER_TEMP/cnf-study/precise-wheels"
+          maturin build --release --features high-precision-gpmc \
+            --out "$RUNNER_TEMP/cnf-study/precise-wheels"
+          python -m pip install --no-deps --force-reinstall \
+            "$RUNNER_TEMP/cnf-study/precise-wheels/"*.whl
+          for case in grover4 qaoa7; do
+            python scripts/experiments/public_compiled_precision_parity.py \
+              --case "$case" --backend rust \
+              --out "$RUNNER_TEMP/cnf-study/highprecision-public-$case-rust.json"
+          done
+          python scripts/experiments/public_distance_boundary_probe.py --strict \
+            --out "$RUNNER_TEMP/cnf-study/highprecision-public-boundary.json"
       - name: Single-solve original GPMC and Ganak printed-precision audit
         run: |
           set -o pipefail
@@ -241,4 +263,19 @@ jobs:
           with zipfile.ZipFile(wheels[0]) as f:
               assert any("_pathsum_rust" in p for p in f.namelist())
           print("MACOS_WHEEL_STRUCTURE_PASS",wheels[0].name)
+          PY
+
+      - name: macOS opt-in production-path precision wheel build
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix mpfr)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig"
+          mkdir -p "$RUNNER_TEMP/precision-wheels"
+          maturin build --release --features high-precision-gpmc \
+            --out "$RUNNER_TEMP/precision-wheels"
+          python - <<'PY'
+          import os,pathlib,zipfile
+          w=list((pathlib.Path(os.environ["RUNNER_TEMP"])/"precision-wheels").glob("*.whl"))
+          assert len(w)==1,w
+          with zipfile.ZipFile(w[0]) as z:
+              assert any("_pathsum_rust" in x for x in z.namelist())
+          print("MACOS_PRECISE_WHEEL_STRUCTURE_PASS",w[0].name)
           PY

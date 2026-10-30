@@ -22,8 +22,8 @@ Both fields are optional, evaluated per call and separately recorded in
 the returned result. When omitted, the public API reads defaults from
 config.WMC_MAGNITUDE_TOLERANCE and config.WMC_PHASE_TOLERANCE. Explicit values must be finite numbers
 strictly between 0 and 1. Invalid values fail before native execution.
-per-call `rr_tolerance` governs Python symbolic reduction only; changing
-it is **not** a way to tune the WMC numeric classifier. Changing the
+The per-call `rr_tolerance` governs Python symbolic reduction only;
+it is **not** a WMC numerical classifier threshold. Changing the
 per-call RR coefficient tolerance participates in symbolic cache keys; it must be a finite positive number (not a bool).
 It is not a per-call or thread-local setting.
 

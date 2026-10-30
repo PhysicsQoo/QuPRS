@@ -220,9 +220,10 @@ def check_equivalence(
         wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
             acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
             Independent of reduction tolerance and not a formal proof bound.
-            The Python RR tolerance is set with rr_tolerance;
-            it is process-global, invalidates dependent caches when changed,
-            and affects RR matching, not gate-source phase preservation.
+            Use rr_tolerance=... on each verification. Reduction caches
+            include the per-call value in their cache key; there is no
+            mutable process-global RR tolerance. This setting affects RR
+            matching, not gate-source phase preservation.
         wmc_phase_tolerance (float | None): WMC phase threshold separating
             "equivalent" and "equivalent*" for near-unit magnitudes.
             None uses config.WMC_PHASE_TOLERANCE.

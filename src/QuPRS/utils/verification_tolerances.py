@@ -12,7 +12,10 @@ _rr_tolerance = ContextVar("quprs_rr_tolerance", default=DEFAULT_RR_TOLERANCE)
 def validate_rr_tolerance(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("rr_tolerance must be a finite positive number")
-    value = float(value)
+    try:
+        value = float(value)
+    except (OverflowError, ValueError):
+        raise ValueError("rr_tolerance must be a finite positive number") from None
     if not isfinite(value) or value <= 0:
         raise ValueError("rr_tolerance must be a finite positive number")
     return value

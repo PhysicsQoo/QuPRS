@@ -78,6 +78,10 @@ pub struct EquivalenceCheckResult {
     /// Distinguish printed solver evidence from end-to-end certified bounds.
     pub wmc_printed_verdict: Option<&'static str>,
     pub wmc_precision_reason: Option<&'static str>,
+    /// Estimated projective-distance print granularity at this Ganak count;
+    /// Some only when the requested distance is below the observed granularity.
+    /// This is not an upper bound on the solver's arithmetic error.
+    pub wmc_print_resolution_distance: Option<f64>,
     /// Requested projective-distance threshold for WMC verification.
     pub approximate_distance_tolerance: Option<f64>,
     /// RR-only/HYBRID used an analytic upper bound for a nonzero residual phase.
@@ -371,6 +375,7 @@ fn check_equivalence_with_distance_mode(
     let mut solver_invoked = false;
     let mut wmc_printed_verdict: Option<&'static str> = None;
     let mut wmc_precision_reason: Option<&'static str> = None;
+    let mut wmc_print_resolution_distance: Option<f64> = None;
 
     if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
         let _wmc_scope = diagnostics::span("wmc_total");
@@ -433,6 +438,12 @@ fn check_equivalence_with_distance_mode(
                 count, twice, &eps.to_string(), &BigRational::zero(),
             )?;
             let printed = observed;
+            if tool_name == "ganak" {
+                wmc_print_resolution_distance =
+                    crate::precision_count::ganak_print_resolution_distance(
+                        count, twice, &eps.to_string(),
+                    )?;
+            }
             use crate::precision_count::PrintedVerdict;
             wmc_printed_verdict = Some(match printed {
                 PrintedVerdict::Equivalent => "equivalent",
@@ -494,6 +505,7 @@ fn check_equivalence_with_distance_mode(
         tool_name: tool_name.to_string(),
         wmc_printed_verdict,
         wmc_precision_reason,
+        wmc_print_resolution_distance,
         approximate_distance_tolerance,
         rr_approximate,
         solver_invoked,

@@ -197,7 +197,8 @@ def exactly_count_unweighted_tautology(
             return False
         if any(abs(lit) > header[0] for lit in literals[:-1]):
             return False
-        if not any(-lit in set(literals[:-1]) for lit in literals[:-1]):
+        literal_set = set(literals[:-1])
+        if not any(-lit in literal_set for lit in literal_set):
             return False
         clauses += 1
 

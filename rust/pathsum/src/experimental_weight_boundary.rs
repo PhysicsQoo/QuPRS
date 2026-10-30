@@ -27,7 +27,7 @@ fn fixed_trig(coeff: &PhaseCoeff) -> (BigInt, BigInt) {
     let rational = (BigInt::from(coeff.constant.numer) * &tau) / coeff.constant.denom;
     let source = coeff.radians.as_ref().map(|v| exact_ratio_scaled(v, &s) * 2)
         .unwrap_or_else(BigInt::zero);
-    let mut angle = (rational + source) % &tau;
+    let mut angle: BigInt = (rational + source) % &tau;
     if angle.is_negative() { angle += &tau; }
     if angle > pi { angle -= &tau; }
     let squared = (&angle * &angle) / &s;
@@ -50,7 +50,7 @@ fn decimal(value: &BigInt) -> String {
     let digits = PRINT_DIGITS as usize;
     let divisor = BigInt::from(10_u8).pow(DECIMALS - PRINT_DIGITS);
     // Round half away from zero; this is an output encoding, not solver error.
-    let rounded = (value.abs() + &divisor/2) / &divisor;
+    let rounded: BigInt = (value.abs() + &divisor / BigInt::from(2)) / &divisor;
     let format_scale = BigInt::from(10_u8).pow(PRINT_DIGITS);
     let whole = &rounded / &format_scale;
     let fractional = (&rounded % &format_scale).to_string();

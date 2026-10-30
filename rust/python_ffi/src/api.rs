@@ -171,6 +171,7 @@ pub fn check_equivalence(
         dict.set_item("rr_approximate", result.rr_approximate)?;
         dict.set_item("wmc_printed_verdict", result.wmc_printed_verdict)?;
         dict.set_item("wmc_precision_reason", result.wmc_precision_reason)?;
+        dict.set_item("wmc_print_resolution_distance", result.wmc_print_resolution_distance)?;
         dict.set_item("approximate_distance_tolerance", result.approximate_distance_tolerance)?;
         if result.wmc_time.is_some() && result.solver_invoked {
             dict.set_item("wmc_numerical_verdict", result.status.to_string())?;

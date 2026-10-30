@@ -128,8 +128,10 @@ def main(args):
             if p.returncode:raise RuntimeError(("solver failed",label,p.stderr[-300:]))
             evidence=[x.split("QUPRS_MPFR_AUDIT ",1)[1] for x in p.stderr.splitlines()
                       if "QUPRS_MPFR_AUDIT " in x]
-            if len(evidence)!=1:raise ValueError(("exact MPFR output evidence missing",label))
-            fields=dict(x.split("=",1) for x in evidence[0].split())
+            if not evidence:raise ValueError(("exact MPFR output evidence missing",label))
+            # GPMC also streams intermediate preprocessing gweight diagnostics.
+            # The last Complex stream is the actual result, just before log10.
+            fields=dict(x.split("=",1) for x in evidence[-1].split())
             valid={"rnd":"0","uf":"0","of":"0","nan":"0","erange":"0",
                    "realnum":"1","imagnum":"1","rprec":"299","iprec":"299"}
             if any(fields.get(k)!=v for k,v in valid.items()):
@@ -141,6 +143,7 @@ def main(args):
                  "native_MPFR_status":valid,"stdout_component_evidence":print_metrics,
                  "decimal_input_to_p299_checked":True,"p299_to_stdout_checked":True,
                  "one_native_solver_call_per_research_case":True,
+                 "native_complex_stream_events":len(evidence),
                  "whole_solver_arithmetic_not_yet_proven":True}
             records.append(row)
             print("GPMC_MPFR_IO_CONTRACT "+json.dumps(row,sort_keys=True),flush=True)

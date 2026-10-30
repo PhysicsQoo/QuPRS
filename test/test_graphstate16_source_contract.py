@@ -125,7 +125,10 @@ def get_graphstate_reduced_certificate():
     res = check_equivalence(
         str(A), str(B), backend="rust", method="reduction_rules",
         strategy="Naive", tool_name="gpmc", timeout=30,
+        rr_tolerance=1e-18,
     )
+    # Pin a threshold tighter than the known nonzero source residuals.
+    # The default (1e-10) RR acceptance is intentionally approximate.
     assert res.equivalent == "not_equivalent"
     assert res.tool_time is None
     return certificate_from_reduced(str(res.final_pathsum))

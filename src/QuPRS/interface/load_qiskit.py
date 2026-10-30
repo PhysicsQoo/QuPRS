@@ -18,6 +18,25 @@ from QuPRS.utils.solver_process import SolverTimeout
 from QuPRS.utils.util import set_safe_memory_limit
 
 
+
+def _warn_ganak_print_resolution(
+    solver: str, observed_resolution: float | None, requested: float,
+) -> None:
+    """Report observed *output* granularity, without changing the verdict."""
+    if solver != "ganak" or observed_resolution is None:
+        return
+    import warnings
+    warnings.warn(
+        "Ganak printed-count rounding resolution at this normalized count "
+        f"(estimated projective-distance scale {observed_resolution:.6g}) "
+        f"is coarser than requested approximate_distance_tolerance={requested:.6g}. "
+        "The WMC verdict is a solver-dependent numerical observation, "
+        "not a guaranteed decision at the requested resolution.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def timeout_handler(signum, frame):
     raise VerificationTimeout("Operation timed out")
 
@@ -355,6 +374,10 @@ def check_equivalence(
             else None
         )
 
+        _warn_ganak_print_resolution(
+            tool_name, rust_res.get("wmc_print_resolution_distance"),
+            approximate_distance_tolerance,
+        )
         return EquivalenceCheckResult(
             qubit_num=rust_res.get("qubits", 0),
             gate_num=rust_res.get("gates1", 0),
@@ -379,6 +402,7 @@ def check_equivalence(
             approximate_distance_tolerance=approximate_distance_tolerance,
             wmc_printed_verdict=rust_res.get("wmc_printed_verdict"),
             wmc_precision_reason=rust_res.get("wmc_precision_reason"),
+            wmc_print_resolution_distance=rust_res.get("wmc_print_resolution_distance"),
             wmc_solver_invoked=rust_res.get("wmc_solver_invoked"),
             rr_approximate=rust_res.get("rr_approximate", False),
         )
@@ -462,6 +486,7 @@ def check_equivalence(
         wmc_solver_invoked = False
         wmc_precision_reason = None
         wmc_printed_verdict = None
+        wmc_print_resolution_distance = None
         wmc_numeric_model_bound = None
 
         # Run the selected strategy to build the PathSum circuit
@@ -570,6 +595,15 @@ def check_equivalence(
                         wmc_phase_tolerance,
                     )
                     wmc_printed_verdict = evidence.status
+                    if tool_name == "ganak":
+                        from QuPRS.utils.precision_count import ganak_print_resolution_distance
+                        wmc_print_resolution_distance = ganak_print_resolution_distance(
+                            counted, twice, approximate_distance_tolerance,
+                        )
+                        _warn_ganak_print_resolution(
+                            tool_name, wmc_print_resolution_distance,
+                            approximate_distance_tolerance,
+                        )
                     wmc_precision_reason = (
                         tool_name + "_printed_uncertified_" + evidence.reason
                     )
@@ -639,6 +673,7 @@ def check_equivalence(
         wmc_solver_invoked=wmc_solver_invoked,
         wmc_precision_reason=wmc_precision_reason,
         wmc_printed_verdict=wmc_printed_verdict,
+        wmc_print_resolution_distance=wmc_print_resolution_distance,
         wmc_numeric_model_bound=wmc_numeric_model_bound,
         approximate_distance_tolerance=approximate_distance_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
@@ -697,6 +732,9 @@ class EquivalenceCheckResult:
     # Numerical GPMC error-model diagnostics; NOT a formal proof certificate.
     wmc_precision_reason: Optional[str] = None
     wmc_printed_verdict: Optional[str] = None
+    # Ganak's observed normalized printed-output granularity, if coarser
+    # than the requested projective-distance tolerance; not a solver bound.
+    wmc_print_resolution_distance: Optional[float] = None
     wmc_numeric_model_bound: Optional[str] = None
     approximate_distance_tolerance: Optional[float] = None
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.

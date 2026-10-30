@@ -28,11 +28,14 @@ def inspect_one(solver, name, rhs, angle):
     captured = []
     def spy(command, timeout):
         output = original(command, timeout)
-        captured.append({
-            "argv_without_binary": command[1:-1],
-            "stdout": output.stdout,
-            "returncode": output.returncode,
-        })
+        # Ganak has a separate --version/preflight child process.
+        # Count only the actual CNF-consuming weighted-count invocation.
+        if str(command[-1]).endswith(".cnf"):
+            captured.append({
+                "argv_without_binary": command[1:-1],
+                "stdout": output.stdout,
+                "returncode": output.returncode,
+            })
         return output
     solver_process.run = spy
     try:

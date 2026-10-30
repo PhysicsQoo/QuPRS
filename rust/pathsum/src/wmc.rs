@@ -801,3 +801,37 @@ mod count_parser_tests {
     }
 
 }
+
+
+#[cfg(test)]
+mod exact_unweighted_count_tests {
+    use super::WmcManager;
+    use crate::pathsum::PathSum;
+    use num_complex::Complex;
+
+    #[test]
+    fn unweighted_identity_trace_has_exact_count() {
+        let ps = PathSum::new(1);
+        let mut manager = WmcManager::new(&ps);
+        manager.encode_trace(&ps).unwrap();
+        assert!(manager.has_exact_unweighted_tautology(2));
+        assert!(!manager.has_exact_unweighted_tautology(4));
+
+        manager.clauses.push(vec![1]);
+        assert!(!manager.has_exact_unweighted_tautology(2));
+    }
+
+    #[test]
+    fn negative_or_weighted_cnf_never_uses_exact_identity_shortcut() {
+        let ps = PathSum::new(1);
+        let mut manager = WmcManager::new(&ps);
+        manager.next_var_id = 2;
+        manager.clauses = vec![vec![1, -1], vec![-1, 1]];
+        assert!(manager.has_exact_unweighted_tautology(2));
+        manager.weights.insert(1, Complex::new(1.0, 0.0));
+        assert!(!manager.has_exact_unweighted_tautology(2));
+        manager.weights.clear();
+        manager.clauses = vec![vec![1], vec![-1]];
+        assert!(!manager.has_exact_unweighted_tautology(2));
+    }
+}

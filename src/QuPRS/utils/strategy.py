@@ -10,7 +10,9 @@ import psutil
 from QuPRS.interface.load_qiskit import add_gate
 from QuPRS.pathsum import PathSum
 from QuPRS.utils.verification_timeout import VerificationTimeout
-from QuPRS.utils.verification_tolerances import current_rr_tolerance, scoped_rr_tolerance
+from QuPRS.utils.verification_tolerances import (
+    current_rr_tolerance, scoped_rr_tolerance, rr_approximation_used,
+)
 
 
 class Strategy(ABC):
@@ -77,6 +79,10 @@ class Strategy(ABC):
             Strategy._set_memory_limit(limit_ratio=0.85)
             with scoped_rr_tolerance(rr_tolerance):
                 result_circuit = strategy_instance.run(pathsum_circuit, gates1, gates2)
+                # The parent cannot read the spawned process's ContextVars.
+                # Transport provenance with the existing pickled PathSum,
+                # without changing the IPC or triggering another reduction.
+                result_circuit._stats.rr_approximation_used = rr_approximation_used()
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as f:
                 pickle.dump(result_circuit, f)
                 temp_path = f.name

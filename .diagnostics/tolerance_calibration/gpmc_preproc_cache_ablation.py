@@ -1,7 +1,7 @@
 """Phase12 research-only structural ablations of unchanged pinned GPMC.
 
 Ablate *only* preprocessing main-loop (--varlim=0) and cache-size
-budget (--cs=1) on identical sealed real CNFs. Run once per variant
+budget (--cs=16) on identical sealed real CNFs. Run once per variant
 under a finite timeout; preserve stdout/stderr/time/RSS. Compare
 final 90-digit weighted counts as exact decimal rationals, not floats.
 These are behavioral controls, NOT a proof of preprocessing or caching
@@ -20,8 +20,8 @@ CASES={
 VARIANTS={
 "default":[],
 "preprocess_mainloop_skipped":["-varlim=0"],
-"cache_one_megabyte":["-cs=1"],
-"both_ablation":["-varlim=0","-cs=1"]}
+"cache_sixteen_megabytes":["-cs=16"],
+"both_ablation":["-varlim=0","-cs=16"]}
 MARKER="c s exact double prec-sci "
 METRIC=re.compile(r"ABLATEMETRIC wall=([0-9.]+) rss_kb=([0-9]+)")
 
@@ -98,7 +98,7 @@ def main(args):
             json.dumps({"results":results,"samples":samples,
                         "structural_boolean_or_weighted_semantics_proven":False,
                         "preprocess_varlim_zero_still_runs_initial_SAT_FLE":True,
-                        "cache_cs_one_is_low_budget_not_cache_disabled":True,
+                        "cache_cs_sixteen_is_low_budget_not_cache_disabled":True,
                         "research_only_gpmc_solver_calls":len(samples),
                         "production_solver_extra_calls":0},indent=2,sort_keys=True)+"\n")
         print("GPMC_STRUCTURE_ABLATIONS_FINISHED",flush=True)

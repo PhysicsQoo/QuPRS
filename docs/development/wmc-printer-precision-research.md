@@ -1222,3 +1222,166 @@ CNF/NNF proof with an unconditional guarantee about GPMC
 MPFR arithmetic on every future input. The right next design
 is lightweight one-pass numerical evidence or bounded native
 rounding guarantees, with all heavy proof tooling offline.
+
+
+## Phase 10 — actual single-pass GPMC complex-operation census, no production regression
+
+**2026-10-30 | existing research branch only.**
+Research commit `d273e04f1bd27d9825346990141f4fe5a82d4e94`.
+[Actions #40992318009](https://github.com/PhysicsQoo/QuPRS/actions/runs/40992318009)
+**SUCCESS**, native evidence
+[artifact 12950085687](https://github.com/PhysicsQoo/QuPRS/actions/runs/40992318009/artifacts/12950085687),
+ZIP SHA256
+`2e96e9106b194120bd818468c761bd58b38d5e1da1f1414afedfac336afaac56`.
+ZIP CRC PASS; **54/54** internal SHA256SUMS independently checked.
+
+Source-gitlink pinned to
+`a1bda3489e959d3695b6798d327c5a1fc1bed305`;
+unchanged public dev `55e78c7597966617c1a193b89056ff4e99c3ddfb`.
+
+### Native arithmetic operation trace and fidelity
+
+An ephemeral off-repository copy of GPMC was compiled once without
+modifications and once with **only** research counters inserted into
+`ComplexMPFR.cc` for the two complex addition and two complex
+multiplication operators (`+`, `+=`, `*`, `*=`).
+No d-DNNF output, high-precision second solve, auxiliary model
+counter or extra arithmetic pass was enabled. Original and
+instrumented binary hashes and a separately hashed patch source
+are sealed in the JSON artifact. No public GPMC upstream
+source/submodule was changed.
+
+The **same source-pinned CNF** was solved at 90 decimal digits
+by both binaries in alternating order, three repeats per binary,
+on the same hosted Ubuntu 24.04 runner. All **24/24** native
+printed complex WMC counts were identical as exact decimal text.
+
+| Real source CNF | Complex additions | Complex multiplications | Native MPFR precision bits |
+| --- | ---: | ---: | ---: |
+| QPEexact8 baseline | 40 | 128 | 299 |
+| QPEexact8 source-negative | 8 | 11 | 299 |
+| QFT16 baseline | 134423 | 1387897 | 299 |
+| QFT16 source-negative | 134327 | 1387572 | 299 |
+
+The QFT16 baseline's `K` is **1,522,320** actual
+recorded complex operations, versus the previous engineering
+estimate that used a variable-only `2^(2*n)` error growth.
+The binary64 input source-error and Solver MPFR arithmetic remain
+separate problems.
+
+### Same-host controlled performance
+
+| Real CNF | Original GPMC median | Probe median | Original peak RSS | Probe peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| QFT16 baseline | 1.20s | 1.20s | 41992 kB | 42068 kB |
+| QFT16 source-negative | 1.20s | 1.20s | 42080 kB | 42040 kB |
+
+The QPE8 timings are <0.01s and cannot support
+a meaningful timing ratio; QFT16 ratios were **1.00x** at
+0.01-second timing resolution. Peak RSS was approximately
+unchanged. This is **not** a production CodSpeed regression
+certificate or evidence of mathematically zero overhead.
+The production binary was not modified at all, which
+guarantees no introduced production-path overhead for this
+research-only study.
+
+### Candidate mathematical upper bound, not yet Solver-certified
+
+Source review identified literal decimal inputs being converted by
+MPFR and `ComplexMPFR` complex operations:
+two scalar rounded additions for each complex addition,
+and four scalar rounded products plus two rounded component
+sums/differences for each complex multiplication.
+When all operations are normal and MPFR uses nearest rounding at
+precision `p`, the standard per-operation relative bound
+`u=2^-p` implies a conservative complex Euclidean
+relative primitive error coefficient no worse than `16u`
+for an addition or multiplication.
+
+If all numerical processing of the root WMC is faithfully
+accounted for by a positive-coefficient weighted
+sum-of-products circuit using those operators, its cached-DAG
+multiplicities and nontrivial preprocessing are correct,
+and `K` is a genuine upper bound on the operation depth of
+every expanded monomial, then for `m` numerical phase weights,
+`N_sat` feasible models and phase modulus bound `M`:
+
+```text
+u = 2^(-p)
+t = 16 * (K + m + 1) * u ; require 0 <= t < 1
+S = N_sat * M^m
+E_solver_count <= S * t/(1-t)
+E_solver_normalized <= E_solver_count / 2^(normalization_twice/2).
+```
+
+The `t/(1-t)` form bounds
+`(1+16u)^(K+m+1)-1` without gigantic rational exponentiation.
+This is **a candidate engineering enclosure pending
+a complete implementation-level proof**, not an existing
+GPMC arithmetic certificate. Specific gaps:
+complete inventory of MPFR pathways (including preprocessing,
+cache reuse and exact shifts), verification of no exponent
+range/underflow/overflow issues, faithful arithmetic DAG
+semantics for arbitrary CNF, correct numeric input parsing,
+and treatment of final decimal printer rounding. The older
+`2^(2*n+20-b)` is also uncertified; do not silently replace
+one assumption by another in dev.
+
+For the four **fixed, already independently certified Boolean
+CNF/d-DNNF** examples, the resulting **candidate** normalized
+absolute complex Solver error bounds are:
+
+| Real source CNF | Candidate normalized Solver error | Independently observed normalized native GPMC-vs-exact-NNF component discrepancy |
+| --- | ---: | ---: |
+| QPEexact8 baseline | 2.922e-87 | 2.123e-90 |
+| QPEexact8 source-negative | 3.456e-88 | 4.665e-93 |
+| QFT16 baseline | 1.254e-77 | 3.703e-90 |
+| QFT16 source-negative | 1.567e-78 | 7.580e-90 |
+
+Every empirical original-vs-oracle gap lies **inside** the
+hypothesized bound, by roughly 1e3 through 3e12 factors.
+Agreement does not prove the bound for unseen cases.
+
+### Conditional numerical decisions with already proven weight errors
+
+Combining the new **candidate solver** radius with the earlier
+**actually MPFR-certified source-weight** radius and the
+strict rational squared distance comparison at
+`epsilon_D=1e-8` gives the following *research-only*
+statuses for these fixed examples:
+
+| Real source miter | Source-weight assumption/certificate | Conditional distance status |
+| --- | --- | --- |
+| QPEexact8 baseline | Actual 17 native weights, delta <= 3.3e-16 | `unknown` |
+| QPEexact8 self-negative | Actual 2 native weights, delta <= 1.7963e-17 | `not_equivalent` |
+| QFT16 baseline | All 400 encoded phases, delta <= 9.022e-34 | `within_distance` |
+| QFT16 self-negative | delta <= 2^-49 still not separately certified for this exact altered phase corpus | `not_equivalent` **conditional on that delta** |
+
+The result is **not** authorization to return `equivalent` in
+the current public Python/Rust API. It is a sharply delimited
+scientific route to prove the real QFT positive result at
+negligible runtime cost, **after** the native Solver-arithmetic
+error certificate is closed, per-source input semantics are
+included, and stdout print resolution is accounted for.
+The original QPE8 baseline remains `unknown` at its
+observed f64 source accuracy. We must not hide that
+uncertainty by changing epsilon or inventing a global guard.
+
+### Release engineering decision
+
+Keep existing production `RR -> Hybrid -> WMC`
+dispatch and exactly one chosen GPMC/Ganak invocation.
+Do **not** add `-ddnnf`, exact Fraction WMC,
+native SAT/DRUP, MPFR directed interval recomputation
+or a repeated high-precision GPMC solve to the ordinary
+verifier hot path.
+
+Candidate native counters are low-overhead on QFT16 in this
+limited run, but they do not yet constitute complete error
+provenance and are not generally proven free of overhead.
+Before a PR, finish the numerical implementation proof and
+compare proposed *actual public binary* behavior across
+Python/Rust, both Solvers, QFT/QPE/QAOA/Grover, walltime/RSS
+and the complete CodSpeed v5 suite.
+Only a conclusive, performance-neutral or performance-positive
+candidate should move into dev.

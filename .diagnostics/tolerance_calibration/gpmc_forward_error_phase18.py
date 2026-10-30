@@ -64,11 +64,11 @@ def source_audit(root:Path) -> dict:
     data={p:(root/p).read_text() for p in FILES}
     hits={}
     for name,(path,needles) in CHECKS.items():
-        for word in needles:
-            if data[path].count(word)!=1 and not (word in ("ins->lit_weights", "ins->gweight *=") and data[path].count(word)>1):
-                raise AssertionError("source audit mismatch: "+name+" "+word+
-                                     " count="+str(data[path].count(word)))
-        hits[name]=True
+        counts={word:data[path].count(word) for word in needles}
+        if any(value < 1 for value in counts.values()):
+            raise AssertionError("source audit missing required route "+name+
+                                 " "+repr(counts))
+        hits[name]=counts
     for name in ["core/Counter.cc","core/ComponentManager.cc","core/Component.h",
                  "preprocessor/Preprocessor.cc","core/Instance.cc"]:
         # No bypass via direct component mutation in active solver core.

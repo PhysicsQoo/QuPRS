@@ -50,11 +50,30 @@ complex WMC count and rational interval comparisons, rather than a
 binary64 normalized `m` or a fixed empirical guard.
 
 GPMC requests 90 decimal printed digits in **one** solver invocation.
-Ganak retains its own mode-6 output precision. Both use one
-projective-distance classifier when an external solve is needed; `unknown` remains possible when printed
-precision cannot distinguish the boundary, when a reported magnitude
-overshoots physical normalization, or when source/solver numerical
-evidence is unresolved.
+Ganak retains its own mode-6 output precision. When an external solve
+is needed, both use the same projective-distance metric, but handle
+unresolved output-format rounding differently: GPMC preserves
+`unknown`; Ganak uses the **printed count's central numerical value**
+for a usable, explicitly uncertified solver-dependent verdict.
+Nonphysical magnitude overshoots, malformed counts and actual solver
+failures are not silently converted to equivalence.
+
+**Ganak warning:** the parser extracts the rounding half-units for
+the actual printed real and imaginary count. It computes the span
+of possible squared magnitudes and normalizes by the trace square,
+`2**normalization_twice_log2`. Its square root is the observed
+projective-distance *printing granularity*. If this exceeds the
+requested `approximate_distance_tolerance`, Python emits
+`RuntimeWarning`, Rust CLI emits a warning on **stderr** (also in
+`--quiet` mode), and result metadata records
+`wmc_print_resolution_distance` with
+`wmc_precision_reason="ganak_point_estimate_resolution_limited"`.
+The printed rounding interval can still report `wmc_printed_verdict=
+"unknown"` even when the operational numeric verdict is
+`equivalent` or `not_equivalent`. This deliberately distinguishes
+the center-point estimate from the unresolved output precision.
+No fixed `1e-4` threshold or extra solver execution is used. The
+warning is **not** a bound on Ganak's internal arithmetic error.
 
 ## Exact unweighted CNF cases
 
@@ -80,8 +99,12 @@ must never be classified positive by this shortcut.
 
 - `phase_tolerance` / `wmc_phase_tolerance`: labels a proven
   up-to-global-phase relation as `equivalent` or `equivalent*`.
-- `rr_tolerance`: Python local reduction coefficient matching,
-  not a bound on the WMC solver or source phase.
+- `rr_tolerance`: per-verification RR coefficient tolerance in
+  Python and native Rust. Native RR-only also uses a conservative
+  aggregate bound for nonzero diagonal residual phase in cycles;
+  it does not enforce a separate exact-nonzero rejection rule.
+  Hybrid additionally respects the independent projective-distance cap.
+  Neither mode rewrites the original source phase.
 - `approximate_distance_tolerance`: numerical projective-distance
   acceptance, now the sole WMC metric.
 
@@ -94,9 +117,12 @@ observation**, not a certified bound on solver arithmetic, CNF
 preprocessing, input conversion, or the symbolic reduction engine.
 A definitive WMC numerical verdict must not be advertised as an
 unconditional source-exact equivalence certificate. A stricter threshold
-may increase `unknown` outcomes, especially with Ganak. Release
-acceptance must include source-pinned physical oracles and CodSpeed
-regression checks on both native and Python execution paths.
+may increase uncertainty in the **printed-output evidence**. For
+Ganak, a midpoint-based operational verdict remains explicitly
+uncertified when that evidence is unresolved, and users receive the
+dynamic resolution warning. Release acceptance must include
+source-pinned physical oracles and CodSpeed regression checks
+on both native and Python execution paths.
 
 ## Breaking API migration
 

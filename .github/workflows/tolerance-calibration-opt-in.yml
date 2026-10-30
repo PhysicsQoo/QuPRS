@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):') && !startsWith(github.event.head_commit.message, 'research(accounting):') && !startsWith(github.event.head_commit.message, 'research(ioaudit):') && !startsWith(github.event.head_commit.message, 'research(exactoracle):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):') && !startsWith(github.event.head_commit.message, 'research(accounting):') && !startsWith(github.event.head_commit.message, 'research(ioaudit):') && !startsWith(github.event.head_commit.message, 'research(exactoracle):') && !startsWith(github.event.head_commit.message, 'research(qperup):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -1054,6 +1054,73 @@ jobs:
         with:
           name: gpmc-p299-exact-rational-error-certificate-fixed-cnf
           path: ${{ runner.temp }}/exact-error-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  offline-qpe-checked-boolean-xor:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(qperup):')
+    name: Independent checked DRUP for actual QPE CNF NNF pair
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout exact research scripts
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install independent SAT proof generator
+        shell: bash
+        run: python -m pip install 'python-sat>=1.8.dev13,<2'
+      - name: Reuse unchanged QPE source CNF and GPMC NNF
+        uses: actions/download-artifact@v4
+        with:
+          name: native-mpfr-cnf-rust-qpe-science-v2
+          run-id: 40977618673
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/qpe-fixed-source
+      - name: Check source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/qpe-drup-results"
+          mkdir -p "$OUT"
+          (cd "$RUNNER_TEMP/qpe-fixed-source"; sha256sum -c SHA256SUMS) \
+            > "$OUT/source-identity-hashes.log"
+      - name: Verify both QPE exact Boolean XOR refutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM 150s python -u \
+            .diagnostics/tolerance_calibration/qpe_checked_boolean_xor_drup.py \
+            --artifact-folder "$RUNNER_TEMP/qpe-fixed-source" \
+            --output "$RUNNER_TEMP/qpe-drup-results" \
+            2>&1 | tee "$RUNNER_TEMP/qpe-drup-results/verified-drup.log"
+      - name: Seal independent SAT evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/qpe-drup-results"
+          mkdir -p "$OUT"
+          git rev-parse HEAD > "$OUT/research-head.txt"
+          sha256sum .diagnostics/tolerance_calibration/qpe_checked_boolean_xor_drup.py \
+                     .github/workflows/tolerance-calibration-opt-in.yml \
+            > "$OUT/script-source-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Preserve fixed QPE proof certificates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpe-fixed-cnf-nnf-independent-checked-drup
+          path: ${{ runner.temp }}/qpe-drup-results/
           retention-days: 30
           if-no-files-found: error
 

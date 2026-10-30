@@ -274,6 +274,34 @@ impl WmcManager {
     pub fn to_dimacs_string(&self, tool_name: &str) -> String {
         self.try_to_dimacs_string(tool_name).expect("Unsupported WMC solver")
     }
+    /// Exact WMC shortcut, restricted to tautological, unweighted CNF.
+    ///
+    /// Each assignment to the declared variables satisfies every clause,
+    /// so the count is exactly 2^variables. Only accept when this matches
+    /// the trace normalization exponent. This never reasons from Ganak's
+    /// floating stdout or assumes that zero path variables imply SAT.
+    pub fn has_exact_unweighted_tautology(
+        &self, normalization_twice_log2: usize,
+    ) -> bool {
+        if !self.weights.is_empty() {
+            return false;
+        }
+        #[cfg(feature = "high-precision-gpmc")]
+        if self.precise_weights.as_ref().is_some_and(|weights| !weights.is_empty()) {
+            return false;
+        }
+        let Ok(vars) = usize::try_from(self.next_var_id - 1) else {
+            return false;
+        };
+        if vars.checked_mul(2) != Some(normalization_twice_log2) {
+            return false;
+        }
+        self.clauses.iter().all(|clause| {
+            let lits: std::collections::HashSet<i32> = clause.iter().copied().collect();
+            clause.iter().any(|lit| *lit != i32::MIN && lits.contains(&-*lit))
+        })
+    }
+
     pub fn try_to_dimacs_string(&self, tool_name: &str) -> Result<String> {
         Ok(self.to_dimacs_with_adapter(crate::solver_adapter::adapter_for(tool_name)?))
     }

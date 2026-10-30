@@ -180,4 +180,14 @@ def test_zero_path_variable_wmc_never_forces_equivalence(solver, backend, gate, 
         f"got {outcome.equivalent} with {backend}/{solver}"
     )
     assert outcome.tool_name == solver
-    assert outcome.tool_time is not None
+    if gate == "id":
+        # This CNF is unweighted and tautological; its WMC is *exactly*
+        # 2**num_qubits. Neither backend should depend on Ganak's decimal
+        # printer to recognize a proven identity.
+        assert outcome.wmc_precision_reason == "analytic_unweighted_tautology"
+        assert outcome.wmc_solver_invoked is False
+        assert outcome.tool_time is None
+        assert outcome.wmc_printed_verdict is None
+    else:
+        assert outcome.wmc_solver_invoked is True
+        assert outcome.tool_time is not None

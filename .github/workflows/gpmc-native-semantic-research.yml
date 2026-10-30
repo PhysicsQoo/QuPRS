@@ -1,0 +1,98 @@
+name: Opt-in Pinned GPMC Native Semantic Research
+
+# One-shot diagnostic on the existing experiment branch; no dev/main gates.
+on:
+  push:
+    branches:
+      - experiment/numerical-tolerance-calibration-20261027
+    paths:
+      - '.github/workflows/gpmc-native-semantic-research.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpmc-native-semantic-research
+  cancel-in-progress: false
+
+jobs:
+  native-gpmc-semantics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Checkout source and pinned solver submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record exact source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gpmc-native-phase15
+          git rev-parse HEAD > gpmc-native-phase15/repo-head.txt
+          git rev-parse 'HEAD^{tree}' > gpmc-native-phase15/repo-tree.txt
+          git -C GPMC rev-parse HEAD > gpmc-native-phase15/gpmc-head.txt
+          test "$(git -C GPMC rev-parse HEAD)" = "a1bda3489e959d3695b6798d327c5a1fc1bed305"
+          git submodule status GPMC > gpmc-native-phase15/submodule.txt
+          sha256sum .diagnostics/tolerance_calibration/gpmc_native_phase15.py \
+            .diagnostics/tolerance_calibration/exact_gpmc_cnf_oracle.py \
+            > gpmc-native-phase15/test-sources-sha256.txt
+
+      - name: Install native build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libgmp-dev libmpfr-dev zlib1g-dev
+          dpkg -l libgmp-dev libmpfr-dev > gpmc-native-phase15/dependency-versions.txt
+          c++ --version > gpmc-native-phase15/compiler-version.txt
+
+      - name: Build exact GPMC source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S GPMC -B "$RUNNER_TEMP/gpmc-build" -DCMAKE_BUILD_TYPE=Release \
+            > gpmc-native-phase15/build-configure.log 2>&1
+          cmake --build "$RUNNER_TEMP/gpmc-build" -j 4 \
+            > gpmc-native-phase15/build.log 2>&1
+          test -x "$RUNNER_TEMP/gpmc-build/gpmc"
+          sha256sum "$RUNNER_TEMP/gpmc-build/gpmc" > gpmc-native-phase15/solver-sha256.txt
+          ldd "$RUNNER_TEMP/gpmc-build/gpmc" > gpmc-native-phase15/solver-ldd.txt
+
+      - name: Exact oracle vs native SAT and complex WMC
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -u .diagnostics/tolerance_calibration/gpmc_native_phase15.py \
+            --binary "$RUNNER_TEMP/gpmc-build/gpmc" \
+            --outdir gpmc-native-phase15/cases \
+            --random 120 \
+            --timeout 15 \
+            2>&1 | tee gpmc-native-phase15/test-output.log
+
+      - name: Seal available evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p gpmc-native-phase15
+          (
+            cd gpmc-native-phase15
+            find . -type f ! -name SHA256SUMS -print0 | \
+              sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload native source and raw-case evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpmc-pinned-native-semantics-phase15
+          path: gpmc-native-phase15/
+          retention-days: 90
+          if-no-files-found: error

@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: gpmc-native-semantic-research
@@ -75,6 +76,26 @@ jobs:
             --random 120 \
             --timeout 15 \
             2>&1 | tee gpmc-native-phase15/test-output.log
+
+
+      - name: Restore SHA-pinned QFT16 native cache exercise
+        uses: actions/download-artifact@v4
+        with:
+          name: qpe-qft-triad-source-sat-benchmark
+          run-id: 40986641177
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/qft-phase8
+
+      - name: Matched baseline vs instrumented native cache trace
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -u .diagnostics/tolerance_calibration/gpmc_cache_phase15_probe.py \
+            --source GPMC \
+            --qft "$RUNNER_TEMP/qft-phase8/qft16-phase-corpus.cnf" \
+            --baseline "$RUNNER_TEMP/gpmc-build/gpmc" \
+            --output gpmc-native-phase15/cache-trace \
+            2>&1 | tee gpmc-native-phase15/cache-trace.log
 
       - name: Seal available evidence
         if: always()

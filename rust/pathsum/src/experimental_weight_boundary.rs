@@ -106,10 +106,13 @@ fn experimental_rust_weight_boundary_accuracy_and_source_terms() {
         assert!(quantized_error(&high_re,re)<limit,"real mismatch for {angle}");
         assert!(quantized_error(&high_im,im)<limit,"imag mismatch for {angle}");
         let (lo_re,lo_im)=baseline(&coeff);
-        eprintln!("EXPERIMENT_NATIVE_WEIGHT angle={} f64_re={:.17e} f64_im={:.17e} hp_re={} hp_im={} f64_re_error={:.6e} f64_im_error={:.6e}",
+        // Avoid casting the high-precision reference back to f64 when
+        // measuring f64 error; that would erase the very loss under test.
+        let err_re = (exact_decimal_to_fixed(&format!("{:.45}",lo_re)) - &high_re).abs();
+        let err_im = (exact_decimal_to_fixed(&format!("{:.45}",lo_im)) - &high_im).abs();
+        eprintln!("EXPERIMENT_NATIVE_WEIGHT angle={} f64_re={:.17e} f64_im={:.17e} hp_re={} hp_im={} f64_abs_re_error={} f64_abs_im_error={}",
             angle,lo_re,lo_im,decimal(&high_re),decimal(&high_im),
-            (lo_re-high_re.to_f64().unwrap()/1e60).abs(),
-            (lo_im-high_im.to_f64().unwrap()/1e60).abs());
+            decimal(&err_re),decimal(&err_im));
         let residue=(&high_re*&high_re+&high_im*&high_im-scale().pow(2_u32)).abs();
         assert!(residue < BigInt::from(10_u8).pow(2*DECIMALS-35),
                 "significant unit-modulus drift for {angle}");

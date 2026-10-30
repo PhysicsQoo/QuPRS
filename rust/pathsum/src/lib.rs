@@ -378,7 +378,6 @@ fn check_equivalence_with_tolerances_mode(
         tool_time = Some(tool_start.elapsed().as_secs_f64());
 
         if let (Some(count), Some(eps)) = (&printed_count, approximate_distance_tolerance) {
-            use num_bigint::BigInt;
             use num_rational::BigRational;
             use num_traits::{Signed, ToPrimitive, Zero};
             // Conditional input conversion allowance: source phases are

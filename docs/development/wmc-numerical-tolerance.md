@@ -120,10 +120,12 @@ path. A projective `1e-8` distance is below ordinary float64
 normalized-magnitude resolution.
 
 GPMC distance mode requests 90 *decimal* precision digits in one solver
-invocation. Python applies a conditional source-weight and MPFR operation
-allowance; native Rust conservatively accounts for its currently binary64
-weight creation. Ganak retains its native mode-6 printer precision and
-returns `unknown` when that output cannot distinguish the threshold.
+invocation. Python and Rust classify the same printed complex count using its output
+resolution; experimental CNF-size / source-weight arithmetic allowances
+no longer override release-facing verdicts. This is a numerical observation,
+not a general proof of the external solver arithmetic or input conversion.
+Ganak retains its native mode-6 printer precision and may still return
+`unknown` when its printed output cannot distinguish the threshold.
 None of these numerical allowances certifies the full source-angle,
 reduction-rule, or solver arithmetic error. Solver selection never changes.
 No automatic 60/90 replay is performed on the release-facing path;

@@ -91,3 +91,19 @@ def test_native_ganak_insufficient_printed_resolution():
     assert observed.wmc_precision_reason.startswith(
         "ganak_printed_uncertified_"
     )
+
+
+def test_true_h80_identity_not_blocked_by_speculative_gpmc_budget():
+    # Eighty Hadamards are an exact identity. The earlier conjectural
+    # CNF-size/MPFR operation allowance turned a printed equivalent
+    # GPMC observation into unknown; production should use printed count.
+    circuit = PREFIX + "h q[0];\n" * 80
+    result = check_equivalence(
+        PREFIX, circuit, backend="python", method="wmc_only",
+        strategy="Naive", tool_name="gpmc", timeout=45,
+        approximate_distance_tolerance=1.414213562373095e-4,
+    )
+    assert result.wmc_solver_invoked is True
+    assert result.wmc_printed_verdict == "equivalent"
+    assert result.equivalent == "equivalent"
+    assert result.wmc_precision_reason.startswith("gpmc_printed_uncertified_")

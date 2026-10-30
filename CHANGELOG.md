@@ -2,6 +2,8 @@
 
 ## v0.14.0 — Breaking change: per-verification RR tolerance
 
+- Use one printed-complex-count projective-distance classifier for GPMC and Ganak on Python/Rust. Remove speculative CNF-size/source-weight error allowances from production verdicts; retain printed output resolution and keep the conditional model in independent research fixtures.
+
 - Remove the redundant `decision_basis` result field from Python, PyO3 and native Rust. Use the existing `wmc_time`, `tool_time`, `wmc_solver_invoked`, `wmc_numerical_verdict` and requested verification method to inspect the execution path.
 
 - Remove the mutable process-global `config.TOLERANCE`, `config.set_tolerance()` and `config.get_tolerance()` APIs without compatibility aliases. Pass `rr_tolerance` to `check_equivalence()` instead.

@@ -70,3 +70,19 @@ For a starting point, a `1e-8` normalized-magnitude defect corresponds to
 **not yet a validated v0.14.0 default**. The release gate requires real
 GPMC/Ganak positive and labeled-negative benchmarks, Python/Rust parity,
 near-threshold precision checks, and no unnecessary extra solver invocation.
+
+### Production classification versus research-only precision models
+
+GPMC and Ganak now use the same single-pass printed-complex-count comparator.
+The printed decimal count is parsed as exact rational components, and its
+squared magnitude is compared against the requested projective-distance
+threshold. The existing printed-format rounding interval remains relevant at
+the boundary, but no conjectural CNF-size error budget is added to the
+production verdict. The original residual phase and phase_tolerance remain
+separate.
+
+The experimental gpmc_distance_budget.py is research-only and no longer
+called by the public verifier. Its CNF-size operation-error formula was
+never a formally proven GPMC solver bound. These results are numerical
+observations, not certificates of source-exact equivalence or solver
+arithmetic accuracy.

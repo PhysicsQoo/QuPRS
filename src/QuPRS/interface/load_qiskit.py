@@ -587,40 +587,17 @@ def check_equivalence(
                         precision_digits=90 if tool_name == "gpmc" else None,
                     )
                     twice = int(round(2 * expect))
-                    if tool_name == "gpmc":
-                        from QuPRS.utils.gpmc_cnf_metadata import (
-                            gpmc_cnf_budget_metadata,
-                        )
-                        from QuPRS.utils.gpmc_distance_budget import (
-                            classify_gpmc_single_count,
-                        )
-                        nvars, nweights, max_weight_sq = (
-                            gpmc_cnf_budget_metadata(CNF)
-                        )
-                        budget = classify_gpmc_single_count(
-                            counted,
-                            expected_twice_log2=twice,
-                            distance_tolerance=approximate_distance_tolerance,
-                            phase_tolerance=wmc_phase_tolerance,
-                            cnf_vars=nvars, number_of_weights=nweights,
-                            maximum_weight_magnitude_squared=max_weight_sq,
-                            precision_digits=90,
-                        )
-                        equivalent = budget.status
-                        wmc_printed_verdict = budget.printed_status
-                        wmc_precision_reason = budget.reason
-                        wmc_numeric_model_bound = budget.component_error
-                    else:
-                        # Ganak mode-6 may expose only nine significant
-                        # printed digits; unresolved precision stays unknown.
-                        equivalent, evidence = classify_observed_distance(
-                            counted, twice, approximate_distance_tolerance,
-                            wmc_phase_tolerance,
-                        )
-                        wmc_printed_verdict = evidence.status
-                        wmc_precision_reason = (
-                            "ganak_printed_uncertified_" + evidence.reason
-                        )
+                    # A common printed-count classifier for both solvers.
+                    # Experimental CNF-size and solver-arithmetic allowances
+                    # are not validated general numerical error bounds.
+                    equivalent, evidence = classify_observed_distance(
+                        counted, twice, approximate_distance_tolerance,
+                        wmc_phase_tolerance,
+                    )
+                    wmc_printed_verdict = evidence.status
+                    wmc_precision_reason = (
+                        tool_name + "_printed_uncertified_" + evidence.reason
+                    )
                     log_wmc = approximate_printed_log2(counted)
                 tool_time = round(time.time() - tool_start_time, 3)
                 # Preserve the numeric verdict as an observation. It is not

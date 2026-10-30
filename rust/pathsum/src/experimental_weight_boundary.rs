@@ -61,7 +61,9 @@ fn exact_decimal_to_fixed(src: &str) -> BigInt {
     let negative=src.starts_with('-');
     let t=src.trim_start_matches('-');
     let (w,f)=t.split_once('.').unwrap_or((t,""));
-    assert!(f.len() <= DECIMALS as usize);
+    // The independent oracle carries more than 60 decimal digits;
+    // truncate only its comparison representation, not the native result.
+    let f = &f[..f.len().min(DECIMALS as usize)];
     let mut digits = w.to_owned();
     digits.push_str(f);
     digits.push_str(&"0".repeat(DECIMALS as usize - f.len()));

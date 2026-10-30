@@ -117,7 +117,6 @@ pub fn check_equivalence(
         return Python::with_gil(|py| {
             let dict = PyDict::new_bound(py);
             dict.set_item("status", "Not Equivalent")?;
-            dict.set_item("decision_basis", "structural")?;
             dict.set_item("approximate_distance_tolerance", approximate_distance_tolerance)?;
             dict.set_item("wmc_solver_invoked", false)?;
             dict.set_item("qubits", system_qubits)?;
@@ -181,7 +180,6 @@ pub fn check_equivalence(
         };
 
         dict.set_item("status", status_str)?;
-        dict.set_item("decision_basis", result.decision_basis)?;
         dict.set_item("wmc_solver_invoked", result.solver_invoked)?;
         dict.set_item("wmc_printed_verdict", result.wmc_printed_verdict)?;
         dict.set_item("wmc_precision_reason", result.wmc_precision_reason)?;

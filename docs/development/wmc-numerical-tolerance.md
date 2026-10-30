@@ -128,8 +128,9 @@ None of these numerical allowances certifies the full source-angle,
 reduction-rule, or solver arithmetic error. Solver selection never changes.
 No automatic 60/90 replay is performed on the release-facing path;
 replays remain restricted to separately scoped research workflows.
-The `decision_basis` field marks numerical versus symbolic evidence.
-In distance mode, the separately configurable legacy
+The detailed result's `wmc_time`, `tool_time` and
+`wmc_solver_invoked` fields distinguish reduction-only and actual
+WMC execution. In distance mode, the separately configurable legacy
 `config.WMC_MAGNITUDE_TOLERANCE` is ignored; both backends use the
 same projective epsilon. The canonical `wmc_magnitude_tolerance=1e-8`
 may be explicitly supplied, but a different magnitude threshold is

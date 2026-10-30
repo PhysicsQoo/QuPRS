@@ -95,15 +95,16 @@ Python reductions, or finite-precision WMC.
 | `Timeout`, `MemoryOut` | Resource limit, not physical non-equivalence. |
 | exception | Invalid input, missing solver or failed parsing, not non-equivalence. |
 
-`decision_basis` distinguishes `structural`, `symbolic`,
-`numerical_legacy`, `numerical_approximate`,
-`analytic_empty_cnf`, `inconclusive` and `execution_limit`.
-A `symbolic` label means no external WMC, not necessarily a
-machine-checkable certificate for Python's tolerance-based reductions.
-`wmc_numerical_verdict` can include `unknown` after a real solver;
-`wmc_solver_invoked` on Rust indicates whether an external solver
-was actually launched. Rust FFI display strings are normalized by
-the Python facade. Solver failures do not silently select a different solver.
+A result classified without WMC has `wmc_time=None` and
+`tool_time=None`. A populated `wmc_time` indicates that the
+WMC stage was reached; use `wmc_solver_invoked` (available for both
+backends) to establish whether an external solver actually ran.
+This distinction is necessary for Rust's empty-CNF analytic shortcut.
+`wmc_numerical_verdict` can include `unknown` after a real solver.
+Timing alone does not provide a mathematical proof, and a reduction
+verdict can depend on RR tolerance. Rust FFI display strings are
+normalized by the Python facade. Solver failures do not silently
+select a different solver.
 
 **Implementation status for the v0.14.0 candidate (2026-10-28):**
 

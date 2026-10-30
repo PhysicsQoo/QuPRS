@@ -125,13 +125,12 @@ def test_qpeexact8_fixed_source_approximate_diagnostic(backend, record_property)
     record_property("distance_epsilon", "1e-8")
     record_property("classification", result.equivalent)
     record_property("evidence_category", category)
-    record_property("decision_basis", str(result.decision_basis))
+    record_property("wmc_stage_time", str(result.wmc_time))
     record_property("solver_invoked", str(result.wmc_solver_invoked))
     record_property("wmc_precision_reason", str(result.wmc_precision_reason))
-    if result.equivalent in ("equivalent", "equivalent*", "not_equivalent"):
-        assert result.decision_basis in (
-            "symbolic", "numerical_approximate", "structural",
-        )
+    if result.wmc_solver_invoked:
+        assert result.tool_time is not None
+        assert result.wmc_time is not None
 
 
 @pytest.mark.parametrize("variables", (12, 128, 160, 512))

@@ -149,9 +149,9 @@ fn small_rz_and_p_rotation_phase_label_is_controlled_by_tolerance() {
     let (ops2, n2) = parse_qasm_str(&qasm(rhs)).unwrap();
     assert_eq!(n1, n2);
 
-    for (eps, expected, provenance) in [
-        (1e-8, EquivalenceStatus::Equivalent, "symbolic"),
-        (1e-12, EquivalenceStatus::EquivalentUpToGlobalPhase, "symbolic"),
+    for (eps, expected) in [
+        (1e-8, EquivalenceStatus::Equivalent),
+        (1e-12, EquivalenceStatus::EquivalentUpToGlobalPhase),
     ] {
         let options = VerificationOptions {
             method: VerificationMethod::ReductionRules,
@@ -161,7 +161,7 @@ fn small_rz_and_p_rotation_phase_label_is_controlled_by_tolerance() {
         };
         let result = check_equivalence_with_options(n1, &ops1, &ops2, &options).unwrap();
         assert_eq!(result.status, expected);
-        assert_eq!(result.decision_basis, provenance);
+        assert!(result.wmc_time.is_none());
         assert!(!result.final_ps.get_global_phase().unwrap().is_zero());
         assert!(!result.solver_invoked);
     }

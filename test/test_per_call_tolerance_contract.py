@@ -100,3 +100,29 @@ def test_rr_global_phase_label_respects_per_call_tolerance(backend):
         assert result.equivalent == expected
         assert result.tool_time is None
         assert result.decision_basis == "symbolic"
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+def test_result_execution_metadata_replaces_redundant_basis(backend):
+    # A reduction-only verdict is visible without inventing a basis label.
+    result = check_equivalence(
+        QuantumCircuit(1), QuantumCircuit(1),
+        method="reduction_rules", backend=backend,
+    )
+    assert result.equivalent == "equivalent"
+    assert result.wmc_time is None
+    assert result.tool_time is None
+    assert result.wmc_solver_invoked is False
+    assert result.wmc_numerical_verdict is None
+    assert not hasattr(result, "decision_basis")
+
+
+def test_direct_ffi_result_omits_redundant_basis():
+    from QuPRS import _pathsum_rust
+
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+    result = _pathsum_rust.check_equivalence(
+        qasm, qasm, method="reduction_rules",
+    )
+    assert "decision_basis" not in result
+    assert result["wmc_solver_invoked"] is False
+    assert "wmc_time_sec" not in result

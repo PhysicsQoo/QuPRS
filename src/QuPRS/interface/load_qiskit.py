@@ -399,7 +399,6 @@ def check_equivalence(
             wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
-            decision_basis=rust_res.get("decision_basis"),
             wmc_printed_verdict=rust_res.get("wmc_printed_verdict"),
             wmc_precision_reason=rust_res.get("wmc_precision_reason"),
             wmc_solver_invoked=rust_res.get("wmc_solver_invoked"),
@@ -430,7 +429,6 @@ def check_equivalence(
             wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
             approximate_distance_tolerance=approximate_distance_tolerance,
-            decision_basis="structural",
             wmc_solver_invoked=False,
             verification_time=0.0,
             pathsum_time=0.0,
@@ -691,13 +689,6 @@ def check_equivalence(
         wmc_printed_verdict=wmc_printed_verdict,
         wmc_numeric_model_bound=wmc_numeric_model_bound,
         approximate_distance_tolerance=approximate_distance_tolerance,
-        decision_basis=("numerical_approximate" if approximate_distance_tolerance is not None and tool_time is not None
-                        and equivalent in ("equivalent", "equivalent*", "not_equivalent")
-                        else "numerical_legacy" if tool_time is not None and approximate_distance_tolerance is None
-                        and equivalent in ("equivalent", "equivalent*", "not_equivalent")
-                        else "inconclusive" if equivalent == "unknown"
-                        else "symbolic" if tool_time is None and equivalent in ("equivalent", "equivalent*", "not_equivalent")
-                        else None),
         wmc_magnitude_tolerance=wmc_magnitude_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
     )
@@ -757,7 +748,6 @@ class EquivalenceCheckResult:
     wmc_printed_verdict: Optional[str] = None
     wmc_numeric_model_bound: Optional[str] = None
     approximate_distance_tolerance: Optional[float] = None
-    decision_basis: Optional[str] = None
     # For Rust WMC: distinguish an actual solver process from an analytic shortcut.
     wmc_solver_invoked: Optional[bool] = None
     # Effective thresholds recorded for reproducible numerical verdicts.

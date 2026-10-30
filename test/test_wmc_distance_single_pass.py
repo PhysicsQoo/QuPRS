@@ -34,7 +34,8 @@ def test_real_solver_python_pyo3_rust_distance_parity(
         "equivalent", "not_equivalent", "unknown",
     )
     assert result.wmc_precision_reason is not None
-    assert result.decision_basis == "numerical_approximate"
+    assert result.tool_time is not None
+    assert result.wmc_time is not None
 
 
 @pytest.mark.parametrize("solver", ("gpmc", "ganak"))

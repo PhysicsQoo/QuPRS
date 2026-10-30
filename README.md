@@ -162,8 +162,10 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > `backend="python"`. An explicit **nondefault**
 > `wmc_magnitude_tolerance` conflicts; `1e-8` is allowed but unused in
 > distance mode, regardless of the mutable legacy WMC default.
-> The `decision_basis` field identifies whether
-> a verdict was symbolic, numerical or inconclusive. See [formal semantics](docs/development/equivalence-semantics.md),
+> Inspect `tool_time`, `wmc_time` and `wmc_solver_invoked` in
+> the detailed result to distinguish reduction-only from WMC execution.
+> The numerical verdict (when a solver ran) is in
+> `wmc_numerical_verdict`. See [formal semantics](docs/development/equivalence-semantics.md),
 > [WMC evidence](docs/development/wmc-evidence-policy.md), and
 > [QASM source-angle representation](docs/development/exact-angle-representation.md).
 

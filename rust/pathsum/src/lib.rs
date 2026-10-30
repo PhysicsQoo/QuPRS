@@ -78,8 +78,6 @@ pub struct EquivalenceCheckResult {
     pub wmc_precision_reason: Option<&'static str>,
     /// Requested projective-distance threshold, if the approximate mode ran.
     pub approximate_distance_tolerance: Option<f64>,
-    /// Classification provenance; numerical verdicts are not exact proofs.
-    pub decision_basis: &'static str,
     /// True only when an external weighted counter was invoked.
     pub solver_invoked: bool,
     pub final_ps: PathSum, 
@@ -467,17 +465,6 @@ fn check_equivalence_with_tolerances_mode(
 
     let total_time = global_start.elapsed().as_secs_f64();
 
-    let decision_basis = if status == EquivalenceStatus::Unknown {
-        "inconclusive"
-    } else if wmc_time.is_some() && !solver_invoked {
-        "analytic_empty_cnf"
-    } else if wmc_time.is_some() && approximate_distance_tolerance.is_some() {
-        "numerical_approximate"
-    } else if wmc_time.is_some() {
-        "numerical_legacy"
-    } else if status == EquivalenceStatus::Timeout || status == EquivalenceStatus::MemoryOut {
-        "execution_limit"
-    } else { "symbolic" };
     Ok(EquivalenceCheckResult {
         qubit_num: num_qubits,
         gate_num1: gates1.len(),
@@ -494,7 +481,6 @@ fn check_equivalence_with_tolerances_mode(
         wmc_printed_verdict,
         wmc_precision_reason,
         approximate_distance_tolerance,
-        decision_basis,
         solver_invoked,
         final_ps: ps_miter,
         stage_ledger: stage_session.as_ref().map(|session| session.snapshot(total_time, ps_time)),
@@ -608,7 +594,7 @@ mod verification_options_contract_tests {
         };
         let exact = check_equivalence_with_options(1, &[], &[], &opts).unwrap();
         assert_eq!(exact.status, EquivalenceStatus::Equivalent);
-        assert_eq!(exact.decision_basis, "symbolic");
+        assert!(exact.wmc_time.is_none());
         assert!(exact.tool_time.is_none());
         // An exact nonzero RZ residual proves strict source inequivalence;
         // by itself it does not prove D > the user's approximate threshold.
@@ -619,7 +605,7 @@ mod verification_options_contract_tests {
             1, &[], &rotated, &opts,
         ).unwrap();
         assert_eq!(unresolved.status, EquivalenceStatus::Unknown);
-        assert_eq!(unresolved.decision_basis, "inconclusive");
+        assert!(unresolved.wmc_time.is_none());
         assert!(unresolved.tool_time.is_none());
     }
 

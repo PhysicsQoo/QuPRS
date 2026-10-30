@@ -253,7 +253,7 @@ def test_opt_in_exact_rr_fast_path_retains_proof_provenance(backend):
     )
     assert result.equivalent == "equivalent"
     assert result.tool_time is None
-    assert result.decision_basis == "symbolic"
+    assert result.wmc_time is None
     assert result.approximate_distance_tolerance == EPS
 
 
@@ -284,7 +284,7 @@ def test_distance_mode_ignores_mutable_legacy_magnitude_default(backend):
             approximate_distance_tolerance=EPS,
         )
         assert result.equivalent == "equivalent"
-        assert result.decision_basis == "symbolic"
+        assert result.wmc_time is None
     finally:
         config.WMC_MAGNITUDE_TOLERANCE = original
 
@@ -298,7 +298,8 @@ def test_structural_mismatch_has_consistent_provenance(backend):
     )
     assert result.equivalent == "not_equivalent"
     assert result.tool_time is None
-    assert result.decision_basis == "structural"
+    assert result.wmc_solver_invoked is False
+    assert result.wmc_time is None
 
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
@@ -319,7 +320,7 @@ def test_direct_pyo3_structural_mismatch_has_explicit_provenance():
         qasm(), two, method="hybrid", approximate_distance_tolerance=EPS,
     )
     assert raw["status"] == "Not Equivalent"
-    assert raw["decision_basis"] == "structural"
+    assert "wmc_solver_time_sec" not in raw
     assert raw["wmc_solver_invoked"] is False
 
 
@@ -331,5 +332,6 @@ def test_public_wmc_observation_identifies_real_solver_invocation(backend):
         tool_name="gpmc", timeout=45,
     )
     assert result.wmc_solver_invoked is True
-    assert result.decision_basis == "numerical_legacy"
+    assert result.wmc_time is not None
+    assert result.tool_time is not None
     assert result.wmc_numerical_verdict == result.equivalent

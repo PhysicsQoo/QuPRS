@@ -48,11 +48,10 @@ print(result.wmc_numerical_verdict)  # Original solver-derived observation
 **actually invoked** external WMC solver, including `unknown` when
 precision is insufficient. It is `None` when reduction alone settles
 the comparison, or in the Rust empty-CNF analytic fast path where no
-solver process is launched. Both backend results expose `wmc_solver_invoked`; the Rust
-`decision_basis="analytic_empty_cnf"` additionally identifies the
-no-child shortcut.
-Legacy timing fields may still be present for compatibility, and are
-not proof that an external child process was started.
+solver process is launched. Both backend results expose `wmc_solver_invoked`. In the Rust empty-CNF
+analytic shortcut, `wmc_time` is populated while
+`wmc_solver_invoked=False`. Timing values alone are not proof that
+an external child process started.
 
 There is no `wmc_policy="conservative"` option in the updated API.
 Previous callers explicitly setting `wmc_policy` must remove that

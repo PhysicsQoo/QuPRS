@@ -41,7 +41,7 @@ concurrency:
 jobs:
   focused-distance-contract:
     name: Focused numerical distance and solver regression
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):') && !startsWith(github.event.head_commit.message, 'research(accounting):') && !startsWith(github.event.head_commit.message, 'research(ioaudit):') && !startsWith(github.event.head_commit.message, 'research(exactoracle):') && !startsWith(github.event.head_commit.message, 'research(qperup):') && !startsWith(github.event.head_commit.message, 'research(ablation):') && !startsWith(github.event.head_commit.message, 'research(determinism):')
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'research(boundary):') && !startsWith(github.event.head_commit.message, 'research(precision):') && !startsWith(github.event.head_commit.message, 'research(fidelity):') && !startsWith(github.event.head_commit.message, 'research(realcase):') && !startsWith(github.event.head_commit.message, 'research(split):') && !startsWith(github.event.head_commit.message, 'research(bound):') && !startsWith(github.event.head_commit.message, 'research(structure):') && !startsWith(github.event.head_commit.message, 'research(sourcebound):') && !startsWith(github.event.head_commit.message, 'research(triad):') && !startsWith(github.event.head_commit.message, 'research(implication):') && !startsWith(github.event.head_commit.message, 'research(semantics):') && !startsWith(github.event.head_commit.message, 'research(functional):') && !startsWith(github.event.head_commit.message, 'research(rup):') && !startsWith(github.event.head_commit.message, 'research(divpi):') && !startsWith(github.event.head_commit.message, 'research(accounting):') && !startsWith(github.event.head_commit.message, 'research(ioaudit):') && !startsWith(github.event.head_commit.message, 'research(exactoracle):') && !startsWith(github.event.head_commit.message, 'research(qperup):') && !startsWith(github.event.head_commit.message, 'research(ablation):') && !startsWith(github.event.head_commit.message, 'research(determinism):') && !startsWith(github.event.head_commit.message, 'research(pathdeps):')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -1262,6 +1262,92 @@ jobs:
         with:
           name: qpe-qft-weight-variable-functional-extension-proofs
           path: ${{ runner.temp }}/deterministic-evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  native-python-pathsum-source-dependencies:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'research(pathdeps):')
+    name: Pinned public Python QFT16 path-only deterministic extension source audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+    env:
+      PUBLIC_DEV_SHA: '55e78c7597966617c1a193b89056ff4e99c3ddfb'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Checkout research branch and pinned GPMC submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Native public API build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+      - name: Extract pinned dev tree and ensure unmodified GPMC gitlink
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/pathdeps-pinned-public-dev"
+          OUT="$RUNNER_TEMP/pathdeps-evidence"
+          mkdir -p "$DIR" "$OUT"
+          git cat-file -e "$PUBLIC_DEV_SHA^{commit}"
+          test "$(git rev-parse "$PUBLIC_DEV_SHA:GPMC")" = "$(git rev-parse 'HEAD:GPMC')"
+          git archive "$PUBLIC_DEV_SHA" | tar -x -C "$DIR"
+          rm -rf "$DIR/GPMC"
+          ln -s "$GITHUB_WORKSPACE/GPMC" "$DIR/GPMC"
+          git rev-parse HEAD > "$OUT/research-branch-head.txt"
+          printf '%s\n' "$PUBLIC_DEV_SHA" > "$OUT/public-dev-source.txt"
+          printf 'source=%s\n' "$DIR" >> "$GITHUB_OUTPUT"
+      - name: Build public pinned dev Rust Python bindings with existing solver
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pip check
+      - name: Verify actual original Python QFT16 output function dependency DAG
+        shell: bash
+        working-directory: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          python -u "$GITHUB_WORKSPACE/.diagnostics/tolerance_calibration/python_pathsum_dependency_audit.py" \
+            --output "$RUNNER_TEMP/pathdeps-evidence" \
+            2>&1 | tee "$RUNNER_TEMP/pathdeps-evidence/pathsum-output-dependency.log"
+      - name: Seal output dependency evidence and research script
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/pathdeps-evidence"
+          mkdir -p "$OUT"
+          sha256sum .diagnostics/tolerance_calibration/python_pathsum_dependency_audit.py \
+                     .github/workflows/tolerance-calibration-opt-in.yml \
+            > "$OUT/research-source-sha256.txt"
+          (cd "$OUT"; find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 -r sha256sum > SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Upload actual Python PathSum source dependency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qft16-python-pathsum-free-basis-source-certificate
+          path: ${{ runner.temp }}/pathdeps-evidence/
           retention-days: 30
           if-no-files-found: error
 

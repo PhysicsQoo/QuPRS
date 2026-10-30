@@ -24,7 +24,6 @@ use wmc::WmcManager;
 use anyhow::Result;
 use std::time::Instant;
 use log::{info, debug};
-use num_traits::ToPrimitive;
 /// Verification Method Selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationMethod {
@@ -159,21 +158,6 @@ pub fn check_equivalence_with_options(
     )
 }
 
-/// Numerically classify a proven residual global phase as near zero.
-/// Exact symbolic zero is always handled before this heuristic label check.
-fn phase_near_zero(coeff: &PhaseCoeff, epsilon_rad: f64) -> bool {
-    if !coeff.symbols.is_empty() { return false; }
-    let source_radians = match &coeff.radians {
-        Some(r) => match r.to_f64() { Some(x) if x.is_finite() => x, _ => return false },
-        None => 0.0,
-    };
-    let cycles = coeff.constant.numer as f64 / coeff.constant.denom as f64
-        + source_radians / std::f64::consts::PI;
-    if !cycles.is_finite() { return false; }
-    let wrapped = cycles.rem_euclid(1.0);
-    std::f64::consts::TAU * wrapped.min(1.0 - wrapped) < epsilon_rad
-}
-
 /// Main entry point for equivalence checking with strategy optimization and WMC fallback
 pub fn check_equivalence(
     num_qubits: usize,
@@ -266,7 +250,6 @@ fn check_equivalence_with_tolerances_mode(
     ps.set_auto_reduce(reduction_enabled);
 
     let mut status = EquivalenceStatus::Unknown;
-    let mut numerical_phase_label = false;
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
@@ -289,11 +272,6 @@ fn check_equivalence_with_tolerances_mode(
                 // rational or symbolic scalar is *exactly* identity.
                 if phase_coeff.is_zero() {
                     status = EquivalenceStatus::Equivalent;
-                } else if phase_near_zero(&phase_coeff, wmc_phase_tolerance) {
-                    // Only the exact-vs-global-phase *label* is numerical;
-                    // the relation up to global phase came from symbolic RR.
-                    status = EquivalenceStatus::Equivalent;
-                    numerical_phase_label = true;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
                     log::debug!("Residual global phase: {} cycles", phase_coeff);
@@ -464,8 +442,6 @@ fn check_equivalence_with_tolerances_mode(
 
     let decision_basis = if status == EquivalenceStatus::Unknown {
         "inconclusive"
-    } else if numerical_phase_label {
-        "numerical_phase"
     } else if wmc_time.is_some() && !solver_invoked {
         "analytic_empty_cnf"
     } else if wmc_time.is_some() && approximate_distance_tolerance.is_some() {

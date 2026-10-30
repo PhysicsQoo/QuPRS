@@ -35,10 +35,14 @@ parameters. **Important current limitation:** Rust's reduction rules use exact
 rational and symbolic phase identities. Until a safe numerical rule-matching
 implementation exists, Rust rejects any nondefault custom `rr_tolerance`
 rather than silently ignoring it or replacing an exact proof by a heuristic.
-Exact Rust PhaseCoeff residuals are classified by exact zero/nonzero first; a
-nonzero source-exact phase remains up-to-global-phase even if it is smaller
-than the WMC phase threshold. The phase tolerance applies to numerical
-WMC phase classification; it cannot override exact Rust symbolic evidence.
+The Rust symbolic reduction still preserves the exact residual phase. Once
+the *up-to-global-phase relation* has been proven, however, a nonzero phase
+smaller than `phase_tolerance` is intentionally labeled `equivalent`,
+consistent with the Python backend. Such a result reports
+`decision_basis="symbolic_phase_tolerance"` rather than claiming that
+the global phase was mathematically exactly zero. Phases at or beyond
+the threshold are labeled `equivalent*`, and unbound symbolic phases
+are not silently approximated.
 
 The old Python `config.TOLERANCE`, `set_tolerance()`, and `get_tolerance()`
 were removed without compatibility aliases as a deliberate v0.14.0 breaking

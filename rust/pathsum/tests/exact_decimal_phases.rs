@@ -1,7 +1,7 @@
 //! End-to-end native regressions for exact source-decimal angle identities.
 //! These are production QASM -> IR -> gate -> PhasePolynomial -> reduction,
 //! not a standalone reference-model implementation.
-use pathsum::{check_equivalence, EquivalenceStatus, VerificationMethod};
+use pathsum::{check_equivalence, check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
 use pathsum::qasm::parse_qasm_str;
 use pathsum::rational::Angle;
 use pathsum::strategy::VerificationStrategy;
@@ -138,10 +138,33 @@ fn symbolic_pi_remains_distinct_from_finite_decimal_approximation() {
 }
 
 #[test]
-fn small_rz_and_p_rotation_differ_only_by_nonzero_global_phase() {
-    assert_eq!(check("rz(0.000000001) q[0];",
-                     "p(0.000000001) q[0];"),
-               EquivalenceStatus::EquivalentUpToGlobalPhase);
+fn small_rz_and_p_rotation_phase_label_is_controlled_by_tolerance() {
+    let lhs = "rz(0.000000001) q[0];";
+    let rhs = "p(0.000000001) q[0];";
+
+    // These are up to global phase, but their residual phase (5e-10
+    // radians) is smaller than the default 1e-8 phase tolerance.
+    assert_eq!(check(lhs, rhs), EquivalenceStatus::Equivalent);
+    let (ops1, n1) = parse_qasm_str(&qasm(lhs)).unwrap();
+    let (ops2, n2) = parse_qasm_str(&qasm(rhs)).unwrap();
+    assert_eq!(n1, n2);
+
+    for (eps, expected, provenance) in [
+        (1e-8, EquivalenceStatus::Equivalent, "symbolic_phase_tolerance"),
+        (1e-12, EquivalenceStatus::EquivalentUpToGlobalPhase, "symbolic"),
+    ] {
+        let options = VerificationOptions {
+            method: VerificationMethod::ReductionRules,
+            strategy: VerificationStrategy::Naive,
+            phase_tolerance: eps,
+            ..VerificationOptions::default()
+        };
+        let result = check_equivalence_with_options(n1, &ops1, &ops2, &options).unwrap();
+        assert_eq!(result.status, expected);
+        assert_eq!(result.decision_basis, provenance);
+        assert!(!result.final_ps.get_global_phase().unwrap().is_zero());
+        assert!(!result.solver_invoked);
+    }
 }
 
 #[test]

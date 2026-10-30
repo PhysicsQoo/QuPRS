@@ -24,6 +24,7 @@ use wmc::WmcManager;
 use anyhow::Result;
 use std::time::Instant;
 use log::{info, debug};
+use num_traits::ToPrimitive;
 /// Verification Method Selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationMethod {
@@ -158,6 +159,29 @@ pub fn check_equivalence_with_options(
     )
 }
 
+/// Classify an exact (possibly nonzero) residual global phase against
+/// the user's *numerical* zero-phase threshold, in physical radians.
+/// A symbolic unbound phase cannot be compared against a numeric epsilon.
+/// Source coefficients are preserved; this only changes the output label.
+fn phase_within_tolerance(coeff: &PhaseCoeff, epsilon_rad: f64) -> bool {
+    if coeff.is_zero() { return true; }
+    if !coeff.symbols.is_empty() { return false; }
+
+    let source_radians_over_pi = match &coeff.radians {
+        Some(r) => match r.to_f64() {
+            Some(x) if x.is_finite() => x,
+            _ => return false,
+        },
+        None => 0.0,
+    };
+    let rational_cycles = coeff.constant.numer as f64 / coeff.constant.denom as f64;
+    let cycles = (rational_cycles
+        + source_radians_over_pi / std::f64::consts::PI).rem_euclid(1.0);
+    if !cycles.is_finite() { return false; }
+    let rad = std::f64::consts::TAU * cycles.min(1.0 - cycles);
+    rad < epsilon_rad
+}
+
 /// Main entry point for equivalence checking with strategy optimization and WMC fallback
 pub fn check_equivalence(
     num_qubits: usize,
@@ -250,6 +274,7 @@ fn check_equivalence_with_tolerances_mode(
     ps.set_auto_reduce(reduction_enabled);
 
     let mut status = EquivalenceStatus::Unknown;
+    let mut phase_label_accepted_by_tolerance = false;
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
@@ -267,11 +292,15 @@ fn check_equivalence_with_tolerances_mode(
     if method != VerificationMethod::WmcOnly {
         if ps_miter.is_identity_up_to_phase() {
             if let Some(phase_coeff) = ps_miter.get_global_phase() {
-                // The phase polynomial stores exact cycles modulo 2*pi.
-                // Floating sin/cos tolerances cannot prove that a nonzero
-                // rational or symbolic scalar is *exactly* identity.
+                // The up-to-global-phase relation is established by RR.
+                // phase_tolerance intentionally controls the *equivalent*
+                // label even for a provably nonzero but sufficiently small
+                // phase; retain provenance to avoid claiming strict equality.
                 if phase_coeff.is_zero() {
                     status = EquivalenceStatus::Equivalent;
+                } else if phase_within_tolerance(&phase_coeff, wmc_phase_tolerance) {
+                    status = EquivalenceStatus::Equivalent;
+                    phase_label_accepted_by_tolerance = true;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
                     log::debug!("Residual global phase: {} cycles", phase_coeff);
@@ -442,6 +471,9 @@ fn check_equivalence_with_tolerances_mode(
 
     let decision_basis = if status == EquivalenceStatus::Unknown {
         "inconclusive"
+    } else if phase_label_accepted_by_tolerance && wmc_time.is_none()
+        && status == EquivalenceStatus::Equivalent {
+        "symbolic_phase_tolerance"
     } else if wmc_time.is_some() && !solver_invoked {
         "analytic_empty_cnf"
     } else if wmc_time.is_some() && approximate_distance_tolerance.is_some() {

@@ -81,3 +81,23 @@ def test_spawned_safe_mode_receives_rr_context():
     )
     assert result.equivalent == "equivalent"
     assert current_rr_tolerance() == DEFAULT_RR_TOLERANCE
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+def test_rr_global_phase_label_respects_per_call_tolerance(backend):
+    lhs, rhs = QuantumCircuit(1), QuantumCircuit(1)
+    lhs.rz(1e-9, 0)
+    rhs.p(1e-9, 0)
+    for tolerance, expected in (
+        (1e-8, "equivalent"),
+        (1e-12, "equivalent*"),
+    ):
+        result = check_equivalence(
+            lhs, rhs, backend=backend,
+            method="reduction_rules", strategy="Naive",
+            phase_tolerance=tolerance,
+        )
+        assert result.equivalent == expected
+        assert result.tool_time is None
+        if expected == "equivalent":
+            assert result.decision_basis == "symbolic_phase_tolerance"

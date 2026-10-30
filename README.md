@@ -309,9 +309,11 @@ cargo run --manifest-path rust/Cargo.toml -p QuPRS_cli -- \
 RR-only mode (cycles). Rust retains exact HH/Omega matching; it can
 accept a fully reduced diagonal residual only when the *sum* of its
 source-exact phase upper bounds is below the RR tolerance. Hybrid
-also caps approximate RR acceptance by its independent projective
-distance threshold. Results carry `rr_approximate=true` provenance;
-this is not a source-exact identity certificate.
+uses the same RR tolerance criterion as RR-only, without an additional
+WMC projective-distance cap. `approximate_distance_tolerance` applies
+only if WMC runs. Results carry `rr_approximate=true` provenance;
+this is not a source-exact identity certificate or a guarantee that
+an RR-accepted residual is below the WMC distance threshold.
 
 The shorter aliases `--distance-tolerance` and
 `--wmc-phase-tolerance` are also accepted. The obsolete

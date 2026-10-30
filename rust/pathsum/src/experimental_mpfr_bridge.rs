@@ -150,6 +150,27 @@ fn experimental_native_mpfr_selective_paired_cost() {
 }
 
 
+
+#[test]
+fn experimental_codspeed_weight_case() {
+    // CodSpeed Simulation: test-only native CPU weight generation; no solver.
+    let variant=std::env::var("QUPRS_CODSPEED_VARIANT")
+        .expect("QUPRS_CODSPEED_VARIANT=f64|mpfr required");
+    assert!(variant=="f64" || variant=="mpfr");
+    let phases:Vec<PhaseCoeff>=(1..=24u32)
+        .map(|k|phase_from_angle(&format!("0.{:016}",k*317))).collect();
+    for _ in 0..256 {
+        for phase in &phases {
+            if variant=="f64" {
+                let (r,i)=original_f64(black_box(phase));
+                black_box(format!("{r:.16e} {i:.16e}"));
+            } else {
+                black_box(mpfr_weight(black_box(phase)));
+            }
+        }
+    }
+}
+
 #[cfg(target_os="linux")]
 mod end_to_end {
     use super::*;
@@ -313,6 +334,44 @@ mod end_to_end {
             verdicts[0],verdicts[1],timeout[0],timeout[1]);
         Ok(())
     }
+    #[test]
+    fn experimental_codspeed_compiled_case() {
+        // CodSpeed WallTime: actual PathSum->CNF->one GPMC solve per invocation.
+        let name=std::env::var("QUPRS_CODSPEED_CASE").expect("missing case");
+        let variant=std::env::var("QUPRS_CODSPEED_VARIANT").expect("missing variant");
+        assert!(variant=="f64" || variant=="mpfr");
+        let filename=match name.as_str() {
+            "grover4"=>"grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+            "qaoa7"=>"qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+            "graphstate16"=>"graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+            "qft16"=>"qft_nativegates_ibm_qiskit_opt0_16.qasm",
+            _=>panic!("unknown benchmark case {name}")
+        };
+        let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/MQTBench");
+        let first=strip_nonunitary_qasm(
+            &fs::read_to_string(root.join(filename)).unwrap());
+        let second=strip_nonunitary_qasm(
+            &fs::read_to_string(root.join("h,ry,rz,cx").join(filename)).unwrap());
+        let (a,n)=crate::qasm::parse_qasm_str(&first).unwrap();
+        let (b,qn)=crate::qasm::parse_qasm_str(&second).unwrap();
+        assert_eq!(n,qn);
+        let mut ps=PathSum::new(n);
+        ps.set_auto_reduce(true);
+        let miter=VerificationStrategy::Difference.run(ps,&a,&b);
+        let mut manager=WmcManager::new(&miter);
+        manager.encode_trace(&miter).unwrap();
+        let cnf=if variant=="f64" {
+            manager.to_dimacs_string("gpmc")
+        } else {
+            manager.experimental_precise_gpmc_cnf()
+        };
+        let (count,_,_) = gpmc_once(&cnf,Duration::from_secs(30))
+            .unwrap_or_else(|e|panic!("CodSpeed {name}/{variant}: {e:#}"));
+        let status=normalized_verdict(&count,n,miter.v.path_vars.len()).unwrap();
+        eprintln!("EXPERIMENT_CODSPEED_COMPLETE case={name} variant={variant} n={n} weights={} status={status:?} solver_calls=1",
+            manager.numerical_weight_count());
+    }
+
     #[test]
     fn experimental_end_to_end_multi_phase_ab() {
         let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/MQTBench");

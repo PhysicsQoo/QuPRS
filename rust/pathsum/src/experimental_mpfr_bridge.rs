@@ -220,17 +220,29 @@ mod end_to_end {
     fn trim_weight(cnf:&str)->Vec<&str> {
         cnf.lines().filter(|line| !line.starts_with("c p weight ")).collect()
     }
-    fn benchmark_one(name:&str,qasm_path:&Path, repeats:usize, solve_seconds:u64)->anyhow::Result<()> {
+    fn benchmark_one(name:&str,qasm_path:&Path, repeats:usize, solve_seconds:u64, mode:&str, alternate:Option<&Path>)->anyhow::Result<()> {
         let qasm=strip_nonunitary_qasm(&fs::read_to_string(qasm_path)?);
         let (base,n)=crate::qasm::parse_qasm_str(&qasm)
             .map_err(|s|anyhow::anyhow!("{} qasm parse: {}",name,s))?;
-        // Independent physical oracle: V = Rz(theta) U, so
-        // |Tr(U†V)|/2^n = |cos(theta/2)| for every circuit U.
+        // With k added rotations: V=(tensor Rz(theta)) U,
+        // D_proj=sqrt(1-|cos(theta/2)|^(2k)) independently of U.
+        // Alternate transpilation comparison is only exploratory.
         const THETA:&str="0.000000025";
-        let mut perturbed=base.clone();
-        perturbed.push(crate::ir::QuantumOp::RZ(
-            0,crate::rational::Angle::from_qasm_str(THETA)
-                .map_err(|s|anyhow::anyhow!(s))?));
+        let mut perturbed=if let Some(file)=alternate {
+            let (other,qn)=crate::qasm::parse_qasm_str(
+                &strip_nonunitary_qasm(&fs::read_to_string(file)?))
+                .map_err(|e|anyhow::anyhow!("alternate parse: {e}"))?;
+            assert_eq!(qn,n);
+            other
+        }else{base.clone()};
+        let rotations=if alternate.is_some(){0}else if mode=="multi"{n}else{1};
+        for q in 0..rotations {
+            perturbed.push(crate::ir::QuantumOp::RZ(
+                q,crate::rational::Angle::from_qasm_str(THETA)
+                    .map_err(|e|anyhow::anyhow!(e))?));
+        }
+        let oracle=if alternate.is_some(){"uncertified_transpilation".to_string()}
+            else{format!("{:.12e}",(rotations as f64).sqrt()*1.25e-8)};
         let t0=Instant::now();
         let mut ps=PathSum::new(n);
         ps.set_auto_reduce(true);
@@ -260,8 +272,10 @@ mod end_to_end {
                 match gpmc_once(selected,Duration::from_secs(solve_seconds)) {
                     Ok((count,elapsed,r))=>{
                         let observed=normalized_verdict(&count,n,miter.v.path_vars.len())?;
-                        assert_ne!(observed,PrintedVerdict::Equivalent,
-                            "incorrect positive equivalence for D=1.25e-8 case={name} variant={idx}");
+                        if alternate.is_none() {
+                            assert_ne!(observed,PrintedVerdict::Equivalent,
+                                "false equivalence for known D>1e-8 case={name} variant={idx}");
+                        }
                         eprintln!("EXPERIMENT_END_TO_END_SAMPLE case={name} n={n} rep={k} variant={} gpmc_wall_s={elapsed:.6} rss_kib={r} verdict={observed:?}",
                             if idx==0 {"f64"} else {"mpfr"});
                         timings[idx].push(elapsed);
@@ -287,13 +301,50 @@ mod end_to_end {
         let candidate_rss=if !rss[1].is_empty(){median(&mut rss[1])}else{f64::NAN};
         let overhead=high_serial_s-low_serial_s;
         let ratio=if baseline.is_finite(){(candidate+high_serial_s)/(baseline+low_serial_s)}else{f64::NAN};
+        let full_ratio=if baseline.is_finite(){
+            (pathsum_s+encoding_s+candidate+high_serial_s)/
+            (pathsum_s+encoding_s+baseline+low_serial_s)
+        }else{f64::NAN};
         let gates=base.len();
         let cnf_header=low.lines().next().unwrap_or("");
         let low_bytes=low.len();
         let high_bytes=high.len();
-        eprintln!("EXPERIMENT_END_TO_END_SUMMARY case={name} gates={gates} n={n} pathsum_s={pathsum_s:.6} cnf_encode_s={encoding_s:.6} weights={weight_terms} expensive_weights={nonclifford} cnf_header={cnf_header:?} cnf_bytes_f64={low_bytes} cnf_bytes_mpfr={high_bytes} f64_serialize_s={low_serial_s:.6} mpfr_serialize_s={high_serial_s:.6} delta_serialize_s={overhead:.6} f64_solver_median_s={baseline:.6} mpfr_solver_median_s={candidate:.6} f64_rss_kib={baseline_rss:.0} mpfr_rss_kib={candidate_rss:.0} solver_plus_serialize_ratio={ratio:.5} f64_verdict={:?} mpfr_verdict={:?} timeout_f64={} timeout_mpfr={} oracle_D=1.25e-8",
+        eprintln!("EXPERIMENT_END_TO_END_SUMMARY case={name} mode={mode} gates={gates} n={n} pathsum_s={pathsum_s:.6} cnf_encode_s={encoding_s:.6} weights={weight_terms} expensive_weights={nonclifford} cnf_header={cnf_header:?} cnf_bytes_f64={low_bytes} cnf_bytes_mpfr={high_bytes} f64_serialize_s={low_serial_s:.6} mpfr_serialize_s={high_serial_s:.6} delta_serialize_s={overhead:.6} f64_solver_median_s={baseline:.6} mpfr_solver_median_s={candidate:.6} f64_rss_kib={baseline_rss:.0} mpfr_rss_kib={candidate_rss:.0} solver_plus_serialize_ratio={ratio:.5} full_wall_ratio={full_ratio:.5} f64_verdict={:?} mpfr_verdict={:?} timeout_f64={} timeout_mpfr={} oracle_D={oracle}",
             verdicts[0],verdicts[1],timeout[0],timeout[1]);
         Ok(())
+    }
+    #[test]
+    fn experimental_end_to_end_multi_phase_ab() {
+        let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/MQTBench");
+        for (name,file) in [
+            ("grover4","grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm"),
+            ("qaoa7","qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+            ("graphstate16","graphstate_nativegates_ibm_qiskit_opt0_16.qasm"),
+            ("qft16","qft_nativegates_ibm_qiskit_opt0_16.qasm")
+        ] {
+            benchmark_one(name,&root.join(file),3,12,"multi",None)
+                .unwrap_or_else(|e|panic!("multi-source case {name}: {e:#}"));
+        }
+    }
+    #[test]
+    fn experimental_end_to_end_compiled_ab() {
+        let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/MQTBench");
+        let selected=std::env::var("QUPRS_E2E_COMPILED_CASE").unwrap_or_default();
+        let mut found=0;
+        for (name,file) in [
+            ("grover4","grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm"),
+            ("qaoa7","qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+            ("graphstate16","graphstate_nativegates_ibm_qiskit_opt0_16.qasm"),
+            ("qft16","qft_nativegates_ibm_qiskit_opt0_16.qasm")
+        ] {
+            if selected!=name {continue}
+            found+=1;
+            let first=root.join(file);
+            let second=root.join("h,ry,rz,cx").join(file);
+            benchmark_one(name,&first,3,12,"compiled",Some(&second))
+                .unwrap_or_else(|e|panic!("compiled case {name}: {e:#}"));
+        }
+        assert_eq!(found,1,"select one compiled benchmark with env");
     }
     #[test]
     fn experimental_end_to_end_algorithm_weight_ab() {
@@ -306,7 +357,7 @@ mod end_to_end {
         ];
         for (name,file) in cases {
             let path=root.join(file);
-            if let Err(e)=benchmark_one(name,&path,2,12) {
+            if let Err(e)=benchmark_one(name,&path,3,12,"single",None) {
                 panic!("bounded public-corpus end-to-end experiment {name}: {e:#}");
             }
         }

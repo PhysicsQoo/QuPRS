@@ -137,9 +137,23 @@ def test_qcec_scale_distance_never_accepts_known_outside_rotation(
 # Run one GPMC solve per verification; RR-first can resolve without WMC.
 @pytest.mark.parametrize("backend", ("python", "rust"))
 @pytest.mark.parametrize("case", ("h60", "h80", "graphstate16", "qft16"))
-def test_gpmc_qcec_scale_positive_controls(backend, case, record_property):
+def test_gpmc_qcec_scale_positive_controls(backend, case, record_property, monkeypatch):
     left, right, truth, oracle_distance, method, strategy = circuit_pair(case)
     epsilon = 1e-8
+    # Capture the *same* external solver count from the public Python path.
+    # Do not invoke GPMC again to produce diagnostic evidence.
+    captured = []
+    if backend == "python":
+        import QuPRS.interface.ps2wmc as ps2wmc
+        real_run_wmc = ps2wmc.run_wmc
+
+        def capturing_run_wmc(*args, **kwargs):
+            answer = real_run_wmc(*args, **kwargs)
+            if kwargs.get("preserve_count"):
+                captured.append(answer)
+            return answer
+
+        monkeypatch.setattr(ps2wmc, "run_wmc", capturing_run_wmc)
     result = check_equivalence(
         left, right,
         backend=backend,
@@ -161,6 +175,29 @@ def test_gpmc_qcec_scale_positive_controls(backend, case, record_property):
         ("gpmc_qcec_positive_wmc_time", result.wmc_time),
     ):
         record_property(key, str(value))
+    if captured:
+        from fractions import Fraction
+
+        assert len(captured) == 1, "single-solver production path invariant"
+        raw = captured[0]
+        norm_squared = Fraction(2) ** int(round(2 * result.expect))
+        normalized_defect = Fraction(1) - (
+            raw.real * raw.real + raw.imag * raw.imag
+        ) / norm_squared
+        scale = max(abs(raw.real), abs(raw.imag))
+        relative_print_half_unit = (
+            max(raw.real_print_half_unit, raw.imag_print_half_unit) / scale
+            if scale else Fraction(0)
+        )
+        for key, value in (
+            ("gpmc_qcec_print_format", raw.format_name),
+            ("gpmc_qcec_normalized_defect", format(float(normalized_defect), ".18g")),
+            ("gpmc_qcec_relative_print_half_unit",
+             format(float(relative_print_half_unit), ".18g")),
+            ("gpmc_qcec_real_sign", 0 if raw.real == 0 else (1 if raw.real > 0 else -1)),
+            ("gpmc_qcec_imag_sign", 0 if raw.imag == 0 else (1 if raw.imag > 0 else -1)),
+        ):
+            record_property(key, str(value))
     # Exact identities and the source-pinned Graphstate16 pair are
     # independently within epsilon. QFT16 is a paper-intended positive,
     # not an independent exact-distance certificate.

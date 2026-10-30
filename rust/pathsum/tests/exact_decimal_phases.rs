@@ -73,6 +73,33 @@ fn tiny_nonzero_exact_radians_respect_rr_tolerance() {
 }
 
 #[test]
+fn hybrid_rr_acceptance_is_independent_of_wmc_distance_tolerance() {
+    // With no path variables, a tiny nonzero diagonal phase is accepted
+    // by RR tolerance before any solver can be involved. The WMC-only
+    // projective-distance threshold must not override this RR decision.
+    let (ops1, n) = parse_qasm_str(&qasm("")).unwrap();
+    let (ops2, _) = parse_qasm_str(&qasm("rz(0.000000001) q[0];")).unwrap();
+    for method in [VerificationMethod::ReductionRules, VerificationMethod::Hybrid] {
+        for distance in [1e-6, 1e-12] {
+            let opts = VerificationOptions {
+                method,
+                strategy: VerificationStrategy::Naive,
+                rr_tolerance: 1e-8,
+                approximate_distance_tolerance: Some(distance),
+                ..VerificationOptions::default()
+            };
+            let result = check_equivalence_with_options(n, &ops1, &ops2, &opts).unwrap();
+            assert_eq!(result.status, EquivalenceStatus::Equivalent,
+                "method={method:?}, distance={distance}");
+            assert!(result.rr_approximate);
+            assert!(!result.solver_invoked);
+            assert!(result.tool_time.is_none());
+            assert!(result.wmc_time.is_none());
+        }
+    }
+}
+
+#[test]
 fn pi_and_literal_decimal_are_distinct_source_domains() {
     let pi = Angle::from_qasm_str("pi/8").unwrap();
     let decimal = Angle::from_qasm_str("0.39269908169872414").unwrap();

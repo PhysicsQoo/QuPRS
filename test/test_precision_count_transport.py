@@ -137,3 +137,48 @@ def test_printed_log_diagnostic_handles_counts_beyond_f64_range():
     )
     assert abs(approximate_printed_log2(complex_count) -
                2.321928094887362) < 1e-13
+
+
+@pytest.mark.parametrize("count,normalization_exponent", [
+    ("2147483648", 62),
+    ("2199023255552", 82),
+])
+def test_gpmc_mpreal_significant_digits_preserved_when_integer_trimmed(
+    count, normalization_exponent,
+):
+    # The pinned GPMC prints with MPFR %Rg (significant digits) and may
+    # omit trailing zeros. Its "c o precision N" describes the rounding
+    # granularity; ±0.5 count units would incorrectly downgrade H60/H80
+    # to unknown for epsilon_D=1e-8.
+    line = f"c s exact double prec-sci {count} + 0i"
+    without_header = parse_printed_solver_output(line)
+    with_header = parse_printed_solver_output(
+        "c o precision 90\n" + line
+    )
+    assert with_header.real == without_header.real
+    assert with_header.real_print_half_unit < without_header.real_print_half_unit
+    assert classify_printed_distance(
+        without_header, normalization_exponent, 1e-8
+    ).status == "unknown"
+    assert classify_printed_distance(
+        with_header, normalization_exponent, 1e-8
+    ).status == "equivalent"
+
+
+def test_gpmc_mpreal_precision_is_scoped_to_reported_format_only():
+    # No precision metadata -> keep conservative visible-digit behavior.
+    # Ganak native mode-6 must not inherit GPMC %Rg interpretation.
+    gpmc = parse_printed_solver_output(
+        "c o precision 90\nc s exact double prec-sci 1.00000000e+00 + 0i"
+    )
+    ganak = parse_printed_solver_output(
+        "c o precision 90\nc s exact octuple float 1.00000000e+00 + 0i"
+    )
+    assert gpmc.real_print_half_unit < ganak.real_print_half_unit
+    assert classify_printed_distance(gpmc, 0, 1e-8).status == "equivalent"
+    assert classify_printed_distance(ganak, 0, 1e-8).status == "unknown"
+    with pytest.raises(ValueError, match="Conflicting GPMC"):
+        parse_printed_solver_output(
+            "c o precision 90\nc o precision 40\n"
+            "c s exact double prec-sci 1 + 0i"
+        )

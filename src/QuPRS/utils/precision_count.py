@@ -38,7 +38,9 @@ class PrintedDistanceEvidence:
     certified_solver_bound: bool = False
 
 
-def _number_and_unit(text: str) -> tuple[Fraction, Fraction]:
+def _number_and_unit(
+    text: str, *, reported_significant_digits: int | None = None,
+) -> tuple[Fraction, Fraction]:
     if len(text) > _MAX_DIGITS:
         raise ValueError("Solver count token exceeds precision transport limit")
     if "/" in text:
@@ -69,14 +71,22 @@ def _number_and_unit(text: str) -> tuple[Fraction, Fraction]:
     if number.is_zero():
         return Fraction(0), Fraction(0)
     fractional_digits = len(match.group(2).split(".", 1)[1]) if "." in match.group(2) else 0
-    half_unit_exp = exponent - fractional_digits - 1
-    unit = Fraction(5) * (
-        Fraction(10) ** half_unit_exp
+    # GPMC's MPFR %Rg printer uses the reported *significant-digit*
+    # precision but suppresses trailing zeros (including after integers).
+    # Its "c o precision N" header supplies N; the visible last digit
+    # alone is not a correct rounding unit for trimmed %Rg values.
+    half_unit_exp = (
+        number.adjusted() - reported_significant_digits
+        if reported_significant_digits is not None
+        else exponent - fractional_digits - 1
     )
+    unit = Fraction(5) * (Fraction(10) ** half_unit_exp)
     return Fraction(number), unit
 
 
-def parse_printed_count_line(line: str) -> PrintedCount | None:
+def parse_printed_count_line(
+    line: str, *, reported_significant_digits: int | None = None,
+) -> PrintedCount | None:
     prefix = next(
         (name for name in PREFIXES
          if line == name or (line.startswith(name) and line[len(name):len(name) + 1].isspace())),
@@ -84,11 +94,17 @@ def parse_printed_count_line(line: str) -> PrintedCount | None:
     )
     if prefix is None:
         return None
+    # Only GPMC's high-precision MPFR output advertises %Rg precision.
+    # Other solver dialects retain literal visible-last-digit intervals.
+    significant_digits = (
+        reported_significant_digits
+        if prefix == "c s exact double prec-sci" else None
+    )
     value = re.sub(r"\s+", "", line[len(prefix):]).replace("+-", "-")
     if not value:
         raise ValueError("Empty weighted-count value")
     if not value.endswith("i"):
-        re_count, re_unit = _number_and_unit(value)
+        re_count, re_unit = _number_and_unit(value, reported_significant_digits=significant_digits)
         return PrintedCount(re_count, Fraction(0), re_unit, Fraction(0), prefix)
     value = value[:-1]
     splits = [
@@ -102,15 +118,29 @@ def parse_printed_count_line(line: str) -> PrintedCount | None:
         im_string += "1"
     if im_string == "":
         raise ValueError("Empty imaginary weighted-count")
-    re_count, re_unit = _number_and_unit(re_string)
-    im_count, im_unit = _number_and_unit(im_string)
+    re_count, re_unit = _number_and_unit(re_string, reported_significant_digits=significant_digits)
+    im_count, im_unit = _number_and_unit(im_string, reported_significant_digits=significant_digits)
     return PrintedCount(re_count, im_count, re_unit, im_unit, prefix)
 
 
 def parse_printed_solver_output(stdout: str) -> PrintedCount:
+    # GPMC announces the MPFR %Rg significant-digit count independently
+    # of the formatted result, so collect it before parsing the count.
+    precision = None
+    for line in stdout.splitlines():
+        if line.startswith("c o precision "):
+            match = re.fullmatch(r"c o precision (\d+)", line.strip())
+            if match is None or not 16 <= int(match.group(1)) <= 200:
+                raise ValueError("Invalid GPMC MPFR print precision")
+            digits = int(match.group(1))
+            if precision is not None and precision != digits:
+                raise ValueError("Conflicting GPMC MPFR print precision")
+            precision = digits
     found = None
     for line in stdout.splitlines():
-        candidate = parse_printed_count_line(line)
+        candidate = parse_printed_count_line(
+            line, reported_significant_digits=precision
+        )
         if candidate is not None:
             if found is not None and (found.real, found.imag) != (candidate.real, candidate.imag):
                 raise ValueError("Solver output has conflicting decimal counts")

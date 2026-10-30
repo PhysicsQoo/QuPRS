@@ -48,6 +48,12 @@ fn power_ten(n: i32) -> Result<BigRational> {
 }
 
 fn component(text: &str) -> Result<(BigRational, BigRational)> {
+    component_with_precision(text, None)
+}
+
+fn component_with_precision(
+    text: &str, reported_significant_digits: Option<i32>,
+) -> Result<(BigRational, BigRational)> {
     if text.len() > LIMIT {
         return Err(anyhow!("Count token too long"));
     }
@@ -82,16 +88,30 @@ fn component(text: &str) -> Result<(BigRational, BigRational)> {
     }
     let decimal_shift = exponent - digits as i32;
     let value = BigRational::from_integer(n) * power_ten(decimal_shift)?;
-    let half = BigRational::from_integer(BigInt::from(5))
-        * power_ten(decimal_shift - 1)?;
+    // MPFR %Rg suppresses trailing zeros, including after an integer.
+    // GPMC's "c o precision N" controls the actual significant digits;
+    // do not infer the rounding uncertainty from the visible last digit.
+    let half_shift = reported_significant_digits
+        .map(|digits| decimal_shift + (digit_string.trim_start_matches('0').len() as i32 - 1) - digits)
+        .unwrap_or(decimal_shift - 1);
+    let half = BigRational::from_integer(BigInt::from(5)) * power_ten(half_shift)?;
     Ok((value, half))
 }
 
 pub fn parse_line(line: &str) -> Result<Option<PrintedCount>> {
+    parse_line_with_precision(line, None)
+}
+
+fn parse_line_with_precision(
+    line: &str, reported_significant_digits: Option<i32>,
+) -> Result<Option<PrintedCount>> {
     let Some(prefix) = LABELS.iter().find(|prefix| {
         line.strip_prefix(**prefix)
             .is_some_and(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
     }) else { return Ok(None); };
+    let precision = if *prefix == "c s exact double prec-sci" {
+        reported_significant_digits
+    } else { None };
     let value = line.strip_prefix(*prefix).unwrap_or("");
     let clean: String = value.chars().filter(|c| !c.is_whitespace()).collect::<String>()
         .replace("+-", "-");
@@ -102,11 +122,11 @@ pub fn parse_line(line: &str) -> Result<Option<PrintedCount>> {
         }).map(|(j, _)| j);
         let (r, i) = split.map(|j| (&body[..j], &body[j..])).unwrap_or(("0", body));
         let imaginary = match i { "+" => "1", "-" => "-1", _ => i };
-        let (real, ru) = component(r)?;
-        let (imag, iu) = component(imaginary)?;
+        let (real, ru) = component_with_precision(r, precision)?;
+        let (imag, iu) = component_with_precision(imaginary, precision)?;
         (real, imag, ru, iu)
     } else {
-        let (real, ru) = component(&clean)?;
+        let (real, ru) = component_with_precision(&clean, precision)?;
         (real, BigRational::zero(), ru, BigRational::zero())
     };
     Ok(Some(PrintedCount {
@@ -115,9 +135,22 @@ pub fn parse_line(line: &str) -> Result<Option<PrintedCount>> {
 }
 
 pub fn parse_stdout_optional(stdout: &str) -> Result<Option<PrintedCount>> {
+    let mut precision: Option<i32> = None;
+    for line in stdout.lines() {
+        if let Some(value) = line.strip_prefix("c o precision ") {
+            let digits = value.trim().parse::<i32>()?;
+            if !(16..=200).contains(&digits) {
+                return Err(anyhow!("Invalid GPMC MPFR print precision"));
+            }
+            if precision.is_some_and(|previous| previous != digits) {
+                return Err(anyhow!("Conflicting GPMC MPFR print precision"));
+            }
+            precision = Some(digits);
+        }
+    }
     let mut found: Option<PrintedCount> = None;
     for line in stdout.lines() {
-        if let Some(value) = parse_line(line)? {
+        if let Some(value) = parse_line_with_precision(line, precision)? {
             if found.as_ref().is_some_and(|prev| {
                 prev.real != value.real || prev.imag != value.imag
             }) {
@@ -251,4 +284,36 @@ mod tests {
             assert_eq!(result.real, BigRational::from_integer(BigInt::from(1)));
         }
     }
+    #[test]
+    fn gpmc_mpreal_significant_digits_not_visible_last_digit() {
+        for (value, twolog) in [("2147483648", 62), ("2199023255552", 82)] {
+            let line = format!("c s exact double prec-sci {value} + 0i");
+            let without_header = parse_stdout(&line).unwrap();
+            let with_header = parse_stdout(&format!("c o precision 90\n{line}")).unwrap();
+            assert_eq!(without_header.real, with_header.real);
+            assert!(with_header.real_half_unit < without_header.real_half_unit);
+            assert_eq!(
+                classify(&without_header, twolog, "1e-8").unwrap(),
+                PrintedVerdict::UnknownResolution
+            );
+            assert_eq!(
+                classify(&with_header, twolog, "1e-8").unwrap(),
+                PrintedVerdict::Equivalent
+            );
+        }
+
+        let with_prec = parse_stdout(
+            "c o precision 90\nc s exact double prec-sci 1.00000000e+00 + 0i"
+        ).unwrap();
+        let ganak = parse_stdout(
+            "c o precision 90\nc s exact octuple float 1.00000000e+00 + 0i"
+        ).unwrap();
+        assert!(with_prec.real_half_unit < ganak.real_half_unit);
+        assert_eq!(classify(&with_prec, 0, "1e-8").unwrap(), PrintedVerdict::Equivalent);
+        assert_eq!(classify(&ganak, 0, "1e-8").unwrap(), PrintedVerdict::UnknownResolution);
+        assert!(parse_stdout(
+            "c o precision 90\nc o precision 40\nc s exact double prec-sci 1"
+        ).is_err());
+    }
+
 }

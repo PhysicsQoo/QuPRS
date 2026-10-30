@@ -537,34 +537,48 @@ def check_equivalence(
                     CNF = to_DIMACS(pathsum_circuit, temp_name, tool_name=tool_name)
                 to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
 
-                # Run weighted model counting (WMC)
-                tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
-                tool_start_time = time.time()
-                wmc_solver_invoked = True
+                # An unweighted CNF composed entirely of tautologies has
+                # exactly 2**(CNF variables) models. When this equals the
+                # trace normalization, no floating solver can improve the
+                # already exact count. This is a CNF proof, not an RR fallback.
                 from QuPRS.utils.precision_count import (
                     classify_observed_distance, approximate_printed_log2,
-                )
-                counted = run_wmc(
-                    temp_name, tool_name,
-                    timeout=max(0.0, deadline - time.monotonic()),
-                    preserve_count=True,
-                    precision_digits=90 if tool_name == "gpmc" else None,
+                    exactly_count_unweighted_tautology,
                 )
                 twice = int(round(2 * expect))
-                equivalent, evidence = classify_observed_distance(
-                    counted, twice, approximate_distance_tolerance,
-                    wmc_phase_tolerance,
-                )
-                wmc_printed_verdict = evidence.status
-                wmc_precision_reason = (
-                    tool_name + "_printed_uncertified_" + evidence.reason
-                )
-                log_wmc = approximate_printed_log2(counted)
-                tool_time = round(time.time() - tool_start_time, 3)
-                # Preserve the numeric verdict as an observation. It is not
-                # an independent proof of source-exact equivalence.
-                wmc_numerical_verdict = equivalent
-                wmc_time = tool_time + to_DIMACS_time
+                if exactly_count_unweighted_tautology(CNF, twice):
+                    equivalent = "equivalent"
+                    wmc_precision_reason = "analytic_unweighted_tautology"
+                    wmc_solver_invoked = False
+                    wmc_printed_verdict = None
+                    wmc_numerical_verdict = None
+                    log_wmc = expect
+                    tool_time = None
+                    wmc_time = to_DIMACS_time
+                else:
+                    tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
+                    tool_start_time = time.time()
+                    wmc_solver_invoked = True
+                    counted = run_wmc(
+                        temp_name, tool_name,
+                        timeout=max(0.0, deadline - time.monotonic()),
+                        preserve_count=True,
+                        precision_digits=90 if tool_name == "gpmc" else None,
+                    )
+                    equivalent, evidence = classify_observed_distance(
+                        counted, twice, approximate_distance_tolerance,
+                        wmc_phase_tolerance,
+                    )
+                    wmc_printed_verdict = evidence.status
+                    wmc_precision_reason = (
+                        tool_name + "_printed_uncertified_" + evidence.reason
+                    )
+                    log_wmc = approximate_printed_log2(counted)
+                    tool_time = round(time.time() - tool_start_time, 3)
+                    # Preserve the numeric verdict as an observation. It is not
+                    # an independent proof of source-exact equivalence.
+                    wmc_numerical_verdict = equivalent
+                    wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or
                 # malformed output. Full CNF retention is not the default.

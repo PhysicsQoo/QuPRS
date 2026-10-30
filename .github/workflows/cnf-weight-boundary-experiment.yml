@@ -155,6 +155,17 @@ jobs:
             if [ "$rc" -ne 0 ]; then failed=1; fi
           done
           exit "$failed"
+      - name: QFT16 non-dense independent statevector and QCEC compilation crosscheck
+        run: |
+          set -o pipefail
+          timeout -k 5s 120s \
+            "$RUNNER_TEMP/qcec-independent-venv/bin/python" \
+            scripts/experiments/qft16_statevector_independent_probe.py \
+            2>&1 | tee "$RUNNER_TEMP/cnf-study/qft16-independent-statevectors.stdout"
+          if test -f /tmp/quprs-qft16-independent-statevectors.json; then
+            cp /tmp/quprs-qft16-independent-statevectors.json \
+              "$RUNNER_TEMP/cnf-study/qft16-independent-statevectors.json"
+          fi
       - name: Upload bounded experimental evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -606,7 +606,10 @@ def check_equivalence(
                             approximate_distance_tolerance,
                         )
                     wmc_precision_reason = (
-                        tool_name + "_printed_uncertified_" + evidence.reason
+                        "ganak_point_estimate_resolution_limited"
+                        if tool_name == "ganak"
+                        and evidence.reason == "insufficient_printed_resolution"
+                        else tool_name + "_printed_uncertified_" + evidence.reason
                     )
                     log_wmc = approximate_printed_log2(counted)
                     tool_time = round(time.time() - tool_start_time, 3)

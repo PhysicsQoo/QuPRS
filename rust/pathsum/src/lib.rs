@@ -390,7 +390,7 @@ fn check_equivalence_with_distance_mode(
         }
 
         let dimacs_start = Instant::now();
-        let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
+        let _cnf_string = wmc_mgr.to_dimacs_string(tool_name);
         to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
         let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
@@ -401,7 +401,12 @@ fn check_equivalence_with_distance_mode(
         // satisfiable: e.g. Tr(X) = 0 imposes contradictory CNF clauses.
         // Bypass the solver only for a genuinely empty zero-variable CNF.
         let mut printed_count = None;
-        let raw_amplitude = if cnf_string.contains("p cnf 0 0") {
+        // This is an exact WMC identity, derived from the encoded CNF,
+        // not a reduction-rule fallback or a floating-count guess.
+        let expected_twice_log2 = num_qubits.checked_mul(2)
+            .and_then(|twice_n| twice_n.checked_add(num_active_vars))
+            .ok_or_else(|| anyhow::anyhow!("WMC normalization overflow"))?;
+        let raw_amplitude = if wmc_mgr.has_exact_unweighted_tautology(expected_twice_log2) {
             Some(num_complex::Complex::new(2.0_f64.powf(expected_log2), 0.0))
         } else {
             solver_invoked = true;
@@ -414,7 +419,7 @@ fn check_equivalence_with_distance_mode(
                 Err(error) => return Err(error),
             }
         };
-        tool_time = Some(tool_start.elapsed().as_secs_f64());
+        tool_time = solver_invoked.then(|| tool_start.elapsed().as_secs_f64());
 
         if let Some(count) = &printed_count {
             use num_rational::BigRational;
@@ -474,10 +479,10 @@ fn check_equivalence_with_distance_mode(
         info!(target: "wmc", "Expected log2 {:.4}", expected_log2);
         wmc_time = Some(wmc_start.elapsed().as_secs_f64());
 
-        // Empty-CNF shortcut: a structurally known identity.
+        // Exact tautological unweighted CNF: a structurally proven WMC count.
         let _ = final_amplitude;
         status = EquivalenceStatus::Equivalent;
-        wmc_precision_reason = Some("analytic_empty_cnf");
+        wmc_precision_reason = Some("analytic_unweighted_tautology");
         }
     }
 

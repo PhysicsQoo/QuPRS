@@ -245,6 +245,16 @@ def test_backend_parity_includes_rr_approximation_provenance(
         "A tolerance-dependent RR acceptance must be labeled equally "
         "by Python and Rust", method, angle, rr_tolerance, results,
     )
-    assert py.wmc_solver_invoked is False
-    assert rust.wmc_solver_invoked is False
-    assert py.tool_time is None and rust.tool_time is None
+    assert py.wmc_solver_invoked == rust.wmc_solver_invoked, (
+        "Backend selection must not change whether Hybrid falls through "
+        "from RR to WMC", method, angle, rr_tolerance, results,
+    )
+    if method == "reduction_rules" or angle == "0" or rr_tolerance == 1e-8:
+        # RR can decide the case; Hybrid must not invoke the solver.
+        assert not py.wmc_solver_invoked
+        assert py.tool_time is None and rust.tool_time is None
+    else:
+        # With strict RR tolerance, Hybrid is inconclusive at RR and
+        # MUST invoke WMC. Requiring no solver here was an incorrect test.
+        assert method == "hybrid" and rr_tolerance == 1e-12
+        assert py.wmc_solver_invoked

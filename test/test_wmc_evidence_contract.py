@@ -36,7 +36,16 @@ def test_wmc_numerical_evidence_available_without_policy(backend, solver, case):
     )
     assert result.tool_name == solver
     assert result.tool_time is not None
-    assert result.equivalent in {"equivalent", "equivalent*", "not_equivalent"}
+    if case in ("near", "far"):
+        # Independent one-qubit oracle has D >> 1e-8.
+        assert result.equivalent == "not_equivalent"
+    elif solver == "gpmc":
+        assert result.equivalent in {"equivalent", "equivalent*"}
+    else:
+        # Ganak's native printed precision may be insufficient at D=1e-8.
+        assert result.equivalent in {"equivalent", "equivalent*", "unknown"}
+        if result.equivalent == "unknown":
+            assert result.wmc_precision_reason is not None
     assert result.wmc_numerical_verdict == result.equivalent
     assert not hasattr(result, "wmc_policy")
 

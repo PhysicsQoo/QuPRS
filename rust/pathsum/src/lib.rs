@@ -274,9 +274,13 @@ fn check_equivalence_with_distance_mode(
             // If the state is not Identity, but there are no internal path variables left,
             // it means it reduced to a definitive non-equivalent Boolean state.
             let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-            let _ = num_active_vars;
-            // Source-exact inequality is insufficient to establish D > epsilon.
-            status = EquivalenceStatus::Unknown;
+            if method == VerificationMethod::ReductionRules && num_active_vars == 0 {
+                // RR-only reports the strict source-inequivalence certificate.
+                status = EquivalenceStatus::NotEquivalent;
+            } else {
+                // Hybrid needs a distance check before a numerical negative.
+                status = EquivalenceStatus::Unknown;
+            }
         }
     }
 

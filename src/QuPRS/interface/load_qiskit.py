@@ -500,7 +500,8 @@ def check_equivalence(
                     equivalent = "unknown"
             elif len(pathsum_circuit.pathvar) == 0:
                 # Strict non-equality alone does not establish D > epsilon.
-                equivalent = "unknown"
+                equivalent = ("not_equivalent" if method == "reduction_rules"
+                              else "unknown")
             else:
                 equivalent = "unknown"
 

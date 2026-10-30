@@ -41,7 +41,8 @@ def test_invalid_per_call_rr_tolerance_rejected(invalid):
 @pytest.mark.parametrize(
     ("method", "expected"),
     [
-        ("reduction_rules", "unknown"),
+        # The fully reduced nonzero diagonal is a direct RR-only witness.
+        ("reduction_rules", "not_equivalent"),
         ("hybrid", "not_equivalent"),
         ("wmc_only", "not_equivalent"),
     ],
@@ -50,8 +51,11 @@ def test_invalid_per_call_rr_tolerance_rejected(invalid):
 def test_nonzero_gate_phase_survives_construction_for_all_methods(
     method, expected, tolerance,
 ):
-    # 200 * 3e-6 = 6e-4 radians; ideal normalized trace magnitude
-    # defect is about 4.5e-8, greater than the 1e-8 WMC threshold.
+    # 200 * 3e-6 = 6e-4 radians. Independent one-qubit oracle:
+    # D_proj(I, Rz(0.0006)) = |sin(0.0003)|, strictly outside 1e-8.
+    # The fully reduced residual is a valid RR-only negative witness;
+    # it is not a numeric WMC prediction.
+    assert abs(math.sin(0.0006 / 2)) > 1e-8
     lhs = QuantumCircuit(1)
     repeated = QuantumCircuit(1)
     combined = QuantumCircuit(1)

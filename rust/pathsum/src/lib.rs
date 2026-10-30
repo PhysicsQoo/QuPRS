@@ -639,6 +639,47 @@ mod verification_options_contract_tests {
     }
 }
 
+
+#[cfg(test)]
+mod public_distance_codspeed {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn benchmark_native_public_distance_gpmc() {
+        // This is the actual public verifier core, not a test-only CNF rewrite.
+        // The baseline executable has no high-precision-gpmc feature; the
+        // candidate executable opts in. Both use exactly one GPMC invocation.
+        let name=std::env::var("QUPRS_CODSPEED_CASE").expect("case missing");
+        let file=match name.as_str() {
+            "grover4"=>"grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+            "qaoa7"=>"qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+            "graphstate16"=>"graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+            "qft16"=>"qft_nativegates_ibm_qiskit_opt0_16.qasm",
+            _=>panic!("invalid case {name}")
+        };
+        let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/MQTBench");
+        let a=std::fs::read_to_string(root.join(file)).unwrap();
+        let b=std::fs::read_to_string(root.join("h,ry,rz,cx").join(file)).unwrap();
+        let (left,n)=crate::qasm::parse_qasm_str(&a).unwrap();
+        let (right,m)=crate::qasm::parse_qasm_str(&b).unwrap();
+        assert_eq!(n,m);
+        let opts=VerificationOptions {
+            method: VerificationMethod::WmcOnly,
+            strategy: VerificationStrategy::Difference,
+            tool_name: "gpmc".to_string(),
+            timeout_secs: 30,
+            approximate_distance_tolerance: Some(1e-8),
+            ..VerificationOptions::default()
+        };
+        let verdict=check_equivalence_with_options(n,&left,&right,&opts)
+            .unwrap_or_else(|e|panic!("public verifier {name}: {e:#}"));
+        assert!(verdict.solver_invoked,"expected one GPMC invocation");
+        eprintln!("CODSPEED_PUBLIC_DISTANCE case={} feature_precise={} status={:?} solver_calls=1",
+            name,cfg!(feature="high-precision-gpmc"),verdict.status);
+    }
+}
+
 #[cfg(test)]
 mod experimental_weight_boundary;
 

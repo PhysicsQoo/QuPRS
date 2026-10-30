@@ -64,3 +64,24 @@ def test_gpmc_end_to_end_walltime(benchmark, case, variant):
     assert benchmark(_run,
         "experimental_mpfr_bridge::end_to_end::experimental_codspeed_compiled_case",
         variant, case) == 0
+
+def _run_public(case: str, variant: str):
+    assert variant in ("f64","mpfr")
+    binary_env = _BIN if variant=="f64" else "QUPRS_CODSPEED_BINARY_PRECISE"
+    binary=Path(os.environ[binary_env])
+    assert binary.is_file(),binary
+    run=subprocess.run(
+        [str(binary),"--exact",
+         "public_distance_codspeed::benchmark_native_public_distance_gpmc",
+         "--quiet"],
+        env=dict(os.environ,QUPRS_CODSPEED_CASE=case),
+        capture_output=True,text=True,timeout=40,check=False)
+    assert run.returncode==0,(run.stdout,run.stderr)
+    assert "1 passed" in run.stdout,(run.stdout,run.stderr)
+    return run.returncode
+
+@pytest.mark.parametrize("case",("grover4","qaoa7","graphstate16","qft16"))
+@pytest.mark.parametrize("variant",("f64","mpfr"))
+def test_public_rust_distance_walltime(benchmark,case,variant):
+    # Actual source-QASM -> public verifier -> one real GPMC call.
+    assert benchmark(_run_public,case,variant)==0

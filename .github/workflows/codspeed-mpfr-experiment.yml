@@ -73,6 +73,30 @@ jobs:
               f.write(f"QUPRS_CODSPEED_BINARY={binary}\n")
           print("Pinned native test executable", binary)
           PY
+      - name: Prebuild opt-in high-resolution native verifier executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u RUSTFLAGS cargo test --locked --release --lib --no-run \
+            --manifest-path rust/Cargo.toml -p pathsum \
+            --features high-precision-gpmc --message-format=json \
+            > "$RUNNER_TEMP/mpfr-precise-test-artifacts.json"
+          python - <<'PY'
+          import json, os
+          file=os.path.join(os.environ["RUNNER_TEMP"],"mpfr-precise-test-artifacts.json")
+          paths=[]
+          for line in open(file):
+              try: obj=json.loads(line)
+              except json.JSONDecodeError: continue
+              if obj.get("reason")=="compiler-artifact":
+                  target=obj["target"]
+                  if target["name"]=="pathsum" and "lib" in target["kind"]:
+                      if obj.get("executable"):paths.append(obj["executable"])
+          if len(paths)!=1:raise SystemExit(f"invalid native precise executable: {paths}")
+          with open(os.environ["GITHUB_ENV"],"a") as env:
+              env.write("QUPRS_CODSPEED_BINARY_PRECISE="+paths[0]+"\n")
+          print("NATIVE_PRECISE_EXE_READY",paths[0])
+          PY
       - name: CodSpeed Simulation - in-process native phase weight kernel
         uses: CodSpeedHQ/action@v5
         with:
@@ -80,6 +104,11 @@ jobs:
           cycle-estimation: 'true'
           simulation-track-subprocess: 'false'
           run: pytest -q scripts/experiments/test_codspeed_mpfr.py --codspeed -k test_inprocess_phase_weight_cpu
+      - name: CodSpeed WallTime - public native verifier baseline versus precision feature
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: pytest -q scripts/experiments/test_codspeed_mpfr.py --codspeed -k test_public_rust_distance_walltime --codspeed-max-rounds=6 --codspeed-max-time=4
       - name: CodSpeed WallTime - complete native GPMC paths
         uses: CodSpeedHQ/action@v5
         with:

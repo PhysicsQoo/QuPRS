@@ -197,6 +197,19 @@ impl WmcManager {
     }
 
     pub fn encode_trace(&mut self, ps: &PathSum) -> Result<()> {
+        self.encode_trace_experimental(ps, true)
+    }
+
+    // Only this experimental branch exposes the old/new A/B selection.
+    fn encode_trace_experimental(&mut self, ps: &PathSum, reserve_free: bool) -> Result<()> {
+        // EXPERIMENT ONLY: explicitly represent every free path variable,
+        // even when it does not occur in a phase or output monomial.
+        // Otherwise a lazy DIMACS map drops its factor of two in WMC.
+        if reserve_free {
+            let mut path_vars: Vec<u32> = ps.v.path_vars.iter().copied().collect();
+            path_vars.sort_unstable();
+            for path_var in path_vars { self.get_dimacs_var(path_var); }
+        }
         self.encode_phase_polynomial(ps)?;
 
         for i in 0..ps.v.num_qubits {
@@ -705,4 +718,59 @@ mod count_parser_tests {
         }
     }
 
+}
+
+#[cfg(test)]
+mod experiment_free_var_contract {
+    use super::{PathSum, WmcManager};
+    #[test]
+    fn orphan_path_var_is_preserved_as_a_free_cnf_variable() {
+        let mut ps = PathSum::new(1);
+        let _unused_y = ps.v.get_fresh_var();
+        assert_eq!(ps.v.path_vars.len(), 2);
+        let mut legacy = WmcManager::new(&ps);
+        legacy.encode_trace_experimental(&ps, false).unwrap();
+        assert_eq!(legacy.next_var_id - 1, 1);
+        let mut wmc = WmcManager::new(&ps);
+        wmc.encode_trace(&ps).unwrap();
+        let text = wmc.to_dimacs_string("gpmc");
+        assert!(text.starts_with("p cnf 2 2\nc t wmc\n"), "{}", text);
+        let n = (wmc.next_var_id - 1) as usize;
+        assert_eq!(n, 2);
+        let mut satisfying = 0_usize;
+        for bits in 0..(1_usize << n) {
+            let ok = wmc.clauses.iter().all(|clause| clause.iter().any(|lit| {
+                let bit = (bits & (1_usize << (lit.unsigned_abs() as usize - 1))) != 0;
+                bit == (*lit > 0)
+            }));
+            if ok { satisfying += 1; }
+        }
+        assert_eq!(satisfying, 4, "input x and unused path y must both be free");
+    }
+
+    #[test]
+    fn compare_single_runner_encoding_cost_only() {
+        use std::time::Instant;
+        let mut ps = PathSum::new(16);
+        for _ in 0..8 { ps.v.get_fresh_var(); }
+        let reps = 2400;
+        for reserve in [false, true] {
+            let mut samples = Vec::new();
+            for _ in 0..5 {
+                let start = Instant::now();
+                for _ in 0..reps {
+                    let mut manager = WmcManager::new(&ps);
+                    manager.encode_trace_experimental(&ps, reserve).unwrap();
+                    let expected = if reserve { 24 } else { 16 };
+                    assert_eq!(manager.next_var_id - 1, expected);
+                }
+                samples.push(start.elapsed().as_nanos() / reps);
+            }
+            samples.sort();
+            eprintln!(
+                "EXPERIMENT_SOURCE_ENCODING reserve_free={} median_ns={} nvars={} nclauses=32",
+                reserve, samples[2], if reserve { 24 } else { 16 }
+            );
+        }
+    }
 }

@@ -1,0 +1,69 @@
+name: Experimental CNF weight boundary
+
+# Branch-only bounded experimental CI, not a release gate.
+on:
+  push:
+    branches: [experiment/cnf-weight-parity-20261030]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cnf-boundary-experiment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scientific-parity-and-cost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: cnf-weight-bounded-experiment
+      - name: Native dependencies and stand-alone reference math
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev cmake zlib1g-dev
+          python -m pip install mpmath
+      - name: Exact Gaussian-integer CNF source-structure oracle
+        run: |
+          mkdir -p "$RUNNER_TEMP/cnf-study"
+          python scripts/experiments/cnf_semantic_probe.py --rounds 1200 \
+            --json "$RUNNER_TEMP/cnf-study/semantic.json" \
+            | tee "$RUNNER_TEMP/cnf-study/semantic.stdout"
+      - name: Phase-to-weight precision and bounded cost
+        run: |
+          python scripts/experiments/weight_boundary_probe.py --rounds 120 \
+            --json "$RUNNER_TEMP/cnf-study/weight-reference.json" \
+            | tee "$RUNNER_TEMP/cnf-study/weight-reference.stdout"
+          python scripts/experiments/weight_boundary_probe.py --rounds 12 \
+            benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm \
+            benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm \
+            benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm \
+            benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_16.qasm \
+            --json "$RUNNER_TEMP/cnf-study/weight-qasm-angle-proxy.json" \
+            | tee "$RUNNER_TEMP/cnf-study/weight-qasm-angle-proxy.stdout"
+      - name: Real native Rust free-pathvar correctness and matched-host encoder cost
+        run: |
+          set -o pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            experiment_free_var_contract -- --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/cnf-study/native-rust.log"
+      - name: Upload bounded experimental evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cnf-weight-boundary-evidence
+          path: ${{ runner.temp }}/cnf-study/
+          if-no-files-found: warn
+          retention-days: 7

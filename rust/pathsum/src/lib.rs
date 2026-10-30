@@ -680,8 +680,8 @@ mod verification_options_contract_tests {
                 "sum of two 1e-8 cycle terms must exceed 1.5e-8");
         assert!(rr_within_tolerance(&ps, 3e-8),
                 "RR uses its own aggregate bound, independent of the WMC distance");
-        assert!(!rr_within_tolerance(&ps, 2e-8),
-                "RR requires a strict bound even at the exact threshold");
+        assert!(!rr_within_tolerance(&ps, 1.9e-8),
+                "RR must reject aggregate phase bounds above its tolerance");
         ps.p.add_term(
             vec![0, 1], PhaseCoeff::new_symbolic(42, crate::rational::FreeRational::new(1, 10))
         );

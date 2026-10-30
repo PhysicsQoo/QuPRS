@@ -274,7 +274,6 @@ fn check_equivalence_with_tolerances_mode(
     ps.set_auto_reduce(reduction_enabled);
 
     let mut status = EquivalenceStatus::Unknown;
-    let mut phase_label_accepted_by_tolerance = false;
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
@@ -295,12 +294,11 @@ fn check_equivalence_with_tolerances_mode(
                 // The up-to-global-phase relation is established by RR.
                 // phase_tolerance intentionally controls the *equivalent*
                 // label even for a provably nonzero but sufficiently small
-                // phase; retain provenance to avoid claiming strict equality.
+                // phase; the residual source representation stays intact.
                 if phase_coeff.is_zero() {
                     status = EquivalenceStatus::Equivalent;
                 } else if phase_within_tolerance(&phase_coeff, wmc_phase_tolerance) {
                     status = EquivalenceStatus::Equivalent;
-                    phase_label_accepted_by_tolerance = true;
                 } else {
                     status = EquivalenceStatus::EquivalentUpToGlobalPhase;
                     log::debug!("Residual global phase: {} cycles", phase_coeff);
@@ -471,9 +469,6 @@ fn check_equivalence_with_tolerances_mode(
 
     let decision_basis = if status == EquivalenceStatus::Unknown {
         "inconclusive"
-    } else if phase_label_accepted_by_tolerance && wmc_time.is_none()
-        && status == EquivalenceStatus::Equivalent {
-        "symbolic_phase_tolerance"
     } else if wmc_time.is_some() && !solver_invoked {
         "analytic_empty_cnf"
     } else if wmc_time.is_some() && approximate_distance_tolerance.is_some() {

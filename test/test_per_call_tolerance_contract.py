@@ -99,5 +99,4 @@ def test_rr_global_phase_label_respects_per_call_tolerance(backend):
         )
         assert result.equivalent == expected
         assert result.tool_time is None
-        if expected == "equivalent":
-            assert result.decision_basis == "symbolic_phase_tolerance"
+        assert result.decision_basis == "symbolic"

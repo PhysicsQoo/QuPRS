@@ -150,7 +150,7 @@ fn small_rz_and_p_rotation_phase_label_is_controlled_by_tolerance() {
     assert_eq!(n1, n2);
 
     for (eps, expected, provenance) in [
-        (1e-8, EquivalenceStatus::Equivalent, "symbolic_phase_tolerance"),
+        (1e-8, EquivalenceStatus::Equivalent, "symbolic"),
         (1e-12, EquivalenceStatus::EquivalentUpToGlobalPhase, "symbolic"),
     ] {
         let options = VerificationOptions {

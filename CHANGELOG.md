@@ -3,7 +3,7 @@
 ## v0.14.0 — Breaking change: per-verification RR tolerance
 
 - Remove the mutable process-global `config.TOLERANCE`, `config.set_tolerance()` and `config.get_tolerance()` APIs without compatibility aliases. Pass `rr_tolerance` to `check_equivalence()` instead.
-- Independent `phase_tolerance` (wrapped radians) labels a proven up-to-global-phase relation as `equivalent` when phase is within tolerance; an exact nonzero phase is preserved in the result provenance, while `approximate_distance_tolerance` sets projective Hilbert–Schmidt proximity. The legacy `wmc_phase_tolerance` remains an alias in this candidate; WMC magnitude migration/default policy is a separate release decision.
+- Independent `phase_tolerance` (wrapped radians) labels a proven up-to-global-phase relation as `equivalent` when phase is within tolerance; the residual phase remains in the PathSum and `decision_basis` stays `symbolic`, while `approximate_distance_tolerance` sets projective Hilbert–Schmidt proximity. The legacy `wmc_phase_tolerance` remains an alias in this candidate; WMC magnitude migration/default policy is a separate release decision.
 - Python reduction caches include RR tolerance as part of cache keys. `safe_mode` spawned workers receive per-call values explicitly. Rust exact reduction rejects unsupported nondefault `rr_tolerance` rather than silently approximating source-exact identities.
 
 

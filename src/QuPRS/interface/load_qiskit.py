@@ -484,7 +484,6 @@ def check_equivalence(
         expect = None
         wmc_numerical_verdict = None
         wmc_solver_invoked = False
-        rr_phase_label_accepted_by_tolerance = False
         wmc_precision_reason = None
         wmc_printed_verdict = None
         wmc_numeric_model_bound = None
@@ -521,10 +520,6 @@ def check_equivalence(
                     equivalent = (
                         "equivalent" if phase_is_within_tolerance
                         else "equivalent*"
-                    )
-                    rr_phase_label_accepted_by_tolerance = (
-                        phase_is_within_tolerance
-                        and pathsum_circuit.P != initial_state.P
                     )
                 else:
                     equivalent = "unknown"
@@ -701,9 +696,6 @@ def check_equivalence(
                         else "numerical_legacy" if tool_time is not None and approximate_distance_tolerance is None
                         and equivalent in ("equivalent", "equivalent*", "not_equivalent")
                         else "inconclusive" if equivalent == "unknown"
-                        else "symbolic_phase_tolerance" if tool_time is None
-                        and rr_phase_label_accepted_by_tolerance
-                        and equivalent == "equivalent"
                         else "symbolic" if tool_time is None and equivalent in ("equivalent", "equivalent*", "not_equivalent")
                         else None),
         wmc_magnitude_tolerance=wmc_magnitude_tolerance,

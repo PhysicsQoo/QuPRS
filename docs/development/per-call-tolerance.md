@@ -38,11 +38,11 @@ rather than silently ignoring it or replacing an exact proof by a heuristic.
 The Rust symbolic reduction still preserves the exact residual phase. Once
 the *up-to-global-phase relation* has been proven, however, a nonzero phase
 smaller than `phase_tolerance` is intentionally labeled `equivalent`,
-consistent with the Python backend. Such a result reports
-`decision_basis="symbolic_phase_tolerance"` rather than claiming that
-the global phase was mathematically exactly zero. Phases at or beyond
-the threshold are labeled `equivalent*`, and unbound symbolic phases
-are not silently approximated.
+consistent with the Python backend. `decision_basis="symbolic"`
+continues to identify that RR established the up-to-global-phase
+relationship, not an exact-zero phase claim. The residual phase remains
+in the PathSum. Phases at or beyond the threshold are labeled
+`equivalent*`, and unbound symbolic phases are not silently approximated.
 
 The old Python `config.TOLERANCE`, `set_tolerance()`, and `get_tolerance()`
 were removed without compatibility aliases as a deliberate v0.14.0 breaking

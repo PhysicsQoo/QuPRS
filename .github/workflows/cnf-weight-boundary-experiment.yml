@@ -174,6 +174,12 @@ jobs:
           done
           python scripts/experiments/public_distance_boundary_probe.py --strict \
             --out "$RUNNER_TEMP/cnf-study/highprecision-public-boundary.json"
+      - name: Recheck packaged Python/Rust GPMC/Ganak parity with precision feature
+        run: |
+          set -o pipefail
+          python scripts/experiments/public_solver_parity_probe.py \
+            --json "$RUNNER_TEMP/cnf-study/feature-enabled-solver-parity.json" \
+            | tee "$RUNNER_TEMP/cnf-study/feature-enabled-solver-parity.stdout"
       - name: Single-solve original GPMC and Ganak printed-precision audit
         run: |
           set -o pipefail
@@ -278,4 +284,46 @@ jobs:
           with zipfile.ZipFile(w[0]) as z:
               assert any("_pathsum_rust" in x for x in z.namelist())
           print("MACOS_PRECISE_WHEEL_STRUCTURE_PASS",w[0].name)
+          PY
+      - name: Repair and clean-install opt-in macOS wheel, then run a real GPMC check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "delocate>=0.13,<1"
+          mkdir -p "$RUNNER_TEMP/portable-wheels"
+          delocate-wheel -v -w "$RUNNER_TEMP/portable-wheels" \
+            "$RUNNER_TEMP/precision-wheels/"*.whl
+          python - <<'PY'
+          import os,pathlib,zipfile,subprocess,tempfile
+          wheels=list((pathlib.Path(os.environ["RUNNER_TEMP"])/"portable-wheels").glob("*.whl"))
+          assert len(wheels)==1,wheels
+          with zipfile.ZipFile(wheels[0]) as z:
+              files=[p for p in z.namelist()
+                     if (p.endswith(".so") and "_pathsum_rust" in p)
+                     or p.endswith(".dylib")]
+              assert any("_pathsum_rust" in f for f in files)
+              with tempfile.TemporaryDirectory() as tmp:
+                  for name in files:
+                      dest=pathlib.Path(tmp)/name
+                      dest.parent.mkdir(parents=True,exist_ok=True)
+                      dest.write_bytes(z.read(name))
+                      linked=subprocess.run(["otool","-L",str(dest)],
+                          capture_output=True,text=True,check=True).stdout
+                      assert "/opt/homebrew/" not in linked, (name,linked)
+          print("MACOS_PRECISE_WHEEL_RELOCATABLE_DEPENDENCIES_PASS")
+          PY
+          python -m venv "$RUNNER_TEMP/portable-venv"
+          "$RUNNER_TEMP/portable-venv/bin/python" -m pip install --no-cache-dir \
+            "$RUNNER_TEMP/portable-wheels/"*.whl
+          "$RUNNER_TEMP/portable-venv/bin/python" - <<'PY'
+          import QuPRS
+          from QuPRS import check_equivalence
+          lhs='OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+          rhs=lhs+'rz(0.0000000201) q[0];\n'
+          result=check_equivalence(lhs,rhs,method="wmc_only",
+              strategy="Naive",tool_name="gpmc",backend="rust",
+              approximate_distance_tolerance=1e-8,timeout=30)
+          assert result.equivalent=="not_equivalent",result.equivalent
+          assert result.wmc_solver_invoked
+          print("MACOS_PRECISE_PORTABLE_WHEEL_PUBLIC_GPMC_PASS",result.equivalent)
           PY

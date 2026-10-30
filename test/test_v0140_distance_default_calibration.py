@@ -137,9 +137,41 @@ def test_qcec_scale_distance_never_accepts_known_outside_rotation(
 # Run one GPMC solve per verification; RR-first can resolve without WMC.
 @pytest.mark.parametrize("backend", ("python", "rust"))
 @pytest.mark.parametrize("case", ("h60", "h80", "graphstate16", "qft16"))
-def test_gpmc_qcec_scale_positive_controls(backend, case, record_property, monkeypatch):
+def test_gpmc_qcec_scale_positive_controls(backend, case, record_property, monkeypatch, tmp_path):
     left, right, truth, oracle_distance, method, strategy = circuit_pair(case)
     epsilon = 1e-8
+    # Experimental observation: the public Rust bridge resolves the solver
+    # through QuPRS.utils.WMC and overwrites QUPRS_GPMC_PATH. Patch that
+    # RESOURCE RESOLVER instead of setting an environment variable that
+    # the public bridge immediately overwrites.
+    native_cnf_capture = None
+    if backend == "rust" and case in ("graphstate16", "qft16"):
+        import os
+        if os.name == "posix":
+            from contextlib import contextmanager
+            from QuPRS.utils import WMC as packaged_wmc
+
+            with packaged_wmc("gpmc") as executable:
+                original_executable = str(Path(executable).resolve())
+                assert Path(original_executable).is_file()
+            native_cnf_capture = tmp_path / "native-source-weights.cnf"
+            wrapper = tmp_path / "gpmc-cnf-observer.sh"
+            wrapper.write_text(
+                '#!/bin/sh\n'
+                'for last do :; done\n'
+                'cp "$last" "$QUPRS_EXPERIMENT_CNF"\n'
+                'exec "$QUPRS_EXPERIMENT_GPMC" "$@"\n'
+            )
+            wrapper.chmod(0o700)
+            monkeypatch.setenv("QUPRS_EXPERIMENT_CNF", str(native_cnf_capture))
+            monkeypatch.setenv("QUPRS_EXPERIMENT_GPMC", original_executable)
+
+            @contextmanager
+            def instrumented_wmc(name):
+                assert name == "gpmc"
+                yield wrapper
+
+            monkeypatch.setattr("QuPRS.utils.WMC", instrumented_wmc)
     # Capture the *same* external solver count from the public Python path.
     # Do not invoke GPMC again to produce diagnostic evidence.
     captured = []
@@ -175,6 +207,32 @@ def test_gpmc_qcec_scale_positive_controls(backend, case, record_property, monke
         ("gpmc_qcec_positive_wmc_time", result.wmc_time),
     ):
         record_property(key, str(value))
+    if native_cnf_capture is not None:
+        assert result.wmc_solver_invoked is True, "WMC must run for this evidence"
+        assert native_cnf_capture.is_file(), (
+            "Native WMC resource override did not preserve CNF input"
+        )
+        from decimal import Decimal, localcontext
+
+        positive_weights = []
+        with localcontext() as ctx:
+            ctx.prec = 90
+            for line in native_cnf_capture.read_text().splitlines():
+                fields = line.split()
+                if (len(fields) == 7 and fields[:3] == ["c", "p", "weight"]
+                    and int(fields[3]) > 0):
+                    real = Decimal(fields[4])
+                    imag = Decimal(fields[5])
+                    positive_weights.append(real * real + imag * imag - 1)
+        assert positive_weights, "Source phase weights were not captured"
+        for key, value in (
+            ("native_gpmc_weight_count", len(positive_weights)),
+            ("native_gpmc_positive_unit_drift_count", sum(x > 0 for x in positive_weights)),
+            ("native_gpmc_negative_unit_drift_count", sum(x < 0 for x in positive_weights)),
+            ("native_gpmc_max_unit_drift", format(max(abs(x) for x in positive_weights), ".18e")),
+            ("native_gpmc_sum_unit_drift", format(sum(positive_weights), ".18e")),
+        ):
+            record_property(key, str(value))
     if captured:
         from fractions import Fraction
 

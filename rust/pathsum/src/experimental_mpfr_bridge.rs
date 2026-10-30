@@ -291,9 +291,12 @@ mod end_to_end {
         let candidate_rss=if !rss[1].is_empty(){median(&mut rss[1])}else{f64::NAN};
         let overhead=high_serial_s-low_serial_s;
         let ratio=if baseline.is_finite(){(candidate+high_serial_s)/(baseline+low_serial_s)}else{f64::NAN};
-        eprintln!("EXPERIMENT_END_TO_END_SUMMARY case={name} gates={} n={} pathsum_s={pathsum_s:.6} cnf_encode_s={encoding_s:.6} weights={} expensive_weights={} cnf_vars={} cnf_clauses={} cnf_bytes_f64={} cnf_bytes_mpfr={} f64_serialize_s={low_serial_s:.6} mpfr_serialize_s={high_serial_s:.6} delta_serialize_s={overhead:.6} f64_solver_median_s={baseline:.6} mpfr_solver_median_s={candidate:.6} f64_rss_kib={baseline_rss:.0} mpfr_rss_kib={candidate_rss:.0} solver_plus_serialize_ratio={ratio:.5} f64_verdict={:?} mpfr_verdict={:?} timeout_f64={} timeout_mpfr={} oracle_D=1.25e-8",
-            base.len(),weight_terms,manager.to_dimacs_string("gpmc").lines().next().unwrap_or(""),
-            low.len(),high.len(),verdicts[0],verdicts[1],timeout[0],timeout[1]);
+        let gates=base.len();
+        let cnf_header=low.lines().next().unwrap_or("");
+        let low_bytes=low.len();
+        let high_bytes=high.len();
+        eprintln!("EXPERIMENT_END_TO_END_SUMMARY case={name} gates={gates} n={n} pathsum_s={pathsum_s:.6} cnf_encode_s={encoding_s:.6} weights={weight_terms} expensive_weights={nonclifford} cnf_header={cnf_header:?} cnf_bytes_f64={low_bytes} cnf_bytes_mpfr={high_bytes} f64_serialize_s={low_serial_s:.6} mpfr_serialize_s={high_serial_s:.6} delta_serialize_s={overhead:.6} f64_solver_median_s={baseline:.6} mpfr_solver_median_s={candidate:.6} f64_rss_kib={baseline_rss:.0} mpfr_rss_kib={candidate_rss:.0} solver_plus_serialize_ratio={ratio:.5} f64_verdict={:?} mpfr_verdict={:?} timeout_f64={} timeout_mpfr={} oracle_D=1.25e-8",
+            verdicts[0],verdicts[1],timeout[0],timeout[1]);
         Ok(())
     }
     #[test]

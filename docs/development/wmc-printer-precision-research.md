@@ -1617,3 +1617,180 @@ Python/Rust public binaries* and Ganak/GPMC
 on representative QPE/QFT/QAOA/Grover and
 full CodSpeed v5. Any new correctness metadata
 must be designed to avoid material regression.
+
+
+## Phase 12 — GPMC weighted preprocessing/cache proof obligations and bounded structural A/B
+
+**2026-10-30 | existing experimental branch only.**
+Public `dev` and `main` unchanged. All tests used the original
+GPMC gitlink `a1bda3489e959d3695b6798d327c5a1fc1bed305`
+and the previously SHA256-pinned real QPEexact8/QFT16 positive and
+physically changed negative CNFs. No production API/classifier edits,
+no PR, no additional public WMC calls.
+
+### Proven primitive facts versus unsupported global conclusion
+
+Original `ComplexMPFR.cc` performs a complex addition as two real
+MPFR additions, and a multiplication as four real MPFR products
+plus two rounded sum/differences. Provided MPFR round-to-nearest
+with no exceptional results at precision `p`, writing `u=2^-p`:
+
+```
+||fl(a + b) - (a+b)||_2 <= u*(||a||_2 + ||b||_2)
+
+||fl(a*b) - (a*b)||_2 <= sqrt(2)*(2u+u^2)*||a||_2*||b||_2
+```
+
+The copy constructor in `mpfr/mpreal.h` constructs at the
+**source's precision** then calls `mpfr_set`; assignment resizes
+its destination to the source's precision before copying. Thus a
+cache hit copying a normal finite, already-rounded value at the
+same precision does not introduce new rounding error. The
+`Complex::operator<<` operation multiplies by a power of two
+and is exact unless an exceptional exponent-range event occurs.
+These source-level properties strengthen *numeric* invariants
+but **do not prove cache-key semantic correctness** or weighted
+preprocessing equivalence.
+
+The preprocessing source specifically contains:
+- `Preprocessor::MergeAdjEquivs` multiplying literal weights
+  when merging equivalent variables;
+- `Preprocessor::Compact` accumulating eliminated/free/assigned
+  weights with `gweight *= (w_positive + w_negative)`
+  or `gweight *= w_assigned`;
+- `Preprocessor::pickDefVars` testing equality of *rounded*
+  positive and negative weights to decide whether a projected
+  variable may be considered for elimination.
+
+The last branch is mathematically delicate: exact source decimal
+weights may round to equal binary MPFR values even when the original
+decimals differ. Any general certificate must compare against the
+**rounded-input WMC**, with a separate rigorous source-decimal-to-
+binary perturbation bound. It may not pretend that preprocessor
+decisions were made with exact original rational weights.
+
+The `ComponentCache::requestValueOf` path returns
+`pcomp->model_count()` without recomputation. An operation-depth
+or `K` theorem must therefore cover a **shared arithmetic DAG**:
+once-rounded cached subexpressions can be reused in several
+monomials. Merely multiplying raw `K` by `u` does not prove
+faithful polynomial correspondence or model multiplicity.
+
+A general weighted-roundoff enclosure of the form
+`N_sat * M^m * gamma(K)` is **conditional** on an
+implementation proof that preprocessing, SAT/branching,
+cache identity and root normalization represent the original
+CNF's weighted-model polynomial exactly *for the quantized
+weights*. Even though the four pinned cases now have independently
+checked CNF <=> d-DNNF semantics and exact WMC references,
+this conditional theorem cannot be silently promoted to all
+GPMC inputs or Ganak.
+
+### Critical low-cache crash boundary (not a numerical misclassification)
+
+The first scoped [Actions #40996438726](https://github.com/PhysicsQoo/QuPRS/actions/runs/40996438726),
+source SHA `ea7ec5fc317a960473cab509ab919c93fce2b026`,
+was **SUCCESS as a bounded diagnostic study** but its
+`-cs=1` low-cache subcases **FAILED** with GPMC's
+`*** INTERRUPTED by signal 11 ***`, exit status 1.
+It is incorrect to count those variants as passing numerical
+comparisons. Its sealed [artifact 12951910698](https://github.com/PhysicsQoo/QuPRS/actions/runs/40996438726/artifacts/12951910698)
+ZIP SHA256 `7c1ac17e5360430002d54788e3cbf618b149d92968c5e8f59c36536a8c15691c`,
+CRC and **37/37 SHA256SUMS** independently verified, preserves
+the failing original stdout.
+
+Source evidence provides a strong mechanistic explanation:
+`ComponentCache::init` preallocates `table_.resize(900001,NULL)`,
+whose pointer storage alone is at least 7,200,008 bytes
+(6.87 MiB on a 64-bit platform), exceeding a 1 MiB cap.
+`createEntryFor` calls `deleteEntries()` once the
+cache accounting exceeds that cap. `deleteEntries` then
+performs `scores[scores.size()/2]` without testing for an
+empty `scores` vector. When no deletable entries exist,
+that is an out-of-bounds access and plausible root cause
+for the immediately observed signal 11. **This mechanism
+is source-supported but has not been independently proven
+as the unique root cause via a debugger.**
+
+This is a *cache configuration safety defect*, not evidence
+that default GPMC numerical arithmetic is wrong. Do not
+change production caching, its memory policy, or the pinned
+GPMC submodule as an unreviewed numerical-tolerance fix.
+
+### Fair source-pinned GPMC preprocessing/cache controls
+
+A second [Actions #40996838428](https://github.com/PhysicsQoo/QuPRS/actions/runs/40996838428)
+at source `1ad3fbce5efda7f623eaf980a672acfc01b179ad`
+**SUCCESS**,
+[artifact 12952125653](https://github.com/PhysicsQoo/QuPRS/actions/runs/40996838428/artifacts/12952125653),
+ZIP SHA256 `7df6d71b05e863cc49aea37dd5e99796c4b2c58ba1b2e5b501bf1ce464b6298f`,
+ZIP CRC and **37/37 SHA256SUMS** independently verified.
+
+Reused the exact native, noninstrumented GPMC binary on one
+hosted ubuntu-24.04 runner. Each of four original source-pinned
+CNFs was solved **once per configuration**:
+default; `-varlim=0` (skips *preprocessing main
+loop*, but **not** initial SAT_FLE); `-cs=16` (16 MB
+cache budget, **not disabled**); and both changes.
+These 16 solves were **research-only**, not production
+multi-solve behavior.
+
+| QFT16 source | Default | `-varlim=0` | `-cs=16` | Both |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline native walltime | 0.77 s | 0.93 s | 0.79 s | 0.99 s |
+| Baseline peak RSS | 42.2 MB | 44.1 MB | 31.4 MB | 31.3 MB |
+| Negative native walltime | 0.76 s | 0.95 s | 0.79 s | 0.98 s |
+| Negative peak RSS | 42.1 MB | 44.2 MB | 31.2 MB | 31.1 MB |
+
+The original QPE baseline, its genuine source-negative and
+the QFT16 baseline showed **identical printed 90-digit complex
+counts across all four configurations**.
+The QFT16 negative case showed a precisely
+parsed **4.0436230253302736e-90** normalized complex L1
+difference when `-varlim=0`, with or without `-cs=16`;
+all variants lay beneath a **research alarm threshold
+1e-70**, which is **not** a proven GPMC error bound,
+production guard or classification tolerance.
+
+**Performance interpretation:** On this *single* hosted
+runner, reducing preprocessing raised QFT16 native walltime
+by approximately **21–25%**, whereas the 16 MB cache cap
+slightly raised walltime and reduced RSS. This does not
+justify changing normal preprocessing/cache settings,
+does not prove correctness for arbitrary CNFs, and is
+not CodSpeed v5 verification. Measurements from different
+hosted runs are not interchangeable.
+
+### Remaining theorem and production promotion criteria
+
+1. Formally prove the original WMC polynomial correspondence
+   across `SAT_FLE`, variable elimination, equivalence
+   merging and cache-key reuse, using the **quantized
+   input weights** as the numerical reference.
+2. Prove K encompasses every rounded counting operation
+   including root and weighted preprocessing, and specify
+   safe rounding/exponent/overflow assumptions; the
+   source-identified copy/shift operations are exact in
+   their normal range.
+3. Derive a cheap, sound **per-request**
+   `N_sat` or relevant original-CNF model upper bound:
+   `2^(all DIMACS variables)` is formally safe but so loose
+   on QFT/QPE that it defeats the classifier.
+   Source path-variable counts can improve this only when
+   the encoder's deterministic extension property has a
+   general proof, not only the fixed CNF DRUP fixtures.
+4. Keep fixed source-angle/weight bounds separate from
+   solver precision and stdout printing, and keep Ganak
+   independent.
+5. Run actual public Python/Rust and GPMC/Ganak
+   correctness plus the **full CodSpeed v5** suite before
+   any dev promotion. The intended stable path retains
+   RR-first Hybrid and **one** Solver per WMC stage,
+   with no default `-ddnnf`, SAT, DRUP, Fraction WMC
+   or directed-MPFR per-request computation.
+
+**Decision:** Phase 12 gives stronger evidence about
+cache numerics and flags an independent low-cache crash,
+but **does not close the general GPMC forward-error theorem**.
+No production classifier change or `unknown` promotion is
+authorized by these controls alone.

@@ -93,3 +93,40 @@ def test_real_solver_distance_default_calibration(
         assert result.equivalent != "not_equivalent", (
             case, backend, solver, epsilon, result.equivalent,
         )
+
+
+# QCEC's opt-in approximate distance threshold is 1e-8. The following
+# tests enforce that QuPRS never accepts an analytically inequivalent
+# one-qubit rotation at that threshold merely because the WMC count
+# rounds to the identity. An unresolved solver count remains unknown
+# rather than being converted to a false positive.
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("solver", ("gpmc", "ganak"))
+@pytest.mark.parametrize("angle", (0.00010, 0.00020, 2.5e-8))
+def test_qcec_scale_distance_never_accepts_known_outside_rotation(
+    backend, solver, angle, record_property,
+):
+    # For U=I, V=Rz(theta), D_proj=abs(sin(theta/2)), all cases
+    # are strictly outside 1e-8.
+    distance = abs(math.sin(angle / 2))
+    assert distance > 1e-8
+    a, b = QASM, QASM + f"rz({angle:.17g}) q[0];\n"
+    result = check_equivalence(
+        a, b, backend=backend, method="wmc_only",
+        strategy="Naive", tool_name=solver, timeout=45,
+        approximate_distance_tolerance=1e-8,
+    )
+    for key, value in (
+        ("qcec_scale_angle", angle),
+        ("qcec_scale_distance", distance),
+        ("qcec_scale_solver", solver),
+        ("qcec_scale_backend", backend),
+        ("qcec_scale_verdict", result.equivalent),
+        ("qcec_scale_reason", result.wmc_precision_reason),
+    ):
+        record_property(key, str(value))
+    assert result.wmc_solver_invoked is True
+    assert result.equivalent in ("not_equivalent", "unknown"), (
+        backend, solver, angle, distance, result.equivalent,
+        result.wmc_precision_reason,
+    )

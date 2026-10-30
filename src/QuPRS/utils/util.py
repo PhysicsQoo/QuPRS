@@ -135,17 +135,19 @@ def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *
 
 @tracked_lru_cache(maxsize=65536)
 def _reduce_expression_cached(expr: se.Expr, mod_coeffs, linearize, drop_small, rr_tolerance):
+    # Internal reduction receives an already validated, immutable call-local
+    # threshold. Avoid repeated validation and public adapter wrappers per term.
     expanded_expr = expr.expand()
     if expanded_expr.is_Add:
         # Process each term in the expanded expression
         processed_terms = [
-            process_term(term, mod_coeffs, linearize, drop_small, rr_tolerance=rr_tolerance) for term in expanded_expr.args
+            _process_term_cached(term, mod_coeffs, linearize, drop_small, rr_tolerance) for term in expanded_expr.args
         ]
         # Combine the processed terms
         result = se.Add(*processed_terms)
     else:
         # Process the single term
-        result = process_term(expanded_expr, mod_coeffs, linearize, drop_small, rr_tolerance=rr_tolerance)
+        result = _process_term_cached(expanded_expr, mod_coeffs, linearize, drop_small, rr_tolerance)
     return result
 
 

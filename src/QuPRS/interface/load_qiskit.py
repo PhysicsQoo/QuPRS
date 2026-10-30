@@ -691,7 +691,8 @@ def check_equivalence(
         wmc_print_resolution_distance=wmc_print_resolution_distance,
         wmc_numeric_model_bound=wmc_numeric_model_bound,
         rr_approximate=(
-            rr_approximation_used()
+            (rr_approximation_used()
+             or bool(getattr(pathsum_circuit._stats, "rr_approximation_used", False)))
             and equivalent in ("equivalent", "equivalent*")
             and not wmc_solver_invoked
             and method != "wmc_only"

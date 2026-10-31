@@ -31,7 +31,7 @@ impl PathSum {
         let Some(tolerance) = num_rational::BigRational::from_float(self.rr_tolerance) else {
             return false;
         };
-        crate::phase_cycles_upper_target(coeff, target) <= tolerance
+        crate::phase_cycles_within_tolerance(coeff, target, &tolerance)
     }
 
     /// Python-equivalent normalization of non-global phase terms.  Global

@@ -22,7 +22,11 @@ impl PathSum {
         if !value.is_finite() { return false; }
         let expected = target.numer as f64 / target.denom as f64;
         let delta = (value - expected).rem_euclid(1.0);
-        delta.min(1.0 - delta) < self.rr_tolerance
+        let distance = delta.min(1.0 - delta);
+        // Leave a conservative floating-point uncertainty margin. A match
+        // must be strictly inside the requested tolerance, not at its edge.
+        let uncertainty = 32.0 * f64::EPSILON * (1.0 + value.abs() + expected.abs());
+        distance + uncertainty < self.rr_tolerance
     }
 
     pub fn get_reducible_vars(&self) -> Vec<u32> {
@@ -317,6 +321,27 @@ mod tests {
         let mut ps = PathSum::new(num_qubits);
         ps.set_auto_reduce(false); 
         ps
+    }
+
+    #[test]
+    fn rr_tolerance_zero_is_exact_and_positive_tolerance_matches() {
+        let mut ps = setup_test_env(1);
+        let near = PhaseCoeff::new_constant(Rational::new(500_000_001, 1_000_000_000));
+        assert!(!ps.rr_matches(&near, Rational::HALF));
+        ps.rr_tolerance = 1e-8;
+        assert!(ps.rr_matches(&near, Rational::HALF));
+        ps.rr_tolerance = 1e-12;
+        assert!(!ps.rr_matches(&near, Rational::HALF));
+        assert!(ps.rr_matches(&PhaseCoeff::HALF, Rational::HALF));
+    }
+
+    #[test]
+    fn rr_tolerance_never_matches_unbound_symbolic_phase() {
+        use crate::rational::FreeRational;
+        let mut ps = setup_test_env(1);
+        ps.rr_tolerance = 0.1;
+        let symbolic = PhaseCoeff::new_symbolic(17, FreeRational::HALF);
+        assert!(!ps.rr_matches(&symbolic, Rational::HALF));
     }
 
     #[test]

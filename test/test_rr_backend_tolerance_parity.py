@@ -47,7 +47,7 @@ def test_rr_tolerance_parity_for_exact_qasm_decimals(backend, angle, epsilon, ex
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
 def test_rr_approximation_is_independent_of_global_phase_label(backend):
-    rotated = _IDENTITY + "rz(0.000000001) q[0];\\n"
+    rotated = _IDENTITY + "rz(0.000000001) q[0];\n"
     result = check_equivalence(
         _IDENTITY, rotated,
         method="reduction_rules", strategy="Naive",

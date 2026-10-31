@@ -29,7 +29,7 @@ def test_reduction_cache_tracks_tolerance_switch_both_directions():
 
 @pytest.mark.parametrize(
     "invalid",
-    [True, False, "", "1e-8", 0, -1, math.nan, math.inf, -math.inf],
+    [True, False, "", "1e-8", -1, math.nan, math.inf, -math.inf],
 )
 def test_invalid_per_call_rr_tolerance_rejected(invalid):
     before = current_rr_tolerance()

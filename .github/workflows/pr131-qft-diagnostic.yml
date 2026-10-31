@@ -49,6 +49,18 @@ jobs:
           python -m venv "$RUNNER_TEMP/qft131-venv"
           "$RUNNER_TEMP/qft131-venv/bin/python" -m pip install --disable-pip-version-check maturin
           mkdir -p "$RUNNER_TEMP/qft131-evidence"
+          # Non-benchmark wrapper: preserve the exact CNF bytes just before GPMC starts.
+          # The real solver remains unchanged; no wrapper is used in CodSpeed timing.
+          cat > "$RUNNER_TEMP/qft131-capture-gpmc.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          test -n "${QFT131_CAPTURE_PATH:-}"
+          test -n "${QFT131_REAL_GPMC:-}"
+          last="${!#}"
+          cp -- "$last" "$QFT131_CAPTURE_PATH"
+          exec "$QFT131_REAL_GPMC" "$@"
+          SH
+          chmod 700 "$RUNNER_TEMP/qft131-capture-gpmc.sh"
           cat > "$RUNNER_TEMP/qft131-probe.py" <<'PY'
           import hashlib
           import json
@@ -60,6 +72,34 @@ jobs:
           import QuPRS
           from QuPRS import _pathsum_rust
           from QuPRS.utils import WMC
+
+          def summarize_cnf(path):
+              payload = path.read_bytes()
+              lines = payload.decode("utf-8").splitlines()
+              headers = [x for x in lines if x.startswith("p cnf ")]
+              if len(headers) != 1:
+                  raise AssertionError("CNF missing unique p cnf header")
+              fields = headers[0].split()
+              declared_vars, declared_clauses = int(fields[2]), int(fields[3])
+              clauses = [x for x in lines if x and not x.startswith(("c ", "p "))]
+              weights = [x for x in lines if x.startswith("c p weight ")]
+              positive = [x for x in weights if not x.startswith("c p weight -")]
+              if len(clauses) != declared_clauses:
+                  raise AssertionError("CNF clause count mismatch")
+              structure = ("\\n".join([headers[0], *clauses]) + "\\n").encode()
+              weight_rows = ("\\n".join(sorted(weights)) + "\\n").encode()
+              return {
+                  "variables": declared_vars,
+                  "clauses": declared_clauses,
+                  "weight_lines": len(weights),
+                  "positive_weight_lines": len(positive),
+                  "bytes": len(payload),
+                  "full_sha256": hashlib.sha256(payload).hexdigest(),
+                  "structure_sha256": hashlib.sha256(structure).hexdigest(),
+                  "weight_lines_sha256": hashlib.sha256(weight_rows).hexdigest(),
+                  "positive_weight_decimal_length_min": min((len(x) for x in positive), default=0),
+                  "positive_weight_decimal_length_max": max((len(x) for x in positive), default=0),
+              }
 
           variant = sys.argv[1]
           root = Path.cwd()
@@ -80,14 +120,22 @@ jobs:
               with WMC("gpmc") as exe:
                   binary = Path(exe)
                   solver_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
-                  os.environ["QUPRS_GPMC_PATH"] = str(binary)
+                  capture = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence" / (variant + "-" + label + ".cnf")
+                  os.environ["QFT131_REAL_GPMC"] = str(binary)
+                  os.environ["QFT131_CAPTURE_PATH"] = str(capture)
+                  os.environ["QUPRS_GPMC_PATH"] = str(Path(os.environ["RUNNER_TEMP"]) / "qft131-capture-gpmc.sh")
                   try:
                       observed = _pathsum_rust.check_equivalence(
                           str(left), str(right), method="hybrid",
                           strategy=strategy, tool_name="gpmc", timeout=240,
                       )
                   finally:
-                      os.environ.pop("QUPRS_GPMC_PATH", None)
+                      for name in ("QUPRS_GPMC_PATH", "QFT131_REAL_GPMC", "QFT131_CAPTURE_PATH"):
+                          os.environ.pop(name, None)
+              if not capture.is_file():
+                  raise AssertionError("GPMC subprocess did not provide CNF capture")
+              cnf_summary = summarize_cnf(capture)
+              capture.unlink()  # The source CNF is not uploaded; only hashes/statistics remain.
               ledger = observed.get("stage_ledger") or {}
               record = {
                   "case": label,
@@ -95,7 +143,8 @@ jobs:
                   "solver_invoked": observed.get("wmc_solver_invoked"),
                   "rr_approximate": observed.get("rr_approximate"),
                   "solver_spawns": ledger.get("solver_child_spawns"),
-                  "stage_calls": ledger.get("calls"),
+                  "stage_calls": ledger.get("stage_calls"),
+                  "cnf": cnf_summary,
                   "output_stats": observed.get("stats"),
                   "printed_verdict": observed.get("wmc_printed_verdict"),
                   "precision_reason": observed.get("wmc_precision_reason"),
@@ -163,6 +212,33 @@ jobs:
             fi
             python "$RUNNER_TEMP/qft131-probe.py" "$variant"
           done
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence"
+          records = {name: json.loads((root / (name + ".json")).read_text())
+                     for name in ("dev", "pr-default", "pr-no-precision")}
+          pairs = {}
+          for case in ("qft16", "graphstate16"):
+              observations = {name: next(x for x in doc["cases"] if x["case"] == case)
+                              for name, doc in records.items()}
+              source = observations["dev"]["cnf"]
+              target = observations["pr-default"]["cnf"]
+              pairs[case] = {
+                  "same_structure": source["structure_sha256"] == target["structure_sha256"],
+                  "same_weight_values": source["weight_lines_sha256"] == target["weight_lines_sha256"],
+                  "dev": source, "pr_default": target,
+                  "pr_no_precision": observations["pr-no-precision"]["cnf"],
+              }
+              print("CNF_COMPARE", case,
+                    "structure_same", pairs[case]["same_structure"],
+                    "weights_same", pairs[case]["same_weight_values"],
+                    "dev_vars", source["variables"], "pr_vars", target["variables"],
+                    "dev_clauses", source["clauses"], "pr_clauses", target["clauses"],
+                    flush=True)
+          (root / "cnf-comparison.json").write_text(json.dumps(pairs, sort_keys=True, indent=2) + "\n")
+          PY
 
       - name: Upload diagnostic evidence
         if: always()

@@ -246,16 +246,21 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
 ### Phase preservation and reduction tolerance
 
-The Python backend retains **nonzero input phase coefficients** while
-constructing the PathSum. In particular, a long sequence of small rotations
-is not silently erased gate by gate merely because each rotation is below
-the local reduction tolerance. The Elim, HH and omega reduction rules still
-use the configured tolerance to match and simplify terms.
+Both Python and Rust preserve the input gate-angle representation.
+During RR simplification, the per-request tolerance may remove small
+**non-global** phase terms or permit near-HH/omega matching; these are
+approximate working-state transformations, indicated by `rr_approximate`.
+Scalar global phase is never discarded by the RR tolerance. A request with
+`rr_tolerance=0` disables numerical RR approximation and performs exact
+matching only.
 
-`rr_tolerance` controls the **per-verification Python RR tolerance**
-(default `1e-10` in phase-coefficient units). The request-specific value
-is included in every reduction cache key. It accepts finite positive numeric
-values (not booleans), and it does not mutate process-wide settings.
+`rr_tolerance` defaults to `1e-10` in phase cycles, accepts finite
+non-negative numbers (not booleans), and is independent of
+`phase_tolerance` and `approximate_distance_tolerance`.
+Python scopes its value to a verification and its reduction cache keys.
+Rust passes it to the PathSum during gate construction and RR. If Hybrid
+does not finish RR after approximate simplification, Rust reconstructs
+an exact RR PathSum before WMC to avoid passing rounded terms to the solver.
 
 ```python
 from QuPRS import check_equivalence
@@ -325,15 +330,16 @@ cargo run --manifest-path rust/Cargo.toml -p QuPRS_cli -- \
   --rr-tolerance 1e-10
 ```
 
-`--rr-tolerance` independently bounds non-global residual phase in
-RR-only mode (cycles). Rust retains exact HH/Omega matching; it can
-accept a fully reduced diagonal residual only when the *sum* of its
-source-exact phase upper bounds is below the RR tolerance. Hybrid
-uses the same RR tolerance criterion as RR-only, without an additional
-WMC projective-distance cap. `approximate_distance_tolerance` applies
-only if WMC runs. Results carry `rr_approximate=true` provenance;
-this is not a source-exact identity certificate or a guarantee that
-an RR-accepted residual is below the WMC distance threshold.
+`--rr-tolerance` is a non-negative threshold in cycles.
+`--rr-tolerance 0` requests exact HH/Omega matching with no numerical
+phase-term removal. Positive values also enable near-HH/omega rules and
+non-global phase normalization, consistent with Python. RR-only and
+Hybrid apply the same RR acceptance; `phase_tolerance` labels a
+remaining global phase independently, and `approximate_distance_tolerance`
+applies only when WMC runs. `rr_approximate=true` identifies a
+tolerance-dependent RR simplification, not source-exact identity.
+Hybrid never forwards an approximately simplified working polynomial
+to WMC: when required, it reconstructs the exact-source PathSum first.
 
 `--gpmc-precision 90` opts into 90-digit arithmetic for GPMC; omitting it
 uses the effective 30-digit default without altering the acceptance metric.
@@ -469,7 +475,7 @@ The old `wmc_magnitude_tolerance` parameter is removed (a breaking
 v0.14.0 change), rather than silently ignored or used as a second
 classification mode. `config.DEFAULT_DISTANCE_TOLERANCE=1e-8` specifies
 the public distance default. `wmc_phase_tolerance` controls global-phase
-labels, while `rr_tolerance` independently controls Python RR matching.
+labels, while `rr_tolerance` independently controls Python and Rust RR matching.
 A printed solver count is not itself an exact mathematical certificate.
 
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md)

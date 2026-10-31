@@ -148,24 +148,36 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > certificates: a numerical acceptance band can still include strictly
 > inequivalent near-identity rotations. There is no selectable `wmc_policy`;
 > the solver-derived observation is available as `wmc_numerical_verdict`.
-> The optional `approximate_distance_tolerance` compares rational
-> squared-magnitude intervals derived from the solver's original printed
-> count (before any binary64 result conversion). GPMC is invoked once with
-> 90 decimal working digits; Ganak mode 6 is invoked once using its native
-> printed precision. Their numerical uncertainty models remain conditional,
-> not source-exact or solver-arithmetic certificates. Insufficient precision
-> returns `unknown`, rather than applying a fixed `3e-9` cutoff.
-> A numerical tolerance cannot make the underlying input operators exactly
-> equal.
-> For example, `check_equivalence(a, b, method="hybrid", backend="rust",
-> approximate_distance_tolerance=2e-4)` has the same distance criterion as
-> `backend="python"`. An explicit **nondefault**
-> `wmc_magnitude_tolerance` conflicts; `1e-8` is allowed but unused in
-> distance mode, regardless of the mutable legacy WMC default.
-> The `decision_basis` field identifies whether
-> a verdict was symbolic, numerical or inconclusive. See [formal semantics](docs/development/equivalence-semantics.md),
-> [WMC evidence](docs/development/wmc-evidence-policy.md), and
-> [QASM source-angle representation](docs/development/exact-angle-representation.md).
+> WMC uses **one projective Hilbert-Schmidt distance classifier** by default:
+> `approximate_distance_tolerance=1e-8` in Python, PyO3 and native Rust.
+> The legacy `wmc_magnitude_tolerance` argument and magnitude classifier
+> have been removed in v0.14.0; old callers must migrate to a physical
+> distance threshold. A normalized trace-magnitude defect of `1e-8` is
+> **not** a projective distance of `1e-8`.
+> Solver counts are processed from their original printed complex values;
+> For nontrivial CNFs, GPMC uses one call with its effective 30-decimal-digit
+> complex MPFR default; an explicit `gpmc_precision_digits=90` enables 90 digits.
+> This is separate from 192-bit input weights and the projective-distance
+> default `approximate_distance_tolerance=1e-8`. Ganak retains its native
+> printed precision. **Both** GPMC and Ganak classify finite solver counts
+> using the same center-value projective distance threshold. Printed
+> rounding intervals (including values above the ideal unitary magnitude)
+> are retained as precision diagnostics; they do not change the numerical
+> equivalence verdict to `unknown`. Ganak additionally reports a dynamic
+> print-resolution warning. Such numerical verdicts are not certificates
+> of internal solver accuracy or source-exact circuit equivalence.
+> The optional research-only `gpmc_distance_budget` model separately reports
+> `model_status` and `numerical_verdict`: its model may be inconclusive
+> for unsupported CNF sizes without overriding the public distance verdict.
+> An **unweighted, tautological CNF** matching the exact trace normalization
+> is counted algebraically (including one-qubit I versus I), with
+> `wmc_solver_invoked=False` and `analytic_unweighted_tautology` provenance.
+> This exact WMC shortcut is not an RR fallback; constrained or weighted
+> CNFs still go through the selected solver.
+> `rr_tolerance` and `phase_tolerance` are independent and do not
+> change original gate angles. No solver source code is modified.
+> See [formal semantics](docs/development/equivalence-semantics.md) and
+> [WMC evidence](docs/development/wmc-evidence-policy.md).
 
 `QuPRS` provides tools for checking the equivalence of two quantum circuits, potentially imported from Qiskit or QASM files.
 
@@ -234,37 +246,115 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
 ### Phase preservation and reduction tolerance
 
-The Python backend retains **nonzero input phase coefficients** while
-constructing the PathSum. In particular, a long sequence of small rotations
-is not silently erased gate by gate merely because each rotation is below
-the local reduction tolerance. The Elim, HH and omega reduction rules still
-use the configured tolerance to match and simplify terms.
+Both Python and Rust preserve the input gate-angle representation.
+During RR simplification, the per-request tolerance may remove small
+**non-global** phase terms or permit near-HH/omega matching; these are
+approximate working-state transformations, indicated by `rr_approximate`.
+Scalar global phase is never discarded by the RR tolerance. A request with
+`rr_tolerance=0` disables numerical RR approximation and performs exact
+matching only.
 
-`config.set_tolerance()` controls the **process-wide Python RR tolerance**
-(default `1e-10` in phase-coefficient units). Changing it invalidates
-tolerance-dependent cached simplifications. It accepts only finite positive
-numeric values (not booleans). It is not a thread-local or per-call setting.
+`rr_tolerance` defaults to `1e-10` in phase cycles, accepts finite
+non-negative numbers (not booleans), and is independent of
+`phase_tolerance` and `approximate_distance_tolerance`.
+Python scopes its value to a verification and its reduction cache keys.
+Rust passes it to the PathSum during gate construction and RR. If Hybrid
+does not finish RR after approximate simplification, Rust reconstructs
+an exact RR PathSum before WMC to avoid passing rounded terms to the solver.
 
 ```python
-from QuPRS import check_equivalence, config
+from QuPRS import check_equivalence
 
-config.set_tolerance(1e-10)
 result = check_equivalence(
     circuit1, circuit2, method="hybrid", backend="python",
-    wmc_magnitude_tolerance=1e-8,
-    wmc_phase_tolerance=1e-8,
+    rr_tolerance=1e-10,
+    phase_tolerance=1e-8,
+    approximate_distance_tolerance=1e-8,  # default; can be customized
 )
 print(result.equivalent)
 ```
 
 RR coefficient matching and the **separate** WMC numerical classification
 thresholds are not interchangeable. Preserving input phases can change a
-previous `equivalent` result into `unknown` (RR alone) or
-`not_equivalent` (Hybrid/WMC), because the earlier result had discarded
-information. A floating WMC acceptance is not a strict equivalence
+previous `equivalent` result into `not_equivalent` for a fully reduced,
+nonzero RR-only diagonal residual, or `unknown` when RR remains incomplete;
+Hybrid may then invoke WMC. These are distinct outcomes, not one universal
+RR fallback. A floating WMC acceptance is not a strict equivalence
 certificate, and a WMC magnitude tolerance of `1e-8` is **not**
 the QCEC projective circuit-distance tolerance of `1e-8`.
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
+
+### GPMC high-resolution CNF weights
+
+Rust preserves source `PhaseCoeff` angles through the CNF weight boundary.
+For **GPMC projective-distance verification** (the default), the native
+implementation preserves source `PhaseCoeff` angles until CNF serialization.
+It computes non-Clifford complex weights using **192-bit MPFR arithmetic**
+and 48 significant decimal output digits, without a premature `f64`
+conversion. Clifford quarter-cycle weights are exact special values.
+
+No extra Solver invocation is added. Ganak retains its own input format
+and numerical precision. When its actual printed-output rounding interval
+cannot resolve the requested distance, QuPRS reports an observed
+resolution-scale warning and uses Ganak's numerical midpoint estimate,
+not an unconditional exact-equivalence certificate. This may produce an
+`equivalent` or `not_equivalent` point estimate that disagrees with an
+independent circuit oracle when Ganak's printed precision is insufficient.
+Such a result is a **known external-Solver numerical limitation**, not a
+certified decision at the requested distance threshold. GPMC retains the
+printed-interval diagnostic verdict, including `unknown` where
+appropriate, but uses the same finite-count operational midpoint
+classifier as Ganak.
+The old magnitude-mode selector is not available.
+High-precision weights do not certify solver arithmetic. The GPMC complex
+counter enforces **30 decimal digits** as its effective minimum (although its
+README describes 15); `gpmc_precision_digits=90` opts into `-prec=90` for
+one call. Both keep `approximate_distance_tolerance=1e-8` unless explicitly
+changed. No automatic second Solver execution occurs for near-boundary
+results: printed intervals may remain `unknown` even when the
+operational finite-count distance verdict is determinate. The native
+high-resolution input feature is enabled in standard source builds; repaired
+platform wheels must package GMP/MPFR shared libraries portably.
+
+### Rust CLI verification tolerances
+
+The native CLI uses the same typed Rust `VerificationOptions` as the public
+Rust library. When omitted, the default projective-distance threshold is
+`1e-8`; the global-phase labeling threshold is independently `1e-8`
+radians.
+
+```bash
+cargo run --manifest-path rust/Cargo.toml -p QuPRS_cli -- \
+  circuit1.qasm circuit2.qasm --method wmc-only --tool gpmc \
+  --approximate-distance-tolerance 1e-8 --phase-tolerance 1e-8 \
+  --rr-tolerance 1e-10
+```
+
+`--rr-tolerance` is a non-negative threshold in cycles.
+`--rr-tolerance 0` requests exact HH/Omega matching with no numerical
+phase-term removal. Positive values also enable near-HH/omega rules and
+non-global phase normalization, consistent with Python. RR-only and
+Hybrid apply the same RR acceptance; `phase_tolerance` labels a
+remaining global phase independently, and `approximate_distance_tolerance`
+applies only when WMC runs. `rr_approximate=true` identifies a
+tolerance-dependent RR simplification, not source-exact identity.
+Hybrid never forwards an approximately simplified working polynomial
+to WMC: when required, it reconstructs the exact-source PathSum first.
+
+`--gpmc-precision 90` opts into 90-digit arithmetic for GPMC; omitting it
+uses the effective 30-digit default without altering the acceptance metric.
+The shorter aliases `--distance-tolerance` and
+`--wmc-phase-tolerance` are also accepted. The obsolete
+`--wmc-magnitude-tolerance` option is **not supported**. Passing distance
+or phase tolerances without a second circuit is an error, because
+single-circuit CLI mode only reduces the PathSum and does not verify a pair.
+
+The `--quiet` **stdout** remains machine-readable and prints only
+the verdict; an observed Ganak resolution warning is printed separately
+on **stderr**. Normal output reports the selected solver, requested
+distance threshold and warning diagnostics when WMC is used. Ganak's
+uncertified midpoint result is distinguished from its raw printed
+interval status; no automatic solver retry occurs.
 
 ### Solver subprocess reliability and timeout limits
 
@@ -369,30 +459,25 @@ both solver inputs with 17 significant decimal digits in scientific notation
 nine-decimal quantization. Input precision cannot exceed the information in
 the original circuit parameters or the numerical type used upstream.
 
-Both Python and Rust WMC public API backends classify the unrounded,
-normalized complex count with user-selectable **per-call** thresholds.
-The current public-API default magnitude and phase thresholds are `1e-8` each
-(historically `1e-6`); for example:
+Both Python and Rust WMC public backends use a single configurable
+**projective-distance tolerance**, default `1e-8`. For example:
 
 ```python
 result = check_equivalence(
     circuit1, circuit2, method="wmc_only", backend="rust",
-    wmc_magnitude_tolerance=1e-8,
+    approximate_distance_tolerance=1e-8,
     wmc_phase_tolerance=1e-8,
 )
-print(result.equivalent, result.wmc_magnitude_tolerance)
+print(result.equivalent, result.approximate_distance_tolerance)
 ```
 
-Omitting either argument uses `config.WMC_MAGNITUDE_TOLERANCE` or
-`config.WMC_PHASE_TOLERANCE`. Each accepted threshold must be finite
-and strictly between 0 and 1. The effective values are recorded with
-the result. The public Python interface passes the same values to the
-Rust backend; direct legacy Rust core callers keep their historical
-defaults. `config.TOLERANCE` remains the independent symbolic-reduction
-tolerance (default `1e-10`), **not** a WMC setting. Nonzero global phase
-gives `equivalent*` when the count magnitude passes the threshold.
-Python uses a scaled log-magnitude and signed `atan2`, avoiding overflow,
-zero-count division, and negative phases wrapping to nearly `2*pi`.
+The old `wmc_magnitude_tolerance` parameter is removed (a breaking
+v0.14.0 change), rather than silently ignored or used as a second
+classification mode. `config.DEFAULT_DISTANCE_TOLERANCE=1e-8` specifies
+the public distance default. `wmc_phase_tolerance` controls global-phase
+labels, while `rr_tolerance` independently controls Python and Rust RR matching.
+A printed solver count is not itself an exact mathematical certificate.
+
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md)
 for the current candidate's acceptance limits and QCEC/Quokka-Sharp metric
 comparison. A tighter numerical threshold is not a mathematical certificate.

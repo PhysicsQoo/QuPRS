@@ -54,6 +54,7 @@ def test_real_gpmc_count_agrees_with_exact_printed_cnf(
         HEADER, HEADER + operation + "\n",
         method="wmc_only", backend="python", strategy="Naive",
         tool_name="gpmc", timeout=45, approximate_distance_tolerance=2e-4,
+        gpmc_precision_digits=90,  # Exact printed-weight oracle needs 90-digit output.
     )
     assert recorded["calls"] == 1
     assert result.wmc_solver_invoked is True

@@ -27,7 +27,16 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
     if not pathsum._stats.is_reduction_enabled():
         return pathsum
 
-    new_P = reduce_expression(pathsum.P)
+    # Normalize non-global terms with RR tolerance, but preserve scalar
+    # source phase with exact modulo-one normalization. This also prevents
+    # a corrected temporary scalar drop from contaminating rr_approximate.
+    expanded = pathsum.P.expand()
+    terms = expanded.args if expanded.is_Add else (expanded,)
+    scalar = sum((term for term in terms if not term.free_symbols), 0)
+    non_scalar = expanded - scalar
+    new_P = reduce_expression(non_scalar)
+    if scalar != 0:
+        new_P += reduce_expression(scalar, drop_small=False)
 
     # Find path variables that can be reduced
     free_symbols = set().union(

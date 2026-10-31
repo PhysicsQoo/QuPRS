@@ -13,7 +13,7 @@ import pytest
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Operator
 
-from QuPRS import check_equivalence, config
+from QuPRS import check_equivalence
 from QuPRS.utils.gpmc_distance_budget import classify_gpmc_single_count
 from QuPRS.utils.precision_count import parse_printed_count_line
 from _benchmark_cases import MQT_CASES
@@ -37,8 +37,15 @@ def test_large_cnf_single_run_model_is_conservative(vars, record_property):
         maximum_weight_magnitude_squared=Fraction(1), precision_digits=90,
     )
     assert answer.printed_status == "equivalent"
-    assert answer.status == ("equivalent" if vars == 12 else "unknown")
+    # Eligible sizes report a point-estimate observation, not a certified
+    # numerical bound; 513 variables remain outside this conditional model.
+    assert answer.model_status == ("unknown" if vars > 512 else "equivalent")
+    assert answer.numerical_verdict == "equivalent"
+    assert answer.printed_status == "equivalent"
     assert not answer.solver_arithmetic_certified
+    assert not answer.source_weight_certified
+    if vars <= 512:
+        assert answer.reason.startswith("single_pass_uncertified_")
     record_property("model_only_not_solver_observation", True)
     record_property("model_cnf_variables", vars)
     record_property("model_status", answer.status)
@@ -51,7 +58,6 @@ def test_rr_local_tolerance_does_not_certify_distance(record_property):
     This is a diagnostic of existing RR tolerance semantics; no rule is disabled.
     """
     theta = 2 * math.pi * 1e-7
-    original = config.get_tolerance()
     left, right = QuantumCircuit(1), QuantumCircuit(1)
     right.h(0)
     right.rz(theta, 0)
@@ -59,24 +65,21 @@ def test_rr_local_tolerance_does_not_certify_distance(record_property):
     assert Operator(left).equiv(Operator(left))
     source_distance = abs(math.sin(theta / 2))
     assert source_distance > 1e-8
-    try:
-        config.set_tolerance(1e-6)
-        rr = check_equivalence(
-            left, right, method="reduction_rules",
-            backend="python", strategy="Naive", timeout=30,
-        )
-        assert rr.equivalent in ("equivalent", "equivalent*", "unknown", "not_equivalent")
-        assert rr.wmc_solver_invoked is False
-        record_property("source_projective_distance", str(source_distance))
-        record_property("rr_local_tolerance", "1e-6")
-        record_property("rr_verdict", rr.equivalent)
-        record_property("strict_source_equality", "false")
-        record_property(
-            "rr_distance_mismatch_diagnostic",
-            rr.equivalent.startswith("equivalent") and source_distance > 1e-8,
-        )
-    finally:
-        config.set_tolerance(original)
+    rr = check_equivalence(
+        left, right, method="reduction_rules",
+        backend="python", strategy="Naive", timeout=30,
+        rr_tolerance=1e-6,
+    )
+    assert rr.equivalent in ("equivalent", "equivalent*", "unknown", "not_equivalent")
+    assert rr.wmc_solver_invoked is False
+    record_property("source_projective_distance", str(source_distance))
+    record_property("rr_local_tolerance", "1e-6")
+    record_property("rr_verdict", rr.equivalent)
+    record_property("strict_source_equality", "false")
+    record_property(
+        "rr_distance_mismatch_diagnostic",
+        rr.equivalent.startswith("equivalent") and source_distance > 1e-8,
+    )
 
 
 def test_representative_qft_graphstate_qaoa_remain_in_paper_ci():
@@ -129,13 +132,12 @@ def test_qpeexact8_fixed_source_approximate_diagnostic(backend, record_property)
     record_property("distance_epsilon", "1e-8")
     record_property("classification", result.equivalent)
     record_property("evidence_category", category)
-    record_property("decision_basis", str(result.decision_basis))
+    record_property("wmc_stage_time", str(result.wmc_time))
     record_property("solver_invoked", str(result.wmc_solver_invoked))
     record_property("wmc_precision_reason", str(result.wmc_precision_reason))
-    if result.equivalent in ("equivalent", "equivalent*", "not_equivalent"):
-        assert result.decision_basis in (
-            "symbolic", "numerical_approximate", "structural",
-        )
+    if result.wmc_solver_invoked:
+        assert result.tool_time is not None
+        assert result.wmc_time is not None
 
 
 @pytest.mark.parametrize("variables", (12, 128, 160, 512))
@@ -177,10 +179,13 @@ def test_native_gpmc_forced_unit_cnf_numerical_model(
     # unresolved at eps_D=1e-8; the conditional model must not invent
     # additional printer precision just because MPFR used 90 digits.
     assert evidence.printed_status in ("equivalent", "unknown")
-    if evidence.printed_status == "unknown":
-        assert evidence.status == "unknown"
-    if variables >= 128:
-        assert evidence.status == "unknown"
+    # Preserve the raw printing diagnostic even when the public numerical
+    # midpoint is usable. This forced-unit CNF is not a source-circuit proof.
+    assert evidence.model_status == "equivalent"
+    assert evidence.numerical_verdict == "equivalent"
+    assert not evidence.solver_arithmetic_certified
+    assert not evidence.source_weight_certified
+    assert evidence.reason.startswith("single_pass_uncertified_")
     record_property("test_family", "unit_forced_cnf_not_circuit")
     record_property("native_solver_invocations", "1")
     record_property("native_count", "1+0i")

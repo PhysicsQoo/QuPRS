@@ -1,0 +1,60 @@
+name: CodSpeed solver-inclusive CPU pilot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/codspeed-solver-cpu-pilot.yml'
+      - 'test/test_codspeed_solver_cpu.py'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  solver-cpu-pilot:
+    if: ${{ github.event.pull_request.number == 131 }}
+    name: Source-pinned Hybrid GPMC Ganak process CPU
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR source and solver submodule
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install source-pinned verifier and CodSpeed integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(which python)")")"
+          maturin develop --release -E dev
+          python -m pip install --disable-pip-version-check pytest-codspeed==5.0.3
+          git rev-parse HEAD
+          git rev-parse HEAD:GPMC
+          python -m pytest test/test_codspeed_solver_cpu.py --collect-only -q
+
+      - name: Measure verifier and solver CPU cost together
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          run: python -m pytest test/test_codspeed_solver_cpu.py -q --codspeed

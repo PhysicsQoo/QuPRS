@@ -27,7 +27,7 @@ WORKDIR /app
 # Install build dependencies, C headers, and Rust toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git cmake libgmp-dev libmpfr-dev zlib1g-dev curl ca-certificates \
-    pkg-config libssl-dev \
+    pkg-config libssl-dev patchelf \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"

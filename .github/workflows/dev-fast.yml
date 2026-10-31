@@ -85,7 +85,7 @@ jobs:
         run: python -m QuPRS.utils.ganak_distribution
 
       - name: Run locked Rust correctness tests
-        run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum -p QuPRS_cli
 
       - name: Run all Python correctness tests without report/coverage duplication
         id: python_correctness

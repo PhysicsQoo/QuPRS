@@ -10,6 +10,9 @@ import psutil
 from QuPRS.interface.load_qiskit import add_gate
 from QuPRS.pathsum import PathSum
 from QuPRS.utils.verification_timeout import VerificationTimeout
+from QuPRS.utils.verification_tolerances import (
+    current_rr_tolerance, scoped_rr_tolerance, rr_approximation_used,
+)
 
 
 class Strategy(ABC):
@@ -63,7 +66,7 @@ class Strategy(ABC):
             pass
 
     @staticmethod
-    def _worker(strategy_instance, queue, pathsum_circuit, gates1, gates2):
+    def _worker(strategy_instance, queue, pathsum_circuit, gates1, gates2, rr_tolerance):
         """
         Worker process:
         1. Set memory limit.
@@ -74,7 +77,12 @@ class Strategy(ABC):
         temp_path = None
         try:
             Strategy._set_memory_limit(limit_ratio=0.85)
-            result_circuit = strategy_instance.run(pathsum_circuit, gates1, gates2)
+            with scoped_rr_tolerance(rr_tolerance):
+                result_circuit = strategy_instance.run(pathsum_circuit, gates1, gates2)
+                # The parent cannot read the spawned process's ContextVars.
+                # Transport provenance with the existing pickled PathSum,
+                # without changing the IPC or triggering another reduction.
+                result_circuit._stats.rr_approximation_used = rr_approximation_used()
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as f:
                 pickle.dump(result_circuit, f)
                 temp_path = f.name
@@ -98,7 +106,7 @@ class Strategy(ABC):
 
         queue = ctx.Queue()
         p = ctx.Process(
-            target=self._worker, args=(self, queue, pathsum_circuit, gates1, gates2)
+            target=self._worker, args=(self, queue, pathsum_circuit, gates1, gates2, current_rr_tolerance())
         )
         p.start()
         p.join(timeout=timeout)

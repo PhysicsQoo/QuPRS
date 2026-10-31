@@ -37,21 +37,21 @@ def native_solver(solver):
 
 
 @pytest.mark.parametrize("solver", ["gpmc", "ganak"])
-def test_direct_pyo3_defaults_use_1e8_not_historical_1e6(solver):
+def test_direct_pyo3_defaults_use_projective_distance(solver):
     with native_solver(solver):
         current = _pathsum_rust.check_equivalence(
             IDENTITY, RZ_NOT_WITHIN_DEFAULT,
             method="wmc_only", strategy="Naive", tool_name=solver, timeout=45,
         )
-        historical = _pathsum_rust.check_equivalence(
+        explicitly_loose = _pathsum_rust.check_equivalence(
             IDENTITY, RZ_NOT_WITHIN_DEFAULT,
             method="wmc_only", strategy="Naive", tool_name=solver, timeout=45,
-            wmc_magnitude_tolerance=1e-6, wmc_phase_tolerance=1e-6,
+            approximate_distance_tolerance=1e-3,
         )
     assert current["status"] == "Not Equivalent"
-    assert historical["status"] in {"Equivalent", "Equivalent (Up to Global Phase)"}
+    assert explicitly_loose["status"] in {"Equivalent", "Equivalent (Up to Global Phase)"}
     assert current.get("wmc_solver_time_sec") is not None
-    assert historical.get("wmc_solver_time_sec") is not None
+    assert explicitly_loose.get("wmc_solver_time_sec") is not None
 
 
 def test_rust_ffi_rejects_unsupported_safe_mode():
@@ -69,17 +69,36 @@ def test_public_rust_api_does_not_claim_safe_mode():
         )
 
 
-def test_python_public_api_retains_two_independent_wmc_defaults():
+def test_python_public_api_has_single_distance_metric_and_phase_default():
     params = inspect.signature(check_equivalence).parameters
     assert "wmc_policy" not in params
-    assert params["wmc_magnitude_tolerance"].default is None
+    assert "wmc_magnitude_tolerance" not in params
+    assert params["approximate_distance_tolerance"].default == 1e-8
     assert params["wmc_phase_tolerance"].default is None
-    assert config.WMC_MAGNITUDE_TOLERANCE == 1e-8
+    assert params["rr_tolerance"].default is None
+    assert params["phase_tolerance"].default is None
+    assert not hasattr(config, "TOLERANCE")
+    assert not hasattr(config, "set_tolerance")
+    assert not hasattr(config, "get_tolerance")
+    assert not hasattr(config, "WMC_MAGNITUDE_TOLERANCE")
+    assert config.DEFAULT_DISTANCE_TOLERANCE == 1e-8
     assert config.WMC_PHASE_TOLERANCE == 1e-8
     one = QuantumCircuit(1)
     observed = check_equivalence(one, one, method="reduction_rules")
     assert observed.equivalent == "equivalent"
     assert observed.tool_time is None
     assert observed.wmc_numerical_verdict is None
-    assert observed.wmc_magnitude_tolerance == 1e-8
+    assert observed.approximate_distance_tolerance == 1e-8
+    assert not hasattr(observed, 'wmc_magnitude_tolerance')
     assert observed.wmc_phase_tolerance == 1e-8
+
+def test_legacy_magnitude_argument_is_not_a_second_policy():
+    one = QuantumCircuit(1)
+    with pytest.raises(TypeError):
+        check_equivalence(one, one, method="reduction_rules",
+                          wmc_magnitude_tolerance=1e-8)
+    with pytest.raises(TypeError):
+        _pathsum_rust.check_equivalence(
+            IDENTITY, IDENTITY, method="reduction_rules",
+            wmc_magnitude_tolerance=1e-8
+        )

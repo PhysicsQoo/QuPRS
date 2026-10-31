@@ -63,7 +63,11 @@ def test_walltime_limit_stops_long_running_worker():
 
 def test_completed_worker_reports_measured_peak():
     report = resource.run_limited(
-        [sys.executable, '-c', 'a=bytearray(4*1024*1024); print(len(a))'],
+        # The sampled peak is a polling observation, not a kernel high-water
+        # mark. Keep the allocation live across multiple sampling intervals;
+        # otherwise an immediately exiting child may legitimately report zero.
+        [sys.executable, '-c',
+         'import time; a=bytearray(4*1024*1024); print(len(a)); time.sleep(0.4)'],
         deadline=5, rss_cap=1024**3, sample_seconds=0.03,
     )
     assert report['exit_code'] == 0

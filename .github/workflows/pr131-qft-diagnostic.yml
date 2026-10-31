@@ -1,0 +1,417 @@
+name: QFT16 native diagnostics
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pr131-qft-diagnostic.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  qft16-diagnostics:
+    if: ${{ github.event.pull_request.number == 131 }}
+    name: QFT16 source and solver diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      PR_SHA: ${{ github.event.pull_request.head.sha }}
+      RUST_BACKTRACE: "1"
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Prepare Python and native build tools
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare isolated Python environment and probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/qft131-venv"
+          "$RUNNER_TEMP/qft131-venv/bin/python" -m pip install --disable-pip-version-check maturin
+          mkdir -p "$RUNNER_TEMP/qft131-evidence"
+          # Non-benchmark wrapper: preserve the exact CNF bytes just before GPMC starts.
+          # The real solver remains unchanged; no wrapper is used in CodSpeed timing.
+          cat > "$RUNNER_TEMP/qft131-capture-gpmc.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          test -n "${QFT131_CAPTURE_PATH:-}"
+          test -n "${QFT131_REAL_GPMC:-}"
+          last="${!#}"
+          printf 'wrapper_entered args=%s cnf_exists=%s\\n' "$#" "$(test -f "$last" && echo yes || echo no)" > "$QFT131_CAPTURE_PATH.invoked"
+          cp -- "$last" "$QFT131_CAPTURE_PATH"
+          printf 'capture_written=yes\\n' >> "$QFT131_CAPTURE_PATH.invoked"
+          exec "$QFT131_REAL_GPMC" "$@"
+          SH
+          chmod 700 "$RUNNER_TEMP/qft131-capture-gpmc.sh"
+          cat > "$RUNNER_TEMP/qft131-probe.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          import QuPRS
+          from QuPRS import _pathsum_rust
+          from QuPRS.utils import WMC
+
+          def summarize_cnf(path):
+              payload = path.read_bytes()
+              lines = payload.decode("utf-8").splitlines()
+              headers = [x for x in lines if x.startswith("p cnf ")]
+              if len(headers) != 1:
+                  raise AssertionError("CNF missing unique p cnf header")
+              fields = headers[0].split()
+              declared_vars, declared_clauses = int(fields[2]), int(fields[3])
+              clauses = [x for x in lines if x and not x.startswith(("c ", "p "))]
+              weights = [x for x in lines if x.startswith("c p weight ")]
+              positive = [x for x in weights if not x.startswith("c p weight -")]
+              if len(clauses) != declared_clauses:
+                  raise AssertionError("CNF clause count mismatch")
+              structure = ("\\n".join([headers[0], *clauses]) + "\\n").encode()
+              weight_rows = ("\\n".join(sorted(weights)) + "\\n").encode()
+              return {
+                  "variables": declared_vars,
+                  "clauses": declared_clauses,
+                  "weight_lines": len(weights),
+                  "positive_weight_lines": len(positive),
+                  "bytes": len(payload),
+                  "full_sha256": hashlib.sha256(payload).hexdigest(),
+                  "structure_sha256": hashlib.sha256(structure).hexdigest(),
+                  "weight_lines_sha256": hashlib.sha256(weight_rows).hexdigest(),
+                  "positive_weight_decimal_length_min": min((len(x) for x in positive), default=0),
+                  "positive_weight_decimal_length_max": max((len(x) for x in positive), default=0),
+              }
+
+          variant = sys.argv[1]
+          root = Path.cwd()
+          sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"], text=True
+          ).strip()
+          spec = [
+              ("qft16", "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+               "proportional", True),
+              ("graphstate16", "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+               "naive", False),
+          ]
+          results = []
+          for label, name, strategy, swap in spec:
+              path_a = root / "benchmarks" / "MQTBench" / name
+              path_b = root / "benchmarks" / "MQTBench" / "h,ry,rz,cx" / name
+              left, right = (path_b, path_a) if swap else (path_a, path_b)
+              with WMC("gpmc") as exe:
+                  binary = Path(exe)
+                  solver_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+                  capture = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence" / (variant + "-" + label + ".cnf")
+                  os.environ["QFT131_REAL_GPMC"] = str(binary)
+                  os.environ["QFT131_CAPTURE_PATH"] = str(capture)
+                  os.environ["QUPRS_GPMC_PATH"] = str(Path(os.environ["RUNNER_TEMP"]) / "qft131-capture-gpmc.sh")
+                  try:
+                      observed = _pathsum_rust.check_equivalence(
+                          str(left), str(right), method="hybrid",
+                          strategy=strategy, tool_name="gpmc", timeout=240,
+                      )
+                  finally:
+                      for name in ("QUPRS_GPMC_PATH", "QFT131_REAL_GPMC", "QFT131_CAPTURE_PATH"):
+                          os.environ.pop(name, None)
+              if capture.is_file():
+                  cnf_summary = summarize_cnf(capture)
+                  capture.unlink()  # Upload summary only, not raw circuit CNF.
+                  Path(str(capture) + ".invoked").unlink(missing_ok=True)
+              elif label == "graphstate16" and observed.get("wmc_solver_invoked") is False:
+                  cnf_summary = None  # RR-only; no solver CNF exists to capture.
+              else:
+                  marker = Path(str(capture) + ".invoked")
+                  marker_info = marker.read_text() if marker.exists() else "wrapper_not_entered"
+                  raise AssertionError(
+                      "Expected GPMC CNF capture is missing; "
+                      f"variant={variant}, case={label}, marker={marker_info!r}, "
+                      f"native_extension={getattr(_pathsum_rust, '__file__', None)!r}"
+                  )
+              ledger = observed.get("stage_ledger") or {}
+              record = {
+                  "case": label,
+                  "status": observed.get("status"),
+                  "solver_invoked": observed.get("wmc_solver_invoked"),
+                  "rr_approximate": observed.get("rr_approximate"),
+                  "solver_spawns": ledger.get("solver_child_spawns"),
+                  "stage_calls": ledger.get("stage_calls"),
+                  "cnf": cnf_summary,
+                  "output_stats": observed.get("stats"),
+                  "printed_verdict": observed.get("wmc_printed_verdict"),
+                  "precision_reason": observed.get("wmc_precision_reason"),
+                  "qasm_sha256": [
+                      hashlib.sha256(p.read_bytes()).hexdigest()
+                      for p in (left, right)
+                  ],
+                  "solver_sha256": solver_hash,
+              }
+              if label == "qft16" and not record["solver_invoked"]:
+                  raise AssertionError("QFT16 must exercise GPMC in this diagnostic")
+              if label == "graphstate16" and not record["solver_invoked"]:
+                  if record["solver_spawns"] not in (0, None):
+                      raise AssertionError("RR-only Graphstate16 spawned a solver")
+                  if record["status"] not in ("Equivalent", "Equivalent (Up to Global Phase)"):
+                      print(
+                          "SCIENTIFIC_MISMATCH Graphstate16 RR-only "
+                          f"variant={variant} status={record['status']!r} "
+                          f"rr_approximate={record['rr_approximate']!r} "
+                          f"solver_spawns={record['solver_spawns']!r}",
+                          flush=True,
+                      )
+              results.append(record)
+              print(label, "verdict", record["status"],
+                    "solver_invoked", record["solver_invoked"],
+                    "solver_spawns", record["solver_spawns"], flush=True)
+
+          evidence = {
+              "source_sha": sha,
+              "source_tree": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD^{tree}"], text=True
+              ).strip(),
+              "submodule": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD:GPMC"], text=True
+              ).strip(),
+              "variant": variant,
+              "measurement_note": (
+                  "Structural and scientific diagnostics only. "
+                  "Stage call counts are not a performance measurement. "
+                  "Performance evidence must come from CodSpeed."
+              ),
+              "cases": results,
+          }
+          output = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence" / (variant + ".json")
+          output.write_text(json.dumps(evidence, sort_keys=True, indent=2, default=str) + "\n")
+          PY
+
+      - name: Collect exact source and feature-control evidence
+        shell: bash
+        env:
+          QUPRS_STAGE_LEDGER: "1"
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          git fetch --no-tags origin "$DEV_SHA"
+          for variant in dev pr-default pr-no-precision; do
+            if [ "$variant" = dev ]; then
+              revision="$DEV_SHA"
+            else
+              revision="$PR_SHA"
+            fi
+            git switch --detach "$revision"
+            git submodule update --init --recursive
+            test "$(git rev-parse HEAD)" = "$revision"
+            if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+              echo "Tracked sources changed during diagnostic" >&2
+              exit 1
+            fi
+            echo "Source $variant $(git rev-parse HEAD) $(git rev-parse HEAD^{tree})"
+            if [ "$variant" = pr-no-precision ]; then
+              maturin develop --release -E dev --no-default-features
+            else
+              maturin develop --release -E dev
+            fi
+            python "$RUNNER_TEMP/qft131-probe.py" "$variant"
+          done
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence"
+          records = {name: json.loads((root / (name + ".json")).read_text())
+                     for name in ("dev", "pr-default", "pr-no-precision")}
+          pairs = {}
+          for case in ("qft16", "graphstate16"):
+              observations = {name: next(x for x in doc["cases"] if x["case"] == case)
+                              for name, doc in records.items()}
+              source = observations["dev"]["cnf"]
+              target = observations["pr-default"]["cnf"]
+              pairs[case] = {
+                  "same_structure": (source["structure_sha256"] == target["structure_sha256"])
+                                    if source is not None and target is not None else None,
+                  "same_weight_values": (source["weight_lines_sha256"] == target["weight_lines_sha256"])
+                                        if source is not None and target is not None else None,
+                  "dev": source, "pr_default": target,
+                  "pr_no_precision": observations["pr-no-precision"]["cnf"],
+              }
+              print("CNF_COMPARE", case,
+                    "dev_invoked_solver", source is not None,
+                    "structure_same", pairs[case]["same_structure"],
+                    "weights_same", pairs[case]["same_weight_values"],
+                    "dev_vars", source["variables"] if source else None,
+                    "pr_vars", target["variables"] if target else None,
+                    "dev_clauses", source["clauses"] if source else None,
+                    "pr_clauses", target["clauses"] if target else None,
+                    flush=True)
+          (root / "cnf-comparison.json").write_text(json.dumps(pairs, sort_keys=True, indent=2) + "\n")
+          # The pinned dev revision is an observed baseline, not a PR
+          # acceptance target. Preserve its negative verdict as evidence,
+          # while requiring both PR feature configurations to pass.
+          accepted = ("Equivalent", "Equivalent (Up to Global Phase)")
+          baseline = next(x for x in records["dev"]["cases"]
+                          if x["case"] == "graphstate16")
+          print("DEV_GRAPHSTATE16_BASELINE", baseline["status"],
+                "solver_invoked", baseline["solver_invoked"], flush=True)
+          for variant in ("pr-default", "pr-no-precision"):
+              graph = next(x for x in records[variant]["cases"]
+                           if x["case"] == "graphstate16")
+              if graph["status"] not in accepted or graph["solver_invoked"]:
+                  raise AssertionError(
+                      f"PR Graphstate16 RR-only regression: {variant}: "
+                      f"status={graph['status']!r}, solver_invoked={graph['solver_invoked']!r}"
+                  )
+          for variant, doc in records.items():
+              qft = next(x for x in doc["cases"] if x["case"] == "qft16")
+              if qft["status"] not in accepted or not qft["solver_invoked"]:
+                  raise AssertionError(
+                      f"QFT16 verdict/solver regression: {variant}: "
+                      f"status={qft['status']!r}, solver_invoked={qft['solver_invoked']!r}"
+                  )
+
+          PY
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qft16-source-feature-evidence
+          path: ${{ runner.temp }}/qft131-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Restore full-precision pull request build for CodSpeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          git switch --detach "$PR_SHA"
+          git submodule update --init --recursive
+          test "$(git rev-parse HEAD)" = "$PR_SHA"
+          maturin develop --release -E dev
+
+      - name: Scientific boundary comparison for GPMC 30 and 90 digits
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from QuPRS import check_equivalence
+
+          root = Path.cwd() / "benchmarks" / "MQTBench"
+          cases = [
+              ("vqe4", "vqe_nativegates_ibm_qiskit_opt0_4.qasm"),
+              ("qaoa7", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+              ("qft16", "qft_nativegates_ibm_qiskit_opt0_16.qasm"),
+          ]
+          observations = []
+          for name, file_name in cases:
+              a = str(root / file_name)
+              b = str(root / "h,ry,rz,cx" / file_name)
+              for backend in ("python", "rust"):
+                  for digits in (30, 90):
+                      result = check_equivalence(
+                          a, b, method="hybrid", strategy="proportional",
+                          tool_name="gpmc", backend=backend, timeout=240,
+                          approximate_distance_tolerance=1e-8,
+                          gpmc_precision_digits=digits,
+                      )
+                      entry = {
+                          "case": name, "backend": backend,
+                          "precision_digits": digits,
+                          "verdict": str(result.equivalent),
+                          "precision_reason": str(result.wmc_precision_reason),
+                          "printed_verdict": str(result.wmc_printed_verdict),
+                          "solver_invoked": result.wmc_solver_invoked,
+                          "rr_approximate": result.rr_approximate,
+                      }
+                      observations.append(entry)
+                      print("GPMC_PRECISION_DIAG", json.dumps(entry, sort_keys=True), flush=True)
+          output = Path(__import__("os").environ["RUNNER_TEMP"]) / "qft131-evidence" / "precision_boundary.json"
+          output.write_text(json.dumps(observations, indent=2, sort_keys=True) + "\n")
+          # Do not turn a failed scientific verdict into a test pass; record
+          # both modes so the release gate can make an evidence-based decision.
+          PY
+
+      - name: Diagnose VQE4 GPMC magnitude overshoot from identical CNF
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          python - <<'PY'
+          import json, os, re, subprocess, math
+          from fractions import Fraction
+          from decimal import Decimal, localcontext
+          from pathlib import Path
+          from QuPRS import _pathsum_rust
+          from QuPRS.utils import WMC
+          from QuPRS.utils.precision_count import parse_printed_solver_output, classify_printed_distance
+          folder = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence"
+          cnf = folder / "vqe4-rust.cnf"
+          wrapper = Path(os.environ["RUNNER_TEMP"]) / "qft131-capture-gpmc.sh"
+          file = "vqe_nativegates_ibm_qiskit_opt0_4.qasm"
+          root = Path.cwd() / "benchmarks" / "MQTBench"
+          with WMC("gpmc") as solver:
+              try:
+                  os.environ["QFT131_REAL_GPMC"] = str(solver)
+                  os.environ["QFT131_CAPTURE_PATH"] = str(cnf)
+                  os.environ["QUPRS_GPMC_PATH"] = str(wrapper)
+                  result = _pathsum_rust.check_equivalence(
+                      str(root / file), str(root / "h,ry,rz,cx" / file),
+                      method="hybrid", strategy="proportional",
+                      tool_name="gpmc", gpmc_precision_digits=30, timeout=120)
+              finally:
+                  for key in ("QFT131_REAL_GPMC", "QFT131_CAPTURE_PATH", "QUPRS_GPMC_PATH"):
+                      os.environ.pop(key, None)
+              print("VQE4_CAPTURE_STATE", result.get("status"), result.get("wmc_precision_reason"),
+                    result.get("wmc_solver_invoked"), cnf.is_file(), flush=True)
+              assert result.get("wmc_solver_invoked") is True and cnf.is_file(), "Expected GPMC capture"
+              match = re.search(r"Active Path Vars \(Count:\s*(\d+)\)", str(result.get("final_ps")))
+              assert match, "Missing active PathSum vars"
+              exponent = int(match.group(1)) + 2 * int(result.get("qubits"))
+              print("VQE4_HEAD_VERDICT", result.get("status"), result.get("wmc_precision_reason"),
+                    "normalization_exponent", exponent, flush=True)
+              for label, flags in (("default30", ["-mode=1"]), ("explicit90", ["-mode=1", "-prec=90"])):
+                  output = subprocess.run([str(solver), *flags, str(cnf)], text=True, capture_output=True, check=True, timeout=120)
+                  count = parse_printed_solver_output(output.stdout)
+                  excess = (count.real**2 + count.imag**2) / Fraction(2)**exponent - 1
+                  with localcontext() as decimal_context:
+                      decimal_context.prec = 55
+                      delta = Decimal(excess.numerator) / Decimal(excess.denominator)
+                  verdict = classify_printed_distance(count, exponent, 1e-8)
+                  print("VQE4_GPMC_EXCESS", json.dumps({
+                      "precision": label, "squared_magnitude_minus_one": str(delta),
+                      "ratio_to_distance_eps_squared": str(delta / Decimal("1e-16")),
+                      "phase_rad": math.atan2(float(count.imag), float(count.real)),
+                      "printed_verdict": verdict.status, "printed_reason": verdict.reason,
+                  }, sort_keys=True), flush=True)
+          cnf.unlink()
+          PY
+
+      - name: CodSpeed simulation with solver subprocess tracing
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          simulation-track-subprocess: 'true'
+          run: ${{ runner.temp }}/qft131-venv/bin/python -m pytest 'test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-rust]' --codspeed

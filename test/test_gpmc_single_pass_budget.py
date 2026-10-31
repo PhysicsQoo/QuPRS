@@ -47,7 +47,13 @@ def test_single_pass_unresolved_native_printing_stays_unknown():
         phase_tolerance=1e-8, cnf_vars=2, number_of_weights=1,
         maximum_weight_magnitude_squared=Fraction(1), precision_digits=90,
     )
-    assert observed.status == "unknown"
+    # Public numerical observation uses the single printed midpoint. The
+    # unresolved printed interval must remain visible and uncertified.
+    assert observed.status == "equivalent"
+    assert observed.printed_status == "unknown"
+    assert observed.reason.startswith("single_pass_uncertified_")
+    assert not observed.solver_arithmetic_certified
+    assert not observed.source_weight_certified
 
 
 def test_single_pass_rejects_unsupported_weight_budget():
@@ -58,6 +64,9 @@ def test_single_pass_rejects_unsupported_weight_budget():
         maximum_weight_magnitude_squared=Fraction(1), precision_digits=90,
     )
     assert result.status == "unknown"
+    assert result.model_status == "unknown"
+    # No supported error *certificate* does not veto the public distance.
+    assert result.numerical_verdict == "equivalent"
 
 
 def test_single_pass_positive_phase_uses_common_contract():

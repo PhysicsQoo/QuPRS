@@ -1,20 +1,57 @@
 # Changelog
 
-Significant user-facing changes to QuPRS are summarized here. See [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases) for published packages and release dates.
+## v0.14.0 — Per-call reduction tolerance and projective-distance WMC
 
-## Unreleased
+### Numerical verification
 
-### Fixed
-- Preserve nonzero phase coefficients at Python gate-to-PathSum construction time, independently of the tolerance used by Elim/HH/omega local reduction matching. This prevents large collections of individually tiny Rz rotations from disappearing before RR, Hybrid or WMC-only can account for their accumulated effect.
-- Invalidate cached tolerance-dependent Python reductions when `config.set_tolerance()` changes its value; reject non-finite, Boolean and nonpositive settings.
+- **Breaking:** Default weighted-model-counting numerical acceptance now uses
+  `approximate_distance_tolerance=1e-8` (projective Hilbert-Schmidt
+  distance), for Python, PyO3 and native Rust. An explicit `None` also
+  selects the same default, not another WMC classifier.
+- Remove `wmc_magnitude_tolerance` from the public Python/PyO3 API and
+  typed native Rust `VerificationOptions`; callers must use a physical
+  projective-distance threshold. The obsolete
+  `check_equivalence_with_tolerances` native Rust entry point and the
+  magnitude-classifier branch are removed. This is an API-breaking change.
+- Keep `wmc_phase_tolerance` / `phase_tolerance` independent for
+  global-phase labels. `rr_tolerance` independently governs Python
+  reduction matching, with per-verification contexts and cache isolation.
+- Preserve numerical count provenance via `wmc_numerical_verdict`,
+  `wmc_printed_verdict`, `wmc_precision_reason` and
+  `wmc_solver_invoked`. A finite Solver count is **not** an
+  unconditional equivalence certificate. Finite Solver counts use the
+  common projective-distance classifier; printed uncertainty and
+  nonphysical magnitude overshoot remain separate diagnostics.
+- In the native Rust GPMC path, preserve source `PhaseCoeff` until
+  high-resolution complex weights are evaluated using 192-bit MPFR,
+  then serialize 48 significant decimal digits without an intermediate
+  `f64` conversion. No changes are made to GPMC or Ganak source,
+  no implicit Solver fallback and no second GPMC solve.
+- Remove the mutable Python `config.TOLERANCE`, `set_tolerance()`
+  and `get_tolerance()` APIs, the `wmc_policy` selector and the
+  redundant `decision_basis` result field.
+- Rust accepts a per-call RR tolerance through a conservative aggregate
+  upper bound for fully reduced diagonal residuals; exact HH/omega rules
+  and source angles remain intact. Hybrid stays RR-first and uses one
+  WMC Solver invocation only when RR is inconclusive.
 
-### API and compatibility (v0.14.0 work in progress)
-- Remove the public `wmc_policy` argument and result field; passing the old keyword now raises `TypeError`. The `wmc_numerical_verdict` diagnostic remains observable when WMC is invoked.
-- Add native Rust `VerificationOptions` and `check_equivalence_with_options()`, preserving existing Rust signatures. Rust crate and PyO3 WMC magnitude/phase defaults now match the Python public defaults (`1e-8` each); direct Rust callers relying on the old `1e-6` defaults should pass them explicitly.
-- Rust FFI rejects `safe_mode=True` instead of silently ignoring it; Python backend safe mode is unchanged.
-- Add opt-in `approximate_distance_tolerance` to Python, PyO3 and typed Rust options. Stable projective-distance conversion with a fixed empirical 3e-9 guard returns `unknown` near unresolved numerical boundaries; this is not a certified solver error bound.
-- In approximate mode RR strict source inequivalence need not imply distance beyond epsilon: RR-only can be inconclusive and Hybrid may fall through to WMC; symbolic positive RR fast paths stay unchanged.
-- `config.set_tolerance()` remains a process-global Python RR setting, not a Rust per-call knob; external weighted Solver evidence is not a universal exact-equivalence proof.
+### Testing and packaging
+
+- Validate exact source-angle transport, independent near-boundary rotation
+  oracles and public Python/Rust × Ganak/GPMC conformance.
+- Retain CodSpeed v5 Simulation for in-process CPU work, WallTime for
+  external Solver latency, and 5-shard performance coverage.
+- Correct Docker wheel builder to install `patchelf`; macOS repaired
+  wheel runs with bundled GMP/MPFR dependencies.
+- **Release note:** the new default is much stricter than the prior
+  magnitude-based numerical acceptance. Existing pipelines may receive
+  determinate yet explicitly uncertified numerical verdicts when
+  printed precision is inadequate; diagnostics must remain visible.
+  Do not interpret a numerical result as source-exact proof.
+
+Significant user-facing changes to QuPRS are summarized here. See
+[GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases)
+for published packages and release dates.
 
 ## 0.13.4 (unreleased)
 

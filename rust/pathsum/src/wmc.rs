@@ -62,6 +62,8 @@ pub struct WmcManager {
     weights: HashMap<i32, Complex<f64>>, 
     var_map: HashMap<u32, i32>,
     next_var_id: i32,
+    #[cfg(feature="high-precision-gpmc")]
+    precise_weights: Option<HashMap<i32, (String, String)>>,
 }
 
 impl WmcManager {
@@ -70,9 +72,18 @@ impl WmcManager {
             clauses: Vec::new(),
             weights: HashMap::new(),
             var_map: HashMap::new(),
-            next_var_id: 1, 
+            next_var_id: 1,
+            #[cfg(feature="high-precision-gpmc")]
+            precise_weights: None,
         };
         manager
+    }
+
+    #[cfg(feature="high-precision-gpmc")]
+    pub fn enable_precise_gpmc_weights(&mut self) {
+        // Called only before CNF encoding; does not modify RR or solver count.
+        assert!(self.clauses.is_empty() && self.weights.is_empty());
+        self.precise_weights = Some(HashMap::new());
     }
 
     fn get_dimacs_var(&mut self, ps_var: u32) -> i32 {
@@ -88,31 +99,71 @@ impl WmcManager {
 
     fn encode_phase_polynomial(&mut self, ps: &PathSum) -> Result<()> {
         for (mono, coeff) in &ps.p.terms {
-            let phase_val = (coeff.constant.numer as f64) / (coeff.constant.denom as f64);
-            // Convert exact source radians only at the floating solver boundary.
-            // These weights are observations, not mathematical certificates.
-            let radian_component = match coeff.radians.as_ref() {
-                Some(value) => {
-                    let rad = value.to_f64().ok_or_else(|| anyhow!(
-                        "Exact source radians cannot be represented at the WMC weight boundary"
-                    ))?;
-                    // A nonzero rational can round to binary64 zero (or be lost
-                    // on the subsequent 2x phase conversion). Neither case is
-                    // usable evidence for strict equivalence.
-                    if !rad.is_finite() || (!value.is_zero() && 2.0 * rad == 0.0) {
-                        return Err(anyhow!(
-                            "Nonzero exact source radians underflow at the WMC weight boundary"
-                        ));
+            // Do not compute an f64 weight at all when the precise GPMC
+            // distance-mode input is selected. The separate optional map
+            // owns the original source phase's decimal weight.
+            #[cfg(feature="high-precision-gpmc")]
+            let weight = if let Some(ref mut precise) = self.precise_weights {
+                let id = self.next_var_id;
+                precise.insert(id, crate::precise_weight::from_phase(coeff)?);
+                Complex::new(1.0, 0.0) // Placeholder never serialized in precise mode.
+            } else {
+                (|| -> Result<Complex<f64>> {
+                let phase_val = (coeff.constant.numer as f64) / (coeff.constant.denom as f64);
+                // Convert exact source radians only at the floating solver boundary.
+                // These weights are observations, not mathematical certificates.
+                let radian_component = match coeff.radians.as_ref() {
+                    Some(value) => {
+                        let rad = value.to_f64().ok_or_else(|| anyhow!(
+                            "Exact source radians cannot be represented at the WMC weight boundary"
+                        ))?;
+                        // A nonzero rational can round to binary64 zero (or be lost
+                        // on the subsequent 2x phase conversion). Neither case is
+                        // usable evidence for strict equivalence.
+                        if !rad.is_finite() || (!value.is_zero() && 2.0 * rad == 0.0) {
+                            return Err(anyhow!(
+                                "Nonzero exact source radians underflow at the WMC weight boundary"
+                            ));
+                        }
+                        rad
                     }
-                    rad
+                    None => 0.0,
+                };
+                let angle = phase_val * 2.0 * PI + 2.0 * radian_component;
+                if !angle.is_finite() {
+                    return Err(anyhow!("Non-finite angle at the WMC weight boundary"));
                 }
-                None => 0.0,
+                Ok(Complex::new(angle.cos(), angle.sin()))
+                })()?
             };
-            let angle = phase_val * 2.0 * PI + 2.0 * radian_component;
-            if !angle.is_finite() {
-                return Err(anyhow!("Non-finite angle at the WMC weight boundary"));
-            }
-            let weight = Complex::new(angle.cos(), angle.sin());
+            #[cfg(not(feature="high-precision-gpmc"))]
+            let weight = (|| -> Result<Complex<f64>> {
+                let phase_val = (coeff.constant.numer as f64) / (coeff.constant.denom as f64);
+                // Convert exact source radians only at the floating solver boundary.
+                // These weights are observations, not mathematical certificates.
+                let radian_component = match coeff.radians.as_ref() {
+                    Some(value) => {
+                        let rad = value.to_f64().ok_or_else(|| anyhow!(
+                            "Exact source radians cannot be represented at the WMC weight boundary"
+                        ))?;
+                        // A nonzero rational can round to binary64 zero (or be lost
+                        // on the subsequent 2x phase conversion). Neither case is
+                        // usable evidence for strict equivalence.
+                        if !rad.is_finite() || (!value.is_zero() && 2.0 * rad == 0.0) {
+                            return Err(anyhow!(
+                                "Nonzero exact source radians underflow at the WMC weight boundary"
+                            ));
+                        }
+                        rad
+                    }
+                    None => 0.0,
+                };
+                let angle = phase_val * 2.0 * PI + 2.0 * radian_component;
+                if !angle.is_finite() {
+                    return Err(anyhow!("Non-finite angle at the WMC weight boundary"));
+                }
+                Ok(Complex::new(angle.cos(), angle.sin()))
+            })()?;
 
             let z_i = self.next_var_id;
             self.next_var_id += 1;
@@ -208,21 +259,65 @@ impl WmcManager {
             self.clauses.push(vec![-a, b]); // a -> b
             self.clauses.push(vec![a, -b]); // b -> a
         }
+        // Free Path-sum variables still contribute to the WMC sum even
+        // when absent from phase and output clauses.
+        if self.var_map.len() < ps.v.path_vars.len() {
+            let mut missing: Vec<u32> = ps.v.path_vars.iter()
+                .filter(|v| !self.var_map.contains_key(v))
+                .copied().collect();
+            missing.sort_unstable();
+            for path_var in missing { self.get_dimacs_var(path_var); }
+        }
         Ok(())
     }
 
     pub fn to_dimacs_string(&self, tool_name: &str) -> String {
         self.try_to_dimacs_string(tool_name).expect("Unsupported WMC solver")
     }
+    /// Exact WMC shortcut, restricted to tautological, unweighted CNF.
+    ///
+    /// Each assignment to the declared variables satisfies every clause,
+    /// so the count is exactly 2^variables. Only accept when this matches
+    /// the trace normalization exponent. This never reasons from Ganak's
+    /// floating stdout or assumes that zero path variables imply SAT.
+    pub fn has_exact_unweighted_tautology(
+        &self, normalization_twice_log2: usize,
+    ) -> bool {
+        if !self.weights.is_empty() {
+            return false;
+        }
+        #[cfg(feature = "high-precision-gpmc")]
+        if self.precise_weights.as_ref().is_some_and(|weights| !weights.is_empty()) {
+            return false;
+        }
+        let Ok(vars) = usize::try_from(self.next_var_id - 1) else {
+            return false;
+        };
+        if vars.checked_mul(2) != Some(normalization_twice_log2) {
+            return false;
+        }
+        self.clauses.iter().all(|clause| {
+            let lits: std::collections::HashSet<i32> = clause.iter().copied().collect();
+            clause.iter().any(|lit| *lit != i32::MIN && lits.contains(&-*lit))
+        })
+    }
+
     pub fn try_to_dimacs_string(&self, tool_name: &str) -> Result<String> {
         Ok(self.to_dimacs_with_adapter(crate::solver_adapter::adapter_for(tool_name)?))
     }
     pub(crate) fn to_dimacs_with_adapter(
         &self, adapter: &dyn crate::solver_adapter::SolverAdapter
     ) -> String {
-        crate::wmc_problem::WmcProblem::new(
+        let problem=crate::wmc_problem::WmcProblem::new(
             self.next_var_id - 1, &self.clauses, &self.weights
-        ).serialize(adapter)
+        );
+        #[cfg(feature="high-precision-gpmc")]
+        if adapter.id()=="gpmc" {
+            if let Some(ref precise)=self.precise_weights {
+                return problem.serialize_precise_gpmc(precise);
+            }
+        }
+        problem.serialize(adapter)
     }
     /// Backward-compatible entrypoint for callers that do not own a deadline.
     /// The public verification path uses solve_with_deadline instead.
@@ -271,12 +366,19 @@ impl WmcManager {
     }
 
     /// Typed result for the public distance-mode verifier, preserving the
-    /// selected solver (GPMC -prec=90, native Ganak mode 6).
+    /// selected solver (GPMC effective default 30 digits, native Ganak mode 6).
     pub fn solve_with_deadline_distance_printed(
         &self, tool_name: &str, deadline: Option<std::time::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
+        self.solve_with_deadline_distance_printed_precision(tool_name, deadline, 30)
+    }
+
+    /// Explicit per-call precision: no second solver call or global state.
+    pub fn solve_with_deadline_distance_printed_precision(
+        &self, tool_name: &str, deadline: Option<std::time::Instant>, digits: u32,
+    ) -> Result<crate::precision_count::PrintedCount> {
         self.solve_with_adapter_printed(
-            crate::solver_adapter::distance_adapter_for(tool_name)?, deadline,
+            crate::solver_adapter::distance_adapter_for(tool_name, digits)?, deadline,
         )
     }
 
@@ -705,4 +807,38 @@ mod count_parser_tests {
         }
     }
 
+}
+
+
+#[cfg(test)]
+mod exact_unweighted_count_tests {
+    use super::WmcManager;
+    use crate::pathsum::PathSum;
+    use num_complex::Complex;
+
+    #[test]
+    fn unweighted_identity_trace_has_exact_count() {
+        let ps = PathSum::new(1);
+        let mut manager = WmcManager::new(&ps);
+        manager.encode_trace(&ps).unwrap();
+        assert!(manager.has_exact_unweighted_tautology(2));
+        assert!(!manager.has_exact_unweighted_tautology(4));
+
+        manager.clauses.push(vec![1]);
+        assert!(!manager.has_exact_unweighted_tautology(2));
+    }
+
+    #[test]
+    fn negative_or_weighted_cnf_never_uses_exact_identity_shortcut() {
+        let ps = PathSum::new(1);
+        let mut manager = WmcManager::new(&ps);
+        manager.next_var_id = 2;
+        manager.clauses = vec![vec![1, -1], vec![-1, 1]];
+        assert!(manager.has_exact_unweighted_tautology(2));
+        manager.weights.insert(1, Complex::new(1.0, 0.0));
+        assert!(!manager.has_exact_unweighted_tautology(2));
+        manager.weights.clear();
+        manager.clauses = vec![vec![1], vec![-1]];
+        assert!(!manager.has_exact_unweighted_tautology(2));
+    }
 }

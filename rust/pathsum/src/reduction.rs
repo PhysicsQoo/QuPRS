@@ -6,27 +6,48 @@ use crate::rational::{PhaseCoeff, Rational};
 use crate::stats::RuleType;
 
 impl PathSum {
-    /// Match a Clifford phase in cycles, retaining exact symbolic source terms.
+    /// Match a Clifford phase in cycles without rounding the source angle.
+    /// The binary64 estimate is only a cheap rejection filter; acceptance
+    /// always uses a certified rational interval for the original source.
     fn rr_matches(&self, coeff: &PhaseCoeff, target: Rational) -> bool {
-        if coeff.symbols.len() != 0 { return false; }
+        if !coeff.symbols.is_empty() { return false; }
         if coeff.radians.is_none() && coeff.constant == target { return true; }
         if self.rr_tolerance == 0.0 { return false; }
-        let radians = match coeff.radians.as_ref() {
-            Some(r) => match num_traits::ToPrimitive::to_f64(r) {
-                Some(v) if v.is_finite() => v / std::f64::consts::PI,
-                _ => return false,
-            },
-            None => 0.0,
+
+        // Avoid arbitrary-precision work for the common far-from-Clifford case.
+        let radians = coeff.radians.as_ref().and_then(num_traits::ToPrimitive::to_f64);
+        if coeff.radians.is_none() || radians.is_some_and(f64::is_finite) {
+            let cycles = coeff.constant.numer as f64 / coeff.constant.denom as f64
+                + radians.unwrap_or(0.0) / std::f64::consts::PI;
+            let expected = target.numer as f64 / target.denom as f64;
+            if cycles.is_finite() && cycles.abs() < 1e12 {
+                let delta = (cycles - expected).rem_euclid(1.0);
+                let distance = delta.min(1.0 - delta);
+                let uncertainty = 256.0 * f64::EPSILON * (1.0 + cycles.abs());
+                if distance > self.rr_tolerance + uncertainty { return false; }
+            }
+        }
+
+        let Some(tolerance) = num_rational::BigRational::from_float(self.rr_tolerance) else {
+            return false;
         };
-        let value = coeff.constant.numer as f64 / coeff.constant.denom as f64 + radians;
-        if !value.is_finite() { return false; }
-        let expected = target.numer as f64 / target.denom as f64;
-        let delta = (value - expected).rem_euclid(1.0);
-        let distance = delta.min(1.0 - delta);
-        // Leave a conservative floating-point uncertainty margin. A match
-        // must be strictly inside the requested tolerance, not at its edge.
-        let uncertainty = 32.0 * f64::EPSILON * (1.0 + value.abs() + expected.abs());
-        distance + uncertainty < self.rr_tolerance
+        crate::phase_cycles_upper_target(coeff, target) <= tolerance
+    }
+
+    /// Python-equivalent normalization of non-global phase terms.  Global
+    /// phase is kept exact, and dropping a nonzero coefficient is recorded.
+    fn normalize_rr_non_global(&mut self) {
+        if self.rr_tolerance == 0.0 { return; }
+        let removable: Vec<Monomial> = self.p.terms.iter()
+            .filter(|(monomial, coeff)| {
+                !monomial.is_empty() && self.rr_matches(coeff, Rational::ZERO)
+            })
+            .map(|(monomial, _)| monomial.clone())
+            .collect();
+        if !removable.is_empty() {
+            self.rr_approximate = true;
+            for monomial in removable { self.p.terms.remove(&monomial); }
+        }
     }
 
     pub fn get_reducible_vars(&self) -> Vec<u32> {
@@ -57,7 +78,11 @@ impl PathSum {
 
         while reduced {
             reduced = false;
-            
+
+            // Normalize first: an almost-zero y term may unlock Elim,
+            // Omega or HH.  Do not normalize the scalar global phase.
+            self.normalize_rr_non_global();
+
             let reducible_vars = self.get_reducible_vars();
 
             if reducible_vars.is_empty() {

@@ -32,7 +32,7 @@ pub enum PrintedVerdict {
     Equivalent,
     NotEquivalent,
     UnknownResolution,
-    UnknownOvershoot,
+    UnknownDistanceRange,
 }
 
 fn power_ten(n: i32) -> Result<BigRational> {
@@ -202,16 +202,12 @@ pub fn classify_with_uncertainty(
     let max_im = &im + &count.imag_half_unit + component_error;
     let low = &min_re * &min_re + &min_im * &min_im;
     let high = &max_re * &max_re + &max_im * &max_im;
-    // Accept printed solver noise smaller than the caller's projective
-    // distance resolution. In particular, a tiny positive |Tr|² overshoot
-    // must not prevent the subsequent global-phase classification.
+    // A single projective-distance-squared band determines the numerical
+    // observation; there is no separate nonphysical-magnitude tolerance.
     let upper_limit = &normal_sq * (&one + &eps * &eps);
-    if low > normal_sq {
-        if high <= upper_limit { Ok(PrintedVerdict::Equivalent) }
-        else { Ok(PrintedVerdict::UnknownOvershoot) }
-    }
-    else if high < threshold { Ok(PrintedVerdict::NotEquivalent) }
-    else if low >= threshold { Ok(PrintedVerdict::Equivalent) }
+    if high < threshold { Ok(PrintedVerdict::NotEquivalent) }
+    else if low >= threshold && high <= upper_limit { Ok(PrintedVerdict::Equivalent) }
+    else if low > upper_limit { Ok(PrintedVerdict::UnknownDistanceRange) }
     else { Ok(PrintedVerdict::UnknownResolution) }
 }
 
@@ -304,7 +300,7 @@ mod tests {
         let count = parse_stdout(
             "c s exact octuple float 1.0000000000000000525312499999999999999988e+00 + 0e+00i"
         ).unwrap();
-        assert_eq!(classify(&count, 0, "1e-8").unwrap(), PrintedVerdict::UnknownOvershoot);
+        assert_eq!(classify(&count, 0, "1e-8").unwrap(), PrintedVerdict::UnknownDistanceRange);
         assert!(parse_stdout(
             "c s exact arb frac 3/2 + 1/4i\nc s exact arb frac 7/2 + 1/4i"
         ).is_err());
@@ -320,11 +316,11 @@ mod tests {
             "c o precision 30\nc s exact double prec-sci 0 + 1.00000000000000000000000000001i"
         ).unwrap();
         assert_eq!(classify(&tiny, 0, "1e-8").unwrap(), PrintedVerdict::Equivalent);
-        assert_eq!(classify(&tiny, 0, "1e-16").unwrap(), PrintedVerdict::UnknownOvershoot);
+        assert_eq!(classify(&tiny, 0, "1e-16").unwrap(), PrintedVerdict::UnknownDistanceRange);
         let large = parse_stdout(
             "c o precision 30\nc s exact double prec-sci 0 + 1.000000000001i"
         ).unwrap();
-        assert_eq!(classify(&large, 0, "1e-8").unwrap(), PrintedVerdict::UnknownOvershoot);
+        assert_eq!(classify(&large, 0, "1e-8").unwrap(), PrintedVerdict::UnknownDistanceRange);
         let distinct = parse_stdout(
             "c o precision 30\nc s exact double prec-sci 0 + 0.999999999999i"
         ).unwrap();
@@ -345,7 +341,7 @@ mod tests {
                 "equivalent" => PrintedVerdict::Equivalent,
                 "not_equivalent" => PrintedVerdict::NotEquivalent,
                 "unknown_resolution" => PrintedVerdict::UnknownResolution,
-                "unknown_overshoot" => PrintedVerdict::UnknownOvershoot,
+                "unknown_distance_range" => PrintedVerdict::UnknownDistanceRange,
                 other => panic!("unrecognized fixture verdict: {other}"),
             };
             assert_eq!(

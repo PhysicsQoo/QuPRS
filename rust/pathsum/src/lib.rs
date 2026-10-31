@@ -453,19 +453,19 @@ fn check_equivalence_with_distance_mode(
                 PrintedVerdict::Equivalent => "equivalent",
                 PrintedVerdict::NotEquivalent => "not_equivalent",
                 PrintedVerdict::UnknownResolution => "unknown",
-                PrintedVerdict::UnknownOvershoot => "unknown",
+                PrintedVerdict::UnknownDistanceRange => "unknown",
             });
             wmc_precision_reason = Some(match observed {
                 PrintedVerdict::UnknownResolution if tool_name == "ganak" =>
                     "ganak_point_estimate_resolution_limited",
                 PrintedVerdict::UnknownResolution => "insufficient_printed_resolution",
-                PrintedVerdict::UnknownOvershoot => "nonphysical_printed_magnitude",
+                PrintedVerdict::UnknownDistanceRange => "distance_interval_outside_tolerance",
                 _ => "printed_count_uncertified_solver_arithmetic",
             });
             // Print-only uncertainty does not replace the user's selected
             // Ganak numerical estimate with a third inconclusive verdict.
             // Preserve the raw interval result and a separate resolution
-            // warning; nonphysical overshoots remain inconclusive.
+            // warning; counts outside the distance band remain inconclusive.
             let numeric = if tool_name == "ganak" {
                 crate::precision_count::ganak_midpoint_verdict(
                     count, twice, &eps.to_string(), observed,
@@ -490,7 +490,7 @@ fn check_equivalence_with_distance_mode(
                         }
                     }
                 }
-                PrintedVerdict::UnknownResolution | PrintedVerdict::UnknownOvershoot =>
+                PrintedVerdict::UnknownResolution | PrintedVerdict::UnknownDistanceRange =>
                     EquivalenceStatus::Unknown,
             };
             wmc_time = Some(wmc_start.elapsed().as_secs_f64());

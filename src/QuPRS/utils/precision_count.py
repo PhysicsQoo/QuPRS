@@ -216,7 +216,7 @@ def classify_printed_distance(
     """Compare |count|^2 against 2^k (1 - eps^2) without a f64 cast.
 
     A status here only supports a printed-value numerical heuristic; unknown
-    includes known print-resolution ambiguity and nonphysical overshoot.
+    includes print-resolution ambiguity and counts outside the distance band.
     Caller must separately account for unbounded solver arithmetic/source
     weight error and must not advertise this as an equivalence proof.
 
@@ -246,18 +246,13 @@ def classify_printed_distance(
     hi_im = i + count.imag_print_half_unit + component_error
     magnitude_sq_lower = lo_re * lo_re + lo_im * lo_im
     magnitude_sq_upper = hi_re * hi_re + hi_im * hi_im
-    if magnitude_sq_lower > norm_squared:
-        # A tiny positive printed overshoot below epsilon_D**2 is
-        # numerical noise at the requested distance resolution.
-        if magnitude_sq_upper <= norm_squared * (1 + eps * eps):
-            return PrintedDistanceEvidence(
-                "equivalent", "printed_magnitude_within_distance_tolerance"
-            )
-        return PrintedDistanceEvidence("unknown", "nonphysical_magnitude_overshoot")
+    upper_limit = norm_squared * (1 + eps * eps)
     if magnitude_sq_upper < threshold:
         return PrintedDistanceEvidence("not_equivalent", "printed_distance_exceeds_threshold")
-    if magnitude_sq_lower >= threshold:
+    if magnitude_sq_lower >= threshold and magnitude_sq_upper <= upper_limit:
         return PrintedDistanceEvidence("equivalent", "printed_distance_within_threshold")
+    if magnitude_sq_lower > upper_limit:
+        return PrintedDistanceEvidence("unknown", "distance_interval_outside_tolerance")
     return PrintedDistanceEvidence("unknown", "insufficient_printed_resolution")
 
 

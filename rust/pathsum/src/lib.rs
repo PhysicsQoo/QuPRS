@@ -219,9 +219,31 @@ fn certified_pi_interval() -> &'static (num_rational::BigRational, num_rational:
 /// Enclose the distance, in phase cycles, from a source coefficient to
 /// a requested Clifford target.  The rational source coefficients are never
 /// converted to binary64 or rounded to a target during matching.
-pub(crate) fn phase_cycles_upper_target(
+/// A narrow, rigorously enclosing pi interval with a compact denominator.
+/// The expensive Machin interval is computed once, then rounded outwards.
+/// This bounds the common RR matches without repeated huge-denominator GCDs.
+fn compact_pi_interval() -> &'static (num_rational::BigRational, num_rational::BigRational) {
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    use std::sync::OnceLock;
+    static COMPACT_PI: OnceLock<(BigRational, BigRational)> = OnceLock::new();
+    COMPACT_PI.get_or_init(|| {
+        // 40 decimal digits leave substantial resolution below default RR
+        // and phase tolerances; exact fallback handles tighter boundaries.
+        let scale = BigInt::from(10_u8).pow(40);
+        let scaled = BigRational::from_integer(scale.clone());
+        let (lo, hi) = certified_pi_interval();
+        let lower = (lo.clone() * scaled.clone()).to_integer();
+        let upper = (hi.clone() * scaled).to_integer() + BigInt::from(1);
+        (BigRational::new(lower, scale.clone()),
+         BigRational::new(upper, scale))
+    })
+}
+
+fn phase_cycles_upper_target_with_pi(
     coeff: &PhaseCoeff,
     target: crate::rational::Rational,
+    pi: &(num_rational::BigRational, num_rational::BigRational),
 ) -> num_rational::BigRational {
     use num_bigint::BigInt;
     use num_rational::BigRational;
@@ -233,7 +255,6 @@ pub(crate) fn phase_cycles_upper_target(
         BigInt::from(target.numer), BigInt::from(target.denom)
     );
     let (lo, hi) = if let Some(r) = &coeff.radians {
-        let pi = certified_pi_interval();
         let a = c.clone() + r.clone() / pi.0.clone();
         let b = c + r.clone() / pi.1.clone();
         if a <= b { (a, b) } else { (b, a) }
@@ -258,6 +279,30 @@ pub(crate) fn phase_cycles_upper_target(
         }
     }
     best.expect("nearest-integer candidates are nonempty")
+}
+
+/// Full-strength exact source-radian interval for residual diagnostics.
+pub(crate) fn phase_cycles_upper_target(
+    coeff: &PhaseCoeff,
+    target: crate::rational::Rational,
+) -> num_rational::BigRational {
+    phase_cycles_upper_target_with_pi(coeff, target, certified_pi_interval())
+}
+
+/// The common fast acceptance path is still a mathematical upper bound:
+/// the compact pi interval encloses the true value. A near-boundary case
+/// falls back to the original full Machin interval, preserving semantics.
+pub(crate) fn phase_cycles_within_tolerance(
+    coeff: &PhaseCoeff,
+    target: crate::rational::Rational,
+    tolerance: &num_rational::BigRational,
+) -> bool {
+    if coeff.radians.is_some()
+        && phase_cycles_upper_target_with_pi(coeff, target, compact_pi_interval()) <= *tolerance
+    {
+        return true;
+    }
+    phase_cycles_upper_target(coeff, target) <= *tolerance
 }
 
 fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
@@ -691,6 +736,42 @@ mod exact_global_phase_verdict_tests {
 #[cfg(test)]
 mod verification_options_contract_tests {
     use super::*;
+
+    #[test]
+    fn compact_pi_interval_is_certified_and_strictly_bounded() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let (full_lo, full_hi) = certified_pi_interval();
+        let (fast_lo, fast_hi) = compact_pi_interval();
+        assert!(fast_lo <= full_lo && full_hi <= fast_hi);
+        assert!(fast_hi - fast_lo < BigRational::new(BigInt::from(1), BigInt::from(10_u8).pow(39)));
+    }
+
+    #[test]
+    fn compact_rr_decision_matches_full_pi_near_and_below_threshold() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        use crate::rational::Rational;
+        let phases = [
+            (1_i64, 1_000_000_000_i64),
+            (1, 100_000_000_000),
+            (-1, 10_000_000_000),
+            (1, 10_000_000_000_000),
+        ];
+        for (numer, denom) in phases {
+            let coeff = PhaseCoeff {
+                constant: Rational::QUARTER,
+                radians: Some(BigRational::new(BigInt::from(numer), BigInt::from(denom))),
+                symbols: Default::default(),
+            };
+            for eps in [1e-8_f64, 1e-12, 1e-16, 1e-20, 1e-30, 1e-45] {
+                let tolerance = BigRational::from_float(eps).unwrap();
+                let full = phase_cycles_upper_target(&coeff, Rational::QUARTER) <= tolerance;
+                let compact = phase_cycles_within_tolerance(&coeff, Rational::QUARTER, &tolerance);
+                assert_eq!(full, compact, "failed phase {numer}/{denom} at epsilon {eps}");
+            }
+        }
+    }
 
     #[test]
     fn native_default_thresholds_match_python_public_defaults() {

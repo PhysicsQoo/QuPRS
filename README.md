@@ -159,12 +159,13 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > complex MPFR default; an explicit `gpmc_precision_digits=90` enables 90 digits.
 > This is separate from 192-bit input weights and the projective-distance
 > default `approximate_distance_tolerance=1e-8`. Ganak retains its native
-> printed precision. Ganak uses its printed
-> count's center-point numerical result when rounding intervals are too
-> coarse, and emits a **dynamic warning** calculated from the actual
-> printed complex rounding interval and trace normalization. This result
-> is not certified at the requested distance precision. GPMC can still
-> report `unknown` when resolution is insufficient.
+> printed precision. **Both** GPMC and Ganak classify finite solver counts
+> using the same center-value projective distance threshold. Printed
+> rounding intervals (including values above the ideal unitary magnitude)
+> are retained as precision diagnostics; they do not change the numerical
+> equivalence verdict to `unknown`. Ganak additionally reports a dynamic
+> print-resolution warning. Such numerical verdicts are not certificates
+> of internal solver accuracy or source-exact circuit equivalence.
 > An **unweighted, tautological CNF** matching the exact trace normalization
 > is counted algebraically (including one-qubit I versus I), with
 > `wmc_solver_invoked=False` and `analytic_unweighted_tautology` provenance.

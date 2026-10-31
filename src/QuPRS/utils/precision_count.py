@@ -303,8 +303,8 @@ def classify_observed_distance(
 ) -> tuple[str, PrintedDistanceEvidence]:
     """Numerical label for a high-precision printed complex count.
 
-    The interval comparison is exact rational; the caller must separately
-    justify any source/solver arithmetic assumptions behind component_error.
+    The point-estimate distance comparison is exact rational; the separate
+    printed interval is retained as uncertified resolution diagnostics.
     Phase classification divides by an exact rational L1 scale before float
     conversion, preventing overflow for large counts.
     """
@@ -312,20 +312,15 @@ def classify_observed_distance(
         count, normalization_twice_log2, distance_tolerance,
         component_error=component_error,
     )
-    if evidence.status == "unknown" and ganak_point_estimate and (
-        evidence.reason == "insufficient_printed_resolution"
-    ):
-        # The strict output-format interval cannot decide at this epsilon.
-        # As an explicitly uncertified Ganak observation, use the printed
-        # complex count's center point; retain the 'unknown' raw evidence
-        # for diagnostics and emit the caller's resolution warning.
-        norm_squared = Fraction(2) ** normalization_twice_log2
-        eps = Fraction(Decimal(str(distance_tolerance)))
-        magnitude_sq = count.real**2 + count.imag**2
-        if magnitude_sq < norm_squared * (1 - eps**2):
-            return "not_equivalent", evidence
-    elif evidence.status != "equivalent":
-        return evidence.status, evidence
+    # A single distance rule applies to GPMC and Ganak. The printed
+    # rounding interval determines warnings/provenance only; do not let
+    # its 'unknown' status veto an otherwise usable numeric observation.
+    # Retain ganak_point_estimate for compatibility with existing callers.
+    norm_squared = Fraction(2) ** normalization_twice_log2
+    eps = Fraction(Decimal(str(distance_tolerance)))
+    magnitude_sq = count.real**2 + count.imag**2
+    if magnitude_sq < norm_squared * (1 - eps * eps):
+        return "not_equivalent", evidence
     scale = abs(count.real) + abs(count.imag)
     if scale == 0:
         return "unknown", PrintedDistanceEvidence("unknown", "zero_phase_reference")

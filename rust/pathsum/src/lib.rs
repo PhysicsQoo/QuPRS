@@ -462,15 +462,14 @@ fn check_equivalence_with_distance_mode(
                 PrintedVerdict::UnknownDistanceRange => "distance_interval_outside_tolerance",
                 _ => "printed_count_uncertified_solver_arithmetic",
             });
-            // Print-only uncertainty does not replace the user's selected
-            // Ganak numerical estimate with a third inconclusive verdict.
-            // Preserve the raw interval result and a separate resolution
-            // warning; counts outside the distance band remain inconclusive.
-            let numeric = if tool_name == "ganak" {
-                crate::precision_count::ganak_midpoint_verdict(
-                    count, twice, &eps.to_string(), observed,
-                )?
-            } else { observed };
+            // Printed-rounding intervals are only diagnostics. Both GPMC
+            // and Ganak use the same projective-distance decision based on
+            // their finite printed count's center value. An overshoot or
+            // coarse stdout can warn, but cannot override the distance.
+            // Keep observed for wmc_printed_verdict and precision provenance.
+            let numeric = crate::precision_count::observed_distance_verdict(
+                count, twice, &eps.to_string(),
+            )?;
             status = match numeric {
                 PrintedVerdict::NotEquivalent => EquivalenceStatus::NotEquivalent,
                 PrintedVerdict::Equivalent => {

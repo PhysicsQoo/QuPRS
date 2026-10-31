@@ -213,18 +213,23 @@ pub fn classify_with_uncertainty(
 
 
 
-/// Ganak's explicitly uncertified midpoint verdict is used only when the
-/// strict printed-rounding interval straddles the requested distance.
-/// Keep the raw PrintedVerdict intact for diagnostics and warning metadata.
-pub fn ganak_midpoint_verdict(
+/// Numerical point-estimate classification for both WMC solvers.
+////
+/// Printed rounding intervals are diagnostic only; even if the observed
+/// magnitude exceeds the ideal unitary limit, the same requested projective
+/// distance is used. Finite count values are not solver-error certificates.
+pub fn observed_distance_verdict(
     count: &PrintedCount, normalization_twice_log2: i32, epsilon: &str,
-    raw: PrintedVerdict,
 ) -> Result<PrintedVerdict> {
-    if raw != PrintedVerdict::UnknownResolution {
-        return Ok(raw);
+    if normalization_twice_log2.abs() > MAX_EXP {
+        return Err(anyhow!("Normalization outside bounded precision transport"));
     }
     let (eps, _) = component(epsilon)?;
+    let zero = BigRational::zero();
     let one = BigRational::from_integer(BigInt::from(1));
+    if eps <= zero || eps >= one {
+        return Err(anyhow!("Distance tolerance must be in (0,1)"));
+    }
     let normal_sq = BigRational::from_integer(BigInt::from(2))
         .pow(normalization_twice_log2);
     let midpoint_sq = &count.real * &count.real + &count.imag * &count.imag;
@@ -233,6 +238,16 @@ pub fn ganak_midpoint_verdict(
     } else {
         Ok(PrintedVerdict::NotEquivalent)
     }
+}
+
+/// Compatibility helper for existing Ganak diagnostics. All solvers use
+/// the same midpoint distance rule; the raw interval verdict is retained
+/// by the caller as precision provenance only.
+pub fn ganak_midpoint_verdict(
+    count: &PrintedCount, normalization_twice_log2: i32, epsilon: &str,
+    _raw: PrintedVerdict,
+) -> Result<PrintedVerdict> {
+    observed_distance_verdict(count, normalization_twice_log2, epsilon)
 }
 
 /// Derive the finite-output projective-distance resolution from *actual*
@@ -372,6 +387,27 @@ mod tests {
             classify(&count, 0, "1e-8").unwrap(),
             PrintedVerdict::UnknownResolution,
         );
+    }
+
+    #[test]
+    fn common_point_distance_overrides_printed_unknown_for_both_solvers() {
+        let large = parse_stdout(
+            "c o precision 30\nc s exact double prec-sci 0 + 1.000000000001i",
+        ).unwrap();
+        assert_eq!(classify(&large, 0, "1e-8").unwrap(), PrintedVerdict::UnknownDistanceRange);
+        assert_eq!(observed_distance_verdict(&large, 0, "1e-8").unwrap(),
+                   PrintedVerdict::Equivalent);
+        let coarse = parse_stdout(
+            "c s exact octuple float 0 + 1.00000000e+00i",
+        ).unwrap();
+        assert_eq!(classify(&coarse, 0, "1e-8").unwrap(), PrintedVerdict::UnknownResolution);
+        assert_eq!(observed_distance_verdict(&coarse, 0, "1e-8").unwrap(),
+                   PrintedVerdict::Equivalent);
+        let distinct = parse_stdout(
+            "c o precision 30\nc s exact double prec-sci 0 + 0.999999999999i",
+        ).unwrap();
+        assert_eq!(observed_distance_verdict(&distinct, 0, "1e-8").unwrap(),
+                   PrintedVerdict::NotEquivalent);
     }
 
     #[test]

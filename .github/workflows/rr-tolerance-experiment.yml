@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: rr-experiment-${{ github.ref }}
@@ -68,3 +69,13 @@ jobs:
             --junit rr-experiment-complete.xml \
             --json rr-experiment-evidence.json \
             --markdown rr-experiment-evidence.md
+      - name: CodSpeed native RR CPU regression probe
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'false'
+          run: >-
+            python -m pytest test/test_MQT.py --codspeed -q
+            -k "(graphstate or vqe or qft) and gpmc and rust"

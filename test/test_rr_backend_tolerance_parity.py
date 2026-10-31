@@ -23,6 +23,8 @@ qreg q[1];
         ("0.00000000002", 1e-10, "equivalent"),
         ("0.00000000002", 1e-12, "not_equivalent"),
         ("0.00001", 1e-10, "not_equivalent"),
+        ("0", 0, "equivalent"),
+        ("0.00000000002", 0, "not_equivalent"),
     ),
 )
 def test_rr_tolerance_parity_for_exact_qasm_decimals(backend, angle, epsilon, expected):

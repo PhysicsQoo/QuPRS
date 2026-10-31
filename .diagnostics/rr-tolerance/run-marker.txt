@@ -1,1 +1,1 @@
-Candidate 5: complete Python 1300+ test suite and benchmark evidence; exact Graphstate16 independent source certificate; Rust/Python focused parity.
+Candidate 6: conservative compact π bounds, full Rust/Python scientific gate, CodSpeed native RR CPU sampling at exact experiment HEAD.

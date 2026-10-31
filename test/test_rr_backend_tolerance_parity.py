@@ -39,8 +39,8 @@ def test_rr_tolerance_parity_for_exact_qasm_decimals(backend, angle, epsilon, ex
     assert result.wmc_solver_invoked is False
     assert result.tool_time is None
     if expected == "equivalent":
-        assert result.rr_approximate is True, (
-            "Nonzero exact source-angle residual must be reported as approximate",
+        assert result.rr_approximate is (angle != "0"), (
+            "Only a nonzero source-angle residual needs an approximate RR match",
             backend, angle,
         )
 

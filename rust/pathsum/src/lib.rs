@@ -143,8 +143,8 @@ pub fn check_equivalence_with_options(
     if options.tool_name != "gpmc" && options.gpmc_precision_digits != 30 {
         return Err(anyhow::anyhow!("gpmc_precision_digits=90 only applies to GPMC"));
     }
-    if !options.rr_tolerance.is_finite() || options.rr_tolerance <= 0.0 {
-        return Err(anyhow::anyhow!("rr_tolerance must be finite and positive"));
+    if !options.rr_tolerance.is_finite() || options.rr_tolerance < 0.0 {
+        return Err(anyhow::anyhow!("rr_tolerance must be finite and non-negative"));
     }
     if !options.phase_tolerance.is_finite() || options.phase_tolerance <= 0.0
         || options.phase_tolerance >= 1.0 {
@@ -354,8 +354,8 @@ fn check_equivalence_with_distance_mode(
     approximate_distance_tolerance: Option<f64>,
     gpmc_precision_digits: u32,
 ) -> Result<EquivalenceCheckResult> {
-    if !rr_tolerance.is_finite() || rr_tolerance <= 0.0 {
-        return Err(anyhow::anyhow!("rr_tolerance must be finite and positive"));
+    if !rr_tolerance.is_finite() || rr_tolerance < 0.0 {
+        return Err(anyhow::anyhow!("rr_tolerance must be finite and non-negative"));
     }
     if !wmc_phase_tolerance.is_finite() || wmc_phase_tolerance <= 0.0
         || wmc_phase_tolerance >= 1.0 {

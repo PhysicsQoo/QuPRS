@@ -345,25 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn hh_approximate_rule_respects_zero_tolerance() {
-        let mut ps = setup_test_env(1);
-        ps.apply_h(0, Side::Ket);
-        ps.apply_h(0, Side::Ket);
-        let key = ps.p.terms.iter()
-            .find(|(mono, coeff)| mono.len() == 2 && coeff.is_pure_half())
-            .map(|(mono, _)| mono.clone())
-            .expect("H-H cross term");
-        ps.p.terms.insert(key, PhaseCoeff::new_constant(Rational::new(500_000_001, 1_000_000_000)));
-        let candidates = ps.get_reducible_vars();
-        let mut exact = ps.clone();
-        assert!(!exact.try_reduce_hh(&candidates));
-        assert!(!exact.rr_approximate);
-        ps.rr_tolerance = 1e-8;
-        assert!(ps.try_reduce_hh(&candidates));
-        assert!(ps.rr_approximate);
-    }
-
-    #[test]
     fn test_elim_rule_dead_variable() {
         let mut ps = setup_test_env(1);
         

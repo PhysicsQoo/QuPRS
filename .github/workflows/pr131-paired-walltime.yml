@@ -111,7 +111,10 @@ jobs:
           )
           print("PR131_RESULT " + json.dumps({
               "case": key, "verdict": str(result.equivalent),
-              "solver_invoked": result.wmc_solver_invoked,
+              "solver_invoked": getattr(
+                  result, "wmc_solver_invoked",
+                  getattr(result, "tool_time", None) is not None,
+              ),
           }, sort_keys=True))
           PY
           cat > "$RUNNER_TEMP/test_pr131_paired_walltime.py" <<'PY'

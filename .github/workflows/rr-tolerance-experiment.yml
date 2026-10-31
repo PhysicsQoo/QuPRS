@@ -61,3 +61,10 @@ jobs:
         run: |
           python -m pytest -q -ra test/test_graphstate16_source_contract.py
           python -m pytest -q -ra test/test_MQT.py -k graphstate
+      - name: Complete Python and benchmark evidence gate
+        run: |
+          python -m pytest -n auto -q -ra --junitxml=rr-experiment-complete.xml
+          python scripts/check_benchmark_evidence.py \
+            --junit rr-experiment-complete.xml \
+            --json rr-experiment-evidence.json \
+            --markdown rr-experiment-evidence.md

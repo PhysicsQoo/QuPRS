@@ -135,7 +135,12 @@ jobs:
           def test_same_host_walltime(benchmark, case, variant):
               result = benchmark(execute_case, variant, case)
               assert result["case"] == case
-              assert result["verdict"] in ("equivalent", "equivalent*")
+              # Older dev and the PR can apply different tolerance policies,
+              # especially for Graphstate16. Record both verdicts explicitly;
+              # do not silently rebaseline or claim identical work.
+              assert result["verdict"] in (
+                  "equivalent", "equivalent*", "not_equivalent", "unknown"
+              )
               benchmark.extra_info.update({
                   "source_variant": variant,
                   "source_sha": os.environ["BASE_SHA"] if variant == "base" else os.environ["PR_SHA"],

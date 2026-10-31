@@ -3,6 +3,14 @@
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 
+fn parse_gpmc_precision(text: &str) -> Result<u32, String> {
+    match text {
+        "30" => Ok(30),
+        "90" => Ok(90),
+        _ => Err("gpmc precision must be 30 or 90".to_string()),
+    }
+}
+
 /// QuPRS: Quantum Path-sum Reduction System (Rust Core)
 #[derive(Parser, Debug)]
 #[command(name = "QuPRS-CLI")]
@@ -47,7 +55,7 @@ pub struct Cli {
     pub approximate_distance_tolerance: Option<f64>,
 
     /// GPMC MPFR arithmetic digits: 30 default or 90 explicitly.
-    #[arg(long = "gpmc-precision", value_name = "DIGITS", value_parser = [30_u32, 90_u32])]
+    #[arg(long = "gpmc-precision", value_name = "DIGITS", value_parser = parse_gpmc_precision)]
     pub gpmc_precision_digits: Option<u32>,
 
     /// RR residual-phase tolerance in cycles, independent of WMC (default 1e-10).

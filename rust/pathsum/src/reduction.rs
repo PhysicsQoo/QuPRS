@@ -6,6 +6,19 @@ use crate::rational::{PhaseCoeff, Rational};
 use crate::stats::RuleType;
 
 impl PathSum {
+    /// Match a Clifford phase in cycles, retaining exact symbolic source terms.
+    fn rr_matches(&self, coeff: &PhaseCoeff, target: Rational) -> bool {
+        if coeff.symbols.len() != 0 { return false; }
+        if coeff.radians.is_none() && coeff.constant == target { return true; }
+        if self.rr_tolerance == 0.0 { return false; }
+        let value = coeff.constant.numer as f64 / coeff.constant.denom as f64
+            + coeff.radians.as_ref().and_then(num_traits::ToPrimitive::to_f64)
+                .map(|r| r / std::f64::consts::PI).unwrap_or(0.0);
+        let expected = target.numer as f64 / target.denom as f64;
+        let delta = (value - expected).rem_euclid(1.0);
+        delta.min(1.0 - delta) < self.rr_tolerance
+    }
+
     pub fn get_reducible_vars(&self) -> Vec<u32> {
         let mut timer = crate::diagnostics::time_rule("candidate_discovery", 0);
         let f_used_vars = self.f.get_used_vars();
@@ -103,13 +116,15 @@ impl PathSum {
             let mut phi: FxHashSet<Monomial> = FxHashSet::default();
             let mut is_valid_hh = true;
             let mut y_terms_to_remove = Vec::new();
+            let mut approximate_match = false;
 
             for (mono, coeff) in &self.p.terms {
                 if mono.contains(&var) {
-                    if !coeff.is_pure_half() {
+                    if !self.rr_matches(coeff, Rational::HALF) {
                         is_valid_hh = false;
                         break;
                     }
+                    approximate_match |= !coeff.is_pure_half();
                     y_terms_to_remove.push(mono.clone());
                     
                     let mut phi_term = mono.clone();
@@ -181,6 +196,7 @@ impl PathSum {
                 self.v.path_vars.remove(&v);
             }
             
+            self.rr_approximate |= approximate_match;
             self.stats.record_success(RuleType::HH);
             if let Some(clock) = timer.as_mut() { clock.mark_success(); }
             return true;
@@ -193,13 +209,13 @@ impl PathSum {
         for (mono, coeff) in &self.p.terms {
             if mono.contains(&y) {
                 if mono.len() == 1 {
-                    if coeff.is_pure_quarter() || coeff.is_pure_three_quarters() {
+                    if self.rr_matches(coeff, Rational::QUARTER) || self.rr_matches(coeff, Rational::THREE_QUARTERS) {
                         has_c0 = true;
                     } else {
                         return false; 
                     }
                 } else {
-                    if !coeff.is_pure_half() {
+                    if !self.rr_matches(coeff, Rational::HALF) {
                         return false; 
                     }
                 }
@@ -231,13 +247,16 @@ impl PathSum {
         let mut phi = rustc_hash::FxHashSet::default();
         let mut c0 = Rational::ZERO;
         let mut y_terms_to_remove = Vec::new();
+        let mut approximate_match = false;
 
         for (mono, coeff) in &self.p.terms {
             if mono.contains(&y) {
                 y_terms_to_remove.push(mono.clone());
                 if mono.len() == 1 {
-                    c0 = coeff.constant;
+                    c0 = if self.rr_matches(coeff, Rational::QUARTER) { Rational::QUARTER } else { Rational::THREE_QUARTERS };
+                    approximate_match |= !coeff.is_pure_fraction(c0.numer, c0.denom);
                 } else {
+                    approximate_match |= !coeff.is_pure_half();
                     let mut phi_term = mono.clone();
                     phi_term.retain(|&v| v != y);
                     if phi.contains(&phi_term) {
@@ -274,6 +293,7 @@ impl PathSum {
         
         debug!("[Omega Rule] Integrated out variable: {} (generated Phase Gadget)", self.v.fmt_var(y));
 
+        self.rr_approximate |= approximate_match;
         self.stats.record_success(RuleType::Omega);
         if let Some(clock) = timer.as_mut() { clock.mark_success(); }
         true

@@ -59,9 +59,29 @@ def test_python_real_solver_runs_once(monkeypatch, solver, method):
     assert result.equivalent == "not_equivalent"
     assert len(calls) == 1, (solver, method, calls)
     assert calls[0][1]["preserve_count"] is True
-    assert calls[0][1]["precision_digits"] == (
-        90 if solver == "gpmc" else None
+    # Default GPMC complex precision is an effective 30 digits without
+    # explicitly setting the solver CLI -prec flag. Ganak is unchanged.
+    assert calls[0][1]["precision_digits"] is None
+
+
+def test_explicit_gpmc_90_digit_mode_runs_once(monkeypatch):
+    from QuPRS.interface import ps2wmc
+    calls = []
+    real_run = ps2wmc.run_wmc
+
+    def capture_run(*args, **kwargs):
+        calls.append(kwargs.get("precision_digits"))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(ps2wmc, "run_wmc", capture_run)
+    result = check_equivalence(
+        PREFIX, rotated("0.00048"), backend="python",
+        method="wmc_only", tool_name="gpmc", strategy="Naive",
+        timeout=45, approximate_distance_tolerance=2e-4,
+        gpmc_precision_digits=90,
     )
+    assert result.equivalent == "not_equivalent", result.wmc_precision_reason
+    assert calls == [90]
 
 
 def test_rr_decided_hybrid_does_not_run_wmc(monkeypatch):

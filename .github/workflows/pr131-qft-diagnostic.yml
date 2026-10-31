@@ -267,6 +267,51 @@ jobs:
           test "$(git rev-parse HEAD)" = "$PR_SHA"
           maturin develop --release -E dev
 
+      - name: Scientific boundary comparison for GPMC 30 and 90 digits
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from QuPRS import check_equivalence
+
+          root = Path.cwd() / "benchmarks" / "MQTBench"
+          cases = [
+              ("vqe4", "vqe_nativegates_ibm_qiskit_opt0_4.qasm"),
+              ("qaoa7", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+              ("qft16", "qft_nativegates_ibm_qiskit_opt0_16.qasm"),
+          ]
+          observations = []
+          for name, file_name in cases:
+              a = str(root / file_name)
+              b = str(root / "h,ry,rz,cx" / file_name)
+              for backend in ("python", "rust"):
+                  for digits in (30, 90):
+                      result = check_equivalence(
+                          a, b, method="hybrid", strategy="proportional",
+                          tool_name="gpmc", backend=backend, timeout=240,
+                          approximate_distance_tolerance=1e-8,
+                          gpmc_precision_digits=digits,
+                      )
+                      entry = {
+                          "case": name, "backend": backend,
+                          "precision_digits": digits,
+                          "verdict": str(result.equivalent),
+                          "precision_reason": str(result.wmc_precision_reason),
+                          "printed_verdict": str(result.wmc_printed_verdict),
+                          "solver_invoked": result.wmc_solver_invoked,
+                          "rr_approximate": result.rr_approximate,
+                      }
+                      observations.append(entry)
+                      print("GPMC_PRECISION_DIAG", json.dumps(entry, sort_keys=True), flush=True)
+          output = Path(__import__("os").environ["RUNNER_TEMP"]) / "qft131-evidence" / "precision_boundary.json"
+          output.write_text(json.dumps(observations, indent=2, sort_keys=True) + "\n")
+          # Do not turn a failed scientific verdict into a test pass; record
+          # both modes so the release gate can make an evidence-based decision.
+          PY
+
       - name: CodSpeed simulation with solver subprocess tracing
         uses: CodSpeedHQ/action@v5
         with:

@@ -1,1 +1,1 @@
-Focused RR tolerance correctness check, candidate 1.
+Focused RR tolerance correctness check, candidate 2: exact-zero provenance and Python/Rust interface parity.

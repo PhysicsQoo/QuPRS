@@ -247,6 +247,12 @@ def classify_printed_distance(
     magnitude_sq_lower = lo_re * lo_re + lo_im * lo_im
     magnitude_sq_upper = hi_re * hi_re + hi_im * hi_im
     if magnitude_sq_lower > norm_squared:
+        # A tiny positive printed overshoot below epsilon_D**2 is
+        # numerical noise at the requested distance resolution.
+        if magnitude_sq_upper <= norm_squared * (1 + eps * eps):
+            return PrintedDistanceEvidence(
+                "equivalent", "printed_magnitude_within_distance_tolerance"
+            )
         return PrintedDistanceEvidence("unknown", "nonphysical_magnitude_overshoot")
     if magnitude_sq_upper < threshold:
         return PrintedDistanceEvidence("not_equivalent", "printed_distance_exceeds_threshold")

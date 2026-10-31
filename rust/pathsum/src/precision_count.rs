@@ -202,7 +202,14 @@ pub fn classify_with_uncertainty(
     let max_im = &im + &count.imag_half_unit + component_error;
     let low = &min_re * &min_re + &min_im * &min_im;
     let high = &max_re * &max_re + &max_im * &max_im;
-    if low > normal_sq { Ok(PrintedVerdict::UnknownOvershoot) }
+    // Accept printed solver noise smaller than the caller's projective
+    // distance resolution. In particular, a tiny positive |Tr|² overshoot
+    // must not prevent the subsequent global-phase classification.
+    let upper_limit = &normal_sq * (&one + &eps * &eps);
+    if low > normal_sq {
+        if high <= upper_limit { Ok(PrintedVerdict::Equivalent) }
+        else { Ok(PrintedVerdict::UnknownOvershoot) }
+    }
     else if high < threshold { Ok(PrintedVerdict::NotEquivalent) }
     else if low >= threshold { Ok(PrintedVerdict::Equivalent) }
     else { Ok(PrintedVerdict::UnknownResolution) }
@@ -306,6 +313,23 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn tiny_overshoot_is_equivalent_within_distance_resolution() {
+        let tiny = parse_stdout(
+            "c o precision 30\nc s exact double prec-sci 0 + 1.00000000000000000000000000001i"
+        ).unwrap();
+        assert_eq!(classify(&tiny, 0, "1e-8").unwrap(), PrintedVerdict::Equivalent);
+        assert_eq!(classify(&tiny, 0, "1e-16").unwrap(), PrintedVerdict::UnknownOvershoot);
+        let large = parse_stdout(
+            "c o precision 30\nc s exact double prec-sci 0 + 1.000000000001i"
+        ).unwrap();
+        assert_eq!(classify(&large, 0, "1e-8").unwrap(), PrintedVerdict::UnknownOvershoot);
+        let distinct = parse_stdout(
+            "c o precision 30\nc s exact double prec-sci 0 + 0.999999999999i"
+        ).unwrap();
+        assert_eq!(classify(&distinct, 0, "1e-8").unwrap(), PrintedVerdict::NotEquivalent);
+    }
 
     #[test]
     fn python_rust_printed_distance_contract_fixtures() {

@@ -172,11 +172,12 @@ jobs:
                   if record["solver_spawns"] not in (0, None):
                       raise AssertionError("RR-only Graphstate16 spawned a solver")
                   if record["status"] not in ("Equivalent", "Equivalent (Up to Global Phase)"):
-                      raise AssertionError(
-                          "RR-only Graphstate16 did not verify equivalent: "
-                          f"variant={variant}, status={record['status']!r}, "
-                          f"rr_approximate={record['rr_approximate']!r}, "
-                          f"stage_ledger={ledger!r}, output_stats={record['output_stats']!r}"
+                      print(
+                          "SCIENTIFIC_MISMATCH Graphstate16 RR-only "
+                          f"variant={variant} status={record['status']!r} "
+                          f"rr_approximate={record['rr_approximate']!r} "
+                          f"solver_spawns={record['solver_spawns']!r}",
+                          flush=True,
                       )
               results.append(record)
               print(label, "verdict", record["status"],
@@ -263,6 +264,17 @@ jobs:
                     "pr_clauses", target["clauses"] if target else None,
                     flush=True)
           (root / "cnf-comparison.json").write_text(json.dumps(pairs, sort_keys=True, indent=2) + "\n")
+          # Keep the scientific gate strict, but collect all revisions first.
+          invalid = [
+              (variant, case["status"])
+              for variant, doc in records.items()
+              for case in doc["cases"]
+              if case["case"] == "graphstate16"
+              and case["status"] not in ("Equivalent", "Equivalent (Up to Global Phase)")
+          ]
+          if invalid:
+              raise AssertionError(f"Graphstate16 expected equivalence; observed {invalid!r}")
+
           PY
 
       - name: Upload diagnostic evidence

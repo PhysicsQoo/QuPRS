@@ -805,6 +805,33 @@ mod verification_options_contract_tests {
     }
 
     #[test]
+    fn hybrid_fallback_wmc_uses_unrounded_source_after_approximate_rr() {
+        use crate::ir::QuantumOp;
+        use crate::rational::{Angle, FreeRational};
+        let source = vec![
+            QuantumOp::RZ(0, Angle::new_constant(FreeRational::new(1, 1_000_000_000))),
+            QuantumOp::X(0),
+        ];
+        let mut settings = VerificationOptions {
+            method: VerificationMethod::Hybrid,
+            strategy: VerificationStrategy::Naive,
+            rr_tolerance: 1e-8,
+            ..VerificationOptions::default()
+        };
+        let hybrid = check_equivalence_with_options(1, &[], &source, &settings)
+            .expect("Hybrid one-qubit fallback");
+        settings.method = VerificationMethod::WmcOnly;
+        let exact = check_equivalence_with_options(1, &[], &source, &settings)
+            .expect("WMC-only source reference");
+        assert!(hybrid.rr_approximate, "RR must record removal of a tiny phase");
+        assert!(hybrid.solver_invoked, "unresolved Hybrid must invoke WMC");
+        assert_eq!(hybrid.final_ps.p.terms, exact.final_ps.p.terms,
+            "WMC fallback cannot use the approximately rounded RR polynomial");
+        assert_eq!(hybrid.final_ps.f.functions, exact.final_ps.f.functions);
+        assert_eq!(hybrid.status, exact.status);
+    }
+
+    #[test]
     fn rr_residual_aggregate_bound_is_shared_by_rr_only_and_hybrid() {
         use crate::rational::Rational;
         let mut ps = PathSum::new(2);

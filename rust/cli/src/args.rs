@@ -46,6 +46,10 @@ pub struct Cli {
           value_name = "EPSILON")]
     pub approximate_distance_tolerance: Option<f64>,
 
+    /// GPMC MPFR arithmetic digits: 30 default or 90 explicitly.
+    #[arg(long = "gpmc-precision", value_name = "DIGITS", value_parser = [30_u32, 90_u32])]
+    pub gpmc_precision_digits: Option<u32>,
+
     /// RR residual-phase tolerance in cycles, independent of WMC (default 1e-10).
     #[arg(long = "rr-tolerance", value_name = "CYCLES")]
     pub rr_tolerance: Option<f64>,
@@ -87,6 +91,7 @@ mod tests {
         assert_eq!(cli.approximate_distance_tolerance, None);
         assert_eq!(cli.phase_tolerance, None);
         assert_eq!(cli.rr_tolerance, None);
+        assert_eq!(cli.gpmc_precision_digits, None);
     }
 
     #[test]
@@ -111,6 +116,17 @@ mod tests {
         ]).unwrap();
         assert_eq!(alias.approximate_distance_tolerance, Some(1e-8));
         assert_eq!(alias.phase_tolerance, Some(1e-8));
+    }
+
+    #[test]
+    fn explicit_gpmc_precision_flag() {
+        let cli = Cli::try_parse_from([
+            "QuPRS-CLI", "a.qasm", "b.qasm", "--gpmc-precision", "90",
+        ]).unwrap();
+        assert_eq!(cli.gpmc_precision_digits, Some(90));
+        assert!(Cli::try_parse_from([
+            "QuPRS-CLI", "a.qasm", "b.qasm", "--gpmc-precision", "15",
+        ]).is_err());
     }
 
     #[test]

@@ -197,6 +197,7 @@ def check_equivalence(
     approximate_distance_tolerance: float | None = 1e-8,
     rr_tolerance: float | None = None,
     phase_tolerance: float | None = None,
+    gpmc_precision_digits: int = 30,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -244,6 +245,8 @@ def check_equivalence(
             distance threshold in (0, 1), default 1e-8. None means the
             same default, not the removed magnitude classifier. Near-boundary
             printed Solver output may return unknown, not a formal certificate.
+        gpmc_precision_digits (int): GPMC complex MPFR output/working digits:
+            30 by default or explicitly 90. Independent from distance tolerance.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
@@ -270,6 +273,10 @@ def check_equivalence(
         or not math.isfinite(wmc_phase_tolerance)
         or not 0 < wmc_phase_tolerance < 1):
         raise ValueError("wmc_phase_tolerance must be finite and in (0, 1)")
+    if type(gpmc_precision_digits) is not int or gpmc_precision_digits not in (30, 90):
+        raise ValueError("gpmc_precision_digits must be 30 or 90")
+    if tool_name != "gpmc" and gpmc_precision_digits != 30:
+        raise ValueError("gpmc_precision_digits=90 only applies to GPMC")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -345,6 +352,7 @@ def check_equivalence(
                                     approximate_distance_tolerance=approximate_distance_tolerance,
                                     rr_tolerance=rr_tolerance,
                                     phase_tolerance=wmc_phase_tolerance,
+                                    gpmc_precision_digits=gpmc_precision_digits,
                                 )
                         finally:
                             if previous_path is None:
@@ -599,7 +607,8 @@ def check_equivalence(
                         temp_name, tool_name,
                         timeout=max(0.0, deadline - time.monotonic()),
                         preserve_count=True,
-                        precision_digits=90 if tool_name == "gpmc" else None,
+                        precision_digits=(90 if gpmc_precision_digits == 90 else None)
+                        if tool_name == "gpmc" else None,
                     )
                     equivalent, evidence = classify_observed_distance(
                         counted, twice, approximate_distance_tolerance,

@@ -76,6 +76,9 @@ pub fn run_dual_circuit_mode(cli: &Cli, file2_path: &std::path::Path) -> Result<
     if let Some(rr) = cli.rr_tolerance {
         options.rr_tolerance = rr;
     }
+    if let Some(digits) = cli.gpmc_precision_digits {
+        options.gpmc_precision_digits = digits;
+    }
     let result = check_equivalence_with_options(
         system_qubits, &ops1, &ops2, &options,
     ).context("Core verification engine failed")?;
@@ -108,9 +111,9 @@ pub fn run_dual_circuit_mode(cli: &Cli, file2_path: &std::path::Path) -> Result<
 /// Executes the single-circuit reduction mode (Mode B)
 pub fn run_single_circuit_mode(cli: &Cli) -> Result<()> {
     if cli.approximate_distance_tolerance.is_some() || cli.phase_tolerance.is_some()
-        || cli.rr_tolerance.is_some() {
+        || cli.rr_tolerance.is_some() || cli.gpmc_precision_digits.is_some() {
         anyhow::bail!(
-            "RR, distance and phase tolerances require two circuits for verification"
+            "RR, distance, phase and GPMC precision settings require two circuits for verification"
         );
     }
     let (ops1, num_qubits1) = pathsum::qasm::parse_file(&cli.file1)

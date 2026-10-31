@@ -109,6 +109,8 @@ pub struct VerificationOptions {
     pub rr_tolerance: f64,
     pub phase_tolerance: f64,
     pub approximate_distance_tolerance: Option<f64>,
+    /// GPMC complex MPFR digits: 30 by default, explicitly 90 if requested.
+    pub gpmc_precision_digits: u32,
 }
 
 impl Default for VerificationOptions {
@@ -122,6 +124,7 @@ impl Default for VerificationOptions {
             rr_tolerance: 1e-10,
             phase_tolerance: 1e-8,
             approximate_distance_tolerance: Some(1e-8),
+            gpmc_precision_digits: 30,
         }
     }
 }
@@ -134,6 +137,12 @@ pub fn check_equivalence_with_options(
     gates2: &[QuantumOp],
     options: &VerificationOptions,
 ) -> Result<EquivalenceCheckResult> {
+    if options.gpmc_precision_digits != 30 && options.gpmc_precision_digits != 90 {
+        return Err(anyhow::anyhow!("gpmc_precision_digits must be 30 or 90"));
+    }
+    if options.tool_name != "gpmc" && options.gpmc_precision_digits != 30 {
+        return Err(anyhow::anyhow!("gpmc_precision_digits=90 only applies to GPMC"));
+    }
     if !options.rr_tolerance.is_finite() || options.rr_tolerance <= 0.0 {
         return Err(anyhow::anyhow!("rr_tolerance must be finite and positive"));
     }
@@ -156,6 +165,7 @@ pub fn check_equivalence_with_options(
         effective_phase,
         options.rr_tolerance,
         options.approximate_distance_tolerance,
+        options.gpmc_precision_digits,
     )
 }
 
@@ -266,6 +276,7 @@ fn check_equivalence_with_distance_mode(
     wmc_phase_tolerance: f64,
     rr_tolerance: f64,
     approximate_distance_tolerance: Option<f64>,
+    gpmc_precision_digits: u32,
 ) -> Result<EquivalenceCheckResult> {
     if !rr_tolerance.is_finite() || rr_tolerance <= 0.0 {
         return Err(anyhow::anyhow!("rr_tolerance must be finite and positive"));
@@ -404,7 +415,9 @@ fn check_equivalence_with_distance_mode(
         let mut printed_count = None;
         if !analytic_identity {
             solver_invoked = true;
-            match wmc_mgr.solve_with_deadline_distance_printed(tool_name, deadline) {
+            match wmc_mgr.solve_with_deadline_distance_printed_precision(
+                tool_name, deadline, gpmc_precision_digits,
+            ) {
                 Ok(value) => { printed_count = Some(value); }
                 Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
                     status = EquivalenceStatus::Timeout;
@@ -588,6 +601,7 @@ mod verification_options_contract_tests {
         assert_eq!(options.timeout_secs, 600);
         assert_eq!(options.wmc_phase_tolerance, 1e-8);
         assert_eq!(options.approximate_distance_tolerance, Some(1e-8));
+        assert_eq!(options.gpmc_precision_digits, 30);
     }
 
     #[test]

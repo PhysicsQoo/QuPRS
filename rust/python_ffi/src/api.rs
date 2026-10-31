@@ -42,7 +42,7 @@ fn extract_circuit(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<QuantumOp>, usize)> 
 }
 
 #[pyfunction]
-#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=Some(1e-8), rr_tolerance=1e-10, phase_tolerance=None))]
+#[pyo3(signature = (circuit1, circuit2, method="hybrid", strategy="Difference", tool_name="gpmc", timeout=600, safe_mode=false, wmc_phase_tolerance=1e-8, approximate_distance_tolerance=Some(1e-8), rr_tolerance=1e-10, phase_tolerance=None, gpmc_precision_digits=30))]
 pub fn check_equivalence(
     circuit1: &Bound<'_, PyAny>,
     circuit2: &Bound<'_, PyAny>,
@@ -55,6 +55,7 @@ pub fn check_equivalence(
     approximate_distance_tolerance: Option<f64>,
     rr_tolerance: f64,
     phase_tolerance: Option<f64>,
+    gpmc_precision_digits: u32,
 ) -> PyResult<PyObject> {
     // The Python safe_mode worker isolation has no Rust FFI equivalent.
     // Never silently claim that the requested isolation is active.
@@ -89,6 +90,12 @@ pub fn check_equivalence(
         return Err(PyValueError::new_err(
             "approximate_distance_tolerance must be finite and in (0, 1)"
         ));
+    }
+    if gpmc_precision_digits != 30 && gpmc_precision_digits != 90 {
+        return Err(PyValueError::new_err("gpmc_precision_digits must be 30 or 90"));
+    }
+    if tool_name != "gpmc" && gpmc_precision_digits != 30 {
+        return Err(PyValueError::new_err("gpmc_precision_digits=90 only applies to GPMC"));
     }
     // Diagnostics-only FFI phase clock: default results are unchanged.
     // This is an extra opt-in and deliberately does not affect solver timing.
@@ -145,6 +152,7 @@ pub fn check_equivalence(
         rr_tolerance,
         phase_tolerance: effective_phase,
         approximate_distance_tolerance,
+        gpmc_precision_digits,
     };
     let result = pyo3::Python::with_gil(|py| {
         py.allow_threads(|| {

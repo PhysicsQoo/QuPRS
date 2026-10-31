@@ -366,12 +366,19 @@ impl WmcManager {
     }
 
     /// Typed result for the public distance-mode verifier, preserving the
-    /// selected solver (GPMC -prec=90, native Ganak mode 6).
+    /// selected solver (GPMC effective default 30 digits, native Ganak mode 6).
     pub fn solve_with_deadline_distance_printed(
         &self, tool_name: &str, deadline: Option<std::time::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
+        self.solve_with_deadline_distance_printed_precision(tool_name, deadline, 30)
+    }
+
+    /// Explicit per-call precision: no second solver call or global state.
+    pub fn solve_with_deadline_distance_printed_precision(
+        &self, tool_name: &str, deadline: Option<std::time::Instant>, digits: u32,
+    ) -> Result<crate::precision_count::PrintedCount> {
         self.solve_with_adapter_printed(
-            crate::solver_adapter::distance_adapter_for(tool_name)?, deadline,
+            crate::solver_adapter::distance_adapter_for(tool_name, digits)?, deadline,
         )
     }
 

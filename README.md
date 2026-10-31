@@ -155,8 +155,11 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > distance threshold. A normalized trace-magnitude defect of `1e-8` is
 > **not** a projective distance of `1e-8`.
 > Solver counts are processed from their original printed complex values;
-> For nontrivial CNFs, GPMC uses one call with 90 decimal output digits,
-> while Ganak retains its native printed precision. Ganak uses its printed
+> For nontrivial CNFs, GPMC uses one call with its effective 30-decimal-digit
+> complex MPFR default; an explicit `gpmc_precision_digits=90` enables 90 digits.
+> This is separate from 192-bit input weights and the projective-distance
+> default `approximate_distance_tolerance=1e-8`. Ganak retains its native
+> printed precision. Ganak uses its printed
 > count's center-point numerical result when rounding intervals are too
 > coarse, and emits a **dynamic warning** calculated from the actual
 > printed complex rounding interval and trace normalization. This result
@@ -292,9 +295,14 @@ Such a result is a **known external-Solver numerical limitation**, not a
 certified decision at the requested distance threshold. GPMC retains the
 printed-interval verdict, including `unknown` where appropriate.
 The old magnitude-mode selector is not available.
-High-precision weights do not certify solver arithmetic. The native
-high-resolution feature is enabled in standard source builds; repaired
-platform wheels must package their GMP/MPFR shared libraries portably.
+High-precision weights do not certify solver arithmetic. The GPMC complex
+counter enforces **30 decimal digits** as its effective minimum (although its
+README describes 15); `gpmc_precision_digits=90` opts into `-prec=90` for
+one call. Both keep `approximate_distance_tolerance=1e-8` unless explicitly
+changed. No automatic second Solver execution occurs for near-boundary
+results: those may remain `unknown` with precision provenance. The native
+high-resolution input feature is enabled in standard source builds; repaired
+platform wheels must package GMP/MPFR shared libraries portably.
 
 ### Rust CLI verification tolerances
 
@@ -320,6 +328,8 @@ only if WMC runs. Results carry `rr_approximate=true` provenance;
 this is not a source-exact identity certificate or a guarantee that
 an RR-accepted residual is below the WMC distance threshold.
 
+`--gpmc-precision 90` opts into 90-digit arithmetic for GPMC; omitting it
+uses the effective 30-digit default without altering the acceptance metric.
 The shorter aliases `--distance-tolerance` and
 `--wmc-phase-tolerance` are also accepted. The obsolete
 `--wmc-magnitude-tolerance` option is **not supported**. Passing distance

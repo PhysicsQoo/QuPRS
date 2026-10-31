@@ -273,8 +273,6 @@ fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
             phase_cycles_upper(coeff, certified_pi_interval())
         } else {
             // The interval is never built for pure rational/Clifford cases.
-            let dummy = None;
-            let _ = dummy;
             let c = num_rational::BigRational::new(
                 num_bigint::BigInt::from(coeff.constant.numer),
                 num_bigint::BigInt::from(coeff.constant.denom),

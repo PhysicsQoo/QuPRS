@@ -177,10 +177,84 @@ pub fn check_equivalence_with_options(
 /// This applies ONLY when all path variables have been eliminated and
 /// the Boolean output is structurally the identity. Source phases and
 /// HH/Omega matching remain exact.
-fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
+/// Enclose pi using Machin's formula with exact alternating arctan series.
+/// Calculated only when a QASM source phase contains exact decimal radians;
+/// pure Clifford/rational phases retain the allocation-free fast path.
+fn certified_pi_interval() -> &'static (num_rational::BigRational, num_rational::BigRational) {
     use num_bigint::BigInt;
     use num_rational::BigRational;
-    use num_traits::{Signed, Zero};
+    use num_traits::Zero;
+    use std::sync::OnceLock;
+    static PI: OnceLock<(BigRational, BigRational)> = OnceLock::new();
+    PI.get_or_init(|| {
+        let atan_interval = |denom: i64| {
+            let x = BigRational::new(BigInt::from(1), BigInt::from(denom));
+            let x_sq = x.clone() * x.clone();
+            let mut power = x;
+            let mut sum = BigRational::zero();
+            const TERMS: usize = 40; // error < 1e-55 at x=1/5
+            for k in 0..TERMS {
+                let term = power.clone()
+                    / BigRational::from_integer(BigInt::from((2 * k + 1) as u64));
+                if k % 2 == 0 { sum += term; } else { sum -= term; }
+                power *= x_sq.clone();
+            }
+            let remainder = power
+                / BigRational::from_integer(BigInt::from((2 * TERMS + 1) as u64));
+            // TERMS is even: the omitted alternating term is positive.
+            (sum.clone(), sum + remainder)
+        };
+        let (a_lo, a_hi) = atan_interval(5);
+        let (b_lo, b_hi) = atan_interval(239);
+        let sixteen = BigRational::from_integer(BigInt::from(16));
+        let four = BigRational::from_integer(BigInt::from(4));
+        // pi = 16 atan(1/5) - 4 atan(1/239).
+        (sixteen.clone() * a_lo - four.clone() * b_hi,
+         sixteen * a_hi - four * b_lo)
+    })
+}
+
+/// A rigorous upper bound on the distance of c + r/pi to an integer.
+/// Unlike |c| + |r|/3, the interval retains cancellation between source
+/// decimal radians and exact rational multiples of pi.
+fn phase_cycles_upper(
+    coeff: &PhaseCoeff, pi: &(num_rational::BigRational, num_rational::BigRational),
+) -> num_rational::BigRational {
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    use num_traits::Signed;
+    let c = BigRational::new(
+        BigInt::from(coeff.constant.numer), BigInt::from(coeff.constant.denom)
+    );
+    let Some(r) = &coeff.radians else {
+        let one = BigRational::from_integer(BigInt::from(1));
+        return if c <= one.clone() - c.clone() { c } else { one - c };
+    };
+    let at_lo = c.clone() + r.clone() / pi.0.clone();
+    let at_hi = c + r.clone() / pi.1.clone();
+    let (lo, hi) = if at_lo <= at_hi { (at_lo, at_hi) } else { (at_hi, at_lo) };
+    let two = BigRational::from_integer(BigInt::from(2));
+    let midpoint_integer = ((lo.clone() + hi.clone()) / two).to_integer();
+    // to_integer truncates toward zero. Its immediate neighbours include
+    // the nearest integer, even for negative phase cycles.
+    let mut best: Option<BigRational> = None;
+    for offset in -1_i64..=1_i64 {
+        let target = BigRational::from_integer(
+            midpoint_integer.clone() + BigInt::from(offset)
+        );
+        let a = (lo.clone() - target.clone()).abs();
+        let b = (hi.clone() - target).abs();
+        let bound = if a > b { a } else { b };
+        if best.as_ref().is_none_or(|old| &bound < old) {
+            best = Some(bound);
+        }
+    }
+    best.expect("nearest-integer candidates are nonempty")
+}
+
+fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
+    use num_rational::BigRational;
+    use num_traits::Zero;
     if ps.v.path_vars.iter().any(|&v| (v as usize) >= ps.v.num_qubits) {
         return None;
     }
@@ -191,20 +265,24 @@ fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
     }
     let mut upper = BigRational::zero();
     for (monomial, coeff) in &ps.p.terms {
-        if monomial.is_empty() { continue; } // global phase is irrelevant
+        if monomial.is_empty() { continue; } // scalar phase is classified separately
         if !coeff.symbols.is_empty() { return None; }
-        let numer = BigInt::from(coeff.constant.numer);
-        let denom = BigInt::from(coeff.constant.denom);
-        let nearest = if &numer * 2 <= denom {
-            numer
+        // A mixed exact-decimal/pi coefficient needs a joint interval,
+        // otherwise the triangle bound loses nearly all cancellation.
+        let term = if coeff.radians.is_some() {
+            phase_cycles_upper(coeff, certified_pi_interval())
         } else {
-            &denom - &numer
+            // The interval is never built for pure rational/Clifford cases.
+            let dummy = None;
+            let _ = dummy;
+            let c = num_rational::BigRational::new(
+                num_bigint::BigInt::from(coeff.constant.numer),
+                num_bigint::BigInt::from(coeff.constant.denom),
+            );
+            let one = BigRational::from_integer(num_bigint::BigInt::from(1));
+            if c <= one.clone() - c.clone() { c } else { one - c }
         };
-        upper += BigRational::new(nearest, denom);
-        if let Some(radians) = &coeff.radians {
-            // The source stores exact radians; |r|/pi <= |r|/3.
-            upper += radians.abs() / BigRational::from_integer(BigInt::from(3));
-        }
+        upper += term;
     }
     Some(upper)
 }
@@ -700,6 +778,42 @@ mod verification_options_contract_tests {
         );
         assert!(rr_residual_upper_cycles(&ps).is_none(),
                 "unbound symbolic phase must fail closed");
+    }
+
+    #[test]
+    fn source_radian_pi_cancellation_uses_certified_rr_interval() {
+        use crate::rational::{Angle, Rational};
+        let mut ps = PathSum::new(16);
+        // Four terms each for the two exact decimal literals in the
+        // Qiskit-transpiled Graphstate16 source contract.
+        for (i, literal) in [
+            "3.1415926535897931", "3.1415926535897911"
+        ].into_iter().cycle().take(8).enumerate() {
+            let angle = Angle::from_qasm_str(literal).expect("exact decimal source");
+            let rad = angle.radians.expect("decimal radian coefficient")
+                / num_rational::BigRational::from_integer(num_bigint::BigInt::from(-2));
+            let coeff = PhaseCoeff {
+                constant: Rational::HALF,
+                radians: Some(rad),
+                symbols: Default::default(),
+            };
+            ps.p.add_term(vec![i as u32], coeff);
+        }
+        assert!(rr_within_tolerance(&ps, 1e-10),
+                "source-exact pi cancellation is below the public RR tolerance");
+        assert!(!rr_within_tolerance(&ps, 1e-18),
+                "nonzero source residual must not be classified as exact");
+        let mut outside = PathSum::new(1);
+        let angle = Angle::from_qasm_str("3.1415936535897931").unwrap();
+        outside.p.add_term(vec![0], PhaseCoeff {
+            constant: Rational::HALF,
+            radians: angle.radians.map(|r| -r / num_rational::BigRational::from_integer(
+                num_bigint::BigInt::from(2)
+            )),
+            symbols: Default::default(),
+        });
+        assert!(!rr_within_tolerance(&outside, 1e-10),
+                "a genuine 1e-6 radian mismatch cannot pass the RR guard");
     }
 
     #[test]

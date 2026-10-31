@@ -48,7 +48,9 @@ def test_print_resolution_changes_distance_verdict(bits, printed):
 
 def test_nonphysical_overshoot_and_malformed_fail_closed():
     over = count("1.0000000000000000525312499999999999999988e+00 + 0e+00i")
-    assert classify_printed_distance(over, 0, 1e-8).reason == "nonphysical_magnitude_overshoot"
+    over_evidence = classify_printed_distance(over, 0, 1e-8)
+    assert over_evidence.status == "unknown"
+    assert over_evidence.reason == "distance_interval_outside_tolerance"
     with pytest.raises(ValueError, match="conflicting"):
         parse_printed_solver_output(
             "c s exact octuple float 1e0 + 0e0i\n"
@@ -112,7 +114,7 @@ def test_python_rust_printed_distance_contract(row):
         component_error=Fraction(Decimal(component_error)),
     )
     assert (
-        ("unknown_overshoot" if verdict.reason == "nonphysical_magnitude_overshoot"
+        ("unknown_distance_range" if verdict.reason == "distance_interval_outside_tolerance"
          else "unknown_resolution" if verdict.status == "unknown"
          else verdict.status)
     ) == expected, name
@@ -253,7 +255,10 @@ def test_ganak_midpoint_verdict_preserves_unresolved_raw_printed_evidence():
     numeric, observed_evidence = classify_observed_distance(
         observed, 0, 1e-8, 1e-8, ganak_point_estimate=True,
     )
-    assert raw == "unknown"
+    # Both public paths now use the same single-pass midpoint decision.
+    # The printed-only uncertainty is retained, not promoted to a proof.
+    assert raw == numeric == "equivalent"
+    assert evidence.status == "unknown"
     assert evidence.reason == "insufficient_printed_resolution"
-    assert numeric == "equivalent"
+    assert not evidence.certified_solver_bound
     assert observed_evidence == evidence

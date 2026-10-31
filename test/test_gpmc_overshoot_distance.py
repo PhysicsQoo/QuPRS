@@ -50,7 +50,9 @@ def test_wide_interval_crossing_upper_distance_bound_is_unknown():
     assert observed.status == "unknown"
     assert observed.reason == "insufficient_printed_resolution"
     verdict, evidence = classify_observed_distance(sample, 0, 1e-8, 1e-8)
-    assert verdict == "equivalent"
+    # A purely imaginary unit count has global phase pi/2; the public
+    # point estimate is equivalent*, while the printed interval stays unknown.
+    assert verdict == "equivalent*"
     assert evidence == observed
 
 def test_ganak_print_resolution_does_not_change_numeric_distance():

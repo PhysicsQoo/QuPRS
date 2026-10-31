@@ -37,8 +37,14 @@ def test_large_cnf_single_run_model_is_conservative(vars, record_property):
         maximum_weight_magnitude_squared=Fraction(1), precision_digits=90,
     )
     assert answer.printed_status == "equivalent"
-    assert answer.status == ("equivalent" if vars == 12 else "unknown")
+    # Eligible sizes report a point-estimate observation, not a certified
+    # numerical bound; 513 variables remain outside this conditional model.
+    assert answer.status == ("unknown" if vars > 512 else "equivalent")
+    assert answer.printed_status == "equivalent"
     assert not answer.solver_arithmetic_certified
+    assert not answer.source_weight_certified
+    if vars <= 512:
+        assert answer.reason.startswith("single_pass_uncertified_")
     record_property("model_only_not_solver_observation", True)
     record_property("model_cnf_variables", vars)
     record_property("model_status", answer.status)
@@ -172,10 +178,12 @@ def test_native_gpmc_forced_unit_cnf_numerical_model(
     # unresolved at eps_D=1e-8; the conditional model must not invent
     # additional printer precision just because MPFR used 90 digits.
     assert evidence.printed_status in ("equivalent", "unknown")
-    if evidence.printed_status == "unknown":
-        assert evidence.status == "unknown"
-    if variables >= 128:
-        assert evidence.status == "unknown"
+    # Preserve the raw printing diagnostic even when the public numerical
+    # midpoint is usable. This forced-unit CNF is not a source-circuit proof.
+    assert evidence.status == "equivalent"
+    assert not evidence.solver_arithmetic_certified
+    assert not evidence.source_weight_certified
+    assert evidence.reason.startswith("single_pass_uncertified_")
     record_property("test_family", "unit_forced_cnf_not_circuit")
     record_property("native_solver_invocations", "1")
     record_property("native_count", "1+0i")

@@ -264,16 +264,29 @@ jobs:
                     "pr_clauses", target["clauses"] if target else None,
                     flush=True)
           (root / "cnf-comparison.json").write_text(json.dumps(pairs, sort_keys=True, indent=2) + "\n")
-          # Keep the scientific gate strict, but collect all revisions first.
-          invalid = [
-              (variant, case["status"])
-              for variant, doc in records.items()
-              for case in doc["cases"]
-              if case["case"] == "graphstate16"
-              and case["status"] not in ("Equivalent", "Equivalent (Up to Global Phase)")
-          ]
-          if invalid:
-              raise AssertionError(f"Graphstate16 expected equivalence; observed {invalid!r}")
+          # The pinned dev revision is an observed baseline, not a PR
+          # acceptance target. Preserve its negative verdict as evidence,
+          # while requiring both PR feature configurations to pass.
+          accepted = ("Equivalent", "Equivalent (Up to Global Phase)")
+          baseline = next(x for x in records["dev"]["cases"]
+                          if x["case"] == "graphstate16")
+          print("DEV_GRAPHSTATE16_BASELINE", baseline["status"],
+                "solver_invoked", baseline["solver_invoked"], flush=True)
+          for variant in ("pr-default", "pr-no-precision"):
+              graph = next(x for x in records[variant]["cases"]
+                           if x["case"] == "graphstate16")
+              if graph["status"] not in accepted or graph["solver_invoked"]:
+                  raise AssertionError(
+                      f"PR Graphstate16 RR-only regression: {variant}: "
+                      f"status={graph['status']!r}, solver_invoked={graph['solver_invoked']!r}"
+                  )
+          for variant, doc in records.items():
+              qft = next(x for x in doc["cases"] if x["case"] == "qft16")
+              if qft["status"] not in accepted or not qft["solver_invoked"]:
+                  raise AssertionError(
+                      f"QFT16 verdict/solver regression: {variant}: "
+                      f"status={qft['status']!r}, solver_invoked={qft['solver_invoked']!r}"
+                  )
 
           PY
 

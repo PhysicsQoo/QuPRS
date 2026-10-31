@@ -752,6 +752,25 @@ mod verification_options_contract_tests {
     }
 
     #[test]
+    fn zero_rr_tolerance_is_valid_and_retains_exact_clifford_identity() {
+        let mut options = VerificationOptions {
+            method: VerificationMethod::ReductionRules,
+            strategy: VerificationStrategy::Naive,
+            rr_tolerance: 0.0,
+            ..VerificationOptions::default()
+        };
+        let exact = check_equivalence_with_options(1, &[], &[], &options)
+            .expect("zero RR tolerance must be accepted");
+        assert_eq!(exact.status, EquivalenceStatus::Equivalent);
+        assert!(!exact.rr_approximate);
+        assert!(!exact.solver_invoked);
+        options.rr_tolerance = -1e-10;
+        assert!(check_equivalence_with_options(1, &[], &[], &options).is_err());
+        options.rr_tolerance = f64::NAN;
+        assert!(check_equivalence_with_options(1, &[], &[], &options).is_err());
+    }
+
+    #[test]
     fn custom_rr_tolerance_changes_near_identity_without_mutating_source() {
         use crate::ir::QuantumOp;
         use crate::rational::{Angle, FreeRational};
@@ -772,8 +791,10 @@ mod verification_options_contract_tests {
         assert!(accepted.rr_approximate);
         assert!(!accepted.solver_invoked);
         assert!(accepted.tool_time.is_none());
-        assert!(!accepted.final_ps.p.terms.is_empty(),
-                "RR must not discard exact source residual phases");
+        assert!(accepted.final_ps.p.terms.keys().all(|monomial| monomial.is_empty()),
+                "Approximate RR may discard non-global working terms, not scalar phase");
+        assert!(accepted.final_ps.p.terms.contains_key(&Vec::new()),
+                "Rz global phase must remain unrounded");
         settings.rr_tolerance = 1e-12;
         let strict = check_equivalence_with_options(1, &[], &near, &settings).unwrap();
         assert_eq!(strict.status, EquivalenceStatus::NotEquivalent);

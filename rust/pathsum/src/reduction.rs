@@ -370,6 +370,85 @@ mod tests {
     }
 
     #[test]
+    fn approximate_hh_reduces_only_when_rr_tolerance_allows_it() {
+        let mut ps = setup_test_env(1);
+        ps.v.path_vars.insert(1);
+        ps.v.path_vars.insert(2);
+        ps.p.add_term(
+            vec![1, 2],
+            PhaseCoeff::new_constant(Rational::new(500_000_001, 1_000_000_000)),
+        );
+        let candidates = ps.get_reducible_vars();
+        let mut exact = ps.clone();
+        assert!(!exact.try_reduce_hh(&candidates));
+        assert!(!exact.rr_approximate);
+        ps.rr_tolerance = 1e-8;
+        assert!(ps.try_reduce_hh(&candidates));
+        assert!(ps.rr_approximate);
+        assert!(ps.p.terms.is_empty());
+    }
+
+    #[test]
+    fn approximate_omega_respects_exact_zero_tolerance() {
+        let mut ps = setup_test_env(1);
+        ps.v.path_vars.insert(1);
+        ps.p.add_term(
+            vec![1],
+            PhaseCoeff::new_constant(Rational::new(250_000_001, 1_000_000_000)),
+        );
+        let candidates = ps.get_reducible_vars();
+        let mut exact = ps.clone();
+        assert!(!exact.try_reduce_omega(&candidates));
+        assert!(!exact.rr_approximate);
+        ps.rr_tolerance = 1e-8;
+        assert!(ps.try_reduce_omega(&candidates));
+        assert!(ps.rr_approximate);
+        assert_eq!(
+            ps.p.terms.get(&Vec::new()),
+            Some(&PhaseCoeff::new_constant(Rational::new(1, 8))),
+        );
+    }
+
+    #[test]
+    fn rr_normalization_drops_non_global_but_keeps_scalar_phase() {
+        let mut ps = setup_test_env(1);
+        ps.v.path_vars.insert(1);
+        let near = PhaseCoeff::new_constant(Rational::new(1, 1_000_000_000));
+        ps.p.add_term(vec![1], near.clone());
+        ps.p.add_term(vec![], near.clone());
+        let mut exact = ps.clone();
+        exact.set_auto_reduce(true);
+        exact.full_reduce();
+        assert!(!exact.rr_approximate);
+        assert!(exact.p.terms.contains_key(&vec![1]));
+
+        ps.rr_tolerance = 1e-8;
+        ps.set_auto_reduce(true);
+        ps.full_reduce();
+        assert!(ps.rr_approximate);
+        assert!(!ps.p.terms.contains_key(&vec![1]));
+        assert_eq!(ps.p.terms.get(&Vec::new()), Some(&near));
+        assert!(!ps.v.path_vars.contains(&1));
+    }
+
+    #[test]
+    fn mixed_radian_source_uses_certified_matching() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let mut ps = setup_test_env(1);
+        let coeff = PhaseCoeff {
+            constant: Rational::QUARTER,
+            radians: Some(BigRational::new(BigInt::from(1), BigInt::from(10_000_000_000_i64))),
+            symbols: Default::default(),
+        };
+        assert!(!ps.rr_matches(&coeff, Rational::QUARTER));
+        ps.rr_tolerance = 1e-10;
+        assert!(ps.rr_matches(&coeff, Rational::QUARTER));
+        ps.rr_tolerance = 1e-12;
+        assert!(!ps.rr_matches(&coeff, Rational::QUARTER));
+    }
+
+    #[test]
     fn test_elim_rule_dead_variable() {
         let mut ps = setup_test_env(1);
         

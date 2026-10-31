@@ -297,14 +297,17 @@ not an unconditional exact-equivalence certificate. This may produce an
 independent circuit oracle when Ganak's printed precision is insufficient.
 Such a result is a **known external-Solver numerical limitation**, not a
 certified decision at the requested distance threshold. GPMC retains the
-printed-interval verdict, including `unknown` where appropriate.
+printed-interval diagnostic verdict, including `unknown` where
+appropriate, but uses the same finite-count operational midpoint
+classifier as Ganak.
 The old magnitude-mode selector is not available.
 High-precision weights do not certify solver arithmetic. The GPMC complex
 counter enforces **30 decimal digits** as its effective minimum (although its
 README describes 15); `gpmc_precision_digits=90` opts into `-prec=90` for
 one call. Both keep `approximate_distance_tolerance=1e-8` unless explicitly
 changed. No automatic second Solver execution occurs for near-boundary
-results: those may remain `unknown` with precision provenance. The native
+results: printed intervals may remain `unknown` even when the
+operational finite-count distance verdict is determinate. The native
 high-resolution input feature is enabled in standard source builds; repaired
 platform wheels must package GMP/MPFR shared libraries portably.
 

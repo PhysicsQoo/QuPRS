@@ -16,7 +16,8 @@ The historical `wmc_magnitude_tolerance` and `wmc_policy`
 public parameters are **removed**: callers supplying them receive
 `TypeError`. The global-phase label tolerance
 `phase_tolerance` / `wmc_phase_tolerance` is independent;
-`rr_tolerance` governs local Python reduction only.
+`rr_tolerance` governs per-call Python reduction and native Rust's
+conservative aggregate diagonal-residual RR acceptance.
 
 ## Python and Rust example
 
@@ -43,8 +44,10 @@ empty-CNF result can be obtained without invoking the solver; use
 
 Both solvers return numerical weighted complex counts, not universal
 certificates of the actual trace. The numerical classifier compares
-a printed complex count's squared magnitude with the projective
-threshold; it uses the printed decimal data and its finite resolution.
+the central printed complex count's squared magnitude with the
+projective threshold. Printed rounding intervals are retained as
+separate, uncertified precision diagnostics, not a second acceptance
+criterion.
 For an observed magnitude deficit `t`,
 
 \[
@@ -56,11 +59,14 @@ GPMC may be run with 90 decimal output digits; Ganak mode 6 has its
 own precision. The GPMC source-phase weights use MPFR input precision
 on the supported native path, but **neither** the solver output nor
 MPFR input precision proves an upper bound for all internal solver
-steps. This is why `unknown` remains a necessary outcome.
+steps. For this reason, a finite-count WMC verdict is a **numerical
+observation**, not a source-exact certificate. The printed interval
+can be `unknown` independently of a determinate operational result.
 
-QuPRS does not replace a numerical unknown by a presumed equivalence,
-does not retry GPMC at another precision, and does not silently
-switch GPMC to Ganak. The default has no process-global mutable
+`unknown` remains appropriate when reduction is inconclusive or the
+verification stage genuinely cannot classify; printed resolution
+alone does not veto the central-count distance classifier. QuPRS
+does not retry GPMC at another precision or silently switch Solvers. The default has no process-global mutable
 WMC policy; reduction always occurs before WMC in Hybrid mode.
 
 ## Scientific acceptance and limits

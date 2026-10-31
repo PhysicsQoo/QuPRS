@@ -91,7 +91,7 @@ Python reductions, or finite-precision WMC.
 | `equivalent` | Symbolic identity or numerical near-identity under the selected thresholds; WMC acceptance is not proof of exact equality. |
 | `equivalent*` | Symbolic up-to-global-phase result or numerically accepted trace with phase above the phase threshold. |
 | `not_equivalent` | Structural mismatch, strict symbolic counterexample, or numerical WMC rejection; numerical negatives are not universal source-exact proofs. |
-| `unknown` | Insufficient symbolic evidence or an unresolved numerical boundary. |
+| `unknown` | Incomplete symbolic reduction or another genuinely inconclusive verification outcome; printed output rounding uncertainty is separately reported. |
 | `Timeout`, `MemoryOut` | Resource limit, not physical non-equivalence. |
 | exception | Invalid input, missing solver or failed parsing, not non-equivalence. |
 
@@ -100,7 +100,8 @@ A result classified without WMC has `wmc_time=None` and
 WMC stage was reached; use `wmc_solver_invoked` (available for both
 backends) to establish whether an external solver actually ran.
 This distinction is necessary for Rust's empty-CNF analytic shortcut.
-`wmc_numerical_verdict` can include `unknown` after a real solver.
+For finite WMC counts, `wmc_printed_verdict` can be `unknown`
+while the operational `wmc_numerical_verdict` is determinate.
 Timing alone does not provide a mathematical proof, and a reduction
 verdict can depend on RR tolerance. Rust FFI display strings are
 normalized by the Python facade. Solver failures do not silently
@@ -122,9 +123,9 @@ select a different solver.
 3. **Remaining known limitation:** floating WMC thresholds can classify
    strictly inequivalent near-identity rotations as numerically equivalent.
    There is no selectable `wmc_policy`; the solver observation remains
-   available through `wmc_numerical_verdict`. The default projective-distance classifier handles uncertain
-   numerical boundaries using printed-output resolution, not a certified
-   Solver arithmetic bound.
+   available through `wmc_numerical_verdict`. The default finite-count projective-distance classifier uses the
+   printed-count central value. Printing resolution remains a distinct
+   diagnostic, not a certified arithmetic bound or a veto.
    Strict and approximate Qiskit-transpilation relations (including
    Graphstate16) remain separate.
 4. **Release gate:** source-pinned QPE, Graphstate16, CP/U2/SX and global-phase

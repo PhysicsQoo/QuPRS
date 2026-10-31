@@ -19,8 +19,9 @@
 - Preserve numerical count provenance via `wmc_numerical_verdict`,
   `wmc_printed_verdict`, `wmc_precision_reason` and
   `wmc_solver_invoked`. A finite Solver count is **not** an
-  unconditional equivalence certificate; `unknown` is retained for
-  insufficient printed resolution or unphysical overshoot.
+  unconditional equivalence certificate. Finite Solver counts use the
+  common projective-distance classifier; printed uncertainty and
+  nonphysical magnitude overshoot remain separate diagnostics.
 - In the native Rust GPMC path, preserve source `PhaseCoeff` until
   high-resolution complex weights are evaluated using 192-bit MPFR,
   then serialize 48 significant decimal digits without an intermediate
@@ -29,10 +30,10 @@
 - Remove the mutable Python `config.TOLERANCE`, `set_tolerance()`
   and `get_tolerance()` APIs, the `wmc_policy` selector and the
   redundant `decision_basis` result field.
-- Rust exact reduction continues to reject unsupported nondefault
-  numerical RR tolerance, rather than silently applying an unproven
-  reduction rule. Approximate residuals can reach one WMC call in Hybrid
-  mode rather than being incorrectly decided by strict-source inequality.
+- Rust accepts a per-call RR tolerance through a conservative aggregate
+  upper bound for fully reduced diagonal residuals; exact HH/omega rules
+  and source angles remain intact. Hybrid stays RR-first and uses one
+  WMC Solver invocation only when RR is inconclusive.
 
 ### Testing and packaging
 
@@ -44,8 +45,9 @@
   wheel runs with bundled GMP/MPFR dependencies.
 - **Release note:** the new default is much stricter than the prior
   magnitude-based numerical acceptance. Existing pipelines may receive
-  `unknown` where a Solver cannot supply adequate printed precision.
-  Do not interpret this as a proven reduction in solver correctness.
+  determinate yet explicitly uncertified numerical verdicts when
+  printed precision is inadequate; diagnostics must remain visible.
+  Do not interpret a numerical result as source-exact proof.
 
 Significant user-facing changes to QuPRS are summarized here. See
 [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases)

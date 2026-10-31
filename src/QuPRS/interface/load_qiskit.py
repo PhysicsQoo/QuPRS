@@ -243,8 +243,9 @@ def check_equivalence(
             None uses config.WMC_PHASE_TOLERANCE.
         approximate_distance_tolerance (float | None): Projective Hilbert-Schmidt
             distance threshold in (0, 1), default 1e-8. None means the
-            same default, not the removed magnitude classifier. Near-boundary
-            printed Solver output may return unknown, not a formal certificate.
+            same default, not the removed magnitude classifier. Finite
+            counts use one central printed-count distance verdict;
+            raw printed uncertainty remains separately diagnostic.
         gpmc_precision_digits (int): GPMC complex MPFR output/working digits:
             30 by default or explicitly 90. Independent from distance tolerance.
 

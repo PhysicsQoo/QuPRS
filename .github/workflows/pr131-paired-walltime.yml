@@ -1,4 +1,4 @@
-name: PR131 paired CodSpeed WallTime diagnostic
+name: PR131 three-revision CodSpeed WallTime diagnostic
 
 on:
   pull_request:
@@ -13,20 +13,31 @@ permissions:
 jobs:
   paired-walltime:
     if: github.event.pull_request.number == 131
-    name: Same-host source-pinned WallTime pair
+    name: Same-host main dev PR WallTime comparison
     # Exploratory only: personal-account repository cannot use CodSpeed Macro.
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      BASE_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      MAIN_SHA: d5973ab7da1dc25e3657283852766443a1c96186
+      DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
       PR_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
+      - name: Checkout PR source at workspace root for CodSpeed upload
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Checkout exact main baseline
+        uses: actions/checkout@v4
+        with:
+          ref: d5973ab7da1dc25e3657283852766443a1c96186
+          submodules: recursive
+          path: main-src
       - name: Checkout exact integration baseline
         uses: actions/checkout@v4
         with:
           ref: 55e78c7597966617c1a193b89056ff4e99c3ddfb
           submodules: recursive
-          path: base-src
+          path: dev-src
       - name: Checkout exact pull request source
         uses: actions/checkout@v4
         with:
@@ -46,9 +57,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C "$GITHUB_WORKSPACE/base-src" rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C "$GITHUB_WORKSPACE/main-src" rev-parse HEAD)" = "$MAIN_SHA"
+          test "$(git -C "$GITHUB_WORKSPACE/dev-src" rev-parse HEAD)" = "$DEV_SHA"
           test "$(git -C "$GITHUB_WORKSPACE/head-src" rev-parse HEAD)" = "$PR_SHA"
-          for variant in base head; do
+          for variant in main dev head; do
             python -m venv "$RUNNER_TEMP/pr131-$variant-venv"
             venv="$RUNNER_TEMP/pr131-$variant-venv"
             "$venv/bin/python" -m pip install --disable-pip-version-check maturin
@@ -58,17 +70,18 @@ jobs:
             )
           done
           "$RUNNER_TEMP/pr131-head-venv/bin/python" -m pip install 'pytest-codspeed>=3.0.0'
-          echo "BASE_SHA=$BASE_SHA"
+          echo "MAIN_SHA=$MAIN_SHA"
+          echo "DEV_SHA=$DEV_SHA"
           echo "PR_SHA=$PR_SHA"
           python --version
           rustc --version
           lscpu | grep -E 'Model name|Architecture' || true
-          for variant in base head; do
+          for variant in main dev head; do
             git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD
             git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD:GPMC
             "$RUNNER_TEMP/pr131-$variant-venv/bin/python" -m pip freeze > "$RUNNER_TEMP/pr131-$variant-freeze.txt"
           done
-      - name: Create source-isolated five-case benchmark
+      - name: Create source-isolated three-revision benchmark
         shell: bash
         run: |
           set -euo pipefail
@@ -131,7 +144,7 @@ jobs:
               return json.loads(markers[0])
 
           @pytest.mark.parametrize("case", CASES, ids=CASES)
-          @pytest.mark.parametrize("variant", ("base", "head"))
+          @pytest.mark.parametrize("variant", ("main", "dev", "head"))
           def test_same_host_walltime(benchmark, case, variant):
               result = benchmark(execute_case, variant, case)
               assert result["case"] == case
@@ -143,18 +156,19 @@ jobs:
               )
               benchmark.extra_info.update({
                   "source_variant": variant,
-                  "source_sha": os.environ["BASE_SHA"] if variant == "base" else os.environ["PR_SHA"],
+                  "source_sha": os.environ[{"main": "MAIN_SHA", "dev": "DEV_SHA", "head": "PR_SHA"}[variant]],
                   "case": case,
                   "verdict": result["verdict"],
                   "solver_invoked": str(result["solver_invoked"]),
                   "evidence_class": "exploratory_shared_vm_same_host",
+                  "comparison_warning": "graphstate_path_changed" if case.startswith("graphstate16_") else "check_solver_invoked",
               })
           PY
-      - name: Warm both environments without measuring runtime
+      - name: Warm all three environments without measuring runtime
         shell: bash
         run: |
           set -euo pipefail
-          for variant in base head; do
+          for variant in main dev head; do
             root="$GITHUB_WORKSPACE/$variant-src"
             "$RUNNER_TEMP/pr131-$variant-venv/bin/python" "$RUNNER_TEMP/pr131_walltime_case.py" "$root" vqe4_gpmc
             "$RUNNER_TEMP/pr131-$variant-venv/bin/python" "$RUNNER_TEMP/pr131_walltime_case.py" "$root" graphstate16_ganak
@@ -168,9 +182,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr131-paired-walltime-provenance
+          name: pr131-three-revision-walltime-provenance
           path: |
-            ${{ runner.temp }}/pr131-base-freeze.txt
+            ${{ runner.temp }}/pr131-main-freeze.txt
+            ${{ runner.temp }}/pr131-dev-freeze.txt
             ${{ runner.temp }}/pr131-head-freeze.txt
           if-no-files-found: warn
           retention-days: 7

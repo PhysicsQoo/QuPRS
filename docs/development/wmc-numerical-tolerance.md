@@ -49,14 +49,14 @@ that threshold, which is why the API uses the originally **printed**
 complex WMC count and rational interval comparisons, rather than a
 binary64 normalized `m` or a fixed empirical guard.
 
-GPMC requests 90 decimal printed digits in **one** solver invocation.
-Ganak retains its own mode-6 output precision. When an external solve
-is needed, both use the same projective-distance metric, but handle
-unresolved output-format rounding differently: GPMC preserves
-`unknown`; Ganak uses the **printed count's central numerical value**
-for a usable, explicitly uncertified solver-dependent verdict.
-Nonphysical magnitude overshoots, malformed counts and actual solver
-failures are not silently converted to equivalence.
+GPMC uses 30 significant decimal working/output digits by default,
+with an explicit 90-digit option, in **one** solver invocation.
+Ganak retains mode-6 output precision. For finite counts, **both**
+Solvers classify the central printed count against the same projective-
+distance threshold. Printed rounding intervals and normalized magnitude
+overshoots remain **diagnostics**: an independently inconclusive printed
+interval does not override a determinate operational distance verdict.
+Malformed/nonfinite counts and actual solver failures remain errors.
 
 **Ganak warning:** the parser extracts the rounding half-units for
 the actual printed real and imaginary count. It computes the span

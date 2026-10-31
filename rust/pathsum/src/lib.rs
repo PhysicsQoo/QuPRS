@@ -738,6 +738,42 @@ mod verification_options_contract_tests {
     use super::*;
 
     #[test]
+    fn compact_pi_interval_is_certified_and_strictly_bounded() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let (full_lo, full_hi) = certified_pi_interval();
+        let (fast_lo, fast_hi) = compact_pi_interval();
+        assert!(fast_lo <= full_lo && full_hi <= fast_hi);
+        assert!(fast_hi - fast_lo < BigRational::new(BigInt::from(1), BigInt::from(10_u8).pow(39)));
+    }
+
+    #[test]
+    fn compact_rr_decision_matches_full_pi_near_and_below_threshold() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        use crate::rational::Rational;
+        let phases = [
+            (1_i64, 1_000_000_000_i64),
+            (1, 100_000_000_000),
+            (-1, 10_000_000_000),
+            (1, 10_000_000_000_000),
+        ];
+        for (numer, denom) in phases {
+            let coeff = PhaseCoeff {
+                constant: Rational::QUARTER,
+                radians: Some(BigRational::new(BigInt::from(numer), BigInt::from(denom))),
+                symbols: Default::default(),
+            };
+            for eps in [1e-8_f64, 1e-12, 1e-16, 1e-20, 1e-30, 1e-45] {
+                let tolerance = BigRational::from_float(eps).unwrap();
+                let full = phase_cycles_upper_target(&coeff, Rational::QUARTER) <= tolerance;
+                let compact = phase_cycles_within_tolerance(&coeff, Rational::QUARTER, &tolerance);
+                assert_eq!(full, compact, "failed phase {numer}/{denom} at epsilon {eps}");
+            }
+        }
+    }
+
+    #[test]
     fn native_default_thresholds_match_python_public_defaults() {
         let options = VerificationOptions::default();
         assert_eq!(options.method, VerificationMethod::Hybrid);

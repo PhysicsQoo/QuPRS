@@ -1,0 +1,171 @@
+name: PR131 paired CodSpeed WallTime diagnostic
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pr131-paired-walltime.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  paired-walltime:
+    if: github.event.pull_request.number == 131
+    name: Same-host source-pinned WallTime pair
+    # Exploratory only: personal-account repository cannot use CodSpeed Macro.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      BASE_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      PR_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact integration baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+          submodules: recursive
+          path: base-src
+      - name: Checkout exact pull request source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+          path: head-src
+      - name: Configure Python and Rust
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native build requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Build separate source-pinned environments on the same host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE/base-src" rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C "$GITHUB_WORKSPACE/head-src" rev-parse HEAD)" = "$PR_SHA"
+          for variant in base head; do
+            python -m venv "$RUNNER_TEMP/pr131-$variant-venv"
+            venv="$RUNNER_TEMP/pr131-$variant-venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (
+              cd "$GITHUB_WORKSPACE/$variant-src"
+              VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev
+            )
+          done
+          "$RUNNER_TEMP/pr131-head-venv/bin/python" -m pip install 'pytest-codspeed>=3.0.0'
+          echo "BASE_SHA=$BASE_SHA"
+          echo "PR_SHA=$PR_SHA"
+          python --version
+          rustc --version
+          lscpu | grep -E 'Model name|Architecture' || true
+          for variant in base head; do
+            git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD
+            git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD:GPMC
+            "$RUNNER_TEMP/pr131-$variant-venv/bin/python" -m pip freeze > "$RUNNER_TEMP/pr131-$variant-freeze.txt"
+          done
+      - name: Create source-isolated five-case benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/pr131_walltime_case.py" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from QuPRS import check_equivalence
+          root = Path(sys.argv[1])
+          key = sys.argv[2]
+          cases = {
+              "vqe4_gpmc": ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "gpmc", False),
+              "graphstate16_gpmc": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", "gpmc", False),
+              "grover4_gpmc": ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "gpmc", True),
+              "qft16_gpmc": ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", "gpmc", True),
+              "graphstate16_ganak": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", "ganak", False),
+          }
+          filename, strategy, solver, reverse = cases[key]
+          left = root / "benchmarks" / "MQTBench" / filename
+          right = root / "benchmarks" / "MQTBench" / "h,ry,rz,cx" / filename
+          if reverse:
+              left, right = right, left
+          assert left.is_file() and right.is_file()
+          result = check_equivalence(
+              str(left), str(right), method="hybrid", strategy=strategy,
+              tool_name=solver, backend="rust", timeout=120,
+          )
+          print("PR131_RESULT " + json.dumps({
+              "case": key, "verdict": str(result.equivalent),
+              "solver_invoked": result.wmc_solver_invoked,
+          }, sort_keys=True))
+          PY
+          cat > "$RUNNER_TEMP/test_pr131_paired_walltime.py" <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          import pytest
+
+          CASES = (
+              "vqe4_gpmc", "graphstate16_gpmc", "grover4_gpmc",
+              "qft16_gpmc", "graphstate16_ganak",
+          )
+
+          def execute_case(variant, case):
+              root = Path(os.environ["GITHUB_WORKSPACE"]) / (variant + "-src")
+              interpreter = Path(os.environ["RUNNER_TEMP"]) / f"pr131-{variant}-venv/bin/python"
+              script = Path(os.environ["RUNNER_TEMP"]) / "pr131_walltime_case.py"
+              run = subprocess.run(
+                  [str(interpreter), str(script), str(root), case],
+                  cwd=root, text=True, capture_output=True,
+                  check=True, timeout=150,
+              )
+              markers = [
+                  line[len("PR131_RESULT "):]
+                  for line in run.stdout.splitlines()
+                  if line.startswith("PR131_RESULT ")
+              ]
+              assert len(markers) == 1, (run.stdout, run.stderr)
+              return json.loads(markers[0])
+
+          @pytest.mark.parametrize("case", CASES, ids=CASES)
+          @pytest.mark.parametrize("variant", ("base", "head"))
+          def test_same_host_walltime(benchmark, case, variant):
+              result = benchmark(execute_case, variant, case)
+              assert result["case"] == case
+              assert result["verdict"] in ("equivalent", "equivalent*")
+              benchmark.extra_info.update({
+                  "source_variant": variant,
+                  "source_sha": os.environ["BASE_SHA"] if variant == "base" else os.environ["PR_SHA"],
+                  "case": case,
+                  "verdict": result["verdict"],
+                  "solver_invoked": str(result["solver_invoked"]),
+                  "evidence_class": "exploratory_shared_vm_same_host",
+              })
+          PY
+      - name: Warm both environments without measuring runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in base head; do
+            root="$GITHUB_WORKSPACE/$variant-src"
+            "$RUNNER_TEMP/pr131-$variant-venv/bin/python" "$RUNNER_TEMP/pr131_walltime_case.py" "$root" vqe4_gpmc
+            "$RUNNER_TEMP/pr131-$variant-venv/bin/python" "$RUNNER_TEMP/pr131_walltime_case.py" "$root" graphstate16_ganak
+          done
+      - name: Record paired CodSpeed WallTime benchmark
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/pr131-head-venv/bin/python -m pytest ${{ runner.temp }}/test_pr131_paired_walltime.py -q --codspeed --codspeed-max-rounds=5 --codspeed-max-time=12
+      - name: Upload source-pinned dependency manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr131-paired-walltime-provenance
+          path: |
+            ${{ runner.temp }}/pr131-base-freeze.txt
+            ${{ runner.temp }}/pr131-head-freeze.txt
+          if-no-files-found: warn
+          retention-days: 7

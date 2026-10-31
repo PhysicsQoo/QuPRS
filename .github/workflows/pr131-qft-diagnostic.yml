@@ -312,6 +312,61 @@ jobs:
           # both modes so the release gate can make an evidence-based decision.
           PY
 
+      - name: Diagnose VQE4 GPMC magnitude overshoot from identical CNF
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          python - <<'PY'
+          import json, os, re, subprocess, math
+          from fractions import Fraction
+          from decimal import Decimal, localcontext
+          from pathlib import Path
+          from QuPRS import check_equivalence
+          from QuPRS.utils import WMC
+          from QuPRS.utils.precision_count import parse_printed_solver_output, classify_printed_distance
+          folder = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence"
+          cnf = folder / "vqe4-rust.cnf"
+          wrapper = folder / "vqe4-wrapper.py"
+          wrapper.write_text("#!/usr/bin/env python3\nimport os, sys, shutil\nshutil.copyfile(sys.argv[-1], os.environ['QFT_CAPTURE'])\nexe = os.environ['QFT_GPMC']\nos.execv(exe, [exe, *sys.argv[1:]])\n")
+          wrapper.chmod(0o700)
+          file = "vqe_nativegates_ibm_qiskit_opt0_4.qasm"
+          root = Path.cwd() / "benchmarks" / "MQTBench"
+          with WMC("gpmc") as solver:
+              try:
+                  os.environ["QFT_GPMC"] = str(solver)
+                  os.environ["QFT_CAPTURE"] = str(cnf)
+                  os.environ["QUPRS_GPMC_PATH"] = str(wrapper)
+                  result = check_equivalence(
+                      str(root / file), str(root / "h,ry,rz,cx" / file),
+                      backend="rust", method="hybrid", strategy="proportional",
+                      tool_name="gpmc", gpmc_precision_digits=30, timeout=120)
+              finally:
+                  for key in ("QFT_GPMC", "QFT_CAPTURE", "QUPRS_GPMC_PATH"):
+                      os.environ.pop(key, None)
+              assert result.wmc_solver_invoked and cnf.exists()
+              match = re.search(r"Active Path Vars \(Count:\s*(\d+)\)", str(result.final_pathsum))
+              assert match, "Missing active PathSum vars"
+              exponent = int(match.group(1)) + 2 * result.qubit_num
+              print("VQE4_HEAD_VERDICT", result.equivalent, result.wmc_precision_reason, "normalization_exponent", exponent, flush=True)
+              for label, flags in (("default30", ["-mode=1"]), ("explicit90", ["-mode=1", "-prec=90"])):
+                  output = subprocess.run([str(solver), *flags, str(cnf)], text=True, capture_output=True, check=True, timeout=120)
+                  count = parse_printed_solver_output(output.stdout)
+                  excess = (count.real**2 + count.imag**2) / Fraction(2)**exponent - 1
+                  with localcontext() as decimal_context:
+                      decimal_context.prec = 55
+                      delta = Decimal(excess.numerator) / Decimal(excess.denominator)
+                  verdict = classify_printed_distance(count, exponent, 1e-8)
+                  print("VQE4_GPMC_EXCESS", json.dumps({
+                      "precision": label, "squared_magnitude_minus_one": str(delta),
+                      "ratio_to_distance_eps_squared": str(delta / Decimal("1e-16")),
+                      "phase_rad": math.atan2(float(count.imag), float(count.real)),
+                      "printed_verdict": verdict.status, "printed_reason": verdict.reason,
+                  }, sort_keys=True), flush=True)
+          cnf.unlink()
+          wrapper.unlink()
+          PY
+
       - name: CodSpeed simulation with solver subprocess tracing
         uses: CodSpeedHQ/action@v5
         with:

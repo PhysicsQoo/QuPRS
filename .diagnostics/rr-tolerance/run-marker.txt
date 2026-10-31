@@ -1,1 +1,1 @@
-Focused candidate 4: Graphstate16 strict-source certificate, approximate reduction, 4 benchmark cases, Python/Rust RR contracts.
+Candidate 5: complete Python 1300+ test suite and benchmark evidence; exact Graphstate16 independent source certificate; Rust/Python focused parity.

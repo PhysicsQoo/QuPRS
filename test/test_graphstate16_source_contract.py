@@ -125,15 +125,15 @@ def get_graphstate_reduced_certificate():
     res = check_equivalence(
         str(A), str(B), backend="rust", method="reduction_rules",
         strategy="Naive", tool_name="gpmc", timeout=30,
+        rr_tolerance=0,
     )
-    # Do not tighten RR matching just to force a "strict" status: doing
-    # so may disable HH/Omega reductions needed for the certificate.
-    # Interpret the SOURCE-EXACT reduced residual with rational pi bounds
-    # instead. Nonzero residuals prove strict source non-equivalence,
-    # independently of the default tolerance-accepted public verdict.
-    assert res.equivalent in ("equivalent", "equivalent*", "not_equivalent")
-    if res.equivalent in ("equivalent", "equivalent*"):
-        assert res.rr_approximate is True
+    # The public positive RR tolerance may legitimately discard the tiny
+    # residual phases.  Obtain the strict source certificate using the
+    # supported exact RR mode, not by inspecting an approximately reduced
+    # working state.  This also checks that exact HH/Omega still succeed.
+    assert res.equivalent == "not_equivalent"
+    assert res.rr_approximate is False
+    assert res.wmc_solver_invoked is False
     assert res.tool_time is None
     return certificate_from_reduced(str(res.final_pathsum))
 

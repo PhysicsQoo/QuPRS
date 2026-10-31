@@ -58,8 +58,9 @@ def test_all_benchmarks(benchmark, file_name, strategy, tool_name, switch, backe
         # The source literals differ by a nonzero ~1e-15 radian amount.
         # At the default RR tolerance the pair may nevertheless be accepted
         # as APPROXIMATELY equivalent. Obtain the source-exact rational
-        # residual certificate outside the benchmarked function; it must
-        # not depend on forcing stricter HH/Omega matching tolerances.
+        # residual certificate outside the benchmarked function using
+        # rr_tolerance=0 (exact RR), never the approximately normalized
+        # verification working state.
         residuals, distance_sq_upper = get_graphstate_reduced_certificate()
         assert result.equivalent in {"equivalent", "equivalent*"}, (
             "Source-pinned pair is within the default approximate RR policy",

@@ -138,8 +138,8 @@ jobs:
                   cnf_summary = summarize_cnf(capture)
                   capture.unlink()  # Upload summary only, not raw circuit CNF.
                   Path(str(capture) + ".invoked").unlink(missing_ok=True)
-              elif label == "graphstate16" and variant == "dev":
-                  cnf_summary = None  # Expected reduction-only, no solver process.
+              elif label == "graphstate16" and observed.get("wmc_solver_invoked") is False:
+                  cnf_summary = None  # RR-only; no solver CNF exists to capture.
               else:
                   marker = Path(str(capture) + ".invoked")
                   marker_info = marker.read_text() if marker.exists() else "wrapper_not_entered"
@@ -168,8 +168,11 @@ jobs:
               }
               if label == "qft16" and not record["solver_invoked"]:
                   raise AssertionError("QFT16 must exercise GPMC in this diagnostic")
-              if label == "graphstate16" and variant == "dev" and record["solver_invoked"]:
-                  raise AssertionError("dev Graphstate16 must remain an RR-only control")
+              if label == "graphstate16" and not record["solver_invoked"]:
+                  if record["solver_spawns"] not in (0, None):
+                      raise AssertionError("RR-only Graphstate16 spawned a solver")
+                  if record["status"] not in ("Equivalent", "Equivalent (Up to Global Phase)"):
+                      raise AssertionError("RR-only Graphstate16 did not verify equivalent")
               results.append(record)
               print(label, "verdict", record["status"],
                     "solver_invoked", record["solver_invoked"],
@@ -239,9 +242,9 @@ jobs:
               target = observations["pr-default"]["cnf"]
               pairs[case] = {
                   "same_structure": (source["structure_sha256"] == target["structure_sha256"])
-                                    if source is not None else None,
+                                    if source is not None and target is not None else None,
                   "same_weight_values": (source["weight_lines_sha256"] == target["weight_lines_sha256"])
-                                        if source is not None else None,
+                                        if source is not None and target is not None else None,
                   "dev": source, "pr_default": target,
                   "pr_no_precision": observations["pr-no-precision"]["cnf"],
               }
@@ -250,9 +253,9 @@ jobs:
                     "structure_same", pairs[case]["same_structure"],
                     "weights_same", pairs[case]["same_weight_values"],
                     "dev_vars", source["variables"] if source else None,
-                    "pr_vars", target["variables"],
+                    "pr_vars", target["variables"] if target else None,
                     "dev_clauses", source["clauses"] if source else None,
-                    "pr_clauses", target["clauses"],
+                    "pr_clauses", target["clauses"] if target else None,
                     flush=True)
           (root / "cnf-comparison.json").write_text(json.dumps(pairs, sort_keys=True, indent=2) + "\n")
           PY

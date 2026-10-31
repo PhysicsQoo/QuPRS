@@ -64,6 +64,9 @@ def test_single_pass_rejects_unsupported_weight_budget():
         maximum_weight_magnitude_squared=Fraction(1), precision_digits=90,
     )
     assert result.status == "unknown"
+    assert result.model_status == "unknown"
+    # No supported error *certificate* does not veto the public distance.
+    assert result.numerical_verdict == "equivalent"
 
 
 def test_single_pass_positive_phase_uses_common_contract():

@@ -166,6 +166,9 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > equivalence verdict to `unknown`. Ganak additionally reports a dynamic
 > print-resolution warning. Such numerical verdicts are not certificates
 > of internal solver accuracy or source-exact circuit equivalence.
+> The optional research-only `gpmc_distance_budget` model separately reports
+> `model_status` and `numerical_verdict`: its model may be inconclusive
+> for unsupported CNF sizes without overriding the public distance verdict.
 > An **unweighted, tautological CNF** matching the exact trace normalization
 > is counted algebraically (including one-qubit I versus I), with
 > `wmc_solver_invoked=False` and `analytic_unweighted_tautology` provenance.

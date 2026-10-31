@@ -39,7 +39,8 @@ def test_large_cnf_single_run_model_is_conservative(vars, record_property):
     assert answer.printed_status == "equivalent"
     # Eligible sizes report a point-estimate observation, not a certified
     # numerical bound; 513 variables remain outside this conditional model.
-    assert answer.status == ("unknown" if vars > 512 else "equivalent")
+    assert answer.model_status == ("unknown" if vars > 512 else "equivalent")
+    assert answer.numerical_verdict == "equivalent"
     assert answer.printed_status == "equivalent"
     assert not answer.solver_arithmetic_certified
     assert not answer.source_weight_certified
@@ -180,7 +181,8 @@ def test_native_gpmc_forced_unit_cnf_numerical_model(
     assert evidence.printed_status in ("equivalent", "unknown")
     # Preserve the raw printing diagnostic even when the public numerical
     # midpoint is usable. This forced-unit CNF is not a source-circuit proof.
-    assert evidence.status == "equivalent"
+    assert evidence.model_status == "equivalent"
+    assert evidence.numerical_verdict == "equivalent"
     assert not evidence.solver_arithmetic_certified
     assert not evidence.source_weight_certified
     assert evidence.reason.startswith("single_pass_uncertified_")

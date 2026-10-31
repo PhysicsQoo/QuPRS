@@ -1,1 +1,1 @@
-Focused RR tolerance correctness check, candidate 3: full native options, exact WMC fallback and phase parity.
+Focused candidate 4: Graphstate16 strict-source certificate, approximate reduction, 4 benchmark cases, Python/Rust RR contracts.

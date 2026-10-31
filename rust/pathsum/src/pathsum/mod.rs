@@ -43,6 +43,10 @@ pub struct PathSum {
     pub f: BooleanState,
     pub v: VariableManager,
     pub stats: StatisticsManager,
+    /// Per-request tolerance for approximate RR matching (cycles).
+    pub rr_tolerance: f64,
+    /// Whether a reduction rule used approximate coefficient matching.
+    pub rr_approximate: bool,
 }
 
 impl PathSum {
@@ -52,6 +56,8 @@ impl PathSum {
             f: BooleanState::new(num_qubits),
             v: VariableManager::new(num_qubits),
             stats: StatisticsManager::new(),
+            rr_tolerance: 0.0,
+            rr_approximate: false,
         }
     }
     pub fn set_auto_reduce(&mut self, enable: bool) {
@@ -69,6 +75,8 @@ impl PathSum {
             f: BooleanState::new_with_regs(regs),
             v: VariableManager::new(total_qubits),
             stats: StatisticsManager::new(),
+            rr_tolerance: 0.0,
+            rr_approximate: false,
         };
 
         if let Some(state) = initial_state {

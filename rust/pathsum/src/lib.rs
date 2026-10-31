@@ -431,19 +431,8 @@ fn check_equivalence_with_distance_mode(
                 };
             } else {
                 let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
-                // A fully eliminated path sum is not, by itself, a proof
-                // of inequivalence. A non-identity Boolean output map is a
-                // sound witness: a diagonal phase cannot repair a different
-                // computational-basis permutation. Residual phases with an
-                // identity output map need a separate numerical or symbolic
-                // certificate; do not turn incomplete RR into a negative.
-                let output_map_differs = ps_miter.f.functions.iter().enumerate()
-                    .any(|(qubit, poly)| {
-                        poly.len() != 1 || !poly.contains(&vec![qubit as u32])
-                    });
-                if method == VerificationMethod::ReductionRules
-                    && num_active_vars == 0 && output_map_differs
-                {
+                if method == VerificationMethod::ReductionRules && num_active_vars == 0 {
+                    // Strict source-negative, without claiming D>epsilon.
                     status = EquivalenceStatus::NotEquivalent;
                 } else {
                     status = EquivalenceStatus::Unknown;

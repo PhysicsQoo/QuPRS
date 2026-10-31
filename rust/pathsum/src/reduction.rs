@@ -11,9 +11,15 @@ impl PathSum {
         if coeff.symbols.len() != 0 { return false; }
         if coeff.radians.is_none() && coeff.constant == target { return true; }
         if self.rr_tolerance == 0.0 { return false; }
-        let value = coeff.constant.numer as f64 / coeff.constant.denom as f64
-            + coeff.radians.as_ref().and_then(num_traits::ToPrimitive::to_f64)
-                .map(|r| r / std::f64::consts::PI).unwrap_or(0.0);
+        let radians = match coeff.radians.as_ref() {
+            Some(r) => match num_traits::ToPrimitive::to_f64(r) {
+                Some(v) if v.is_finite() => v / std::f64::consts::PI,
+                _ => return false,
+            },
+            None => 0.0,
+        };
+        let value = coeff.constant.numer as f64 / coeff.constant.denom as f64 + radians;
+        if !value.is_finite() { return false; }
         let expected = target.numer as f64 / target.denom as f64;
         let delta = (value - expected).rem_euclid(1.0);
         delta.min(1.0 - delta) < self.rr_tolerance

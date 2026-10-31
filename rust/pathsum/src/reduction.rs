@@ -6,23 +6,48 @@ use crate::rational::{PhaseCoeff, Rational};
 use crate::stats::RuleType;
 
 impl PathSum {
-    /// Match a Clifford phase in cycles, retaining exact symbolic source terms.
+    /// Match a Clifford phase in cycles without rounding the source angle.
+    /// The binary64 estimate is only a cheap rejection filter; acceptance
+    /// always uses a certified rational interval for the original source.
     fn rr_matches(&self, coeff: &PhaseCoeff, target: Rational) -> bool {
-        if coeff.symbols.len() != 0 { return false; }
+        if !coeff.symbols.is_empty() { return false; }
         if coeff.radians.is_none() && coeff.constant == target { return true; }
         if self.rr_tolerance == 0.0 { return false; }
-        let radians = match coeff.radians.as_ref() {
-            Some(r) => match num_traits::ToPrimitive::to_f64(r) {
-                Some(v) if v.is_finite() => v / std::f64::consts::PI,
-                _ => return false,
-            },
-            None => 0.0,
+
+        // Avoid arbitrary-precision work for the common far-from-Clifford case.
+        let radians = coeff.radians.as_ref().and_then(num_traits::ToPrimitive::to_f64);
+        if coeff.radians.is_none() || radians.is_some_and(f64::is_finite) {
+            let cycles = coeff.constant.numer as f64 / coeff.constant.denom as f64
+                + radians.unwrap_or(0.0) / std::f64::consts::PI;
+            let expected = target.numer as f64 / target.denom as f64;
+            if cycles.is_finite() && cycles.abs() < 1e12 {
+                let delta = (cycles - expected).rem_euclid(1.0);
+                let distance = delta.min(1.0 - delta);
+                let uncertainty = 256.0 * f64::EPSILON * (1.0 + cycles.abs());
+                if distance > self.rr_tolerance + uncertainty { return false; }
+            }
+        }
+
+        let Some(tolerance) = num_rational::BigRational::from_float(self.rr_tolerance) else {
+            return false;
         };
-        let value = coeff.constant.numer as f64 / coeff.constant.denom as f64 + radians;
-        if !value.is_finite() { return false; }
-        let expected = target.numer as f64 / target.denom as f64;
-        let delta = (value - expected).rem_euclid(1.0);
-        delta.min(1.0 - delta) < self.rr_tolerance
+        crate::phase_cycles_upper_target(coeff, target) <= tolerance
+    }
+
+    /// Python-equivalent normalization of non-global phase terms.  Global
+    /// phase is kept exact, and dropping a nonzero coefficient is recorded.
+    fn normalize_rr_non_global(&mut self) {
+        if self.rr_tolerance == 0.0 { return; }
+        let removable: Vec<Monomial> = self.p.terms.iter()
+            .filter(|(monomial, coeff)| {
+                !monomial.is_empty() && self.rr_matches(coeff, Rational::ZERO)
+            })
+            .map(|(monomial, _)| monomial.clone())
+            .collect();
+        if !removable.is_empty() {
+            self.rr_approximate = true;
+            for monomial in removable { self.p.terms.remove(&monomial); }
+        }
     }
 
     pub fn get_reducible_vars(&self) -> Vec<u32> {
@@ -53,7 +78,11 @@ impl PathSum {
 
         while reduced {
             reduced = false;
-            
+
+            // Normalize first: an almost-zero y term may unlock Elim,
+            // Omega or HH.  Do not normalize the scalar global phase.
+            self.normalize_rr_non_global();
+
             let reducible_vars = self.get_reducible_vars();
 
             if reducible_vars.is_empty() {
@@ -317,6 +346,106 @@ mod tests {
         let mut ps = PathSum::new(num_qubits);
         ps.set_auto_reduce(false); 
         ps
+    }
+
+    #[test]
+    fn rr_tolerance_zero_is_exact_and_positive_tolerance_matches() {
+        let mut ps = setup_test_env(1);
+        let near = PhaseCoeff::new_constant(Rational::new(500_000_001, 1_000_000_000));
+        assert!(!ps.rr_matches(&near, Rational::HALF));
+        ps.rr_tolerance = 1e-8;
+        assert!(ps.rr_matches(&near, Rational::HALF));
+        ps.rr_tolerance = 1e-12;
+        assert!(!ps.rr_matches(&near, Rational::HALF));
+        assert!(ps.rr_matches(&PhaseCoeff::HALF, Rational::HALF));
+    }
+
+    #[test]
+    fn rr_tolerance_never_matches_unbound_symbolic_phase() {
+        use crate::rational::FreeRational;
+        let mut ps = setup_test_env(1);
+        ps.rr_tolerance = 0.1;
+        let symbolic = PhaseCoeff::new_symbolic(17, FreeRational::HALF);
+        assert!(!ps.rr_matches(&symbolic, Rational::HALF));
+    }
+
+    #[test]
+    fn approximate_hh_reduces_only_when_rr_tolerance_allows_it() {
+        let mut ps = setup_test_env(1);
+        ps.v.path_vars.insert(1);
+        ps.v.path_vars.insert(2);
+        ps.p.add_term(
+            vec![1, 2],
+            PhaseCoeff::new_constant(Rational::new(500_000_001, 1_000_000_000)),
+        );
+        let candidates = ps.get_reducible_vars();
+        let mut exact = ps.clone();
+        assert!(!exact.try_reduce_hh(&candidates));
+        assert!(!exact.rr_approximate);
+        ps.rr_tolerance = 1e-8;
+        assert!(ps.try_reduce_hh(&candidates));
+        assert!(ps.rr_approximate);
+        assert!(ps.p.terms.is_empty());
+    }
+
+    #[test]
+    fn approximate_omega_respects_exact_zero_tolerance() {
+        let mut ps = setup_test_env(1);
+        ps.v.path_vars.insert(1);
+        ps.p.add_term(
+            vec![1],
+            PhaseCoeff::new_constant(Rational::new(250_000_001, 1_000_000_000)),
+        );
+        let candidates = ps.get_reducible_vars();
+        let mut exact = ps.clone();
+        assert!(!exact.try_reduce_omega(&candidates));
+        assert!(!exact.rr_approximate);
+        ps.rr_tolerance = 1e-8;
+        assert!(ps.try_reduce_omega(&candidates));
+        assert!(ps.rr_approximate);
+        assert_eq!(
+            ps.p.terms.get(&Vec::new()),
+            Some(&PhaseCoeff::new_constant(Rational::new(1, 8))),
+        );
+    }
+
+    #[test]
+    fn rr_normalization_drops_non_global_but_keeps_scalar_phase() {
+        let mut ps = setup_test_env(1);
+        ps.v.path_vars.insert(1);
+        let near = PhaseCoeff::new_constant(Rational::new(1, 1_000_000_000));
+        ps.p.add_term(vec![1], near.clone());
+        ps.p.add_term(vec![], near.clone());
+        let mut exact = ps.clone();
+        exact.set_auto_reduce(true);
+        exact.full_reduce();
+        assert!(!exact.rr_approximate);
+        assert!(exact.p.terms.contains_key(&vec![1]));
+
+        ps.rr_tolerance = 1e-8;
+        ps.set_auto_reduce(true);
+        ps.full_reduce();
+        assert!(ps.rr_approximate);
+        assert!(!ps.p.terms.contains_key(&vec![1]));
+        assert_eq!(ps.p.terms.get(&Vec::new()), Some(&near));
+        assert!(!ps.v.path_vars.contains(&1));
+    }
+
+    #[test]
+    fn mixed_radian_source_uses_certified_matching() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let mut ps = setup_test_env(1);
+        let coeff = PhaseCoeff {
+            constant: Rational::QUARTER,
+            radians: Some(BigRational::new(BigInt::from(1), BigInt::from(10_000_000_000_i64))),
+            symbols: Default::default(),
+        };
+        assert!(!ps.rr_matches(&coeff, Rational::QUARTER));
+        ps.rr_tolerance = 1e-10;
+        assert!(ps.rr_matches(&coeff, Rational::QUARTER));
+        ps.rr_tolerance = 1e-12;
+        assert!(!ps.rr_matches(&coeff, Rational::QUARTER));
     }
 
     #[test]

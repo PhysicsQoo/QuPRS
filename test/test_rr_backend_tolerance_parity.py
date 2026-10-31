@@ -23,6 +23,8 @@ qreg q[1];
         ("0.00000000002", 1e-10, "equivalent"),
         ("0.00000000002", 1e-12, "not_equivalent"),
         ("0.00001", 1e-10, "not_equivalent"),
+        ("0", 0, "equivalent"),
+        ("0.00000000002", 0, "not_equivalent"),
     ),
 )
 def test_rr_tolerance_parity_for_exact_qasm_decimals(backend, angle, epsilon, expected):
@@ -37,10 +39,24 @@ def test_rr_tolerance_parity_for_exact_qasm_decimals(backend, angle, epsilon, ex
     assert result.wmc_solver_invoked is False
     assert result.tool_time is None
     if expected == "equivalent":
-        assert result.rr_approximate is True, (
-            "Nonzero exact source-angle residual must be reported as approximate",
+        assert result.rr_approximate is (angle != "0"), (
+            "Only a nonzero source-angle residual needs an approximate RR match",
             backend, angle,
         )
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_rr_approximation_is_independent_of_global_phase_label(backend):
+    rotated = _IDENTITY + "rz(0.000000001) q[0];\n"
+    result = check_equivalence(
+        _IDENTITY, rotated,
+        method="reduction_rules", strategy="Naive",
+        backend=backend, rr_tolerance=1e-8,
+        phase_tolerance=1e-12,
+    )
+    assert result.equivalent == "equivalent*"
+    assert result.rr_approximate is True
+    assert result.wmc_solver_invoked is False
 
 
 _ROOT = Path(__file__).resolve().parents[1] / "benchmarks" / "MQTBench"

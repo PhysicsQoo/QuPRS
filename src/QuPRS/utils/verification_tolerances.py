@@ -22,13 +22,13 @@ def rr_approximation_used():
 
 def validate_rr_tolerance(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("rr_tolerance must be a finite positive number")
+        raise ValueError("rr_tolerance must be a finite non-negative number")
     try:
         value = float(value)
     except (OverflowError, ValueError):
-        raise ValueError("rr_tolerance must be a finite positive number") from None
-    if not isfinite(value) or value <= 0:
-        raise ValueError("rr_tolerance must be a finite positive number")
+        raise ValueError("rr_tolerance must be a finite non-negative number") from None
+    if not isfinite(value) or value < 0:
+        raise ValueError("rr_tolerance must be a finite non-negative number")
     return value
 
 

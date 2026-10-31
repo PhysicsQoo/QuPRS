@@ -59,7 +59,7 @@ def test_phase_alias_mismatch_rejected(backend):
         )
 
 
-@pytest.mark.parametrize("bad", [False, 0, -1, float("nan"), float("inf"), "1e-10"])
+@pytest.mark.parametrize("bad", [False, -1, float("nan"), float("inf"), "1e-10"])
 def test_invalid_rr_tolerance_fails_before_solver(bad):
     with pytest.raises(ValueError, match="rr_tolerance"):
         check_equivalence(QuantumCircuit(1), QuantumCircuit(1), rr_tolerance=bad)
@@ -68,7 +68,7 @@ def test_invalid_rr_tolerance_fails_before_solver(bad):
 @pytest.mark.parametrize("backend", ["python", "rust"])
 def test_custom_rr_tolerance_accepted_with_per_call_scope(backend):
     identity = QuantumCircuit(1)
-    for tolerance in (1e-6, 1e-12):
+    for tolerance in (0, 1e-6, 1e-12):
         result = check_equivalence(
             identity, identity, backend=backend,
             method="reduction_rules", rr_tolerance=tolerance,

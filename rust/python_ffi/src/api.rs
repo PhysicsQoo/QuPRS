@@ -71,8 +71,8 @@ pub fn check_equivalence(
             "WMC phase tolerance must be finite in (0, 1)"
         ));
     }
-    if !rr_tolerance.is_finite() || rr_tolerance <= 0.0 {
-        return Err(PyValueError::new_err("rr_tolerance must be finite and positive"));
+    if !rr_tolerance.is_finite() || rr_tolerance < 0.0 {
+        return Err(PyValueError::new_err("rr_tolerance must be finite and non-negative"));
     }
     let effective_phase = phase_tolerance.unwrap_or(wmc_phase_tolerance);
     if !effective_phase.is_finite() || effective_phase <= 0.0 || effective_phase >= 1.0 {

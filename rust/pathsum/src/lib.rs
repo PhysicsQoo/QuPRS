@@ -96,9 +96,8 @@ pub struct EquivalenceCheckResult {
 
 /// Per-request verification configuration shared by native callers and the Python FFI.
 ///
-/// This controls verification dispatch and WMC classification; it does not
-/// alter the separate symbolic reduction rules. A projective-distance
-/// threshold is the sole WMC numerical acceptance metric.
+/// RR tolerance controls approximate non-global phase normalization and
+/// HH/Omega matching. Phase and projective-distance tolerances are separate.
 #[derive(Debug, Clone)]
 pub struct VerificationOptions {
     pub method: VerificationMethod,
@@ -176,7 +175,7 @@ pub fn check_equivalence_with_options(
 /// upper bound in cycles; no f64 PhaseCoeff truncation is performed.
 /// This applies ONLY when all path variables have been eliminated and
 /// the Boolean output is structurally the identity. Source phases and
-/// HH/Omega matching remain exact.
+/// HH/Omega matching use the per-request RR tolerance.
 /// Enclose pi using Machin's formula with exact alternating arctan series.
 /// Calculated only when a QASM source phase contains exact decimal radians;
 /// pure Clifford/rational phases retain the allocation-free fast path.
@@ -217,34 +216,43 @@ fn certified_pi_interval() -> &'static (num_rational::BigRational, num_rational:
 /// A rigorous upper bound on the distance of c + r/pi to an integer.
 /// Unlike |c| + |r|/3, the interval retains cancellation between source
 /// decimal radians and exact rational multiples of pi.
-fn phase_cycles_upper(
-    coeff: &PhaseCoeff, pi: &(num_rational::BigRational, num_rational::BigRational),
+/// Enclose the distance, in phase cycles, from a source coefficient to
+/// a requested Clifford target.  The rational source coefficients are never
+/// converted to binary64 or rounded to a target during matching.
+pub(crate) fn phase_cycles_upper_target(
+    coeff: &PhaseCoeff,
+    target: crate::rational::Rational,
 ) -> num_rational::BigRational {
     use num_bigint::BigInt;
     use num_rational::BigRational;
     use num_traits::Signed;
+
     let c = BigRational::new(
         BigInt::from(coeff.constant.numer), BigInt::from(coeff.constant.denom)
+    ) - BigRational::new(
+        BigInt::from(target.numer), BigInt::from(target.denom)
     );
-    let Some(r) = &coeff.radians else {
-        let one = BigRational::from_integer(BigInt::from(1));
-        return if c <= one.clone() - c.clone() { c } else { one - c };
+    let (lo, hi) = if let Some(r) = &coeff.radians {
+        let pi = certified_pi_interval();
+        let a = c.clone() + r.clone() / pi.0.clone();
+        let b = c + r.clone() / pi.1.clone();
+        if a <= b { (a, b) } else { (b, a) }
+    } else {
+        (c.clone(), c)
     };
-    let at_lo = c.clone() + r.clone() / pi.0.clone();
-    let at_hi = c + r.clone() / pi.1.clone();
-    let (lo, hi) = if at_lo <= at_hi { (at_lo, at_hi) } else { (at_hi, at_lo) };
+
     let two = BigRational::from_integer(BigInt::from(2));
     let midpoint_integer = ((lo.clone() + hi.clone()) / two).to_integer();
-    // to_integer truncates toward zero. Its immediate neighbours include
-    // the nearest integer, even for negative phase cycles.
+    // Integer truncation may differ from rounding for a negative midpoint;
+    // checking its immediate neighbours covers the nearest integer.
     let mut best: Option<BigRational> = None;
     for offset in -1_i64..=1_i64 {
-        let target = BigRational::from_integer(
+        let integer = BigRational::from_integer(
             midpoint_integer.clone() + BigInt::from(offset)
         );
-        let a = (lo.clone() - target.clone()).abs();
-        let b = (hi.clone() - target).abs();
-        let bound = if a > b { a } else { b };
+        let low_distance = (lo.clone() - integer.clone()).abs();
+        let high_distance = (hi.clone() - integer).abs();
+        let bound = if low_distance > high_distance { low_distance } else { high_distance };
         if best.as_ref().is_none_or(|old| &bound < old) {
             best = Some(bound);
         }
@@ -270,7 +278,7 @@ fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
         // A mixed exact-decimal/pi coefficient needs a joint interval,
         // otherwise the triangle bound loses nearly all cancellation.
         let term = if coeff.radians.is_some() {
-            phase_cycles_upper(coeff, certified_pi_interval())
+            phase_cycles_upper_target(coeff, crate::rational::Rational::ZERO)
         } else {
             // The interval is never built for pure rational/Clifford cases.
             let c = num_rational::BigRational::new(
@@ -400,7 +408,7 @@ fn check_equivalence_with_distance_mode(
     }
 
     rr_approximate |= ps_miter.rr_approximate;
-    let ps_time = pathsum_start.elapsed().as_secs_f64();
+    let mut ps_time = pathsum_start.elapsed().as_secs_f64();
     
     // 3. Reduction Rules Check
     if method != VerificationMethod::WmcOnly {
@@ -459,9 +467,23 @@ fn check_equivalence_with_distance_mode(
     let mut wmc_print_resolution_distance: Option<f64> = None;
 
     if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
+        // RR tolerance may have removed near-zero terms or accepted near-Clifford
+        // rule coefficients.  If RR did not settle Hybrid, reconstruct the
+        // exact-source PathSum for WMC so the solver never receives a rounded
+        // RR working polynomial.  No extra solver invocation is introduced.
+        if method == VerificationMethod::Hybrid && ps_miter.rr_approximate {
+            let mut exact_ps = PathSum::quantum_circuit(&regs, None);
+            exact_ps.set_auto_reduce(true);
+            // PathSum defaults to rr_tolerance=0: exact HH/Omega/Elim only.
+            let replay_start = Instant::now();
+            ps_miter = strategy.run(exact_ps, gates1, gates2);
+            ps_miter.full_reduce();
+            // Account exact-source replay as PathSum work, not solver time.
+            ps_time += replay_start.elapsed().as_secs_f64();
+        }
+
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
-        
         let mut wmc_mgr = WmcManager::new(&ps_miter);
         // High-precision source weights are selected only for GPMC's
         // projective-distance mode. All other modes retain their fast path.
@@ -732,6 +754,25 @@ mod verification_options_contract_tests {
     }
 
     #[test]
+    fn zero_rr_tolerance_is_valid_and_retains_exact_clifford_identity() {
+        let mut options = VerificationOptions {
+            method: VerificationMethod::ReductionRules,
+            strategy: VerificationStrategy::Naive,
+            rr_tolerance: 0.0,
+            ..VerificationOptions::default()
+        };
+        let exact = check_equivalence_with_options(1, &[], &[], &options)
+            .expect("zero RR tolerance must be accepted");
+        assert_eq!(exact.status, EquivalenceStatus::Equivalent);
+        assert!(!exact.rr_approximate);
+        assert!(!exact.solver_invoked);
+        options.rr_tolerance = -1e-10;
+        assert!(check_equivalence_with_options(1, &[], &[], &options).is_err());
+        options.rr_tolerance = f64::NAN;
+        assert!(check_equivalence_with_options(1, &[], &[], &options).is_err());
+    }
+
+    #[test]
     fn custom_rr_tolerance_changes_near_identity_without_mutating_source() {
         use crate::ir::QuantumOp;
         use crate::rational::{Angle, FreeRational};
@@ -752,13 +793,42 @@ mod verification_options_contract_tests {
         assert!(accepted.rr_approximate);
         assert!(!accepted.solver_invoked);
         assert!(accepted.tool_time.is_none());
-        assert!(!accepted.final_ps.p.terms.is_empty(),
-                "RR must not discard exact source residual phases");
+        assert!(accepted.final_ps.p.terms.keys().all(|monomial| monomial.is_empty()),
+                "Approximate RR may discard non-global working terms, not scalar phase");
+        assert!(accepted.final_ps.p.terms.contains_key(&Vec::new()),
+                "Rz global phase must remain unrounded");
         settings.rr_tolerance = 1e-12;
         let strict = check_equivalence_with_options(1, &[], &near, &settings).unwrap();
         assert_eq!(strict.status, EquivalenceStatus::NotEquivalent);
         assert!(!strict.rr_approximate);
         assert!(!strict.solver_invoked);
+    }
+
+    #[test]
+    fn hybrid_fallback_wmc_uses_unrounded_source_after_approximate_rr() {
+        use crate::ir::QuantumOp;
+        use crate::rational::{Angle, FreeRational};
+        let source = vec![
+            QuantumOp::RZ(0, Angle::new_constant(FreeRational::new(1, 1_000_000_000))),
+            QuantumOp::X(0),
+        ];
+        let mut settings = VerificationOptions {
+            method: VerificationMethod::Hybrid,
+            strategy: VerificationStrategy::Naive,
+            rr_tolerance: 1e-8,
+            ..VerificationOptions::default()
+        };
+        let hybrid = check_equivalence_with_options(1, &[], &source, &settings)
+            .expect("Hybrid one-qubit fallback");
+        settings.method = VerificationMethod::WmcOnly;
+        let exact = check_equivalence_with_options(1, &[], &source, &settings)
+            .expect("WMC-only source reference");
+        assert!(hybrid.rr_approximate, "RR must record removal of a tiny phase");
+        assert!(hybrid.solver_invoked, "unresolved Hybrid must invoke WMC");
+        assert_eq!(hybrid.final_ps.p.terms, exact.final_ps.p.terms,
+            "WMC fallback cannot use the approximately rounded RR polynomial");
+        assert_eq!(hybrid.final_ps.f.functions, exact.final_ps.f.functions);
+        assert_eq!(hybrid.status, exact.status);
     }
 
     #[test]

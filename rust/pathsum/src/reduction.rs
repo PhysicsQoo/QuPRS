@@ -41,11 +41,11 @@ impl PathSum {
                 break;
             }
 
-            // Priority: Elim -> HH -> Omega
-            // Restart loop on success to allow higher-priority rules to process new states
+            // Match the Python Path-sum reduction priority: Elim -> Omega -> HH.
+            // Restart after each success, so higher-priority rules see the new state.
             if self.try_reduce_elim(&reducible_vars) { reduced = true; iterations += 1; continue; }
-            if self.try_reduce_hh(&reducible_vars) { reduced = true; iterations += 1; continue; }
             if self.try_reduce_omega(&reducible_vars) { reduced = true; iterations += 1; continue; }
+            if self.try_reduce_hh(&reducible_vars) { reduced = true; iterations += 1; continue; }
 
             if iterations > 0 {
                 trace!(">> [Full Reduce] System converged after {} reduction steps.", iterations);

@@ -172,7 +172,12 @@ jobs:
                   if record["solver_spawns"] not in (0, None):
                       raise AssertionError("RR-only Graphstate16 spawned a solver")
                   if record["status"] not in ("Equivalent", "Equivalent (Up to Global Phase)"):
-                      raise AssertionError("RR-only Graphstate16 did not verify equivalent")
+                      raise AssertionError(
+                          "RR-only Graphstate16 did not verify equivalent: "
+                          f"variant={variant}, status={record['status']!r}, "
+                          f"rr_approximate={record['rr_approximate']!r}, "
+                          f"stage_ledger={ledger!r}, output_stats={record['output_stats']!r}"
+                      )
               results.append(record)
               print(label, "verdict", record["status"],
                     "solver_invoked", record["solver_invoked"],

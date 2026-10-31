@@ -67,7 +67,11 @@ def test_solver_cpu_inclusive(
         strategy=strategy,
         tool_name=solver,
         backend=backend,
-        timeout=120,
+        # CodSpeed Simulation instruments the external GPMC process and can
+        # spend substantially more wall-clock time than the uninstrumented
+        # verifier. Keep an explicit, bounded diagnostic timeout for QFT16.
+        # Use the same timeout across revisions within this benchmark identity.
+        timeout=300 if case_id == "qft16-gpmc-rust" else 120,
     )
     verdict = str(result.equivalent)
     invoked = bool(result.wmc_solver_invoked)

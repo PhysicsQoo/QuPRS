@@ -1,0 +1,191 @@
+name: QFT16 native diagnostics
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pr131-qft-diagnostic.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  qft16-diagnostics:
+    if: ${{ github.event.pull_request.number == 131 }}
+    name: QFT16 source and solver diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      PR_SHA: ${{ github.event.pull_request.head.sha }}
+      RUST_BACKTRACE: "1"
+    steps:
+      - name: Check out exact pull request source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Prepare Python and native build tools
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare isolated Python environment and probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/qft131-venv"
+          "$RUNNER_TEMP/qft131-venv/bin/python" -m pip install --disable-pip-version-check maturin
+          mkdir -p "$RUNNER_TEMP/qft131-evidence"
+          cat > "$RUNNER_TEMP/qft131-probe.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          import QuPRS
+          from QuPRS import _pathsum_rust
+          from QuPRS.utils import WMC
+
+          variant = sys.argv[1]
+          root = Path.cwd()
+          sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"], text=True
+          ).strip()
+          spec = [
+              ("qft16", "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+               "proportional", True),
+              ("graphstate16", "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+               "naive", False),
+          ]
+          results = []
+          for label, name, strategy, swap in spec:
+              path_a = root / "benchmarks" / "MQTBench" / name
+              path_b = root / "benchmarks" / "MQTBench" / "h,ry,rz,cx" / name
+              left, right = (path_b, path_a) if swap else (path_a, path_b)
+              with WMC("gpmc") as exe:
+                  binary = Path(exe)
+                  solver_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
+                  os.environ["QUPRS_GPMC_PATH"] = str(binary)
+                  try:
+                      observed = _pathsum_rust.check_equivalence(
+                          str(left), str(right), method="hybrid",
+                          strategy=strategy, tool_name="gpmc", timeout=240,
+                      )
+                  finally:
+                      os.environ.pop("QUPRS_GPMC_PATH", None)
+              ledger = observed.get("stage_ledger") or {}
+              record = {
+                  "case": label,
+                  "status": observed.get("status"),
+                  "solver_invoked": observed.get("wmc_solver_invoked"),
+                  "rr_approximate": observed.get("rr_approximate"),
+                  "solver_spawns": ledger.get("solver_child_spawns"),
+                  "stage_calls": ledger.get("calls"),
+                  "output_stats": observed.get("stats"),
+                  "printed_verdict": observed.get("wmc_printed_verdict"),
+                  "precision_reason": observed.get("wmc_precision_reason"),
+                  "qasm_sha256": [
+                      hashlib.sha256(p.read_bytes()).hexdigest()
+                      for p in (left, right)
+                  ],
+                  "solver_sha256": solver_hash,
+              }
+              if label == "qft16" and not record["solver_invoked"]:
+                  raise AssertionError("QFT16 must exercise GPMC in this diagnostic")
+              if label == "graphstate16" and variant == "dev" and record["solver_invoked"]:
+                  raise AssertionError("dev Graphstate16 must remain an RR-only control")
+              results.append(record)
+              print(label, "verdict", record["status"],
+                    "solver_invoked", record["solver_invoked"],
+                    "solver_spawns", record["solver_spawns"], flush=True)
+
+          evidence = {
+              "source_sha": sha,
+              "source_tree": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD^{tree}"], text=True
+              ).strip(),
+              "submodule": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD:GPMC"], text=True
+              ).strip(),
+              "variant": variant,
+              "measurement_note": (
+                  "Structural and scientific diagnostics only. "
+                  "Stage call counts are not a performance measurement. "
+                  "Performance evidence must come from CodSpeed."
+              ),
+              "cases": results,
+          }
+          output = Path(os.environ["RUNNER_TEMP"]) / "qft131-evidence" / (variant + ".json")
+          output.write_text(json.dumps(evidence, sort_keys=True, indent=2, default=str) + "\n")
+          PY
+
+      - name: Collect exact source and feature-control evidence
+        shell: bash
+        env:
+          QUPRS_STAGE_LEDGER: "1"
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          git fetch --no-tags origin "$DEV_SHA"
+          for variant in dev pr-default pr-no-precision; do
+            if [ "$variant" = dev ]; then
+              revision="$DEV_SHA"
+            else
+              revision="$PR_SHA"
+            fi
+            git switch --detach "$revision"
+            git submodule update --init --recursive
+            test "$(git rev-parse HEAD)" = "$revision"
+            if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+              echo "Tracked sources changed during diagnostic" >&2
+              exit 1
+            fi
+            echo "Source $variant $(git rev-parse HEAD) $(git rev-parse HEAD^{tree})"
+            if [ "$variant" = pr-no-precision ]; then
+              maturin develop --release -E dev --no-default-features
+            else
+              maturin develop --release -E dev
+            fi
+            python "$RUNNER_TEMP/qft131-probe.py" "$variant"
+          done
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qft16-source-feature-evidence
+          path: ${{ runner.temp }}/qft131-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Restore full-precision pull request build for CodSpeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/qft131-venv/bin/activate"
+          git switch --detach "$PR_SHA"
+          git submodule update --init --recursive
+          test "$(git rev-parse HEAD)" = "$PR_SHA"
+          maturin develop --release -E dev
+
+      - name: CodSpeed simulation with solver subprocess tracing
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          simulation-track-subprocess: 'true'
+          run: ${{ runner.temp }}/qft131-venv/bin/python -m pytest 'test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-rust]' --codspeed

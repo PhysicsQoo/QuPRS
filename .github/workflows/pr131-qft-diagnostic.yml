@@ -57,7 +57,9 @@ jobs:
           test -n "${QFT131_CAPTURE_PATH:-}"
           test -n "${QFT131_REAL_GPMC:-}"
           last="${!#}"
+          printf 'wrapper_entered args=%s cnf_exists=%s\\n' "$#" "$(test -f "$last" && echo yes || echo no)" > "$QFT131_CAPTURE_PATH.invoked"
           cp -- "$last" "$QFT131_CAPTURE_PATH"
+          printf 'capture_written=yes\\n' >> "$QFT131_CAPTURE_PATH.invoked"
           exec "$QFT131_REAL_GPMC" "$@"
           SH
           chmod 700 "$RUNNER_TEMP/qft131-capture-gpmc.sh"
@@ -135,10 +137,17 @@ jobs:
               if capture.is_file():
                   cnf_summary = summarize_cnf(capture)
                   capture.unlink()  # Upload summary only, not raw circuit CNF.
+                  Path(str(capture) + ".invoked").unlink(missing_ok=True)
               elif label == "graphstate16" and variant == "dev":
                   cnf_summary = None  # Expected reduction-only, no solver process.
               else:
-                  raise AssertionError("Expected GPMC CNF capture is missing")
+                  marker = Path(str(capture) + ".invoked")
+                  marker_info = marker.read_text() if marker.exists() else "wrapper_not_entered"
+                  raise AssertionError(
+                      "Expected GPMC CNF capture is missing; "
+                      f"variant={variant}, case={label}, marker={marker_info!r}, "
+                      f"native_extension={getattr(_pathsum_rust, '__file__', None)!r}"
+                  )
               ledger = observed.get("stage_ledger") or {}
               record = {
                   "case": label,

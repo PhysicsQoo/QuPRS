@@ -383,6 +383,7 @@ fn check_equivalence_with_distance_mode(
     let mut ps = PathSum::quantum_circuit(&regs, None);
     let reduction_enabled = method != VerificationMethod::WmcOnly;
     ps.set_auto_reduce(reduction_enabled);
+    ps.rr_tolerance = rr_tolerance;
 
     let mut status = EquivalenceStatus::Unknown;
     let mut rr_approximate = false;
@@ -390,6 +391,7 @@ fn check_equivalence_with_distance_mode(
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
     let mut ps_miter = strategy.run(ps, gates1, gates2);
+    ps_miter.rr_tolerance = rr_tolerance;
     
     // Prepare the initial state |0...0> to form the transition amplitude <0|M|0>
     
@@ -397,6 +399,7 @@ fn check_equivalence_with_distance_mode(
         ps_miter.full_reduce();
     }
 
+    rr_approximate |= ps_miter.rr_approximate;
     let ps_time = pathsum_start.elapsed().as_secs_f64();
     
     // 3. Reduction Rules Check

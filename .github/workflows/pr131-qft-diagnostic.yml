@@ -132,10 +132,13 @@ jobs:
                   finally:
                       for name in ("QUPRS_GPMC_PATH", "QFT131_REAL_GPMC", "QFT131_CAPTURE_PATH"):
                           os.environ.pop(name, None)
-              if not capture.is_file():
-                  raise AssertionError("GPMC subprocess did not provide CNF capture")
-              cnf_summary = summarize_cnf(capture)
-              capture.unlink()  # The source CNF is not uploaded; only hashes/statistics remain.
+              if capture.is_file():
+                  cnf_summary = summarize_cnf(capture)
+                  capture.unlink()  # Upload summary only, not raw circuit CNF.
+              elif label == "graphstate16" and variant == "dev":
+                  cnf_summary = None  # Expected reduction-only, no solver process.
+              else:
+                  raise AssertionError("Expected GPMC CNF capture is missing")
               ledger = observed.get("stage_ledger") or {}
               record = {
                   "case": label,
@@ -226,16 +229,21 @@ jobs:
               source = observations["dev"]["cnf"]
               target = observations["pr-default"]["cnf"]
               pairs[case] = {
-                  "same_structure": source["structure_sha256"] == target["structure_sha256"],
-                  "same_weight_values": source["weight_lines_sha256"] == target["weight_lines_sha256"],
+                  "same_structure": (source["structure_sha256"] == target["structure_sha256"])
+                                    if source is not None else None,
+                  "same_weight_values": (source["weight_lines_sha256"] == target["weight_lines_sha256"])
+                                        if source is not None else None,
                   "dev": source, "pr_default": target,
                   "pr_no_precision": observations["pr-no-precision"]["cnf"],
               }
               print("CNF_COMPARE", case,
+                    "dev_invoked_solver", source is not None,
                     "structure_same", pairs[case]["same_structure"],
                     "weights_same", pairs[case]["same_weight_values"],
-                    "dev_vars", source["variables"], "pr_vars", target["variables"],
-                    "dev_clauses", source["clauses"], "pr_clauses", target["clauses"],
+                    "dev_vars", source["variables"] if source else None,
+                    "pr_vars", target["variables"],
+                    "dev_clauses", source["clauses"] if source else None,
+                    "pr_clauses", target["clauses"],
                     flush=True)
           (root / "cnf-comparison.json").write_text(json.dumps(pairs, sort_keys=True, indent=2) + "\n")
           PY

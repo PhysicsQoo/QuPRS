@@ -45,6 +45,20 @@ def test_rr_tolerance_parity_for_exact_qasm_decimals(backend, angle, epsilon, ex
         )
 
 
+@pytest.mark.parametrize("backend", ("python", "rust"))
+def test_rr_approximation_is_independent_of_global_phase_label(backend):
+    rotated = _IDENTITY + "rz(0.000000001) q[0];\\n"
+    result = check_equivalence(
+        _IDENTITY, rotated,
+        method="reduction_rules", strategy="Naive",
+        backend=backend, rr_tolerance=1e-8,
+        phase_tolerance=1e-12,
+    )
+    assert result.equivalent == "equivalent*"
+    assert result.rr_approximate is True
+    assert result.wmc_solver_invoked is False
+
+
 _ROOT = Path(__file__).resolve().parents[1] / "benchmarks" / "MQTBench"
 _GRAPH_LEFT = _ROOT / "graphstate_nativegates_ibm_qiskit_opt0_16.qasm"
 _GRAPH_RIGHT = _ROOT / "h,ry,rz,cx" / "graphstate_nativegates_ibm_qiskit_opt0_16.qasm"

@@ -132,7 +132,7 @@ jobs:
               ("vqe4", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", false, VerificationStrategy::Proportional),
           ];
 
-          fn run_native_rr(bencher: divan::Bencher, id: usize, tolerance: f64) {
+          fn run_native_rr(bencher: divan::Bencher, id: usize, tolerance: f64, warmed: bool) {
               let (case, filename, reverse, strategy) = CASES[id];
               let base = Path::new(env!("CARGO_MANIFEST_DIR"))
                   .join("../../dev-src/benchmarks/MQTBench");
@@ -151,9 +151,17 @@ jobs:
                   rr_tolerance: tolerance,
                   ..VerificationOptions::default()
               };
-              // Only Rust-native miter construction, per-step RR and
-              // RR classification are timed; no file IO, imports, PyO3,
-              // Python process startup, CNF encoding or solver spawning.
+              // Warm control: perform exactly the same native call before the
+              // simulated region. This primes OnceLock and other lazy state;
+              // it does not change RR tolerance or the source gates.
+              if warmed {
+                  let before = check_equivalence_with_options(n, &first, &second, &options)
+                      .expect("native RR warmup failed");
+                  assert_ne!(before.status, EquivalenceStatus::Timeout);
+                  divan::black_box(before.status);
+              }
+              // Only native miter construction, RR and verdict classification
+              // are timed; QASM IO, Python, FFI, CNF and Solver are excluded.
               bencher.bench(|| {
                   let answer = check_equivalence_with_options(
                       divan::black_box(n), divan::black_box(&first),
@@ -166,12 +174,17 @@ jobs:
 
           #[divan::bench(args = [0, 1, 2, 3, 4])]
           fn rr_tolerant(bencher: divan::Bencher, id: usize) {
-              run_native_rr(bencher, id, 1e-10)
+              run_native_rr(bencher, id, 1e-10, false)
+          }
+
+          #[divan::bench(args = [0, 1, 2, 3, 4])]
+          fn rr_tolerant_warm(bencher: divan::Bencher, id: usize) {
+              run_native_rr(bencher, id, 1e-10, true)
           }
 
           #[divan::bench(args = [0, 1, 2, 3, 4])]
           fn rr_strict(bencher: divan::Bencher, id: usize) {
-              run_native_rr(bencher, id, 0.0)
+              run_native_rr(bencher, id, 0.0, false)
           }
 
           fn main() { divan::main(); }
@@ -189,17 +202,18 @@ jobs:
           assert code.count(field) == 1
           code = code.replace(field, "")
           code = code.replace(
-              "fn run_native_rr(bencher: divan::Bencher, id: usize, tolerance: f64)",
-              "fn run_native_rr(bencher: divan::Bencher, id: usize, _tolerance: f64)",
+              "fn run_native_rr(bencher: divan::Bencher, id: usize, tolerance: f64, warmed: bool)",
+              "fn run_native_rr(bencher: divan::Bencher, id: usize, _tolerance: f64, warmed: bool)",
           )
           code = code.replace("fn rr_tolerant(", "fn rr_legacy_default(")
+          code = code.replace("fn rr_tolerant_warm(", "fn rr_legacy_default_warm(")
           strict_start = code.index("#[divan::bench(args = [0, 1, 2, 3, 4])]\nfn rr_strict")
           main_start = code.index("fn main() { divan::main(); }", strict_start)
           code = code[:strict_start] + code[main_start:]
           assert "rr_tolerance:" not in code
           file.write_text(code)
           PY
-          echo "Bench corpus: 5 native cases; dev legacy default, PR tolerant 1e-10 and strict 0"
+          echo "Bench corpus: 5 cases, each with cold/warm native default and cold/warm PR tolerant; PR strict control"
       - name: Build CodSpeed Simulation instrumentation for both revisions
         shell: bash
         run: |

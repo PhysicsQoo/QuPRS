@@ -10,7 +10,9 @@ from qiskit import QuantumCircuit, qasm2, qasm3
 
 from QuPRS import config
 from QuPRS.utils.verification_tolerances import (
-    current_rr_tolerance, scoped_rr_tolerance, per_call_rr_tolerance, rr_approximation_used,
+    DEFAULT_RR_TOLERANCE, validate_rr_tolerance, scoped_rr_tolerance,
+    begin_rr_approximation_tracking, finish_rr_approximation_tracking,
+    rr_approximation_used,
 )
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
@@ -204,7 +206,6 @@ def _validate_rust_qasm_global_phase_contract(circuit1, circuit2) -> None:
 # =============================================================================
 
 
-@per_call_rr_tolerance
 def check_equivalence(
     circuit1: str | QuantumCircuit,
     circuit2: str | QuantumCircuit,
@@ -274,7 +275,9 @@ def check_equivalence(
         EquivalenceCheckResult: An object containing the result dictionary and the
             final PathSum circuit object.
     """
-    rr_tolerance = current_rr_tolerance()
+    rr_tolerance = validate_rr_tolerance(
+        DEFAULT_RR_TOLERANCE if rr_tolerance is None else rr_tolerance
+    )
     if phase_tolerance is not None:
         if wmc_phase_tolerance is not None and wmc_phase_tolerance != phase_tolerance:
             raise ValueError("phase_tolerance conflicts with wmc_phase_tolerance")
@@ -512,6 +515,7 @@ def check_equivalence(
         previous_alarm_handler = signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(timeout)
 
+    rr_evidence_token = begin_rr_approximation_tracking()
     try:
         to_DIMACS_time = None
         tool_time = None
@@ -709,6 +713,7 @@ def check_equivalence(
             signal.alarm(0)
         raise e
     finally:
+        rr_approximation_evidence = finish_rr_approximation_tracking(rr_evidence_token)
         if use_alarm:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, previous_alarm_handler)
@@ -744,7 +749,7 @@ def check_equivalence(
         wmc_print_resolution_distance=wmc_print_resolution_distance,
         wmc_numeric_model_bound=wmc_numeric_model_bound,
         rr_approximate=(
-            (rr_approximation_used()
+            (rr_approximation_evidence
              or bool(getattr(pathsum_circuit._stats, "rr_approximation_used", False)))
             and equivalent in ("equivalent", "equivalent*")
             and not wmc_solver_invoked

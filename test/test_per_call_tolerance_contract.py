@@ -276,3 +276,33 @@ def test_python_spawn_safe_mode_preserves_rr_provenance(theta, expected_approxim
     assert result.equivalent == "equivalent"
     assert result.rr_approximate is expected_approximate
     assert not result.wmc_solver_invoked
+def test_rust_api_does_not_enter_python_rr_scoping(monkeypatch):
+    import importlib
+    api = importlib.import_module("QuPRS.interface.load_qiskit")
+    from QuPRS import check_equivalence as verify
+    assert not hasattr(verify, "__wrapped__")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Rust backend entered Python RR bookkeeping")
+    monkeypatch.setattr(api, "scoped_rr_tolerance", forbidden)
+    monkeypatch.setattr(api, "begin_rr_approximation_tracking", forbidden)
+    circuit = QuantumCircuit(1)
+    for tolerance in (0, 1e-10, 1e-6):
+        res = verify(circuit, circuit, backend="rust",
+            method="reduction_rules", rr_tolerance=tolerance)
+        assert res.equivalent == "equivalent"
+
+
+def test_python_back_to_back_rr_provenance_is_isolated():
+    from QuPRS.utils.verification_tolerances import rr_approximation_used
+    prior_evidence = rr_approximation_used()
+    original = QuantumCircuit(1)
+    shifted = QuantumCircuit(1)
+    shifted.rz(1e-9, 0)
+    first = check_equivalence(original, shifted, backend="python",
+        method="reduction_rules", strategy="Naive", rr_tolerance=1e-8)
+    second = check_equivalence(original, original, backend="python",
+        method="reduction_rules", strategy="Naive", rr_tolerance=1e-8)
+    assert first.rr_approximate is True
+    assert second.rr_approximate is False
+    assert current_rr_tolerance() == DEFAULT_RR_TOLERANCE
+    assert rr_approximation_used() is prior_evidence

@@ -1,8 +1,6 @@
 """Per-verification numerical reduction settings (no process-global mutable policy)."""
 from contextlib import contextmanager
 from contextvars import ContextVar
-from functools import wraps
-from inspect import signature
 from math import isfinite
 
 DEFAULT_RR_TOLERANCE = 1e-10
@@ -45,21 +43,14 @@ def scoped_rr_tolerance(value):
         _rr_tolerance.reset(token)
 
 
-def per_call_rr_tolerance(fn):
-    """Scope the RR threshold to one verification; positional calls also work."""
-    sig = signature(fn)
 
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        bound = sig.bind_partial(*args, **kwargs)
-        value = bound.arguments.get("rr_tolerance")
-        if value is None:
-            value = DEFAULT_RR_TOLERANCE
-        token = _rr_approximation_used.set(False)
-        try:
-            with scoped_rr_tolerance(value):
-                return fn(*args, **kwargs)
-        finally:
-            _rr_approximation_used.reset(token)
+def begin_rr_approximation_tracking():
+    """Start one Python-backend request; Rust does not use Python RR state."""
+    return _rr_approximation_used.set(False)
 
-    return wrapper
+
+def finish_rr_approximation_tracking(token):
+    """Capture request provenance and restore outer context even on errors."""
+    observed = _rr_approximation_used.get()
+    _rr_approximation_used.reset(token)
+    return observed

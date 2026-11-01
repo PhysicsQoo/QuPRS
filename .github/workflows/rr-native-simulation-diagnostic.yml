@@ -1,0 +1,205 @@
+name: Rust Native In-Process RR CodSpeed Simulation
+
+on:
+  push:
+    branches:
+      - experiment/rr-tolerance-parity
+    paths:
+      - '.github/workflows/rr-native-simulation-diagnostic.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: quprs-native-rr-simulation
+  cancel-in-progress: true
+
+jobs:
+  rr-native-cpu:
+    name: Compare Rust-native RR-only without Python or solver
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      PR_SHA: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - name: Checkout diagnostic workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact dev
+        uses: actions/checkout@v4
+        with:
+          ref: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+          path: dev-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          ref: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+          path: head-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Configure Rust and cargo-codspeed
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          cache-target: release
+          bins: cargo-codspeed
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Verify source, solver and QASM input identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C dev-src rev-parse HEAD)" = "$DEV_SHA"
+          test "$(git -C head-src rev-parse HEAD)" = "$PR_SHA"
+          test "$(git -C dev-src rev-parse HEAD:GPMC)" = "$(git -C head-src rev-parse HEAD:GPMC)"
+          test "$(git -C dev-src rev-parse HEAD:pyproject.toml)" = "$(git -C head-src rev-parse HEAD:pyproject.toml)"
+          for name in graphstate_nativegates_ibm_qiskit_opt0_16.qasm \
+                      grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm \
+                      qft_nativegates_ibm_qiskit_opt0_16.qasm \
+                      qaoa_nativegates_ibm_qiskit_opt0_7.qasm \
+                      vqe_nativegates_ibm_qiskit_opt0_4.qasm; do
+            for sub in "" "h,ry,rz,cx/"; do
+              test "$(git -C dev-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")" = \
+                   "$(git -C head-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")"
+            done
+          done
+          rustc --version
+          cargo codspeed --version
+          lscpu | grep -E 'Model name|Architecture' || true
+      - name: Generate isolated native Rust benchmark workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rr-native-lab/dev/benches rr-native-lab/head/benches
+          cat > rr-native-lab/Cargo.toml <<'TOML'
+          [workspace]
+          members = ["dev", "head"]
+          resolver = "2"
+          TOML
+          cat > rr-native-lab/dev/Cargo.toml <<'TOML'
+          [package]
+          name = "quprs-rr-dev-probe"
+          version = "0.1.0"
+          edition = "2021"
+          publish = false
+
+          [dependencies]
+          pathsum = { path = "../../dev-src/rust/pathsum" }
+          divan = { package = "codspeed-divan-compat", version = "=4.7.0" }
+
+          [[bench]]
+          name = "rr_native"
+          harness = false
+          TOML
+          cat > rr-native-lab/head/Cargo.toml <<'TOML'
+          [package]
+          name = "quprs-rr-head-probe"
+          version = "0.1.0"
+          edition = "2021"
+          publish = false
+
+          [dependencies]
+          pathsum = { path = "../../head-src/rust/pathsum" }
+          divan = { package = "codspeed-divan-compat", version = "=4.7.0" }
+
+          [[bench]]
+          name = "rr_native"
+          harness = false
+          TOML
+          cat > rr-native-lab/dev/benches/rr_native.rs <<'RUST'
+          use std::path::Path;
+          use pathsum::{
+              check_equivalence_with_options, qasm, EquivalenceStatus,
+              VerificationMethod, VerificationOptions, VerificationStrategy,
+          };
+
+          const CASES: [(&str, &str, bool, VerificationStrategy); 5] = [
+              ("graphstate16", "graphstate_nativegates_ibm_qiskit_opt0_16.qasm", false, VerificationStrategy::Naive),
+              ("grover4", "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", true, VerificationStrategy::Proportional),
+              ("qft16", "qft_nativegates_ibm_qiskit_opt0_16.qasm", true, VerificationStrategy::Proportional),
+              ("qaoa7", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm", false, VerificationStrategy::Proportional),
+              ("vqe4", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", false, VerificationStrategy::Proportional),
+          ];
+
+          fn run_native_rr(bencher: divan::Bencher, id: usize, tolerance: f64) {
+              let (case, filename, reverse, strategy) = CASES[id];
+              let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+                  .join("../../dev-src/benchmarks/MQTBench");
+              // The package-local dev-src/head-src ancestor differs, but
+              // the QASM fixture contents are hash-checked byte-identical.
+              let base = if env!("CARGO_PKG_NAME") == "quprs-rr-head-probe" {
+                  Path::new(env!("CARGO_MANIFEST_DIR")).join("../../head-src/benchmarks/MQTBench")
+              } else { base };
+              let (mut first, n) = qasm::parse_file(&base.join(filename)).unwrap();
+              let (mut second, other_n) = qasm::parse_file(&base.join("h,ry,rz,cx").join(filename)).unwrap();
+              assert_eq!(n, other_n, "circuit qubit mismatch: {}", case);
+              if reverse { std::mem::swap(&mut first, &mut second); }
+              let options = VerificationOptions {
+                  method: VerificationMethod::ReductionRules,
+                  strategy,
+                  rr_tolerance: tolerance,
+                  ..VerificationOptions::default()
+              };
+              // Only Rust-native miter construction, per-step RR and
+              // RR classification are timed; no file IO, imports, PyO3,
+              // Python process startup, CNF encoding or solver spawning.
+              bencher.bench(|| {
+                  let answer = check_equivalence_with_options(
+                      divan::black_box(n), divan::black_box(&first),
+                      divan::black_box(&second), divan::black_box(&options)
+                  ).expect("native RR check failed");
+                  assert_ne!(answer.status, EquivalenceStatus::Timeout);
+                  divan::black_box(answer.status)
+              });
+          }
+
+          #[divan::bench(args = [0, 1, 2, 3, 4])]
+          fn rr_tolerant(bencher: divan::Bencher, id: usize) {
+              run_native_rr(bencher, id, 1e-10)
+          }
+
+          #[divan::bench(args = [0, 1, 2, 3, 4])]
+          fn rr_strict(bencher: divan::Bencher, id: usize) {
+              run_native_rr(bencher, id, 0.0)
+          }
+
+          fn main() { divan::main(); }
+          RUST
+          cp rr-native-lab/dev/benches/rr_native.rs rr-native-lab/head/benches/rr_native.rs
+          # Verify the generated source in both packages is identical.
+          cmp rr-native-lab/dev/benches/rr_native.rs rr-native-lab/head/benches/rr_native.rs
+          echo "Bench corpus: 5 cases x tolerant/strict RR x two exact source versions"
+      - name: Build CodSpeed Simulation instrumentation for both revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd rr-native-lab
+          cargo codspeed build -m simulation -p quprs-rr-dev-probe --bench rr_native
+          cargo codspeed build -m simulation -p quprs-rr-head-probe --bench rr_native
+      - name: Measure Rust-native RR under CodSpeed Simulation
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          run: cd rr-native-lab && cargo codspeed run -p quprs-rr-dev-probe --bench rr_native && cargo codspeed run -p quprs-rr-head-probe --bench rr_native
+      - name: Upload reproducibility manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rr-native-simulation-source-manifest
+          path: |
+            rr-native-lab/Cargo.lock
+            rr-native-lab/dev/Cargo.toml
+            rr-native-lab/head/Cargo.toml
+            rr-native-lab/dev/benches/rr_native.rs
+            rr-native-lab/head/benches/rr_native.rs
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,309 @@
+name: Source-pinned dev-vs-PR Hybrid Solver CodSpeed WallTime
+
+on:
+  push:
+    branches:
+      - experiment/rr-tolerance-parity
+    paths:
+      - '.github/workflows/rr-dev-head-p0-walltime.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: quprs-rr-dev-head-hybrid-p0
+  cancel-in-progress: true
+
+jobs:
+  hybrid-comparison:
+    name: Latest dev versus PR persistent-worker GPMC and Ganak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      PR_SHA: 9c32f42cf5965caef62cf83aa821e04bbf4ebd0e
+      DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Checkout diagnostic workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: 9c32f42cf5965caef62cf83aa821e04bbf4ebd0e
+          path: head-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Checkout exact dev baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+          path: dev-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Set up Python and Rust
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Verify matching source and benchmark fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C head-src rev-parse HEAD)" = "$PR_SHA"
+          test "$(git -C dev-src rev-parse HEAD)" = "$DEV_SHA"
+          test "$(git -C head-src rev-parse HEAD:GPMC)" = "$(git -C dev-src rev-parse HEAD:GPMC)"
+          test "$(git -C head-src rev-parse HEAD:pyproject.toml)" = "$(git -C dev-src rev-parse HEAD:pyproject.toml)"
+          for name in grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm \
+                      qft_nativegates_ibm_qiskit_opt0_16.qasm \
+                      qaoa_nativegates_ibm_qiskit_opt0_7.qasm \
+                      vqe_nativegates_ibm_qiskit_opt0_4.qasm; do
+            for sub in "" "h,ry,rz,cx/"; do
+              test "$(git -C head-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")" = \
+                   "$(git -C dev-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")"
+            done
+          done
+          rustc --version
+          python --version
+      - name: Build release native Python backends for two exact source versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in head dev; do
+            python -m venv "/tmp/hybrid-$variant"
+            venv="/tmp/hybrid-$variant"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (
+              cd "$GITHUB_WORKSPACE/$variant-src"
+              VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev
+            )
+            "$venv/bin/python" -m pip freeze > "/tmp/hybrid-$variant-freeze.txt"
+          done
+          /tmp/hybrid-head/bin/python -m pip install 'pytest-codspeed>=3.0.0'
+          /tmp/hybrid-head/bin/python - <<'PY'
+          import subprocess
+          names = ("numpy", "qiskit", "symengine", "sympy", "scipy", "mpmath")
+          versions = []
+          for variant in ("head", "dev"):
+              exe = f"/tmp/hybrid-{variant}/bin/python"
+              code = "import importlib.metadata as m; print('|'.join(m.version(n) for n in "+repr(names)+"))"
+              observed = subprocess.check_output((exe, "-c", code), text=True).strip()
+              print(variant, observed)
+              versions.append(observed)
+          assert versions[0] == versions[1], "core Python dependency versions differ"
+          PY
+      - name: Generate persistent-worker end-to-end Hybrid CodSpeed benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/quprs_hybrid_worker.py <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from QuPRS import check_equivalence
+
+          root = Path(sys.argv[1])
+          cases = {
+              "grover4": ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", True),
+              "qft16": ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "Proportional", True),
+              "qaoa7": ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "Proportional", False),
+              "vqe4": ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", False),
+          }
+          for line in sys.stdin:
+              try:
+                  request = json.loads(line)
+                  filename, strategy, reverse = cases[request["case"]]
+                  lhs = root / "benchmarks" / "MQTBench" / filename
+                  rhs = root / "benchmarks" / "MQTBench" / "h,ry,rz,cx" / filename
+                  if reverse:
+                      lhs, rhs = rhs, lhs
+                  result = check_equivalence(
+                      str(lhs), str(rhs),
+                      method=request["stage"], strategy=strategy,
+                      tool_name=request["solver"], backend="rust",
+                      timeout=120,
+                  )
+                  invoked = getattr(result, "wmc_solver_invoked", None)
+                  if invoked is None:
+                      invoked = getattr(result, "tool_time", None) is not None
+                  print("HYBRID_RESULT " + json.dumps({
+                      "case": request["case"],
+                      "solver": request["solver"],
+                      "stage": request["stage"],
+                      "verdict": str(result.equivalent),
+                      "solver_invoked": bool(invoked),
+                      "rr_approximate": bool(getattr(result, "rr_approximate", False)),
+                  }, sort_keys=True), flush=True)
+              except BaseException as e:
+                  print("HYBRID_ERROR " + repr(e), flush=True)
+          PY
+          cat > /tmp/test_quprs_hybrid_dev.py <<'PY'
+          import json
+          import os
+          import select
+          import subprocess
+          import time
+          from pathlib import Path
+          import pytest
+
+          CASES = ("grover4", "qft16", "qaoa7", "vqe4")
+          SOLVERS = ("gpmc", "ganak")
+          VERSIONS = ("head", "dev")
+          SLOTS = ("A1", "B1", "A2", "B2", "A3", "B3")
+          TARGETS = tuple((case, solver) for case in CASES for solver in SOLVERS)
+
+          class Worker:
+              def __init__(self, variant):
+                  self.variant = variant
+                  self.root = Path(os.environ["GITHUB_WORKSPACE"]) / f"{variant}-src"
+                  exe = f"/tmp/hybrid-{variant}/bin/python"
+                  self.log = open(f"/tmp/hybrid-{variant}-worker.err", "w+")
+                  self.process = subprocess.Popen(
+                      (exe, "-u", "/tmp/quprs_hybrid_worker.py", str(self.root)),
+                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
+                      text=True, bufsize=1, cwd=self.root,
+                  )
+
+              def request(self, case, solver, stage="hybrid"):
+                  assert self.process.poll() is None, (
+                      self.variant, self.process.returncode,
+                  )
+                  payload = json.dumps({"case": case, "solver": solver, "stage": stage})
+                  self.process.stdin.write(payload + "\n")
+                  self.process.stdin.flush()
+                  deadline = time.monotonic() + 135.0
+                  while True:
+                      remain = deadline - time.monotonic()
+                      assert remain > 0, f"solver worker timed out: {self.variant}/{case}/{solver}"
+                      ready, _, _ = select.select([self.process.stdout], [], [], remain)
+                      assert ready, f"solver worker timed out: {self.variant}/{case}/{solver}"
+                      line = self.process.stdout.readline().strip()
+                      assert line, f"worker unexpectedly exited: {self.variant}"
+                      if line.startswith("HYBRID_ERROR "):
+                          raise AssertionError(f"{self.variant} solver failed: {line}")
+                      if line.startswith("HYBRID_RESULT "):
+                          return json.loads(line.removeprefix("HYBRID_RESULT "))
+                      # Other stdout emitted by library is not part of the protocol.
+
+              def close(self):
+                  if self.process.poll() is None:
+                      self.process.stdin.close()
+                      try:
+                          self.process.wait(timeout=8)
+                      except subprocess.TimeoutExpired:
+                          self.process.kill()
+                          self.process.wait()
+                  self.log.close()
+
+          @pytest.fixture(scope="session")
+          def workers():
+              pool = {name: Worker(name) for name in VERSIONS}
+              try:
+                  # Verify identical source semantics and actual Solver usage
+                  # BEFORE accepting a benchmark as solver-inclusive evidence.
+                  for case, solver in TARGETS:
+                      baseline = pool["head"].request(case, solver)
+                      dev = pool["dev"].request(case, solver)
+                      same_verdict = baseline["verdict"] == dev["verdict"]
+                      same_rr = baseline["rr_approximate"] == dev["rr_approximate"]
+                      assert baseline["solver_invoked"] and dev["solver_invoked"], (
+                          "Solver was not invoked in both variants", case, solver, baseline, dev
+                      )
+                      print("SOURCE_DECISION_COMPARE " + json.dumps({
+                          "case": case, "solver": solver,
+                          "same_verdict": same_verdict, "same_rr": same_rr,
+                          "head": baseline, "dev": dev,
+                      }, sort_keys=True), flush=True)
+                      print("MATCHED_SOLVER_PREFLIGHT " + json.dumps({
+                          "case": case, "solver": solver, "baseline": baseline,
+                          "dev": dev,
+                      }, sort_keys=True), flush=True)
+                  yield pool
+              finally:
+                  for worker in pool.values():
+                      worker.close()
+
+          def select_version(case, solver, slot):
+              # Counterbalance which source is measured first for each pair.
+              first = "head" if TARGETS.index((case, solver)) % 2 == 0 else "dev"
+              return first if slot.startswith("A") else (
+                  "dev" if first == "head" else "head"
+              )
+
+          params = [
+              pytest.param(case, solver, slot, id=f"{case}_{solver}_{slot}")
+              for case, solver in TARGETS for slot in SLOTS
+          ]
+
+          @pytest.mark.parametrize(("case", "solver", "slot"), params)
+          def test_solver_inclusive_hybrid(benchmark, workers, case, solver, slot):
+              variant = select_version(case, solver, slot)
+              result = benchmark(workers[variant].request, case, solver, "hybrid")
+              assert result["solver_invoked"], result
+              assert result["verdict"] in ("equivalent", "equivalent*", "not_equivalent", "unknown"), result
+              benchmark.extra_info.update({
+                  "case": case, "solver": solver, "slot": slot,
+                  "source_variant": variant,
+                  "source_sha": os.environ["PR_SHA" if variant == "head" else "DEV_SHA"],
+                  "verdict": result["verdict"], "solver_invoked": str(result["solver_invoked"]),
+                  "rr_approximate": str(result["rr_approximate"]),
+                  "evidence_class": "latest-dev-vs-pr-source-pinned-persistent-solver-hybrid",
+                  "note": "CodSpeed WallTime includes RR+CNF+real WMC Solver; Python startup excluded",
+              })
+          PY
+      - name: Check Python and native Rust RR parity on source-decimal controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/hybrid-dev/bin/python - <<'PY'
+          import tempfile
+          from pathlib import Path
+          from QuPRS import check_equivalence
+          pairs = (
+              ("", "rz(0.0000000001) q[0];"),
+              ("", "rz(0.001) q[0];"),
+              ("rz(pi/8) q[0];", "rz(pi/8) q[0];"),
+              ("rz(1.6198837120072371) q[0];\nrz(-2.5802058126763807) q[0];", "rz(-0.9603221006691436) q[0];"),
+          )
+          def qasm(gates):
+              return f'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n{gates}\n'
+          with tempfile.TemporaryDirectory() as d:
+              lhs, rhs = Path(d)/"lhs.qasm", Path(d)/"rhs.qasm"
+              for a,b in pairs:
+                  lhs.write_text(qasm(a))
+                  rhs.write_text(qasm(b))
+                  labels = []
+                  for backend in ("python", "rust"):
+                      result = check_equivalence(str(lhs), str(rhs),
+                          method="reduction_rules", strategy="Naive",
+                          tool_name="gpmc", backend=backend, timeout=30)
+                      labels.append(str(result.equivalent))
+                  assert labels[0] == labels[1], (a,b,labels)
+                  print("PYTHON_RUST_PARITY", labels[0], repr(a), repr(b))
+          PY
+      - name: Measure solver-inclusive Hybrid CodSpeed A/B/A
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: /tmp/hybrid-head/bin/python -m pytest /tmp/test_quprs_hybrid_dev.py -q -s --codspeed --codspeed-max-rounds=3 --codspeed-max-time=10
+      - name: Preserve reproducibility manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-head-hybrid-p0-source-and-environment
+          path: |
+            /tmp/hybrid-head-freeze.txt
+            /tmp/hybrid-dev-freeze.txt
+            /tmp/hybrid-head-worker.err
+            /tmp/hybrid-dev-worker.err
+          if-no-files-found: warn
+          retention-days: 7

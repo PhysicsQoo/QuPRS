@@ -98,6 +98,11 @@ impl WmcManager {
     }
 
     fn encode_phase_polynomial(&mut self, ps: &PathSum) -> Result<()> {
+        // Reuse source-exact decimal weights within this single CNF. Repeated
+        // angles need neither another MPFR sin/cos nor another decimal parse.
+        // The cache is request-local and cannot affect solver precision.
+        #[cfg(feature="high-precision-gpmc")]
+        let mut precise_cache: HashMap<&PhaseCoeff, (String, String)> = HashMap::new();
         for (mono, coeff) in &ps.p.terms {
             // Do not compute an f64 weight at all when the precise GPMC
             // distance-mode input is selected. The separate optional map
@@ -105,7 +110,14 @@ impl WmcManager {
             #[cfg(feature="high-precision-gpmc")]
             let weight = if let Some(ref mut precise) = self.precise_weights {
                 let id = self.next_var_id;
-                precise.insert(id, crate::precise_weight::from_phase(coeff)?);
+                let digits = if let Some(existing) = precise_cache.get(coeff) {
+                    existing.clone()
+                } else {
+                    let generated = crate::precise_weight::from_phase(coeff)?;
+                    precise_cache.insert(coeff, generated.clone());
+                    generated
+                };
+                precise.insert(id, digits);
                 Complex::new(1.0, 0.0) // Placeholder never serialized in precise mode.
             } else {
                 (|| -> Result<Complex<f64>> {
@@ -382,6 +394,18 @@ impl WmcManager {
         )
     }
 
+    /// Solve with the single, already-accounted-for DIMACS serialization.
+    /// The solver adapter still selects its own executable and precision.
+    pub(crate) fn solve_with_deadline_distance_printed_precision_prepared(
+        &self, tool_name: &str, deadline: Option<std::time::Instant>,
+        digits: u32, prepared_cnf: &str,
+    ) -> Result<crate::precision_count::PrintedCount> {
+        let adapter = crate::solver_adapter::distance_adapter_for(tool_name, digits)?;
+        self.run_solver_with_parser(
+            adapter, deadline, crate::precision_count::parse_stdout_optional, Some(prepared_cnf),
+        )
+    }
+
     /// Number of phase-weight literals used in a conditional f64 input budget.
     pub fn numerical_weight_count(&self) -> usize { self.weights.len() }
 
@@ -390,7 +414,7 @@ impl WmcManager {
         adapter: &dyn crate::solver_adapter::SolverAdapter,
         deadline: Option<std::time::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
-        self.run_solver_with_parser(adapter, deadline, crate::precision_count::parse_stdout_optional)
+        self.run_solver_with_parser(adapter, deadline, crate::precision_count::parse_stdout_optional, None)
     }
 
     pub(crate) fn solve_with_adapter(
@@ -398,7 +422,7 @@ impl WmcManager {
         adapter: &dyn crate::solver_adapter::SolverAdapter,
         deadline: Option<std::time::Instant>,
     ) -> Result<Complex<f64>> {
-        self.run_solver_with_parser(adapter, deadline, |stdout| adapter.parse_count(stdout))
+        self.run_solver_with_parser(adapter, deadline, |stdout| adapter.parse_count(stdout), None)
     }
 
     fn run_solver_with_parser<T, F>(
@@ -406,6 +430,7 @@ impl WmcManager {
         adapter: &dyn crate::solver_adapter::SolverAdapter,
         deadline: Option<std::time::Instant>,
         parser: F,
+        prepared_cnf: Option<&str>,
     ) -> Result<T>
     where
         F: Fn(&str) -> Result<Option<T>>,
@@ -433,7 +458,10 @@ impl WmcManager {
         let nonce = NEXT_CNF_ID.fetch_add(1, Ordering::Relaxed);
         let temp_cnf_path = std::env::temp_dir()
             .join(format!("temp_eqcheck_{}_{}_{}.cnf", pid, timestamp, nonce));
-        let cnf_content = self.to_dimacs_with_adapter(adapter);
+        let cnf_content: std::borrow::Cow<'_, str> = match prepared_cnf {
+            Some(bytes) => std::borrow::Cow::Borrowed(bytes),
+            None => std::borrow::Cow::Owned(self.to_dimacs_with_adapter(adapter)),
+        };
         trace!(target: "wmc", "Generated CNF for {}:\n{}", tool_name, cnf_content);
 
         let _timed_write = crate::diagnostics::span("cnf_file_write");
@@ -809,6 +837,36 @@ mod count_parser_tests {
 
 }
 
+
+#[cfg(all(test, feature = "high-precision-gpmc"))]
+mod repeated_precise_weight_tests {
+    use super::*;
+    use crate::rational::{PhaseCoeff, Rational};
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+
+    #[test]
+    fn identical_source_angles_have_identical_precise_cnf_weights() {
+        let mut ps = PathSum::new(2);
+        let coeff = PhaseCoeff {
+            constant: Rational::new(1, 8),
+            radians: Some(BigRational::new(BigInt::from(1), BigInt::from(10_u8).pow(20))),
+            symbols: Default::default(),
+        };
+        ps.p.add_term(vec![0], coeff.clone());
+        ps.p.add_term(vec![1], coeff);
+        let mut manager = WmcManager::new(&ps);
+        manager.enable_precise_gpmc_weights();
+        manager.encode_trace(&ps).unwrap();
+        let precise = manager.precise_weights.as_ref().unwrap();
+        assert_eq!(precise.len(), 2);
+        let mut rendered = precise.values();
+        let first = rendered.next().unwrap();
+        assert!(rendered.all(|weight| weight == first));
+        let cnf = manager.to_dimacs_string("gpmc");
+        assert_eq!(cnf.matches(&format!("{} {} 0", first.0, first.1)).count(), 2);
+    }
+}
 
 #[cfg(test)]
 mod exact_unweighted_count_tests {

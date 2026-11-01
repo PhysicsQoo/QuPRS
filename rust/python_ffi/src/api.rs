@@ -177,6 +177,9 @@ pub fn check_equivalence(
         dict.set_item("status", status_str)?;
         dict.set_item("wmc_solver_invoked", result.solver_invoked)?;
         dict.set_item("rr_approximate", result.rr_approximate)?;
+        // Internal provenance for Python's source-vs-residual warning.
+        // Public rr_approximate continues to describe an RR-decided verdict.
+        dict.set_item("rr_residual_approximate", result.final_ps.rr_approximate)?;
         dict.set_item("wmc_printed_verdict", result.wmc_printed_verdict)?;
         dict.set_item("wmc_precision_reason", result.wmc_precision_reason)?;
         dict.set_item("wmc_print_resolution_distance", result.wmc_print_resolution_distance)?;

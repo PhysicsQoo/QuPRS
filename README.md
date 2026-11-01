@@ -258,9 +258,17 @@ matching only.
 non-negative numbers (not booleans), and is independent of
 `phase_tolerance` and `approximate_distance_tolerance`.
 Python scopes its value to a verification and its reduction cache keys.
-Rust passes it to the PathSum during gate construction and RR. If Hybrid
-does not finish RR after approximate simplification, Rust reconstructs
-an exact RR PathSum before WMC to avoid passing rounded terms to the solver.
+Rust and Python use **one gate stream with strict RR** in Hybrid
+to retain an exact, source-faithful reduced PathSum. If the caller sets a
+positive `rr_tolerance`, a temporary copy of that strict residual is
+further reduced under the requested tolerance to seek an RR proof.
+An RR-decisive positive may adopt this approximate proof; otherwise WMC
+receives the unchanged strict-RR residual. This avoids silently changing
+the original circuit's projective-distance classification, without
+replaying gates or launching a second Solver. The public `rr_approximate`
+flag describes RR-decided approximate positives, not a later WMC decision.
+For source-distance verification without approximate RR proofs, use
+`rr_tolerance=0` or `method="wmc_only"`.
 
 ```python
 from QuPRS import check_equivalence
@@ -280,9 +288,14 @@ previous `equivalent` result into `not_equivalent` for a fully reduced,
 nonzero RR-only diagonal residual, or `unknown` when RR remains incomplete;
 Hybrid may then invoke WMC. These are distinct outcomes, not one universal
 RR fallback. A floating WMC acceptance is not a strict equivalence
-certificate, and a WMC magnitude tolerance of `1e-8` is **not**
-the QCEC projective circuit-distance tolerance of `1e-8`.
-See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
+certificate. A normalized trace-magnitude defect of `1e-8` is **not**
+a projective circuit distance of `1e-8`; QuPRS now uses the one
+projective-distance classifier. Near the distance threshold, feeding an approximately
+rounded RR residual directly to WMC could move the result across the
+source-level boundary. Hybrid now retains a strict-RR residual for the
+WMC phase so the attempted approximate RR proof cannot change it. See the
+[RR residual scientific contract](docs/development/rr-hybrid-residual-contract.md)
+and [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
 ### GPMC high-resolution CNF weights
 
@@ -338,8 +351,13 @@ Hybrid apply the same RR acceptance; `phase_tolerance` labels a
 remaining global phase independently, and `approximate_distance_tolerance`
 applies only when WMC runs. `rr_approximate=true` identifies a
 tolerance-dependent RR simplification, not source-exact identity.
-Hybrid never forwards an approximately simplified working polynomial
-to WMC: when required, it reconstructs the exact-source PathSum first.
+Hybrid runs a single strict-RR gate pass, then optionally applies
+`rr_tolerance` to a separate RR proof probe. Only an RR-decisive result
+adopts the probe; a WMC fallback uses the strict-RR residual, with the
+source phases preserved. No original-gate replay or second Solver call is
+needed. For a source-distance check that does not accept early approximate
+RR decisions, use `--rr-tolerance 0` or WMC-only. See the
+[RR residual scientific contract](docs/development/rr-hybrid-residual-contract.md).
 
 `--gpmc-precision 90` opts into 90-digit arithmetic for GPMC; omitting it
 uses the effective 30-digit default without altering the acceptance metric.

@@ -1,1 +1,1 @@
-Fix source-pinned Python CodSpeed stage preflight for legacy dev result without rr_approximate field: use getattr default false for provenance, no result semantics or timing change. Tests/prod PR unchanged.
+Source-pinned Python CodSpeed experiment: compare dev 55e78c7597966617c1a193b89056ff4e99c3ddfb against PR 9fba20fa22e3e9391acb9cf54f1bb135954942be; 8 paired Python Hybrid+RR cases across GPMC/Ganak, using CodSpeed WallTime and explicit solver-invocation metadata. Source/fixture/solver manifest guards unchanged. No production changes.

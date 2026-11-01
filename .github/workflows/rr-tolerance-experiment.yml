@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 40
     env:
       DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
-      PR_SHA: 20da6c95e163f33635f5aa9b7a144d91bc225442
+      PR_SHA: 9fba20fa22e3e9391acb9cf54f1bb135954942be
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
     steps:
@@ -41,7 +41,7 @@ jobs:
       - name: Check out exact PR head with native solver
         uses: actions/checkout@v4
         with:
-          ref: 20da6c95e163f33635f5aa9b7a144d91bc225442
+          ref: 9fba20fa22e3e9391acb9cf54f1bb135954942be
           path: head-src
           submodules: recursive
           persist-credentials: false
@@ -150,7 +150,9 @@ jobs:
           import subprocess
           from pathlib import Path
           import pytest
-          CASES = ("graphstate16_gpmc", "grover4_gpmc")
+          CASES = ("graphstate16_gpmc", "graphstate16_ganak",
+                   "grover4_gpmc", "grover4_ganak", "qft16_gpmc",
+                   "qaoa7_gpmc", "vqe4_gpmc", "vqe4_ganak")
           STAGES = ("rr", "hybrid")
           def execute(variant, case, stage):
               root=Path(os.environ["GITHUB_WORKSPACE"])/(variant+"-src")
@@ -182,6 +184,7 @@ jobs:
                   "solver_invoked":str(result["solver_invoked"]),
                   "rr_approximate":str(result["rr_approximate"]),
                   "evidence_class":"same-host-python-rr-vs-hybrid-codspeed",
+                  "distance_target":"rr-residual" if stage=="hybrid" else "rr-only",
               })
 
           @pytest.mark.parametrize("case",CASES)
@@ -196,7 +199,7 @@ jobs:
                   "case":case, "stage":stage, "verdict":result["verdict"],
                   "solver_invoked":str(result["solver_invoked"]),
                   "rr_approximate":str(result["rr_approximate"]),
-                  "evidence_class":"source-faithful-strict-vs-exact-wmc",
+                  "evidence_class":"strict-RR-source-vs-WMC-only-control",
               })
           PY
       - name: Warm both sources before CodSpeed instrumentation

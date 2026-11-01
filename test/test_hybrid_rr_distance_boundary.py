@@ -120,3 +120,78 @@ def test_partial_rr_near_wmc_distance_threshold(
     assert tolerant.rr_approximate is False, evidence
 
     # At WMC fallback, both backends must classify the strict RR residual.
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        ("0.0000000004", "0.0000000198", "not_equivalent"),
+        ("-0.0000000004", "0.0000000202", "equivalent"),
+    ],
+)
+def test_default_hybrid_rr_tolerance_matches_explicit_value(
+    backend, a, b, expected
+):
+    """The public default must preserve the strict-RR WMC input."""
+    source = _source(a, b)
+    options = dict(
+        backend=backend, method="hybrid", strategy="Naive",
+        tool_name="gpmc", timeout=60,
+        approximate_distance_tolerance=_EPS,
+    )
+    implicit = check_equivalence(_ID, source, **options)
+    explicit = check_equivalence(
+        _ID, source, rr_tolerance=_RR, **options,
+    )
+    assert implicit.equivalent == explicit.equivalent == expected
+    assert implicit.wmc_solver_invoked is explicit.wmc_solver_invoked is True
+    assert implicit.final_pathsum == explicit.final_pathsum
+    assert implicit.rr_approximate is explicit.rr_approximate is False
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize(
+    "a,b", [
+        ("0.0000000004", "0.0000000198"),
+        ("-0.0000000004", "0.0000000202"),
+    ],
+)
+@pytest.mark.parametrize(
+    "distance_epsilon,expected",
+    [(1e-7, "equivalent"), (1e-9, "not_equivalent")],
+)
+def test_hybrid_source_distance_threshold_is_not_hardcoded(
+    backend, a, b, distance_epsilon, expected
+):
+    """Changing distance tolerance must control the same source metric."""
+    result = check_equivalence(
+        _ID, _source(a, b), backend=backend, method="hybrid",
+        strategy="Naive", rr_tolerance=_RR,
+        approximate_distance_tolerance=distance_epsilon,
+        tool_name="gpmc", timeout=60,
+    )
+    assert result.equivalent == expected
+    assert result.wmc_solver_invoked is True
+    assert result.rr_approximate is False
+
+
+@pytest.mark.parametrize(
+    "a,b,expected", [
+        ("0.0000000004", "0.0000000198", "not_equivalent"),
+        ("-0.0000000004", "0.0000000202", "equivalent"),
+    ],
+)
+def test_python_safe_mode_preserves_source_distance_through_hybrid(
+    a, b, expected
+):
+    """Spawned strategy must inherit strict-RR construction, not lose state."""
+    result = check_equivalence(
+        _ID, _source(a, b), backend="python", method="hybrid",
+        strategy="Naive", rr_tolerance=_RR, safe_mode=True,
+        approximate_distance_tolerance=_EPS,
+        tool_name="gpmc", timeout=90,
+    )
+    assert result.equivalent == expected
+    assert result.wmc_solver_invoked is True
+    assert result.rr_approximate is False

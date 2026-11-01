@@ -1,4 +1,4 @@
-name: RR Tolerance Experimental Correctness
+name: RR Experimental Full Science Acceptance
 
 on:
   push:
@@ -18,9 +18,9 @@ concurrency:
 
 jobs:
   focused-correctness:
-    name: Rust RR and Python parity (focused)
+    name: Full Rust/Python Science + Benchmark Evidence
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 55
     env:
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
@@ -41,42 +41,41 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Focused native Rust tests
+      - name: Complete native Rust correctness (one final experiment gate)
         run: |
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib reduction::tests -- --nocapture
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib exact_global_phase_verdict_tests -- --nocapture
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib verification_options_contract_tests -- --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum -p QuPRS_cli
+
       - name: Build Python extension and test requirements
         run: |
           python -m pip install --upgrade pip
           python -m pip install maturin
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
           maturin develop --release -E dev
-      - name: Focused Python/Rust parity
+
+      - name: Verify native solver distribution
+        run: python -m QuPRS.utils.ganak_distribution
+
+      - name: Complete Python scientific and benchmark suite
+        id: python_correctness
         run: |
-          python -m pytest -q -ra \
-            test/test_per_call_tolerance_contract.py \
-            test/test_rr_backend_tolerance_parity.py \
-            test/test_phase_source_tolerance_cache.py
-      - name: Real-solver RR residual distance-boundary oracle
+          python -m pytest -n auto -q -ra --junitxml=rr-science-final.xml
+
+      - name: Audit full representative benchmark evidence
+        if: ${{ !cancelled() && steps.python_correctness.outcome != 'skipped' }}
         run: |
-          python -m pytest -q -s -ra test/test_hybrid_rr_distance_boundary.py
-      - name: Graphstate16 exact-source and approximate RR regression
-        run: |
-          python -m pytest -q -ra test/test_graphstate16_source_contract.py
-          python -m pytest -q -ra test/test_MQT.py -k graphstate
-      # This is a bounded experiment.  Do not run the complete evidence
-      # suite, cross-platform matrix, or PR release gates on intermediate HEADs.
-      - name: Focused QFT16 Rust Hybrid solver correctness
-        run: |
-          python -m pytest -q -ra test/test_MQT.py -k "qft and gpmc and rust"
-      - name: CodSpeed native RR CPU diagnostic (not controlled solver WallTime)
-        uses: CodSpeedHQ/action@v5
+          python scripts/check_benchmark_evidence.py \
+            --junit rr-science-final.xml \
+            --json rr-science-evidence.json \
+            --markdown rr-science-evidence.md
+
+      - name: Upload final scientific evidence
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          mode: simulation
-          cycle-estimation: 'true'
-          exclude-allocations: 'false'
-          simulation-track-subprocess: 'false'
-          run: >-
-            python -m pytest test/test_MQT.py --codspeed -q
-            -k "(graphstate or vqe or qft) and gpmc and rust"
+          name: rr-experiment-full-science
+          path: |
+            rr-science-final.xml
+            rr-science-evidence.json
+            rr-science-evidence.md
+          if-no-files-found: ignore
+          retention-days: 14

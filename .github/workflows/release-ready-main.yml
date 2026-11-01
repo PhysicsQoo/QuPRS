@@ -19,8 +19,8 @@ jobs:
 
   installed-artifacts:
     name: Installed artifacts
-    # Complete the supported source/solver matrix before building release archives.
-    needs: source-correctness
+    # Independent source and built-artifact suites start together; the final
+    # fail-closed aggregator still requires both full matrices to pass.
     uses: ./.github/workflows/release-artifact-ci.yml
 
   release-parity:

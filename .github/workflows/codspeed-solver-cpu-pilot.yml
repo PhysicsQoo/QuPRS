@@ -1,10 +1,13 @@
 name: CodSpeed solver-inclusive CPU pilot
 
 on:
+  # Source-pinned diagnostic: run only when explicitly requested with a label.
+  # PR paths filter on the entire cumulative diff, so synchronize would rerun
+  # this expensive diagnostic on every unrelated commit to PR #131.
   pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - '.github/workflows/codspeed-solver-cpu-pilot.yml'
+    branches: [dev]
+    types: [labeled]
+  workflow_dispatch:
       - 'test/test_codspeed_solver_cpu.py'
 
 permissions:
@@ -13,7 +16,7 @@ permissions:
 
 jobs:
   solver-cpu-pilot:
-    if: ${{ github.event.pull_request.number == 131 }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.number == 131 && github.event.label.name == 'ci-solver-cpu-pilot') }}
     name: Source-pinned Hybrid GPMC Ganak process CPU
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -21,7 +24,7 @@ jobs:
       - name: Checkout exact PR source and solver submodule
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
 
       - name: Set up Python 3.12

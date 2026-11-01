@@ -1,10 +1,13 @@
 name: PR131 three-revision CodSpeed WallTime diagnostic
 
 on:
+  # Source-pinned diagnostic: run only when explicitly requested with a label.
+  # PR paths filter on the entire cumulative diff, so synchronize would rerun
+  # this expensive diagnostic on every unrelated commit to PR #131.
   pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - '.github/workflows/pr131-paired-walltime.yml'
+    branches: [dev]
+    types: [labeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,7 +15,7 @@ permissions:
 
 jobs:
   paired-walltime:
-    if: github.event.pull_request.number == 131
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.number == 131 && github.event.label.name == 'ci-pr131-walltime') }}
     name: Same-host main dev PR WallTime comparison
     # Exploratory only: personal-account repository cannot use CodSpeed Macro.
     runs-on: ubuntu-24.04
@@ -20,12 +23,12 @@ jobs:
     env:
       MAIN_SHA: d5973ab7da1dc25e3657283852766443a1c96186
       DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
-      PR_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout PR source at workspace root for CodSpeed upload
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Checkout exact main baseline
         uses: actions/checkout@v4
         with:
@@ -41,7 +44,7 @@ jobs:
       - name: Checkout exact pull request source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           path: head-src
       - name: Configure Python and Rust

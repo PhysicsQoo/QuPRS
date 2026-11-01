@@ -81,11 +81,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p rr-native-lab/dev/benches rr-native-lab/head/benches
-          cat > rr-native-lab/Cargo.toml <<'TOML'
-          [workspace]
-          members = ["dev", "head"]
-          resolver = "2"
-          TOML
           cat > rr-native-lab/dev/Cargo.toml <<'TOML'
           [package]
           name = "quprs-rr-dev-probe"
@@ -98,8 +93,11 @@ jobs:
           divan = { package = "codspeed-divan-compat", version = "=4.7.0" }
 
           [[bench]]
-          name = "rr_native"
+          name = "rr_native_dev"
           harness = false
+
+          [workspace]
+          resolver = "2"
           TOML
           cat > rr-native-lab/head/Cargo.toml <<'TOML'
           [package]
@@ -113,10 +111,13 @@ jobs:
           divan = { package = "codspeed-divan-compat", version = "=4.7.0" }
 
           [[bench]]
-          name = "rr_native"
+          name = "rr_native_head"
           harness = false
+
+          [workspace]
+          resolver = "2"
           TOML
-          cat > rr-native-lab/dev/benches/rr_native.rs <<'RUST'
+          cat > rr-native-lab/dev/benches/rr_native_dev.rs <<'RUST'
           use std::path::Path;
           use pathsum::{
               check_equivalence_with_options, qasm, EquivalenceStatus,
@@ -175,32 +176,32 @@ jobs:
 
           fn main() { divan::main(); }
           RUST
-          cp rr-native-lab/dev/benches/rr_native.rs rr-native-lab/head/benches/rr_native.rs
+          cp rr-native-lab/dev/benches/rr_native_dev.rs rr-native-lab/head/benches/rr_native_head.rs
           # Verify the generated source in both packages is identical.
-          cmp rr-native-lab/dev/benches/rr_native.rs rr-native-lab/head/benches/rr_native.rs
+          cmp rr-native-lab/dev/benches/rr_native_dev.rs rr-native-lab/head/benches/rr_native_head.rs
           echo "Bench corpus: 5 cases x tolerant/strict RR x two exact source versions"
       - name: Build CodSpeed Simulation instrumentation for both revisions
         shell: bash
         run: |
           set -euo pipefail
-          cd rr-native-lab
-          cargo codspeed build -m simulation -p quprs-rr-dev-probe --bench rr_native
-          cargo codspeed build -m simulation -p quprs-rr-head-probe --bench rr_native
+          (cd rr-native-lab/dev && cargo codspeed build -m simulation --bench rr_native_dev)
+          (cd rr-native-lab/head && cargo codspeed build -m simulation --bench rr_native_head)
       - name: Measure Rust-native RR under CodSpeed Simulation
         uses: CodSpeedHQ/action@v5
         with:
           mode: simulation
-          run: cd rr-native-lab && cargo codspeed run -p quprs-rr-dev-probe --bench rr_native && cargo codspeed run -p quprs-rr-head-probe --bench rr_native
+          run: (cd rr-native-lab/dev && cargo codspeed run --bench rr_native_dev) && (cd rr-native-lab/head && cargo codspeed run --bench rr_native_head)
       - name: Upload reproducibility manifest
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rr-native-simulation-source-manifest
           path: |
-            rr-native-lab/Cargo.lock
+            rr-native-lab/dev/Cargo.lock
+            rr-native-lab/head/Cargo.lock
             rr-native-lab/dev/Cargo.toml
             rr-native-lab/head/Cargo.toml
-            rr-native-lab/dev/benches/rr_native.rs
-            rr-native-lab/head/benches/rr_native.rs
+            rr-native-lab/dev/benches/rr_native_dev.rs
+            rr-native-lab/head/benches/rr_native_head.rs
           if-no-files-found: warn
           retention-days: 7

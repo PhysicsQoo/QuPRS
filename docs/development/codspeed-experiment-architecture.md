@@ -154,3 +154,22 @@ comparable speedup or scientific equivalence. Its percent delta remains N/A.
 All other unexplained verdict shifts remain FAIL; no solver is rerun, patched,
 or reclassified. `PRECISION_LIMITED` is explicitly **not** PASS for source
 exactness or solver numerical certification.
+
+## Controlled same-host cross-method experiment
+
+The opt-in diagnostic reuses the existing ci-pr131-walltime label without
+changing the canonical 32 benchmark IDs, introducing branches or touching
+Solver source. Separate base/HEAD Python/Rust installations share one GitHub
+runner and the exact same HEAD QASM fixture hashes. The new CodSpeed URI
+namespace covers six MQT families, two Solvers and two backends across base
+and HEAD (48 WallTime identities). A limited Rust VQE4/QAOA7 GPMC/Ganak
+base/HEAD sample (8 CPU Simulation identities) requests subprocess tracking.
+
+The provenance audit separates request execution cost, solver-stage cost
+eligibility and scientific verdict parity. Base and HEAD request execution
+cost can be compared despite a Ganak verdict difference, while this MUST NOT
+be called a verified-equivalence speedup. A change between RR-only and WMC
+remains visible and disallows a solver-stage speedup assertion. Distinct
+default tolerance semantics across versions, if any, remain disclosed.
+Only CodSpeed instrumentation supplies timing; the audit never guesses times.
+WallTime on a shared hosted runner remains exploratory.

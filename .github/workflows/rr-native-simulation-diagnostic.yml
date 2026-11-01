@@ -177,9 +177,34 @@ jobs:
           fn main() { divan::main(); }
           RUST
           cp rr-native-lab/dev/benches/rr_native_dev.rs rr-native-lab/head/benches/rr_native_head.rs
-          # Verify the generated source in both packages is identical.
-          cmp rr-native-lab/dev/benches/rr_native_dev.rs rr-native-lab/head/benches/rr_native_head.rs
-          echo "Bench corpus: 5 cases x tolerant/strict RR x two exact source versions"
+          # The integration baseline predates the per-call RR tolerance API.
+          # Exercise its original native RR defaults as the baseline, never
+          # claim that the old revision can execute an explicit zero tolerance.
+          # The PR revision independently measures default 1e-10 and exact 0.
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path("rr-native-lab/dev/benches/rr_native_dev.rs")
+          code = file.read_text()
+          field = "                  rr_tolerance: tolerance,\n"
+          assert code.count(field) == 1
+          code = code.replace(field, "")
+          code = code.replace(
+              "fn run_native_rr(bencher: divan::Bencher, id: usize, tolerance: f64)",
+              "fn run_native_rr(bencher: divan::Bencher, id: usize, _tolerance: f64)",
+          )
+          code = code.replace("fn rr_tolerant(", "fn rr_legacy_default(")
+          strict = """          #[divan::bench(args = [0, 1, 2, 3, 4])]
+          fn rr_strict(bencher: divan::Bencher, id: usize) {
+              run_native_rr(bencher, id, 0.0)
+          }
+
+          """
+          assert code.count(strict) == 1
+          code = code.replace(strict, "")
+          assert "rr_tolerance:" not in code
+          file.write_text(code)
+          PY
+          echo "Bench corpus: 5 native cases; dev legacy default, PR tolerant 1e-10 and strict 0"
       - name: Build CodSpeed Simulation instrumentation for both revisions
         shell: bash
         run: |

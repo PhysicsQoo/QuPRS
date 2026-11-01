@@ -131,9 +131,13 @@ jobs:
           method = {"rr":"reduction_rules", "hybrid":"hybrid",
                     "strict_hybrid":"hybrid", "wmc_only":"wmc_only"}[stage]
           rr_tolerance = 0 if stage=="strict_hybrid" else 1e-10
+          # The pinned dev baseline predates the public rr_tolerance API.
+          # Its default is the original RR policy; only PR accepts the
+          # equivalent explicit 1e-10 parameter (or exact zero).
+          extra = {"rr_tolerance": rr_tolerance} if root.name == "head-src" else {}
           answer = check_equivalence(str(left),str(right),method=method,
                   strategy=strategy, tool_name=solver, backend="python",
-                  rr_tolerance=rr_tolerance, timeout=120)
+                  timeout=120, **extra)
           print("PYHYBRID_RESULT "+json.dumps({
               "case":case, "stage":stage, "verdict":str(answer.equivalent),
               "solver_invoked":bool(answer.wmc_solver_invoked),

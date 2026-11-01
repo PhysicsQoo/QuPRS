@@ -32,8 +32,11 @@
   redundant `decision_basis` result field.
 - Rust accepts a per-call RR tolerance through a conservative aggregate
   upper bound for fully reduced diagonal residuals; exact HH/omega rules
-  and source angles remain intact. Hybrid stays RR-first and uses one
-  WMC Solver invocation only when RR is inconclusive.
+  and source angles remain intact. Hybrid now executes the identical
+  tolerance-aware RR stage as RR-only (no terminal proof probe); if an
+  inconclusive RR pass changed a source phase, it lazily reconstructs
+  a strict-RR source-faithful residual for WMC. Only one Solver invocation
+  is permitted on WMC fallback.
 
 ### Testing and packaging
 

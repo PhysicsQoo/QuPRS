@@ -33,7 +33,9 @@ in relevant reduction cache keys. The native Rust verifier also
 accepts a custom positive `rr_tolerance`: a fully reduced diagonal
 residual may be accepted under a conservative *aggregate* upper bound,
 without modifying source angles or the original exact HH/omega rules.
-RR-only and Hybrid share the same local RR acceptance criterion;
+RR-only and Hybrid execute the same tolerance-aware RR steps throughout
+gate processing. If RR is inconclusive after approximating a source phase,
+Hybrid reconstructs a strictly reduced source-faithful residual for WMC.
 `approximate_distance_tolerance` applies if WMC runs, and is not an
 independent cap on RR success.
 

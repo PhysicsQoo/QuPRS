@@ -117,7 +117,8 @@ def test_hybrid_wmc_consumes_rr_residual_like_python(backend, rr_tolerance):
     assert rr_only.wmc_solver_invoked is False
     assert hybrid.equivalent == "not_equivalent"
     assert hybrid.wmc_solver_invoked is True
-    # No further gate execution/reduction is permitted between RR and WMC.
+    # An inconclusive approximated RR result may require an on-demand
+    # strict replay solely to preserve WMC's original-source distance.
     strict_rr = check_equivalence(
         _TWO_QUBIT_IDENTITY, _TWO_QUBIT_RESIDUAL,
         method="reduction_rules", **{**common, "rr_tolerance": 0},
@@ -128,7 +129,7 @@ def test_hybrid_wmc_consumes_rr_residual_like_python(backend, rr_tolerance):
     assert hybrid.rr_approximate is False
 
 
-def test_rust_hybrid_uses_strict_rr_residual_without_gate_replay(monkeypatch):
+def test_rust_hybrid_reconstructs_faithful_wmc_residual_if_needed(monkeypatch):
     from QuPRS import _pathsum_rust
 
     monkeypatch.setenv("QUPRS_STAGE_LEDGER", "1")
@@ -161,6 +162,27 @@ def test_rust_hybrid_uses_strict_rr_residual_without_gate_replay(monkeypatch):
     assert tolerant_hybrid["rr_approximate"] is False
     assert tolerant_hybrid["rr_residual_approximate"] is False
     assert strict_rr["rr_residual_approximate"] is False
-    # The approximate proof probe adds reduction work but never replays
-    # gates; it must not alter the strict residual handed to WMC.
+    # The RR proof followed the tolerant path; only the WMC residual
+    # is reconstructed strictly after RR could not decide.
     assert tolerant_hybrid["stage_ledger"]["stage_calls"].get("reduction", 0) >= 1
+
+
+@pytest.mark.parametrize("backend", ("python", "rust"))
+@pytest.mark.parametrize("angle", ("0", "0.00000000002"))
+def test_hybrid_and_rr_only_use_the_same_decisive_rr(backend, angle):
+    """A tolerant RR proof must not change with the fallback method."""
+    source = _IDENTITY + f"rz({angle}) q[0];\nh q[0];\nh q[0];\n"
+    options = dict(
+        backend=backend, strategy="Naive", tool_name="gpmc",
+        rr_tolerance=1e-8, phase_tolerance=1e-8, timeout=45,
+    )
+    rr = check_equivalence(
+        _IDENTITY, source, method="reduction_rules", **options
+    )
+    hybrid = check_equivalence(
+        _IDENTITY, source, method="hybrid", **options
+    )
+    assert rr.equivalent == hybrid.equivalent == "equivalent"
+    assert rr.rr_approximate == hybrid.rr_approximate == (angle != "0")
+    assert rr.final_pathsum == hybrid.final_pathsum
+    assert rr.wmc_solver_invoked is hybrid.wmc_solver_invoked is False

@@ -109,8 +109,9 @@ def test_partial_rr_near_wmc_distance_threshold(
     assert strict.wmc_solver_invoked is True, evidence
     assert reference.wmc_solver_invoked is True, evidence
 
-    # RR deliberately leaves the large source rotation unresolved, and
-    # Hybrid must encode its *current* reduced residual, without replay.
+    # RR deliberately leaves the larger rotation unresolved. Hybrid's
+    # WMC path must use the source-faithful strictly reduced residual
+    # if tolerant reduction discarded a small but nonzero source angle.
     assert rr_only.equivalent == "not_equivalent", evidence
     assert not rr_only.wmc_solver_invoked, evidence
     assert tolerant.wmc_solver_invoked is True, evidence
@@ -133,7 +134,7 @@ def test_partial_rr_near_wmc_distance_threshold(
 def test_default_hybrid_rr_tolerance_matches_explicit_value(
     backend, a, b, expected
 ):
-    """The public default must preserve the strict-RR WMC input."""
+    """The public default must preserve the source-faithful WMC input."""
     source = _source(a, b)
     options = dict(
         backend=backend, method="hybrid", strategy="Naive",
@@ -185,7 +186,7 @@ def test_hybrid_source_distance_threshold_is_not_hardcoded(
 def test_python_safe_mode_preserves_source_distance_through_hybrid(
     a, b, expected
 ):
-    """Spawned strategy must inherit strict-RR construction, not lose state."""
+    """Spawned tolerant RR must retain provenance for faithful WMC fallback."""
     result = check_equivalence(
         _ID, _source(a, b), backend="python", method="hybrid",
         strategy="Naive", rr_tolerance=_RR, safe_mode=True,

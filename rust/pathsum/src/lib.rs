@@ -454,17 +454,10 @@ fn check_equivalence_with_distance_mode(
     let mut ps = PathSum::quantum_circuit(&regs, None);
     let reduction_enabled = method != VerificationMethod::WmcOnly;
     ps.set_auto_reduce(reduction_enabled);
-    // Hybrid keeps an exact-RR working residual for any eventual WMC
-    // source-distance check. Positive tolerance is applied only to a
-    // speculative RR proof after the source gates have been processed.
-    // This avoids discarding source phases before the solver without
-    // replaying the original gate stream.
-    let working_rr_tolerance = if method == VerificationMethod::Hybrid {
-        0.0
-    } else {
-        rr_tolerance
-    };
-    ps.rr_tolerance = working_rr_tolerance;
+    // Hybrid and RR-only use exactly the same per-gate RR matching.
+    // A source-faithful WMC residual is needed only if tolerant RR
+    // changed a source phase and could not decide equivalence.
+    ps.rr_tolerance = rr_tolerance;
 
     let mut status = EquivalenceStatus::Unknown;
     let mut rr_approximate = false;
@@ -472,7 +465,7 @@ fn check_equivalence_with_distance_mode(
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
     let mut ps_miter = strategy.run(ps, gates1, gates2);
-    ps_miter.rr_tolerance = working_rr_tolerance;
+    ps_miter.rr_tolerance = rr_tolerance;
     
     // Prepare the initial state |0...0> to form the transition amplitude <0|M|0>
     
@@ -480,17 +473,8 @@ fn check_equivalence_with_distance_mode(
         ps_miter.full_reduce();
     }
 
-    // The approximate probe cannot modify the exact-RR residual used by WMC.
-    // It is a post-reduction test, not a second run of gates or WMC.
-    let mut rr_probe = if method == VerificationMethod::Hybrid && rr_tolerance > 0.0 {
-        let mut probe = ps_miter.clone();
-        probe.rr_tolerance = rr_tolerance;
-        probe.full_reduce();
-        Some(probe)
-    } else {
-        None
-    };
-    let rr_view = rr_probe.as_ref().unwrap_or(&ps_miter);
+    // This is also the complete RR-only reduction state; no terminal probe.
+    let rr_view = &ps_miter;
     rr_approximate |= rr_view.rr_approximate;
 
     // 3. Reduction Rules Check
@@ -535,14 +519,21 @@ fn check_equivalence_with_distance_mode(
         }
     }
 
-    // Only an RR-decisive Hybrid result may adopt the approximate probe.
-    // Otherwise WMC always receives the original exact-RR residual.
+    // Approximate RR must remain identical to RR-only. If it was
+    // inconclusive after changing a source phase, rebuild only the
+    // WMC residual with strict RR so source-distance is preserved.
+    // The common case without approximate rewriting does no extra work.
     if method == VerificationMethod::Hybrid
-        && matches!(status, EquivalenceStatus::Equivalent | EquivalenceStatus::EquivalentUpToGlobalPhase)
+        && status == EquivalenceStatus::Unknown
+        && ps_miter.rr_approximate
+        && !deadline.is_some_and(|limit| Instant::now() >= limit)
     {
-        if let Some(probe) = rr_probe.take() {
-            ps_miter = probe;
-        }
+        let mut faithful_ps = PathSum::quantum_circuit(&regs, None);
+        faithful_ps.set_auto_reduce(true);
+        faithful_ps.rr_tolerance = 0.0;
+        ps_miter = strategy.run(faithful_ps, gates1, gates2);
+        ps_miter.rr_tolerance = 0.0;
+        ps_miter.full_reduce();
     }
     let ps_time = pathsum_start.elapsed().as_secs_f64();
 
@@ -561,9 +552,8 @@ fn check_equivalence_with_distance_mode(
     let mut wmc_print_resolution_distance: Option<f64> = None;
 
     if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
-        // Match Python Hybrid: encode the PathSum left after RR, including
-        // approximate coefficient matching under the caller's RR tolerance.
-        // Do not rebuild the original circuit and discard the RR reductions.
+        // Encode the reduced PathSum. When approximate RR was inconclusive,
+        // this is the lazily reconstructed source-faithful strict-RR residual.
 
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();

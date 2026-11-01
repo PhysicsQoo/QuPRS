@@ -1,57 +1,52 @@
-# Hybrid RR → WMC: source-faithful residual contract (v0.14.0)
+# Hybrid RR → WMC: RR-only parity and source-faithful fallback (v0.14.0)
 
-## Two-stage RR, one gate stream, one Solver
+## One RR algorithm, on-demand faithful WMC residual
 
-1. **Single exact-RR gate pass.** In Hybrid, the gate stream is processed
-   with strict RR coefficient matching (`rr_tolerance=0`) to obtain a
-   source-faithful reduced PathSum, preserving small non-global phases.
-2. **Tolerant RR proof probe.** If the caller specifies a positive
-   `rr_tolerance` (default `1e-10` phase cycles), clone the strict residual
-   and apply the requested RR tolerance to that *temporary proof state*.
-   RR success may still report `equivalent` or `equivalent*` with
-   `rr_approximate` provenance. `phase_tolerance` remains independent.
-3. **WMC fallback.** If the RR proof remains inconclusive, discard the
-   temporary probe and pass the strict reduced PathSum directly to WMC.
-   There is **no source-gate replay** and only **one Solver invocation**.
-   The existing single `approximate_distance_tolerance` (default `1e-8`)
-   determines the Solver's projective-distance classification.
-4. The numeric WMC classifier is unchanged: no hidden magnitude criterion,
-   fixed distance guard or new `unknown` branch. Since WMC receives the
-   source-faithful residual, the former source-vs-rounded-residual warning
-   is not emitted on this path. Python and Rust use the same policy.
+1. **Common RR stage.** RR-only and Hybrid process the same gate stream with
+   the same per-call `rr_tolerance` at **every** Elim/HH/omega reduction and
+   non-global normalization step. There is no strict-first / terminal-tolerant
+   proof probe. `rr_tolerance=0` selects strict coefficient matching.
+2. **RR decisive.** Both methods use the same RR proof state, phase
+   classification, and `rr_approximate` evidence. If RR decides equivalence,
+   Hybrid returns immediately, with no WMC solver.
+3. **RR inconclusive.** RR-only returns its RR result. Hybrid proceeds to
+   WMC. If no approximate rewrite occurred, the already-reduced RR residual
+   is source-faithful and can go straight to CNF. If an approximate rewrite
+   occurred, Hybrid **lazily reconstructs a strictly reduced residual**
+   from the source gate stream, so WMC never mistakes an approximate
+   PathSum for the exact source. This replay occurs only when necessary,
+   not in the common case and not in a second solver call.
+4. **WMC verdict.** The existing single `approximate_distance_tolerance`
+   (default `1e-8`) controls source-distance classification. Independent
+   `phase_tolerance` controls the global-phase label. No additional
+   magnitude, printed-resolution, or RR-bound distance veto is introduced.
+   GPMC and Ganak remain independently selected and called at most once
+   per verification.
 
-### Source-distance boundary oracle
+### Boundary oracle
 
-Source circuits: identity versus `Rz(a) H H Rz(b)`, so
-`D_source = |sin((a+b)/2)|`. If an approximate RR removes `a`, the
-hypothetical **incorrect** residual distance is `|sin(b/2)|`.
+For identity versus `Rz(a) H H Rz(b)`,
+`D_source = |sin((a+b)/2)|`. Near the distance threshold, a tolerant
+rewrite may remove `a` without making the whole RR proof conclusive.
+The WMC fallback must not then classify `|sin(b/2)|` as the source
+distance.
 
-Using `rr_tolerance=1e-10` cycles and
+With `rr_tolerance=1e-10` cycles and
 `approximate_distance_tolerance=1e-8`:
 
-| a (rad) | b (rad) | Source D | Hybrid = WMC-only = source oracle |
+| a (rad) | b (rad) | source distance | Hybrid/WMC-only |
 |---:|---:|---:|---|
 | `4e-10` | `1.98e-8` | `1.01e-8` | `not_equivalent` |
 | `-4e-10` | `2.02e-8` | `9.90e-9` | `equivalent` |
 
-The strict/tolerant Hybrid verdicts and WMC-only verdicts match the
-independent analytic source oracle for both cases on both backends
-in [focused experiment #41264999212](https://github.com/PhysicsQoo/QuPRS/actions/runs/41264999212).
-Both cases invoke the real GPMC exactly once and retain the strict-RR
-residual as the WMC input. Strict source RR and RR-only tolerant
-behavior remain independently testable. This scientific contract applies
-when the RR stage remains inconclusive and WMC is invoked; a *successful*
-approximate RR proof is governed independently by `rr_tolerance` and
-is not a source-exact projective-distance certificate.
+An RR-only verdict can differ from WMC: independent reduction and
+distance thresholds are intentionally not conflated.
 
-### Performance acceptance
+### Acceptance
 
-An earlier approximate-residual experiment showed a diagnostic 3.0%
-QFT16/GPMC Solver-inclusive CodSpeed WallTime median improvement over
-the two same-host dev baseline groups, but the **current two-stage RR**
-design needs its own matched CodSpeed A/B/A result. Hosted-runner WallTime
-is exploratory; do not confuse it with the fixed Mac mini formal gate.
-Do not use a standalone local walltime to declare a performance gain.
-
-PR #131 remains Draft until full scientific regression and controlled
-CodSpeed verification support promotion.
+Verify exact per-step RR reduction behavior and RR outcomes across
+RR-only and Hybrid for the same Python or Rust backend; verify faithful
+WMC fallback with real GPMC/Ganak, source-analytic boundary cases,
+Graphstate16, and cross-platform gates. Evaluate the conditional replay
+with solver-inclusive CodSpeed WallTime, Simulation, and Memory. Do not
+promote PR #131 before science and performance gates pass.

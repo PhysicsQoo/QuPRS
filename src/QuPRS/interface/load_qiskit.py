@@ -528,9 +528,9 @@ def check_equivalence(
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        # A single strict-RR gate pass supplies an unmodified WMC residual.
-        # A terminal approximate probe is used only for RR acceptance.
-        with scoped_rr_tolerance(0.0 if method == "hybrid" else rr_tolerance):
+        # Hybrid and RR-only run the identical tolerance-aware reduction
+        # during gate processing, not an extra reduction on the final state.
+        with scoped_rr_tolerance(rr_tolerance):
             if safe_mode:
                 elapsed_so_far = time.time() - start_time
                 remaining_time = max(1, int(timeout - elapsed_so_far))
@@ -542,16 +542,13 @@ def check_equivalence(
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 
-        # RR acceptance may use the per-call tolerance on a disposable
-        # snapshot. WMC always sees the source-faithful strict-RR residual.
+        # The RR proof state is exactly the RR-only result. Only the
+        # source-faithful WMC fallback may need a separate residual.
         rr_view = pathsum_circuit
-        if method == "hybrid" and rr_tolerance > 0:
-            rr_view = PathSum(
-                pathsum_circuit.P, pathsum_circuit.f,
-                pathsum_circuit.pathvar,
-            )
-            with scoped_rr_tolerance(rr_tolerance):
-                rr_view = rr_view.reduction()
+        rr_source_modified = (
+            rr_approximation_used()
+            or bool(getattr(pathsum_circuit._stats, "rr_approximation_used", False))
+        )
         # Reduction rules check (if enabled)
         if method != "wmc_only":
             if rr_view.f == initial_state.f:
@@ -590,10 +587,24 @@ def check_equivalence(
             else:
                 equivalent = "unknown"
 
-        # A positive RR proof may keep the speculative reduced state.
-        # An inconclusive Hybrid must retain strict-RR state for WMC.
-        if method == "hybrid" and equivalent != "unknown":
-            pathsum_circuit = rr_view
+        # A tolerant RR transformation can discard a genuine source phase.
+        # If RR is inconclusive, lazily reconstruct a faithful *reduced*
+        # residual for WMC. If RR made no approximation, the original RR
+        # result is already faithful and no extra reduction is needed.
+        if method == "hybrid" and equivalent == "unknown" and rr_source_modified:
+            faithful_state = initialize(qiskit_circuit1)
+            faithful_state.set_reduction_switch(True)
+            with scoped_rr_tolerance(0.0):
+                if safe_mode:
+                    remaining_time = max(1, int(timeout - (time.time() - start_time)))
+                    faithful_state = strategy_obj.safe_run(
+                        faithful_state, gates1, gates2, timeout=remaining_time
+                    )
+                else:
+                    faithful_state = strategy_obj.run(
+                        faithful_state, gates1, gates2
+                    )
+            pathsum_circuit = faithful_state
         pathsum_time = round(time.time() - start_time, 3)
 
         # Preserve the published hybrid algorithm: WMC consumes the final

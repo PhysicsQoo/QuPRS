@@ -86,7 +86,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
                 errors.append(f"{case}: unequal {field}: {b[field]} != {h[field]}")
         if b["verdict"] != h["verdict"]:
             errors.append(
-                f"{case}: semantic/phase verdict changed: "
+                f"{case}: semantic category changed (including phase label): "
                 f"{b['verdict']} -> {h['verdict']}"
             )
         warning = []

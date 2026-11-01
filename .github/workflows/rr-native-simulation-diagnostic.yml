@@ -44,6 +44,13 @@ jobs:
           path: head-src
           submodules: recursive
           persist-credentials: false
+      - name: Checkout exact PR source for isolated candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+          path: candidate-src
+          submodules: recursive
+          persist-credentials: false
       - name: Configure Rust and cargo-codspeed
         uses: moonrepo/setup-rust@v1
         with:
@@ -60,6 +67,7 @@ jobs:
           set -euo pipefail
           test "$(git -C dev-src rev-parse HEAD)" = "$DEV_SHA"
           test "$(git -C head-src rev-parse HEAD)" = "$PR_SHA"
+          test "$(git -C candidate-src rev-parse HEAD)" = "$PR_SHA"
           test "$(git -C dev-src rev-parse HEAD:GPMC)" = "$(git -C head-src rev-parse HEAD:GPMC)"
           test "$(git -C dev-src rev-parse HEAD:pyproject.toml)" = "$(git -C head-src rev-parse HEAD:pyproject.toml)"
           for name in graphstate_nativegates_ibm_qiskit_opt0_16.qasm \
@@ -80,7 +88,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p rr-native-lab/dev/benches rr-native-lab/head/benches
+          mkdir -p rr-native-lab/dev/benches rr-native-lab/head/benches rr-native-lab/candidate/benches
           cat > rr-native-lab/dev/Cargo.toml <<'TOML'
           [package]
           name = "quprs-rr-dev-probe"
@@ -190,6 +198,34 @@ jobs:
           fn main() { divan::main(); }
           RUST
           cp rr-native-lab/dev/benches/rr_native_dev.rs rr-native-lab/head/benches/rr_native_head.rs
+          # Candidate uses a separate source-pinned path dependency and lockfile.
+          cat > rr-native-lab/candidate/Cargo.toml <<'TOML'
+          [package]
+          name = "quprs-rr-candidate-probe"
+          version = "0.1.0"
+          edition = "2021"
+          publish = false
+
+          [dependencies]
+          pathsum = { path = "../../candidate-src/rust/pathsum" }
+          divan = { package = "codspeed-divan-compat", version = "=4.7.0" }
+
+          [[bench]]
+          name = "rr_native_candidate"
+          harness = false
+
+          [workspace]
+          resolver = "2"
+          TOML
+          python3 - <<'PY'
+          from pathlib import Path
+          orig = Path("rr-native-lab/head/benches/rr_native_head.rs").read_text()
+          assert orig.count("quprs-rr-head-probe") == 1
+          assert orig.count("../../head-src/benchmarks/MQTBench") == 1
+          new = orig.replace("quprs-rr-head-probe", "quprs-rr-candidate-probe")
+          new = new.replace("../../head-src/benchmarks/MQTBench", "../../candidate-src/benchmarks/MQTBench")
+          Path("rr-native-lab/candidate/benches/rr_native_candidate.rs").write_text(new)
+          PY
           # The integration baseline predates the per-call RR tolerance API.
           # Exercise its original native RR defaults as the baseline, never
           # claim that the old revision can execute an explicit zero tolerance.
@@ -214,17 +250,147 @@ jobs:
           file.write_text(code)
           PY
           echo "Bench corpus: 5 cases, each with cold/warm native default and cold/warm PR tolerant; PR strict control"
+      - name: Patch isolated candidate with exact integer-only fast acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          file = Path("candidate-src/rust/pathsum/src/lib.rs")
+          src = file.read_text()
+          anchor = "pub(crate) fn phase_cycles_within_tolerance("
+          assert src.count(anchor) == 1, "unexpected phase matching API"
+
+          helper = r'''
+          /// Certified fast *acceptance* only. The original full-precision
+          /// interval remains the deciding fallback for every other case.
+          /// Neither the source angles nor their tolerance are cast to f64.
+          fn phase_cycles_compact_integer_accepts(
+              coeff: &PhaseCoeff,
+              target: crate::rational::Rational,
+              tolerance: &num_rational::BigRational,
+          ) -> bool {
+              use num_bigint::BigInt;
+              use num_traits::Signed;
+
+              let Some(r) = &coeff.radians else { return false; };
+              if tolerance.numer() < &BigInt::from(0) { return false; }
+              let c_den = BigInt::from(coeff.constant.denom) * BigInt::from(target.denom);
+              let c_num = BigInt::from(coeff.constant.numer) * BigInt::from(target.denom)
+                  - BigInt::from(target.numer) * BigInt::from(coeff.constant.denom);
+              let (p0, p1) = compact_pi_interval();
+              let scaled = |pi: &num_rational::BigRational| {
+                  // c + r/pi = n/d with d>0, without normalizing a
+                  // BigRational or repeatedly invoking a large-number GCD.
+                  let d = &c_den * r.denom() * pi.numer();
+                  let n = &c_num * r.denom() * pi.numer()
+                      + r.numer() * pi.denom() * &c_den;
+                  (n, d)
+              };
+              let (n0, d0) = scaled(p0);
+              let (n1, d1) = scaled(p1);
+              debug_assert!(d0 > BigInt::from(0) && d1 > BigInt::from(0));
+
+              // Most RR targets are already reduced modulo one; test
+              // neighbours 0,+1,-1. These are sufficient to certify
+              // common matches, but any other integer is handled by the
+              // unchanged full-precision fallback below.
+              for k in [0_i64, 1, -1] {
+                  let k = BigInt::from(k);
+                  let delta0 = (&n0 - &k * &d0).abs();
+                  let delta1 = (&n1 - &k * &d1).abs();
+                  if delta0 * tolerance.denom() <= tolerance.numer() * &d0
+                      && delta1 * tolerance.denom() <= tolerance.numer() * &d1
+                  {
+                      return true;
+                  }
+              }
+              false
+          }
+
+          '''
+          src = src.replace(anchor, helper+anchor)
+          original = '''    if coeff.radians.is_some()
+                  && phase_cycles_upper_target_with_pi(coeff, target, compact_pi_interval()) <= *tolerance
+              {
+                  return true;
+              }
+              phase_cycles_upper_target(coeff, target) <= *tolerance'''
+          assert src.count(original) == 1, "unexpected tolerance logic; patch not applied"
+          replacement = '''    if phase_cycles_compact_integer_accepts(coeff, target, tolerance) {
+                  return true;
+              }
+              phase_cycles_upper_target(coeff, target) <= *tolerance'''
+          src = src.replace(original, replacement)
+          # Scope to the single intended implementation; never alter test
+          # assumptions, solver, RR priority, precision thresholds, or API.
+          file.write_text(src)
+
+          unit = r'''
+          #[cfg(test)]
+          mod rr_integer_compact_candidate_tests {
+              use super::*;
+              #[test]
+              fn candidate_agrees_with_original_boundary_and_phase_domains() {
+                  let sources = [
+                      "0.0000000001", "0.000000001", "0.0000000010000000001",
+                      "-0.0000000001", "1.6198837120072371",
+                      "-2.5802058126763807", "2.0330832984526417",
+                      "1.1085093551371514", "-3.141592653589793",
+                      "3.141592653589793", "0.39269908169872414",
+                      "-0.39269908169872414", "6.283185307179586",
+                      "-6.283185307179586", "100.12345678901234",
+                      "-100.12345678901234", "pi/8", "pi/2", "0",
+                  ];
+                  let targets = [
+                      crate::rational::Rational::ZERO,
+                      crate::rational::Rational::HALF,
+                      crate::rational::Rational::QUARTER,
+                      crate::rational::Rational::THREE_QUARTERS,
+                  ];
+                  let tolerances = [0.0, 1e-20, 1e-16, 1e-12, 1e-10, 1e-8, 1e-4];
+                  for source in sources {
+                      let coeff = crate::rational::Angle::from_qasm_str(source)
+                          .unwrap().to_phase_coeff();
+                      for target in targets {
+                          for eps in tolerances {
+                              let bound = num_rational::BigRational::from_float(eps).unwrap();
+                              let original = (coeff.radians.is_some()
+                                  && phase_cycles_upper_target_with_pi(
+                                      &coeff, target, compact_pi_interval()) <= bound)
+                                  || phase_cycles_upper_target(&coeff, target) <= bound;
+                              let candidate = phase_cycles_within_tolerance(&coeff, target, &bound);
+                              assert_eq!(candidate, original,
+                                  "source={source} target={target:?} eps={eps}");
+                          }
+                      }
+                  }
+              }
+          }
+          '''
+          src = file.read_text()
+          assert "mod rr_integer_compact_candidate_tests" not in src
+          file.write_text(src + "\n" + unit)
+          print("candidate patched; native reference-equivalence unit test injected")
+          PY
+          test "$(git -C candidate-src rev-parse HEAD)" = "$PR_SHA"
+          # Candidate delta may touch only the intended library source file.
+          test "$(git -C candidate-src diff --name-only)" = "rust/pathsum/src/lib.rs"
+          (cd candidate-src/rust && cargo test -p pathsum --lib rr_integer_compact_candidate_tests -- --nocapture)
+          (cd candidate-src/rust && cargo test -p pathsum --test exact_decimal_phases)
       - name: Build CodSpeed Simulation instrumentation for both revisions
         shell: bash
         run: |
           set -euo pipefail
           (cd rr-native-lab/dev && cargo codspeed build -m simulation --bench rr_native_dev)
           (cd rr-native-lab/head && cargo codspeed build -m simulation --bench rr_native_head)
+          (cd rr-native-lab/candidate && cargo codspeed build -m simulation --bench rr_native_candidate)
       - name: Measure Rust-native RR under CodSpeed Simulation
         uses: CodSpeedHQ/action@v5
         with:
           mode: simulation
-          run: (cd rr-native-lab/dev && cargo codspeed run --bench rr_native_dev) && (cd rr-native-lab/head && cargo codspeed run --bench rr_native_head)
+          run: (cd rr-native-lab/dev && cargo codspeed run --bench rr_native_dev) && (cd rr-native-lab/head && cargo codspeed run --bench rr_native_head) && (cd rr-native-lab/candidate && cargo codspeed run --bench rr_native_candidate)
       - name: Upload reproducibility manifest
         if: always()
         uses: actions/upload-artifact@v4
@@ -233,9 +399,12 @@ jobs:
           path: |
             rr-native-lab/dev/Cargo.lock
             rr-native-lab/head/Cargo.lock
+            rr-native-lab/candidate/Cargo.lock
             rr-native-lab/dev/Cargo.toml
             rr-native-lab/head/Cargo.toml
+            rr-native-lab/candidate/Cargo.toml
             rr-native-lab/dev/benches/rr_native_dev.rs
             rr-native-lab/head/benches/rr_native_head.rs
+            rr-native-lab/candidate/benches/rr_native_candidate.rs
           if-no-files-found: warn
           retention-days: 7

@@ -292,14 +292,59 @@ pub(crate) fn phase_cycles_upper_target(
 /// The common fast acceptance path is still a mathematical upper bound:
 /// the compact pi interval encloses the true value. A near-boundary case
 /// falls back to the original full Machin interval, preserving semantics.
+
+/// Certified fast *acceptance* only. The original full-precision
+/// interval remains the deciding fallback for every other case.
+/// Neither the source angles nor their tolerance are cast to f64.
+fn phase_cycles_compact_integer_accepts(
+    coeff: &PhaseCoeff,
+    target: crate::rational::Rational,
+    tolerance: &num_rational::BigRational,
+) -> bool {
+    use num_bigint::BigInt;
+    use num_traits::Signed;
+
+    let Some(r) = &coeff.radians else { return false; };
+    if tolerance.numer() < &BigInt::from(0) { return false; }
+    let c_den = BigInt::from(coeff.constant.denom) * BigInt::from(target.denom);
+    let c_num = BigInt::from(coeff.constant.numer) * BigInt::from(target.denom)
+        - BigInt::from(target.numer) * BigInt::from(coeff.constant.denom);
+    let (p0, p1) = compact_pi_interval();
+    let scaled = |pi: &num_rational::BigRational| {
+        // c + r/pi = n/d with d>0, without normalizing a
+        // BigRational or repeatedly invoking a large-number GCD.
+        let d = &c_den * r.denom() * pi.numer();
+        let n = &c_num * r.denom() * pi.numer()
+            + r.numer() * pi.denom() * &c_den;
+        (n, d)
+    };
+    let (n0, d0) = scaled(p0);
+    let (n1, d1) = scaled(p1);
+    debug_assert!(d0 > BigInt::from(0) && d1 > BigInt::from(0));
+
+    // Most RR targets are already reduced modulo one; test
+    // neighbours 0,+1,-1. These are sufficient to certify
+    // common matches, but any other integer is handled by the
+    // unchanged full-precision fallback below.
+    for k in [0_i64, 1, -1] {
+        let k = BigInt::from(k);
+        let delta0 = (&n0 - &k * &d0).abs();
+        let delta1 = (&n1 - &k * &d1).abs();
+        if delta0 * tolerance.denom() <= tolerance.numer() * &d0
+            && delta1 * tolerance.denom() <= tolerance.numer() * &d1
+        {
+            return true;
+        }
+    }
+    false
+}
+
 pub(crate) fn phase_cycles_within_tolerance(
     coeff: &PhaseCoeff,
     target: crate::rational::Rational,
     tolerance: &num_rational::BigRational,
 ) -> bool {
-    if coeff.radians.is_some()
-        && phase_cycles_upper_target_with_pi(coeff, target, compact_pi_interval()) <= *tolerance
-    {
+    if phase_cycles_compact_integer_accepts(coeff, target, tolerance) {
         return true;
     }
     phase_cycles_upper_target(coeff, target) <= *tolerance
@@ -1057,5 +1102,47 @@ mod verification_options_contract_tests {
             ..VerificationOptions::default()
         };
         assert!(check_equivalence_with_options(1, &[], &[], &bad).is_err());
+    }
+}
+
+
+#[cfg(test)]
+mod rr_integer_compact_candidate_tests {
+    use super::*;
+    #[test]
+    fn candidate_agrees_with_original_boundary_and_phase_domains() {
+        let sources = [
+            "0.0000000001", "0.000000001", "0.0000000010000000001",
+            "-0.0000000001", "1.6198837120072371",
+            "-2.5802058126763807", "2.0330832984526417",
+            "1.1085093551371514", "-3.141592653589793",
+            "3.141592653589793", "0.39269908169872414",
+            "-0.39269908169872414", "6.283185307179586",
+            "-6.283185307179586", "100.12345678901234",
+            "-100.12345678901234", "pi/8", "pi/2", "0",
+        ];
+        let targets = [
+            crate::rational::Rational::ZERO,
+            crate::rational::Rational::HALF,
+            crate::rational::Rational::QUARTER,
+            crate::rational::Rational::THREE_QUARTERS,
+        ];
+        let tolerances = [0.0, 1e-20, 1e-16, 1e-12, 1e-10, 1e-8, 1e-4];
+        for source in sources {
+            let coeff = crate::rational::Angle::from_qasm_str(source)
+                .unwrap().to_phase_coeff();
+            for target in targets {
+                for eps in tolerances {
+                    let bound = num_rational::BigRational::from_float(eps).unwrap();
+                    let original = (coeff.radians.is_some()
+                        && phase_cycles_upper_target_with_pi(
+                            &coeff, target, compact_pi_interval()) <= bound)
+                        || phase_cycles_upper_target(&coeff, target) <= bound;
+                    let candidate = phase_cycles_within_tolerance(&coeff, target, &bound);
+                    assert_eq!(candidate, original,
+                        "source={source} target={target:?} eps={eps}");
+                }
+            }
+        }
     }
 }

@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          path: experiment-src
+          submodules: false
       - uses: actions/checkout@v4
         with:
           ref: 90c7da78a81caf8e86b92809970f7519410634e4
@@ -46,7 +46,7 @@ jobs:
           test "$(git -C baseline-src rev-parse HEAD)" = "$PR_BASE_SHA"
           test "$(git -C candidate-src rev-parse HEAD)" = "$PR_BASE_SHA"
           cmp baseline-src/rust/pathsum/src/pathsum/phase_poly.rs candidate-src/rust/pathsum/src/pathsum/phase_poly.rs
-          cp experiment-src/rust/pathsum/src/pathsum/phase_poly.rs candidate-src/rust/pathsum/src/pathsum/phase_poly.rs
+          cp rust/pathsum/src/pathsum/phase_poly.rs candidate-src/rust/pathsum/src/pathsum/phase_poly.rs
           test "$(git -C candidate-src diff --name-only)" = 'rust/pathsum/src/pathsum/phase_poly.rs'
           git -C candidate-src diff --check
           git -C candidate-src diff --stat

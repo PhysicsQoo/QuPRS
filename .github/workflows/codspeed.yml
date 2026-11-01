@@ -185,9 +185,9 @@ jobs:
       - name: Independent four-qubit source oracle for Ganak print limits
         shell: bash
         run: |
-          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" \\
-            scripts/check_codspeed_source_oracle.py \\
-            --fixture-root "$GITHUB_WORKSPACE" --head-sha "$HEAD_SHA" \\
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" \
+            scripts/check_codspeed_source_oracle.py \
+            --fixture-root "$GITHUB_WORKSPACE" --head-sha "$HEAD_SHA" \
             --output "$RUNNER_TEMP/quprs-source-oracle.json"
 
       - name: Pair measured CodSpeed WallTime and audit Solver semantics

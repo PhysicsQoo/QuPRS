@@ -1,1 +1,1 @@
-Candidate 7: apply cached outward-rounded pi bounds to aggregate RR residual upper bounds; exact full Machin fallback on boundary. Enforce same-stage and same-verdict parity across main/dev/PR before comparing warm-worker WallTime.
+Candidate 7 focused rerun after correcting missing num_traits::Zero import in aggregate RR precision regression test. Validate native Rust, Python parity, Graphstate16, full evidence and CodSpeed simulation.

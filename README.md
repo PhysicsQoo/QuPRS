@@ -308,7 +308,12 @@ and 48 significant decimal output digits, without a premature `f64`
 conversion. Clifford quarter-cycle weights are exact special values.
 
 No extra Solver invocation is added. Ganak retains its own input format
-and numerical precision. When its actual printed-output rounding interval
+and numerical precision. Ganak 2.8.0 mode 6 prints complex MPFR counts with
+approximately nine significant decimal digits (`%.8Re` for each component);
+raising its internal `--mpfrprec` does not increase this fixed output precision.
+At tight projective-distance tolerances, Ganak verdicts remain point estimates
+with explicit resolution warnings, not certified source-equivalence decisions.
+When its actual printed-output rounding interval
 cannot resolve the requested distance, QuPRS reports an observed
 resolution-scale warning and uses Ganak's numerical midpoint estimate,
 not an unconditional exact-equivalence certificate. This may produce an

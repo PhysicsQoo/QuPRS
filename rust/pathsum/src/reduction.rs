@@ -240,23 +240,22 @@ impl PathSum {
     }
 
     fn check_omega_conditions(&self, y: u32) -> bool {
-        let mut has_c0 = false;
+        // A quarter-cycle singleton on y is necessary for omega.
+        // Reject impossible candidates before scanning unrelated terms.
+        let Some(coeff) = self.p.terms.get(&vec![y]) else { return false; };
+        if !self.rr_matches(coeff, Rational::QUARTER)
+            && !self.rr_matches(coeff, Rational::THREE_QUARTERS)
+        {
+            return false;
+        }
         for (mono, coeff) in &self.p.terms {
-            if mono.contains(&y) {
-                if mono.len() == 1 {
-                    if self.rr_matches(coeff, Rational::QUARTER) || self.rr_matches(coeff, Rational::THREE_QUARTERS) {
-                        has_c0 = true;
-                    } else {
-                        return false; 
-                    }
-                } else {
-                    if !self.rr_matches(coeff, Rational::HALF) {
-                        return false; 
-                    }
-                }
+            if mono.len() > 1 && mono.contains(&y)
+                && !self.rr_matches(coeff, Rational::HALF)
+            {
+                return false;
             }
         }
-        has_c0
+        true
     }
 
     /// Attempt to execute ω-rule (Phase Gadget simplification)
@@ -508,5 +507,44 @@ mod tests {
         let mut cross = vec![0, 2];
         cross.sort_unstable();
         assert!(ps.p.terms[&cross].is_pure_half());
+    }
+}
+
+#[cfg(test)]
+mod omega_singleton_candidate_tests {
+    use super::*;
+    fn old_check(ps: &PathSum, y: u32) -> bool {
+        let mut has_c0 = false;
+        for (m, c) in &ps.p.terms {
+            if m.contains(&y) {
+                if m.len() == 1 {
+                    if ps.rr_matches(c, Rational::QUARTER) ||
+                        ps.rr_matches(c, Rational::THREE_QUARTERS) { has_c0 = true; }
+                    else { return false; }
+                } else if !ps.rr_matches(c, Rational::HALF) { return false; }
+            }
+        }
+        has_c0
+    }
+    #[test]
+    fn eligibility_matches_old_full_scan() {
+        let vals = [Rational::ZERO, Rational::HALF, Rational::QUARTER,
+            Rational::THREE_QUARTERS,
+            Rational::new(250000001, 1000000000),
+            Rational::new(500000001, 1000000000)];
+        for tol in [0.0, 1e-10, 1e-8] {
+            for single in std::iter::once(None).chain(vals.iter().copied().map(Some)) {
+                for extra in std::iter::once(None).chain(vals.iter().copied().map(Some)) {
+                    let mut ps = PathSum::new(2);
+                    ps.rr_tolerance = tol;
+                    ps.v.path_vars.insert(2);
+                    if let Some(c) = single { ps.p.add_term(vec![2], PhaseCoeff::new_constant(c)); }
+                    if let Some(c) = extra { ps.p.add_term(vec![0,2], PhaseCoeff::new_constant(c)); }
+                    ps.p.add_term(vec![0], PhaseCoeff::QUARTER);
+                    assert_eq!(ps.check_omega_conditions(2), old_check(&ps,2),
+                        "tol={tol}, single={single:?}, extra={extra:?}");
+                }
+            }
+        }
     }
 }

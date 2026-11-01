@@ -51,6 +51,18 @@ binary64 normalized `m` or a fixed empirical guard.
 
 GPMC uses 30 significant decimal working/output digits by default,
 with an explicit 90-digit option, in **one** solver invocation.
+Ganak 2.8.0 mode 6 prints each MPFR complex-count component using a fixed
+`%.8Re` scientific format (approximately nine significant decimal digits).
+The `--mpfrprec` option changes internal arithmetic precision but does **not**
+change this fixed output format. At the default projective distance `1e-8`,
+the corresponding magnitude defect is approximately `5e-17`, below what
+Ganak's printed output can generally resolve. Its `equivalent` or
+`not_equivalent` verdict is therefore an operational point estimate, not a
+certified decision at finer distance resolution; inspect the existing
+`wmc_print_resolution_distance` warning. This output limitation is not a
+proof of solver internal arithmetic error. QuPRS does not patch or rerun
+Ganak automatically.
+
 Ganak retains mode-6 output precision. For finite counts, **both**
 Solvers classify the central printed count against the same projective-
 distance threshold. Printed rounding intervals and normalized magnitude

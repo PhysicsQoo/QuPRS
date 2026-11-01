@@ -1,4 +1,4 @@
-name: RR Hybrid QFT16 same-host CodSpeed WallTime A/B/A
+name: RR Hybrid source-faithful QFT16 same-host CodSpeed A/B/A
 
 # This workflow is not present on the repository default branch. Avoid relying
 # on workflow_dispatch. A signed push touching the three scoped paths on the
@@ -26,7 +26,8 @@ jobs:
   paired-walltime:
     if: github.event_name == 'push' || github.event.pull_request.number == 131
     name: Same-host QFT16 dev / candidate / dev persistent-worker WallTime
-    # Diagnostic only: personal GitHub ownership is not eligible for Macro.
+    # Diagnostic only: hosted shared VM, not fixed Mac mini/Macro Runner.
+    # Use this one source-pinned 3-cohort run to check the science fix's cost.
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -212,7 +213,7 @@ jobs:
                   "stage_matched": str(provenance[case]["stage_matched"]),
                   "same_variant_stage_stable": "true",
                   "same_variant_verdict_stable": "true",
-                  "measurement_contract": "qft16-dev-candidate-dev-warm-worker-walltime-v2",
+                  "measurement_contract": "qft16-source-faithful-rr-aba-codspeed-walltime-v3",
                   "source_kind": "experiment" if os.environ.get("GITHUB_EVENT_NAME") == "push" else "pull_request",
                   "timed_span": "socket_request + public_verify + solver_wait; no_python_startup",
                   "environment_warning": "same_host_shared_vm_not_fixed_mac_mini",

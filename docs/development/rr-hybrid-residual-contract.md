@@ -1,61 +1,57 @@
-# Hybrid RR → WMC residual semantics (v0.14.0)
+# Hybrid RR → WMC: source-faithful residual contract (v0.14.0)
 
-This document records the Python-first numerical policy validated on
-`experiment/rr-tolerance-parity`. It is not a new decision mode.
+## Two-stage RR, one gate stream, one Solver
 
-## Residual handoff
+1. **Single exact-RR gate pass.** In Hybrid, the gate stream is processed
+   with strict RR coefficient matching (`rr_tolerance=0`) to obtain a
+   source-faithful reduced PathSum, preserving small non-global phases.
+2. **Tolerant RR proof probe.** If the caller specifies a positive
+   `rr_tolerance` (default `1e-10` phase cycles), clone the strict residual
+   and apply the requested RR tolerance to that *temporary proof state*.
+   RR success may still report `equivalent` or `equivalent*` with
+   `rr_approximate` provenance. `phase_tolerance` remains independent.
+3. **WMC fallback.** If the RR proof remains inconclusive, discard the
+   temporary probe and pass the strict reduced PathSum directly to WMC.
+   There is **no source-gate replay** and only **one Solver invocation**.
+   The existing single `approximate_distance_tolerance` (default `1e-8`)
+   determines the Solver's projective-distance classification.
+4. The numeric WMC classifier is unchanged: no hidden magnitude criterion,
+   fixed distance guard or new `unknown` branch. Since WMC receives the
+   source-faithful residual, the former source-vs-rounded-residual warning
+   is not emitted on this path. Python and Rust use the same policy.
 
-1. RR runs with the per-call `rr_tolerance` (default `1e-10` in phase cycles).
-   Set `rr_tolerance=0` for strict coefficient matching.
-2. If RR decides the result, retain the existing `equivalent`, `equivalent*`,
-   or `not_equivalent` semantics, including the independent phase threshold.
-3. If Hybrid RR is inconclusive, WMC receives the **current reduced residual
-   PathSum**. Neither Python nor Rust replays the source circuit at this point.
-4. WMC applies the single projective-distance classifier with independent
-   `approximate_distance_tolerance` (default `1e-8`). No hidden magnitude
-   classifier, fixed distance guard, new `unknown`, or second solver invocation
-   is introduced by the residual handoff.
-5. If numerical RR matching modified the residual and Hybrid subsequently
-   invokes WMC, the Python public API (including its Rust backend) emits a
-   `RuntimeWarning`. The verdict remains a classification of the residual.
-   The internal Rust FFI retains the `rr_residual_approximate` provenance bit,
-   while the existing public `rr_approximate` describes RR-decided positives.
+### Source-distance boundary oracle
 
-## Independent near-boundary source oracle
+Source circuits: identity versus `Rz(a) H H Rz(b)`, so
+`D_source = |sin((a+b)/2)|`. If an approximate RR removes `a`, the
+hypothetical **incorrect** residual distance is `|sin(b/2)|`.
 
-For one-qubit `Rz(a) H H Rz(b)` versus identity, `H²=I`. Thus the exact
-source projective distance is `|sin((a+b)/2)|`. If RR removes the tiny
-angle `a` before residual WMC, its nominal distance is `|sin(b/2)|`.
+Using `rr_tolerance=1e-10` cycles and
+`approximate_distance_tolerance=1e-8`:
 
-At `rr_tolerance=1e-10` cycles and distance tolerance `1e-8`:
+| a (rad) | b (rad) | Source D | Hybrid = WMC-only = source oracle |
+|---:|---:|---:|---|
+| `4e-10` | `1.98e-8` | `1.01e-8` | `not_equivalent` |
+| `-4e-10` | `2.02e-8` | `9.90e-9` | `equivalent` |
 
-| a (rad) | b (rad) | Source analytic + strict/WMC-only | RR-residual Hybrid |
-|---:|---:|---|---|
-| `0.0000000004` | `0.0000000198` | `not_equivalent` (1.01e-8) | `equivalent` (9.90e-9) |
-| `-0.0000000004` | `0.0000000202` | `equivalent` (9.90e-9) | `not_equivalent` (1.01e-8) |
+The strict/tolerant Hybrid verdicts and WMC-only verdicts match the
+independent analytic source oracle for both cases on both backends
+in [focused experiment #41264999212](https://github.com/PhysicsQoo/QuPRS/actions/runs/41264999212).
+Both cases invoke the real GPMC exactly once and retain the strict-RR
+residual as the WMC input. Strict source RR and RR-only tolerant
+behavior remain independently testable. This scientific contract applies
+when the RR stage remains inconclusive and WMC is invoked; a *successful*
+approximate RR proof is governed independently by `rr_tolerance` and
+is not a source-exact projective-distance certificate.
 
-Both Python and Rust reproduced these outcomes with actual GPMC in
-[experiment #41263305644](https://github.com/PhysicsQoo/QuPRS/actions/runs/41263305644).
-The matching scientific oracle and warnings passed the subsequent
-[focused gate #41263683160](https://github.com/PhysicsQoo/QuPRS/actions/runs/41263683160).
-This is an **approximate-residual** limitation, not a Solver defect.
+### Performance acceptance
 
-For original-source projective-distance classification, use either
-`rr_tolerance=0` with Hybrid or `method="wmc_only"`.
+An earlier approximate-residual experiment showed a diagnostic 3.0%
+QFT16/GPMC Solver-inclusive CodSpeed WallTime median improvement over
+the two same-host dev baseline groups, but the **current two-stage RR**
+design needs its own matched CodSpeed A/B/A result. Hosted-runner WallTime
+is exploratory; do not confuse it with the fixed Mac mini formal gate.
+Do not use a standalone local walltime to declare a performance gain.
 
-## Performance evidence and scope
-
-The Rust exact-source replay was removed to honor the Python-first RR
-residual contract. QFT16, Graphstate16 and tolerance parity passed the
-focused scientific gates. In solver-inclusive same-host CodSpeed WallTime
-[A/B/A run #41264144234](https://github.com/PhysicsQoo/QuPRS/actions/runs/41264144234),
-the QFT16/GPMC median was 1.052599 s (dev A1), 1.025623 s
-(candidate B), and 1.062180 s (dev A2), each from five rounds.
-The candidate's observed reduction in median WallTime relative to the
-two baseline medians' average is about 3.0%. CodSpeed warns that WallTime
-on a hosted non-Macro runner may not be reliable. These numbers are
-**diagnostic**, not a certified fixed Mac mini performance acceptance.
-
-The scientific warnings do not modify Solver or public distance verdicts.
-PR #131 remains Draft until controlled performance and complete release
-checks support integration.
+PR #131 remains Draft until full scientific regression and controlled
+CodSpeed verification support promotion.

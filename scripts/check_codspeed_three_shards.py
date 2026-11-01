@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exact 32-node integrity audit for the opt-in weighted 3-shard candidate."""
+import hashlib
 import json
 import subprocess
 import sys
@@ -7,6 +8,10 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# Frozen sorted canonical 32 pytest node IDs from the original CodSpeed v5 suite.
+# Changing any circuit/strategy/direction/backend/solver identity requires an
+# explicit benchmark baseline migration, not merely retaining a count of 32.
+CANONICAL_NODE_IDS_SHA256 = "7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed"
 
 # python scripts/check_...py puts scripts/ (not repo root) on sys.path.
 # Make namespace plugin scripts.codspeed_three_shards importable in collection.
@@ -20,7 +25,7 @@ def collect(dest: Path, shard: int | None):
         "--capture", str(dest),
     ]
     if shard is not None:
-        flags += ["--shard-id", str(shard)]
+        flags += [str(shard)]
     subprocess.run(flags, cwd=ROOT, check=True)
     return json.loads(dest.read_text(encoding="utf-8"))
 
@@ -48,6 +53,9 @@ def audit():
         all_nodes = collect(root / "all.json", None)
         if len(all_nodes) != 32 or len(set(all_nodes)) != 32:
             raise SystemExit("Original 32-node CodSpeed catalog has changed")
+        catalog_hash = hashlib.sha256("\n".join(sorted(all_nodes)).encode("utf-8")).hexdigest()
+        if catalog_hash != CANONICAL_NODE_IDS_SHA256:
+            raise SystemExit("Original 32 benchmark identities changed; require explicit baseline migration")
         parts = [collect(root / f"{i}.json", i) for i in range(3)]
         if not all(parts):
             raise SystemExit("Three-shard candidate has an empty shard")

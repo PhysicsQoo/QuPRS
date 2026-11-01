@@ -932,30 +932,46 @@ mod verification_options_contract_tests {
     }
 
     #[test]
-    fn hybrid_fallback_wmc_uses_unrounded_source_after_approximate_rr() {
+    fn hybrid_fallback_wmc_consumes_rr_residual_after_approximate_rr() {
         use crate::ir::QuantumOp;
         use crate::rational::{Angle, FreeRational};
+        // RZ creates a tiny non-global phase that tolerant RR removes.
+        // X keeps the miter non-identity, forcing Hybrid to use WMC.
         let source = vec![
             QuantumOp::RZ(0, Angle::new_constant(FreeRational::new(1, 1_000_000_000))),
             QuantumOp::X(0),
         ];
         let mut settings = VerificationOptions {
-            method: VerificationMethod::Hybrid,
+            method: VerificationMethod::ReductionRules,
             strategy: VerificationStrategy::Naive,
             rr_tolerance: 1e-8,
             ..VerificationOptions::default()
         };
+        let reduced = check_equivalence_with_options(1, &[], &source, &settings)
+            .expect("RR-only residual");
+        assert!(reduced.final_ps.rr_approximate,
+                "RR must have actually removed a tiny non-global phase");
+        assert!(!reduced.solver_invoked);
+
+        settings.method = VerificationMethod::Hybrid;
         let hybrid = check_equivalence_with_options(1, &[], &source, &settings)
             .expect("Hybrid one-qubit fallback");
         settings.method = VerificationMethod::WmcOnly;
-        let exact = check_equivalence_with_options(1, &[], &source, &settings)
-            .expect("WMC-only source reference");
-        assert!(hybrid.rr_approximate, "RR must record removal of a tiny phase");
+        let original = check_equivalence_with_options(1, &[], &source, &settings)
+            .expect("WMC-only original-source control");
+
         assert!(hybrid.solver_invoked, "unresolved Hybrid must invoke WMC");
-        assert_eq!(hybrid.final_ps.p.terms, exact.final_ps.p.terms,
-            "WMC fallback cannot use the approximately rounded RR polynomial");
-        assert_eq!(hybrid.final_ps.f.functions, exact.final_ps.f.functions);
-        assert_eq!(hybrid.status, exact.status);
+        assert!(hybrid.final_ps.rr_approximate,
+                "internal residual provenance must survive WMC handoff");
+        assert!(!hybrid.rr_approximate,
+                "public RR approximation flag follows Python: WMC decided");
+        assert_eq!(hybrid.final_ps.p.terms, reduced.final_ps.p.terms,
+                "Hybrid WMC must encode the current RR residual");
+        assert_eq!(hybrid.final_ps.f.functions, reduced.final_ps.f.functions);
+        assert_ne!(hybrid.final_ps.p.terms, original.final_ps.p.terms,
+                "the test must detect an accidental exact-source replay");
+        assert_eq!(hybrid.status, original.status,
+                "this robustly negative oracle must remain unchanged");
     }
 
     #[test]

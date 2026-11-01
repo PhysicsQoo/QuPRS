@@ -88,3 +88,18 @@ def test_known_ganak_negative_is_timing_only():
     assert report["status"] == "PASS"
     row = next(x for x in report["cases"] if x["case"] == "vqe4_ganak")
     assert any("NOT a scientific PASS" in warning for warning in row["warning"])
+
+
+def test_ganak_verdict_change_never_publishes_a_performance_delta():
+    instrument, records = sample()
+    row = next(x for x in records if x["case"] == "vqe4_ganak"
+               and x["revision"] == "head")
+    row["verdict"] = "not_equivalent"
+    row["verification_status"] = "EXTERNAL_GANAK_PRINT_LIMITATION"
+    result, markdown = report_module.produce(instrument, records, "base-sha", "head-sha")
+    assert result["status"] == "FAIL"  # Scientific/stage gate stays strict.
+    candidate = next(x for x in result["cases"] if x["case"] == "vqe4_ganak")
+    assert candidate["change_percent"] is None
+    assert candidate["performance_comparable"] is False
+    assert candidate["base_min_ms"] > 0 and candidate["head_min_ms"] > 0
+    assert "N/A (verdict changed)" in markdown

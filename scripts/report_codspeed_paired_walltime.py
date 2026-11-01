@@ -26,6 +26,10 @@ def classify(verdict: str) -> str:
     return "equivalent" if verdict in EQ else verdict
 
 
+def format_change(percent: float | None) -> str:
+    return "N/A (verdict changed)" if percent is None else f"{percent:+.2f}%"
+
+
 def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: str):
     if measurements.get("instrument", {}).get("type") != "walltime":
         raise ValueError("Not a CodSpeed WallTime measurement")
@@ -90,13 +94,21 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
         if classify(b["verdict"]) == "not_equivalent":
             warning.append("known external Ganak precision limitation; NOT a scientific PASS")
         b_ms, h_ms = bt["min_ns"] / 1e6, ht["min_ns"] / 1e6
-        delta = 100 * (h_ms / b_ms - 1)
+        same_semantics = classify(b["verdict"]) == classify(h["verdict"])
+        # CodSpeed provides both durations, but a verdict change means the
+        # revisions did not execute a semantically comparable workload.
+        # Preserve the raw numbers for diagnosis; do not publish a misleading
+        # speedup/regression percentage for such a pair.
+        delta = 100 * (h_ms / b_ms - 1) if same_semantics else None
+        if not same_semantics:
+            warning.append("INCOMPARABLE_VERDICT: retain measured durations only")
         for kind, s in (("base", bt), ("head", ht)):
             if s["stdev_ns"] / s["mean_ns"] > .05:
                 warning.append(f"{kind} relative stdev exceeds 5%")
         outcome.append({
             "case": case, "base_min_ms": b_ms, "head_min_ms": h_ms,
             "change_percent": delta,
+            "performance_comparable": same_semantics,
             "base_median_ms": bt["median_ns"] / 1e6,
             "head_median_ms": ht["median_ns"] / 1e6,
             "verdict_base": b["verdict"], "verdict_head": h["verdict"],
@@ -119,7 +131,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
         notes = "; ".join(x["warning"]) or "solver invoked in both"
         header.append(
             f"| {x['case']} | {x['base_min_ms']:.2f} | {x['head_min_ms']:.2f} "
-            f"| {x['change_percent']:+.2f}% | "
+            f"| {format_change(x['change_percent'])} | "
             f"{x['verdict_base']} -> {x['verdict_head']} | {notes} |"
         )
     header += ["", f"Coverage: {len(outcome)} exact case pairs, {len(times)} instrumented samples.",

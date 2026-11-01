@@ -1,0 +1,62 @@
+name: CodSpeed Rust core CPU and Memory pilot
+
+on:
+  # Explicit opt-in only; do not trigger the costly native build on all PRs
+  # until the new suite and its baseline have passed real CI acceptance.
+  pull_request:
+    branches: [dev]
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  native-core:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.number == 131 && github.event.label.name == 'ci-codspeed-rust-core') }}
+    name: Rust core CodSpeed ${{ matrix.instrument }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        instrument: [simulation, memory]
+    steps:
+      - name: Checkout source and native solver submodule
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: benchmarks/rust_core -> target
+          key: quprs-codspeed-rust-core-v1-${{ matrix.instrument }}
+      - name: Install matching cargo-codspeed
+        run: cargo install --locked --version 6.0.0 cargo-codspeed
+      - name: Build native standalone benchmark crate
+        run: |
+          cd benchmarks/rust_core
+          cargo codspeed build
+      - name: Measure native Rust core
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: ${{ matrix.instrument }}
+          run: cd benchmarks/rust_core && cargo codspeed run
+      - name: Record exact source and new benchmark environment
+        if: always()
+        shell: bash
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD:GPMC
+          cargo --version
+          rustc --version
+          cargo codspeed --version

@@ -1,10 +1,10 @@
 """RR → Hybrid → WMC: original-source distance parity at a numeric boundary.
 
 Compare a high-precision analytic source-unitary oracle with strict RR,
-WMC-only, and tolerant RR-residual Hybrid on exactly the same QASM. These
-tests intentionally REPORT any source-vs-residual classification difference:
-the user's Python-first numerical contract permits approximate RR, and
-a difference must be examined rather than hidden by a test expectation.
+WMC-only, and Hybrid configured with positive RR tolerance on the same QASM.
+An inconclusive approximate RR proof must never alter the source-faithful
+strict-RR residual passed to WMC. The two opposing distance-boundary
+cases must match the original source oracle on both Python and Rust.
 """
 import json
 

@@ -163,6 +163,14 @@ jobs:
                           "cross_version_verdicts": ":".join(outcomes[v]["verdict"] for v in VARIANTS),
                           "stage_matched": len({outcomes[v]["stage"] for v in VARIANTS}) == 1,
                       }
+                      assert provenance[case]["stage_matched"], (
+                          case, "source revisions reached different verification stages",
+                          provenance[case], outcomes,
+                      )
+                      assert len({outcomes[v]["verdict"] for v in VARIANTS}) == 1, (
+                          case, "source revisions returned different verdicts",
+                          provenance[case], outcomes,
+                      )
                   yield active, provenance, preflight
 
           @pytest.mark.parametrize("case", tuple(CASES), ids=tuple(CASES))

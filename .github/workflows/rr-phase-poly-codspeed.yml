@@ -1,0 +1,131 @@
+name: Phase polynomial substitution RR CodSpeed candidate
+on:
+  push:
+    branches: [experiment/rr-tolerance-parity]
+    paths:
+      - 'rust/pathsum/src/pathsum/phase_poly.rs'
+      - '.github/workflows/rr-phase-poly-codspeed.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  phase-poly:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PR_BASE_SHA: 90c7da78a81caf8e86b92809970f7519410634e4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+      - uses: actions/checkout@v4
+        with:
+          ref: 90c7da78a81caf8e86b92809970f7519410634e4
+          submodules: recursive
+          path: baseline-src
+      - uses: actions/checkout@v4
+        with:
+          ref: 90c7da78a81caf8e86b92809970f7519410634e4
+          submodules: recursive
+          path: candidate-src
+      - uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          bins: cargo-codspeed
+      - name: Install native build requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Ensure identical PR sources except candidate phase_poly.rs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C baseline-src rev-parse HEAD)" = "$PR_BASE_SHA"
+          test "$(git -C candidate-src rev-parse HEAD)" = "$PR_BASE_SHA"
+          cmp baseline-src/rust/pathsum/src/pathsum/phase_poly.rs candidate-src/rust/pathsum/src/pathsum/phase_poly.rs
+          cp experiment-src/rust/pathsum/src/pathsum/phase_poly.rs candidate-src/rust/pathsum/src/pathsum/phase_poly.rs
+          test "$(git -C candidate-src diff --name-only)" = 'rust/pathsum/src/pathsum/phase_poly.rs'
+          git -C candidate-src diff --check
+          git -C candidate-src diff --stat
+          git -C candidate-src rev-parse HEAD:GPMC
+      - name: Run targeted and full Rust correctness suite before measuring
+        run: |
+          cargo test --locked --manifest-path candidate-src/rust/Cargo.toml -p pathsum phase_poly::substitution_tests
+          cargo test --locked --manifest-path candidate-src/rust/Cargo.toml -p pathsum
+      - name: Build source-isolated native CodSpeed benches
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in baseline candidate; do
+            mkdir -p "native-lab/$variant/benches"
+            cat > "native-lab/$variant/Cargo.toml" <<EOF
+          [package]
+          name = "quprs-phase-poly-$variant"
+          version = "0.1.0"
+          edition = "2021"
+          publish = false
+
+          [dependencies]
+          pathsum = { path = "../../$variant-src/rust/pathsum" }
+          divan = { package = "codspeed-divan-compat", version = "=4.7.0" }
+
+          [[bench]]
+          name = "rr_phase_poly"
+          harness = false
+
+          [workspace]
+          resolver = "2"
+          EOF
+          done
+          cat > native-lab/candidate/benches/rr_phase_poly.rs <<'RUST'
+          use std::path::Path;
+          use pathsum::{check_equivalence_with_options, qasm, VerificationMethod,
+              VerificationOptions, VerificationStrategy};
+          const CASES: [(&str, &str, &str, VerificationStrategy); 4] = [
+              ("tof_3.qasm", "Feynman", "h,y,z,t,tdg,cx", VerificationStrategy::Proportional),
+              ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "MQTBench", "h,ry,rz,cx", VerificationStrategy::Proportional),
+              ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "MQTBench", "h,ry,rz,cx", VerificationStrategy::Proportional),
+              ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "MQTBench", "h,ry,rz,cx", VerificationStrategy::Naive),
+          ];
+          #[divan::bench(args = [0, 1, 2, 3])]
+          fn rr_phase_poly_candidate(bencher: divan::Bencher, id: usize) {
+              let (file, family, subdir, strategy) = CASES[id];
+              let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
+                  .join("../../candidate-src/benchmarks").join(family);
+              let (original, n) = qasm::parse_file(&folder.join(file)).unwrap();
+              let (modified, m) = qasm::parse_file(&folder.join(subdir).join(file)).unwrap();
+              assert_eq!(n, m);
+              let opts = VerificationOptions {
+                  method: VerificationMethod::ReductionRules, strategy,
+                  rr_tolerance: 1e-10, ..VerificationOptions::default()
+              };
+              let preflight = check_equivalence_with_options(n, &original, &modified, &opts).unwrap();
+              eprintln!("phase-poly candidate case={id} verdict={:?}", preflight.status);
+              bencher.bench(|| {
+                  let result = check_equivalence_with_options(
+                      divan::black_box(n), divan::black_box(&original),
+                      divan::black_box(&modified), divan::black_box(&opts)
+                  ).unwrap();
+                  divan::black_box(result.status);
+              });
+          }
+          fn main() { divan::main(); }
+          RUST
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("native-lab/candidate/benches/rr_phase_poly.rs")
+          code = p.read_text().replace("../../candidate-src/benchmarks", "../../baseline-src/benchmarks")
+          code = code.replace("rr_phase_poly_candidate", "rr_phase_poly_baseline")
+          code = code.replace("phase-poly candidate", "phase-poly baseline")
+          Path("native-lab/baseline/benches/rr_phase_poly.rs").write_text(code)
+          PY
+          (cd native-lab/baseline && cargo codspeed build -m simulation --bench rr_phase_poly)
+          (cd native-lab/candidate && cargo codspeed build -m simulation --bench rr_phase_poly)
+      - name: Measure identical native RR inputs with CodSpeed
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          run: (cd native-lab/baseline && cargo codspeed run --bench rr_phase_poly) && (cd native-lab/candidate && cargo codspeed run --bench rr_phase_poly)

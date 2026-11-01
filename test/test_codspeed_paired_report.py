@@ -135,3 +135,35 @@ def test_precision_provenance_survives_without_changing_scientific_result():
     assert candidate["performance_comparable"] is False
     assert candidate["wmc_diagnostics_head"]["wmc_printed_verdict"] == "unknown_resolution"
     assert "Ganak printed resolution" in markdown
+
+
+def test_known_ganak_coarse_print_is_not_mistaken_for_comparable_speedup():
+    measurement, records = sample()
+    head = next(x for x in records if x["case"] == "vqe4_ganak" and x["revision"] == "head")
+    head.update(verdict="not_equivalent",
+                verification_status="EXTERNAL_GANAK_PRINT_LIMITATION",
+                wmc_printed_verdict="unknown",
+                wmc_precision_reason="ganak_point_estimate_resolution_limited",
+                wmc_numerical_verdict="not_equivalent",
+                wmc_print_resolution_distance=0.0001161,
+                approximate_distance_tolerance=1e-8)
+    source = {"schema": "source-qasm-global-phase-double-v1",
+              "fixture_sha": "head-sha", "certified_epsilon_distance": False,
+              "cases": {"vqe4": {
+                  "numerically_consistent_up_to_global_phase": True,
+                  "phase_corrected_frobenius_normalized": 2e-15,
+                  "qasm_sha256": ["a" * 64, "b" * 64],
+              }}}
+    result, markdown = report_module.produce(
+        measurement, records, "base-sha", "head-sha", source)
+    assert result["status"] == "PRECISION_LIMITED"
+    assert result["errors"] == []
+    assert result["precision_incomparable"] == ["vqe4_ganak"]
+    case = next(x for x in result["cases"] if x["case"] == "vqe4_ganak")
+    assert case["change_percent"] is None
+    assert "PRECISION_LIMITED is not a scientific equivalence PASS" in markdown
+    assert report_module.produce(measurement, records, "base-sha", "head-sha",
+                                 dict(source, fixture_sha="wrong"))[0]["status"] == "FAIL"
+    head["wmc_print_resolution_distance"] = 1e-9
+    assert report_module.produce(measurement, records, "base-sha", "head-sha",
+                                 source)[0]["status"] == "FAIL"

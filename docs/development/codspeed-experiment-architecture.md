@@ -140,3 +140,17 @@ is now `ci-legacy-benchmark`-label opt-in, while routine CodSpeed CPU
 Simulation (32 node IDs) and Solver-inclusive WallTime remain active. Do not
 delete `benchmarks` history or compare old pytest elapsed-time baselines to
 CodSpeed v5 CPU cycles.
+
+## Independent source QASM oracle for known Ganak output limits
+
+PR WallTime now runs an **unmeasured** Qiskit complex128 operator source
+cross-check on the 4-qubit Grover/VQE QASM inputs and writes fixture hashes.
+It is a numerical cross-check, not a rigorous `1e-8` distance certificate.
+When an actual Ganak process returns a near-equivalent source pair with
+an `unknown` printed-resolution diagnostic, an observed resolution coarser
+than the user's distance, and a `not_equivalent` midpoint, the paired
+evidence becomes `PRECISION_LIMITED` rather than silently claiming a
+comparable speedup or scientific equivalence. Its percent delta remains N/A.
+All other unexplained verdict shifts remain FAIL; no solver is rerun, patched,
+or reclassified. `PRECISION_LIMITED` is explicitly **not** PASS for source
+exactness or solver numerical certification.

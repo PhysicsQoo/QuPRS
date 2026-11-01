@@ -26,11 +26,48 @@ def classify(verdict: str) -> str:
     return "equivalent" if verdict in EQ else verdict
 
 
+PRECISION_LIMITED_FIXTURES = {
+    "grover4_ganak": "grover4",
+    "vqe4_ganak": "vqe4",
+    "vqe4_ganak_python": "vqe4",
+}
+
+
+def evidenced_ganak_print_limitation(case: str, base: dict, head: dict,
+                                   source_oracle: dict | None, head_sha: str) -> bool:
+    if case not in PRECISION_LIMITED_FIXTURES or source_oracle is None:
+        return False
+    if (source_oracle.get("schema") != "source-qasm-global-phase-double-v1"
+            or source_oracle.get("fixture_sha") != head_sha
+            or source_oracle.get("certified_epsilon_distance") is not False):
+        return False
+    witness = source_oracle.get("cases", {}).get(PRECISION_LIMITED_FIXTURES[case], {})
+    residual = witness.get("phase_corrected_frobenius_normalized")
+    if not (witness.get("numerically_consistent_up_to_global_phase") is True
+            and isinstance(residual, (int, float)) and math.isfinite(residual)
+            and 0 <= residual < 1e-10 and len(witness.get("qasm_sha256", [])) == 2):
+        return False
+    if not (base.get("verdict") == "equivalent*"
+            and head.get("verdict") == "not_equivalent"
+            and head.get("solver") == "ganak"
+            and head.get("solver_invoked") is True
+            and head.get("wmc_printed_verdict") == "unknown"
+            and head.get("wmc_precision_reason") == "ganak_point_estimate_resolution_limited"
+            and head.get("wmc_numerical_verdict") == "not_equivalent"):
+        return False
+    width, distance = (head.get("wmc_print_resolution_distance"),
+                       head.get("approximate_distance_tolerance"))
+    return (isinstance(width, (int, float)) and math.isfinite(width)
+            and isinstance(distance, (int, float)) and math.isfinite(distance)
+            and 0 < distance < width)
+
+
 def format_change(percent: float | None) -> str:
     return "N/A (verdict changed)" if percent is None else f"{percent:+.2f}%"
 
 
-def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: str):
+def produce(measurements: dict, records: list[dict], base_sha: str,
+            head_sha: str, source_oracle: dict | None = None):
     if measurements.get("instrument", {}).get("type") != "walltime":
         raise ValueError("Not a CodSpeed WallTime measurement")
     times = {}
@@ -65,6 +102,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
 
     outcome = []
     errors = []
+    precision_incomparable = []
     for case in sorted(EXPECTED):
         b, h = provenance[case, "base"], provenance[case, "head"]
         bt, ht = times[case, "base"], times[case, "head"]
@@ -84,12 +122,24 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
         for field in ("method", "backend", "solver", "strategy", "reverse", "fixture_sha"):
             if b[field] != h[field]:
                 errors.append(f"{case}: unequal {field}: {b[field]} != {h[field]}")
+        expected_precision_limit = evidenced_ganak_print_limitation(
+            case, b, h, source_oracle, head_sha
+        )
         if b["verdict"] != h["verdict"]:
-            errors.append(
-                f"{case}: semantic category changed (including phase label): "
-                f"{b['verdict']} -> {h['verdict']}"
-            )
+            if expected_precision_limit:
+                precision_incomparable.append(case)
+            else:
+                errors.append(
+                    f"{case}: semantic category changed (including phase label): "
+                    f"{b['verdict']} -> {h['verdict']}"
+                )
         warning = []
+        if expected_precision_limit:
+            warning.append(
+                "PRECISION_LIMITED: independent complex128 source witness and "
+                "insufficient Ganak printed resolution; no equivalence certificate "
+                "and no comparable performance delta"
+            )
         if b["verdict"] != h["verdict"]:
             warning.append("verdict labeling changed")
         if b["rr_approximate"] != h["rr_approximate"]:
@@ -175,18 +225,24 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
             f"| {format_change(x['change_percent'])} | "
             f"{x['verdict_base']} -> {x['verdict_head']} | {notes} |"
         )
+    evidence_status = ("FAIL" if errors else "PRECISION_LIMITED"
+                       if precision_incomparable else "PASS")
     header += ["", f"Coverage: {len(outcome)} exact case pairs, {len(times)} instrumented samples.",
-               "**Semantic/stage matching:** " + ("PASS" if not errors else "FAIL"), ""]
+               "**Semantic/stage evidence:** " + evidence_status,
+               f"Precision-limited incomparable pairs: {len(precision_incomparable)}.",
+               "PRECISION_LIMITED is not a scientific equivalence PASS.", ""]
     if errors:
         header.extend(["Errors:"] + [f"- {error}" for error in errors])
     return {"base_sha": base_sha, "head_sha": head_sha, "cases": outcome,
-            "errors": errors, "status": "PASS" if not errors else "FAIL"}, "\n".join(header) + "\n"
+            "errors": errors, "precision_incomparable": precision_incomparable,
+            "status": evidence_status}, "\n".join(header) + "\n"
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--measurements", type=Path, required=True)
     p.add_argument("--provenance", type=Path, required=True)
+    p.add_argument("--source-oracle", type=Path, required=True)
     p.add_argument("--base-sha", required=True)
     p.add_argument("--head-sha", required=True)
     p.add_argument("--markdown", type=Path, required=True)
@@ -197,6 +253,7 @@ def main() -> int:
         json.loads(a.measurements.read_text(encoding="utf-8")),
         [json.loads(line) for line in a.provenance.read_text(encoding="utf-8").splitlines() if line.strip()],
         a.base_sha, a.head_sha,
+        json.loads(a.source_oracle.read_text(encoding="utf-8")),
     )
     a.markdown.write_text(markdown, encoding="utf-8")
     a.json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

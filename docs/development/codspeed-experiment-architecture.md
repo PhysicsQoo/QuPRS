@@ -131,3 +131,12 @@ and optional solver-inclusive CPU Simulation diagnostics remain manual.
 - Check x86_64 CodSpeed collection and cost before enabling a permanent always-on solver CPU matrix; then establish first `solver-inclusive-v1` dev/main baseline.
 - Test Macro Runner availability and ARM64 GPMC/Ganak compatibility before a permanent WallTime workflow. Do not claim it has been verified until a real CodSpeed Macro run exists.
 - After signoff, remove PR-specific diagnostic workflows and consolidate long-lived performance CI; maintain separate benchmark identities per measurement contract.
+
+## 9. Legacy CI de-duplication
+
+`.github/workflows/benchmarks.yml` retains its automatic `main`-push
+historical `pytest-benchmark` baseline writer. The duplicate PR comparison
+is now `ci-legacy-benchmark`-label opt-in, while routine CodSpeed CPU
+Simulation (32 node IDs) and Solver-inclusive WallTime remain active. Do not
+delete `benchmarks` history or compare old pytest elapsed-time baselines to
+CodSpeed v5 CPU cycles.

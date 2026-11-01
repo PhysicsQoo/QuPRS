@@ -24,6 +24,9 @@ on:
       - '.github/workflows/benchmarks.yml'
   pull_request:
     branches: [ main, dev ]
+    # Historical pytest-benchmark PR reporting is opt-in. Canonical 32-case
+    # CodSpeed Simulation remains always-on in codspeed.yml.
+    types: [opened, reopened, synchronize, labeled]
     paths:
       - 'src/**'
       - 'test/test_Feynman.py'
@@ -193,7 +196,9 @@ jobs:
   # This is the definitive version to solve the artifact download issues.
   # ====================================================================
   test-and-benchmark-pr:
-    if: github.event_name == 'pull_request'
+    # Explicit legacy diagnostic only; do not rebuild and time the same
+    # 32 cases twice on every PR. Main-push baseline publication is unchanged.
+    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-legacy-benchmark') }}
     permissions:
       actions: read  # Required for accessing workflow history.
       pull-requests: write  # Needed for commenting on PRs.

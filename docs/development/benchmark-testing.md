@@ -7,7 +7,7 @@ These purposes are **not** interchangeable.
 | --- | --- | --- | --- |
 | Paper input integrity | `python scripts/paper_corpus_audit.py` | No | Cheap, source-sensitive checks only |
 | Small correctness and error handling | `pytest test/test_backend_semantics.py test/test_solver_failure_matrix.py` | Yes, bounded | Via existing pytest CI |
-| Representative elapsed-time benchmarks | `test/test_MQT.py`, `test/test_Feynman.py` | Yes | Via existing Benchmark/CodSpeed workflows |
+| Canonical 32-case CPU Simulation | `test/test_MQT.py`, `test/test_Feynman.py` via CodSpeed | Solver may be invoked but subprocess time is not modeled | Every code-affecting PR |
 | Solver-inclusive CodSpeed WallTime (matched base/HEAD) | `benchmarks/codspeed/test_pr_solver_walltime.py` | **Required: GPMC/Ganak subprocess** | Every PR, in addition to five-shard Simulation |
 | Full publication reproduction | Original complete paper input corpus | Yes, potentially very expensive | No; use a controlled, comparable machine |
 | Process-tree RSS profiling | `scripts/profile_benchmark_resources.py` | Yes, isolated | No, opt-in until actual runner measurements pass |
@@ -145,3 +145,22 @@ The opt-in weighted three-shard Simulation candidate retains all 32
 existing benchmark identities and the unchanged CPU Simulation instrument.
 It is not automatically used by normal PRs; the production setup remains
 five shards until the controlled pilot is evaluated.
+
+## Legacy PR benchmark de-duplication (v0.14.0 candidate)
+
+The `Python CI & Benchmarks` workflow continues to publish the original
+`pytest-benchmark` history on **main push** using the existing
+`benchmarks` branch, `main_baseline.json`, and provenance. It does not
+delete or rebase any historical values. On PRs, its duplicate full 32-case
+benchmark job is now **explicit opt-in** with label `ci-legacy-benchmark`;
+labeling a PR triggers its historical comparison and optional Python
+weight profiler. The default PR performance signal remains the 32-identity
+`CodSpeed` CPU Simulation plus the bounded Solver-inclusive CodSpeed WallTime
+(whose scientific/stage mismatch is not automatically accepted).
+
+The `resource-pilot` label continues to control the independent RSS observer.
+Removing the repeated PR history job is a **CI cost optimization**, not a
+claim that old shared-host pytest timing equals reproducible CodSpeed
+Simulation or qualified Macro Runner WallTime. Retain all 32 original node
+IDs; add Rust native and Memory measurements as new, separate instrument
+histories. Three-shard production promotion is separate and evidence-gated.

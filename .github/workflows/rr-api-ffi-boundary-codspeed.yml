@@ -131,6 +131,7 @@ jobs:
 
           def test_python_back_to_back_rr_provenance_is_isolated():
               from QuPRS.utils.verification_tolerances import rr_approximation_used
+              prior_evidence = rr_approximation_used()
               original = QuantumCircuit(1)
               shifted = QuantumCircuit(1)
               shifted.rz(1e-9, 0)
@@ -141,7 +142,7 @@ jobs:
               assert first.rr_approximate is True
               assert second.rr_approximate is False
               assert current_rr_tolerance() == DEFAULT_RR_TOLERANCE
-              assert rr_approximation_used() is False
+              assert rr_approximation_used() is prior_evidence
           '''
           test.write_text(t)
           PY

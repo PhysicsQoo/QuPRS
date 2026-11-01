@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      PR_BASE_SHA: 90c7da78a81caf8e86b92809970f7519410634e4
+      PR_BASE_SHA: 488803447697219c5f18a4f400af9a1dd0f8184b
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,12 +23,12 @@ jobs:
           submodules: false
       - uses: actions/checkout@v4
         with:
-          ref: 90c7da78a81caf8e86b92809970f7519410634e4
+          ref: 488803447697219c5f18a4f400af9a1dd0f8184b
           submodules: recursive
           path: baseline-src
       - uses: actions/checkout@v4
         with:
-          ref: 90c7da78a81caf8e86b92809970f7519410634e4
+          ref: 488803447697219c5f18a4f400af9a1dd0f8184b
           submodules: recursive
           path: candidate-src
       - uses: moonrepo/setup-rust@v1

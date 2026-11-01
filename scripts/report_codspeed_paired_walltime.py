@@ -84,8 +84,11 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
         for field in ("method", "backend", "solver", "strategy", "reverse", "fixture_sha"):
             if b[field] != h[field]:
                 errors.append(f"{case}: unequal {field}: {b[field]} != {h[field]}")
-        if classify(b["verdict"]) != classify(h["verdict"]):
-            errors.append(f"{case}: semantic category changed: {b['verdict']} -> {h['verdict']}")
+        if b["verdict"] != h["verdict"]:
+            errors.append(
+                f"{case}: semantic/phase verdict changed: "
+                f"{b['verdict']} -> {h['verdict']}"
+            )
         warning = []
         if b["verdict"] != h["verdict"]:
             warning.append("verdict labeling changed")
@@ -94,7 +97,9 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
         if classify(b["verdict"]) == "not_equivalent":
             warning.append("known external Ganak precision limitation; NOT a scientific PASS")
         b_ms, h_ms = bt["min_ns"] / 1e6, ht["min_ns"] / 1e6
-        same_semantics = classify(b["verdict"]) == classify(h["verdict"])
+        # Do not merge equivalent and equivalent*: global-phase labels are
+        # scientifically distinct and must be compared explicitly.
+        same_semantics = b["verdict"] == h["verdict"]
         # CodSpeed provides both durations, but a verdict change means the
         # revisions did not execute a semantically comparable workload.
         # Preserve the raw numbers for diagnosis; do not publish a misleading
@@ -102,6 +107,28 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
         delta = 100 * (h_ms / b_ms - 1) if same_semantics else None
         if not same_semantics:
             warning.append("INCOMPARABLE_VERDICT: retain measured durations only")
+        # Provenance from the final CodSpeed repetition only. A quantitative
+        # limit for *printed* Solver resolution is not an arithmetic error
+        # proof; never convert a negative observation to equivalence here.
+        for revision, record in (("base", b), ("head", h)):
+            reason = record.get("wmc_precision_reason")
+            printed = record.get("wmc_printed_verdict")
+            if reason or printed:
+                warning.append(
+                    f"{revision} WMC diagnostics: printed={printed}, reason={reason}"
+                )
+            resolution = record.get("wmc_print_resolution_distance")
+            threshold = record.get("approximate_distance_tolerance")
+            if resolution is not None and threshold is not None:
+                if not isinstance(resolution, (int, float)) or not math.isfinite(resolution):
+                    errors.append(f"{case}/{revision}: invalid printed resolution metadata")
+                elif not isinstance(threshold, (int, float)) or not math.isfinite(threshold):
+                    errors.append(f"{case}/{revision}: invalid distance tolerance metadata")
+                elif resolution > threshold:
+                    warning.append(
+                        f"{revision} Ganak printed resolution {resolution:.4g} "
+                        f"exceeds distance tolerance {threshold:.4g}"
+                    )
         for kind, s in (("base", bt), ("head", ht)):
             if s["stdev_ns"] / s["mean_ns"] > .05:
                 warning.append(f"{kind} relative stdev exceeds 5%")
@@ -112,6 +139,20 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
             "base_median_ms": bt["median_ns"] / 1e6,
             "head_median_ms": ht["median_ns"] / 1e6,
             "verdict_base": b["verdict"], "verdict_head": h["verdict"],
+            "wmc_diagnostics_base": {
+                key: b.get(key) for key in (
+                    "wmc_precision_reason", "wmc_printed_verdict",
+                    "wmc_print_resolution_distance", "approximate_distance_tolerance",
+                    "wmc_numerical_verdict",
+                )
+            },
+            "wmc_diagnostics_head": {
+                key: h.get(key) for key in (
+                    "wmc_precision_reason", "wmc_printed_verdict",
+                    "wmc_print_resolution_distance", "approximate_distance_tolerance",
+                    "wmc_numerical_verdict",
+                )
+            },
             "solver_invoked_base": b["solver_invoked"],
             "solver_invoked_head": h["solver_invoked"],
             "warning": warning,

@@ -41,6 +41,13 @@ def main() -> None:
         "solver_invoked": bool(invoked),
         "solver": solver,
         "rr_approximate": getattr(result, "rr_approximate", None),
+        # Diagnostic only; these fields come from the already-executed
+        # verifier request, so no additional Solver call is made.
+        "wmc_printed_verdict": getattr(result, "wmc_printed_verdict", None),
+        "wmc_precision_reason": getattr(result, "wmc_precision_reason", None),
+        "wmc_print_resolution_distance": getattr(result, "wmc_print_resolution_distance", None),
+        "approximate_distance_tolerance": getattr(result, "approximate_distance_tolerance", None),
+        "wmc_numerical_verdict": getattr(result, "wmc_numerical_verdict", None),
     }, sort_keys=True))
 
 

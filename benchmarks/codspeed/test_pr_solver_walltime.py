@@ -102,6 +102,10 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
             else "INVALID_RESULT"
         ),
         "rr_approximate": str(measured["rr_approximate"]),
+        "wmc_printed_verdict": str(measured.get("wmc_printed_verdict")),
+        "wmc_precision_reason": str(measured.get("wmc_precision_reason")),
+        "wmc_print_resolution_distance": str(measured.get("wmc_print_resolution_distance")),
+        "approximate_distance_tolerance": str(measured.get("approximate_distance_tolerance")),
         "evidence": "same_host_shared_github_runner_exploratory",
     })
     # Do not silently count an RR-only transition as a comparable Solver sample.
@@ -135,6 +139,11 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         "solver_invoked": bool(measured["solver_invoked"]),
         "verdict": measured["verdict"],
         "rr_approximate": measured["rr_approximate"],
+        "wmc_printed_verdict": measured.get("wmc_printed_verdict"),
+        "wmc_precision_reason": measured.get("wmc_precision_reason"),
+        "wmc_print_resolution_distance": measured.get("wmc_print_resolution_distance"),
+        "approximate_distance_tolerance": measured.get("approximate_distance_tolerance"),
+        "wmc_numerical_verdict": measured.get("wmc_numerical_verdict"),
         "verification_status": benchmark.extra_info["verification_status"],
     }
     output = Path(os.environ["RUNNER_TEMP"]) / "quprs-paired-walltime-provenance.jsonl"

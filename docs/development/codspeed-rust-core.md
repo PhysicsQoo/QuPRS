@@ -52,3 +52,13 @@ system-call dominance for the three native_rr_tolerance variants; these
 should not be used as an end-to-end latency oracle. The generated benchmark
 Cargo.lock is uploaded by the pilot for review, so it can be pinned before
 automatic PR gating.
+
+## Dependency lock accepted
+
+The independently generated `Cargo.lock` from GitHub Actions run
+`41324924039`, both Simulation and Memory jobs, was byte-identical:
+55,418 bytes; SHA-256
+`aeb158e4e1c6a3a1dd0b27dac6bf446bf4f8afb499eb56cbab6806aaac6303dd`.
+It is now checked into this isolated benchmark crate. The opt-in pilot runs
+`cargo metadata --locked` before compiling; unlike the shipping Rust
+workspace, this intentionally has an independent pinned instrument baseline.

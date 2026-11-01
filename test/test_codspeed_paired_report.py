@@ -103,3 +103,35 @@ def test_ganak_verdict_change_never_publishes_a_performance_delta():
     assert candidate["performance_comparable"] is False
     assert candidate["base_min_ms"] > 0 and candidate["head_min_ms"] > 0
     assert "N/A (verdict changed)" in markdown
+
+
+def test_phase_label_changes_are_incomparable():
+    instrument, records = sample()
+    row = next(x for x in records
+               if x["case"] == "vqe4_gpmc" and x["revision"] == "head")
+    row["verdict"] = "equivalent*"
+    result, markdown = report_module.produce(instrument, records, "base-sha", "head-sha")
+    candidate = next(x for x in result["cases"] if x["case"] == "vqe4_gpmc")
+    assert result["status"] == "FAIL"
+    assert candidate["change_percent"] is None
+    assert candidate["performance_comparable"] is False
+    assert "N/A (verdict changed)" in markdown
+
+
+def test_precision_provenance_survives_without_changing_scientific_result():
+    instrument, records = sample()
+    row = next(x for x in records
+               if x["case"] == "vqe4_ganak" and x["revision"] == "head")
+    row.update(wmc_precision_reason="ganak_point_estimate_resolution_limited",
+               wmc_printed_verdict="unknown_resolution",
+               wmc_print_resolution_distance=0.00014,
+               approximate_distance_tolerance=1e-8,
+               wmc_numerical_verdict="not_equivalent",
+               verdict="not_equivalent",
+               verification_status="EXTERNAL_GANAK_PRINT_LIMITATION")
+    result, markdown = report_module.produce(instrument, records, "base-sha", "head-sha")
+    candidate = next(x for x in result["cases"] if x["case"] == "vqe4_ganak")
+    assert result["status"] == "FAIL"
+    assert candidate["performance_comparable"] is False
+    assert candidate["wmc_diagnostics_head"]["wmc_printed_verdict"] == "unknown_resolution"
+    assert "Ganak printed resolution" in markdown

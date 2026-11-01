@@ -409,9 +409,21 @@ jobs:
           cnf.unlink()
           PY
 
+      # A dedicated pytest file path gives subprocess-inclusive diagnostics a
+      # unique CodSpeed URI. Never reuse the standard subprocess-excluded MQT
+      # benchmark URI, or the separate solver CPU pilot's URI.
+      - name: Prepare isolated QFT16 solver-inclusive benchmark identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp test/test_codspeed_solver_cpu.py test/test_pr131_qft_solver_inclusive.py
+          "$RUNNER_TEMP/qft131-venv/bin/python" -m pytest \
+            'test/test_pr131_qft_solver_inclusive.py::test_solver_cpu_inclusive[qft16-gpmc-rust]' \
+            --collect-only -q
+
       - name: CodSpeed simulation with solver subprocess tracing
         uses: CodSpeedHQ/action@v5
         with:
           mode: simulation
           simulation-track-subprocess: 'true'
-          run: ${{ runner.temp }}/qft131-venv/bin/python -m pytest 'test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-rust]' --codspeed
+          run: ${{ runner.temp }}/qft131-venv/bin/python -m pytest 'test/test_pr131_qft_solver_inclusive.py::test_solver_cpu_inclusive[qft16-gpmc-rust]' --codspeed

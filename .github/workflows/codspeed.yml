@@ -182,6 +182,18 @@ jobs:
           mode: walltime
           run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=10
 
+      - name: Pair measured CodSpeed WallTime and audit Solver semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_codspeed_paired_walltime.py \
+            --measurements "$RUNNER_TEMP/quprs-paired-walltime-codspeed.json" \
+            --provenance "$RUNNER_TEMP/quprs-paired-walltime-provenance.jsonl" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --markdown paired-walltime-report.md \
+            --json paired-walltime-report.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+
       - name: Upload pinned dependency provenance
         if: always()
         uses: actions/upload-artifact@v4
@@ -190,5 +202,9 @@ jobs:
           path: |
             ${{ runner.temp }}/pr-walltime-base-freeze.txt
             ${{ runner.temp }}/pr-walltime-head-freeze.txt
+            ${{ runner.temp }}/quprs-paired-walltime-codspeed.json
+            ${{ runner.temp }}/quprs-paired-walltime-provenance.jsonl
+            paired-walltime-report.md
+            paired-walltime-report.json
           if-no-files-found: ignore
           retention-days: 14

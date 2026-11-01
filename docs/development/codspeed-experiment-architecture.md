@@ -102,9 +102,27 @@ The two instruments must not be merged into one time statistic. Shared
 GitHub-hosted paired WallTime provides useful *exploratory* matched-runner
 evidence, not a qualified fixed Macro Runner. CI success is a collection
 and validity gate; numerical regression thresholds still require
-runner-variance calibration and matching scientific outcomes. The more
-expensive PR #131 three-revision `main/dev/head` WallTime and optional
-solver-inclusive CPU Simulation diagnostics remain manual.
+runner-variance calibration and matching scientific outcomes. The WallTime test also writes source/solver/verdict provenance **after** CodSpeed
+timing. A pytest session hook exports the CodSpeed instrument's own
+minimum/median, variance, and rounds. CI validates all seven base/HEAD
+pairs, stage and solver parity, source SHA, fixture identity, and normalized
+equivalence classification. The paired percent-delta table is published
+to the job summary as Markdown and JSON artifacts. No independent
+timing framework is introduced; a known Ganak printed-precision negative
+remains a timing-only external limitation, never scientific equivalence PASS.
+
+An **opt-in three-shard Simulation candidate** is isolated in
+`.github/workflows/codspeed-three-shard-trial.yml`. The default five-shard
+workflow remains unchanged. The trial is gated by the
+`ci-codspeed-three-shard` label and checks exact 32-node coverage with
+no loss, duplicate, or changed benchmark IDs. Initial weights derive from
+CodSpeed v5 Simulation modeled CPU costs at `95f8942` and are **only**
+placement proxies, not elapsed-time performance measurements. Promote
+the design only after three-shard CodSpeed and Actions evidence confirms
+full coverage and acceptable CI queue/runner cost.
+
+The more expensive PR #131 three-revision `main/dev/head` WallTime
+and optional solver-inclusive CPU Simulation diagnostics remain manual.
 
 ## 8. Historical PR #131 pilot rollout
 

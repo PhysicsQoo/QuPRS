@@ -119,3 +119,24 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         assert solver == "ganak" and case_id in {"vqe4_ganak", "grover4_ganak", "vqe4_ganak_python"}, (
             f"unexpected not-equivalent verdict: {revision}/{case_id}"
         )
+
+    # Provenance is recorded AFTER CodSpeed measurement and verdict validation;
+    # the benchmarked execution performs no extra logging/timing.
+    provenance = {
+        "case": case_id,
+        "revision": revision,
+        "sha": os.environ["BASE_SHA" if revision == "base" else "HEAD_SHA"],
+        "fixture_sha": os.environ["HEAD_SHA"],
+        "method": "hybrid",
+        "backend": backend,
+        "solver": solver,
+        "strategy": strategy,
+        "reverse": reverse,
+        "solver_invoked": bool(measured["solver_invoked"]),
+        "verdict": measured["verdict"],
+        "rr_approximate": measured["rr_approximate"],
+        "verification_status": benchmark.extra_info["verification_status"],
+    }
+    output = Path(os.environ["RUNNER_TEMP"]) / "quprs-paired-walltime-provenance.jsonl"
+    with output.open("a", encoding="utf-8") as log:
+        log.write(json.dumps(provenance, sort_keys=True) + "\n")

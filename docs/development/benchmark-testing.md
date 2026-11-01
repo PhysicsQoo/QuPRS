@@ -134,3 +134,14 @@ Later snapshots may differ as normal baseline updates continue. Preserve the
 historical artifacts and provenance before disabling or removing the old
 benchmark workflow. Simulation metrics are not direct measurements of solver
 wall-time, system calls, or sampled peak memory.
+ 
+The seven-case paired WallTime job now produces a CodSpeed-only base/HEAD
+Markdown/JSON table, verifies immutable source identity, actual GPMC/Ganak
+invocation, semantic verdict category and path parity. Validation and report
+generation happen **after** CodSpeed measurement, not inside the timed call.
+Known Ganak print-resolution negatives remain external limitations.
+
+The opt-in weighted three-shard Simulation candidate retains all 32
+existing benchmark identities and the unchanged CPU Simulation instrument.
+It is not automatically used by normal PRs; the production setup remains
+five shards until the controlled pilot is evaluated.

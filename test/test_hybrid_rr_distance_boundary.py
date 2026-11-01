@@ -1,0 +1,112 @@
+"""RR → Hybrid → WMC: a real-solver distance-boundary scientific diagnostic.
+
+Compare a high-precision analytic source-unitary oracle with strict RR,
+WMC-only, and tolerant RR-residual Hybrid on exactly the same QASM. These
+tests intentionally REPORT any source-vs-residual classification difference:
+the user's Python-first numerical contract permits approximate RR, and
+a difference must be examined rather than hidden by a test expectation.
+"""
+import json
+
+from mpmath import mp
+import pytest
+
+from QuPRS import check_equivalence
+
+
+_ID = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+_EPS = 1e-8
+_RR = 1e-10
+
+
+def _source(a: str, b: str):
+    # H H = I.  Put the tiny angle before the HH pair because both
+    # Python and Rust reduce at an H gate, before the larger rotation.
+    return (
+        _ID + f"rz({a}) q[0];\n"
+        + "h q[0];\nh q[0];\n"
+        + f"rz({b}) q[0];\n"
+    )
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+@pytest.mark.parametrize(
+    "a,b,expected_exact",
+    [
+        ("0.0000000004", "0.0000000198", "not_equivalent"),
+        ("-0.0000000004", "0.0000000202", "equivalent"),
+    ],
+    ids=["source-above-residual-below", "source-below-residual-above"],
+)
+def test_partial_rr_near_wmc_distance_threshold(
+    backend, a, b, expected_exact, record_property
+):
+    with mp.workdps(85):
+        theta = mp.mpf(a) + mp.mpf(b)
+        source_distance = abs(mp.sin(theta / 2))
+        residual_distance = abs(mp.sin(mp.mpf(b) / 2))
+        epsilon = mp.mpf("1e-8")
+        assert (
+            ("equivalent" if source_distance < epsilon else "not_equivalent")
+            == expected_exact
+        ), "Independent source-unitary oracle is incorrectly set up"
+        assert (source_distance < epsilon) != (residual_distance < epsilon), (
+            "Reference fixture must straddle the actual distance threshold"
+        )
+        source_distance_string = mp.nstr(source_distance, 24)
+        residual_distance_string = mp.nstr(residual_distance, 24)
+
+    base_kwargs = {
+        "backend": backend, "strategy": "Naive",
+        "tool_name": "gpmc", "timeout": 45,
+        "approximate_distance_tolerance": _EPS,
+        "gpmc_precision_digits": 30,
+    }
+    source = _source(a, b)
+    strict = check_equivalence(
+        _ID, source, method="hybrid", rr_tolerance=0, **base_kwargs
+    )
+    reference = check_equivalence(
+        _ID, source, method="wmc_only", rr_tolerance=_RR, **base_kwargs
+    )
+    rr_only = check_equivalence(
+        _ID, source, method="reduction_rules", rr_tolerance=_RR, **base_kwargs
+    )
+    tolerant = check_equivalence(
+        _ID, source, method="hybrid", rr_tolerance=_RR, **base_kwargs
+    )
+    evidence = {
+        "backend": backend, "tiny_angle": a, "large_angle": b,
+        "exact_source_distance": source_distance_string,
+        "nominal_residual_distance": residual_distance_string,
+        "source_oracle": expected_exact,
+        "strict_hybrid": strict.equivalent,
+        "wmc_only": reference.equivalent,
+        "rr_only": rr_only.equivalent,
+        "tolerant_hybrid": tolerant.equivalent,
+        "tolerant_solver_called": bool(tolerant.wmc_solver_invoked),
+        "tolerant_result_matches_source_oracle":
+            tolerant.equivalent == expected_exact,
+    }
+    print("RR_WMC_SOURCE_BOUNDARY " + json.dumps(evidence, sort_keys=True))
+    for name, value in evidence.items():
+        record_property("rrwmc_" + name, str(value))
+
+    # First establish that the real solver can classify the original
+    # source operator with the requested distance tolerance.
+    assert strict.equivalent == expected_exact, evidence
+    assert reference.equivalent == expected_exact, evidence
+    assert strict.wmc_solver_invoked is True, evidence
+    assert reference.wmc_solver_invoked is True, evidence
+
+    # RR deliberately leaves the large source rotation unresolved, and
+    # Hybrid must encode its *current* reduced residual, without replay.
+    assert rr_only.equivalent == "not_equivalent", evidence
+    assert not rr_only.wmc_solver_invoked, evidence
+    assert tolerant.wmc_solver_invoked is True, evidence
+    assert tolerant.final_pathsum == rr_only.final_pathsum, evidence
+    assert tolerant.rr_approximate is False, evidence
+
+    # Do not assume the source and tolerant residual must classify alike
+    # at a boundary deliberately constructed to separate the two. This
+    # diagnostic records the actual result for independent review.

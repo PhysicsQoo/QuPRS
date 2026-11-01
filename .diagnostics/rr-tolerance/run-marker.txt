@@ -1,1 +1,1 @@
-Candidate 9: replace obsolete exact-source-replay Rust test with Python-compatible RR-residual handoff assertions; rerun bounded native Rust, parity, Graphstate16, QFT16 and CodSpeed diagnostics.
+Candidate 10: boundary oracle for Python-first RR->WMC residual; two source/residual threshold crossings, Python+Rust strict/hybrid/WMC-only, independent high-precision Rz distance formula. Execute focused tests and CodSpeed Simulation without full release CI.

@@ -58,6 +58,9 @@ jobs:
             test/test_per_call_tolerance_contract.py \
             test/test_rr_backend_tolerance_parity.py \
             test/test_phase_source_tolerance_cache.py
+      - name: Real-solver RR residual distance-boundary oracle
+        run: |
+          python -m pytest -q -s -ra test/test_hybrid_rr_distance_boundary.py
       - name: Graphstate16 exact-source and approximate RR regression
         run: |
           python -m pytest -q -ra test/test_graphstate16_source_contract.py

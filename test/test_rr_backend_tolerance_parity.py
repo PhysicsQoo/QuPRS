@@ -1,7 +1,8 @@
 """Python/Rust RR tolerance and reduction-result parity on pinned QASM inputs.
 
-These controls use public APIs and do not invoke WMC to conceal divergent
-reduction behavior. The source-exact/non-exact distinction is intentional.
+These controls use public APIs to check RR decisions and explicit residual
+handoff to the real WMC solver. The source-exact/non-exact distinction
+is intentional.
 """
 from pathlib import Path
 

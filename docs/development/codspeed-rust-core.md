@@ -34,3 +34,21 @@ makes the pair performance-INCOMPARABLE. The instrument's raw values remain
 visible but its change percentage is N/A; it cannot be counted as a speedup
 or no-regression. Known Ganak print-resolution limitations retain a distinct
 scientific warning instead of silently relaxing correctness.
+
+## First real source-pinned pilot
+
+PR `d7bba7cf6a2a10e22e6f3c39faef4722c04f7428` successfully compiled
+the standalone Rust benchmark crate with `cargo-codspeed 6.0.0` and
+`codspeed-divan-compat 6.0.0`. Both CPU Simulation and Memory benchmark
+measurements were uploaded to CodSpeed (11 stable benchmark identities per
+instrument). The initial GitHub job conclusions were FAIL **only in the
+post-upload version-printing step**: `cargo codspeed --version` printed
+`cargo-codspeed 6.0.0` but returned status 1. That optional command was
+removed; the corrected workflow still requires an exact-HEAD CI pass.
+
+The first measurements are a new baseline, not evidence of a speedup versus
+the historical 32-case Python API suite. CPU Simulation reported
+system-call dominance for the three native_rr_tolerance variants; these
+should not be used as an end-to-end latency oracle. The generated benchmark
+Cargo.lock is uploaded by the pilot for review, so it can be pinned before
+automatic PR gating.

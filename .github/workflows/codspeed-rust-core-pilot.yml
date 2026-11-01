@@ -59,4 +59,13 @@ jobs:
           git rev-parse HEAD:GPMC
           cargo --version
           rustc --version
-          cargo codspeed --version
+          # Version is pinned and verified in the install step. Some
+          # cargo-codspeed releases print --version but return exit code 1.
+      - name: Upload standalone Cargo dependency lock for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-codspeed-lock-${{ matrix.instrument }}
+          path: benchmarks/rust_core/Cargo.lock
+          if-no-files-found: warn
+          retention-days: 14

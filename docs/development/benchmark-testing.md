@@ -164,3 +164,25 @@ claim that old shared-host pytest timing equals reproducible CodSpeed
 Simulation or qualified Macro Runner WallTime. Retain all 32 original node
 IDs; add Rust native and Memory measurements as new, separate instrument
 histories. Three-shard production promotion is separate and evidence-gated.
+
+## Controlled 3-shard GO/NO-GO (2026-11-01)
+
+**NO-GO** for three-shard promotion. Compared matched source
+`3ed3f4524eadde97bc20811913b9c6fd88e12695`, with identical 32 existing
+node IDs, CPU Simulation v5 settings, QASM input identities, and benchmark
+framework. Production five-shard Actions run: `41323120238`; weighted
+three-shard pilot Actions run: `41323666421`.
+
+- Five shards: 8/12/2/4/6 benchmark executions, all 32 PASS.
+- Three shards: 10/11/11 executions, all 32 PASS, no duplicates or missing.
+- Summed **CodSpeed action step execution durations** (CI scheduling / runner
+  cost metric, *not* scientific circuit runtime): five shards 1075.303 s;
+  three shards 1326.235 s (+23.3%).
+- Longest action step: five shards 313.780 s; three shards 493.000 s (+57.1%).
+
+These results reject the proposal to reduce the number of shards now. Do not
+mix CI setup or action-step time with CodSpeed measured CPU cycles. Keep
+production at five shards; weighted three-shard pilot remains opt-in for
+historical research, not a release requirement. A new sharding candidate
+needs a new same-HEAD controlled test rather than retroactively selecting
+partial runs or changing benchmark IDs.

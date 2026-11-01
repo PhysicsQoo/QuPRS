@@ -78,7 +78,7 @@ jobs:
           rustc --version
           lscpu | grep -E 'Model name|Architecture' || true
           submodule_sha="$(git -C "$GITHUB_WORKSPACE/dev-src" rev-parse HEAD:GPMC)"
-          ganak_release_sha="$(sha256sum "$GITHUB_WORKSPACE/main-src/src/QuPRS/utils/ganak-release.txt" | cut -d' ' -f1)"
+          ganak_release_sha="$(sha256sum "$GITHUB_WORKSPACE/dev-src/src/QuPRS/utils/ganak-release.txt" | cut -d' ' -f1)"
           for variant in dev head; do
             git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD
             observed_submodule="$(git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD:GPMC)"
@@ -126,7 +126,7 @@ jobs:
           def fixture_sha(variant, case):
               filename = CASES[case][0]
               first = ROOT / f"{source_of(variant)}-src/benchmarks/MQTBench" / filename
-              second = ROOT / f"{variant}-src/benchmarks/MQTBench/h,ry,rz,cx" / filename
+              second = ROOT / f"{source_of(variant)}-src/benchmarks/MQTBench/h,ry,rz,cx" / filename
               return (hashlib.sha256(first.read_bytes()).hexdigest(),
                       hashlib.sha256(second.read_bytes()).hexdigest())
 

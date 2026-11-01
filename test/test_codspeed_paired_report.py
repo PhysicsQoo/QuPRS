@@ -139,6 +139,10 @@ def test_precision_provenance_survives_without_changing_scientific_result():
 
 def test_known_ganak_coarse_print_is_not_mistaken_for_comparable_speedup():
     measurement, records = sample()
+    # The real compared Ganak source baseline is equivalent* (global phase).
+    # Keep the production classifier strict; correct the synthetic fixture.
+    base = next(x for x in records if x["case"] == "vqe4_ganak" and x["revision"] == "base")
+    base["verdict"] = "equivalent*"
     head = next(x for x in records if x["case"] == "vqe4_ganak" and x["revision"] == "head")
     head.update(verdict="not_equivalent",
                 verification_status="EXTERNAL_GANAK_PRINT_LIMITATION",

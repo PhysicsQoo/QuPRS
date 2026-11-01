@@ -193,7 +193,7 @@ jobs:
               "fn run_native_rr(bencher: divan::Bencher, id: usize, _tolerance: f64)",
           )
           code = code.replace("fn rr_tolerant(", "fn rr_legacy_default(")
-          strict_start = code.index("#[divan::bench(args = [0, 1, 2, 3, 4])]\\nfn rr_strict")
+          strict_start = code.index("#[divan::bench(args = [0, 1, 2, 3, 4])]\nfn rr_strict")
           main_start = code.index("fn main() { divan::main(); }", strict_start)
           code = code[:strict_start] + code[main_start:]
           assert "rr_tolerance:" not in code

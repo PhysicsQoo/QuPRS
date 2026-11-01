@@ -1,1 +1,1 @@
-Candidate 6: conservative compact π bounds, full Rust/Python scientific gate, CodSpeed native RR CPU sampling at exact experiment HEAD.
+Candidate 7: apply cached outward-rounded pi bounds to aggregate RR residual upper bounds; exact full Machin fallback on boundary. Enforce same-stage and same-verdict parity across main/dev/PR before comparing warm-worker WallTime.

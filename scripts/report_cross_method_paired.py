@@ -10,7 +10,14 @@ from pathlib import Path
 
 
 def inspect(records, base_sha, head_sha, instrument):
-    from benchmarks.codspeed.test_cross_method_paired import CASES, CPU_CASES
+    # Load the source-pinned experimental matrix by file path: pytest and
+    # Docker run with different sys.path roots; no package install is needed.
+    from runpy import run_path
+    case_file = Path(__file__).resolve().parents[1] / (
+        "benchmarks/codspeed/test_cross_method_paired.py"
+    )
+    matrix = run_path(str(case_file))
+    CASES, CPU_CASES = matrix["CASES"], matrix["CPU_CASES"]
     expected = CPU_CASES if instrument == "simulation" else CASES
     mapping = {c[0]: c for c in expected}
     paired = defaultdict(dict)

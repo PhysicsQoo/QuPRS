@@ -141,9 +141,16 @@ def test_rust_hybrid_uses_strict_rr_residual_without_gate_replay(monkeypatch):
             approximate_distance_tolerance=1e-8,
         )
 
-    strict_rr = run("reduction_rules", 0)
-    tolerant_rr = run("reduction_rules", 1e-8)
-    tolerant_hybrid = run("hybrid", 1e-8)
+    # Raw native FFI does not set Python's packaged Solver override.
+    # Resolve the wheel's actual native binary within its resource lifetime,
+    # so isolated Docker runtime and normal CI validate the same Solver.
+    from QuPRS.utils import WMC
+    with WMC("gpmc") as solver_binary:
+        assert solver_binary.is_file()
+        monkeypatch.setenv("QUPRS_GPMC_PATH", str(solver_binary))
+        strict_rr = run("reduction_rules", 0)
+        tolerant_rr = run("reduction_rules", 1e-8)
+        tolerant_hybrid = run("hybrid", 1e-8)
 
     # The approximate rule must actually have changed the residual. Merely
     # comparing two runs where RR did no work would not detect a replay.

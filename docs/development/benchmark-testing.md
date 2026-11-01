@@ -186,3 +186,13 @@ production at five shards; weighted three-shard pilot remains opt-in for
 historical research, not a release requirement. A new sharding candidate
 needs a new same-HEAD controlled test rather than retroactively selecting
 partial runs or changing benchmark IDs.
+
+## Canonical five-shard identity guard
+
+The production `scripts/check_codspeed_shards.py` now checks not only the
+unsharded-to-sharded 32-case union, absence of missing or duplicate nodes,
+and five-shard execution, but also the immutable sorted pytest node-ID
+SHA-256 `7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed`.
+The original eight Feynman plus 24 MQT cases cannot be silently renamed
+or replaced while retaining a count of 32; a deliberate corpus revision
+requires an explicit baseline migration.

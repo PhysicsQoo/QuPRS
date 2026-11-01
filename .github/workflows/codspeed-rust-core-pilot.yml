@@ -1,12 +1,28 @@
-name: CodSpeed Rust core CPU and Memory pilot
+name: CodSpeed Rust core CPU and Memory
 
 on:
-  # Explicit opt-in only; do not trigger the costly native build on all PRs
-  # until the new suite and its baseline have passed real CI acceptance.
+  # Rust native CPU Simulation is part of regular code-affecting PR evidence.
+  # Memory remains opt-in unless explicitly requested or dispatched.
   pull_request:
-    branches: [dev]
-    types: [labeled]
+    branches: [dev, main]
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+    paths:
+      - 'rust/**'
+      - 'benchmarks/rust_core/**'
+      - 'GPMC'
+      - '.github/workflows/codspeed-rust-core-pilot.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'rust/**'
+      - 'benchmarks/rust_core/**'
+      - 'GPMC'
+      - '.github/workflows/codspeed-rust-core-pilot.yml'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -14,14 +30,14 @@ permissions:
 
 jobs:
   native-core:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.number == 131 && github.event.label.name == 'ci-codspeed-rust-core') }}
+    if: ${{ github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'ci-codspeed-rust-memory' }}
     name: Rust core CodSpeed ${{ matrix.instrument }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        instrument: [simulation, memory]
+        instrument: ${{ fromJSON((github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci-codspeed-rust-memory')) && '["simulation","memory"]' || '["simulation"]') }}
     steps:
       - name: Checkout source and native solver submodule
         uses: actions/checkout@v4

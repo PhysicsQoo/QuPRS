@@ -62,3 +62,19 @@ The independently generated `Cargo.lock` from GitHub Actions run
 It is now checked into this isolated benchmark crate. The opt-in pilot runs
 `cargo metadata --locked` before compiling; unlike the shipping Rust
 workspace, this intentionally has an independent pinned instrument baseline.
+
+## Promotion to regular Rust PR measurement
+
+The source- and lock-pinned 11-case Rust CPU Simulation suite is now a
+standard benchmark for PRs and pushes affecting Rust/core/standalone benchmark
+sources, on maintained `dev` / `main` branches. Its independent 11 stable
+identities never replace or modify the original Python CodSpeed 32-case suite.
+This builds a native CPU baseline on `dev` and an exact SHA on feature PRs.
+The Memory instrument remains controlled: PR label
+`ci-codspeed-rust-memory` or workflow_dispatch runs both CPU and Memory,
+so allocation profiling does not double routine CI work. The integration
+continues to pin cargo-codspeed/divan 6.0.0 and `Cargo.lock` separately
+from the production Rust workspace.
+
+For PR events carrying an unrelated label, the workflow does not rerun the
+native build. Standard `synchronize` events do rerun the CPU instrument.

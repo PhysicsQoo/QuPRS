@@ -7,6 +7,7 @@ stdout. Each collection runs in a fresh subprocess to avoid pytest plugin state.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -16,6 +17,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARKS = (ROOT / "test/test_Feynman.py", ROOT / "test/test_MQT.py")
 NUM_SHARDS = 5
+CANONICAL_COUNT = 32
+# Immutable 8 Feynman + 24 MQT exact node IDs; changing any ID requires an
+# explicit benchmark-baseline migration, not merely preserving the count.
+CANONICAL_SHA256 = '7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed'
 
 
 def capture(destination: Path, shard: int | None) -> None:
@@ -55,6 +60,15 @@ def validate() -> None:
         whole = collect(dest / "whole.json", None)
         if not whole or len(whole) != len(set(whole)):
             raise SystemExit("Unsharded collection is empty or has duplicate node IDs")
+        # The unsharded suite itself must match the frozen canonical corpus.
+        # A nonempty, unique-but-renamed test suite must never silently pass.
+        signature = hashlib.sha256("\n".join(sorted(whole)).encode("utf-8")).hexdigest()
+        if len(whole) != CANONICAL_COUNT or signature != CANONICAL_SHA256:
+            raise SystemExit(
+                "Canonical CodSpeed 32-node identity changed: "
+                f"count={len(whole)}, sha256={signature}; "
+                "requires an explicit versioned baseline migration"
+            )
         full = set(whole)
         owner: dict[str, int] = {}
         counts: dict[int, int] = {}

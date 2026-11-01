@@ -1,0 +1,226 @@
+name: Rust API FFI Boundary CodSpeed Diagnostic
+
+on:
+  push:
+    branches: [experiment/rr-tolerance-parity]
+    paths: ['.github/workflows/rr-api-ffi-boundary-codspeed.yml']
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: quprs-rr-api-ffi-boundary
+  cancel-in-progress: true
+
+jobs:
+  boundary:
+    name: Pinned PR vs direct FFI candidate (one host)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PR_SHA: af5213180c0ec2a6313a6a24f0e618e897f436fa
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout experiment workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout production PR as baseline
+        uses: actions/checkout@v4
+        with:
+          ref: af5213180c0ec2a6313a6a24f0e618e897f436fa
+          path: head-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Checkout exact same PR as isolated candidate
+        uses: actions/checkout@v4
+        with:
+          ref: af5213180c0ec2a6313a6a24f0e618e897f436fa
+          path: candidate-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Set up Python and Rust
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Apply isolated public-API boundary candidate to exact PR source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C head-src rev-parse HEAD)" = "$PR_SHA"
+          test "$(git -C candidate-src rev-parse HEAD)" = "$PR_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("candidate-src/src/QuPRS")
+          util = root / "utils/verification_tolerances.py"
+          text = util.read_text()
+          for old in ("from functools import wraps\n", "from inspect import signature\n"):
+              assert text.count(old) == 1, old
+              text = text.replace(old, "")
+          marker = "\ndef per_call_rr_tolerance(fn):"
+          assert text.count(marker) == 1
+          text = text[:text.index(marker)] + '''
+
+          def begin_rr_approximation_tracking():
+              """Start one Python-backend request; Rust does not use Python RR state."""
+              return _rr_approximation_used.set(False)
+
+
+          def finish_rr_approximation_tracking(token):
+              """Capture request provenance and restore outer context even on errors."""
+              observed = _rr_approximation_used.get()
+              _rr_approximation_used.reset(token)
+              return observed
+          '''
+          util.write_text(text)
+
+          api = root / "interface/load_qiskit.py"
+          code = api.read_text()
+          changes = (
+              ("    current_rr_tolerance, scoped_rr_tolerance, per_call_rr_tolerance, rr_approximation_used,\n",
+               "    DEFAULT_RR_TOLERANCE, validate_rr_tolerance, scoped_rr_tolerance,\n"
+               "    begin_rr_approximation_tracking, finish_rr_approximation_tracking,\n"
+               "    rr_approximation_used,\n"),
+              ("@per_call_rr_tolerance\n", ""),
+              ("    rr_tolerance = current_rr_tolerance()\n",
+               "    rr_tolerance = validate_rr_tolerance(\n"
+               "        DEFAULT_RR_TOLERANCE if rr_tolerance is None else rr_tolerance\n"
+               "    )\n"),
+              ("    try:\n        to_DIMACS_time = None\n",
+               "    rr_evidence_token = begin_rr_approximation_tracking()\n"
+               "    try:\n        to_DIMACS_time = None\n"),
+              ("    finally:\n        if use_alarm:\n            signal.alarm(0)\n",
+               "    finally:\n"
+               "        rr_approximation_evidence = finish_rr_approximation_tracking(rr_evidence_token)\n"
+               "        if use_alarm:\n            signal.alarm(0)\n"),
+              ("            (rr_approximation_used()\n             or bool(getattr(pathsum_circuit._stats, \"rr_approximation_used\", False)))\n",
+               "            (rr_approximation_evidence\n             or bool(getattr(pathsum_circuit._stats, \"rr_approximation_used\", False)))\n"),
+          )
+          for old, new in changes:
+              assert code.count(old) == 1, ("anchor count", old[:65], code.count(old))
+              code = code.replace(old, new)
+          api.write_text(code)
+          test = Path("candidate-src/test/test_per_call_tolerance_contract.py")
+          t = test.read_text()
+          t += '''
+
+
+          def test_rust_api_does_not_enter_python_rr_scoping(monkeypatch):
+              import importlib
+              api = importlib.import_module("QuPRS.interface.load_qiskit")
+              from QuPRS import check_equivalence as verify
+              assert not hasattr(verify, "__wrapped__")
+              def forbidden(*args, **kwargs):
+                  raise AssertionError("Rust backend entered Python RR bookkeeping")
+              monkeypatch.setattr(api, "scoped_rr_tolerance", forbidden)
+              monkeypatch.setattr(api, "begin_rr_approximation_tracking", forbidden)
+              circuit = QuantumCircuit(1)
+              for tolerance in (0, 1e-10, 1e-6):
+                  res = verify(circuit, circuit, backend="rust",
+                      method="reduction_rules", rr_tolerance=tolerance)
+                  assert res.equivalent == "equivalent"
+
+
+          def test_python_back_to_back_rr_provenance_is_isolated():
+              from QuPRS.utils.verification_tolerances import rr_approximation_used
+              original = QuantumCircuit(1)
+              shifted = QuantumCircuit(1)
+              shifted.rz(1e-9, 0)
+              first = check_equivalence(original, shifted, backend="python",
+                  method="reduction_rules", strategy="Naive", rr_tolerance=1e-8)
+              second = check_equivalence(original, original, backend="python",
+                  method="reduction_rules", strategy="Naive", rr_tolerance=1e-8)
+              assert first.rr_approximate is True
+              assert second.rr_approximate is False
+              assert current_rr_tolerance() == DEFAULT_RR_TOLERANCE
+              assert rr_approximation_used() is False
+          '''
+          test.write_text(t)
+          PY
+          test "$(git -C candidate-src diff --name-only | sort)" = "$(printf '%s\n' src/QuPRS/interface/load_qiskit.py src/QuPRS/utils/verification_tolerances.py test/test_per_call_tolerance_contract.py | sort)"
+          python3 -m py_compile candidate-src/src/QuPRS/interface/load_qiskit.py candidate-src/src/QuPRS/utils/verification_tolerances.py candidate-src/test/test_per_call_tolerance_contract.py
+          git -C candidate-src diff --stat
+      - name: Build the two release PyO3 Python packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in head candidate; do
+            python -m venv "/tmp/ffi-$variant"
+            envdir="/tmp/ffi-$variant"
+            "$envdir/bin/python" -m pip install --disable-pip-version-check maturin
+            (cd "$GITHUB_WORKSPACE/$variant-src" && VIRTUAL_ENV="$envdir" "$envdir/bin/maturin" develop --release -E dev)
+            "$envdir/bin/python" -m pip install 'pytest-codspeed>=3.0.0'
+            "$envdir/bin/python" -m pip freeze > "/tmp/ffi-$variant-pip-freeze.txt"
+          done
+      - name: Verify regression contracts and direct Rust-only scoping
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd candidate-src && /tmp/ffi-candidate/bin/python -m pytest test/test_per_call_tolerance_contract.py test/test_verifier_api_defaults.py -q -k 'not spawned and not direct_pyo3_defaults_use_projective_distance and not backend_parity_includes_rr_approximation_provenance')
+          /tmp/ffi-candidate/bin/python - <<'PY'
+          from QuPRS import check_equivalence
+          import inspect
+          assert not hasattr(check_equivalence, "__wrapped__")
+          assert "rr_tolerance" in inspect.signature(check_equivalence).parameters
+          print("NO_DECORATOR_PUBLIC_RUST_ENTRY PASS")
+          PY
+      - name: Build separate source-named CodSpeed API benchmark modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/test_ffi_head.py <<'PY'
+          from pathlib import Path
+          import os
+          import pytest
+          from QuPRS import check_equivalence
+
+          ROOT = Path(os.environ["GITHUB_WORKSPACE"]) / "head-src"
+          HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+          CASES = {
+              "identity": (HEADER, HEADER, "Naive"),
+              "tof3": (
+                  str(ROOT/"benchmarks/Feynman/h,y,z,t,tdg,cx/tof_3.qasm"),
+                  str(ROOT/"benchmarks/Feynman/tof_3.qasm"), "Proportional",
+              ),
+              "qaoa7": (
+                  str(ROOT/"benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+                  str(ROOT/"benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm"),
+                  "Proportional",
+              ),
+          }
+
+          @pytest.mark.parametrize("case", ("identity", "tof3", "qaoa7"))
+          def test_public_rust_rr_boundary(benchmark, case):
+              first, second, strategy = CASES[case]
+              result = benchmark(check_equivalence, first, second,
+                  method="reduction_rules", backend="rust", strategy=strategy, timeout=90)
+              assert result.equivalent in ("equivalent", "unknown", "equivalent*")
+              assert result.wmc_solver_invoked is False
+          PY
+          sed 's@head-src@candidate-src@g' /tmp/test_ffi_head.py > /tmp/test_ffi_candidate.py
+      - name: Compare Python outer call boundary with CodSpeed Simulation
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          run: (cd head-src && /tmp/ffi-head/bin/python -m pytest /tmp/test_ffi_head.py -q --codspeed) && (cd candidate-src && /tmp/ffi-candidate/bin/python -m pytest /tmp/test_ffi_candidate.py -q --codspeed)
+      - name: Preserve pinned candidate provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-api-ffi-boundary-codspeed-repro
+          path: |
+            /tmp/ffi-head-pip-freeze.txt
+            /tmp/ffi-candidate-pip-freeze.txt
+            candidate-src/src/QuPRS/interface/load_qiskit.py
+            candidate-src/src/QuPRS/utils/verification_tolerances.py
+            candidate-src/test/test_per_call_tolerance_contract.py
+          retention-days: 7
+          if-no-files-found: warn

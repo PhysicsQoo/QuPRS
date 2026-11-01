@@ -305,7 +305,10 @@ pub(crate) fn phase_cycles_within_tolerance(
     phase_cycles_upper_target(coeff, target) <= *tolerance
 }
 
-fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
+fn rr_residual_upper_cycles_with_pi(
+    ps: &PathSum,
+    pi: &(num_rational::BigRational, num_rational::BigRational),
+) -> Option<num_rational::BigRational> {
     use num_rational::BigRational;
     use num_traits::Zero;
     if ps.v.path_vars.iter().any(|&v| (v as usize) >= ps.v.num_qubits) {
@@ -323,7 +326,9 @@ fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
         // A mixed exact-decimal/pi coefficient needs a joint interval,
         // otherwise the triangle bound loses nearly all cancellation.
         let term = if coeff.radians.is_some() {
-            phase_cycles_upper_target(coeff, crate::rational::Rational::ZERO)
+            phase_cycles_upper_target_with_pi(
+                coeff, crate::rational::Rational::ZERO, pi,
+            )
         } else {
             // The interval is never built for pure rational/Clifford cases.
             let c = num_rational::BigRational::new(
@@ -338,16 +343,29 @@ fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
     Some(upper)
 }
 
+/// Full-precision residual bound retained for diagnostics and boundary fallback.
+fn rr_residual_upper_cycles(ps: &PathSum) -> Option<num_rational::BigRational> {
+    rr_residual_upper_cycles_with_pi(ps, certified_pi_interval())
+}
+
 /// Compare a non-global residual against the per-call RR tolerance.
 /// RR-only and Hybrid use the SAME RR acceptance criterion. The
 /// independent projective-distance tolerance only applies if WMC runs.
 fn rr_within_tolerance(ps: &PathSum, rr_tolerance: f64) -> bool {
     use num_rational::BigRational;
     use num_traits::Zero;
-    let Some(upper) = rr_residual_upper_cycles(ps) else { return false };
-    if upper.is_zero() { return false; }
     let Some(cap) = BigRational::from_float(rr_tolerance) else { return false };
-    upper < cap
+    // The compact interval is outward-rounded and therefore remains a
+    // rigorous upper bound for every source-radian coefficient. It can
+    // certify acceptance cheaply; only a boundary/rejection candidate pays
+    // for the original full Machin interval, preserving prior decisions.
+    if let Some(fast_upper) = rr_residual_upper_cycles_with_pi(ps, compact_pi_interval()) {
+        if !fast_upper.is_zero() && fast_upper < cap {
+            return true;
+        }
+    }
+    let Some(full_upper) = rr_residual_upper_cycles(ps) else { return false };
+    !full_upper.is_zero() && full_upper < cap
 }
 
 /// Classify an exact (possibly nonzero) residual global phase against

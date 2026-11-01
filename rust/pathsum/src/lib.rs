@@ -471,7 +471,7 @@ fn check_equivalence_with_distance_mode(
     }
 
     rr_approximate |= ps_miter.rr_approximate;
-    let mut ps_time = pathsum_start.elapsed().as_secs_f64();
+    let ps_time = pathsum_start.elapsed().as_secs_f64();
     
     // 3. Reduction Rules Check
     if method != VerificationMethod::WmcOnly {
@@ -530,20 +530,9 @@ fn check_equivalence_with_distance_mode(
     let mut wmc_print_resolution_distance: Option<f64> = None;
 
     if status != EquivalenceStatus::Timeout && (method == VerificationMethod::WmcOnly || (method == VerificationMethod::Hybrid && status == EquivalenceStatus::Unknown)) {
-        // RR tolerance may have removed near-zero terms or accepted near-Clifford
-        // rule coefficients.  If RR did not settle Hybrid, reconstruct the
-        // exact-source PathSum for WMC so the solver never receives a rounded
-        // RR working polynomial.  No extra solver invocation is introduced.
-        if method == VerificationMethod::Hybrid && ps_miter.rr_approximate {
-            let mut exact_ps = PathSum::quantum_circuit(&regs, None);
-            exact_ps.set_auto_reduce(true);
-            // PathSum defaults to rr_tolerance=0: exact HH/Omega/Elim only.
-            let replay_start = Instant::now();
-            ps_miter = strategy.run(exact_ps, gates1, gates2);
-            ps_miter.full_reduce();
-            // Account exact-source replay as PathSum work, not solver time.
-            ps_time += replay_start.elapsed().as_secs_f64();
-        }
+        // Match Python Hybrid: encode the PathSum left after RR, including
+        // approximate coefficient matching under the caller's RR tolerance.
+        // Do not rebuild the original circuit and discard the RR reductions.
 
         let _wmc_scope = diagnostics::span("wmc_total");
         let wmc_start = Instant::now();
@@ -667,6 +656,12 @@ fn check_equivalence_with_distance_mode(
     }
 
     let total_time = global_start.elapsed().as_secs_f64();
+    // Python's public flag indicates an accepted approximate RR verdict;
+    // intermediate approximation provenance remains on the residual PathSum.
+    let public_rr_approximate = rr_approximate
+        && matches!(status, EquivalenceStatus::Equivalent | EquivalenceStatus::EquivalentUpToGlobalPhase)
+        && !solver_invoked
+        && method != VerificationMethod::WmcOnly;
 
     Ok(EquivalenceCheckResult {
         qubit_num: num_qubits,
@@ -685,7 +680,7 @@ fn check_equivalence_with_distance_mode(
         wmc_precision_reason,
         wmc_print_resolution_distance,
         approximate_distance_tolerance,
-        rr_approximate,
+        rr_approximate: public_rr_approximate,
         solver_invoked,
         final_ps: ps_miter,
         stage_ledger: stage_session.as_ref().map(|session| session.snapshot(total_time, ps_time)),

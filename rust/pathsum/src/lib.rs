@@ -792,6 +792,38 @@ mod verification_options_contract_tests {
     }
 
     #[test]
+    fn compact_aggregate_rr_bound_preserves_full_precision_decisions() {
+        use crate::rational::{Angle, Rational};
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let mut ps = PathSum::new(16);
+        for (i, literal) in [
+            "3.1415926535897931", "3.1415926535897911",
+        ].into_iter().cycle().take(8).enumerate() {
+            let angle = Angle::from_qasm_str(literal).unwrap();
+            let radians = angle.radians.unwrap()
+                / BigRational::from_integer(BigInt::from(-2));
+            ps.p.add_term(vec![i as u32], PhaseCoeff {
+                constant: Rational::HALF,
+                radians: Some(radians),
+                symbols: Default::default(),
+            });
+        }
+        let compact = rr_residual_upper_cycles_with_pi(&ps, compact_pi_interval()).unwrap();
+        let full = rr_residual_upper_cycles(&ps).unwrap();
+        assert!(compact >= full, "outward compact interval must not understate the full bound");
+        for epsilon in [1e-8_f64, 1e-10, 1e-12, 1e-16, 1e-20, 1e-30, 1e-45] {
+            let cap = BigRational::from_float(epsilon).unwrap();
+            let expected = !full.is_zero() && full < cap;
+            assert_eq!(
+                rr_within_tolerance(&ps, epsilon),
+                expected,
+                "aggregate RR decision changed at epsilon {epsilon}"
+            );
+        }
+    }
+
+    #[test]
     fn native_default_thresholds_match_python_public_defaults() {
         let options = VerificationOptions::default();
         assert_eq!(options.method, VerificationMethod::Hybrid);

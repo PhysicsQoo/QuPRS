@@ -1,4 +1,4 @@
-name: RR Unknown To WMC Decision Experiment
+name: Source-Pinned Python Hybrid CodSpeed WallTime Experiment
 
 on:
   push:
@@ -10,54 +10,190 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
-  group: rr-experiment-\${{ github.ref }}
+  group: rr-python-walltime-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  focused-correctness:
-    name: RR-only Unknown vs WMC/Hybrid Real Solvers
+  paired-python-walltime:
+    name: Same-host dev/PR Python GPMC Ganak WallTime
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: 40
     env:
+      DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      PR_SHA: 20da6c95e163f33635f5aa9b7a144d91bc225442
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out experiment host workflow
+        uses: actions/checkout@v4
         with:
+          persist-credentials: false
+      - name: Check out exact dev baseline with native solver
+        uses: actions/checkout@v4
+        with:
+          ref: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+          path: dev-src
           submodules: recursive
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - name: Check out exact PR head with native solver
+        uses: actions/checkout@v4
+        with:
+          ref: 20da6c95e163f33635f5aa9b7a144d91bc225442
+          path: head-src
+          submodules: recursive
+          persist-credentials: false
+      - name: Pin Python and Rust tools
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: 'rust -> target'
-          key: rr-tolerance-focused-v1
       - name: Install native prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Build exact source and Solver distributions
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Prove exact sources and benchmark fixtures match
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install maturin
-          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
-          maturin develop --release -E dev
-          python -m QuPRS.utils.ganak_distribution
-      - name: Run focused WMC fallback and source-boundary regressions
+          set -euo pipefail
+          test "$(git -C dev-src rev-parse HEAD)" = "$DEV_SHA"
+          test "$(git -C head-src rev-parse HEAD)" = "$PR_SHA"
+          test "$(git -C dev-src rev-parse HEAD:GPMC)" = "$(git -C head-src rev-parse HEAD:GPMC)"
+          test "$(git -C dev-src rev-parse HEAD:pyproject.toml)" = "$(git -C head-src rev-parse HEAD:pyproject.toml)"
+          for name in graphstate_nativegates_ibm_qiskit_opt0_16.qasm \
+              grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm \
+              qft_nativegates_ibm_qiskit_opt0_16.qasm \
+              qaoa_nativegates_ibm_qiskit_opt0_7.qasm \
+              vqe_nativegates_ibm_qiskit_opt0_4.qasm; do
+            for sub in "" "h,ry,rz,cx/"; do
+              test "$(git -C dev-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")" = \
+                   "$(git -C head-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")"
+            done
+          done
+          git -C dev-src rev-parse HEAD HEAD:GPMC
+          git -C head-src rev-parse HEAD HEAD:GPMC
+          python --version
+          rustc --version
+          lscpu | grep -E 'Model name|Architecture' || true
+      - name: Build isolated dev/PR Python environments
+        shell: bash
         run: |
-          python -m pytest -q -ra \
-            test/test_rr_unknown_hybrid_fallback.py \
-            test/test_hybrid_rr_distance_boundary.py \
-            --junitxml=rr-unknown-fallback.xml
-      - name: Upload exact-source focused result
+          set -euo pipefail
+          for variant in dev head; do
+            python -m venv "$RUNNER_TEMP/py-$variant-venv"
+            venv="$RUNNER_TEMP/py-$variant-venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (
+              cd "$GITHUB_WORKSPACE/$variant-src"
+              VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev
+            )
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/py-$variant-freeze.txt"
+          done
+          "$RUNNER_TEMP/py-head-venv/bin/python" -m pip install 'pytest-codspeed>=3.0.0'
+          "$RUNNER_TEMP/py-head-venv/bin/python" - <<'PY'
+          import subprocess, os, sys
+          names = ["numpy","qiskit","symengine","sympy","scipy","mpmath"]
+          versions = []
+          for variant in ("dev","head"):
+              exe = os.path.join(os.environ["RUNNER_TEMP"], "py-"+variant+"-venv/bin/python")
+              code = "import importlib.metadata as m; print('|'.join(m.version(n) for n in "+repr(names)+"))"
+              values = subprocess.check_output([exe, "-c", code], text=True).strip()
+              print(variant, names, values)
+              versions.append(values)
+          if len(set(versions)) != 1:
+              raise SystemExit("Incomparable core Python dependencies")
+          PY
+      - name: Prepare independently executed Python Hybrid cases
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/run_python_case.py" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from QuPRS import check_equivalence
+          root, case = Path(sys.argv[1]), sys.argv[2]
+          cases = {
+              "graphstate16_gpmc": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "Naive", "gpmc", False),
+              "graphstate16_ganak": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "Naive", "ganak", False),
+              "grover4_gpmc": ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "gpmc", True),
+              "grover4_ganak": ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "ganak", True),
+              "qft16_gpmc": ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "Proportional", "gpmc", True),
+              "qaoa7_gpmc": ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "Proportional", "gpmc", False),
+              "vqe4_gpmc": ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "gpmc", False),
+              "vqe4_ganak": ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "ganak", False),
+          }
+          filename, strategy, solver, reverse = cases[case]
+          left = root/"benchmarks"/"MQTBench"/filename
+          right = root/"benchmarks"/"MQTBench"/"h,ry,rz,cx"/filename
+          if reverse: left, right = right, left
+          answer = check_equivalence(str(left),str(right),method="hybrid",
+                  strategy=strategy, tool_name=solver, backend="python", timeout=120)
+          print("PYHYBRID_RESULT "+json.dumps({
+              "case":case, "verdict":str(answer.equivalent),
+              "solver_invoked":bool(answer.wmc_solver_invoked),
+              "pathsum_stage":str(answer.pathsum_time),
+          },sort_keys=True))
+          PY
+          cat > "$RUNNER_TEMP/test_python_paired_codspeed.py" <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          import pytest
+          CASES = (
+            "graphstate16_gpmc","graphstate16_ganak",
+            "grover4_gpmc","grover4_ganak",
+            "qft16_gpmc","qaoa7_gpmc","vqe4_gpmc","vqe4_ganak",
+          )
+          def execute(variant, case):
+              root=Path(os.environ["GITHUB_WORKSPACE"])/(variant+"-src")
+              exe=Path(os.environ["RUNNER_TEMP"])/("py-"+variant+"-venv/bin/python")
+              script=Path(os.environ["RUNNER_TEMP"])/"run_python_case.py"
+              result=subprocess.run([str(exe),str(script),str(root),case],
+                  cwd=root,text=True,capture_output=True,check=True,timeout=145)
+              matches=[x.removeprefix("PYHYBRID_RESULT ")
+                       for x in result.stdout.splitlines()
+                       if x.startswith("PYHYBRID_RESULT ")]
+              assert len(matches)==1,(result.stdout,result.stderr)
+              return json.loads(matches[0])
+          @pytest.mark.parametrize("variant",("dev","head"))
+          @pytest.mark.parametrize("case",CASES)
+          def test_python_hybrid_walltime(benchmark,case,variant):
+              result=benchmark(execute,variant,case)
+              assert result["case"]==case
+              assert result["verdict"] in ("equivalent","equivalent*","not_equivalent","unknown")
+              benchmark.extra_info.update({
+                  "source_variant":variant,
+                  "source_sha":os.environ["DEV_SHA" if variant=="dev" else "PR_SHA"],
+                  "case":case,
+                  "verdict":result["verdict"],
+                  "solver_invoked":str(result["solver_invoked"]),
+                  "pathsum_stage":result["pathsum_stage"],
+                  "evidence_class":"same-host-python-e2e-exploratory",
+              })
+          PY
+      - name: Warm both sources before CodSpeed instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in dev head; do
+            root="$GITHUB_WORKSPACE/$variant-src"
+            "$RUNNER_TEMP/py-$variant-venv/bin/python" "$RUNNER_TEMP/run_python_case.py" "$root" graphstate16_ganak
+            "$RUNNER_TEMP/py-$variant-venv/bin/python" "$RUNNER_TEMP/run_python_case.py" "$root" qft16_gpmc
+          done
+      - name: Record actual Python verifier plus Solver CodSpeed WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/py-head-venv/bin/python -m pytest ${{ runner.temp }}/test_python_paired_codspeed.py -q --codspeed --codspeed-max-rounds=5 --codspeed-max-time=10
+      - name: Upload environment manifests
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rr-unknown-hybrid-wmc-contract
-          path: rr-unknown-fallback.xml
+          name: python-paired-walltime-env-and-shas
+          path: |
+            ${{ runner.temp }}/py-dev-freeze.txt
+            ${{ runner.temp }}/py-head-freeze.txt
           if-no-files-found: ignore
-          retention-days: 14

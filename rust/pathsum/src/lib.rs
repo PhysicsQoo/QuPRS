@@ -793,6 +793,7 @@ mod verification_options_contract_tests {
 
     #[test]
     fn compact_aggregate_rr_bound_preserves_full_precision_decisions() {
+        use num_traits::Zero;
         use crate::rational::{Angle, Rational};
         use num_bigint::BigInt;
         use num_rational::BigRational;

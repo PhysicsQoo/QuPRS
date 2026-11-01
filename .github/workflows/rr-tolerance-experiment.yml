@@ -1,4 +1,4 @@
-name: Source-Pinned Python Hybrid CodSpeed WallTime Experiment
+name: Source-Pinned Python Hybrid Stage Diagnosis
 
 on:
   push:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   paired-python-walltime:
-    name: Same-host dev/PR Python GPMC Ganak WallTime
+    name: Compare RR-only Hybrid and strict Hybrid using CodSpeed
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -113,7 +113,7 @@ jobs:
           import sys
           from pathlib import Path
           from QuPRS import check_equivalence
-          root, case = Path(sys.argv[1]), sys.argv[2]
+          root, case, stage = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
           cases = {
               "graphstate16_gpmc": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "Naive", "gpmc", False),
               "graphstate16_ganak": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "Naive", "ganak", False),
@@ -128,12 +128,16 @@ jobs:
           left = root/"benchmarks"/"MQTBench"/filename
           right = root/"benchmarks"/"MQTBench"/"h,ry,rz,cx"/filename
           if reverse: left, right = right, left
-          answer = check_equivalence(str(left),str(right),method="hybrid",
-                  strategy=strategy, tool_name=solver, backend="python", timeout=120)
+          method = {"rr":"reduction_rules", "hybrid":"hybrid",
+                    "strict_hybrid":"hybrid", "wmc_only":"wmc_only"}[stage]
+          rr_tolerance = 0 if stage=="strict_hybrid" else 1e-10
+          answer = check_equivalence(str(left),str(right),method=method,
+                  strategy=strategy, tool_name=solver, backend="python",
+                  rr_tolerance=rr_tolerance, timeout=120)
           print("PYHYBRID_RESULT "+json.dumps({
-              "case":case, "verdict":str(answer.equivalent),
+              "case":case, "stage":stage, "verdict":str(answer.equivalent),
               "solver_invoked":bool(answer.wmc_solver_invoked),
-              "pathsum_stage":str(answer.pathsum_time),
+              "rr_approximate":bool(answer.rr_approximate),
           },sort_keys=True))
           PY
           cat > "$RUNNER_TEMP/test_python_paired_codspeed.py" <<'PY'
@@ -142,16 +146,13 @@ jobs:
           import subprocess
           from pathlib import Path
           import pytest
-          CASES = (
-            "graphstate16_gpmc","graphstate16_ganak",
-            "grover4_gpmc","grover4_ganak",
-            "qft16_gpmc","qaoa7_gpmc","vqe4_gpmc","vqe4_ganak",
-          )
-          def execute(variant, case):
+          CASES = ("graphstate16_gpmc", "grover4_gpmc")
+          STAGES = ("rr", "hybrid")
+          def execute(variant, case, stage):
               root=Path(os.environ["GITHUB_WORKSPACE"])/(variant+"-src")
               exe=Path(os.environ["RUNNER_TEMP"])/("py-"+variant+"-venv/bin/python")
               script=Path(os.environ["RUNNER_TEMP"])/"run_python_case.py"
-              result=subprocess.run([str(exe),str(script),str(root),case],
+              result=subprocess.run([str(exe),str(script),str(root),case,stage],
                   cwd=root,text=True,capture_output=True,check=True,timeout=145)
               matches=[x.removeprefix("PYHYBRID_RESULT ")
                        for x in result.stdout.splitlines()
@@ -160,18 +161,38 @@ jobs:
               return json.loads(matches[0])
           @pytest.mark.parametrize("variant",("dev","head"))
           @pytest.mark.parametrize("case",CASES)
-          def test_python_hybrid_walltime(benchmark,case,variant):
-              result=benchmark(execute,variant,case)
+          @pytest.mark.parametrize("stage",STAGES)
+          def test_python_stage_walltime(benchmark,case,variant,stage):
+              result=benchmark(execute,variant,case,stage)
               assert result["case"]==case
+              assert result["stage"]==stage
               assert result["verdict"] in ("equivalent","equivalent*","not_equivalent","unknown")
+              if stage=="rr":
+                  assert not result["solver_invoked"]
               benchmark.extra_info.update({
                   "source_variant":variant,
                   "source_sha":os.environ["DEV_SHA" if variant=="dev" else "PR_SHA"],
                   "case":case,
+                  "stage":stage,
                   "verdict":result["verdict"],
                   "solver_invoked":str(result["solver_invoked"]),
-                  "pathsum_stage":result["pathsum_stage"],
-                  "evidence_class":"same-host-python-e2e-exploratory",
+                  "rr_approximate":str(result["rr_approximate"]),
+                  "evidence_class":"same-host-python-rr-vs-hybrid-codspeed",
+              })
+
+          @pytest.mark.parametrize("case",CASES)
+          @pytest.mark.parametrize("stage",("strict_hybrid","wmc_only"))
+          def test_python_strict_wmc_diagnostic(benchmark,case,stage):
+              result=benchmark(execute,"head",case,stage)
+              assert result["case"]==case and result["stage"]==stage
+              assert result["verdict"] in ("equivalent","equivalent*","not_equivalent","unknown")
+              benchmark.extra_info.update({
+                  "source_variant":"head",
+                  "source_sha":os.environ["PR_SHA"],
+                  "case":case, "stage":stage, "verdict":result["verdict"],
+                  "solver_invoked":str(result["solver_invoked"]),
+                  "rr_approximate":str(result["rr_approximate"]),
+                  "evidence_class":"source-faithful-strict-vs-exact-wmc",
               })
           PY
       - name: Warm both sources before CodSpeed instrumentation
@@ -180,14 +201,15 @@ jobs:
           set -euo pipefail
           for variant in dev head; do
             root="$GITHUB_WORKSPACE/$variant-src"
-            "$RUNNER_TEMP/py-$variant-venv/bin/python" "$RUNNER_TEMP/run_python_case.py" "$root" graphstate16_ganak
-            "$RUNNER_TEMP/py-$variant-venv/bin/python" "$RUNNER_TEMP/run_python_case.py" "$root" qft16_gpmc
+            "$RUNNER_TEMP/py-$variant-venv/bin/python" "$RUNNER_TEMP/run_python_case.py" "$root" graphstate16_gpmc rr
+            "$RUNNER_TEMP/py-$variant-venv/bin/python" "$RUNNER_TEMP/run_python_case.py" "$root" grover4_gpmc rr
+            "$RUNNER_TEMP/py-$variant-venv/bin/python" "$RUNNER_TEMP/run_python_case.py" "$root" grover4_gpmc hybrid
           done
-      - name: Record actual Python verifier plus Solver CodSpeed WallTime
+      - name: Measure stage-specific RR/Hybrid/WMC CodSpeed WallTime
         uses: CodSpeedHQ/action@v5
         with:
           mode: walltime
-          run: ${{ runner.temp }}/py-head-venv/bin/python -m pytest ${{ runner.temp }}/test_python_paired_codspeed.py -q --codspeed --codspeed-max-rounds=5 --codspeed-max-time=10
+          run: ${{ runner.temp }}/py-head-venv/bin/python -m pytest ${{ runner.temp }}/test_python_paired_codspeed.py -q --codspeed --codspeed-max-rounds=4 --codspeed-max-time=10
       - name: Upload environment manifests
         if: always()
         uses: actions/upload-artifact@v4

@@ -73,7 +73,8 @@ jobs:
             done
           done
           rustc --version
-          cargo codspeed --version
+          command -v cargo-codspeed
+          cargo-codspeed --version || true
           lscpu | grep -E 'Model name|Architecture' || true
       - name: Generate isolated native Rust benchmark workspace
         shell: bash

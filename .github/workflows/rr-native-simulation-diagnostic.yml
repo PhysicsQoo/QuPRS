@@ -36,12 +36,14 @@ jobs:
         with:
           ref: 55e78c7597966617c1a193b89056ff4e99c3ddfb
           path: dev-src
+          submodules: recursive
           persist-credentials: false
       - name: Checkout exact PR head source
         uses: actions/checkout@v4
         with:
           ref: af5213180c0ec2a6313a6a24f0e618e897f436fa
           path: head-src
+          submodules: recursive
           persist-credentials: false
       - name: Set up Rust and CodSpeed
         uses: moonrepo/setup-rust@v1

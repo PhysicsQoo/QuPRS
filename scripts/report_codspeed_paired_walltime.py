@@ -109,7 +109,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str, head_sha: st
         "## Paired Solver-inclusive CodSpeed WallTime",
         f"Base: \x60{base_sha}\x60; HEAD: \x60{head_sha}\x60.",
         "Source: pytest-codspeed WallTime (minimum across instrumented rounds). "
-        "Same GitHub hosted runner, **not** a qualified CodSpeed Macro runner; "
+        "Same shared GitHub hosted runner, **not** a qualified CodSpeed Macro runner; "
         "these percent deltas are exploratory, not certified regressions.",
         "",
         "| Case | Base (ms) | HEAD (ms) | Time change | Verdict (base -> HEAD) | Notes |",

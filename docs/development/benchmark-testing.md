@@ -1,6 +1,6 @@
 # Benchmark inputs, correctness tests, and resource profiling
 
-The benchmark files in this repository serve three different purposes.
+The benchmark files in this repository serve several distinct purposes.
 These purposes are **not** interchangeable.
 
 | Purpose | Existing entry point | Runs a solver? | Required for each PR? |
@@ -8,6 +8,7 @@ These purposes are **not** interchangeable.
 | Paper input integrity | `python scripts/paper_corpus_audit.py` | No | Cheap, source-sensitive checks only |
 | Small correctness and error handling | `pytest test/test_backend_semantics.py test/test_solver_failure_matrix.py` | Yes, bounded | Via existing pytest CI |
 | Representative elapsed-time benchmarks | `test/test_MQT.py`, `test/test_Feynman.py` | Yes | Via existing Benchmark/CodSpeed workflows |
+| Solver-inclusive CodSpeed WallTime (matched base/HEAD) | `benchmarks/codspeed/test_pr_solver_walltime.py` | **Required: GPMC/Ganak subprocess** | Every PR, in addition to five-shard Simulation |
 | Full publication reproduction | Original complete paper input corpus | Yes, potentially very expensive | No; use a controlled, comparable machine |
 | Process-tree RSS profiling | `scripts/profile_benchmark_resources.py` | Yes, isolated | No, opt-in until actual runner measurements pass |
 
@@ -54,6 +55,14 @@ a performance decision, repeat under matched runner conditions with
 a separate bounded trial; do not retry inside a CodSpeed timed function.
 
 ## Memory and time
+
+The dedicated per-PR WallTime cohort additionally covers source-pinned VQE4,
+QFT16, QAOA7 and Grover4 with actual Solver invocation, measured by CodSpeed
+on the same runner for immutable base/head revisions. Its seven representative
+case IDs and methods must stay stable unless a new baseline is explicitly
+started. WallTime includes Solver launch/wait; CPU Simulation excludes
+syscalls. Shared-host timing is observational rather than a fixed-hardware
+performance release certificate.
 
 The existing MQT benchmark suite already covers **QFT16, QAOA7 and
 Grover4** in both Python and Rust with GPMC and Ganak. The optional

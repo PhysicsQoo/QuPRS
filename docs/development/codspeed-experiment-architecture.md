@@ -1,6 +1,6 @@
 # CodSpeed benchmark experiment architecture
 
-Status: **pilot specification**. This document defines measurement scope, controls, and release gates. The solver-inclusive experiment must be validated and baselined before it becomes a required check. The existing core benchmark history is retained.
+Status: **routine dual-instrument collection enabled**. Five-shard CPU Simulation and bounded paired Solver-inclusive CodSpeed WallTime now run on every PR. Extended subprocess CPU Simulation and qualified Macro Runner variance-calibrated release thresholds remain separate decisions. Historical benchmark identities are retained.
 
 ## 1. Questions and distinct metrics
 
@@ -51,7 +51,7 @@ Use the actual source precision defaults for ordinary cases; a 90-digit GPMC exp
 
 ## 5. CI topology and budget
 
-1. **Routine PR**: existing sharded Core Simulation (5 shards, 32 collected IDs) and *after pilot passes* a small solver-inclusive CPU Simulation suite on source/Rust/solver/fixture changes. Path-filter docs-only changes. No duplicate full Release-Ready or repeated numerical evidence on every documentation push.
+1. **Every PR**: existing five-shard CPU Simulation and a bounded, same-host paired CodSpeed WallTime suite (seven representative Hybrid Solver/backend cases, two source revisions). This includes docs-only PR updates by explicit policy. The optional subprocess-inclusive CPU Simulation pilot remains separate. No duplicate full Release-Ready is needed merely to collect these two instruments.
 2. **Before release, or explicit opt-in**: expanded solver-inclusive CPU matrix, same revision/toolchain/solver provenance and a solver-stage conformance gate. Pin source SHAs and track actual solver invocation for each case.
 3. **Main/dev baseline and release candidate**: CodSpeed Macro Runner WallTime for representative whole-request benchmarks. Macro Runner availability, architecture, and both solver binary compatibility on Linux ARM64 must first pass a native preflight. Do not automatically substitute shared-host WallTime for formal evidence if Macro Runner cannot be provisioned.
 4. **Exploratory three-revision comparison**: same-host main/dev/PR CodSpeed WallTime may guide diagnosis but must retain its shared-runner warning and source/path metadata. Keep it out of release-gating until the environment is qualified.
@@ -70,7 +70,43 @@ For each comparison, verify:
 
 Initial thresholds are **not numeric release gates** until variance and platform stability are measured. Calibrate per-case thresholds from repeated CodSpeed baseline runs. A sharp change triggers source-path and differential-flamegraph inspection; semantic failures or missing required measurements block acceptance independently of timing.
 
-## 7. PR #131 rollout
+
+## 7. Required per-PR CodSpeed instruments
+
+**Simulation** retains its existing five-shard 32-identity benchmark contract,
+with `simulation-track-subprocess: false`. It is a modeled CPU-cost
+measurement, not real Solver latency.
+
+**Solver-inclusive WallTime** is a distinct, always-on CodSpeed v5 job
+(`pr-solver-inclusive-walltime`) in the same workflow. It checks out each
+PR's immutable base and HEAD commits on the **same GitHub hosted runner**,
+builds independent Python/Rust environments, and measures seven bounded
+Hybrid workloads across Rust/Python and both GPMC/Ganak. The test harness
+invokes the source-specific public API in a child Python process and includes
+Solver execution, startup, blocking/waiting and I/O in the CodSpeed timed
+interval. Source installation/building and provenance checks are not timed.
+
+The fixed cohort uses Rust VQE4/GPMC, QFT16/GPMC, QAOA7/GPMC, VQE4/Ganak,
+Grover4/Ganak and Python VQE4/GPMC, VQE4/Ganak. Each case has stable `base` and `head` benchmark IDs.
+Both source revisions use **identical HEAD QASM input files** while code
+is built from its own exact commit. Verdict, stage invocation, strategy,
+solver, source SHA and benchmark provenance are attached as metadata.
+The benchmark deliberately fails if the requested Solver never ran or
+returned an inconclusive/error outcome; known VQE4/Grover4 Ganak printed-
+precision negatives are explicitly labeled external Solver limitations,
+not scientific correctness PASS. Such point estimates remain timing-only; silently timing an RR-only shortcut
+as GPMC/Ganak latency is not scientifically comparable. A test-level
+process-group timeout terminates parent and solver descendants together.
+
+The two instruments must not be merged into one time statistic. Shared
+GitHub-hosted paired WallTime provides useful *exploratory* matched-runner
+evidence, not a qualified fixed Macro Runner. CI success is a collection
+and validity gate; numerical regression thresholds still require
+runner-variance calibration and matching scientific outcomes. The more
+expensive PR #131 three-revision `main/dev/head` WallTime and optional
+solver-inclusive CPU Simulation diagnostics remain manual.
+
+## 8. Historical PR #131 pilot rollout
 
 - Pilot: add a small, **distinctly named** solver-inclusive CodSpeed Simulation benchmark file and an opt-in PR-specific workflow; do not replace or rebaseline existing tests.
 - Verify actual subprocess trace (process names/PIDs), solver invocation, correctness, and CPU profile for both GPMC and Ganak.

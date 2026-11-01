@@ -19,21 +19,10 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - 'scripts/check_codspeed_shards.py'
-  # Run on code-affecting PRs, including feat/fix -> dev and dev -> main.
-  # No hard percentage regression gate: CI job success is not no-regression proof.
+  # Always run BOTH Simulation and paired Solver-inclusive WallTime on PRs.
+  # CI job success means evidence was collected, not proof of no regression.
   pull_request:
-    paths:
-      - 'src/**'
-      - 'test/test_Feynman.py'
-      - 'test/test_MQT.py'
-      - 'test/conftest.py'
-      - 'test/_benchmark_*.py'
-      - 'rust/**'
-      - 'GPMC'           # Solver submodule revision affects measured workloads.
-      - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
-      - 'pyproject.toml'
-      - '.github/workflows/codspeed.yml'
-      - 'scripts/check_codspeed_shards.py'
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -111,3 +100,95 @@ jobs:
           # Evaluate solver subprocess instrumentation independently.
           simulation-track-subprocess: 'false'
           run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }}
+
+  pr-solver-inclusive-walltime:
+    name: Paired Solver-inclusive CodSpeed WallTime
+    # Unlike CPU Simulation, measure complete verifier + GPMC/Ganak elapsed time.
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout PR HEAD with benchmark harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout exact PR base on the SAME runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          submodules: recursive
+          persist-credentials: false
+          path: pr-walltime-base
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build independent base and head verifier environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          for variant in base head; do
+            if [[ "$variant" == base ]]; then
+              source_root="$GITHUB_WORKSPACE/pr-walltime-base"
+            else
+              source_root="$GITHUB_WORKSPACE"
+            fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$variant"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (
+              cd "$source_root"
+              VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev
+            )
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/pr-walltime-$variant-freeze.txt"
+          done
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.3
+          {
+            echo "### PR CodSpeed WallTime provenance"
+            echo "- Base SHA: $BASE_SHA"
+            echo "- Head SHA: $HEAD_SHA"
+            echo "- Base GPMC submodule: $(git -C pr-walltime-base rev-parse HEAD:GPMC)"
+            echo "- Head GPMC submodule: $(git rev-parse HEAD:GPMC)"
+            echo "- Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify WallTime case inventory
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pytest benchmarks/codspeed/test_pr_solver_walltime.py --collect-only -q
+
+      - name: CodSpeed paired end-to-end GPMC/Ganak WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=10
+
+      - name: Upload pinned dependency provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-codspeed-walltime-provenance
+          path: |
+            ${{ runner.temp }}/pr-walltime-base-freeze.txt
+            ${{ runner.temp }}/pr-walltime-head-freeze.txt
+          if-no-files-found: ignore
+          retention-days: 14

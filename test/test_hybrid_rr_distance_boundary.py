@@ -72,9 +72,12 @@ def test_partial_rr_near_wmc_distance_threshold(
     rr_only = check_equivalence(
         _ID, source, method="reduction_rules", rr_tolerance=_RR, **base_kwargs
     )
-    tolerant = check_equivalence(
-        _ID, source, method="hybrid", rr_tolerance=_RR, **base_kwargs
-    )
+    # Both backends must warn about source-vs-reduced-distance ambiguity
+    # without changing their actual WMC verdicts or introducing Unknown.
+    with pytest.warns(RuntimeWarning, match="RR-approximated residual PathSum"):
+        tolerant = check_equivalence(
+            _ID, source, method="hybrid", rr_tolerance=_RR, **base_kwargs
+        )
     evidence = {
         "backend": backend, "tiny_angle": a, "large_angle": b,
         "exact_source_distance": source_distance_string,

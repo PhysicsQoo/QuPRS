@@ -1,1 +1,1 @@
-Candidate 10: boundary oracle for Python-first RR->WMC residual; two source/residual threshold crossings, Python+Rust strict/hybrid/WMC-only, independent high-precision Rz distance formula. Execute focused tests and CodSpeed Simulation without full release CI.
+Candidate 11: preserve Python-first RR residual WMC and single-distance verdict; add uniform Python/Rust RuntimeWarning when approximate RR feeds Hybrid WMC. Boundary source oracle 4 cases plus native, QFT16, Graphstate16 and CodSpeed focused gates.

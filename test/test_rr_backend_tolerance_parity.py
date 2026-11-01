@@ -147,6 +147,8 @@ def test_rust_hybrid_partial_approximation_has_no_exact_source_replay(monkeypatc
     assert tolerant_hybrid["final_ps"] == tolerant_rr["final_ps"]
     assert tolerant_hybrid["wmc_solver_invoked"] is True
     assert tolerant_hybrid["rr_approximate"] is False
+    assert tolerant_hybrid["rr_residual_approximate"] is True
+    assert strict_rr["rr_residual_approximate"] is False
     assert (
         tolerant_hybrid["stage_ledger"]["stage_calls"].get("reduction", 0)
         == tolerant_rr["stage_ledger"]["stage_calls"].get("reduction", 0)

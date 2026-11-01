@@ -39,6 +39,27 @@ def _warn_ganak_print_resolution(
     )
 
 
+def _warn_hybrid_approximate_rr_wmc(method, wmc_entered, approximated):
+    """Warn without changing the one-distance numerical verdict.
+
+    RR may legitimately discard a tiny non-global source phase. The WMC
+    result then classifies that reduced residual, rather than certifying
+    the original source's exact projective-distance threshold.
+    """
+    if method != "hybrid" or not wmc_entered or not approximated:
+        return
+    import warnings
+    warnings.warn(
+        "Hybrid WMC received an RR-approximated residual PathSum; "
+        "its projective-distance verdict can differ from the original "
+        "source circuit near approximate_distance_tolerance. "
+        "Use rr_tolerance=0 or method='wmc_only' for a source-distance "
+        "check. The WMC distance verdict is unchanged.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def timeout_handler(signum, frame):
     raise VerificationTimeout("Operation timed out")
 
@@ -385,6 +406,11 @@ def check_equivalence(
             else None
         )
 
+        _warn_hybrid_approximate_rr_wmc(
+            method,
+            rust_res.get("wmc_time_sec") is not None,
+            bool(rust_res.get("rr_residual_approximate", False)),
+        )
         _warn_ganak_print_resolution(
             tool_name, rust_res.get("wmc_print_resolution_distance"),
             approximate_distance_tolerance,
@@ -557,6 +583,12 @@ def check_equivalence(
         if method == "wmc_only" or (
             method == "hybrid" and equivalent == "unknown"
         ):
+            _warn_hybrid_approximate_rr_wmc(
+                method, True,
+                rr_approximation_used() or bool(
+                    getattr(pathsum_circuit._stats, "rr_approximation_used", False)
+                ),
+            )
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
 
             current_elapsed = time.time() - start_time

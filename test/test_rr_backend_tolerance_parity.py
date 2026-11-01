@@ -117,19 +117,15 @@ def test_hybrid_wmc_consumes_rr_residual_like_python(backend, rr_tolerance):
     assert rr_only.wmc_solver_invoked is False
     assert hybrid.equivalent == "not_equivalent"
     assert hybrid.wmc_solver_invoked is True
-    # An inconclusive approximated RR result may require an on-demand
-    # strict replay solely to preserve WMC's original-source distance.
-    strict_rr = check_equivalence(
-        _TWO_QUBIT_IDENTITY, _TWO_QUBIT_RESIDUAL,
-        method="reduction_rules", **{**common, "rr_tolerance": 0},
-    )
-    assert hybrid.final_pathsum == strict_rr.final_pathsum
+    # WMC receives the exact final PathSum produced by RR-only under
+    # the same tolerance, even if RR did approximate a source phase.
+    assert hybrid.final_pathsum == rr_only.final_pathsum
     # Match Python's public result: once WMC provides the result, the
     # rr_approximate flag does not claim that RR proved equivalence.
     assert hybrid.rr_approximate is False
 
 
-def test_rust_hybrid_reconstructs_faithful_wmc_residual_if_needed(monkeypatch):
+def test_rust_hybrid_uses_final_tolerant_rr_residual_without_replay(monkeypatch):
     from QuPRS import _pathsum_rust
 
     monkeypatch.setenv("QUPRS_STAGE_LEDGER", "1")
@@ -153,17 +149,15 @@ def test_rust_hybrid_reconstructs_faithful_wmc_residual_if_needed(monkeypatch):
         tolerant_rr = run("reduction_rules", 1e-8)
         tolerant_hybrid = run("hybrid", 1e-8)
 
-    # The approximate rule must actually have changed the residual. Merely
-    # comparing two runs where RR did no work would not detect a replay.
+    # The approximate rule must change the residual: otherwise comparing
+    # identical RR states would not exercise the Hybrid handoff contract.
     assert strict_rr["final_ps"] != tolerant_rr["final_ps"]
-    assert tolerant_hybrid["final_ps"] == strict_rr["final_ps"]
-    assert tolerant_hybrid["final_ps"] != tolerant_rr["final_ps"]
+    assert tolerant_hybrid["final_ps"] == tolerant_rr["final_ps"]
+    assert tolerant_hybrid["final_ps"] != strict_rr["final_ps"]
     assert tolerant_hybrid["wmc_solver_invoked"] is True
     assert tolerant_hybrid["rr_approximate"] is False
-    assert tolerant_hybrid["rr_residual_approximate"] is False
+    assert tolerant_hybrid["rr_residual_approximate"] is True
     assert strict_rr["rr_residual_approximate"] is False
-    # The RR proof followed the tolerant path; only the WMC residual
-    # is reconstructed strictly after RR could not decide.
     assert tolerant_hybrid["stage_ledger"]["stage_calls"].get("reduction", 0) >= 1
 
 

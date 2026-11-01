@@ -542,13 +542,9 @@ def check_equivalence(
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 
-        # The RR proof state is exactly the RR-only result. Only the
-        # source-faithful WMC fallback may need a separate residual.
+        # RR-only and Hybrid share this complete, tolerance-reduced PathSum.
+        # If RR cannot decide, Hybrid passes this same residual to WMC.
         rr_view = pathsum_circuit
-        rr_source_modified = (
-            rr_approximation_used()
-            or bool(getattr(pathsum_circuit._stats, "rr_approximation_used", False))
-        )
         # Reduction rules check (if enabled)
         if method != "wmc_only":
             if rr_view.f == initial_state.f:
@@ -587,24 +583,9 @@ def check_equivalence(
             else:
                 equivalent = "unknown"
 
-        # A tolerant RR transformation can discard a genuine source phase.
-        # If RR is inconclusive, lazily reconstruct a faithful *reduced*
-        # residual for WMC. If RR made no approximation, the original RR
-        # result is already faithful and no extra reduction is needed.
-        if method == "hybrid" and equivalent == "unknown" and rr_source_modified:
-            faithful_state = initialize(qiskit_circuit1)
-            faithful_state.set_reduction_switch(True)
-            with scoped_rr_tolerance(0.0):
-                if safe_mode:
-                    remaining_time = max(1, int(timeout - (time.time() - start_time)))
-                    faithful_state = strategy_obj.safe_run(
-                        faithful_state, gates1, gates2, timeout=remaining_time
-                    )
-                else:
-                    faithful_state = strategy_obj.run(
-                        faithful_state, gates1, gates2
-                    )
-            pathsum_circuit = faithful_state
+        # No strict replay or replacement residual: WMC consumes precisely
+        # the PathSum left by the configured RR rules. Numerical warnings
+        # report approximation provenance without changing the verdict.
         pathsum_time = round(time.time() - start_time, 3)
 
         # Preserve the published hybrid algorithm: WMC consumes the final
@@ -615,7 +596,7 @@ def check_equivalence(
         ):
             _warn_hybrid_approximate_rr_wmc(
                 method, True,
-                bool(getattr(
+                rr_approximation_used() or bool(getattr(
                     pathsum_circuit._stats, "rr_approximation_used", False
                 )),
             )

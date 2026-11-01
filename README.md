@@ -261,10 +261,10 @@ Python scopes its value to a verification and its reduction cache keys.
 Rust and Python use the **same per-gate tolerance-aware RR** in Hybrid
 and RR-only. If a positive `rr_tolerance` allows an approximate
 transformation, it is used during the normal reduction, not in a terminal
-proof probe. If RR remains inconclusive after modifying a source phase,
-Hybrid reconstructs a source-faithful, strictly reduced PathSum only for
-the WMC fallback. When no approximation occurred, the RR residual is
-reused directly. One WMC Solver is called at most once.
+proof probe. If RR remains inconclusive, Hybrid directly passes that
+**final RR PathSum** to CNF/WMC, even when RR applied approximate
+reductions. No strict rerun or source-gate replay is performed, and
+the selected WMC Solver is called at most once.
 The public `rr_approximate` flag describes RR-decided approximate
 positives, not a later WMC decision.
 For source-distance verification without approximate RR proofs, use
@@ -292,8 +292,9 @@ certificate. A normalized trace-magnitude defect of `1e-8` is **not**
 a projective circuit distance of `1e-8`; QuPRS now uses the one
 projective-distance classifier. Near the distance threshold, feeding an approximately
 rounded RR residual directly to WMC could move the result across the
-source-level boundary. When needed, Hybrid reconstructs a strictly
-reduced source-faithful residual for WMC without changing the RR proof. See the
+source-level boundary. Hybrid classifies its actual reduced residual,
+and reports a warning when RR approximations may change that distance;
+the warning does not veto the WMC verdict. See the
 [RR residual scientific contract](docs/development/rr-hybrid-residual-contract.md)
 and [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md).
 
@@ -352,12 +353,12 @@ remaining global phase independently, and `approximate_distance_tolerance`
 applies only when WMC runs. `rr_approximate=true` identifies a
 tolerance-dependent RR simplification, not source-exact identity.
 Hybrid uses the same tolerance-aware RR gate pass as RR-only.
-Only if this RR pass is inconclusive and actually used an approximate
-rewrite does Hybrid reconstruct a strictly reduced source-faithful
-residual for WMC; otherwise it reuses the existing PathSum. There is no
-terminal RR proof probe and no second Solver call. For a source-distance
-check that does not accept early approximate
-RR decisions, use `--rr-tolerance 0` or WMC-only. See the
+If RR is inconclusive, Hybrid converts the final RR PathSum directly
+to WMC, irrespective of whether approximation occurred. There is no
+terminal RR proof probe, original-gate replay, or second Solver call.
+The WMC distance is measured on the reduced residual; when exact
+source-distance classification matters, use `--rr-tolerance 0` or
+WMC-only. See the
 [RR residual scientific contract](docs/development/rr-hybrid-residual-contract.md).
 
 `--gpmc-precision 90` opts into 90-digit arithmetic for GPMC; omitting it

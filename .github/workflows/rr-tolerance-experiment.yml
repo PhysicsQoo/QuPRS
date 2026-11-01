@@ -62,14 +62,12 @@ jobs:
         run: |
           python -m pytest -q -ra test/test_graphstate16_source_contract.py
           python -m pytest -q -ra test/test_MQT.py -k graphstate
-      - name: Complete Python and benchmark evidence gate
+      # This is a bounded experiment.  Do not run the complete evidence
+      # suite, cross-platform matrix, or PR release gates on intermediate HEADs.
+      - name: Focused QFT16 Rust Hybrid solver correctness
         run: |
-          python -m pytest -n auto -q -ra --junitxml=rr-experiment-complete.xml
-          python scripts/check_benchmark_evidence.py \
-            --junit rr-experiment-complete.xml \
-            --json rr-experiment-evidence.json \
-            --markdown rr-experiment-evidence.md
-      - name: CodSpeed native RR CPU regression probe
+          python -m pytest -q -ra test/test_MQT.py -k "qft and gpmc and rust"
+      - name: CodSpeed native RR CPU diagnostic (not controlled solver WallTime)
         uses: CodSpeedHQ/action@v5
         with:
           mode: simulation

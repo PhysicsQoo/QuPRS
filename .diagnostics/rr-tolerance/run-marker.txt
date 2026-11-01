@@ -1,1 +1,1 @@
-Candidate 7 focused rerun after correcting missing num_traits::Zero import in aggregate RR precision regression test. Validate native Rust, Python parity, Graphstate16, full evidence and CodSpeed simulation.
+Candidate 8: Python-first Hybrid residual handoff, no Rust source replay; focused Rust/Python parity and QFT16+Graphstate16+VQE CodSpeed Simulation diagnostics. Do not run full PR CI on intermediate revisions.

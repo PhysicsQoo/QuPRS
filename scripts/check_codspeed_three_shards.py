@@ -8,6 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# python scripts/check_...py puts scripts/ (not repo root) on sys.path.
+# Make namespace plugin scripts.codspeed_three_shards importable in collection.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 
 def collect(dest: Path, shard: int | None):
     flags = [

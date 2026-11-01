@@ -1,0 +1,233 @@
+name: Source-pinned Rust ABA CodSpeed Diagnosis
+
+on:
+  push:
+    branches:
+      - experiment/rr-tolerance-parity
+    paths:
+      - '.github/workflows/rr-rust-aba-diagnostic.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rust-aba-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  rust-aba:
+    name: Counterbalanced Rust RR and solver-inclusive WallTime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+      PR_SHA: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - name: Check out diagnostics source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out exact dev baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 55e78c7597966617c1a193b89056ff4e99c3ddfb
+          submodules: recursive
+          path: dev-src
+          persist-credentials: false
+      - name: Check out exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+          submodules: recursive
+          path: head-src
+          persist-credentials: false
+      - name: Configure toolchains
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Assert exact versions and identical fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C dev-src rev-parse HEAD)" = "$DEV_SHA"
+          test "$(git -C head-src rev-parse HEAD)" = "$PR_SHA"
+          test "$(git -C dev-src rev-parse HEAD:GPMC)" = "$(git -C head-src rev-parse HEAD:GPMC)"
+          test "$(git -C dev-src rev-parse HEAD:pyproject.toml)" = "$(git -C head-src rev-parse HEAD:pyproject.toml)"
+          for name in graphstate_nativegates_ibm_qiskit_opt0_16.qasm \
+                      grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm \
+                      qft_nativegates_ibm_qiskit_opt0_16.qasm \
+                      qaoa_nativegates_ibm_qiskit_opt0_7.qasm \
+                      vqe_nativegates_ibm_qiskit_opt0_4.qasm; do
+            for sub in "" "h,ry,rz,cx/"; do
+              test "$(git -C dev-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")" = \
+                   "$(git -C head-src rev-parse "HEAD:benchmarks/MQTBench/$sub$name")"
+            done
+          done
+          python --version
+          rustc --version
+          lscpu | grep -E 'Model name|Architecture' || true
+      - name: Build separate release-mode native backends
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in dev head; do
+            python -m venv "/tmp/rr-aba-$variant"
+            venv="/tmp/rr-aba-$variant"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (
+              cd "$GITHUB_WORKSPACE/$variant-src"
+              VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev
+            )
+            "$venv/bin/python" -m pip freeze > "/tmp/rr-aba-$variant-freeze.txt"
+          done
+          /tmp/rr-aba-head/bin/python -m pip install 'pytest-codspeed>=3.0.0'
+          /tmp/rr-aba-head/bin/python - <<'PY'
+          import subprocess
+          names = ("numpy", "qiskit", "symengine", "sympy", "scipy", "mpmath")
+          versions = []
+          for variant in ("dev", "head"):
+              exe = "/tmp/rr-aba-" + variant + "/bin/python"
+              code = "import importlib.metadata as m; print('|'.join(m.version(n) for n in "+repr(names)+"))"
+              found = subprocess.check_output((exe, "-c", code), text=True).strip()
+              print(variant, found)
+              versions.append(found)
+          assert versions[0] == versions[1], "Different core Python dependency versions"
+          PY
+      - name: Create Rust RR and Hybrid benchmarks
+        shell: bash
+        run: |
+          cat > /tmp/rr_aba_case.py <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from QuPRS import check_equivalence
+
+          root, case, stage = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          cases = {
+              "graphstate16_gpmc": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "Naive", "gpmc", False),
+              "graphstate16_ganak": ("graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "Naive", "ganak", False),
+              "grover4_gpmc": ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "gpmc", True),
+              "grover4_ganak": ("grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "ganak", True),
+              "qft16_gpmc": ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "Proportional", "gpmc", True),
+              "qft16_ganak": ("qft_nativegates_ibm_qiskit_opt0_16.qasm", "Proportional", "ganak", True),
+              "qaoa7_gpmc": ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "Proportional", "gpmc", False),
+              "qaoa7_ganak": ("qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "Proportional", "ganak", False),
+              "vqe4_gpmc": ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "gpmc", False),
+              "vqe4_ganak": ("vqe_nativegates_ibm_qiskit_opt0_4.qasm", "Proportional", "ganak", False),
+          }
+          filename, strategy, solver, reverse = cases[case]
+          left = root / "benchmarks" / "MQTBench" / filename
+          right = root / "benchmarks" / "MQTBench" / "h,ry,rz,cx" / filename
+          if reverse:
+              left, right = right, left
+          result = check_equivalence(str(left), str(right),
+              method={"rr": "reduction_rules", "hybrid": "hybrid", "wmc_only": "wmc_only"}[stage],
+              strategy=strategy, tool_name=solver, backend="rust", timeout=120)
+          invoked = getattr(result, "wmc_solver_invoked", None)
+          if invoked is None:
+              invoked = getattr(result, "tool_time", None) is not None
+          print("ABA_RESULT " + json.dumps({
+              "case": case, "stage": stage,
+              "verdict": str(result.equivalent),
+              "solver_invoked": bool(invoked),
+              "rr_approximate": bool(getattr(result, "rr_approximate", False)),
+          }, sort_keys=True))
+          PY
+
+          cat > /tmp/test_rr_rust_aba.py <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          import pytest
+
+          CASES = (
+              "graphstate16_gpmc", "graphstate16_ganak",
+              "grover4_gpmc", "grover4_ganak",
+              "qft16_gpmc", "qft16_ganak",
+              "qaoa7_gpmc", "qaoa7_ganak",
+              "vqe4_gpmc", "vqe4_ganak",
+          )
+          SLOTS = ("A1", "B1", "A2", "B2", "A3", "B3")
+
+          def choose(case, slot):
+              # Alternate A=dev/B=head and A=head/B=dev by case.
+              first = "dev" if CASES.index(case) % 2 == 0 else "head"
+              second = "head" if first == "dev" else "dev"
+              return first if slot[0] == "A" else second
+
+          def invoke(variant, case, stage):
+              root = Path(os.environ["GITHUB_WORKSPACE"]) / (variant + "-src")
+              exe = Path("/tmp/rr-aba-" + variant + "/bin/python")
+              proc = subprocess.run((str(exe), "/tmp/rr_aba_case.py",
+                  str(root), case, stage), cwd=root,
+                  capture_output=True, text=True, check=True, timeout=135)
+              tagged = [s.removeprefix("ABA_RESULT ") for s in proc.stdout.splitlines()
+                        if s.startswith("ABA_RESULT ")]
+              assert len(tagged) == 1, (proc.stdout, proc.stderr)
+              return json.loads(tagged[0])
+
+          params = []
+          for case in CASES:
+              for stage in ("rr", "hybrid"):
+                  for slot in SLOTS:
+                      params.append(pytest.param(case, stage, slot, id=f"{case}-{stage}-{slot}"))
+              if case == "grover4_gpmc":
+                  for slot in SLOTS:
+                      params.append(pytest.param(case, "wmc_only", slot, id=f"{case}-wmc_only-{slot}"))
+
+          @pytest.mark.parametrize(("case", "stage", "slot"), params)
+          def test_rust_aba(benchmark, case, stage, slot):
+              variant = choose(case, slot)
+              result = benchmark(invoke, variant, case, stage)
+              assert result["case"] == case and result["stage"] == stage
+              assert result["verdict"] in ("equivalent", "equivalent*", "not_equivalent", "unknown")
+              if stage == "rr":
+                  assert result["solver_invoked"] is False, result
+              benchmark.extra_info.update({
+                  "case": case, "stage": stage, "slot": slot,
+                  "source_variant": variant,
+                  "source_sha": os.environ["DEV_SHA" if variant == "dev" else "PR_SHA"],
+                  "verdict": result["verdict"],
+                  "solver_invoked": str(result["solver_invoked"]),
+                  "rr_approximate": str(result["rr_approximate"]),
+                  "evidence_class": "source-pinned-counterbalanced-rust-aba",
+                  "metric_note": "RR-only omits WMC; Hybrid includes CNF/Solver only when solver_invoked",
+              })
+          PY
+      - name: Warm both versions and record actual solver usage
+        shell: bash
+        run: |
+          set -euo pipefail
+          for case in graphstate16_gpmc grover4_gpmc qft16_gpmc qaoa7_gpmc vqe4_gpmc; do
+            for variant in dev head; do
+              root="$GITHUB_WORKSPACE/$variant-src"
+              for stage in rr hybrid; do
+                echo "CONTROL $case $variant $stage"
+                "/tmp/rr-aba-$variant/bin/python" /tmp/rr_aba_case.py "$root" "$case" "$stage"
+              done
+            done
+          done
+      - name: Measure alternating Rust A/B/A and B/A/B with CodSpeed
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: /tmp/rr-aba-head/bin/python -m pytest /tmp/test_rr_rust_aba.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=8
+      - name: Preserve dependency manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rr-rust-aba-dependencies
+          path: |
+            /tmp/rr-aba-dev-freeze.txt
+            /tmp/rr-aba-head-freeze.txt
+          if-no-files-found: warn
+          retention-days: 7

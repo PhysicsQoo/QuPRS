@@ -1,4 +1,4 @@
-name: PR131 three-revision CodSpeed WallTime diagnostic
+name: RR Hybrid QFT16 same-host CodSpeed WallTime A/B/A
 
 # This workflow is not present on the repository default branch. Avoid relying
 # on workflow_dispatch. A signed push touching the three scoped paths on the
@@ -25,12 +25,11 @@ permissions:
 jobs:
   paired-walltime:
     if: github.event_name == 'push' || github.event.pull_request.number == 131
-    name: Same-host main dev PR persistent-worker WallTime
+    name: Same-host QFT16 dev / candidate / dev persistent-worker WallTime
     # Diagnostic only: personal GitHub ownership is not eligible for Macro.
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      MAIN_SHA: d5973ab7da1dc25e3657283852766443a1c96186
       DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
       PR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
@@ -38,12 +37,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Check out exact main baseline
-        uses: actions/checkout@v4
-        with:
-          ref: d5973ab7da1dc25e3657283852766443a1c96186
-          submodules: recursive
-          path: main-src
       - name: Check out exact integration baseline
         uses: actions/checkout@v4
         with:
@@ -69,10 +62,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C "$GITHUB_WORKSPACE/main-src" rev-parse HEAD)" = "$MAIN_SHA"
           test "$(git -C "$GITHUB_WORKSPACE/dev-src" rev-parse HEAD)" = "$DEV_SHA"
           test "$(git -C "$GITHUB_WORKSPACE/head-src" rev-parse HEAD)" = "$PR_SHA"
-          for variant in main dev head; do
+          for variant in dev head; do
             python -m venv "$RUNNER_TEMP/pr131-$variant-venv"
             venv="$RUNNER_TEMP/pr131-$variant-venv"
             "$venv/bin/python" -m pip install --disable-pip-version-check maturin
@@ -85,9 +77,9 @@ jobs:
           python --version
           rustc --version
           lscpu | grep -E 'Model name|Architecture' || true
-          submodule_sha="$(git -C "$GITHUB_WORKSPACE/main-src" rev-parse HEAD:GPMC)"
+          submodule_sha="$(git -C "$GITHUB_WORKSPACE/dev-src" rev-parse HEAD:GPMC)"
           ganak_release_sha="$(sha256sum "$GITHUB_WORKSPACE/main-src/src/QuPRS/utils/ganak-release.txt" | cut -d' ' -f1)"
-          for variant in main dev head; do
+          for variant in dev head; do
             git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD
             observed_submodule="$(git -C "$GITHUB_WORKSPACE/$variant-src" rev-parse HEAD:GPMC)"
             test "$observed_submodule" = "$submodule_sha" || {
@@ -109,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/test_pr131_warm_worker_walltime.py" <<'PY'
-          """All variants use the head's identical worker harness, but variant code/libs."""
+          """A/B/A QFT16 GPMC: same warmed worker harness, version-isolated verifier."""
           import hashlib
           import os
           from pathlib import Path
@@ -122,11 +114,18 @@ jobs:
           sys.path.insert(0, str(ROOT / "head-src" / "scripts"))
           from codspeed_paired_walltime import CASES, POSITIVE_CASES, PersistentWorker
 
-          VARIANTS = ("main", "dev", "head")
+          VARIANTS = ("dev_a", "head", "dev_b")
+
+          # A1 and A2 are separate persistent processes using the identical
+          # pinned dev source and virtualenv, allowing same-host drift checks.
+          def source_of(variant):
+              return "dev" if variant in ("dev_a", "dev_b") else "head"
+
+          CASES = {key: CASES[key] for key in ("qft16_gpmc",)}
 
           def fixture_sha(variant, case):
               filename = CASES[case][0]
-              first = ROOT / f"{variant}-src/benchmarks/MQTBench" / filename
+              first = ROOT / f"{source_of(variant)}-src/benchmarks/MQTBench" / filename
               second = ROOT / f"{variant}-src/benchmarks/MQTBench/h,ry,rz,cx" / filename
               return (hashlib.sha256(first.read_bytes()).hexdigest(),
                       hashlib.sha256(second.read_bytes()).hexdigest())
@@ -138,9 +137,9 @@ jobs:
                   for variant in VARIANTS:
                       path = TEMP / "pr131-workers" / variant / "worker.sock"
                       worker = PersistentWorker(
-                          python=TEMP / f"pr131-{variant}-venv/bin/python",
+                          python=TEMP / f"pr131-{source_of(variant)}-venv/bin/python",
                           script=ROOT / "head-src/scripts/codspeed_paired_walltime.py",
-                          root=ROOT / f"{variant}-src",
+                          root=ROOT / f"{source_of(variant)}-src",
                           socket_path=path,
                       )
                       active[variant] = stack.enter_context(worker)
@@ -200,7 +199,7 @@ jobs:
                   assert result["verdict"] in ("equivalent", "equivalent*"), result
               benchmark.extra_info.update({
                   "source_variant": variant,
-                  "source_sha": os.environ[{"main":"MAIN_SHA", "dev":"DEV_SHA", "head":"PR_SHA"}[variant]],
+                  "source_sha": os.environ[{"dev_a":"DEV_SHA", "head":"PR_SHA", "dev_b":"DEV_SHA"}[variant]],
                   "case": case,
                   "verdict": result["verdict"],
                   "solver_invoked": result["solver_invoked"],
@@ -213,10 +212,10 @@ jobs:
                   "stage_matched": str(provenance[case]["stage_matched"]),
                   "same_variant_stage_stable": "true",
                   "same_variant_verdict_stable": "true",
-                  "measurement_contract": "exploratory-warm-worker-walltime-v1",
+                  "measurement_contract": "qft16-dev-candidate-dev-warm-worker-walltime-v2",
                   "source_kind": "experiment" if os.environ.get("GITHUB_EVENT_NAME") == "push" else "pull_request",
                   "timed_span": "socket_request + public_verify + solver_wait; no_python_startup",
-                  "environment_warning": "shared_runner_not_macro",
+                  "environment_warning": "same_host_shared_vm_not_fixed_mac_mini",
               })
           PY
       - name: Measure source-pinned warm-process full-request CodSpeed WallTime
@@ -230,7 +229,6 @@ jobs:
         with:
           name: pr131-three-revision-walltime-provenance
           path: |
-            ${{ runner.temp }}/pr131-main-freeze.txt
             ${{ runner.temp }}/pr131-dev-freeze.txt
             ${{ runner.temp }}/pr131-head-freeze.txt
           if-no-files-found: warn

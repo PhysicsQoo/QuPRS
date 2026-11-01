@@ -4,6 +4,7 @@ The enclosing CodSpeed WallTime benchmark captures parent startup, Rust
 execution, Solver execution/wait, and I/O. This script does not time anything.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -29,7 +30,10 @@ def main() -> None:
     result = check_equivalence(
         str(first), str(second), method="hybrid",
         strategy=strategy, tool_name=solver, backend=backend,
-        timeout=90,
+        # Simulation under Valgrind can slow child Solver work dramatically.
+        # Both versions use the same bounded experiment-specific override.
+        # Standard Solver-inclusive WallTime retains the original 90 seconds.
+        timeout=int(os.environ.get("QUPRS_CROSS_METHOD_SOLVER_TIMEOUT", "90")),
     )
     invoked = getattr(result, "wmc_solver_invoked", None)
     if invoked is None:

@@ -32,7 +32,7 @@ CPU_CASES = tuple(c for c in CASES if c[0] in {
 VALID_VERDICTS = {"equivalent", "equivalent*", "not_equivalent", "unknown"}
 
 
-def execute(revision, case):
+def execute(revision, case, instrument):
     workspace = Path(os.environ["GITHUB_WORKSPACE"])
     source = workspace / "cross-method-base" if revision == "base" else workspace
     executable = Path(os.environ["RUNNER_TEMP"]) / f"cross-method-{revision}/bin/python"
@@ -40,12 +40,16 @@ def execute(revision, case):
     _, filename, strategy, reverse, solver, backend = case
     command = [str(executable), str(harness), str(workspace),
                filename, strategy, solver, backend, str(int(reverse))]
+    child_env = os.environ.copy()
+    if instrument == "simulation":
+        child_env["QUPRS_CROSS_METHOD_SOLVER_TIMEOUT"] = "300"
     child = subprocess.Popen(
         command, cwd=source, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, start_new_session=True,
+        env=child_env,
     )
     try:
-        stdout, stderr = child.communicate(timeout=180)
+        stdout, stderr = child.communicate(timeout=390 if instrument == "simulation" else 180)
     except subprocess.TimeoutExpired as exc:
         os.killpg(child.pid, signal.SIGKILL)
         child.communicate()
@@ -69,13 +73,14 @@ def fixture_hashes(case):
 
 def measure(benchmark, instrument, revision, case):
     hashes = fixture_hashes(case)
-    result = benchmark(execute, revision, case)
+    result = benchmark(execute, revision, case, instrument)
     case_id, filename, strategy, reverse, solver, backend = case
     row = {
         "instrument": instrument, "case": case_id, "revision": revision,
         "sha": os.environ["BASE_SHA" if revision == "base" else "HEAD_SHA"],
         "fixture_sha": os.environ["HEAD_SHA"],
         "qasm_sha256": hashes, "method": "hybrid", "strategy": strategy,
+        "solver_timeout_secs": 300 if instrument == "simulation" else 90,
         "reverse": reverse, "backend": backend, "solver": solver,
         "verdict": result["verdict"], "solver_invoked": bool(result["solver_invoked"]),
         "rr_approximate": result.get("rr_approximate"),

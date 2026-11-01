@@ -36,7 +36,8 @@ def inspect(records, base_sha, head_sha, instrument):
         params = mapping[case]
         for key, expect in (("instrument", instrument), ("method", "hybrid"),
                             ("strategy", params[2]), ("reverse", params[3]),
-                            ("solver", params[4]), ("backend", params[5])):
+                            ("solver", params[4]), ("backend", params[5]),
+                            ("solver_timeout_secs", 300 if instrument == "simulation" else 90)):
             if row.get(key) != expect:
                 errors.append(f"{case}/{rev}: mismatched {key}")
         hashes = row.get("qasm_sha256")
@@ -51,7 +52,7 @@ def inspect(records, base_sha, head_sha, instrument):
             continue
         b, h = paired[name]["base"], paired[name]["head"]
         for field in ("qasm_sha256", "method", "strategy", "reverse",
-                      "backend", "solver"):
+                      "backend", "solver", "solver_timeout_secs"):
             if b.get(field) != h.get(field):
                 errors.append(f"{name}: input mismatch {field}")
         same_stage = b.get("solver_invoked") == h.get("solver_invoked")

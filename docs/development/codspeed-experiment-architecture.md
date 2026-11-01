@@ -173,3 +173,12 @@ remains visible and disallows a solver-stage speedup assertion. Distinct
 default tolerance semantics across versions, if any, remain disclosed.
 Only CodSpeed instrumentation supplies timing; the audit never guesses times.
 WallTime on a shared hosted runner remains exploratory.
+
+CPU subprocess instrument contract: source-paired CPU Simulation explicitly
+sets the verifier Solver timeout to 300 seconds for **both base and HEAD**
+(to bound Valgrind slowdown), and an outer process-tree timeout of 390 seconds.
+Standard and cross-method CodSpeed WallTime retain the original 90-second
+Solver deadline. Timeout is recorded and checked in the paired provenance.
+The two instruments have distinct workloads/deadlines and must not be
+interpreted as matching elapsed-time measurements. The shared pytest hook
+exports WallTime results only and must not abort Simulation at sessionfinish.

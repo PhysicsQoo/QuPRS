@@ -11,6 +11,14 @@ from pathlib import Path
 import pytest
 
 
+def export_walltime_result(results, output):
+    """Write only WallTime measurements. Never reject another CodSpeed instrument."""
+    if results.get("instrument", {}).get("type") != "walltime":
+        return False
+    output.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return True
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
     if not session.config.getoption("--codspeed", default=False):
@@ -19,7 +27,5 @@ def pytest_sessionfinish(session, exitstatus):
 
     plugin = get_plugin(session.config)
     results = plugin.instrument.get_result_dict()
-    if results.get("instrument", {}).get("type") != "walltime":
-        raise RuntimeError("Paired report requires CodSpeed WallTime instrument")
     output = Path(os.environ["RUNNER_TEMP"]) / "quprs-paired-walltime-codspeed.json"
-    output.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    export_walltime_result(results, output)

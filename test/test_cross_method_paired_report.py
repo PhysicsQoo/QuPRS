@@ -29,6 +29,7 @@ def fixture(instrument="simulation"):
                 "method": "hybrid", "strategy": case[2], "reverse": case[3],
                 "solver": case[4], "backend": case[5],
                 "solver_invoked": True, "verdict": "equivalent*",
+                "solver_timeout_secs": 300 if instrument == "simulation" else 90,
             })
     return records
 
@@ -73,3 +74,25 @@ def test_full_walltime_coverage_is_six_families_four_methods():
     assert result["status"] == "PASS"
     assert result["expected_pairs"] == 24
     assert result["observed_pairs"] == 24
+
+
+def test_codspeed_walltime_export_skips_cpu_without_file(tmp_path):
+    from runpy import run_path
+    hook = run_path(str(Path(__file__).resolve().parents[1] /
+                        "benchmarks/codspeed/conftest.py"))
+    output = tmp_path / "codspeed.json"
+    assert hook["export_walltime_result"](
+        {"instrument": {"type": "simulation"}, "benchmarks": []}, output
+    ) is False
+    assert not output.exists()
+
+
+def test_codspeed_walltime_export_preserves_instrument(tmp_path):
+    from runpy import run_path
+    hook = run_path(str(Path(__file__).resolve().parents[1] /
+                        "benchmarks/codspeed/conftest.py"))
+    output = tmp_path / "codspeed.json"
+    data = {"instrument": {"type": "walltime"}, "benchmarks": [{"uri": "sample"}]}
+    assert hook["export_walltime_result"](data, output)
+    import json
+    assert json.loads(output.read_text()) == data

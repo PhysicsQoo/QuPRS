@@ -1,1 +1,1 @@
-Fix experimental API compatibility only: pinned pre-0.14 dev check_equivalence does not accept rr_tolerance, so use its historical default and pass explicit rr_tolerance only for pinned PR head. Re-run same 12 source-locked CodSpeed stage comparisons; production PR unchanged.
+Fix source-pinned Python CodSpeed stage preflight for legacy dev result without rr_approximate field: use getattr default false for provenance, no result semantics or timing change. Tests/prod PR unchanged.

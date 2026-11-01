@@ -141,7 +141,7 @@ jobs:
           print("PYHYBRID_RESULT "+json.dumps({
               "case":case, "stage":stage, "verdict":str(answer.equivalent),
               "solver_invoked":bool(answer.wmc_solver_invoked),
-              "rr_approximate":bool(answer.rr_approximate),
+              "rr_approximate":bool(getattr(answer,"rr_approximate",False)),
           },sort_keys=True))
           PY
           cat > "$RUNNER_TEMP/test_python_paired_codspeed.py" <<'PY'

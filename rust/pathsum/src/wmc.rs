@@ -13,6 +13,8 @@ use anyhow::{Result, Context, anyhow};
 
 use crate::pathsum::PathSum;
 use crate::pathsum::phase_poly::Monomial;
+#[cfg(feature="high-precision-gpmc")]
+use crate::rational::PhaseCoeff;
 
 fn solver_arguments(tool_name: &str) -> Result<&'static [&'static str]> {
     Ok(crate::solver_adapter::adapter_for(tool_name)?.arguments())

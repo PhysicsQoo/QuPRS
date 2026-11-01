@@ -10,7 +10,7 @@ from qiskit import QuantumCircuit, qasm2, qasm3
 
 from QuPRS import config
 from QuPRS.utils.verification_tolerances import (
-    current_rr_tolerance, per_call_rr_tolerance, rr_approximation_used,
+    current_rr_tolerance, scoped_rr_tolerance, per_call_rr_tolerance, rr_approximation_used,
 )
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
@@ -528,29 +528,42 @@ def check_equivalence(
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        if safe_mode:
-            elapsed_so_far = time.time() - start_time
-            remaining_time = max(1, int(timeout - elapsed_so_far))
-            pathsum_circuit = strategy_obj.safe_run(
-                pathsum_circuit, gates1, gates2, timeout=remaining_time
-            )
-        else:
-            pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
+        # A single strict-RR gate pass supplies an unmodified WMC residual.
+        # A terminal approximate probe is used only for RR acceptance.
+        with scoped_rr_tolerance(0.0 if method == "hybrid" else rr_tolerance):
+            if safe_mode:
+                elapsed_so_far = time.time() - start_time
+                remaining_time = max(1, int(timeout - elapsed_so_far))
+                pathsum_circuit = strategy_obj.safe_run(
+                    pathsum_circuit, gates1, gates2, timeout=remaining_time
+                )
+            else:
+                pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 
+        # RR acceptance may use the per-call tolerance on a disposable
+        # snapshot. WMC always sees the source-faithful strict-RR residual.
+        rr_view = pathsum_circuit
+        if method == "hybrid" and rr_tolerance > 0:
+            rr_view = PathSum(
+                pathsum_circuit.P, pathsum_circuit.f,
+                pathsum_circuit.pathvar,
+            )
+            with scoped_rr_tolerance(rr_tolerance):
+                rr_view = rr_view.reduction()
         # Reduction rules check (if enabled)
         if method != "wmc_only":
-            if pathsum_circuit.f == initial_state.f:
-                if pathsum_circuit.P == initial_state.P:
+            if rr_view.f == initial_state.f:
+                if rr_view.P == initial_state.P:
                     equivalent = "equivalent"
-                P_free_symbols = pathsum_circuit.P.free_symbols
+                P_free_symbols = rr_view.P.free_symbols
                 # check_P_symbol = tuple(
-                #     filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
+                #     filter(lambda x: x.name in rr_view.f.bits, P_free_symbols)
                 # )
                 if len(P_free_symbols) == 0:
                     # Phase coefficients are in cycles; compare wrapped radians.
-                    cycles = float(pathsum_circuit.P.evalf()) % 1.0
+                    cycles = float(rr_view.P.evalf()) % 1.0
                     phase = (cycles * math.tau) % math.tau
                     phase_is_within_tolerance = (
                         min(phase, math.tau - phase) < wmc_phase_tolerance
@@ -567,15 +580,21 @@ def check_equivalence(
                     equivalent = (
                         "not_equivalent"
                         if method == "reduction_rules"
-                        and len(pathsum_circuit.pathvar) == 0
+                        and len(rr_view.pathvar) == 0
                         else "unknown"
                     )
-            elif len(pathsum_circuit.pathvar) == 0:
+            elif len(rr_view.pathvar) == 0:
                 # Strict non-equality alone does not establish D > epsilon.
                 equivalent = ("not_equivalent" if method == "reduction_rules"
                               else "unknown")
             else:
                 equivalent = "unknown"
+
+        # A positive RR proof may keep the speculative reduced state.
+        # An inconclusive Hybrid must retain strict-RR state for WMC.
+        if method == "hybrid" and equivalent != "unknown":
+            pathsum_circuit = rr_view
+        pathsum_time = round(time.time() - start_time, 3)
 
         # Preserve the published hybrid algorithm: WMC consumes the final
         # RR residual only when reduction itself remains inconclusive.
@@ -585,9 +604,9 @@ def check_equivalence(
         ):
             _warn_hybrid_approximate_rr_wmc(
                 method, True,
-                rr_approximation_used() or bool(
-                    getattr(pathsum_circuit._stats, "rr_approximation_used", False)
-                ),
+                bool(getattr(
+                    pathsum_circuit._stats, "rr_approximation_used", False
+                )),
             )
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
 

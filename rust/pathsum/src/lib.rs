@@ -454,7 +454,17 @@ fn check_equivalence_with_distance_mode(
     let mut ps = PathSum::quantum_circuit(&regs, None);
     let reduction_enabled = method != VerificationMethod::WmcOnly;
     ps.set_auto_reduce(reduction_enabled);
-    ps.rr_tolerance = rr_tolerance;
+    // Hybrid keeps an exact-RR working residual for any eventual WMC
+    // source-distance check. Positive tolerance is applied only to a
+    // speculative RR proof after the source gates have been processed.
+    // This avoids discarding source phases before the solver without
+    // replaying the original gate stream.
+    let working_rr_tolerance = if method == VerificationMethod::Hybrid {
+        0.0
+    } else {
+        rr_tolerance
+    };
+    ps.rr_tolerance = working_rr_tolerance;
 
     let mut status = EquivalenceStatus::Unknown;
     let mut rr_approximate = false;
@@ -462,7 +472,7 @@ fn check_equivalence_with_distance_mode(
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
     let mut ps_miter = strategy.run(ps, gates1, gates2);
-    ps_miter.rr_tolerance = rr_tolerance;
+    ps_miter.rr_tolerance = working_rr_tolerance;
     
     // Prepare the initial state |0...0> to form the transition amplitude <0|M|0>
     
@@ -470,13 +480,23 @@ fn check_equivalence_with_distance_mode(
         ps_miter.full_reduce();
     }
 
-    rr_approximate |= ps_miter.rr_approximate;
-    let ps_time = pathsum_start.elapsed().as_secs_f64();
-    
+    // The approximate probe cannot modify the exact-RR residual used by WMC.
+    // It is a post-reduction test, not a second run of gates or WMC.
+    let mut rr_probe = if method == VerificationMethod::Hybrid && rr_tolerance > 0.0 {
+        let mut probe = ps_miter.clone();
+        probe.rr_tolerance = rr_tolerance;
+        probe.full_reduce();
+        Some(probe)
+    } else {
+        None
+    };
+    let rr_view = rr_probe.as_ref().unwrap_or(&ps_miter);
+    rr_approximate |= rr_view.rr_approximate;
+
     // 3. Reduction Rules Check
     if method != VerificationMethod::WmcOnly {
-        if ps_miter.is_identity_up_to_phase() {
-            if let Some(phase_coeff) = ps_miter.get_global_phase() {
+        if rr_view.is_identity_up_to_phase() {
+            if let Some(phase_coeff) = rr_view.get_global_phase() {
                 // The up-to-global-phase relation is established by RR.
                 // phase_tolerance intentionally controls the *equivalent*
                 // label even for a provably nonzero but sufficiently small
@@ -494,9 +514,9 @@ fn check_equivalence_with_distance_mode(
             // First allow a conservative, per-request approximate RR success
             // for a *diagonal* residual with exact Boolean identity.
             // The source phase polynomial is NEVER rounded or rewritten.
-            if rr_within_tolerance(&ps_miter, rr_tolerance) {
+            if rr_within_tolerance(rr_view, rr_tolerance) {
                 rr_approximate = true;
-                let global = ps_miter.p.terms.get(&Vec::new())
+                let global = rr_view.p.terms.get(&Vec::new())
                     .cloned().unwrap_or(PhaseCoeff::ZERO);
                 status = if phase_within_tolerance(&global, wmc_phase_tolerance) {
                     EquivalenceStatus::Equivalent
@@ -504,7 +524,7 @@ fn check_equivalence_with_distance_mode(
                     EquivalenceStatus::EquivalentUpToGlobalPhase
                 };
             } else {
-                let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
+                let num_active_vars = rr_view.v.path_vars.len() - num_qubits;
                 if method == VerificationMethod::ReductionRules && num_active_vars == 0 {
                     // Strict source-negative, without claiming D>epsilon.
                     status = EquivalenceStatus::NotEquivalent;
@@ -514,6 +534,17 @@ fn check_equivalence_with_distance_mode(
             }
         }
     }
+
+    // Only an RR-decisive Hybrid result may adopt the approximate probe.
+    // Otherwise WMC always receives the original exact-RR residual.
+    if method == VerificationMethod::Hybrid
+        && matches!(status, EquivalenceStatus::Equivalent | EquivalenceStatus::EquivalentUpToGlobalPhase)
+    {
+        if let Some(probe) = rr_probe.take() {
+            ps_miter = probe;
+        }
+    }
+    let ps_time = pathsum_start.elapsed().as_secs_f64();
 
     // A strategy may overrun its budget; it must never launch an unbounded solver.
     if deadline.is_some_and(|limit| Instant::now() >= limit) {
@@ -932,7 +963,7 @@ mod verification_options_contract_tests {
     }
 
     #[test]
-    fn hybrid_fallback_wmc_consumes_rr_residual_after_approximate_rr() {
+    fn hybrid_fallback_wmc_consumes_source_faithful_strict_rr_residual() {
         use crate::ir::QuantumOp;
         use crate::rational::{Angle, FreeRational};
         // RZ creates a tiny non-global phase that tolerant RR removes.
@@ -953,7 +984,11 @@ mod verification_options_contract_tests {
                 "RR must have actually removed a tiny non-global phase");
         assert!(!reduced.solver_invoked);
 
+        settings.rr_tolerance = 0.0;
+        let strict = check_equivalence_with_options(1, &[], &source, &settings)
+            .expect("Strict-RR residual");
         settings.method = VerificationMethod::Hybrid;
+        settings.rr_tolerance = 1e-8;
         let hybrid = check_equivalence_with_options(1, &[], &source, &settings)
             .expect("Hybrid one-qubit fallback");
         settings.method = VerificationMethod::WmcOnly;
@@ -961,15 +996,15 @@ mod verification_options_contract_tests {
             .expect("WMC-only original-source control");
 
         assert!(hybrid.solver_invoked, "unresolved Hybrid must invoke WMC");
-        assert!(hybrid.final_ps.rr_approximate,
-                "internal residual provenance must survive WMC handoff");
+        assert!(!hybrid.final_ps.rr_approximate,
+                "WMC must receive the unrounded strict-RR residual");
         assert!(!hybrid.rr_approximate,
                 "public RR approximation flag follows Python: WMC decided");
-        assert_eq!(hybrid.final_ps.p.terms, reduced.final_ps.p.terms,
-                "Hybrid WMC must encode the current RR residual");
-        assert_eq!(hybrid.final_ps.f.functions, reduced.final_ps.f.functions);
-        assert_ne!(hybrid.final_ps.p.terms, original.final_ps.p.terms,
-                "the test must detect an accidental exact-source replay");
+        assert_eq!(hybrid.final_ps.p.terms, strict.final_ps.p.terms,
+                "Hybrid WMC must encode the source-faithful strict RR residual");
+        assert_eq!(hybrid.final_ps.f.functions, strict.final_ps.f.functions);
+        assert_ne!(hybrid.final_ps.p.terms, reduced.final_ps.p.terms,
+                "the test must detect if approximate RR terms reached WMC");
         assert_eq!(hybrid.status, original.status,
                 "this robustly negative oracle must remain unchanged");
     }

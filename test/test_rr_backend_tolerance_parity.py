@@ -118,13 +118,17 @@ def test_hybrid_wmc_consumes_rr_residual_like_python(backend, rr_tolerance):
     assert hybrid.equivalent == "not_equivalent"
     assert hybrid.wmc_solver_invoked is True
     # No further gate execution/reduction is permitted between RR and WMC.
-    assert hybrid.final_pathsum == rr_only.final_pathsum
+    strict_rr = check_equivalence(
+        _TWO_QUBIT_IDENTITY, _TWO_QUBIT_RESIDUAL,
+        method="reduction_rules", **{**common, "rr_tolerance": 0},
+    )
+    assert hybrid.final_pathsum == strict_rr.final_pathsum
     # Match Python's public result: once WMC provides the result, the
     # rr_approximate flag does not claim that RR proved equivalence.
     assert hybrid.rr_approximate is False
 
 
-def test_rust_hybrid_partial_approximation_has_no_exact_source_replay(monkeypatch):
+def test_rust_hybrid_uses_strict_rr_residual_without_gate_replay(monkeypatch):
     from QuPRS import _pathsum_rust
 
     monkeypatch.setenv("QUPRS_STAGE_LEDGER", "1")
@@ -144,12 +148,12 @@ def test_rust_hybrid_partial_approximation_has_no_exact_source_replay(monkeypatc
     # The approximate rule must actually have changed the residual. Merely
     # comparing two runs where RR did no work would not detect a replay.
     assert strict_rr["final_ps"] != tolerant_rr["final_ps"]
-    assert tolerant_hybrid["final_ps"] == tolerant_rr["final_ps"]
+    assert tolerant_hybrid["final_ps"] == strict_rr["final_ps"]
+    assert tolerant_hybrid["final_ps"] != tolerant_rr["final_ps"]
     assert tolerant_hybrid["wmc_solver_invoked"] is True
     assert tolerant_hybrid["rr_approximate"] is False
-    assert tolerant_hybrid["rr_residual_approximate"] is True
+    assert tolerant_hybrid["rr_residual_approximate"] is False
     assert strict_rr["rr_residual_approximate"] is False
-    assert (
-        tolerant_hybrid["stage_ledger"]["stage_calls"].get("reduction", 0)
-        == tolerant_rr["stage_ledger"]["stage_calls"].get("reduction", 0)
-    )
+    # The approximate proof probe adds reduction work but never replays
+    # gates; it must not alter the strict residual handed to WMC.
+    assert tolerant_hybrid["stage_ledger"]["stage_calls"].get("reduction", 0) >= 1

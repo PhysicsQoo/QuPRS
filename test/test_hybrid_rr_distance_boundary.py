@@ -1,4 +1,4 @@
-"""RR → Hybrid → WMC: a real-solver distance-boundary scientific diagnostic.
+"""RR → Hybrid → WMC: original-source distance parity at a numeric boundary.
 
 Compare a high-precision analytic source-unitary oracle with strict RR,
 WMC-only, and tolerant RR-residual Hybrid on exactly the same QASM. These
@@ -72,12 +72,19 @@ def test_partial_rr_near_wmc_distance_threshold(
     rr_only = check_equivalence(
         _ID, source, method="reduction_rules", rr_tolerance=_RR, **base_kwargs
     )
-    # Both backends must warn about source-vs-reduced-distance ambiguity
-    # without changing their actual WMC verdicts or introducing Unknown.
-    with pytest.warns(RuntimeWarning, match="RR-approximated residual PathSum"):
+    # The rejected approximate RR probe must not contaminate WMC input.
+    # No source-to-residual distance warning is needed for an exact WMC
+    # residual, since source-level distance is preserved by strict RR.
+    import warnings
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter("always", RuntimeWarning)
         tolerant = check_equivalence(
             _ID, source, method="hybrid", rr_tolerance=_RR, **base_kwargs
         )
+    assert not any(
+        "RR-approximated residual PathSum" in str(w.message)
+        for w in observed
+    )
     evidence = {
         "backend": backend, "tiny_angle": a, "large_angle": b,
         "exact_source_distance": source_distance_string,
@@ -107,9 +114,9 @@ def test_partial_rr_near_wmc_distance_threshold(
     assert rr_only.equivalent == "not_equivalent", evidence
     assert not rr_only.wmc_solver_invoked, evidence
     assert tolerant.wmc_solver_invoked is True, evidence
-    assert tolerant.final_pathsum == rr_only.final_pathsum, evidence
+    assert tolerant.final_pathsum == strict.final_pathsum, evidence
+    assert tolerant.final_pathsum != rr_only.final_pathsum, evidence
+    assert tolerant.equivalent == expected_exact, evidence
     assert tolerant.rr_approximate is False, evidence
 
-    # Do not assume the source and tolerant residual must classify alike
-    # at a boundary deliberately constructed to separate the two. This
-    # diagnostic records the actual result for independent review.
+    # At WMC fallback, both backends must classify the strict RR residual.

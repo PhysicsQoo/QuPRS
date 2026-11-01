@@ -303,9 +303,16 @@ and [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md
 Rust preserves source `PhaseCoeff` angles through the CNF weight boundary.
 For **GPMC projective-distance verification** (the default), the native
 implementation preserves source `PhaseCoeff` angles until CNF serialization.
-It computes non-Clifford complex weights using **192-bit MPFR arithmetic**
-and 48 significant decimal output digits, without a premature `f64`
-conversion. Clifford quarter-cycle weights are exact special values.
+It computes non-Clifford complex weights using **tolerance-adaptive MPFR**
+without a premature `f64` conversion. The input-weight precision uses
+`ceil_to_32(-2 log2(epsilon) + ceil(log2(max(1, phase_terms))) + 32)`
+bits (minimum 96, maximum 1024), where `epsilon` is the requested
+`approximate_distance_tolerance`; the default `1e-8` uses **96 bits**
+for small residuals instead of a fixed 192. Decimal weight text is sized to
+round-trip the working MPFR values. A request exceeding the supported
+precision fails explicitly rather than silently capping its input accuracy.
+This is an engineering working-precision policy, **not** a certified Solver
+error bound. Clifford quarter-cycle weights remain exact special values.
 
 No extra Solver invocation is added. Ganak retains its own input format
 and numerical precision. Ganak 2.8.0 mode 6 prints complex MPFR counts with

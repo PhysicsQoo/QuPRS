@@ -29,7 +29,7 @@ int quprs_mpfr_phase_weight(
     unsigned long precision_bits, char *out_real, char *out_imag, size_t cap
 ) {
     if (!cycles_num || !cycles_den || !radians_num || !radians_den ||
-        !out_real || !out_imag || cap < 64 || precision_bits < 128 ||
+        !out_real || !out_imag || cap < 64 || precision_bits < 64 ||
         precision_bits > 1024) return -3;
     mpfr_t pi, cycles, radians, angle, sine, cosine;
     mpfr_init2(pi, precision_bits);
@@ -49,8 +49,13 @@ int quprs_mpfr_phase_weight(
     mpfr_add(angle, angle, radians, MPFR_RNDN);
     mpfr_mul_ui(angle, angle, 2u, MPFR_RNDN);
     mpfr_sin_cos(sine, cosine, angle, MPFR_RNDN);
-    int nr = mpfr_snprintf(out_real, cap, "%.47Re", cosine);
-    int ni = mpfr_snprintf(out_imag, cap, "%.47Re", sine);
+    /* Round-trip the selected MPFR working value, without always printing
+     * 48 digits for low-tolerance requests. This is not source-exactness.
+     * ceil(bits * log10(2)) + 2, bounded by 1024-bit working precision. */
+    unsigned long digits = (precision_bits * 30103UL + 99999UL) / 100000UL + 2UL;
+    int places = (int)(digits - 1UL);
+    int nr = mpfr_snprintf(out_real, cap, "%.*Re", places, cosine);
+    int ni = mpfr_snprintf(out_imag, cap, "%.*Re", places, sine);
     if (nr < 0 || ni < 0 || (size_t)nr >= cap || (size_t)ni >= cap)
         status = -5;
 done:

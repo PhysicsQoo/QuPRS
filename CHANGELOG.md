@@ -23,9 +23,12 @@
   common projective-distance classifier; printed uncertainty and
   nonphysical magnitude overshoot remain separate diagnostics.
 - In the native Rust GPMC path, preserve source `PhaseCoeff` until
-  high-resolution complex weights are evaluated using 192-bit MPFR,
-  then serialize 48 significant decimal digits without an intermediate
-  `f64` conversion. No changes are made to GPMC or Ganak source,
+  high-resolution complex weights are evaluated using tolerance-adaptive
+  MPFR (96-bit default for small residuals at projective tolerance `1e-8`,
+  with additional guard bits and phase-term scaling), and serialize a
+  corresponding number of decimal digits without an intermediate `f64`
+  conversion. A singleton phase skips the expensive full-PhaseCoeff hash
+  cache; repeated phases still reuse computed weights. No changes are made to GPMC or Ganak source,
   no implicit Solver fallback and no second GPMC solve.
 - Remove the mutable Python `config.TOLERANCE`, `set_tolerance()`
   and `get_tolerance()` APIs, the `wmc_policy` selector and the

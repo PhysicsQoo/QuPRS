@@ -30,9 +30,18 @@ print(result.equivalent, result.approximate_distance_tolerance)
 ## Meaning and numerical transport
 
 The source-angle representation is preserved where supported; in the
-native GPMC distance path, 192-bit MPFR evaluates complex source-phase
-weights and serializes 48 significant decimal digits. GPMC reads these
-weights without a solver-source patch. Python can emit supported
+native GPMC distance path, tolerance-adaptive MPFR evaluates complex
+source-phase weights. The working precision is selected per verification:
+`ceil_to_32(-2*log2(epsilon) + ceil(log2(max(1, phase_terms))) + 32)`
+bits, with a 96-bit minimum and a 1024-bit supported maximum. At the
+public default `epsilon=1e-8`, a small residual uses 96 bits rather
+than always using 192. Output decimal digits scale with the working bits
+so the formatted MPFR value round-trips. Extremely tight tolerances whose
+computed bit requirement exceeds the supported maximum fail explicitly,
+not with an unannounced precision cap. The 32 guard bits and phase-term
+allowance are an engineering precision budget, not a certified solver or
+cancellation error bound. GPMC reads the resulting weights without a
+solver-source patch. Python can emit supported
 SymEngine 113-bit weights without an intermediate binary64 conversion.
 
 For a reported normalized trace magnitude `m`, the stable magnitude

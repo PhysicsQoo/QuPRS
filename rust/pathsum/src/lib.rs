@@ -592,7 +592,17 @@ fn check_equivalence_with_distance_mode(
         // projective-distance mode. All other modes retain their fast path.
         #[cfg(feature="high-precision-gpmc")]
         if tool_name == "gpmc" {
-            wmc_mgr.enable_precise_gpmc_weights();
+            // Unweighted CNFs have no phase input to approximate. In
+            // particular, retain exact identity proofs for arbitrarily tight
+            // distance requests without asking MPFR for unused precision.
+            let bits = if ps_miter.p.terms.is_empty() {
+                96
+            } else {
+                crate::precise_weight::bits_for_distance(
+                    eps, ps_miter.p.terms.len(),
+                )?
+            };
+            wmc_mgr.enable_precise_gpmc_weights(bits);
         }
 
         {

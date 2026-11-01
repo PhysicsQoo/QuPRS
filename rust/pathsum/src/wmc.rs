@@ -66,6 +66,8 @@ pub struct WmcManager {
     next_var_id: i32,
     #[cfg(feature="high-precision-gpmc")]
     precise_weights: Option<HashMap<i32, (String, String)>>,
+    #[cfg(feature="high-precision-gpmc")]
+    precise_weight_bits: usize,
 }
 
 impl WmcManager {
@@ -77,14 +79,18 @@ impl WmcManager {
             next_var_id: 1,
             #[cfg(feature="high-precision-gpmc")]
             precise_weights: None,
+            #[cfg(feature="high-precision-gpmc")]
+            precise_weight_bits: 0,
         };
         manager
     }
 
     #[cfg(feature="high-precision-gpmc")]
-    pub fn enable_precise_gpmc_weights(&mut self) {
+    pub fn enable_precise_gpmc_weights(&mut self, precision_bits: usize) {
         // Called only before CNF encoding; does not modify RR or solver count.
         assert!(self.clauses.is_empty() && self.weights.is_empty());
+        assert!((64..=1024).contains(&precision_bits));
+        self.precise_weight_bits = precision_bits;
         self.precise_weights = Some(HashMap::new());
     }
 
@@ -104,7 +110,11 @@ impl WmcManager {
         // angles need neither another MPFR sin/cos nor another decimal parse.
         // The cache is request-local and cannot affect solver precision.
         #[cfg(feature="high-precision-gpmc")]
-        let mut precise_cache: HashMap<&PhaseCoeff, (String, String)> = HashMap::new();
+        // A singleton phase cannot reuse a cached weight. Avoid hashing a
+        // potentially very large BigRational key on this common VQE path.
+        let mut precise_cache: Option<HashMap<&PhaseCoeff, (String, String)>> =
+            (self.precise_weights.is_some() && ps.p.terms.len() > 1)
+                .then(HashMap::new);
         for (mono, coeff) in &ps.p.terms {
             // Do not compute an f64 weight at all when the precise GPMC
             // distance-mode input is selected. The separate optional map
@@ -112,12 +122,18 @@ impl WmcManager {
             #[cfg(feature="high-precision-gpmc")]
             let weight = if let Some(ref mut precise) = self.precise_weights {
                 let id = self.next_var_id;
-                let digits = if let Some(existing) = precise_cache.get(coeff) {
-                    existing.clone()
+                let digits = if let Some(cache) = precise_cache.as_mut() {
+                    if let Some(existing) = cache.get(coeff) {
+                        existing.clone()
+                    } else {
+                        let generated = crate::precise_weight::from_phase(
+                            coeff, self.precise_weight_bits,
+                        )?;
+                        cache.insert(coeff, generated.clone());
+                        generated
+                    }
                 } else {
-                    let generated = crate::precise_weight::from_phase(coeff)?;
-                    precise_cache.insert(coeff, generated.clone());
-                    generated
+                    crate::precise_weight::from_phase(coeff, self.precise_weight_bits)?
                 };
                 precise.insert(id, digits);
                 Complex::new(1.0, 0.0) // Placeholder never serialized in precise mode.
@@ -848,6 +864,24 @@ mod repeated_precise_weight_tests {
     use num_rational::BigRational;
 
     #[test]
+    fn single_source_angle_works_without_cache() {
+        let mut ps = PathSum::new(1);
+        let coeff = PhaseCoeff {
+            constant: Rational::new(1, 8),
+            radians: Some(BigRational::new(BigInt::from(1), BigInt::from(10_u8).pow(20))),
+            symbols: Default::default(),
+        };
+        ps.p.add_term(vec![0], coeff);
+        let mut manager = WmcManager::new(&ps);
+        manager.enable_precise_gpmc_weights(96);
+        manager.encode_trace(&ps).unwrap();
+        let precise = manager.precise_weights.as_ref().unwrap();
+        assert_eq!(precise.len(), 1);
+        let cnf = manager.to_dimacs_string("gpmc");
+        assert!(cnf.contains("c p weight "));
+    }
+
+    #[test]
     fn identical_source_angles_have_identical_precise_cnf_weights() {
         let mut ps = PathSum::new(2);
         let coeff = PhaseCoeff {
@@ -858,7 +892,7 @@ mod repeated_precise_weight_tests {
         ps.p.add_term(vec![0], coeff.clone());
         ps.p.add_term(vec![1], coeff);
         let mut manager = WmcManager::new(&ps);
-        manager.enable_precise_gpmc_weights();
+        manager.enable_precise_gpmc_weights(96);
         manager.encode_trace(&ps).unwrap();
         let precise = manager.precise_weights.as_ref().unwrap();
         assert_eq!(precise.len(), 2);

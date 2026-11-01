@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 50
     env:
       DEV_SHA: 55e78c7597966617c1a193b89056ff4e99c3ddfb
-      PR_SHA: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+      PR_SHA: 9c32f42cf5965caef62cf83aa821e04bbf4ebd0e
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
     steps:
@@ -40,14 +40,14 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@v4
         with:
-          ref: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+          ref: 9c32f42cf5965caef62cf83aa821e04bbf4ebd0e
           path: head-src
           submodules: recursive
           persist-credentials: false
       - name: Checkout exact PR source for isolated candidate
         uses: actions/checkout@v4
         with:
-          ref: 9fba20fa22e3e9391acb9cf54f1bb135954942be
+          ref: 9c32f42cf5965caef62cf83aa821e04bbf4ebd0e
           path: candidate-src
           submodules: recursive
           persist-credentials: false
@@ -250,134 +250,99 @@ jobs:
           file.write_text(code)
           PY
           echo "Bench corpus: 5 cases, each with cold/warm native default and cold/warm PR tolerant; PR strict control"
-      - name: Patch isolated candidate with exact integer-only fast acceptance
+      - name: Test isolated omega singleton prefilter
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          file = Path("candidate-src/rust/pathsum/src/lib.rs")
-          src = file.read_text()
-          anchor = "pub(crate) fn phase_cycles_within_tolerance("
-          assert src.count(anchor) == 1, "unexpected phase matching API"
-
-          helper = r'''
-          /// Certified fast *acceptance* only. The original full-precision
-          /// interval remains the deciding fallback for every other case.
-          /// Neither the source angles nor their tolerance are cast to f64.
-          fn phase_cycles_compact_integer_accepts(
-              coeff: &PhaseCoeff,
-              target: crate::rational::Rational,
-              tolerance: &num_rational::BigRational,
-          ) -> bool {
-              use num_bigint::BigInt;
-              use num_traits::Signed;
-
-              let Some(r) = &coeff.radians else { return false; };
-              if tolerance.numer() < &BigInt::from(0) { return false; }
-              let c_den = BigInt::from(coeff.constant.denom) * BigInt::from(target.denom);
-              let c_num = BigInt::from(coeff.constant.numer) * BigInt::from(target.denom)
-                  - BigInt::from(target.numer) * BigInt::from(coeff.constant.denom);
-              let (p0, p1) = compact_pi_interval();
-              let scaled = |pi: &num_rational::BigRational| {
-                  // c + r/pi = n/d with d>0, without normalizing a
-                  // BigRational or repeatedly invoking a large-number GCD.
-                  let d = &c_den * r.denom() * pi.numer();
-                  let n = &c_num * r.denom() * pi.numer()
-                      + r.numer() * pi.denom() * &c_den;
-                  (n, d)
-              };
-              let (n0, d0) = scaled(p0);
-              let (n1, d1) = scaled(p1);
-              debug_assert!(d0 > BigInt::from(0) && d1 > BigInt::from(0));
-
-              // Most RR targets are already reduced modulo one; test
-              // neighbours 0,+1,-1. These are sufficient to certify
-              // common matches, but any other integer is handled by the
-              // unchanged full-precision fallback below.
-              for k in [0_i64, 1, -1] {
-                  let k = BigInt::from(k);
-                  let delta0 = (&n0 - &k * &d0).abs();
-                  let delta1 = (&n1 - &k * &d1).abs();
-                  if delta0 * tolerance.denom() <= tolerance.numer() * &d0
-                      && delta1 * tolerance.denom() <= tolerance.numer() * &d1
-                  {
-                      return true;
-                  }
-              }
-              false
-          }
-
-          '''
-          src = src.replace(anchor, helper+anchor)
-          original = '''    if coeff.radians.is_some()
-                  && phase_cycles_upper_target_with_pi(coeff, target, compact_pi_interval()) <= *tolerance
-              {
-                  return true;
-              }
-              phase_cycles_upper_target(coeff, target) <= *tolerance'''
-          assert src.count(original) == 1, "unexpected tolerance logic; patch not applied"
-          replacement = '''    if phase_cycles_compact_integer_accepts(coeff, target, tolerance) {
-                  return true;
-              }
-              phase_cycles_upper_target(coeff, target) <= *tolerance'''
-          src = src.replace(original, replacement)
-          # Scope to the single intended implementation; never alter test
-          # assumptions, solver, RR priority, precision thresholds, or API.
-          file.write_text(src)
-
+          p = Path("candidate-src/rust/pathsum/src/reduction.rs")
+          s = p.read_text()
+          old = '''    fn check_omega_conditions(&self, y: u32) -> bool {
+        let mut has_c0 = false;
+        for (mono, coeff) in &self.p.terms {
+            if mono.contains(&y) {
+                if mono.len() == 1 {
+                    if self.rr_matches(coeff, Rational::QUARTER) || self.rr_matches(coeff, Rational::THREE_QUARTERS) {
+                        has_c0 = true;
+                    } else {
+                        return false; 
+                    }
+                } else {
+                    if !self.rr_matches(coeff, Rational::HALF) {
+                        return false; 
+                    }
+                }
+            }
+        }
+        has_c0
+    }'''
+          new = '''    fn check_omega_conditions(&self, y: u32) -> bool {
+        // A quarter-cycle singleton on y is necessary for omega.
+        // Reject impossible candidates before scanning unrelated terms.
+        let Some(coeff) = self.p.terms.get(&vec![y]) else { return false; };
+        if !self.rr_matches(coeff, Rational::QUARTER)
+            && !self.rr_matches(coeff, Rational::THREE_QUARTERS)
+        {
+            return false;
+        }
+        for (mono, coeff) in &self.p.terms {
+            if mono.len() > 1 && mono.contains(&y)
+                && !self.rr_matches(coeff, Rational::HALF)
+            {
+                return false;
+            }
+        }
+        true
+    }'''
+          assert s.count(old) == 1
+          s = s.replace(old, new)
           unit = r'''
           #[cfg(test)]
-          mod rr_integer_compact_candidate_tests {
+          mod omega_singleton_candidate_tests {
               use super::*;
+              fn old_check(ps: &PathSum, y: u32) -> bool {
+                  let mut has_c0 = false;
+                  for (m, c) in &ps.p.terms {
+                      if m.contains(&y) {
+                          if m.len() == 1 {
+                              if ps.rr_matches(c, Rational::QUARTER) ||
+                                  ps.rr_matches(c, Rational::THREE_QUARTERS) { has_c0 = true; }
+                              else { return false; }
+                          } else if !ps.rr_matches(c, Rational::HALF) { return false; }
+                      }
+                  }
+                  has_c0
+              }
               #[test]
-              fn candidate_agrees_with_original_boundary_and_phase_domains() {
-                  let sources = [
-                      "0.0000000001", "0.000000001", "0.0000000010000000001",
-                      "-0.0000000001", "1.6198837120072371",
-                      "-2.5802058126763807", "2.0330832984526417",
-                      "1.1085093551371514", "-3.141592653589793",
-                      "3.141592653589793", "0.39269908169872414",
-                      "-0.39269908169872414", "6.283185307179586",
-                      "-6.283185307179586", "100.12345678901234",
-                      "-100.12345678901234", "pi/8", "pi/2", "0",
-                  ];
-                  let targets = [
-                      crate::rational::Rational::ZERO,
-                      crate::rational::Rational::HALF,
-                      crate::rational::Rational::QUARTER,
-                      crate::rational::Rational::THREE_QUARTERS,
-                  ];
-                  let tolerances = [0.0, 1e-20, 1e-16, 1e-12, 1e-10, 1e-8, 1e-4];
-                  for source in sources {
-                      let coeff = crate::rational::Angle::from_qasm_str(source)
-                          .unwrap().to_phase_coeff();
-                      for target in targets {
-                          for eps in tolerances {
-                              let bound = num_rational::BigRational::from_float(eps).unwrap();
-                              let original = (coeff.radians.is_some()
-                                  && phase_cycles_upper_target_with_pi(
-                                      &coeff, target, compact_pi_interval()) <= bound)
-                                  || phase_cycles_upper_target(&coeff, target) <= bound;
-                              let candidate = phase_cycles_within_tolerance(&coeff, target, &bound);
-                              assert_eq!(candidate, original,
-                                  "source={source} target={target:?} eps={eps}");
+              fn eligibility_matches_old_full_scan() {
+                  let vals = [Rational::ZERO, Rational::HALF, Rational::QUARTER,
+                      Rational::THREE_QUARTERS,
+                      Rational::new(250000001, 1000000000),
+                      Rational::new(500000001, 1000000000)];
+                  for tol in [0.0, 1e-10, 1e-8] {
+                      for single in std::iter::once(None).chain(vals.iter().copied().map(Some)) {
+                          for extra in std::iter::once(None).chain(vals.iter().copied().map(Some)) {
+                              let mut ps = PathSum::new(2);
+                              ps.rr_tolerance = tol;
+                              ps.v.path_vars.insert(2);
+                              if let Some(c) = single { ps.p.add_term(vec![2], PhaseCoeff::new_constant(c)); }
+                              if let Some(c) = extra { ps.p.add_term(vec![0,2], PhaseCoeff::new_constant(c)); }
+                              ps.p.add_term(vec![0], PhaseCoeff::QUARTER);
+                              assert_eq!(ps.check_omega_conditions(2), old_check(&ps,2),
+                                  "tol={tol}, single={single:?}, extra={extra:?}");
                           }
                       }
                   }
               }
           }
           '''
-          src = file.read_text()
-          assert "mod rr_integer_compact_candidate_tests" not in src
-          file.write_text(src + "\n" + unit)
-          print("candidate patched; native reference-equivalence unit test injected")
+          p.write_text(s + "\n" + unit)
           PY
           test "$(git -C candidate-src rev-parse HEAD)" = "$PR_SHA"
-          # Candidate delta may touch only the intended library source file.
-          test "$(git -C candidate-src diff --name-only)" = "rust/pathsum/src/lib.rs"
-          (cd candidate-src/rust && cargo test -p pathsum --lib rr_integer_compact_candidate_tests -- --nocapture)
+          test "$(git -C candidate-src diff --name-only)" = "rust/pathsum/src/reduction.rs"
+          (cd candidate-src/rust && cargo test -p pathsum --lib omega_singleton_candidate_tests)
+          (cd candidate-src/rust && cargo test -p pathsum --lib reduction::tests)
           (cd candidate-src/rust && cargo test -p pathsum --test exact_decimal_phases)
       - name: Build CodSpeed Simulation instrumentation for both revisions
         shell: bash

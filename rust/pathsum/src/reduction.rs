@@ -9,12 +9,64 @@ impl PathSum {
     /// Match a Clifford phase in cycles without rounding the source angle.
     /// The binary64 estimate is only a cheap rejection filter; acceptance
     /// always uses a certified rational interval for the original source.
+
+    /// Purely native round-to-nearest binary64 enclosure for the common
+    /// source-radian case; the source representation is not changed.
+    /// Each i64->f64 cast, rational division, PI constant, sum and nearest-
+    /// integer subtraction is bounded by the conservative accumulated error.
+    /// We only evaluate inputs whose exact integer numerator and denominator
+    /// are representable as i64. All other cases take the certified path.
+    /// The distance to the nearest integer is 1-Lipschitz, including wrap.
+    fn rr_fast_float_decision(
+        coeff: &PhaseCoeff, target: Rational, tolerance: f64,
+    ) -> Option<bool> {
+        use num_traits::ToPrimitive;
+        if tolerance <= 0.0 || !tolerance.is_finite() { return None; }
+        if !coeff.symbols.is_empty() { return Some(false); }
+
+        let radians = if let Some(r) = &coeff.radians {
+            let numer = r.numer().to_i64()?;
+            let denom = r.denom().to_i64()?;
+            if denom <= 0 { return None; }
+            (numer as f64 / denom as f64) / std::f64::consts::PI
+        } else {
+            0.0
+        };
+
+        let constant = coeff.constant.numer as f64 / coeff.constant.denom as f64;
+        let target_cycles = target.numer as f64 / target.denom as f64;
+        let delta = (constant + radians) - target_cycles;
+
+        // Avoid integer-spacing amplification and exceptional floating values.
+        if !delta.is_finite() || delta.abs() > 1e12 { return None; }
+        let distance = (delta - delta.round()).abs();
+        // 64*EPSILON comfortably encloses the rounding of two integer casts,
+        // division, pi, addition, subtraction and nearest-integer subtraction
+        // for finite i64 input fractions and bounded delta. Failure to
+        // separate the interval from the configured threshold is NOT a verdict.
+        let error = 64.0 * f64::EPSILON
+            * (1.0 + constant.abs() + radians.abs() + target_cycles.abs() + delta.abs());
+        if !error.is_finite() { return None; }
+        if distance + error < tolerance { return Some(true); }
+        if distance > tolerance + error { return Some(false); }
+        None
+    }
+
+    /// Match without rounding the original source. Numeric tolerance is the
+    /// policy; the arbitrary-precision pi interval is only a boundary fallback.
     fn rr_matches(&self, coeff: &PhaseCoeff, target: Rational) -> bool {
         if !coeff.symbols.is_empty() { return false; }
         if coeff.radians.is_none() && coeff.constant == target { return true; }
         if self.rr_tolerance == 0.0 { return false; }
 
-        // Avoid arbitrary-precision work for the common far-from-Clifford case.
+        if let Some(classified) =
+            Self::rr_fast_float_decision(coeff, target, self.rr_tolerance)
+        {
+            return classified;
+        }
+
+        // Unrepresentable inputs and any boundary overlap preserve the
+        // existing full-source certified decision exactly.
         let radians = coeff.radians.as_ref().and_then(num_traits::ToPrimitive::to_f64);
         if coeff.radians.is_none() || radians.is_some_and(f64::is_finite) {
             let cycles = coeff.constant.numer as f64 / coeff.constant.denom as f64
@@ -27,7 +79,6 @@ impl PathSum {
                 if distance > self.rr_tolerance + uncertainty { return false; }
             }
         }
-
         let Some(tolerance) = num_rational::BigRational::from_float(self.rr_tolerance) else {
             return false;
         };
@@ -345,6 +396,101 @@ mod tests {
         let mut ps = PathSum::new(num_qubits);
         ps.set_auto_reduce(false); 
         ps
+    }
+
+
+    #[test]
+    fn rr_fast_float_has_positive_negative_and_boundary_paths() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let below = PhaseCoeff {
+            constant: Rational::ZERO,
+            radians: Some(BigRational::new(BigInt::from(1), BigInt::from(1_000_000_000_000_i64))),
+            symbols: Default::default(),
+        };
+        let above = PhaseCoeff {
+            constant: Rational::ZERO,
+            radians: Some(BigRational::new(BigInt::from(1), BigInt::from(1_000_000_i64))),
+            symbols: Default::default(),
+        };
+        assert_eq!(PathSum::rr_fast_float_decision(&below, Rational::ZERO, 1e-10), Some(true));
+        assert_eq!(PathSum::rr_fast_float_decision(&above, Rational::ZERO, 1e-10), Some(false));
+        let borderline = PhaseCoeff {
+            constant: Rational::ZERO,
+            // 3.14159265e-10 radians, within <1e-17 cycles of threshold.
+            radians: Some(BigRational::new(
+                BigInt::from(314_159_265), BigInt::from(1_000_000_000_000_000_000_i64)
+            )),
+            symbols: Default::default(),
+        };
+        assert_eq!(PathSum::rr_fast_float_decision(&borderline, Rational::ZERO, 1e-10), None);
+    }
+
+    #[test]
+    fn rr_fast_float_matches_old_certified_clifford_decisions() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        // Compare against the pre-optimization public math predicate for a
+        // varied bounded corpus, including negative phase and wraparound.
+        let mut coefficients = vec![
+            PhaseCoeff::ZERO, PhaseCoeff::HALF,
+            PhaseCoeff::QUARTER, PhaseCoeff::THREE_QUARTERS,
+            PhaseCoeff::new_constant(Rational::new(1, 2_000_000_000)),
+            PhaseCoeff::new_constant(Rational::new(499_999_999, 1_000_000_000)),
+        ];
+        for (n, d) in [
+            (1_i64, 1_000_000_000_000_i64),
+            (-1, 1_000_000_000_000), (1, 1_000_000_000),
+            (31415926535897931, 10_000_000_000_000_000),
+            (-31415926535897931, 10_000_000_000_000_000),
+            (1_619_883_712_007_237, 1_000_000_000_000_000),
+            (-2_580_205_812_676_381, 1_000_000_000_000_000),
+            (1, 9_000_000_000_000_000_000),
+        ] {
+            for exact in [Rational::ZERO, Rational::HALF, Rational::QUARTER] {
+                coefficients.push(PhaseCoeff {
+                    constant: exact,
+                    radians: Some(BigRational::new(BigInt::from(n), BigInt::from(d))),
+                    symbols: Default::default(),
+                });
+            }
+        }
+        let targets = [Rational::ZERO, Rational::HALF,
+                       Rational::QUARTER, Rational::THREE_QUARTERS];
+        let mut tested = 0;
+        let mut fast_accept = 0;
+        let mut fast_reject = 0;
+        let mut slow_fallback = 0;
+        let mut ps = setup_test_env(1);
+        for coeff in &coefficients {
+            for &target in &targets {
+                for tol in [0_f64, 1e-3, 1e-6, 1e-8, 1e-10,
+                            1e-12, 1e-16, 1e-20, 1e-35] {
+                    ps.rr_tolerance = tol;
+                    let baseline = if !coeff.symbols.is_empty() {
+                        false
+                    } else if coeff.radians.is_none() && coeff.constant == target {
+                        true
+                    } else if tol == 0.0 {
+                        false
+                    } else {
+                        crate::phase_cycles_within_tolerance(
+                            coeff, target,
+                            &BigRational::from_float(tol).unwrap(),
+                        )
+                    };
+                    let candidate = ps.rr_matches(coeff, target);
+                    assert_eq!(candidate, baseline,
+                        "source={:?} target={:?} tol={:?}", coeff, target, tol);
+                    if let Some(fast) = PathSum::rr_fast_float_decision(coeff, target, tol) {
+                        if fast { fast_accept += 1; } else { fast_reject += 1; }
+                    } else { slow_fallback += 1; }
+                    tested += 1;
+                }
+            }
+        }
+        eprintln!("RR_FAST_PATH_COVERAGE total={tested} accepted={fast_accept} rejected={fast_reject} fallback={slow_fallback}");
+        assert!(fast_accept > 20 && fast_reject > 20 && slow_fallback > 20);
     }
 
     #[test]

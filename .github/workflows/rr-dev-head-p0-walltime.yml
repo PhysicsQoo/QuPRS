@@ -264,7 +264,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          /tmp/hybrid-dev/bin/python - <<'PY'
+          # Validate the *current PR* Python/Rust contract; legacy dev
+          # predates the per-call tolerance semantics and is a timing baseline.
+          /tmp/hybrid-head/bin/python - <<'PY'
           import tempfile
           from pathlib import Path
           from QuPRS import check_equivalence

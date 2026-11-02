@@ -1,0 +1,8 @@
+TACAS'26 full 101 modern real-Solver SCIENCE collection; research branch only.
+Source: original QuPRS v0.9.1 e928abc47dd15926364ec77905eb0d5dc92ce8cc, authoritative 101 GPMC-printed source records (45 EQ, 56 NEQ).
+Modern candidate: approximate_distance_tolerance=2e-5; rr_tolerance=1e-10; phase_tolerance=1e-8; GPMC 30 digits. Two current backends: Rust and Python.
+24 shards / backend, 48 bounded jobs. Exact research HEAD and QASM SHA pinned. Internal scientific solver timeout 200 seconds and external watchdog 215 seconds.
+Preserve source verdict, true modern binary verdict, actual solver stage and precision warnings. Python branch also stores raw GPMC complex stdout and exact-rational printed-value threshold margin.
+Do NOT claim Solver-arithmetic certification merely from MPFR digits, exact printed math, or CodSpeed; certified_solver_error_bound is ABSENT until rigorously established.
+Any timeout / missing output is CENSORED, not evidence of NEQ and not a successful match.
+No formal PR #131 change. No arbitrary walltime benchmark; CodSpeed only if future performance study requested.

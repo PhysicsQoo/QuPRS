@@ -35,6 +35,19 @@ def test_full_historical_numeric_corpus_sweep(tmp_path):
                                  ("1e-4",101,96)]:
         observed=by_key[(epsilon,"1e-8")]
         assert (observed["binary_match"],observed["exact_match"])==(match,exact)
+    assert report["primary_acceptance_metric"]=="BINARY_EQUIVALENT_VS_NOT_EQUIVALENT"
+    assert report["binary_candidate"]=={
+        "approximate_distance_tolerance":"2e-5",
+        "matched":101,"total":101,"mismatched_case_ids":[],
+        "phase_tolerance_independent":True,
+        "scope":"SAME_historical_GPMC_printed_counts_NOT_new_v014_solver_execution"
+    }
+    assert report["binary_compatibility_window"]["lower_bound_inclusive"] is True
+    assert report["binary_compatibility_window"]["upper_bound_exclusive"] is True
+    for eps in ("1e-8","2e-5","1e-4"):
+        assert len({by_key[(eps,p)]["binary_match"] for p in ("1e-15","1e-12","1e-10","1e-8")})==1
+    assert sum(x["candidate_binary_matches"] is True for x in report["cases"]
+               if x.get("candidate_binary_matches") is not None)==101
     assert report["phase_infeasibility"]["single_phase_tolerance_possible"] is False
     assert report["max_accepted_distance"]["id"]=="table2:qpeinexact24:positive:hybrid"
     assert report["min_rejected_distance"]["id"]=="table3_negative:qaoa11:negative:hybrid"
@@ -44,3 +57,15 @@ def test_full_historical_numeric_corpus_sweep(tmp_path):
     assert len((tmp_path/"sweep.csv").read_text().splitlines())==1+len(report["sweep"])
     snapshot=json.loads((tmp_path/"report.json").read_text())
     assert snapshot["source_sha"]=="e928abc47dd15926364ec77905eb0d5dc92ce8cc"
+
+
+def test_phase_type_cannot_turn_accepted_equivalence_into_not_equivalent():
+    from scripts.tacas26_tolerance_replay import binary_label, predict
+    defect=Fraction(0)
+    for phase in (0.0,0.1,3.141592653589793):
+        for phase_eps in ("1e-16","1e-8","1e-3"):
+            decision=predict(defect,phase,"2e-5",phase_eps)
+            assert binary_label(decision)=="EQUIVALENT"
+    for decision in ("equivalent","equivalent*"):
+        assert binary_label(decision)=="EQUIVALENT"
+    assert binary_label("not_equivalent")=="NOT_EQUIVALENT"

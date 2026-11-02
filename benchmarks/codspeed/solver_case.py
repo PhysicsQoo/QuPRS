@@ -12,16 +12,19 @@ from QuPRS import check_equivalence
 
 
 def main() -> None:
-    if len(sys.argv) not in (7, 8):
+    if len(sys.argv) not in (7, 8, 9):
         raise SystemExit(
             "usage: solver_case.py FIXTURE_ROOT FILENAME STRATEGY SOLVER "
-            "BACKEND REVERSE [transpiled|random_rotation]"
+            "BACKEND REVERSE [transpiled|random_rotation] [hybrid|wmc_only|reduction_rules]"
         )
 
     fixture_root = Path(sys.argv[1])
     filename, strategy, solver, backend = sys.argv[2:6]
     reverse = sys.argv[6] == "1"
-    pair_variant = sys.argv[7] if len(sys.argv) == 8 else "transpiled"
+    pair_variant = sys.argv[7] if len(sys.argv) >= 8 else "transpiled"
+    method = sys.argv[8] if len(sys.argv) == 9 else "hybrid"
+    if method not in {"hybrid", "wmc_only", "reduction_rules"}:
+        raise ValueError(f"Unsupported diagnostic method: {method}")
     if pair_variant not in {"transpiled", "random_rotation"}:
         raise ValueError(f"Unsupported benchmark pair variant: {pair_variant}")
     counterpart = ("Random_Rotation" if pair_variant == "random_rotation"
@@ -34,7 +37,7 @@ def main() -> None:
         raise FileNotFoundError(f"missing benchmark fixtures: {first}, {second}")
 
     result = check_equivalence(
-        str(first), str(second), method="hybrid",
+        str(first), str(second), method=method,
         strategy=strategy, tool_name=solver, backend=backend,
         # Simulation under Valgrind can slow child Solver work dramatically.
         # Both versions use the same bounded experiment-specific override.
@@ -50,6 +53,8 @@ def main() -> None:
         "verdict": str(result.equivalent),
         "solver_invoked": bool(invoked),
         "solver": solver,
+        "method": method,
+        "pair_variant": pair_variant,
         "rr_approximate": getattr(result, "rr_approximate", None),
         # Diagnostic only; these fields come from the already-executed
         # verifier request, so no additional Solver call is made.

@@ -678,6 +678,115 @@ jobs:
           retention-days: 14
 
 
+
+  qpe20-science:
+    name: P0 QPE20 independent source and Python/Rust science (opt-in)
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-qpe20-science -->') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BINARY_DIR: src/QuPRS/utils
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build exact source for diagnostic only
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pytest test/test_paper_gap_diagnostic_contract.py -q
+      - name: Independent 20q source-state probes and bounded QuPRS semantic checks
+        run: |
+          python scripts/diagnose_qpe20_source.py \
+            --fixture-root "$GITHUB_WORKSPACE" --sha "$HEAD_SHA" \
+            --output "$RUNNER_TEMP/qpe20-source-diagnostic.json"
+      - name: Preserve P0 science evidence regardless of HOLD
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-qpe20-science-hold
+          path: ${{ runner.temp }}/qpe20-source-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  paper-gap-repeatability:
+    name: P1 five-case five-round CodSpeed WallTime (opt-in)
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-paper-gap-repeatability -->') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BINARY_DIR: src/QuPRS/utils
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/paper-gap-repeatability-codspeed.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build exact source and preflight selection
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pytest test/test_paper_gap_diagnostic_contract.py -q
+          python -m pytest benchmarks/codspeed/test_paper_gap_repeatability.py -q --collect-only
+      - name: CodSpeed five measured rounds
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest benchmarks/codspeed/test_paper_gap_repeatability.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=200
+      - name: Audit rounds and per-invocation scientific stage
+        run: |
+          set -euo pipefail
+          python scripts/report_paper_gap_repeatability.py \
+            --measurements "$QUPRS_CODSPEED_EXPORT" \
+            --science "$RUNNER_TEMP/paper-gap-repeatability-science.jsonl" \
+            --sha "$HEAD_SHA" --output "$RUNNER_TEMP/paper-gap-repeatability-report.json"
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family stage-repeatability --instrument walltime \
+            --measurement "$QUPRS_CODSPEED_EXPORT" --output "$RUNNER_TEMP/manifest.json"
+      - name: Preserve P1 CodSpeed and source-stage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-paper-gap-five-round
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/paper-gap-repeatability-science.jsonl
+            ${{ runner.temp }}/paper-gap-repeatability-report.json
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
   stage-repeatability:
     name: Same-SHA 4-case RR-vs-GPMC CodSpeed repeatability (one-shot)
     if: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-repeatability -->') }}

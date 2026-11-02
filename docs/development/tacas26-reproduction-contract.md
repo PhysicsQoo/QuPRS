@@ -2,6 +2,31 @@
 
 Status: **scientific acceptance requirement, NOT YET CERTIFIED**.
 
+## Scope locked: QuPRS only (user decision, 2026-11-02)
+
+**Reproduce QuPRS and only QuPRS.** Use the immutable official TACAS
+artifact's scripts, QASM pairs, QuPRS v0.9.1 source and bundled GPMC,
+`Hybrid` / `wmc_only` / `reduction_rules` semantics,
+`Proportional` strategy, 200-second verification timeout, and the
+artifact's derivation of the published RR column from the same Hybrid run.
+
+**Out of scope; do not execute, install solely for benchmarking, or require
+any results from** QCEC, Quokka-sharp, PyZX, or Feynver, even though the
+submitted artifact launches them in its broader comparison scripts.
+No cross-tool speedup claim or competitor-result reproduction is a gate.
+
+The target is **184 direct QuPRS invocations and 37 derived positive RR cells**
+(221 QuPRS result cells), with the documented Table 2/3/Figure 3 paper-view
+subset clearly distinguished from additional artifact-script cases. The
+original-GPMC solver used by QuPRS is an *internal dependency*, not an
+independent competitor experiment. Keep already captured exploratory
+independent RR-only results as `ADDITIONAL_METHOD_CONTROL`, never replace
+the paper's derived RR result with them. Remaining formal performance
+comparisons must use CodSpeed; this historical source-verdict run is
+scientific reproducibility only.
+
+
+
 A reproducer must explicitly distinguish an archived-paper verdict from a new
 scientific claim. Reproducing the published label is necessary but is not, by
 itself, evidence that two independently truncated source QASM files are
@@ -232,7 +257,7 @@ rather than treating the exploratory 187-ID registry as the exact paper executio
   original-script coverage.
 - The MQT scripts additionally enable qcec, quokka_sharp, and, for positive
   MQT, pyzx. Reproducing *every comparison tool* in the paper is a separate
-  lane and cannot be inferred from QuPRS-only validation.
+  lane in the official artifact, **explicitly excluded by project scope**.
 
 Hence the original three scripts imply **184 direct QuPRS executions**
 (\`37 * (Hybrid + WMC)\` positive, \`37 * (Hybrid + WMC)\` negative, and
@@ -271,8 +296,8 @@ Migration actions:
    provenance in the registry and reports, without changing historical
    stored artifact IDs.
 2. Build the full 36-Feynman list from the immutable v0.9.1 checkout;
-   pin input bytes, distinguish separately supplied Feynman comparator
-   outputs, and add WState32 positive WMC.
+   pin input bytes, and add WState32 positive WMC. Do not execute
+   or gate on Feynver or other non-QuPRS results.
 3. Make independent RR-only an opt-in *modern-method comparison*, never
    the historical RR-column oracle. Preserve stage outputs from the real
    original Hybrid invocation and re-derive RR exactly as the official script.

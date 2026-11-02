@@ -179,3 +179,28 @@ CodSpeed Simulation shards. Some historical WMC-only examples deliberately
 require the full 200-second timeout, and source-run observation is not a
 performance benchmark. Launch the expensive continuation only after
 confirming full Hybrid evidence is intact and source/paper version checks pass.
+
+
+## Dedicated experiment branch, separate from release PR #131
+
+Research lives on `experiment/tacas26-paper-reproduction`, **not** the
+`feat/per-call-tolerance-api` branch. The latter was restored to
+`af002f35815c8ee90bda0d7c2c5821ba8a43dcf9` with a
+checked force-with-lease update *only after* retaining all eight TACAS
+research commits on the dedicated experiment ref.
+
+The standalone `.github/workflows/tacas26-research.yml` performs
+quick Python syntax and 187-row source/schema audits **only** on commits
+to the research branch. Full 200-second historical Solver invocations
+are **not** automatically launched by every research push. Any future
+expensive cohorts require explicit bounded opt-in activation and
+per-shard evidence. Existing archived Actions runs and artifact IDs remain
+as immutable historical evidence even after PR HEAD cleanup.
+
+2026-11-02 investigation: all sixteen previously triggered non-Hybrid
+shards failed before Solver execution, during `pytest` collection,
+because `scripts/tacas26_compare_paper.py` contained an invalid
+multi-line `elif ... and obs.get("verdict") in` expression. This is
+research report-parser syntax, not 109 measured quantum-verdict failures.
+Fix only on this experiment branch, then revalidate the paper oracle
+before any repeat of 109 expensive original-GPMC cases.

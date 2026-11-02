@@ -84,8 +84,9 @@ def compare(root, artifacts):
                    ("unknown","Timeout","MemoryOut") else "REVIEW_PUBLISHED_FAILURE")
         elif obs.get("verdict")==want:
             label="MATCH"
-        elif want in ("Timeout","MemoryOut") and obs.get("verdict") in
-                 ("equivalent","equivalent*","not_equivalent","Timeout","MemoryOut"):
+        elif (want in ("Timeout","MemoryOut")
+              and obs.get("verdict") in (
+                  "equivalent","equivalent*","not_equivalent","Timeout","MemoryOut")):
             label="RESOURCE_LIMIT_DIFFERENCE"
         else:
             label="VERDICT_MISMATCH"

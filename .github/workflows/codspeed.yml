@@ -65,7 +65,7 @@ jobs:
     env:
       BINARY_DIR: src/QuPRS/utils
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      QUPRS_CODSPEED_EXPORT: ${{ runner.temp }}/simulation-${{ matrix.shard_id }}.json
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/simulation-${{ matrix.shard_id }}.json
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
@@ -132,7 +132,7 @@ jobs:
         with:
           name: quprs-sha-simulation-${{ matrix.shard_id }}
           path: |
-            ${{ runner.temp }}/simulation-${{ matrix.shard_id }}.json
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
             ${{ runner.temp }}/manifest.json
           if-no-files-found: error
           retention-days: 14
@@ -150,14 +150,14 @@ jobs:
       - name: Checkout PR HEAD with benchmark harness
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
 
       - name: Checkout exact PR base on the SAME runner
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
           submodules: recursive
           persist-credentials: false
           path: pr-walltime-base
@@ -347,7 +347,7 @@ jobs:
     timeout-minutes: 45
     env:
       HEAD_SHA: ${{ github.sha }}
-      QUPRS_CODSPEED_EXPORT: ${{ runner.temp }}/solver-cpu.json
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/solver-cpu.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -381,7 +381,7 @@ jobs:
         with:
           name: quprs-sha-solver-cpu
           path: |
-            ${{ runner.temp }}/solver-cpu.json
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
             ${{ runner.temp }}/manifest.json
           if-no-files-found: error
           retention-days: 14
@@ -471,7 +471,7 @@ jobs:
     env:
       HEAD_SHA: ${{ github.sha }}
       BASE_SHA: ${{ inputs.base_sha }}
-      QUPRS_CODSPEED_EXPORT: ${{ runner.temp }}/cross-method-${{ matrix.mode }}.json
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/cross-method-${{ matrix.mode }}.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -521,7 +521,7 @@ jobs:
         with:
           name: quprs-sha-cross-method-${{ matrix.mode }}
           path: |
-            ${{ runner.temp }}/cross-method-${{ matrix.mode }}.json
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
             ${{ runner.temp }}/manifest.json
           if-no-files-found: error
           retention-days: 14

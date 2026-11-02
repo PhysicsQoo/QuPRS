@@ -8,3 +8,5 @@ Timing-column archive upgrade: insert separately labeled TACAS paper Hybrid refe
 Final timing provenance refresh: native stage fields are unavailable in 2026-11-02 source evidence (0/184); reference Hybrid paper seconds 46/74; distinguish 4 watchdog-censored records from a missing result. No solver execution.
 
 Rebuild frozen original QuPRS v0.9.1 evidence without running Solver: add GPMC -mode=1 printed complex WMC values, source float64 parse, original phase/log, and per-case precision provenance into Git-tracked wmc-evidence.csv/json. Preserve 184 source identities and 37 RR-derived cells.
+
+Offline v0.14 tolerance calibration archive: reuse frozen 101 historical GPMC numeric cases, compute exact rational normalized magnitude squared and modern wrapped phase; store 184-row cases.csv, 32-scenario sweep.csv and report.json/readme under tolerance-offline-v0140. Preserve original result files and never execute Solver or CodSpeed. Historical 3-way labels may be irreconcilable due to phase wrapping.

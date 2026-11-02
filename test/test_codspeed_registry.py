@@ -32,7 +32,8 @@ def test_shared_registry_stable_7_plus_7_and_cross_case_ids():
     assert len(CROSS_METHOD_CASES) == 24
     assert len(CROSS_METHOD_CPU_IDS) == 4
     assert len(PYTHON_CORE_CASE_IDS) == 5
-    assert len(NATIVE_IDS) == 22
+    assert len(NATIVE_IDS) == 25
+    assert {"rr_elim_direct", "rr_hh_direct", "rr_omega_direct"}.issubset(set(NATIVE_IDS))
     assert len(REPEATABILITY_CASES) == 4
     assert {case.id for case in REPEATABILITY_CASES} == set(REPEATABILITY_EXPECTATIONS)
     assert set(CROSS_METHOD_CPU_IDS).issubset({case[0] for case in CROSS_METHOD_CASES})

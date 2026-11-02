@@ -22,6 +22,7 @@ NATIVE_IDS = (
     "wmc_trace_mpfr192_repeated",
     "wmc_trace_mpfr192_unique",
     "wmc_dimacs_mpfr96_unique",
+    "rr_elim_direct", "rr_hh_direct", "rr_omega_direct",
 )
 
 LEGACY_CASE_COUNT = 32

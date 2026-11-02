@@ -325,3 +325,19 @@ stable runner and enough blocks; until then `NOT_CERTIFIED`.
 No walltime is measured with Python clocks, and no CPU/WallTime
 arithmetic is used. Remove the one-shot marker only after the
 experiment is terminal and evidence saved.
+
+## P3 final native RR rule-specific CPU isolation
+
+The native core registry preserves its original 22 IDs and adds **exactly
+three** separately named Rust reduction-rule attempts: `rr_elim_direct`,
+`rr_hh_direct`, `rr_omega_direct`. Divan `Bencher::with_inputs`
+generates the complete, reduction-ready PathSum and candidate list outside
+the measured span. Each timed closure calls only the selected concrete
+`try_reduce_elim`, `try_reduce_hh`, or `try_reduce_omega` (plus
+mandatory outcome check), not the whole gate-construction pipeline.
+The existing `rr_hh_pipeline` and `rr_nonclifford_pipeline` remain
+untouched and separately interpretable. Native total becomes 25; original
+32 Python benchmark IDs, 5 shards, 7 paired Solver-inclusive cases,
+and 5 Python-core identities remain unchanged. The new Rust IDs have no
+historical base; do not call their first CodSpeed results a speedup or
+compare them with differently scoped pipeline CPU times.

@@ -261,3 +261,52 @@ fn wmc_dimacs_mpfr96_unique() {
         .expect("source-aligned precise GPMC encoding");
     divan::black_box(dimacs);
 }
+
+
+//// P3: Isolated native reduction-rule attempts. Divan creates each PathSum
+//// outside the timed span; only the requested rule attempt is measured.
+//// The existing RR pipeline benchmarks remain separate whole-workload tests.
+#[divan::bench]
+fn rr_elim_direct(bencher: divan::Bencher) {
+    bencher.with_inputs(|| {
+        let mut ps = PathSum::new(1);
+        ps.set_auto_reduce(false);
+        let y = 999u32;
+        ps.v.path_vars.insert(y);
+        (ps, vec![y])
+    }).bench_values(|(mut ps, vars)| {
+        assert!(ps.try_reduce_elim(divan::black_box(&vars)));
+        divan::black_box(ps)
+    });
+}
+
+#[divan::bench]
+fn rr_hh_direct(bencher: divan::Bencher) {
+    bencher.with_inputs(|| {
+        let mut ps = PathSum::new(1);
+        ps.set_auto_reduce(false);
+        ps.apply_h(0, Side::Ket);
+        ps.apply_h(0, Side::Ket);
+        let vars = ps.get_reducible_vars();
+        (ps, vars)
+    }).bench_values(|(mut ps, vars)| {
+        assert!(ps.try_reduce_hh(divan::black_box(&vars)));
+        divan::black_box(ps)
+    });
+}
+
+#[divan::bench]
+fn rr_omega_direct(bencher: divan::Bencher) {
+    bencher.with_inputs(|| {
+        let mut ps = PathSum::new(1);
+        ps.set_auto_reduce(false);
+        ps.apply_h(0, Side::Ket);
+        ps.apply_s(0, Side::Ket);
+        ps.apply_h(0, Side::Ket);
+        let vars = ps.get_reducible_vars();
+        (ps, vars)
+    }).bench_values(|(mut ps, vars)| {
+        assert!(ps.try_reduce_omega(divan::black_box(&vars)));
+        divan::black_box(ps)
+    });
+}

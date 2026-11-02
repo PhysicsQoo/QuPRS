@@ -12,6 +12,10 @@ import argparse
 import json
 import math
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchmarks.codspeed.case_registry import NATIVE_IDS
 
 
 def join(evidence: dict, remote: dict) -> dict:
@@ -66,14 +70,36 @@ def join(evidence: dict, remote: dict) -> dict:
             },
             "warning": "CPU modeled cycles and real WallTime cannot be subtracted",
         })
+    # Source exact native coverage is separate from the original 32 and
+    # the three common CPU/WallTime cases. Rust microbench CPU numbers are
+    # only available in the authorized CodSpeed service's measured run.
+    native_core = []
+    for native_id in NATIVE_IDS:
+        uri = f"benches/core.rs::{native_id}"
+        row = lookup.get(("Simulation", uri))
+        native_core.append({
+            "identity": native_id, "uri": uri,
+            "status": "NUMERIC_AVAILABLE" if row else "MISSING_NUMERIC",
+            "measurement": ({
+                "run_id": row["run_id"], "value": row["value"],
+                "unit": row["unit"], "cpu_model": row["cpu_model"],
+            } if row else None),
+        })
     return {
         "schema": "quprs-same-sha-numeric-v3",
         "sha": sha,
         "cases": joined,
+        "native_core": native_core,
+        "native_core_expected_count": len(NATIVE_IDS),
+        "native_core_missing_numeric": sum(x["measurement"] is None for x in native_core),
         "missing_numeric": sum(row["status"] == "MISSING_NUMERIC" for row in joined),
         "numerical_cross_validation_complete": bool(joined) and all(
-            row["numeric_cpu"] is not None for row in joined),
+            row["numeric_cpu"] is not None for row in joined)
+            and all(row["measurement"] is not None for row in native_core),
         "performance_certified": False,
+        "external_source_status": ("PARTIALLY_MISSING" if any(
+            row["measurement"] is None for row in native_core
+        ) else "EXACT_SHA_NUMERIC_RECEIVED"),
         "source": "CodSpeed platform numeric export REQUIRED, GitHub identity JSON insufficient",
     }
 

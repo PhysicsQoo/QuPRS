@@ -250,6 +250,15 @@ jobs:
             --json paired-walltime-report.json \
             --summary "$GITHUB_STEP_SUMMARY"
 
+      - name: P5 non-certifying CodSpeed WallTime sampling audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_codspeed_variance_gate.py \
+            --paired-report paired-walltime-report.json \
+            --output paired-walltime-sampling.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+
       - name: Upload pinned dependency provenance
         if: always()
         uses: actions/upload-artifact@v4
@@ -263,6 +272,7 @@ jobs:
             ${{ runner.temp }}/quprs-source-oracle.json
             paired-walltime-report.md
             paired-walltime-report.json
+            paired-walltime-sampling.json
           if-no-files-found: ignore
           retention-days: 14
 
@@ -296,7 +306,7 @@ jobs:
         with:
           mode: simulation
           run: cd benchmarks/rust_core && cargo codspeed run
-      - name: Record exact native source and expected 11 IDs
+      - name: Record exact native source and expected versioned identities
         run: |
           python scripts/write_codspeed_sha_manifest.py \
             --sha "$HEAD_SHA" --family rust-core --instrument simulation \

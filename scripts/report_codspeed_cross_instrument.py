@@ -151,7 +151,7 @@ def produce(folder, sha, base_sha, *, require_solver_cpu=False, require_memory=F
     sim = validate_simulation(folder, sha)
     native = load_provenance(folder, "rust-core", expected_sha=sha, mode="simulation")[0]
     if len(native.get("expected_ids", [])) != NATIVE_CASES:
-        raise ValueError("native Rust core must preserve its original 11 identities")
+        raise ValueError("native Rust core IDs must equal its versioned manifest inventory")
     if require_memory:
         load_provenance(folder, "rust-core", expected_sha=sha, mode="memory")
     if require_python_core:
@@ -220,7 +220,7 @@ def main():
         "## CodSpeed same-SHA cross-instrument v2",
         f"- HEAD: \`{a.head_sha}\`; base: \`{a.base_sha or '(baseline only)'}\`",
         "- Canonical: 32/32 original CPU Simulation IDs across five shards",
-        "- Native Rust: 11 benchmark identities uploaded; numeric metrics only in CodSpeed",
+        f"- Native Rust: {result['native_core_expected_count']} benchmark identities uploaded; numeric metrics only in CodSpeed",
         f"- Solver-inclusive: {result['walltime_paired_cases']} paired workloads, 2 revisions each",
         f"- Scientific status: **{result['scientific_status']}** (independent of CI collection)",
         "- Performance certified: **NO** (shared runner variance and external metrics)",

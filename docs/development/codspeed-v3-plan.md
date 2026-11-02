@@ -139,3 +139,69 @@ One hosted runner, five CodSpeed rounds, and a non-Macro Runner warning
 provide **variance screening**, not certified performance acceptance.
 Do not use source-operator complex128 numerical consistency to mark the
 external Solver's printed-count arithmetic precision certified.
+
+## P3 — direct native WMC input boundary measurements (added)
+
+The native `benchmarks/rust_core/benches/core.rs` now includes eight
+**distinctly named, solver-free** WMC/MPFR/CNF microbenchmarks. These
+complement, rather than rename, the existing 14 Rust CPU tests; native
+source registry now has 22 identities. The original canonical 32/five
+Simulation shards and seven paired Solver WallTime identities are unchanged.
+
+A fixed eight-term `PathSum` uses the same eight unique Boolean monomials
+and identical output functions in both repeated and unique decimal
+source-phase cases. The input-phase fixture, exact decimal parsing and
+one prepared MPFR manager are initialized through `OnceLock` outside
+the measured spans. The following measurements intentionally separate:
+- `wmc_trace_cnf_unweighted`: unweighted encode_trace and CNF generation
+- `wmc_trace_f64_repeated` / `wmc_trace_f64_unique`: f64-boundary
+  phase-weight generation and CNF encoding
+- `wmc_trace_mpfr96_repeated` / `_unique`: source-exact 96-bit
+  MPFR weight generation and CNF encoding
+- `wmc_trace_mpfr192_repeated` / `_unique`: deliberately tighter
+  192-bit request, not a default policy
+- `wmc_dimacs_mpfr96_unique`: serialization of a pre-encoded CNF,
+  excluding `encode_trace` and MPFR weight generation from the timed call.
+
+These are synthetic microfixtures with identical CNF shape per phase
+category; results reveal hotpath and repeated source-angle opportunities,
+but are not full-circuit throughput or GPMC arithmetic certification.
+The shipping Rust algorithm, MPFR precision-selection policy and external
+solvers are unchanged. Only CodSpeed is the accepted timing instrument.
+
+## P4/P5 — sourced metric coverage and a non-certifying variance report
+
+The same-SHA external CodSpeed numeric importer checks both the three
+CPU Simulation / Solver-inclusive WallTime overlapping sources and **all
+22 native Rust IDs**. It refuses cross-SHA, unverified/carry-forward,
+duplicate, missing model/unit or invalid numeric measurements, and
+retains a separate MISSING_NUMERIC row for every unfetched native ID.
+The service has not provided a supported automated read API credential
+to the GitHub workflow; the importer remains explicit-input, not a
+fabricated build log CPU metric or an automatic GO.
+
+The paired seven-case Solver-inclusive WallTime report now also
+preserves **both CodSpeed round counts, mean, median, stdev and CV**
+separately for base and HEAD. It does NOT alter the historical min
+delta in existing reports. A new `report_codspeed_variance_gate.py`
+runs **after** the CodSpeed measurement and semantic auditor,
+emits `paired-walltime-sampling.json`, and appends a per-case
+sampling table to the GitHub summary.
+
+This P5 report is deliberately non-certifying:
+- No universal performance regression percent is set without real
+  same-case repeated A/B and stable cohort data.
+- A raw median ratio is exploratory; neither summary stats nor an
+  unpaired coefficient-of-variation estimate is a valid matched
+  confidence interval.
+- A verdict mismatch, stage change, timeout or unqualified external
+  arithmetic error blocks comparability; numerical values remain
+  diagnostic, not replaced with the timeout cap.
+- Hosted non-Macro Runner experiments remain NOT_CERTIFIED even if
+  the 3 measured rounds are stable. Only CodSpeed supplies timing.
+- Preserve actual QASM and method/solver/backend/tolerance/precision
+  identity, and arrange counterbalanced A/B blocks before a formal
+  performance gate.
+
+Existing seven paired WallTime identities and canonical 32/five shards
+are unchanged. Performance GO/NO-GO calibration remains QOO-165.

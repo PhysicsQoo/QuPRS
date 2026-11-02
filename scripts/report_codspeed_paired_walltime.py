@@ -180,6 +180,21 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
                 warning.append(f"{kind} relative stdev exceeds 5%")
         outcome.append({
             "case": case, "base_min_ms": b_ms, "head_min_ms": h_ms,
+            "base_mean_ms": bt["mean_ns"] / 1e6,
+            "head_mean_ms": ht["mean_ns"] / 1e6,
+            "base_std_ms": bt["stdev_ns"] / 1e6,
+            "head_std_ms": ht["stdev_ns"] / 1e6,
+            "base_cv": bt["stdev_ns"] / bt["mean_ns"],
+            "head_cv": ht["stdev_ns"] / ht["mean_ns"],
+            "base_rounds": bt["rounds"], "head_rounds": ht["rounds"],
+            "median_change_percent": (
+                100 * (ht["median_ns"] / bt["median_ns"] - 1)
+                if same_semantics else None
+            ),
+            "sampling_scope": (
+                "same-runner CodSpeed WallTime summary, no per-round paired samples"
+            ),
+
             "change_percent": delta,
             "performance_comparable": same_semantics,
             "base_median_ms": bt["median_ns"] / 1e6,

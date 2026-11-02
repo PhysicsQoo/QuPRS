@@ -2,6 +2,7 @@
 //! pytest benchmark identities. No Python/PyO3 or GPMC/Ganak subprocess calls.
 use std::sync::OnceLock;
 use std::collections::HashMap;
+use pathsum::wmc::WmcManager;
 use pathsum::{check_equivalence_with_options, PathSum, PhaseCoeff, Rational,
               VerificationMethod, VerificationOptions, VerificationStrategy};
 use pathsum::gates::{QuantumGates, Side};
@@ -28,9 +29,44 @@ fn symbolic() -> &'static PhaseCoeff {
     SYMBOLIC.get_or_init(|| PhaseCoeff::new_symbolic(7, FreeRational::HALF))
 }
 
+// Fixed source-phase fixtures are constructed once, outside all CodSpeed
+// measured spans. The eight *distinct monomials* ensure repeated and unique
+// source coefficients exercise exactly the same Boolean CNF topology.
+static WMC_REPEAT: OnceLock<PathSum> = OnceLock::new();
+static WMC_UNIQUE: OnceLock<PathSum> = OnceLock::new();
+static WMC_PREENCODED: OnceLock<WmcManager> = OnceLock::new();
+
+fn wmc_fixture(repeated: bool) -> &'static PathSum {
+    let slot = if repeated { &WMC_REPEAT } else { &WMC_UNIQUE };
+    slot.get_or_init(|| {
+        let mut ps = PathSum::new(8);
+        ps.set_auto_reduce(false);
+        for index in 0..8 {
+            let coeff = if repeated {
+                decimal().clone()
+            } else {
+                unique_decimals()[index].clone()
+            };
+            ps.p.add_term(vec![index as u32], coeff);
+        }
+        assert_eq!(ps.p.terms.len(), 8);
+        ps
+    })
+}
+
+fn preencoded_mpfr96() -> &'static WmcManager {
+    WMC_PREENCODED.get_or_init(|| {
+        let mut cnf = WmcManager::new(wmc_fixture(false));
+        cnf.enable_precise_gpmc_weights(96);
+        cnf.encode_trace(wmc_fixture(false)).expect("pre-encode valid source");
+        cnf
+    })
+}
+
 fn main() {
     // Make decimal source parsing and fixture construction explicitly untimed.
-    let _ = (decimal(), symbolic(), unique_decimals());
+    let _ = (decimal(), symbolic(), unique_decimals(),
+             wmc_fixture(true), wmc_fixture(false), preencoded_mpfr96());
     divan::main();
 }
 
@@ -146,4 +182,82 @@ fn phase_decimal_hash_mixed() {
         map.insert(divan::black_box(phase.clone()), i);
     }
     divan::black_box(map);
+}
+
+
+// Native WMC/CNF source processing only. Every function does exactly one
+// encode_trace; no external GPMC process, subprocess, Python or PyO3 code.
+// 96-bit is a relevant fine-distance precision example, whereas 192-bit
+// measures a deliberately tighter precision request; neither is forced as a
+// blanket default. These do NOT claim MPFR-to-Solver error certification.
+#[divan::bench]
+fn wmc_trace_cnf_unweighted() {
+    let ps = wmc_fixture(false);
+    let mut no_phase = PathSum::new(ps.v.num_qubits);
+    no_phase.set_auto_reduce(false);
+    let mut cnf = WmcManager::new(&no_phase);
+    cnf.encode_trace(&no_phase).expect("unweighted encoding");
+    divan::black_box(cnf);
+}
+
+#[divan::bench]
+fn wmc_trace_f64_repeated() {
+    let ps = wmc_fixture(true);
+    let mut cnf = WmcManager::new(ps);
+    cnf.encode_trace(ps).expect("f64 repeated source weights");
+    divan::black_box(cnf);
+}
+
+#[divan::bench]
+fn wmc_trace_f64_unique() {
+    let ps = wmc_fixture(false);
+    let mut cnf = WmcManager::new(ps);
+    cnf.encode_trace(ps).expect("f64 unique source weights");
+    divan::black_box(cnf);
+}
+
+#[divan::bench]
+fn wmc_trace_mpfr96_repeated() {
+    let ps = wmc_fixture(true);
+    let mut cnf = WmcManager::new(ps);
+    cnf.enable_precise_gpmc_weights(96);
+    cnf.encode_trace(ps).expect("MPFR96 repeated source weights");
+    divan::black_box(cnf);
+}
+
+#[divan::bench]
+fn wmc_trace_mpfr96_unique() {
+    let ps = wmc_fixture(false);
+    let mut cnf = WmcManager::new(ps);
+    cnf.enable_precise_gpmc_weights(96);
+    cnf.encode_trace(ps).expect("MPFR96 unique source weights");
+    divan::black_box(cnf);
+}
+
+#[divan::bench]
+fn wmc_trace_mpfr192_repeated() {
+    let ps = wmc_fixture(true);
+    let mut cnf = WmcManager::new(ps);
+    cnf.enable_precise_gpmc_weights(192);
+    cnf.encode_trace(ps).expect("MPFR192 repeated source weights");
+    divan::black_box(cnf);
+}
+
+#[divan::bench]
+fn wmc_trace_mpfr192_unique() {
+    let ps = wmc_fixture(false);
+    let mut cnf = WmcManager::new(ps);
+    cnf.enable_precise_gpmc_weights(192);
+    cnf.encode_trace(ps).expect("MPFR192 unique source weights");
+    divan::black_box(cnf);
+}
+
+// Isolated DIMACS serialization: the manager was fully encoded during
+// once-only setup (not inside the measured callable).
+#[divan::bench]
+fn wmc_dimacs_mpfr96_unique() {
+    let dimacs = preencoded_mpfr96()
+        .try_to_dimacs_string("gpmc")
+        .expect("source-aligned precise GPMC encoding");
+    divan::black_box(dimacs);
 }

@@ -14,6 +14,14 @@ NATIVE_IDS = (
     "phase_symbolic_add", "rr_hh_pipeline", "rr_nonclifford_pipeline",
     "phase_decimal_hash_repeated", "phase_decimal_hash_unique",
     "phase_decimal_hash_mixed",
+    "wmc_trace_cnf_unweighted",
+    "wmc_trace_f64_repeated",
+    "wmc_trace_f64_unique",
+    "wmc_trace_mpfr96_repeated",
+    "wmc_trace_mpfr96_unique",
+    "wmc_trace_mpfr192_repeated",
+    "wmc_trace_mpfr192_unique",
+    "wmc_dimacs_mpfr96_unique",
 )
 
 LEGACY_CASE_COUNT = 32

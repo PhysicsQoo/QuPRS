@@ -33,7 +33,9 @@ def test_same_sha_has_separate_typed_numbers():
        "measured_in_run":True, "run_id":"codspeed-current-run",
        "cpu_model":"EPYC", "unit":"ms", "value":18.5}
     output=module.join(_input(),{"results":[r]})
-    assert output["numerical_cross_validation_complete"]
+    # Same-SHA common-case CPU is present, but 22 Rust-native metrics are
+    # still missing from the service import: do not assert complete coverage.
+    assert not output["numerical_cross_validation_complete"]
     assert output["cases"][0]["numeric_cpu"]["value"] == 18.5
     assert output["cases"][0]["walltime"]["head_median_ms"] == 810
     assert not output["performance_certified"]
@@ -51,3 +53,23 @@ def test_wrong_or_unverified_numeric_is_rejected(mutation):
     r.update(mutation)
     with pytest.raises(ValueError):
         module.join(_input(),{"results":[r]})
+
+def test_native_rust_core_explicitly_missing_without_service_measurements():
+    from benchmarks.codspeed.case_registry import NATIVE_IDS
+    output = module.join(_input(), {"results": []})
+    assert output["native_core_expected_count"] == len(NATIVE_IDS)
+    assert output["native_core_missing_numeric"] == len(NATIVE_IDS)
+    assert output["external_source_status"] == "PARTIALLY_MISSING"
+    assert not output["numerical_cross_validation_complete"]
+
+
+def test_exact_sha_service_native_cpu_measurement_is_matched():
+    from benchmarks.codspeed.case_registry import NATIVE_IDS
+    r = {"sha": SHA, "runner_mode": "Simulation",
+         "uri": "benches/core.rs::" + NATIVE_IDS[-1],
+         "measured_in_run": True, "run_id": "same-head-current-codspeed-run",
+         "cpu_model": "runner-identical", "unit": "us", "value": 13.5}
+    output = module.join(_input(), {"results": [r]})
+    assert output["native_core_missing_numeric"] == len(NATIVE_IDS) - 1
+    assert output["native_core"][-1]["measurement"]["value"] == 13.5
+    assert not output["numerical_cross_validation_complete"]

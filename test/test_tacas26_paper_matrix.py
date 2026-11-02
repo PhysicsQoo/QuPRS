@@ -25,3 +25,11 @@ def test_source_blob_mismatch_fail_closed(tmp_path):
     p=tmp_path/"a.qasm";p.write_text("OPENQASM 2.0;")
     with pytest.raises(ValueError,match="Pinned QASM"):
         pinned(tmp_path,"a.qasm","0"*40)
+
+def test_paper_hybrid_full_run_excluding_proven_smoke_has_68_entries():
+    rows=matrix(ROOT)
+    hybrid=[r for r in rows if r["method"]=="hybrid"]
+    assert len(hybrid)==74
+    remaining=[r for r in hybrid if r["id"] not in SMOKE_IDS]
+    assert len(remaining)==68
+    assert len({r["id"] for r in remaining})==68

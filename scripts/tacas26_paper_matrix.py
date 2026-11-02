@@ -214,6 +214,8 @@ def main():
     p.add_argument("--result",type=Path)
     p.add_argument("--output",type=Path)
     p.add_argument("--cohort",choices=("all","smoke"),default="smoke")
+    p.add_argument("--method",choices=("all","hybrid","reduction_rules","wmc_only"),default="all")
+    p.add_argument("--exclude-smoke",action="store_true")
     p.add_argument("--suite",choices=("all","table2","table3_positive","table3_negative","figure3"),default="all")
     p.add_argument("--shard",type=int,default=0)
     p.add_argument("--shards",type=int,default=1)
@@ -232,7 +234,9 @@ def main():
         if case is None:raise ValueError("Unregistered historical case")
         raise SystemExit(run_one(paper,case,args.result))
     rows=[r for r in all_rows if (args.suite=="all" or r["suite"]==args.suite)
-          and (args.cohort!="smoke" or r["id"] in SMOKE_IDS)]
+          and (args.cohort!="smoke" or r["id"] in SMOKE_IDS)
+          and (args.method=="all" or r["method"]==args.method)
+          and (not args.exclude_smoke or r["id"] not in SMOKE_IDS)]
     if args.shards<1 or not 0<=args.shard<args.shards or args.output is None:
         p.error("Missing output or invalid shard")
     run_parent(current,paper,args.output,rows,args.shard,args.shards,args.max_cases,args.watchdog)

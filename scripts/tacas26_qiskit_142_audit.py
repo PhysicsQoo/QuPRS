@@ -27,7 +27,7 @@ INPUT = ROOT / "docs/development/tacas26-ganak101-permanent/ganak20-eq-to-neq.cs
 SOURCE_SHA = "e928abc47dd15926364ec77905eb0d5dc92ce8cc"
 QISKIT_VERSION = "1.4.2"
 FULL_OPERATOR_MAX_QUBITS = 8
-SAMPLE_MAX_QUBITS = 16
+SAMPLE_MAX_QUBITS = 22
 
 
 def sha(path):
@@ -109,7 +109,7 @@ def measure_pair(first, second, seed):
         })
     else:
         result["status"] = "NOT_MEASURED_RESOURCE_BOUND"
-        result["reason"] = "Only up to 16 qubits for deterministic science probe"
+        result["reason"] = "Only up to 22 qubits for deterministic science probe"
     return result
 
 
@@ -168,7 +168,7 @@ def main():
         "numeric_limitations": [
             "Float64 Operator/Statevector observations are not rigorous mathematical certificates",
             "Sampled statevector error is not the trace-based projective distance",
-            "High-qubit circuit pairs may be resource bounded and unmeasured",
+            "The 64-qubit graph state remains resource bounded and unmeasured",
             "Frozen QASM comparison does not prove original transpiler emitted exact gates",
             "No source-to-QASM generator metadata or fixed transpiler seed is inferred",
         ],

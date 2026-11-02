@@ -189,11 +189,16 @@ def generate(download_dir,output=OUT):
     (output/"results.json").write_text(json.dumps(archive,ensure_ascii=False,indent=2,sort_keys=True)+"\n")
     lines=["# TACAS 2026 — QuPRS-only experimental results","",
            "Permanent Git archive; source QuPRS v0.9.1 ("+SOURCE_SHA+").",
-           "This is science verdict reproduction, NOT CodSpeed timing or Docker image certification.",
+           "Science verdict reproduction. Paper reference seconds are historical, not current measured times or CodSpeed-certified performance.",
            "",
            "## Summary","",
            "- Canonical QuPRS calls: **184**; derived positive Hybrid RR cells: **37**.",
            "- Cases with archived observations: **"+str(184-counts.get("NOT_ARCHIVED",0))+" / 184**.",
+           "- Historical paper Hybrid reference times available: **"+str(sum(r["paper_hybrid_time_s"] is not None for r in rows))+" / 74** (when transcribed).",
+           "- Actual QuPRS-native verification times captured in stored 2026-11-02 evidence: **"+str(sum(r["time_evidence_status"]=="ORIGINAL_V091_TIME_CAPTURED" for r in rows))+" / 184**; null means not captured, not zero.",
+           "- Historical QuPRS v0.9.1 API exposes verification_time, pathsum_time, to_DIMACS_time, gpmc_time and wmc_time; the former runner omitted them.",
+           "- QuPRS's own >200 time strings are censored limits, not an observed 200.0-second measurement.",
+           "- Original-source elapsed time and historical paper reference time are science metadata; use CodSpeed for formal performance comparison.",
            "- Classification counts: "+", ".join(k+" = "+str(v) for k,v in sorted(counts.items()))+".",
            "- Input run records: "+", ".join(str(k)+" = "+str(v) for k,v in sorted(source_counts.items()))+".",
            "- Matching published Timeout is MATCH. External watchdog means censored; missing JSON means MISSING_RESULT.",
@@ -203,25 +208,26 @@ def generate(download_dir,output=OUT):
            ""]
     for key,label in (("table2","Table 2 positive MQT"),("table3_positive","WState32 positive extra"),
                        ("table3_negative","Table 3 negative MQT"),("figure3","Figure 3 Feynman")):
-        lines.extend(["## "+label,"","| Case | Method | Paper | Observed | Status | Classification | Run |",
-                      "|---|---|---|---|---|---|---|"])
+        lines.extend(["## "+label,"","| Case | Method | Paper verdict | Observed | Paper Hybrid (s) | New run (s) | Status | Classification | Run |",
+                      "|---|---|---|---|---:|---:|---|---|---|"])
         for row in rows:
             if row["suite"]!=key:continue
             run=row["run_id"]
             link=("[Actions "+str(run)+"](https://github.com/PhysicsQoo/QuPRS/actions/runs/"+str(run)+")"
                   if run else "not archived")
             lines.append("| "+ " | ".join(str(row[f]) if row[f] is not None else "—"
-                         for f in ("case","method","paper_expected","observed_verdict","status","classification"))+
+                         for f in ("case","method","paper_expected","observed_verdict","paper_hybrid_time_s","verification_time_s","status","classification"))+
                          " | "+link+" |")
         lines.append("")
     lines.extend(["## Derived RR from the same Hybrid invocation","",
-                  "| Case | Paper RR | Derived RR | Run |","|---|---|---|---|"])
+                  "| Case | Paper RR | Derived RR | PathSum (s) | Run |","|---|---|---|---|---|"])
     for item in rr_rows:
         lines.append("| "+item["case"]+" | "+item["paper_rr"]+" | "+item["derived_rr"]+
+                     " | "+str(item["pathsum_time_s"] if item["pathsum_time_s"] is not None else "—")+
                      " | "+str(item["run_id"] or "—")+" |")
     lines.extend(["","## Data files","",
-                  "- results.csv: full 184-row case table.",
-                  "- derived_rr.csv: 37 same-Hybrid RR result cells, not 37 separate method calls.",
+                  "- results.csv: full 184-row case table, original-paper reference times and explicitly nullable reproduction timings.",
+                  "- derived_rr.csv: 37 same-Hybrid RR result cells with optional native PathSum stage times, not 37 separate method calls.",
                   "- results.json: full raw evidence (with repeated observations and provenance).",""])
     (output/"README.md").write_text("\n".join(lines))
     return dict(counts)

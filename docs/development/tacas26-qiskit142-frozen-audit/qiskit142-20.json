@@ -1,0 +1,595 @@
+{
+  "basis_from_paper": [
+    "h",
+    "ry",
+    "rz",
+    "cx"
+  ],
+  "measurement_limits": {
+    "full_operator_max_qubits": 8,
+    "number_of_independent_unique_pairs": 17,
+    "statevector_samples_max_qubits": 16
+  },
+  "no_retranspilation": true,
+  "numeric_certified": false,
+  "numeric_limitations": [
+    "Float64 Operator/Statevector observations are not rigorous mathematical certificates",
+    "Sampled statevector error is not the trace-based projective distance",
+    "High-qubit circuit pairs may be resource bounded and unmeasured",
+    "Frozen QASM comparison does not prove original transpiler emitted exact gates",
+    "No source-to-QASM generator metadata or fixed transpiler seed is inferred"
+  ],
+  "original_quprs_sha": "e928abc47dd15926364ec77905eb0d5dc92ce8cc",
+  "python_version": "3.12.15",
+  "replay_numpy": "2.5.4",
+  "replay_qiskit": "1.4.2",
+  "rows": [
+    {
+      "case_id": "table2:graphstate64:positive:wmc_only",
+      "ganak_point_distance": 5.452044880113674e-05,
+      "ganak_print_resolution_distance": 8.49309397947801e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 64,
+        "reason": "Only up to 16 qubits for deterministic science probe",
+        "source_global_phase": 0.0,
+        "source_ops": 640,
+        "status": "NOT_MEASURED_RESOURCE_BOUND",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 435
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "original_sha256": "a6eb00805919afe0b0970bf67aa6e7ad275d37e491133aa380d11647750e54db",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "transpiled_sha256": "3b1b61914a84c159e2dbd00fe9c4360c22a7814d3d6200ea3156f0e2acf7d417"
+    },
+    {
+      "case_id": "table2:grover4:positive:hybrid",
+      "ganak_point_distance": 2.260671518974669e-05,
+      "ganak_print_resolution_distance": 7.344927915245932e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 2.0669803123364205e-15,
+        "projective_distance_float": 7.742870483855348e-08,
+        "qubits": 4,
+        "source_global_phase": 0.0,
+        "source_ops": 190,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 0.999999999999997,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 160
+      },
+      "method": "hybrid",
+      "original_path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "original_sha256": "f64bc99e09b5ac3aebd569505c38bae27beee38c2de5f89b96ecc91e4af7c9d9",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "transpiled_sha256": "6bdbc083e4b92c4de9f2a007f8695af739bb7aabf9f11c5bb7cbcd530055d537"
+    },
+    {
+      "case_id": "table2:grover4:positive:wmc_only",
+      "ganak_point_distance": 3.2445524454732035e-05,
+      "ganak_print_resolution_distance": 5.890201142683882e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 2.0669803123364205e-15,
+        "projective_distance_float": 7.742870483855348e-08,
+        "qubits": 4,
+        "source_global_phase": 0.0,
+        "source_ops": 190,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 0.999999999999997,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 160
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "original_sha256": "f64bc99e09b5ac3aebd569505c38bae27beee38c2de5f89b96ecc91e4af7c9d9",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "transpiled_sha256": "6bdbc083e4b92c4de9f2a007f8695af739bb7aabf9f11c5bb7cbcd530055d537"
+    },
+    {
+      "case_id": "table2:grover6:positive:wmc_only",
+      "ganak_point_distance": 4.298079233858218e-05,
+      "ganak_print_resolution_distance": 6.372367641586825e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 1.4046645083315482e-14,
+        "projective_distance_float": 0.0,
+        "qubits": 6,
+        "source_global_phase": 0.0,
+        "source_ops": 1568,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 1.0000000000000169,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 1400
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "original_sha256": "eaaeb3dd38e0f9020b38bcfc9d3987d48f564728d370d18b3afe11b2ecd044a7",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "transpiled_sha256": "ef651fc88ce87ae417a7f84e3af600f09cdcf0fad80abbeb04d613964d08d361"
+    },
+    {
+      "case_id": "table2:qaoa11:positive:wmc_only",
+      "ganak_point_distance": 4.2676283152918514e-05,
+      "ganak_print_resolution_distance": 7.398528313985243e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 4.288689074315814e-15,
+        "max_sample_state_infidelity_float": 0.0,
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 11,
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": 1.5707963267949006,
+            "state_distance_up_to_individual_phase_float": 3.942519425337272e-15,
+            "state_overlap_abs_float": 1.0000000000000009
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": 1.5707963267948934,
+            "state_distance_up_to_individual_phase_float": 4.288689074315814e-15,
+            "state_overlap_abs_float": 1.0000000000000007
+          },
+          {
+            "input": "random_complex_2",
+            "relative_global_phase_radians_float": 1.5707963267948966,
+            "state_distance_up_to_individual_phase_float": 4.028271267170168e-15,
+            "state_overlap_abs_float": 1.0000000000000013
+          },
+          {
+            "input": "random_complex_3",
+            "relative_global_phase_radians_float": 1.5707963267948966,
+            "state_distance_up_to_individual_phase_float": 4.167713046958643e-15,
+            "state_overlap_abs_float": 1.0000000000000013
+          }
+        ],
+        "source_global_phase": 0.0,
+        "source_ops": 209,
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 270
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "original_sha256": "ab6e4f800de4405f482461c3c6d32f31ee85d1599bce45a57b70414a6974db9a",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "transpiled_sha256": "87dc5b296ad60b681cb9e5a98cd5525b615e6c57bd1872edb6b3939e9aed5c44"
+    },
+    {
+      "case_id": "table2:qaoa9:positive:hybrid",
+      "ganak_point_distance": 2.1686138691279898e-05,
+      "ganak_print_resolution_distance": 8.652620562227853e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 2.4041273191683524e-15,
+        "max_sample_state_infidelity_float": 2.6645352591003757e-15,
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 9,
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": 1.5707963267948963,
+            "state_distance_up_to_individual_phase_float": 2.1321730239629808e-15,
+            "state_overlap_abs_float": 0.9999999999999996
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": 1.5707963267948961,
+            "state_distance_up_to_individual_phase_float": 1.9648922029480263e-15,
+            "state_overlap_abs_float": 0.9999999999999987
+          },
+          {
+            "input": "random_complex_2",
+            "relative_global_phase_radians_float": 1.5707963267948968,
+            "state_distance_up_to_individual_phase_float": 2.2495287127891892e-15,
+            "state_overlap_abs_float": 0.9999999999999993
+          },
+          {
+            "input": "random_complex_3",
+            "relative_global_phase_radians_float": 1.5707963267948966,
+            "state_distance_up_to_individual_phase_float": 2.4041273191683524e-15,
+            "state_overlap_abs_float": 0.9999999999999993
+          }
+        ],
+        "source_global_phase": 0.0,
+        "source_ops": 171,
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 209
+      },
+      "method": "hybrid",
+      "original_path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "original_sha256": "870bb0c73f92406927676c80dc5dfb2b52b3df24f4082289ced293705df50502",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "transpiled_sha256": "bd55008f4fa00b8251c1ab0b1226cbea38b2818b80a8340a01d9d5bb62d49fb6"
+    },
+    {
+      "case_id": "table2:qaoa9:positive:wmc_only",
+      "ganak_point_distance": 2.6661041496862608e-05,
+      "ganak_print_resolution_distance": 4.848699517199451e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 2.4041273191683524e-15,
+        "max_sample_state_infidelity_float": 2.6645352591003757e-15,
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 9,
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": 1.5707963267948963,
+            "state_distance_up_to_individual_phase_float": 2.1321730239629808e-15,
+            "state_overlap_abs_float": 0.9999999999999996
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": 1.5707963267948961,
+            "state_distance_up_to_individual_phase_float": 1.9648922029480263e-15,
+            "state_overlap_abs_float": 0.9999999999999987
+          },
+          {
+            "input": "random_complex_2",
+            "relative_global_phase_radians_float": 1.5707963267948968,
+            "state_distance_up_to_individual_phase_float": 2.2495287127891892e-15,
+            "state_overlap_abs_float": 0.9999999999999993
+          },
+          {
+            "input": "random_complex_3",
+            "relative_global_phase_radians_float": 1.5707963267948966,
+            "state_distance_up_to_individual_phase_float": 2.4041273191683524e-15,
+            "state_overlap_abs_float": 0.9999999999999993
+          }
+        ],
+        "source_global_phase": 0.0,
+        "source_ops": 171,
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 209
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "original_sha256": "870bb0c73f92406927676c80dc5dfb2b52b3df24f4082289ced293705df50502",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "transpiled_sha256": "bd55008f4fa00b8251c1ab0b1226cbea38b2818b80a8340a01d9d5bb62d49fb6"
+    },
+    {
+      "case_id": "table2:qft16:positive:wmc_only",
+      "ganak_point_distance": 5.721151208629835e-05,
+      "ganak_print_resolution_distance": 9.424321823062662e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 2.0586633638834475e-15,
+        "max_sample_state_infidelity_float": 6.88338275267597e-14,
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 16,
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": 1.570796326794895,
+            "state_distance_up_to_individual_phase_float": 2.0586633638834475e-15,
+            "state_overlap_abs_float": 0.9999999999999656
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": 1.5707963267948992,
+            "state_distance_up_to_individual_phase_float": 1.3597077730702082e-15,
+            "state_overlap_abs_float": 1.0000000000000004
+          }
+        ],
+        "source_global_phase": 0.0,
+        "source_ops": 672,
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 543
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "original_sha256": "39b6889497a4e98098b6bb2b4563ace2fb660f4cc3fe8d0763d3f69fc200d865",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "transpiled_sha256": "aa85188d731454bd85b0fe2ae089ab8e6b812501730eee5f1651ac11d7b7fcbc"
+    },
+    {
+      "case_id": "table2:qft20:positive:hybrid",
+      "ganak_point_distance": 3.5643386969943974e-05,
+      "ganak_print_resolution_distance": 5.6705814105272995e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 20,
+        "reason": "Only up to 16 qubits for deterministic science probe",
+        "source_global_phase": 0.0,
+        "source_ops": 1040,
+        "status": "NOT_MEASURED_RESOURCE_BOUND",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 825
+      },
+      "method": "hybrid",
+      "original_path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "original_sha256": "a80541cefa7de60ad0c49bf3277edbd2f9cacecdef186114c14f75a11f88bfb9",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "transpiled_sha256": "c022adb37206f5b21b617136d1df369af588ac43b88fc65843d4b2ca402dab13"
+    },
+    {
+      "case_id": "table2:qft22:positive:wmc_only",
+      "ganak_point_distance": 3.4861713786095e-05,
+      "ganak_print_resolution_distance": 0.0001301562865742245,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 22,
+        "reason": "Only up to 16 qubits for deterministic science probe",
+        "source_global_phase": 0.0,
+        "source_ops": 1254,
+        "status": "NOT_MEASURED_RESOURCE_BOUND",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 970
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "original_sha256": "5d082b45c74ef9d075d657314e33864adc00928f2737b458d2743b2333fd8a54",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "transpiled_sha256": "749570a67457c0b53a221974f73c4f9d8151d4ba23a4e66cb922286e7763df8f"
+    },
+    {
+      "case_id": "table2:qnn4:positive:hybrid",
+      "ganak_point_distance": 3.2368776608621594e-05,
+      "ganak_print_resolution_distance": 5.394796607981353e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 4.82714693936398e-15,
+        "projective_distance_float": 0.0,
+        "qubits": 4,
+        "source_global_phase": 0.0,
+        "source_ops": 111,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 1.0000000000000004,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 122
+      },
+      "method": "hybrid",
+      "original_path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "original_sha256": "f76af749135c82f3f4fe8c72fc217e6db63d0421637aecc5ac06b78584c1e0f4",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "transpiled_sha256": "4d83b6a6aaed9ff67afadb391568410cc381ca1251a423720bb547d48add5f27"
+    },
+    {
+      "case_id": "table2:qnn8:positive:wmc_only",
+      "ganak_point_distance": 3.73690395949625e-05,
+      "ganak_print_resolution_distance": 9.117017199350629e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 7.013441274109397e-15,
+        "projective_distance_float": 0.0,
+        "qubits": 8,
+        "source_global_phase": 0.0,
+        "source_ops": 319,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 1.0000000000000042,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 334
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "original_sha256": "814fb55735b75d952b99d0768b9287c623aa3b49bf8742198334a6d9e4403d9d",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "transpiled_sha256": "15bc243cce22c2e3714df3baa073fc29334b1f090631b38d2d37a1d8cb2cebf4"
+    },
+    {
+      "case_id": "table2:qpeexact20:positive:hybrid",
+      "ganak_point_distance": 2.260671518974669e-05,
+      "ganak_print_resolution_distance": 0.00011613350730964658,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 20,
+        "reason": "Only up to 16 qubits for deterministic science probe",
+        "source_global_phase": 0.0,
+        "source_ops": 1092,
+        "status": "NOT_MEASURED_RESOURCE_BOUND",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 861
+      },
+      "method": "hybrid",
+      "original_path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "original_sha256": "c90b5aa8a03d84bcdee505f167b69a93eb17c063ce5cb4916145c7a2296a2831",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "transpiled_sha256": "620a6bf48a008656e60d2d78a3d80d8ec49ca4682a07de074048fdf67f4840a7"
+    },
+    {
+      "case_id": "table2:qpeinexact16:positive:wmc_only",
+      "ganak_point_distance": 7.732985985215605e-05,
+      "ganak_print_resolution_distance": 0.00011504299092633488,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 3.461665254449711e-15,
+        "max_sample_state_infidelity_float": 2.220446049250313e-14,
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 16,
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": 1.5707963267948957,
+            "state_distance_up_to_individual_phase_float": 2.0166146337193196e-15,
+            "state_overlap_abs_float": 1.0
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": 1.5707963267948961,
+            "state_distance_up_to_individual_phase_float": 3.461665254449711e-15,
+            "state_overlap_abs_float": 0.9999999999999889
+          }
+        ],
+        "source_global_phase": 0.0,
+        "source_ops": 712,
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 562
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "original_sha256": "612dd1f1c213b95d525b88a48da13ddda55696469652b0b1265307cfb5600b44",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "transpiled_sha256": "1edeaf8108d55c20b45bf6fa1fe0fae5b5fb2493c5e1a003eb9db410dc775b8e"
+    },
+    {
+      "case_id": "table2:qpeinexact8:positive:wmc_only",
+      "ganak_point_distance": 8.287644335576368e-05,
+      "ganak_print_resolution_distance": 0.00012063131922677422,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 1.1791855949116897e-15,
+        "projective_distance_float": 4.214684851089402e-08,
+        "qubits": 8,
+        "source_global_phase": 0.0,
+        "source_ops": 192,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 0.9999999999999991,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 150
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "original_sha256": "ce85b852f0b5918d0e067967a500003934867879a428242aa54dc16c0bf53703",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "transpiled_sha256": "dcb05342f86dc7173985ec478d1a7e5e543da856a0d6d9e7aabf311c965357d6"
+    },
+    {
+      "case_id": "table2:qwalk3:positive:wmc_only",
+      "ganak_point_distance": 3.2445524454732035e-05,
+      "ganak_print_resolution_distance": 4.7121609141471054e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 1.76075651882511e-15,
+        "projective_distance_float": 5.37269007483719e-08,
+        "qubits": 3,
+        "source_global_phase": 0.0,
+        "source_ops": 141,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 0.9999999999999986,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 113
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "original_sha256": "222dc90a8f82826527fb7b6d3c2cd657675d45461a94f8eb7988f92faf0422ed",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "transpiled_sha256": "4c551372529fadb85aa375f6dfb64323eb84f91081700b0af2fa560a0d6e8a0e"
+    },
+    {
+      "case_id": "table2:vqe16:positive:wmc_only",
+      "ganak_point_distance": 4.85132074780971e-05,
+      "ganak_print_resolution_distance": 0.000100974195808878,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 1.0624870954217675e-11,
+        "max_sample_state_infidelity_float": 6.217248937900877e-15,
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "qubits": 16,
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": 1.7603591948078898e-12,
+            "state_distance_up_to_individual_phase_float": 1.0624870954217675e-11,
+            "state_overlap_abs_float": 0.9999999999999969
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": 1.0625260481973819e-11,
+            "state_distance_up_to_individual_phase_float": 1.7607463171431718e-12,
+            "state_overlap_abs_float": 0.9999999999999987
+          }
+        ],
+        "source_global_phase": 0.0,
+        "source_ops": 270,
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 211
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "original_sha256": "e07da062ab05cbbf38828e7dfa4b1617f6e2a755f955307e3e2f6c979f0697a5",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "transpiled_sha256": "81df3d29f12f06095129a27c06f79c833b84e576e0f7303e3a477aff8d6a52fb"
+    },
+    {
+      "case_id": "table2:vqe4:positive:hybrid",
+      "ganak_point_distance": 2.260671518974669e-05,
+      "ganak_print_resolution_distance": 0.00011613350730964658,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 2.055200271983474e-15,
+        "projective_distance_float": 2.980232238769531e-08,
+        "qubits": 4,
+        "source_global_phase": 0.0,
+        "source_ops": 66,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 0.9999999999999996,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 44
+      },
+      "method": "hybrid",
+      "original_path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "original_sha256": "757e5714303e731bebc156c230024480b1d72df503d70dd0a9eb76d112ffdd62",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "transpiled_sha256": "5fb000fa312acaa32a9f09abde96dc9e9adcab4652a31cef9baeec4929e75761"
+    },
+    {
+      "case_id": "table2:vqe4:positive:wmc_only",
+      "ganak_point_distance": 7.105994038936422e-05,
+      "ganak_print_resolution_distance": 0.000106624029859401,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 2.055200271983474e-15,
+        "projective_distance_float": 2.980232238769531e-08,
+        "qubits": 4,
+        "source_global_phase": 0.0,
+        "source_ops": 66,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 0.9999999999999996,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 44
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "original_sha256": "757e5714303e731bebc156c230024480b1d72df503d70dd0a9eb76d112ffdd62",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "transpiled_sha256": "5fb000fa312acaa32a9f09abde96dc9e9adcab4652a31cef9baeec4929e75761"
+    },
+    {
+      "case_id": "table2:wstate8:positive:wmc_only",
+      "ganak_point_distance": 2.6190631796192306e-05,
+      "ganak_print_resolution_distance": 5.144878967732716e-05,
+      "independent_qiskit_audit": {
+        "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "numeric_type": "numpy.complex128_qiskit_operator",
+        "phase_aligned_frobenius_normalized_float": 2.1609153489028456e-15,
+        "projective_distance_float": 4.470348358154296e-08,
+        "qubits": 8,
+        "source_global_phase": 0.0,
+        "source_ops": 127,
+        "status": "FULL_FLOAT_OPERATOR",
+        "trace_normalized_overlap_abs_float": 0.999999999999999,
+        "transpiled_global_phase": 0.0,
+        "transpiled_ops": 61
+      },
+      "method": "wmc_only",
+      "original_path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "original_sha256": "fee4d0c68b92940a4eee6f18525c5cdcdbbb83a818c0d2df1e6abe8fb0c044cb",
+      "transpiled_path": "benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "transpiled_sha256": "673769a5b211534250f4fe3c7dcd7a9e67f0ce5fd74104e2998eb41ad4216e4c"
+    }
+  ],
+  "schema": "tacas26-qiskit142-original-transpiled-20-science-v1"
+}

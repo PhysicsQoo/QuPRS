@@ -6,7 +6,7 @@ from pathlib import Path
 from benchmarks.codspeed.case_registry import (
     CROSS_INSTRUMENT_MATCH, CROSS_METHOD_CASES, CROSS_METHOD_CPU_IDS,
     GANAK_PRECISION_LIMIT_CASES, LEGACY_CASE_COUNT, LEGACY_SHARD_COUNT,
-    PILOT_CASES, SOLVER_CPU_CASES, WALLTIME_CASES, WALLTIME_CASE_IDS,
+    PILOT_CASES, PAPER_GAP_PILOT_CASES, SOLVER_CPU_CASES, WALLTIME_CASES, WALLTIME_CASE_IDS,
     PYTHON_CORE_CASE_IDS, NATIVE_IDS, REPEATABILITY_CASES,
     REPEATABILITY_EXPECTATIONS,
 )
@@ -115,3 +115,25 @@ def test_pilot_is_bounded_and_not_dependent_on_a_historical_runtime():
         assert 0 < case.solver_timeout_s < case.watchdog_s <= 30
         assert case.method == "hybrid"
         assert case.expected_solver_invoked is None
+
+
+def test_paper_gap_pilot_has_independent_ids_and_pinned_positive_negative_pairs():
+    assert len(PAPER_GAP_PILOT_CASES) == 7
+    assert len({c.id for c in PAPER_GAP_PILOT_CASES}) == 7
+    assert not ({c.id for c in PAPER_GAP_PILOT_CASES}
+                & {c.id for c in PILOT_CASES})
+    assert {c.pair_variant for c in PAPER_GAP_PILOT_CASES} == {
+        "transpiled", "random_rotation"
+    }
+    for case in PAPER_GAP_PILOT_CASES:
+        counterpart = ("Random_Rotation"
+                       if case.pair_variant == "random_rotation" else "h,ry,rz,cx")
+        assert (FIXTURES / case.qasm).is_file()
+        assert (FIXTURES / counterpart / case.qasm).is_file()
+        assert 0 < case.solver_timeout_s < case.watchdog_s <= 30
+        assert case.method == "hybrid"
+        assert case.expected_solver_invoked is None
+        if case.pair_variant == "random_rotation":
+            assert case.expected_verdict == "not_equivalent"
+        else:
+            assert case.expected_verdict == "equivalent_or_phase"

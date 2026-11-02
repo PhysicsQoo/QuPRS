@@ -27,6 +27,7 @@ def sample_candidate(case):
     command = [
         sys.executable, str(harness), str(workspace), case.qasm,
         case.strategy, case.solver, case.backend, "1" if case.reverse else "0",
+        case.pair_variant,
     ]
     child = subprocess.Popen(
         command, cwd=workspace, env=env, stdout=subprocess.PIPE,
@@ -67,22 +68,27 @@ def sample_candidate(case):
     return result
 
 
-@pytest.mark.parametrize("case", PILOT_CASES, ids=[case.id for case in PILOT_CASES])
-def test_source_pinned_candidate(benchmark, case):
+def run_source_pinned_candidate(benchmark, case):
     fixture_root = Path(os.environ["GITHUB_WORKSPACE"]) / "benchmarks" / "MQTBench"
+    counterpart = ("Random_Rotation" if case.pair_variant == "random_rotation"
+                   else "h,ry,rz,cx")
     sources = (fixture_root / case.qasm,
-               fixture_root / "h,ry,rz,cx" / case.qasm)
+               fixture_root / counterpart / case.qasm)
     source_hashes = [hashlib.sha256(source.read_bytes()).hexdigest()
                      for source in sources]
     result = benchmark(sample_candidate, case)
     # A fast solver-avoiding RR result can still be useful as a separate
     # category. It cannot enter a Solver-inclusive benchmark by assumption.
     passed = (result["status"] == "COMPLETED"
-              and result.get("verdict") in {"equivalent", "equivalent*"})
+              and (result.get("verdict") in {"equivalent", "equivalent*"}
+                   if case.expected_verdict == "equivalent_or_phase"
+                   else result.get("verdict") == case.expected_verdict))
     status = ("ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW" if passed else
               "NEEDS_SCIENTIFIC_OR_TIMEOUT_REVIEW")
     metadata = {
         "case_id": case.id, "filename": case.qasm,
+        "pair_variant": case.pair_variant,
+        "expected_verdict": case.expected_verdict,
         "qasm_sha256": source_hashes,
         "codspeed_sample_policy": "one_measured_round_no_warmup_exploratory",
         "run_id": os.environ.get("GITHUB_RUN_ID"),
@@ -104,3 +110,9 @@ def test_source_pinned_candidate(benchmark, case):
         "WATCHDOG_TIMEOUT", "SOLVER_TIMEOUT", "PROCESS_ERROR", "MISSING_RESULT",
         "UNPARSEABLE_RESULT", "COMPLETED",
     }
+
+
+
+@pytest.mark.parametrize("case", PILOT_CASES, ids=[case.id for case in PILOT_CASES])
+def test_source_pinned_candidate(benchmark, case):
+    return run_source_pinned_candidate(benchmark, case)

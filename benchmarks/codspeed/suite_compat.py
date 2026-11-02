@@ -102,7 +102,11 @@ def normalize_manifest(document: dict) -> dict:
         raise SuiteCompatibilityError("Suite specification hash mismatch")
     if document["measurement_scope"] != suite["measurement_scope"]:
         raise SuiteCompatibilityError("Suite measurement scope mismatch")
+    if instrument != suite["instrument"].lower():
+        raise SuiteCompatibilityError("Registered suite instrument mismatch")
     tracked = document.get("simulation_track_subprocess")
+    if tracked is not suite.get("simulation_track_subprocess"):
+        raise SuiteCompatibilityError("Registered suite subprocess policy mismatch")
     if instrument == "simulation":
         if type(tracked) is not bool:
             raise SuiteCompatibilityError("Simulation subprocess policy missing")

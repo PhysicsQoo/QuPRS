@@ -12,16 +12,22 @@ from QuPRS import check_equivalence
 
 
 def main() -> None:
-    if len(sys.argv) != 7:
+    if len(sys.argv) not in (7, 8):
         raise SystemExit(
-            "usage: solver_case.py FIXTURE_ROOT FILENAME STRATEGY SOLVER BACKEND REVERSE"
+            "usage: solver_case.py FIXTURE_ROOT FILENAME STRATEGY SOLVER "
+            "BACKEND REVERSE [transpiled|random_rotation]"
         )
 
     fixture_root = Path(sys.argv[1])
     filename, strategy, solver, backend = sys.argv[2:6]
     reverse = sys.argv[6] == "1"
+    pair_variant = sys.argv[7] if len(sys.argv) == 8 else "transpiled"
+    if pair_variant not in {"transpiled", "random_rotation"}:
+        raise ValueError(f"Unsupported benchmark pair variant: {pair_variant}")
+    counterpart = ("Random_Rotation" if pair_variant == "random_rotation"
+                   else "h,ry,rz,cx")
     first = fixture_root / "benchmarks" / "MQTBench" / filename
-    second = fixture_root / "benchmarks" / "MQTBench" / "h,ry,rz,cx" / filename
+    second = fixture_root / "benchmarks" / "MQTBench" / counterpart / filename
     if reverse:
         first, second = second, first
     if not first.is_file() or not second.is_file():

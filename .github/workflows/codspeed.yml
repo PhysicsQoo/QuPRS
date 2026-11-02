@@ -30,6 +30,12 @@ on:
         type: boolean
         required: false
         default: false
+      pilot_group:
+        description: 'Select legacy eight or seven new paper-gap cases'
+        type: choice
+        required: false
+        default: legacy_eight
+        options: [legacy_eight, paper_gap]
       include_python_core:
         description: 'Add opt-in pure Python core CodSpeed microbenchmark'
         type: boolean
@@ -556,13 +562,14 @@ jobs:
 
   candidate-pilot:
     name: Bounded SAME-SHA candidate screening (manual only)
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.pilot_only) || (github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-pilot -->')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.pilot_only) || (github.event_name == 'pull_request' && github.event.action == 'edited' && (contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-pilot -->') || contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-paper-gap -->'))) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       BINARY_DIR: src/QuPRS/utils
       QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/candidate-pilot-codspeed.json
+      QUPRS_PAPER_GAP_PILOT: ${{ (github.event_name == 'workflow_dispatch' && inputs.pilot_group == 'paper_gap') || (github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-paper-gap -->')) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -589,12 +596,21 @@ jobs:
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
           maturin develop --release -E dev
           python -m pytest test/test_codspeed_registry.py -q
-          python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --collect-only
-      - name: Run 8 bounded candidates with CodSpeed WallTime
+          if [ "$QUPRS_PAPER_GAP_PILOT" = "true" ]; then
+            python -m pytest benchmarks/codspeed/test_codspeed_paper_gap_pilot.py -q --collect-only
+          else
+            python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --collect-only
+          fi
+      - name: Run bounded source-pinned candidates with CodSpeed WallTime
         uses: CodSpeedHQ/action@v5
         with:
           mode: walltime
-          run: python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=1 --codspeed-max-time=120
+          run: |
+            if [ "$QUPRS_PAPER_GAP_PILOT" = "true" ]; then
+              python -m pytest benchmarks/codspeed/test_codspeed_paper_gap_pilot.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=1 --codspeed-max-time=120
+            else
+              python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=1 --codspeed-max-time=120
+            fi
       - name: Record pilot source and original measured output
         run: |
           python scripts/write_codspeed_sha_manifest.py \

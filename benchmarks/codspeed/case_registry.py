@@ -99,6 +99,8 @@ class PilotCase:
     watchdog_s: int = 24
     expected_verdict: str = "equivalent_or_phase"
     expected_solver_invoked: bool | None = None
+    # Explicit positive (transpiled) or negative (Random_Rotation) QASM pair.
+    pair_variant: str = "transpiled"
 
 # Pilot tests DIFFERENT circuit classes; stage is observed, not forced.
 # Candidate is not promoted to nightly or every-PR on historical timing alone.
@@ -111,6 +113,28 @@ PILOT_CASES = (
     PilotCase("qwalk3", "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm"),
     PilotCase("wstate4", "wstate_nativegates_ibm_qiskit_opt0_4.qasm"),
     PilotCase("vqe8", "vqe_nativegates_ibm_qiskit_opt0_8.qasm"),
+)
+
+# A separate paper-grounded gap screen; the existing eight IDs never change.
+# Historical paper seconds are difficulty priors, not current CodSpeed timings.
+# Each candidate is bounded and opt-in; no run equals a verdict certificate.
+PAPER_GAP_PILOT_CASES = (
+    PilotCase("graphstate64_positive",
+              "graphstate_nativegates_ibm_qiskit_opt0_64.qasm", "naive"),
+    PilotCase("qaoa11_positive",
+              "qaoa_nativegates_ibm_qiskit_opt0_11.qasm"),
+    PilotCase("qwalk4_positive",
+              "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm"),
+    PilotCase("qwalk4_negative",
+              "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+              expected_verdict="not_equivalent", pair_variant="random_rotation"),
+    PilotCase("qpeinexact20_positive",
+              "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm"),
+    PilotCase("qpeinexact20_negative",
+              "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+              expected_verdict="not_equivalent", pair_variant="random_rotation"),
+    PilotCase("qnn8_positive",
+              "qnn_nativegates_ibm_qiskit_opt0_8.qasm"),
 )
 
 # A representative two-Solver-invoked versus two-RR-terminated repeatability

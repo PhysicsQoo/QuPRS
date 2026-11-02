@@ -164,3 +164,33 @@ def test_v3_spec_drift_cannot_reuse_original_baseline():
     b = {**a, "suite_spec_sha256": "f" * 64}
     with pytest.raises(SuiteCompatibilityError, match="specification"):
         normalize_manifest(b)
+
+
+def test_v3_suite_must_not_forge_instrument_or_subprocess_tracking():
+    doc = new_manifest()
+    assert normalize_manifest(doc)["instrument"] == "simulation"
+    forged_walltime = {
+        **doc, "instrument": "walltime", "metric_units": "wall_seconds",
+        "simulation_track_subprocess": None,
+    }
+    with pytest.raises(SuiteCompatibilityError, match="instrument"):
+        normalize_manifest(forged_walltime)
+    forged_subprocess = {
+        **doc, "simulation_track_subprocess": True,
+        "measurement_scope": "solver_free_algorithm_cpu",
+    }
+    with pytest.raises(SuiteCompatibilityError):
+        normalize_manifest(forged_subprocess)
+
+
+def test_legacy_source_sha_contract_is_still_reported_to_existing_callers():
+    from scripts import report_codspeed_cross_instrument as reporter
+    from tempfile import TemporaryDirectory
+    with TemporaryDirectory() as path:
+        file = Path(path) / "manifest.json"
+        bad = old_manifest()
+        bad["sha"] = "c" * 40
+        file.write_text(json.dumps(bad))
+        with pytest.raises(ValueError, match="wrong SHA"):
+            reporter.load_provenance(Path(path), "simulation-shard",
+                                     expected_sha=SHA)

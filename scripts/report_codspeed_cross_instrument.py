@@ -41,14 +41,17 @@ def load_provenance(folder, family, *, expected_sha, mode=None, count=1):
     if len(matches) != count:
         raise ValueError(f"{family}/{mode}: expected {count} SHA manifests, got {len(matches)}")
     for row in matches:
+        # Preserve the legacy error contract used by v2 callers and tests.
+        # A mismatched HEAD is the same security failure for both v2 and v3,
+        # but must retain its original diagnostic ("wrong SHA").
+        if row.get("sha") != expected_sha or row.get("fixture_revision_sha") != expected_sha:
+            raise ValueError(f"{family}: wrong SHA or fixture identity")
         try:
             parsed = normalize_manifest(row)
         except SuiteCompatibilityError as exc:
             raise ValueError(f"{family}: incompatible manifest: {exc}") from exc
         if parsed["schema_version"] not in (2, 3):
             raise ValueError(f"{family}: unsupported provenance schema")
-        if row.get("sha") != expected_sha or row.get("fixture_revision_sha") != expected_sha:
-            raise ValueError(f"{family}: wrong SHA or fixture identity")
         if row.get("measurement_status") != "uploaded_by_codspeed_action":
             raise ValueError(f"{family}: no confirmed CodSpeed action")
     return matches

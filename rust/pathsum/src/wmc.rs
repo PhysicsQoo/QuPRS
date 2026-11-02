@@ -13,8 +13,6 @@ use anyhow::{Result, Context, anyhow};
 
 use crate::pathsum::PathSum;
 use crate::pathsum::phase_poly::Monomial;
-#[cfg(feature="high-precision-gpmc")]
-use crate::rational::PhaseCoeff;
 
 fn solver_arguments(tool_name: &str) -> Result<&'static [&'static str]> {
     Ok(crate::solver_adapter::adapter_for(tool_name)?.arguments())
@@ -106,18 +104,10 @@ impl WmcManager {
     }
 
     fn encode_phase_polynomial(&mut self, ps: &PathSum) -> Result<()> {
-        // Reuse source-exact decimal weights within this single CNF. Repeated
-        // angles need neither another MPFR sin/cos nor another decimal parse.
-        // The cache is request-local and cannot affect solver precision.
-        #[cfg(feature="high-precision-gpmc")]
-        // A singleton phase cannot reuse a cached weight. Avoid hashing a
-        // potentially very large BigRational key on this common VQE path.
-        // The weight table already owns the decimal strings. Index it by
-        // first-use literal ID rather than cloning each miss into a second map.
-        // Reserve a small bounded table, not a second full-sized allocation.
-        let mut precise_cache: Option<HashMap<&PhaseCoeff, i32>> =
-            (self.precise_weights.is_some() && ps.p.terms.len() > 1)
-                .then(|| HashMap::with_capacity(ps.p.terms.len().min(8)));
+        // Controlled no-cache A/B: large source-exact rational keys are
+        // expensive to hash. Generate each CNF literal's MPFR weight directly
+        // and retain its original precision/serialized value. This may cost
+        // more for repeated angles; CodSpeed decides whether to retain it.
         for (mono, coeff) in &ps.p.terms {
             // Do not compute an f64 weight at all when the precise GPMC
             // distance-mode input is selected. The separate optional map
@@ -125,21 +115,9 @@ impl WmcManager {
             #[cfg(feature="high-precision-gpmc")]
             let weight = if let Some(ref mut precise) = self.precise_weights {
                 let id = self.next_var_id;
-                let digits = if let Some(cache) = precise_cache.as_mut() {
-                    if let Some(&first_id) = cache.get(coeff) {
-                        precise.get(&first_id).ok_or_else(|| anyhow!(
-                            "Precise source weight cache references an absent variable"
-                        ))?.clone()
-                    } else {
-                        let generated = crate::precise_weight::from_phase(
-                            coeff, self.precise_weight_bits,
-                        )?;
-                        cache.insert(coeff, id);
-                        generated
-                    }
-                } else {
-                    crate::precise_weight::from_phase(coeff, self.precise_weight_bits)?
-                };
+                let digits = crate::precise_weight::from_phase(
+                    coeff, self.precise_weight_bits,
+                )?;
                 precise.insert(id, digits);
                 Complex::new(1.0, 0.0) // Placeholder never serialized in precise mode.
             } else {

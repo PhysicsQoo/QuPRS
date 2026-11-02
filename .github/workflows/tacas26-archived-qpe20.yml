@@ -1,0 +1,82 @@
+name: Opt-in TACAS26 Archived QPE20 Reproduction
+
+on:
+  pull_request:
+    types: [edited]
+  workflow_dispatch:
+    inputs:
+      acknowledged_archive_download:
+        description: 'Explicit opt-in to fetch the frozen Zenodo container'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  archived-qpe20:
+    name: TACAS v0.9.1 frozen Docker / QPE20 source and GPMC phase
+    if: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.body, '<!-- quprs-tacas26-qpe20-archive -->')) || (github.event_name == 'workflow_dispatch' && inputs.acknowledged_archive_download) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ARCHIVE_URL: https://zenodo.org/records/18158735/files/tacas26.tar.gz?download=1
+      ARCHIVE_FILE: ${{ runner.temp }}/tacas26-zenodo-18158735.tar.gz
+      EVIDENCE_DIR: ${{ runner.temp }}/tacas26-qpe20-evidence
+    steps:
+      - name: Checkout just the exact source HEAD and read-only probe
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pin source, evidence format, and Linux architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(uname -m)" = x86_64
+          printf '%s\n' "$SOURCE_SHA" > "$EVIDENCE_DIR/pr-source-sha.txt"
+          docker version > "$EVIDENCE_DIR/docker-version.txt"
+          df -h > "$EVIDENCE_DIR/disk-before.txt"
+      - name: Retrieve submitted Zenodo prebuilt artifact (never rebuild)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 5 \
+            --connect-timeout 30 --max-time 1200 \
+            --output "$ARCHIVE_FILE" "$ARCHIVE_URL"
+          test -s "$ARCHIVE_FILE"
+          sha256sum "$ARCHIVE_FILE" | tee "$EVIDENCE_DIR/zenodo-archive-sha256.txt"
+          file "$ARCHIVE_FILE" | tee "$EVIDENCE_DIR/zenodo-archive-filetype.txt"
+          df -h > "$EVIDENCE_DIR/disk-after-archive.txt"
+      - name: Load archived container and record real image ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker load -i "$ARCHIVE_FILE" | tee "$EVIDENCE_DIR/docker-load.txt"
+          docker image inspect physicsqoo/tacas26:latest > "$EVIDENCE_DIR/docker-image-inspect.json"
+          docker image ls --digests > "$EVIDENCE_DIR/docker-images.txt"
+          df -h > "$EVIDENCE_DIR/disk-after-load.txt"
+      - name: Real QuPRS v0.9.1 QPE20 Hybrid/GPMC run with transparent traces
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/tacas26_archive_qpe20_probe.py,dst=/tmp/tacas26-probe.py,readonly" \
+            --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence" \
+            --workdir /app \
+            --entrypoint python \
+            physicsqoo/tacas26:latest \
+            /tmp/tacas26-probe.py --output /evidence/archived-qpe20-result.json \
+            2>&1 | tee "$EVIDENCE_DIR/archived-qpe20-stdout.txt"
+      - name: Archive source and all raw evidence regardless of success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-archive-qpe20-live-source-and-phase
+          path: ${{ env.EVIDENCE_DIR }}
+          retention-days: 30
+          if-no-files-found: warn

@@ -83,3 +83,33 @@ runtime, or certify source equivalence.
    new CodSpeed measurements.
 
 Keep PR #131 Draft until both science and performance concerns are qualified.
+
+
+## Opt-in real archived QPE-inexact20 replay (added 2026-11-02)
+
+Workflow: `.github/workflows/tacas26-archived-qpe20.yml` has a standalone
+opt-in PR edited job, not part of any routine CodSpeed shard or mandatory
+PR suite. It downloads the **prebuilt** Zenodo 18158735 `tacas26.tar.gz`,
+records its actual SHA256 and Docker image inspect JSON, then loads it without
+rebuilding. The container runs `scripts/tacas26_archive_qpe20_probe.py`
+with network disabled, original `/app` QuPRS executable untouched and
+script mounted read-only. It verifies QuPRS v0.9.1 commit, QASM SHA256,
+legacy classifier source and tolerance, records the package/OS/Qiskit
+versions and actual historical `gpmc.so` SHA256.
+
+The observer intercepts the original `ps2wmc.subprocess.run` and
+`ps2wmc.run_wmc` **without replacing their results**. It preserves
+unmodified solver stdout, stderr, command/returncode, complex count,
+historical phase computed through the original `get_theta` and final
+QuPRS Hybrid/Proportional verdict. It **fails closed** unless it obtains
+real `equivalent*` from the archival image and the replayed phase
+agrees with the returned historical verdict. The JSON is saved on both
+success and failure. QPE20 is one required step, not a claim that all
+36 paper rows or WMC-only timeout have been reproduced.
+
+The first CI result must be inspected for archive availability and
+disk constraints before scheduling the complete paper corpus. If the Zenodo
+prebuilt download fails, report **NOT_EXECUTED / ARCHIVE_UNAVAILABLE**,
+not a pass based on a mutable Docker Hub tag. Time metrics in the original
+QuPRS object are not evidence of modern performance; use CodSpeed for
+all quantitative performance comparisons.

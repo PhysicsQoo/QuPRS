@@ -48,6 +48,20 @@ def collect(path, expected_sha, expected_digits, expected_backends, reference):
                 or rec.get("source_original") != source
                 or rec.get("source_counterpart") != counterpart):
                 raise ValueError("Source/strategy/parameter provenance mismatch: " + str(key))
+            # Independently rederive binary verdict from original and modern
+            # outputs. A producer-written BINARY_MATCH string cannot serve as
+            # its own proof, especially after a Timeout/parse failure.
+            from scripts.tacas26_modern_calibration import binary
+            if rec["observation"].get("run_status") != "COMPLETED":
+                recalculated = "NOT_MEASURED_OR_CENSORED"
+            else:
+                new_binary = binary(rec["observation"].get("verdict"))
+                old_binary = binary(historical["verdict"])
+                recalculated = ("NOT_MEASURED_OR_CENSORED" if new_binary is None
+                                else ("BINARY_MATCH" if new_binary == old_binary
+                                      else "BINARY_MISMATCH"))
+            if rec["binary_comparison"] != recalculated:
+                raise ValueError("Untrusted producer-scored binary classification: " + str(key))
             rows[key] = rec
     expected = {(case_id, backend) for case_id in reference for backend in expected_backends}
     if rows.keys() != expected:

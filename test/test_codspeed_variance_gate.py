@@ -117,7 +117,8 @@ def test_supported_ganak_print_limit_retains_timing_with_nonblocking_caveat():
         "head_distance_tolerance": 1e-8,
     }
     case["warning"] = ["TOLERANCE_PROVENANCE_DIFFERS", "PRECISION_LIMITED"]
-    observed = variance.produce(report)["cases"][0]
+    observed = next(row for row in variance.produce(report)["cases"]
+                    if row["case"] == "vqe4_ganak")
     assert observed["verdict_comparable"] is False
     assert observed["conditional_timing_comparable"] is True
     assert observed["observation_status"] == "CONDITIONAL_PRECISION_LIMIT"

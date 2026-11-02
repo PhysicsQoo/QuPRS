@@ -135,7 +135,15 @@ def _process_term_cached(term: se.Expr, mod_coeffs, linearize, drop_small, rr_to
 
 def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *, rr_tolerance=None):
     """Normalize a term with explicit tolerance in the LRU cache key."""
-    tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
+    # Source construction (drop_small=False) is exact and independent of
+    # the active per-call RR tolerance. Avoid a ContextVar read and keep one
+    # shared cache identity for all such calls.
+    if not drop_small:
+        if rr_tolerance is not None:
+            validate_rr_tolerance(rr_tolerance)
+        tol = 0.0
+    else:
+        tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
     value, dropped = _process_term_cached(term, mod_coeffs, linearize, drop_small, tol)
     if dropped:
         record_rr_approximation()
@@ -191,7 +199,17 @@ def reduce_expression(
     Phase-polynomial callers pass preserve_scalar=True, while matcher coefficient
     checks use their unchanged tolerance-based zero classification.
     """
-    tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
+    # RR matching still uses its own per-call tolerance; exact
+    # gate/source normalization does not. Canonicalize irrelevant cache
+    # parameters without weakening explicit-argument validation.
+    if not drop_small:
+        if rr_tolerance is not None:
+            validate_rr_tolerance(rr_tolerance)
+        tol = 0.0
+    else:
+        tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
+    if not drop_small or mod_coeffs != 1:
+        preserve_scalar = False
     value, discarded = _reduce_expression_cached(
         expr, mod_coeffs, linearize, drop_small, tol, preserve_scalar
     )

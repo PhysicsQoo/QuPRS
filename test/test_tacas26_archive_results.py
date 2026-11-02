@@ -43,7 +43,7 @@ def test_archiver_keeps_raw_original_verdicts_and_184_rows(tmp_path):
                  "table3_positive:wstate32:positive:wmc_only")
     assert missing["classification"]=="MISSING_RESULT"
     assert missing["observed_verdict"] is None
-    assert missing["time_evidence_status"]=="NO_RESULT_FILE_OR_WATCHDOG"
+    assert missing["time_evidence_status"]=="NO_RESULT_FILE"
     assert counts["MATCH"]==1
     assert len((dest/"results.csv").read_text().splitlines())==185
     assert len((dest/"derived_rr.csv").read_text().splitlines())==38
@@ -96,3 +96,25 @@ def test_original_quprs_time_fields_remain_distinct_from_paper_reference(tmp_pat
     assert row["paper_hybrid_time_s"]==0.027
     assert row["time_evidence_status"]=="ORIGINAL_V091_TIME_CAPTURED"
     assert row["codspeed_certified"] is False
+
+
+def test_watchdog_timeout_is_not_recorded_as_full_execution_time(tmp_path):
+    from scripts.tacas26_archive_results import generate
+    root=tmp_path/"source"
+    folder=root/"tacas26-quprs-v091-shard-1"/"tacas26-quprs-only"
+    folder.mkdir(parents=True)
+    id_="table3_negative:wstate32:negative:wmc_only"
+    name="table3_negative_wstate32_negative_wmc_only.json"
+    payload={"id":id_,"status":"EXTERNAL_TIMEOUT","verdict":None,
+             "timeout_seconds":200,"science":"CENSORED_NOT_NOT_EQUIVALENT"}
+    (folder/name).write_text(json.dumps(payload))
+    (folder/"summary.json").write_text(json.dumps({"results":[{
+        "id":id_,"status":"EXTERNAL_TIMEOUT","verdict":None,
+        "source_result_file":name}]}))
+    target=tmp_path/"output"
+    generate(root,target)
+    data=json.loads((target/"results.json").read_text())
+    row=next(x for x in data["rows"] if x["id"]==id_)
+    assert row["time_evidence_status"]=="CENSORED_EXTERNAL_WATCHDOG"
+    assert row["verification_time_s"] is None
+    assert row["classification"]=="CENSORED_WATCHDOG_COMPATIBLE"

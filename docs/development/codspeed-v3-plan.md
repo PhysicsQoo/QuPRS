@@ -86,3 +86,24 @@ is a censored observation: never substitute the timeout cap into ratios.
 GPMC/Ganak precision warnings prevent scientific promotion, even if timing
 collection succeeds. Never weaken MPFR or RR/WMC tolerances to make benchmarks
 pass. Distinguish SCIENCE, COLLECTION and PERFORMANCE acceptance.
+
+
+## Restricted GitHub connector: one-shot PR metadata pilot trigger
+
+For environments where the GitHub connector cannot perform
+`workflow_dispatch`, the existing PR can trigger the same opt-in pilot
+without a new branch or worktree. Temporarily append
+`<!-- quprs-codspeed-v3-pilot -->` to the PR description. The
+`pull_request.edited` event runs only the `candidate-pilot` job; ordinary
+five-shard Simulation, paired WallTime, native Rust and cross-check jobs are
+skipped on metadata-only events. This job pins the actual PR HEAD, not the
+synthetic merge commit, so the code SHA does not change when the marker is
+added. Remove the marker only after its CodSpeed run ends. The cleanup edit
+will not collect performance data.
+
+This path is opt-in, one-shot and scientifically exploratory. Because the
+candidate pilot runs one measured round, it can screen feasibility and timeout
+but cannot certify variance or a 1–2% regression. The pilot records original
+and transpiled QASM SHA256, solver/watchdog caps, verdict, observed Solver
+invocation and explicit censored statuses, including SOLVER_TIMEOUT and
+WATCHDOG_TIMEOUT. It does not promote candidates automatically.

@@ -22,7 +22,7 @@ on:
   # Always run BOTH Simulation and paired Solver-inclusive WallTime on PRs.
   # CI job success means evidence was collected, not proof of no regression.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
   workflow_dispatch:
     inputs:
       pilot_only:
@@ -59,12 +59,12 @@ permissions:
 # Supersede only stale runs of this workflow for this PR.
 # Jobs within a run still execute independently and concurrently.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'edited' && 'pilot-control' || 'regular' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' }}
 
 jobs:
   codspeed:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
+    if: ${{ github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Run benchmarks
     runs-on: ubuntu-latest
     strategy:
@@ -151,7 +151,7 @@ jobs:
   pr-solver-inclusive-walltime:
     name: Paired Solver-inclusive CodSpeed WallTime
     # Unlike CPU Simulation, measure complete verifier + GPMC/Ganak elapsed time.
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.base_sha != '')) }}
+    if: ${{ github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.base_sha != '')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -268,7 +268,7 @@ jobs:
 
 
   native-core:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
+    if: ${{ github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Same SHA native Rust CPU
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -401,7 +401,7 @@ jobs:
 
   cross-validate:
     name: Per-SHA CodSpeed cross-instrument evidence
-    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
+    if: ${{ always() && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     needs: [codspeed, pr-solver-inclusive-walltime, native-core, native-memory, solver-inclusive-cpu, cross-method, python-core]
     runs-on: ubuntu-24.04
     permissions:
@@ -546,17 +546,17 @@ jobs:
 
   candidate-pilot:
     name: Bounded SAME-SHA candidate screening (manual only)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.pilot_only }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.pilot_only) || (github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-pilot -->')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      HEAD_SHA: ${{ github.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       BINARY_DIR: src/QuPRS/utils
       QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/candidate-pilot-codspeed.json
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -584,7 +584,7 @@ jobs:
         uses: CodSpeedHQ/action@v5
         with:
           mode: walltime
-          run: python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --codspeed --codspeed-max-rounds=1 --codspeed-max-time=120
+          run: python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=1 --codspeed-max-time=120
       - name: Record pilot source and original measured output
         run: |
           python scripts/write_codspeed_sha_manifest.py \
@@ -607,7 +607,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      HEAD_SHA: ${{ github.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/python-core-codspeed.json
     steps:
       - uses: actions/checkout@v4

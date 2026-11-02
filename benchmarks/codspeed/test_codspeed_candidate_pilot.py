@@ -4,6 +4,7 @@ Runs fixed source QASM through a single verifier subprocess; the *only* timing
 instrument is CodSpeed WallTime. Timeout/watchdog are safety controls, not a
 substitute for its statistics. Both successes and timeouts remain evidence.
 """
+import hashlib
 import json
 import os
 import signal
@@ -34,14 +35,23 @@ def sample_candidate(case):
     try:
         stdout, stderr = child.communicate(timeout=case.watchdog_s)
     except subprocess.TimeoutExpired:
-        os.killpg(child.pid, signal.SIGKILL)
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         child.communicate()
-        return {"status": "TIMEOUT", "verdict": None,
+        return {"status": "WATCHDOG_TIMEOUT", "verdict": None,
                 "solver_invoked": None, "exit_code": None}
     if child.returncode:
-        return {"status": "PROCESS_ERROR", "verdict": None,
-                "solver_invoked": None, "exit_code": child.returncode,
-                "stderr_tail": stderr[-600:]}
+        # A request-level solver timeout is different from the outer watchdog.
+        # Preserve the diagnostic text without mislabeling arbitrary exceptions.
+        diagnostic = (stderr + "\n" + stdout)[-1400:]
+        solver_timeout = ("timeout" in diagnostic.lower()
+                          or "time limit exceeded" in diagnostic.lower())
+        return {"status": "SOLVER_TIMEOUT" if solver_timeout else "PROCESS_ERROR",
+                "verdict": None, "solver_invoked": None,
+                "exit_code": child.returncode,
+                "stderr_tail": diagnostic[-600:]}
     matches = [line[len(MARKER):] for line in stdout.splitlines()
                if line.startswith(MARKER)]
     if len(matches) != 1:
@@ -59,6 +69,11 @@ def sample_candidate(case):
 
 @pytest.mark.parametrize("case", PILOT_CASES, ids=[case.id for case in PILOT_CASES])
 def test_source_pinned_candidate(benchmark, case):
+    fixture_root = Path(os.environ["GITHUB_WORKSPACE"]) / "benchmarks" / "MQTBench"
+    sources = (fixture_root / case.qasm,
+               fixture_root / "h,ry,rz,cx" / case.qasm)
+    source_hashes = [hashlib.sha256(source.read_bytes()).hexdigest()
+                     for source in sources]
     result = benchmark(sample_candidate, case)
     # A fast solver-avoiding RR result can still be useful as a separate
     # category. It cannot enter a Solver-inclusive benchmark by assumption.
@@ -68,6 +83,9 @@ def test_source_pinned_candidate(benchmark, case):
               "NEEDS_SCIENTIFIC_OR_TIMEOUT_REVIEW")
     metadata = {
         "case_id": case.id, "filename": case.qasm,
+        "qasm_sha256": source_hashes,
+        "codspeed_sample_policy": "one_measured_round_no_warmup_exploratory",
+        "run_id": os.environ.get("GITHUB_RUN_ID"),
         "source_sha": os.environ["HEAD_SHA"], "method": case.method,
         "strategy": case.strategy, "backend": case.backend,
         "solver": case.solver, "reverse": case.reverse,
@@ -83,6 +101,6 @@ def test_source_pinned_candidate(benchmark, case):
     # Expected timeouts are *censored* observations. Do not transform them
     # into successful performance comparisons or arbitrary fixed durations.
     assert result["status"] in {
-        "TIMEOUT", "PROCESS_ERROR", "MISSING_RESULT",
+        "WATCHDOG_TIMEOUT", "SOLVER_TIMEOUT", "PROCESS_ERROR", "MISSING_RESULT",
         "UNPARSEABLE_RESULT", "COMPLETED",
     }

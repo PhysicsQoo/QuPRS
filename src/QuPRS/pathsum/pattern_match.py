@@ -31,6 +31,9 @@ def match_HH(
     if valid_symbols is None:
         valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
 
+    # Membership is tested once per coefficient candidate, often against a
+    # large set of path variables. Avoid repeated linear scans over tuples.
+    allowed_pathvars = pathvar if isinstance(pathvar, (set, frozenset)) else set(pathvar)
     for yo_val in reducible_vars:
         # Use only coefficients of the *same* phase, recorded earlier by Omega.
         # Direct matcher calls retain their original standalone behavior.
@@ -42,16 +45,21 @@ def match_HH(
         possible_yi = [
             yi_val
             for yi_val in P_coeff.free_symbols
-            if yi_val in pathvar and yi_val != yo_val
+            if yi_val in allowed_pathvars and yi_val != yo_val
         ]
 
+        if not possible_yi:
+            continue
+        doubled_coefficient = 2 * P_coeff
         for yi_val in possible_yi:
-            Q_val = reduce_expression((2 * P_coeff - yi_val), 2)
+            Q_val = reduce_expression(doubled_coefficient - yi_val, 2)
             Q_val_free_symbols = Q_val.free_symbols
             if (
                 yi_val not in Q_val_free_symbols
                 and all(str(symbol) in valid_symbols for symbol in Q_val_free_symbols)
-                and reduce_expression(Q_val).is_zero
+                # An exact zero has no RR approximation provenance. Skip
+                # only that unnecessary second normalization.
+                and (Q_val.is_zero or reduce_expression(Q_val).is_zero)
             ):
                 R_val = (P_expanded - yo_val * P_coeff).expand()
                 return yo_val, yi_val, Q_val, R_val

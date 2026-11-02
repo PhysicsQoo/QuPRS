@@ -130,6 +130,16 @@ def run_one(paper,case,outfile):
             ps2wmc.subprocess.run=run
             ps2wmc.run_wmc=wmc
         result["verdict"]=str(data.equivalent)
+        # The published Table 2 RR column was derived from this very Hybrid
+        # invocation, not a separate reduction_rules verification.
+        if case["kind"] == "positive" and case["method"] == "hybrid":
+            completed_in_rr = data.to_DIMACS_time is None
+            result["derived_rr"] = {
+                "provenance": "SAME_HYBRID_INVOCATION",
+                "rr_finished_without_wmc": completed_in_rr,
+                "verdict": (str(data.equivalent) if completed_in_rr
+                            else "unknown"),
+            }
         result["expected_log2"]=float(data.expect) if data.expect is not None else None
         result["rounded_log2"]=float(data.log_wmc) if data.log_wmc is not None else None
         result["solver_invoked"]=bool(result["solver_calls"])
@@ -161,7 +171,7 @@ def run_one(paper,case,outfile):
         outfile.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
     return 0 if result["status"]=="RETURNED" else 2
 
-def run_parent(current,paper,output,rows,shard,shards,limit,watchdog):
+def run_parent(current,paper,output,rows,shard,shards,limit,watchdog, matrix_size=187):
     if subprocess.run(["git","-C",str(paper),"rev-parse","HEAD"],
             check=True,capture_output=True,text=True).stdout.strip()!=HISTORICAL_SHA:
         raise ValueError("Wrong historical commit")
@@ -172,7 +182,7 @@ def run_parent(current,paper,output,rows,shard,shards,limit,watchdog):
     (output/"case-plan.json").write_text(json.dumps(cases,indent=2,sort_keys=True)+"\n")
     log={"schema":"quprs-tacas26-source-matrix-v1","source":HISTORICAL_SHA,
          "shard":shard,"shards":shards,"count":len(cases),
-         "overall_matrix_size":187,"performance":"NONE_NOT_CODSPEED","results":[]}
+         "overall_matrix_size":matrix_size,"performance":"NONE_NOT_CODSPEED","results":[]}
     for case in cases:
         for side in ("a","b"):pinned(paper,case[side],case["sha_"+side])
         label=case["id"].replace(":","_")

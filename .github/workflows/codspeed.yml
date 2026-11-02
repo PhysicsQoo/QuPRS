@@ -69,6 +69,69 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' }}
 
 jobs:
+
+  tacas26-source-qpe20:
+    name: TACAS v0.9.1 pinned source / QPE20 actual GPMC and phase (opt-in)
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-tacas26-v091-source-qpe20 -->') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      QUPRS_ARCHIVE_ROOT: ${{ github.workspace }}/historical
+      PYTHONPATH: ${{ github.workspace }}/historical/src
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout same-PR experiment harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Checkout immutable official TACAS QuPRS v0.9.1 source
+        uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: e928abc47dd15926364ec77905eb0d5dc92ce8cc
+          path: historical
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up pinned Qiskit runtime for original Python code
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$(git -C historical rev-parse HEAD)" = e928abc47dd15926364ec77905eb0d5dc92ce8cc
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libgmp10 libmpfr6 libatomic1
+          python -m pip install --disable-pip-version-check "numpy<2" "qiskit==1.4.2" \
+            "qiskit-qasm3-import>=0.5.1" sympy symengine psutil
+          python -m pip install --disable-pip-version-check --no-deps -e ./historical
+          python -m pip freeze > "$RUNNER_TEMP/tacas26-source-pip-freeze.txt"
+          file historical/src/QuPRS/utils/gpmc.so > "$RUNNER_TEMP/tacas26-gpmc-file.txt"
+          sha256sum historical/src/QuPRS/utils/gpmc.so > "$RUNNER_TEMP/tacas26-gpmc-sha256.txt"
+      - name: Run untouched v0.9.1 Hybrid/Proportional QPE20 and collect raw phase
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/tacas26_archive_qpe20_probe.py \
+            --output "$RUNNER_TEMP/tacas26-source-qpe20.json"
+      - name: Preserve source and solver evidence on PASS or FAILURE
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-v091-source-qpe20-actual-gpmc
+          path: |
+            ${{ runner.temp }}/tacas26-source-qpe20.json
+            ${{ runner.temp }}/tacas26-source-pip-freeze.txt
+            ${{ runner.temp }}/tacas26-gpmc-file.txt
+            ${{ runner.temp }}/tacas26-gpmc-sha256.txt
+          if-no-files-found: warn
+          retention-days: 30
+
   codspeed:
     if: ${{ github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Run benchmarks

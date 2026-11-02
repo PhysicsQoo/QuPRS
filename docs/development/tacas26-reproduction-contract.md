@@ -113,3 +113,25 @@ prebuilt download fails, report **NOT_EXECUTED / ARCHIVE_UNAVAILABLE**,
 not a pass based on a mutable Docker Hub tag. Time metrics in the original
 QuPRS object are not evidence of modern performance; use CodSpeed for
 all quantitative performance comparisons.
+
+
+## Pinned source checkout option (no Docker download, same original algorithms)
+
+An alternative to the archived Zenodo Docker is the existing CodSpeed
+workflow's *separate opt-in* job `tacas26-source-qpe20`: checkout
+QuPRS v0.9.1 at exact immutable commit
+`e928abc47dd15926364ec77905eb0d5dc92ce8cc` into
+`$GITHUB_WORKSPACE/historical` and import only historical
+`src/QuPRS`. Python 3.12 + Qiskit 1.4.2, numpy<2, SymEngine, and the
+original **packaged** `gpmc.so` are used; no Rust build, no modifications
+to v0.9.1, no repository fork and no worktree on the user's computer.
+The independently mounted probe uses `QUPRS_ARCHIVE_ROOT` to determine
+the exact historical checkout, without changing mathematical operations.
+
+This is *SOURCE_REPRODUCED*, not
+`ARCHIVED_IMAGE_ENVIRONMENT_REPRODUCED`. Its GPMC binary hash, Python
+pip freeze and raw phase/output are retained. The job fails closed if the
+actual v0.9.1 verdict differs from paper `equivalent*`, if GPMC was
+not invoked, if the phase replay is inconsistent, or if any original
+source SHA does not match. This option allows reproducing the original
+algorithm without first retrieving the large Zenodo Docker tarball.

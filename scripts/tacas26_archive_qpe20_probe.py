@@ -21,6 +21,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HISTORICAL_SHA = "e928abc47dd15926364ec77905eb0d5dc92ce8cc"
+SOURCE_ROOT = Path(os.environ.get("QUPRS_ARCHIVE_ROOT", "/app")).resolve()
+
+
+def archived_path(original: str) -> Path:
+    """Translate an archived /app path into the pinned detached checkout."""
+    rel = Path(original).relative_to("/app")
+    return SOURCE_ROOT / rel
 INPUTS = {
     "original": (
         "/app/benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
@@ -56,12 +63,12 @@ def load_and_check_environment() -> dict:
         "archive_installed_git_sha": None,
         "gpmc_binary_sha256": None,
     }
-    head = subprocess.run(["git", "-C", "/app", "rev-parse", "HEAD"],
+    head = subprocess.run(["git", "-C", str(SOURCE_ROOT), "rev-parse", "HEAD"],
                           capture_output=True, text=True, check=True)
     info["archive_installed_git_sha"] = head.stdout.strip()
     if info["archive_installed_git_sha"] != HISTORICAL_SHA:
         raise ValueError("Archived QuPRS source SHA is not the TACAS v0.9.1 pin")
-    if not Path(load_qiskit.__file__).resolve().is_relative_to(Path("/app").resolve()):
+    if not Path(load_qiskit.__file__).resolve().is_relative_to(SOURCE_ROOT):
         raise ValueError("QuPRS import escaped the archived /app source tree")
     if config.TOLERANCE != 1e-10:
         raise ValueError("Unexpected TACAS QuPRS TOLERANCE")
@@ -70,11 +77,11 @@ def load_and_check_environment() -> dict:
             or "abs(log_wmc - expect) < tolerance" not in text):
         raise ValueError("Archived numerical classifier differs from v0.9.1")
     for name, (location, expected) in INPUTS.items():
-        actual = _sha256(Path(location))
+        actual = _sha256(archived_path(location))
         if actual != expected:
             raise ValueError(f"Historical input source mismatch: {name}")
         info["source"][name] = {
-            "path": location, "sha256": actual,
+            "path": str(archived_path(location)), "sha256": actual,
             "git_blob_from_artifact_research": (
                 "4535af5bd2c7603e40e2828bb7438ab6240aea9f" if name == "original"
                 else "f7dd85917d461a9d3cfcacc71ba2d9410ba3c471"),
@@ -123,8 +130,8 @@ def observe_real_verification(output: dict) -> None:
     ps2wmc.run_wmc = transparent_wmc
     try:
         result = check_equivalence(
-            INPUTS["original"][0],
-            INPUTS["transpiled"][0],
+            str(archived_path(INPUTS["original"][0])),
+            str(archived_path(INPUTS["transpiled"][0])),
             method="hybrid",
             strategy="Proportional",
             timeout=200,
@@ -168,8 +175,10 @@ def observe_real_verification(output: dict) -> None:
 def run(output_file: Path) -> dict:
     data = {
         "schema": "quprs-tacas26-archived-qpe20-live-v1",
-        "source_of_truth": "Zenodo record 18158735 prebuilt Docker image",
-        "archived_image_tested": True,
+        "source_of_truth": ("Zenodo 18158735 Docker image" if SOURCE_ROOT == Path("/app")
+                            else "Immutable QuPRS v0.9.1 checkout with pinned dependencies"),
+        "archived_image_tested": SOURCE_ROOT == Path("/app"),
+        "checkout_root": str(SOURCE_ROOT),
         "source_archive_git_sha_required": HISTORICAL_SHA,
         "paper_expected_verdict": "equivalent*",
         "paper_execution": "hybrid proportional, 200-second limit, positive source pair",

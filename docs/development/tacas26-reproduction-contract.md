@@ -204,3 +204,84 @@ multi-line `elif ... and obs.get("verdict") in` expression. This is
 research report-parser syntax, not 109 measured quantum-verdict failures.
 Fix only on this experiment branch, then revalidate the paper oracle
 before any repeat of 109 expensive original-GPMC cases.
+
+
+## Official Artifact code audit (2026-11-02; supersedes provisional 187-call claim)
+
+Reference the *actual* submitted experiment scripts, pinned to
+[Artifact-of-tacas26@d8d3e7da](https://github.com/PhysicsQoo/Artifact-of-tacas26/tree/d8d3e7da555e9e20bdec6f3abe4a13ad899af62b),
+rather than treating the exploratory 187-ID registry as the exact paper execution protocol.
+
+- \`experiments/table_MQT.py\`: enumerates **37** original MQTBench QASM files
+  (36 Table 2 positive rows plus WState32, which also appears in Table 3).
+  Per file, it invokes **one Hybrid** and **one WMC-only** QuPRS run.
+  Its \`RR_result\` is **derived from that same Hybrid result**:
+  \`RR_time = result.pathsum_time\`;
+  \`RR_result = result.equivalent if result.to_DIMACS_time is None else "unknown"\`.
+  It does **not** invoke a separate \`reduction_rules\` run for Table 2 RR.
+  Do not substitute independent RR-only verdicts or times for published RR columns.
+- \`experiments/table_MQT_Random_Rotation.py\`: enumerates **37** original QASM
+  filenames and pairs with \`Random_Rotation/\`; RR is explicitly disabled.
+  Per pair it runs Hybrid and WMC-only, both with \`strategy="Proportional"\`,
+  \`timeout=200\`.
+- \`experiments/table_Feynman.py\`: enumerates **36** original Feynman QASM
+  files paired with \`h,y,z,t,tdg,cx/\` and invokes QuPRS
+  \`method="reduction_rules"\` independently, plus the bundled
+  \`experiments/feynver\` external comparison. The pre-existing 4-item
+  \`feynman_ci_sample\` is **only a smoke sample**, not full Figure 3(a)
+  original-script coverage.
+- The MQT scripts additionally enable qcec, quokka_sharp, and, for positive
+  MQT, pyzx. Reproducing *every comparison tool* in the paper is a separate
+  lane and cannot be inferred from QuPRS-only validation.
+
+Hence the original three scripts imply **184 direct QuPRS executions**
+(\`37 * (Hybrid + WMC)\` positive, \`37 * (Hybrid + WMC)\` negative, and
+\`36 * RR\` Feynman), with **37 derived positive RR result cells**:
+**221 QuPRS result cells**, not 221 direct calls. Paper Table 2 displays only
+36 positive rows; WState32 remains a separately labelled original-script
+extra positive, not an invented Table 2 publication row.
+The original positive script also invokes WState32 WMC-only, which the
+provisional registry omitted.
+
+The previous **187-row matrix** is retained *temporarily* as an immutable
+exploratory-evidence index: 108 Table 2 IDs include 36 **independent**
+RR-only runs (non-paper protocol), 74 Table 3 negative IDs, 1 extra
+WState32 Hybrid ID, and only 4 Feynman RR sample IDs. This is neither
+the paper's 184 direct calls nor the 221 output cells. Its provisional
+\`remaining 109\` cohort must **not** be launched as the claimed complete
+artifact reproduction. Do not discard its already archived results; label
+independent RR-only output as **ADDITIONAL_METHOD_CONTROL**.
+
+From existing GitHub Action logs, **78** distinct exploratory source-run
+records exist: **74** Hybrid, **2** WMC-only and **2** RR-only.
+One of the RR-only records is Table 2 GHZ32 (additional control, not
+the published RR execution); the other is Feynman \`tof_3\`.
+Thus **77 of the 184** canonical direct-call identities have execution
+records (including scientifically censored outcomes); **107** still lack
+original-script-matched execution records: **36** positive WMC,
+**36** negative WMC, **35** Feynman RR. The positive 37 Hybrid records
+cannot alone certify the 37 published RR result cells because the current
+observer does **not** preserve \`pathsum_time\` or \`to_DIMACS_time\`.
+Add those fields and replay the 37 positive Hybrid cases (with bounded
+shards) before certifying the derived RR column. A censored timeout is
+not an observed verdict.
+
+Migration actions:
+1. Separate **DIRECT_CALL**, **DERIVED_FROM_HYBRID** and **EXTRA_CONTROL**
+   provenance in the registry and reports, without changing historical
+   stored artifact IDs.
+2. Build the full 36-Feynman list from the immutable v0.9.1 checkout;
+   pin input bytes, distinguish separately supplied Feynman comparator
+   outputs, and add WState32 positive WMC.
+3. Make independent RR-only an opt-in *modern-method comparison*, never
+   the historical RR-column oracle. Preserve stage outputs from the real
+   original Hybrid invocation and re-derive RR exactly as the official script.
+4. Only run the corrected remaining **107** direct-call identities and
+   the bounded positive-Hybrid stage recapture after the lightweight source
+   contract passes. Do not trigger expensive Solver workflows on every push.
+5. Report outcomes, censored timeouts, source hashes and paper verdicts
+   separately. Any formal *new* performance comparison remains CodSpeed-only.
+
+This supersedes the older statements above claiming that 187 experimental
+identities equal the complete original execution corpus. The previous
+187-ID CI green gate remains a **schema/smoke** pass, not paper certification.

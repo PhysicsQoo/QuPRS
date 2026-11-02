@@ -62,3 +62,11 @@ subsequent PR with a successful code run followed by a docs-only commit, as
 well as a source-changing negative test, before treating skip efficiency as
 production-proven. This implementation does not claim to reuse CodSpeed data
 for a new SHA; it only cites the older measured source that remains identical.
+
+## Documentation-only PR synchronize smoke test
+
+An isolated documentation-only follow-up commit is used to test actual
+GitHub Actions evidence reuse. Its source, benchmark identity, solver
+submodule and workflow files remain unchanged. Acceptance requires the
+impact jobs to cite the earlier successful run and to skip expensive jobs;
+no new CodSpeed measurement should be reported for this documentation SHA.

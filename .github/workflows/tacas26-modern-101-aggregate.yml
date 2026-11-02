@@ -1,0 +1,70 @@
+name: TACAS26 Modern 101 Scientific Evidence Aggregator — Experiment Branch Only
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/tacas26/aggregate-modern-101-20261103.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-pinned-final-audit:
+    name: Aggregate 202 modern calls and 101 high-precision convergence results
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FULL30_RUN: 41481701901
+      FULL30_SHA: ff4d3032a83c0ae18ba3a7d195cb1b1a8804492f
+      FULL90_RUN: 41482585459
+      FULL90_SHA: 6b2b281c546e3369abb5061af74896bb50c48c3b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify BOTH original research runs completed and source SHA is immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$FULL30_RUN --jq .head_sha)" = "$FULL30_SHA"
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$FULL90_RUN --jq .head_sha)" = "$FULL90_SHA"
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$FULL30_RUN --jq .conclusion)" = success
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$FULL90_RUN --jq .conclusion)" = success
+      - name: Retrieve EXACT original observations, not carried-forward claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$FULL30_RUN" -R PhysicsQoo/QuPRS \
+            --pattern 'tacas26-modern-full101-*' -D "$RUNNER_TEMP/science30"
+          gh run download "$FULL90_RUN" -R PhysicsQoo/QuPRS \
+            --pattern 'tacas26-modern-precision90-*' -D "$RUNNER_TEMP/science90"
+      - name: Test scientific auditer and combine all 303 source-pinned records
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest test/test_tacas26_modern_101_aggregate.py -q
+          python -m scripts.tacas26_modern_101_aggregate \
+            --dir30 "$RUNNER_TEMP/science30" \
+            --dir90 "$RUNNER_TEMP/science90" \
+            --sha30 "$FULL30_SHA" --sha90 "$FULL90_SHA" \
+            --output "$RUNNER_TEMP/tacas26-modern-101-science-and-arithmetic-evidence.json"
+      - name: Preserve full paired JSON data for long-term research branch archive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-modern-101-all-three-instruments-scientific-audit
+          path: |
+            ${{ runner.temp }}/tacas26-modern-101-science-and-arithmetic-evidence.json
+          if-no-files-found: warn
+          retention-days: 30

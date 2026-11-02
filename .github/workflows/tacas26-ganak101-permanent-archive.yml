@@ -1,0 +1,97 @@
+name: TACAS26 Permanent Ganak101 Scientific Archive
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/tacas26-ganak101-permanent-archive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: tacas26-ganak101-permanent-archive
+  cancel-in-progress: false
+
+jobs:
+  archive-science:
+    name: Archive 101 actual Ganak results and 20 EQ-to-NEQ cases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GANAK_RUN: '41540814150'
+      GANAK_SHA: '1a38d7de190cacba4e2713f2bd7e586724a5fb6d'
+      GPMC_RUN: '41485674318'
+      GPMC_SHA: 'f8e75d882888941f55588b610ee7b014d202fce6'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/tacas26-paper-reproduction
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify pinned original source SHA and success for both science runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$GANAK_RUN --jq .head_sha)" = "$GANAK_SHA"
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$GPMC_RUN --jq .head_sha)" = "$GPMC_SHA"
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$GANAK_RUN --jq .conclusion)" = success
+          test "$(gh api repos/PhysicsQoo/QuPRS/actions/runs/$GPMC_RUN --jq .conclusion)" = success
+      - name: Retrieve exact original 24 Ganak and 101 GPMC audit artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$GANAK_RUN" -R PhysicsQoo/QuPRS \
+            --pattern 'tacas26-modern-ganak101-*' -D "$RUNNER_TEMP/ganak"
+          gh run download "$GPMC_RUN" -R PhysicsQoo/QuPRS \
+            --name tacas26-modern-101-all-three-instruments-scientific-audit \
+            -D "$RUNNER_TEMP/gpmc"
+      - name: Independently rescore binary labels and produce durable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q scripts/tacas26_ganak_archive.py
+          python scripts/tacas26_ganak_archive.py \
+            --ganak-dir "$RUNNER_TEMP/ganak" \
+            --gpmc-json "$RUNNER_TEMP/gpmc/tacas26-modern-101-science-and-arithmetic-evidence.json" \
+            --out-dir docs/development/tacas26-ganak101-permanent \
+            > "$RUNNER_TEMP/ganak101-archive-audit.json"
+          python - <<'PY'
+          import json, pathlib
+          m = json.loads(pathlib.Path("docs/development/tacas26-ganak101-permanent/manifest.json").read_text())
+          assert (m["total"],m["matched"],m["false_neq"],m["false_eq"]) == (101,81,20,0)
+          assert len(m["original_shard_jsonl_sha256"]) == 24
+          print("ARCHIVE_VERIFIED",m["total"],m["matched"],m["false_neq"])
+          PY
+          git diff --check
+      - name: Commit audited original data to the experiment branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = experiment/tacas26-paper-reproduction
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/development/tacas26-ganak101-permanent/
+          if git diff --cached --quiet; then
+            echo "Already archived, no change."
+          else
+            git commit -m "research(tacas): archive Ganak101 raw observations and 20 EQ-to-NEQ distances"
+            git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+          fi
+      - name: Preserve audit bundle even if git push fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-ganak101-permanent-archive-audit
+          path: |
+            ${{ runner.temp }}/ganak101-archive-audit.json
+            docs/development/tacas26-ganak101-permanent/
+          if-no-files-found: warn
+          retention-days: 30

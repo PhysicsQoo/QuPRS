@@ -1,6 +1,20 @@
 # TACAS 2026 — isolated historical QuPRS CodSpeed design
 
-Status: **DESIGN ONLY — NOT IMPLEMENTED OR EXECUTED** (2026-11-02).
+Status: **OPTIONAL PERFORMANCE EXTENSION — NOT PART OF ARTIFACT REPRODUCTION ACCEPTANCE** (2026-11-02).
+
+**Priority correction:** the TACAS Artifact experiment is primarily a
+**CI scientific reproducibility and numeric WMC evidence preservation**
+project, *not* a historical performance benchmark project. Its success
+criteria are original QuPRS verdicts, GPMC raw outputs, normalized numeric
+provenance and source-locked correctness data that can inform later
+tolerance design. The 184-case source evidence is already archived.
+`docs/development/tacas26-wmc-tolerance-evidence-contract.md` is the
+controlling document for this primary objective.
+
+**CodSpeed is optional and secondary.** If performance becomes a separate
+research question, follow the standalone design below. It must not
+replace, relabel, or block historical CI-science evidence, and no
+CodSpeed run is needed to archive existing WMC values.
 Scope: historical QuPRS **v0.9.1 only**, direct original-source science
 reproduction, original QASM pairs, native GPMC. No QCEC, Quokka-sharp,
 PyZX or Feynver competitor benchmarks.

@@ -1,0 +1,84 @@
+name: TACAS26 Modern Binary Equivalence Calibration — Experiment Branch Only
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/tacas26/run-modern-calibration-20261103.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tacas26-modern-binary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  modern-verdict-science:
+    name: Modern QuPRS 2e-5 eq/neq science (shard ${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout research SHA only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Reuse bundled WMC solver tools without modifying external solver
+        uses: actions/cache@v4
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - name: Build pinned modern QuPRS once per shard and test science harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/modern-quprs"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/modern-quprs" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/modern-quprs/bin" >> "$GITHUB_PATH"
+          source "$RUNNER_TEMP/modern-quprs/bin/activate"
+          python -m pip install --disable-pip-version-check maturin
+          maturin develop --release -E dev
+          python -m pytest test/test_tacas26_modern_calibration.py -q
+          python -m compileall -q scripts/tacas26_modern_calibration.py
+      - name: Modern real Solver/GPMC tolerance and RR/precision probes (science only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_modern_calibration \
+            --root "$GITHUB_WORKSPACE" \
+            --shard ${{ matrix.shard }} \
+            --sha "$GITHUB_SHA" \
+            --solver-timeout 30 \
+            --watchdog 48 \
+            --output "$RUNNER_TEMP/tacas26-modern-shard-${{ matrix.shard }}.jsonl"
+      - name: Preserve partial source-pinned observations and classifications
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-modern-binary-shard-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/tacas26-modern-shard-${{ matrix.shard }}.jsonl
+            ${{ runner.temp }}/tacas26-modern-shard-${{ matrix.shard }}.summary.json
+          retention-days: 30
+          if-no-files-found: warn

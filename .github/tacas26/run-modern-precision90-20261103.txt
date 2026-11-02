@@ -1,0 +1,5 @@
+One controlled 90-digit modern QuPRS/GPMC science sweep for ALL 101 archived determinate GPMC cases, Python backend only.
+Research branch only. Source pins exact. Internal Solver timeout 200s, watchdog 215s.
+Purpose: compare current GPMC 30 vs 90 working/printed decimal digits on 45 EQ and 56 NEQ source cases, preserve real+imag stdout and exact-rational printed output intervals; detect numerical sensitivity.
+Scientific certification policy: two agreeing precision runs are CONVERGENCE EVIDENCE ONLY, not a Solver arithmetic error bound. A full error certificate needs independent interval/exact WMC of the same CNF plus source-weight error, or explicit validated Solver arithmetic bound; leave UNQUALIFIED otherwise.
+Do not modify solver implementation, QuPRS production default, or formal PR #131. No non-CodSpeed timing claims.

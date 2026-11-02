@@ -1,0 +1,64 @@
+{
+  "archive_sha256": {
+    "ganak101-raw.jsonl": "13786fc6725508f04e3ac3898ef2ce3e137ae32561cc506da67f6ab0d5a3d30c",
+    "ganak101-science.csv": "b7045c6f530f474ba20179ca4d7f6d61042597eda39383cad303e061a061f2e1",
+    "ganak20-eq-to-neq.csv": "1be84761c384a6a733580937bd2f014a2000a06ff71f92c462034ff9fd0855f2"
+  },
+  "distance_tolerance": "2e-5",
+  "false_eq": 0,
+  "false_neq": 20,
+  "false_neq_methods": {
+    "hybrid": 6,
+    "wmc_only": 14
+  },
+  "false_neq_print_resolution_distance": {
+    "max": 0.0001301562865742245,
+    "median": 8.572857270852931e-05,
+    "min": 4.7121609141471054e-05
+  },
+  "false_neq_printed_point_distance": {
+    "max": 8.287644335576368e-05,
+    "median": 3.5252550378019486e-05,
+    "min": 2.1686138691279898e-05
+  },
+  "ganak_head_sha": "1a38d7de190cacba4e2713f2bd7e586724a5fb6d",
+  "ganak_mode": 6,
+  "ganak_run": 41540814150,
+  "gpmc_run": 41485674318,
+  "historical_eq": 45,
+  "historical_neq": 56,
+  "historical_source_sha": "e928abc47dd15926364ec77905eb0d5dc92ce8cc",
+  "matched": 81,
+  "original_shard_jsonl_sha256": {
+    "tacas26-modern-ganak101-0.jsonl": "6f0404693078776af81854baa1b85c23c8801fa4d29bef36bd3fc1d016b26386",
+    "tacas26-modern-ganak101-1.jsonl": "885fae0f3e2216508cde7a7217e5f9b780371fb1cf3ef9feab04c7e68eb29242",
+    "tacas26-modern-ganak101-10.jsonl": "24d2e722778434a6237e592ad4ecd86a6d4410908bdcdfd5ca5956c41781d619",
+    "tacas26-modern-ganak101-11.jsonl": "f116e0bcd8b6de2e274c24c17c8d24edf78269e966e956d565c7f7a7963a6d1c",
+    "tacas26-modern-ganak101-12.jsonl": "b63f6db067fa1fdf67f1a55c7139317a176604d0fa873f533c84ff2087d7e692",
+    "tacas26-modern-ganak101-13.jsonl": "3e1948b893de3894814c31b4d34a9e568ee77226a472e9b0b53a73779675badf",
+    "tacas26-modern-ganak101-14.jsonl": "a92d62b253b6f645e7d3b29a09c235b34ceb7a193d1e5e77a4e4e68ffde22885",
+    "tacas26-modern-ganak101-15.jsonl": "ac8150c678fca6179f2ba045763a5527ff7d7616e17fde5c967381d09ee29983",
+    "tacas26-modern-ganak101-16.jsonl": "6a64c18c3f10adaef2fd8be308be0a77062c13163417afddec1b11c76a90fc6e",
+    "tacas26-modern-ganak101-17.jsonl": "77b5ee90475f92104595e0c15e1c0c86ff7099dd8997fd808729393ce93041b7",
+    "tacas26-modern-ganak101-18.jsonl": "825004592fc3495f037e0aef2a4eee8b4e1c08cc896359718b6751db19295665",
+    "tacas26-modern-ganak101-19.jsonl": "38b670f060356b8c25c09c64458fd5f8f6ca605599aaaa0a1cea61e553c27873",
+    "tacas26-modern-ganak101-2.jsonl": "6d50adf0350cc35d1ea29064821f2fa869ca612485334ada2c450fa6680d6146",
+    "tacas26-modern-ganak101-20.jsonl": "181f48dede714622dfdb95922898abf0774373343ea3beab7c6d95de2767fad7",
+    "tacas26-modern-ganak101-21.jsonl": "6c2bccb02e599963006f576acb8f0396337973fe2e373bc323ccacb4e82a7a4a",
+    "tacas26-modern-ganak101-22.jsonl": "73039dab156285681416532ca47cb3cf7e39be7aa8dcffbb20012ef99754b848",
+    "tacas26-modern-ganak101-23.jsonl": "1e74310ec8a3cf99fbc92677653350137ab5e113dccb236ffb14b4dbf4134903",
+    "tacas26-modern-ganak101-3.jsonl": "0b57cd08a92c10ad486b5f0b8da52e265e4a5e3dfc63b21d283781efdf541b2b",
+    "tacas26-modern-ganak101-4.jsonl": "42562923e4739a5264d5b39fd9fd29d1ce94793d9f658e4275b7e0ef0c4ff414",
+    "tacas26-modern-ganak101-5.jsonl": "4454eb3f16c551b6747faa692384a0c53cb5ef4d6235ca859c2e8176e0dad873",
+    "tacas26-modern-ganak101-6.jsonl": "9dd6a08cde5bd46055311a82dc24c1ea7b64963af16fd5ace111987d02b819fc",
+    "tacas26-modern-ganak101-7.jsonl": "264a7eb52d3d8594796e8382f66317f6ea470d970759b6226847eddddc5e128b",
+    "tacas26-modern-ganak101-8.jsonl": "272e3067bcfbecfbdecaef81ea8878f15323e366f2560f36bd4ca588450cd9f5",
+    "tacas26-modern-ganak101-9.jsonl": "7be9a389e865f61efeee03a219742db9dedec912644a386df46396f974da4cfe"
+  },
+  "phase_tolerance": "1e-8",
+  "rr_tolerance": "1e-10",
+  "schema": "tacas26-ganak101-archived-v1",
+  "solver_arithmetic_certified": false,
+  "timeout_or_missing": 0,
+  "total": 101
+}

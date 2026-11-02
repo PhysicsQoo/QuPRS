@@ -3,3 +3,5 @@ Fixed official protocol: 184 direct QuPRS calls, 37 Hybrid-derived RR cells.
 Launch plan: 144 bounded original v0.9.1 calls (107 missing + 37 positive Hybrid RR recaptures), 24 shards x 6 max.
 Do not execute QCEC, Quokka-sharp, PyZX, or Feynver.
 All formal performance comparisons remain CodSpeed-only.
+
+Retry 2: explicitly approved source-verified CLI fix; first launch failed before Solver due direct-script import. Source contract CI passed at e86043debfc606e4ff1c07aab8bf4f30b4b34573.

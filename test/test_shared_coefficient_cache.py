@@ -59,13 +59,27 @@ def test_fresh_cache_per_reduction_attempt(monkeypatch):
     ps = PathSum(y * z / 2, base.f, frozenset({y, z}))
     seen = []
 
-    def stub_omega(P, reducible, pathvar, bits, *, coeff_cache=None):
+    def stub_omega(
+        P, reducible, pathvar, bits, *, coeff_cache=None,
+        expanded_phase=None, valid_symbols=None,
+    ):
+        assert expanded_phase == P
+        assert valid_symbols == {str(bit) for bit in bits}.union(
+            str(var) for var in pathvar
+        )
         assert coeff_cache == {}
         coeff_cache[y] = se.S.Zero
         seen.append(coeff_cache)
         return None, None, None, None
 
-    def stub_hh(P, reducible, pathvar, bits, *, coeff_cache=None):
+    def stub_hh(
+        P, reducible, pathvar, bits, *, coeff_cache=None,
+        expanded_phase=None, valid_symbols=None,
+    ):
+        assert expanded_phase == P
+        assert valid_symbols == {str(bit) for bit in bits}.union(
+            str(var) for var in pathvar
+        )
         assert coeff_cache is seen[-1]
         return None, None, None, None
 

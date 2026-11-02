@@ -1,0 +1,105 @@
+name: TACAS26 RR vs Ganak Binary Sensitivity — Research Branch Only
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/tacas26/run-rr-vs-ganak-20261103.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tacas26-rr-ganak-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify source, both EQ/NEQ oracles and bounded RR/Ganak matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Static and source-pinned science tests, NO Solver
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          python -m pip install -q pytest
+          python -m compileall -q scripts/tacas26_rr_vs_ganak_calibration.py
+          python -m pytest test/test_tacas26_rr_vs_ganak_calibration.py -q
+
+  bounded-science:
+    name: Source-pinned RR@1e-8 vs Ganak@2e-5 (shard ${{ matrix.shard }})
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - name: Build modern QuPRS and verify original Ganak release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/modern-quprs"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/modern-quprs" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/modern-quprs/bin" >> "$GITHUB_PATH"
+          source "$RUNNER_TEMP/modern-quprs/bin/activate"
+          python -m pip install --disable-pip-version-check maturin
+          maturin develop --release -E dev
+          python -m pytest test/test_tacas26_rr_vs_ganak_calibration.py -q
+          python -m QuPRS.utils.ganak_distribution
+      - name: Execute bounded true Solver science (no performance measurement)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_rr_vs_ganak_calibration \
+            --root "$GITHUB_WORKSPACE" \
+            --sha "$GITHUB_SHA" \
+            --shard ${{ matrix.shard }} \
+            --solver-timeout 120 --watchdog 140 \
+            --output "$RUNNER_TEMP/tacas26-rr-ganak-${{ matrix.shard }}.jsonl"
+      - name: Retain even partial source-pinned results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-rr-vs-ganak-shard-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/tacas26-rr-ganak-${{ matrix.shard }}.jsonl
+            ${{ runner.temp }}/tacas26-rr-ganak-${{ matrix.shard }}.summary.json
+          if-no-files-found: warn
+          retention-days: 30

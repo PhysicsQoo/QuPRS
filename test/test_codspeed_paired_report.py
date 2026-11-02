@@ -137,7 +137,7 @@ def test_precision_provenance_survives_without_changing_scientific_result():
     assert "Ganak printed resolution" in markdown
 
 
-def test_known_ganak_coarse_print_is_not_mistaken_for_comparable_speedup():
+def test_known_ganak_coarse_print_retains_conditional_timing_not_science_go():
     measurement, records = sample()
     # The real compared Ganak source baseline is equivalent* (global phase).
     # Keep the production classifier strict; correct the synthetic fixture.
@@ -164,7 +164,14 @@ def test_known_ganak_coarse_print_is_not_mistaken_for_comparable_speedup():
     assert result["errors"] == []
     assert result["precision_incomparable"] == ["vqe4_ganak"]
     case = next(x for x in result["cases"] if x["case"] == "vqe4_ganak")
-    assert case["change_percent"] is None
+    assert case["change_percent"] is not None
+    assert case["median_change_percent"] is not None
+    assert case["verdict_comparable"] is False
+    assert case["performance_comparable"] is True
+    assert case["performance_comparison_tier"] == "CONDITIONAL_GANAK_PRINT_LIMIT"
+    assert result["conditional_timing_cases"] == ["vqe4_ganak"]
+    assert case["numeric_tolerance_evidence"]["solver_arithmetic_certified"] is False
+    assert "CONDITIONAL_SAME_WORKLOAD_TIMING" in markdown
     assert "PRECISION_LIMITED is not a scientific equivalence PASS" in markdown
     assert report_module.produce(measurement, records, "base-sha", "head-sha",
                                  dict(source, fixture_sha="wrong"))[0]["status"] == "FAIL"

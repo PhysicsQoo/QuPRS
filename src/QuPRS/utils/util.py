@@ -163,10 +163,15 @@ def _reduce_expression_cached(
             normalized.append(value)
             discarded |= dropped
         if scalar != se.S.Zero:
-            value, _ = _process_term_cached(
-                scalar, mod_coeffs, linearize, False, rr_tolerance
-            )
-            normalized.append(value)
+            # The scalar sum can itself remain an Add (e.g. a rational plus
+            # a symbolic constant). Match the original drop_small=False
+            # normalization instead of passing an Add to the term processor.
+            scalar_terms = scalar.args if scalar.is_Add else (scalar,)
+            for term in scalar_terms:
+                value, _ = _process_term_cached(
+                    term, mod_coeffs, linearize, False, rr_tolerance
+                )
+                normalized.append(value)
         result = se.Add(*normalized)
     else:
         is_scalar = keep_phase and not expanded_expr.free_symbols

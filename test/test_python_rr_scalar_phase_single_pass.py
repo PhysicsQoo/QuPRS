@@ -26,6 +26,16 @@ def test_phase_scalar_survives_rr_tolerance_and_wraps_modulo_one():
         assert reduce_expression(_TINY * x + _TINY, preserve_scalar=True) == _TINY
 
 
+def test_mixed_symbolic_scalars_match_prior_exact_scalar_normalization():
+    with scoped_rr_tolerance(1e-8):
+        x = se.Symbol("scalar_phase_mixed_x")
+        scalar = se.pi / 3 + se.Rational(1, 6)
+        expected = reduce_expression(scalar, drop_small=False)
+        assert reduce_expression(
+            scalar + _TINY * x, preserve_scalar=True
+        ) == expected
+
+
 def test_omega_preserves_tiny_global_phase_before_recursive_rr():
     y = se.Symbol("scalar_phase_omega_y")
     initial = _initial(y)

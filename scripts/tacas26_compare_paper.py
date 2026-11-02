@@ -77,6 +77,8 @@ def compare(root, artifacts):
             label="INVALID_OBSERVATION"
         elif want=="UNTRANSCRIBED_FROM_FIGURE":
             label="REFERENCE_NOT_TRANSCRIBED"
+        elif obs.get("status")=="EXTERNAL_TIMEOUT" and want=="Timeout":
+            label="CENSORED_WATCHDOG_COMPATIBLE"
         elif want=="FAILED_TO_VERIFY":
             label=("PAPER_UNQUALIFIED_LABEL" if obs.get("verdict") in
                    ("unknown","Timeout","MemoryOut") else "REVIEW_PUBLISHED_FAILURE")

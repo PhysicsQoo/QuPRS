@@ -20,3 +20,11 @@ def test_paper_qpe20_and_wstate32_reference_are_covered():
     assert expected(j,rows["table2:qpeinexact20:positive:wmc_only"])=="Timeout"
     assert expected(j,rows["table3_negative:wstate32:negative:hybrid"])=="Timeout"
     assert expected(j,rows["table3_negative:grover6:negative:hybrid"])=="MemoryOut"
+
+def test_external_watchdog_timeout_is_not_false_verdict_mismatch():
+    from scripts.tacas26_compare_paper import expected
+    j=json.loads((ROOT/"docs/development/tacas26-paper-verdict-oracle.json").read_text())
+    assert expected(j,{"suite":"table3_positive","case":"wstate32","method":"hybrid"})=="Timeout"
+    # Distinguish observed censored timeout (no Solver verdict) from
+    # observed normal 'not_equivalent': they are never the same result.
+    assert expected(j,{"suite":"table3_negative","case":"wstate32","method":"hybrid"})=="Timeout"

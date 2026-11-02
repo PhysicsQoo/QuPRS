@@ -18,13 +18,22 @@ SOURCES = {
     "grover4": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
     "qnn4": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
     "vqe8": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+    "qpeexact8": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+    "wstate4": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
 }
 
 
-def evaluate(root: Path, sha: str) -> dict:
+DEFAULT_CASES = ("vqe4", "grover4", "qnn4", "vqe8")
+
+
+def evaluate(root: Path, sha: str, cases=None) -> dict:
     report = {"schema": "source-qasm-global-phase-double-v1", "fixture_sha": sha,
               "certified_epsilon_distance": False, "cases": {}}
-    for case, filename in SOURCES.items():
+    selected = DEFAULT_CASES if cases is None else tuple(cases)
+    if not selected or len(selected) != len(set(selected)):
+        raise ValueError("source-oracle case selection must be nonempty and unique")
+    for case in selected:
+        filename = SOURCES[case]
         paths = [root / "benchmarks/MQTBench" / filename,
                  root / "benchmarks/MQTBench/h,ry,rz,cx" / filename]
         original = [p.read_bytes() for p in paths]
@@ -32,7 +41,7 @@ def evaluate(root: Path, sha: str) -> dict:
                     source.decode("utf-8"))).data, dtype=np.complex128)
                     for source in original]
         a, b = matrices
-        qubits = 8 if case == "vqe8" else 4
+        qubits = 8 if case in {"vqe8", "qpeexact8"} else 4
         dimension = 1 << qubits
         if a.shape != (dimension, dimension) or b.shape != (dimension, dimension):
             raise ValueError(f"{case}: expected {qubits}-qubit unitary operators")
@@ -67,8 +76,9 @@ def main() -> None:
     parser.add_argument("--fixture-root", type=Path, required=True)
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--cases", nargs="+", choices=tuple(SOURCES))
     args = parser.parse_args()
-    result = evaluate(args.fixture_root, args.head_sha)
+    result = evaluate(args.fixture_root, args.head_sha, args.cases)
     args.output.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n")
     print(json.dumps({k: v["phase_corrected_frobenius_normalized"]
                       for k, v in result["cases"].items()}, sort_keys=True))

@@ -107,3 +107,35 @@ but cannot certify variance or a 1–2% regression. The pilot records original
 and transpiled QASM SHA256, solver/watchdog caps, verdict, observed Solver
 invocation and explicit censored statuses, including SOLVER_TIMEOUT and
 WATCHDOG_TIMEOUT. It does not promote candidates automatically.
+
+## P2b — same-SHA four-case five-round CodSpeed comparison (opt-in only)
+
+Following the independent QNN4 and VQE8 full-matrix numerical oracle in
+the source-pinned paired WallTime workflow, a **new opt-in** repeatability
+lane contrasts *two Solver-invoked Hybrid fixtures* (QNN4 and VQE8) and
+*two RR-terminated Hybrid fixtures* (QPEexact8 and W-state4). Both RR
+fixtures are independently checked as source-pair Qiskit operators outside
+the timed window. The original 32 identities, five shards, routine seven
+paired Solver-inclusive cases, and current Rust native 14 remain frozen.
+
+To execute exactly once without connector access to workflow_dispatch,
+append `<!-- quprs-codspeed-v3-repeatability -->` to the existing PR body.
+That PR-edited run starts **only** stage-repeatability, and does not trigger
+the expensive normal five-shard suite. The job checks out actual PR HEAD,
+verifies four QASM pairs with independent Qiskit Operator, runs CodSpeed
+WallTime five rounds with bounded 15s Solver / 24s process-group watchdog,
+and audits **all observed function invocations**, including warmup, for
+unchanged verdict, method stage and process status. A once-per-case JSONL,
+the first-party CodSpeed WallTime export, oracle JSON, report JSON and
+commit/submodule manifest are preserved in a single artifact.
+Remove the hidden marker after the experiment reaches a terminal state.
+This cleanup metadata edit must skip all performance jobs.
+
+The scope is full fresh Python subprocess startup + circuit conversion +
+Rust/Python execution + optional GPMC + I/O; these measurements **cannot**
+be interpreted as isolated solver time, and a side-by-side comparison across
+different circuit structures is not an algorithmic speedup or regression.
+One hosted runner, five CodSpeed rounds, and a non-Macro Runner warning
+provide **variance screening**, not certified performance acceptance.
+Do not use source-operator complex128 numerical consistency to mark the
+external Solver's printed-count arithmetic precision certified.

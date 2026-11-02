@@ -7,7 +7,8 @@ from benchmarks.codspeed.case_registry import (
     CROSS_INSTRUMENT_MATCH, CROSS_METHOD_CASES, CROSS_METHOD_CPU_IDS,
     GANAK_PRECISION_LIMIT_CASES, LEGACY_CASE_COUNT, LEGACY_SHARD_COUNT,
     PILOT_CASES, SOLVER_CPU_CASES, WALLTIME_CASES, WALLTIME_CASE_IDS,
-    PYTHON_CORE_CASE_IDS, NATIVE_IDS,
+    PYTHON_CORE_CASE_IDS, NATIVE_IDS, REPEATABILITY_CASES,
+    REPEATABILITY_EXPECTATIONS,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,8 @@ def test_shared_registry_stable_7_plus_7_and_cross_case_ids():
     assert len(CROSS_METHOD_CPU_IDS) == 4
     assert len(PYTHON_CORE_CASE_IDS) == 5
     assert len(NATIVE_IDS) == 14
+    assert len(REPEATABILITY_CASES) == 4
+    assert {case.id for case in REPEATABILITY_CASES} == set(REPEATABILITY_EXPECTATIONS)
     assert set(CROSS_METHOD_CPU_IDS).issubset({case[0] for case in CROSS_METHOD_CASES})
     assert set(GANAK_PRECISION_LIMIT_CASES).issubset(WALLTIME_CASE_IDS)
     for case_id, filename in CROSS_INSTRUMENT_MATCH.items():

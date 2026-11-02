@@ -103,3 +103,16 @@ PILOT_CASES = (
     PilotCase("wstate4", "wstate_nativegates_ibm_qiskit_opt0_4.qasm"),
     PilotCase("vqe8", "vqe_nativegates_ibm_qiskit_opt0_8.qasm"),
 )
+
+# A representative two-Solver-invoked versus two-RR-terminated repeatability
+# matrix, selected from the bounded eight-case evidence. This is an opt-in
+# study, NEVER a replacement for the canonical 32 and five shards.
+REPEATABILITY_EXPECTATIONS = {
+    "qnn4": ("equivalent*", True),
+    "vqe8": ("equivalent", True),
+    "qpeexact8": ("equivalent*", False),
+    "wstate4": ("equivalent*", False),
+}
+REPEATABILITY_CASES = tuple(
+    case for case in PILOT_CASES if case.id in REPEATABILITY_EXPECTATIONS
+)

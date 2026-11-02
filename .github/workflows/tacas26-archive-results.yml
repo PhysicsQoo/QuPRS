@@ -34,8 +34,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check pytest
-          python -m pytest test/test_tacas26_archive_results.py test/test_tacas26_quprs_only.py -q
-          python -m compileall -q scripts/tacas26_archive_results.py
+          python -m pytest test/test_tacas26_archive_results.py test/test_tacas26_quprs_only.py test/test_tacas26_wmc_evidence.py -q
+          python -m compileall -q scripts/tacas26_archive_results.py scripts/tacas26_wmc_evidence.py
       - name: Download three historical original QuPRS source evidence runs
         run: |
           set -euo pipefail
@@ -49,6 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m scripts.tacas26_archive_results --download-dir "$RUNNER_TEMP/tacas26-evidence"
+          python -m scripts.tacas26_wmc_evidence
           python - <<'PY'
           import json
           from pathlib import Path
@@ -58,6 +59,12 @@ jobs:
           assert len(obj['derived_rr'])==37
           assert all(x['status']!='NOT_ARCHIVED' for x in obj['rows']), 'Missing original archived case'
           assert sum(x['classification']=='MISSING_RESULT' for x in obj['rows']) == 1
+          from pathlib import Path
+          wmc=json.loads(Path('docs/development/tacas26-results/wmc-evidence.json').read_text())
+          assert len(wmc['records']) == 184
+          assert sum(v for k,v in wmc['counts'].items() if k=='WMC_PRINTED_VALUE_AVAILABLE') > 0, 'No printed GPMC evidence found'
+          assert all(r['numeric_summary']['source_sha'] == obj['source_sha'] for r in wmc['records'])
+          print('WMC_PRINTED_EVIDENCE_COUNTS', wmc['counts'])
           print('ARCHIVE_SOURCE_CONTRACT_PASS',obj['classifications'])
           PY
       - name: Commit Git-versioned results to the experiment branch

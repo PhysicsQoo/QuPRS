@@ -270,3 +270,58 @@ alone. No new tolerance override, exactness demand or Solver modification is
 introduced. Other P5 source-matched, same-verdict candidates remain
 `SAME_VERDICT` and all original 32 IDs, five shards and seven daily
 paired Solver-inclusive cases remain unchanged.
+
+## P3 Python native algorithm microbench: bounded first-party CodSpeed
+
+The five already-defined Python-only fixture IDs (ANF target absent/present,
+HH pair match, Elim match/no-match) are run from the current exact PR source
+through an isolated, opt-in CodSpeed CPU Simulation lane. Trigger this lane
+once by temporarily appending `<!-- quprs-codspeed-v3-python-core -->` to
+PR #131's description, then remove the marker after the exact-SHA run
+finishes and the first-party artifact is preserved. No Python/Rust algorithm
+or canonical 32 benchmark is changed. Python fixtures are initialized
+outside instrumented functions; Python CodSpeed is the only accepted timer.
+
+## P4 complete inventory of source-pinned metrics without fabricated CPU data
+
+The cross-instrument GitHub evidence contains all 32 canonical Simulation
+URIs and all 22 native Rust identities. The numeric importer separately
+checks same-SHA CodSpeed service values for each original 32, native 22,
+optional Python 5 and three same-fixture CPU-vs-Solver-inclusive WallTime
+pairs. Missing values always remain `MISSING_NUMERIC`; unrelated Ganak
+precision limitations never reclassify the three GPMC matched CPU cases.
+Each benchmark's CodSpeed runner grade and CPU model must be sourced rather
+than inferred from the GitHub job name. GitHub manifest now includes actual
+CPU model and runner image version if available. The GitHub Actions artifact
+for cargo-codspeed Simulation contains identity/provenance rather than
+CodSpeed's modeled CPU time: there is NO valid reason to copy over a
+historical model estimate or silently substitute a timing from logs.
+Until an authenticated CodSpeed service read API is available within the
+workflow, service metrics are separately retrieved and normalized through
+the existing `join_codspeed_numeric.py` contract; automated service
+collection is an explicit external integration limit, not a scientific
+or correctness issue.
+
+## P5 source-verified three-block ABBA experiment
+
+An additional **opt-in** same-host walltime experiment (trigger:
+`<!-- quprs-codspeed-v3-abba -->` on an edited PR description) uses
+the *same four real* GPMC cases as the prior seven-round screen:
+VQE4/GPMC Rust and Python, QAOA7/GPMC Rust, and QFT16/GPMC Rust.
+It runs three independent A1/B1/B2/A2 ordered blocks per case using
+distinct CodSpeed benchmark identities for each position, total
+48 unique opt-in identities. Each position must have at least five
+real CodSpeed WallTime measured rounds and first-party metric JSON.
+Every measured and warmup verifier invocation records scientific
+result, GPMC actual invocation, source/base SHA and original/
+transpiled QASM SHA256. The report rejects missing rounds, a stage
+change, a changed verdict within a case or an invalid source. It
+reports per-block HEAD/base ratio and observed A1/A2 baseline drift
+separately. These are source-matched within the same hosted runner
+but are **NOT** a qualified CodSpeed Macro Runner and do not create
+a default regression threshold or a certified performance GO.
+Confidence-gate activation requires independent baseline A/A cohorts,
+stable runner and enough blocks; until then `NOT_CERTIFIED`.
+No walltime is measured with Python clocks, and no CPU/WallTime
+arithmetic is used. Remove the one-shot marker only after the
+experiment is terminal and evidence saved.

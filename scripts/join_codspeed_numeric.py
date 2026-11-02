@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmarks.codspeed.case_registry import NATIVE_IDS
+from benchmarks.codspeed.case_registry import NATIVE_IDS, PYTHON_CORE_CASE_IDS
 
 
 def join(evidence: dict, remote: dict) -> dict:
@@ -54,8 +54,8 @@ def join(evidence: dict, remote: dict) -> dict:
             status = "NUMERIC_AVAILABLE"
             if not base.get("comparable_verdict"):
                 status = "INCOMPARABLE_VERDICT"
-            if evidence.get("scientific_status") == "PRECISION_LIMITED":
-                status = "PRECISION_LIMITED"
+            # Global Ganak printed-resolution caveat must not mark unrelated
+            # GPMC same-source rows as noncomparable. Use per-case verdict.
         joined.append({
             "case": base["case"], "sha": sha, "status": status,
             "simulation_uri": base["simulation_uri"],
@@ -85,20 +85,56 @@ def join(evidence: dict, remote: dict) -> dict:
                 "unit": row["unit"], "cpu_model": row["cpu_model"],
             } if row else None),
         })
+    legacy_uris = evidence.get("simulation_uris", [])
+    if legacy_uris and (len(legacy_uris) != 32 or len(set(legacy_uris)) != 32):
+        raise ValueError("canonical simulation URI inventory must contain 32 unique identities")
+    legacy_core = [{
+        "uri": uri,
+        "status": ("NUMERIC_AVAILABLE" if ("Simulation", uri) in lookup
+                   else "MISSING_NUMERIC"),
+        "measurement": (lookup.get(("Simulation", uri)) and {
+            key: lookup[("Simulation", uri)][key]
+            for key in ("run_id", "value", "unit", "cpu_model")
+        })
+    } for uri in legacy_uris]
+
+    python_core = []
+    if evidence.get("optional_python_core_count") == len(PYTHON_CORE_CASE_IDS):
+        for case in PYTHON_CORE_CASE_IDS:
+            uri = ("benchmarks/codspeed/test_python_core.py::"
+                   f"test_python_algorithm_cpu[{case}]")
+            row = lookup.get(("Simulation", uri))
+            python_core.append({
+                "identity": case, "uri": uri,
+                "status": "NUMERIC_AVAILABLE" if row else "MISSING_NUMERIC",
+                "measurement": ({
+                    key: row[key] for key in ("run_id", "value", "unit", "cpu_model")
+                } if row else None)
+            })
     return {
         "schema": "quprs-same-sha-numeric-v3",
         "sha": sha,
         "cases": joined,
+        "legacy_core": legacy_core,
+        "legacy_expected_count": len(legacy_uris),
+        "legacy_missing_numeric": sum(x["measurement"] is None for x in legacy_core),
+        "python_core": python_core,
+        "python_core_expected_count": len(python_core),
+        "python_core_missing_numeric": sum(x["measurement"] is None for x in python_core),
         "native_core": native_core,
         "native_core_expected_count": len(NATIVE_IDS),
         "native_core_missing_numeric": sum(x["measurement"] is None for x in native_core),
         "missing_numeric": sum(row["status"] == "MISSING_NUMERIC" for row in joined),
         "numerical_cross_validation_complete": bool(joined) and all(
             row["numeric_cpu"] is not None for row in joined)
-            and all(row["measurement"] is not None for row in native_core),
+            and all(row["measurement"] is not None for row in native_core)
+            and (not legacy_uris or all(row["measurement"] is not None for row in legacy_core))
+            and all(row["measurement"] is not None for row in python_core),
         "performance_certified": False,
-        "external_source_status": ("PARTIALLY_MISSING" if any(
-            row["measurement"] is None for row in native_core
+        "external_source_status": ("PARTIALLY_MISSING" if (
+            any(row["measurement"] is None for row in native_core)
+            or any(row["measurement"] is None for row in legacy_core)
+            or any(row["measurement"] is None for row in python_core)
         ) else "EXACT_SHA_NUMERIC_RECEIVED"),
         "source": "CodSpeed platform numeric export REQUIRED, GitHub identity JSON insufficient",
     }

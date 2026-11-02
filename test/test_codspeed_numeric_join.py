@@ -73,3 +73,35 @@ def test_exact_sha_service_native_cpu_measurement_is_matched():
     assert output["native_core_missing_numeric"] == len(NATIVE_IDS) - 1
     assert output["native_core"][-1]["measurement"]["value"] == 13.5
     assert not output["numerical_cross_validation_complete"]
+
+def test_all_legacy_uris_are_listed_and_missing_without_numeric_export():
+    ev = _input()
+    ev["simulation_uris"] = [
+        f"test/test_Feynman.py::candidate[{i}]" for i in range(32)
+    ]
+    output = module.join(ev, {"results": []})
+    assert output["legacy_expected_count"] == 32
+    assert output["legacy_missing_numeric"] == 32
+    assert len(output["legacy_core"]) == 32
+    assert not output["numerical_cross_validation_complete"]
+
+
+def test_python_core_optional_missing_is_not_silent():
+    from benchmarks.codspeed.case_registry import PYTHON_CORE_CASE_IDS
+    ev = _input()
+    ev["optional_python_core_count"] = len(PYTHON_CORE_CASE_IDS)
+    output = module.join(ev, {"results": []})
+    assert output["python_core_expected_count"] == 5
+    assert output["python_core_missing_numeric"] == 5
+    assert all(r["status"] == "MISSING_NUMERIC" for r in output["python_core"])
+
+
+def test_global_ganak_science_caveat_does_not_mark_valid_gpmc_case_wrong():
+    ev = _input()
+    ev["scientific_status"] = "PRECISION_LIMITED"
+    r = {"sha":SHA, "runner_mode":"Simulation", "uri":CASE,
+         "measured_in_run":True, "run_id":"codspeed-current-run",
+         "cpu_model":"source-pinned exact", "unit":"ms", "value":18.5}
+    out = module.join(ev, {"results":[r]})
+    assert out["cases"][0]["status"] == "NUMERIC_AVAILABLE"
+    assert not out["performance_certified"]

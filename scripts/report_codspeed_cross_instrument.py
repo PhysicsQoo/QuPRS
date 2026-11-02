@@ -171,7 +171,9 @@ def produce(folder, sha, base_sha, *, require_solver_cpu=False, require_memory=F
                          "PRECISION_LIMITED" if wall["status"] == "PRECISION_LIMITED" else wall["status"])
     report = {
         "schema": "quprs-codspeed-cross-instrument-v2",
-        "head_sha": sha, "base_sha": base_sha, "five_shard_canonical_count": len(sim),
+        "head_sha": sha, "base_sha": base_sha,
+        "simulation_uris": sorted(sim),
+        "five_shard_canonical_count": len(sim),
         "native_core_expected_count": NATIVE_CASES,
         "native_core_metrics": "CodSpeed service only; no fabricated local numeric result",
         "walltime_paired_cases": WALLTIME_CASES if wall else 0,

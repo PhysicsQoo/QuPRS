@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,16 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmarks.codspeed.case_registry import NATIVE_IDS
+
+def measured_cpu_model():
+    if platform.system() == "Linux":
+        path = Path("/proc/cpuinfo")
+        if path.is_file():
+            for line in path.read_text(errors="replace").splitlines():
+                if line.startswith("model name") and ":" in line:
+                    return line.split(":", 1)[1].strip()
+    return platform.processor() or None
+
 
 def git(*args):
     return subprocess.check_output(["git", *args], text=True).strip()
@@ -29,6 +40,9 @@ def write_manifest(path, *, expected_sha, family, instrument, shard=None,
         "shard": shard, "num_shards": 5 if shard is not None else None,
         "runner_os": os.getenv("RUNNER_OS"), "runner_arch": os.getenv("RUNNER_ARCH"),
         "runner_name": os.getenv("RUNNER_NAME"),
+        "cpu_model": measured_cpu_model(),
+        "runner_image": os.getenv("ImageOS"),
+        "runner_image_version": os.getenv("ImageVersion"),
         "measurement_status": "uploaded_by_codspeed_action",
         "fixture_revision_sha": fixture_sha or actual_sha,
     }
@@ -49,7 +63,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--sha", required=True)
-    p.add_argument("--family", choices=("simulation-shard", "rust-core", "solver-cpu", "cross-method", "candidate-pilot", "python-core", "stage-repeatability"), required=True)
+    p.add_argument("--family", choices=("simulation-shard", "rust-core", "solver-cpu", "cross-method", "candidate-pilot", "python-core", "stage-repeatability", "p5-abba"), required=True)
     p.add_argument("--instrument", required=True)
     p.add_argument("--shard", type=int, choices=range(5))
     p.add_argument("--measurement", type=Path)

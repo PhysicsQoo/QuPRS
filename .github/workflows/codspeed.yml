@@ -612,8 +612,8 @@ jobs:
           retention-days: 14
 
   python-core:
-    name: SAME-SHA Python native-code CPU (manual)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_python_core && !inputs.pilot_only }}
+    name: SAME-SHA Python native-code CPU (opt-in)
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.include_python_core && !inputs.pilot_only) || (github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-python-core -->')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -622,7 +622,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -865,3 +865,82 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+
+
+  p5-abba:
+    name: P5 same-host three-block CodSpeed ABBA drift screening (opt-in)
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-abba -->') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/p5-abba-codspeed.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: pr-walltime-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Exact source and both independent verifier environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for variant in base head; do
+            root="$GITHUB_WORKSPACE"
+            if [[ "$variant" == base ]]; then root="$GITHUB_WORKSPACE/pr-walltime-base"; fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$variant"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            ( cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev )
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/p5-abba-$variant-freeze.txt"
+          done
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.4
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pytest \
+            benchmarks/codspeed/test_p5_abba.py --collect-only -q
+      - name: CodSpeed same-runner source-matched A1-B1-B2-A2 for three blocks
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_p5_abba.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=90
+      - name: Validate ABBA block science and baseline drift from CodSpeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_codspeed_p5_abba.py \
+            --measurements "$QUPRS_CODSPEED_EXPORT" \
+            --provenance "$RUNNER_TEMP/p5-abba-provenance.jsonl" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --output "$RUNNER_TEMP/p5-abba-report.json"
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family p5-abba --instrument walltime \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/manifest.json"
+      - name: Retain source and CodSpeed official block evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quprs-codspeed-v3-p5-abba
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/p5-abba-provenance.jsonl
+            ${{ runner.temp }}/p5-abba-report.json
+            ${{ runner.temp }}/p5-abba-base-freeze.txt
+            ${{ runner.temp }}/p5-abba-head-freeze.txt
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,5 +1,31 @@
 # CodSpeed v3 phased update and scientific/timeout acceptance
 
+
+## 2026-11-02 P5 final observation-only policy (overrides earlier gate proposals)
+
+P5 does **not** set any fixed regression percentage, performance pass/fail
+threshold or release-blocking GO/NO-GO. Keep the existing seven same-case
+base/HEAD Solver-inclusive CodSpeed WallTime observations on every PR.
+Report actual medians, relative changes, round distributions, CV, source
+identity, Solver stage, scientific verdict and precision warnings.
+
+**Interpret observed direction without claiming statistical significance.**
+An unqualified hosted-runner noise model or absent independent A/A cohort is
+an explicit **nonblocking interpretation caveat**, not a reason to suppress
+a valid measured delta or to alter a numerical equivalence verdict.
+Source-inconsistent workloads, missing measured statistics or unverified Solver
+execution remain unsuitable for paired comparisons; never invent ratios.
+Independent source-witness-supported Ganak print-limit cases retain
+**conditional timing comparability** even when verdicts differ, without
+scientific reclassification.
+
+Any future formal performance threshold, independent A/A campaign or Macro
+Runner qualification is **optional research, outside current P5 acceptance**,
+not a prerequisite for PR merging, release, or reading observed deltas.
+Existing five Simulation shards, original 32 identities and seven routine
+WallTime pairs remain unchanged.
+
+
 This plan is additive to [codspeed-experiment-architecture.md](codspeed-experiment-architecture.md).
 It does **not** modify the five-shard original 32 benchmark identities or the
 v0.14.0 verifier algorithm. P0/P1 are source-only, deterministic artifacts. The first P3 microbench

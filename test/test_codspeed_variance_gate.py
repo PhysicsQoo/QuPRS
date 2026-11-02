@@ -86,3 +86,51 @@ def test_p5_opt_in_subset_remains_noncertifying():
     assert report['default_regression_threshold'] is None
     with pytest.raises(ValueError, match='expected 7'):
         variance.produce(r)
+
+
+def test_observational_policy_allows_valid_deltas_without_gate():
+    report = fixture()
+    report["cases"][0]["head_median_ms"] = 816.0
+    observed = variance.produce(report)
+    assert observed["observation_policy"] == "OBSERVATION_ONLY_NO_FIXED_THRESHOLD"
+    assert observed["release_gate_enabled"] is False
+    assert observed["default_regression_threshold"] is None
+    case = observed["cases"][0]
+    assert case["observation_status"] == "OBSERVED_DIRECTION_ONLY"
+    assert case["exploratory_median_change_percent"] == pytest.approx(2.0)
+    assert case["blocking_reasons"] == []
+    assert "UNKNOWN_RUNNER_STABILITY" in case["nonblocking_interpretation_caveats"]
+    assert case["release_gate_effect"] == "NONE"
+
+
+def test_supported_ganak_print_limit_retains_timing_with_nonblocking_caveat():
+    report = fixture()
+    case = next(row for row in report["cases"] if row["case"] == "vqe4_ganak")
+    case["verdict_head"] = "not_equivalent"
+    case["head_median_ms"] = 784.0
+    case["performance_comparison_tier"] = "CONDITIONAL_GANAK_PRINT_LIMIT"
+    case["performance_comparable"] = True
+    case["numeric_tolerance_evidence"] = {
+        "independent_source_operator_numerically_consistent": True,
+        "solver_arithmetic_certified": False,
+        "head_print_resolution_distance": 1e-4,
+        "head_distance_tolerance": 1e-8,
+    }
+    case["warning"] = ["TOLERANCE_PROVENANCE_DIFFERS", "PRECISION_LIMITED"]
+    observed = variance.produce(report)["cases"][0]
+    assert observed["verdict_comparable"] is False
+    assert observed["conditional_timing_comparable"] is True
+    assert observed["observation_status"] == "CONDITIONAL_PRECISION_LIMIT"
+    assert observed["exploratory_median_change_percent"] == pytest.approx(-2.0)
+    assert observed["blocking_reasons"] == []
+    assert "PRECISION_LIMITED" in observed["nonblocking_interpretation_caveats"]
+    assert "TOLERANCE_PROVENANCE_DIFFERS" in observed["nonblocking_interpretation_caveats"]
+
+
+def test_incomparable_source_cannot_be_misread_as_observed_improvement():
+    report = fixture()
+    report["cases"][0]["performance_comparable"] = False
+    observed = variance.produce(report)["cases"][0]
+    assert observed["observation_status"] == "NOT_COMPARABLE"
+    assert observed["exploratory_median_change_percent"] is None
+    assert "INCOMPARABLE_VERDICT" in observed["blocking_reasons"]

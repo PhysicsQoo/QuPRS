@@ -71,6 +71,8 @@ def produce(measurements: dict, provenance: list[dict], base_sha: str,
         "instrument": "CodSpeed WallTime",
         "block_protocol": "three repetitions of A1-B1-B2-A2 on same hosted runner",
         "performance_status": "NOT_CERTIFIED",
+        "observation_policy": "OBSERVATION_ONLY_NO_FIXED_THRESHOLD",
+        "release_gate_enabled": False,
         "default_regression_threshold": None,
         "solver_arithmetic_certified": False,
         "cases": [],
@@ -136,11 +138,13 @@ def produce(measurements: dict, provenance: list[dict], base_sha: str,
             "within_run_a1_a2_drift_is_independent_aa_cohort": False,
             "independent_aa_cohort_count": 0,
             "decision": "CONDITIONAL_DIAGNOSTIC_ONLY",
+            "observation_status": "OBSERVED_DIRECTION_ONLY",
+            "release_gate_effect": "NONE",
             "warning": "Non-Macro hosted runner; intervals and stable hardware "
                        "qualification absent; cannot claim 1% regression GO.",
         })
     report["provenance_complete"] = True
-    report["required_for_formal_gate"] = [
+    report["optional_only_if_formal_gate_reconsidered"] = [
         "Stable CodSpeed Macro Runner or independently validated same-cohort environment",
         "Independent A/A blocks spanning separate executions and several days",
         "Confidence interval on paired block ratio and predeclared per-case noise threshold",

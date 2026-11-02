@@ -116,3 +116,14 @@ def test_within_run_aa_drift_is_not_independent_runner_noise_evidence():
         assert row["within_run_a1_a2_drift_is_independent_aa_cohort"] is False
         assert row["independent_aa_cohort_count"] == 0
         assert row["decision"] == "CONDITIONAL_DIAGNOSTIC_ONLY"
+
+
+def test_abba_remains_readable_even_without_qualified_runner():
+    metric, witness = input_fixture()
+    report = REPORT.produce(metric, witness, BASE, HEAD)
+    assert report["observation_policy"] == "OBSERVATION_ONLY_NO_FIXED_THRESHOLD"
+    assert report["release_gate_enabled"] is False
+    assert report["default_regression_threshold"] is None
+    assert all(x["observation_status"] == "OBSERVED_DIRECTION_ONLY"
+               and x["release_gate_effect"] == "NONE" for x in report["cases"])
+    assert "required_for_formal_gate" not in report

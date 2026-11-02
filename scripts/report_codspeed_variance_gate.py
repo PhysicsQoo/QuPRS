@@ -12,8 +12,9 @@ import json
 import math
 from pathlib import Path
 
-BLOCKS = ("INCOMPARABLE_VERDICT", "MISSING_ROUND_DISTRIBUTION",
-          "UNKNOWN_RUNNER_STABILITY", "PRECISION_LIMITED")
+# Only missing or unverified measurement/workload evidence blocks a timing
+# comparison. Runner noise and printed-count precision remain nonblocking
+# interpretation caveats; no statistical regression gate is installed.
 
 
 def produce(report: dict, *, expected_count=7) -> dict:
@@ -28,6 +29,7 @@ def produce(report: dict, *, expected_count=7) -> dict:
     for row in cases:
         key = row["case"]
         reasons = []
+        caveats = []
         changed_verdict = row.get("verdict_base") != row.get("verdict_head")
         category = row.get("performance_comparison_tier")
         proven_print_limit = category == "CONDITIONAL_GANAK_PRINT_LIMIT"
@@ -50,11 +52,10 @@ def produce(report: dict, *, expected_count=7) -> dict:
             comparable = False
             reasons.append("INCOMPARABLE_VERDICT")
         elif changed_verdict:
-            reasons.append("PRECISION_LIMITED")
-            reasons.append("VERDICT_CHANGED_NUMERICAL_LIMIT")
+            caveats.extend(("PRECISION_LIMITED", "VERDICT_CHANGED_NUMERICAL_LIMIT"))
             if any("TOLERANCE_PROVENANCE_DIFFERS" in str(w)
                    for w in row.get("warning", [])):
-                reasons.append("TOLERANCE_PROVENANCE_DIFFERS")
+                caveats.append("TOLERANCE_PROVENANCE_DIFFERS")
         if not comparable and "INCOMPARABLE_VERDICT" not in reasons:
             reasons.append("INCOMPARABLE_VERDICT")
         if not row.get("solver_invoked_base") or not row.get("solver_invoked_head"):
@@ -62,7 +63,7 @@ def produce(report: dict, *, expected_count=7) -> dict:
             comparable = False
         if any("NOT a scientific PASS" in str(w) or "PRECISION_LIMITED" in str(w)
                for w in row.get("warning", [])):
-            reasons.append("PRECISION_LIMITED")
+            caveats.append("PRECISION_LIMITED")
         for rev in ("base", "head"):
             if rev+"_rounds" not in row or rev+"_cv" not in row or rev+"_median_ms" not in row:
                 reasons.append("MISSING_ROUND_DISTRIBUTION")
@@ -72,7 +73,7 @@ def produce(report: dict, *, expected_count=7) -> dict:
                 or not isinstance(cv, (float, int)) or not math.isfinite(cv) or cv < 0
                 or not isinstance(median, (float, int)) or not math.isfinite(median) or median <= 0):
                 raise ValueError(f"{key}: invalid CodSpeed sample metadata for {rev}")
-        reasons.append("UNKNOWN_RUNNER_STABILITY")  # CI is not Macro Runner.
+        caveats.append("UNKNOWN_RUNNER_STABILITY")  # Not a comparison veto.
         change = None
         cv = None
         if "MISSING_ROUND_DISTRIBUTION" not in reasons and comparable:
@@ -81,23 +82,35 @@ def produce(report: dict, *, expected_count=7) -> dict:
             # standard error, NOT a confidence interval on true speedup.
             cv = 100 * math.sqrt(row["base_cv"]**2 / row["base_rounds"]
                                  + row["head_cv"]**2 / row["head_rounds"])
+        observation_status = (
+            "NOT_COMPARABLE" if change is None
+            else "CONDITIONAL_PRECISION_LIMIT" if changed_verdict
+            else "OBSERVED_DIRECTION_ONLY"
+        )
         checked.append({
             "case": key, "verdict_base": row.get("verdict_base"),
             "verdict_head": row.get("verdict_head"),
             "verdict_comparable": not changed_verdict,
-            "conditional_timing_comparable": bool(changed_verdict and precision_witness_ok),
+            "conditional_timing_comparable": bool(
+                changed_verdict and precision_witness_ok and comparable
+            ),
             "performance_comparison_tier": (
-                "CONDITIONAL_GANAK_PRINT_LIMIT" if changed_verdict and precision_witness_ok
+                "CONDITIONAL_GANAK_PRINT_LIMIT" if (
+                    changed_verdict and precision_witness_ok and comparable
+                )
                 else "BLOCKED_UNEXPLAINED_VERDICT" if changed_verdict
                 else "SAME_VERDICT"
             ),
-            "category": "EXTERNAL_SOLVER_PRINT_LIMITED" if "PRECISION_LIMITED" in reasons
+            "category": "EXTERNAL_SOLVER_PRINT_LIMITED" if "PRECISION_LIMITED" in caveats
                         else "SAME_CASE_SOLVER_INCLUSIVE",
             "base_rounds": row.get("base_rounds"), "head_rounds": row.get("head_rounds"),
             "base_cv": row.get("base_cv"), "head_cv": row.get("head_cv"),
             "exploratory_median_change_percent": change,
             "unpaired_relative_se_percent_diagnostic_only": cv,
             "blocking_reasons": sorted(set(reasons)),
+            "nonblocking_interpretation_caveats": sorted(set(caveats)),
+            "observation_status": observation_status,
+            "release_gate_effect": "NONE",
             "performance_decision": "NOT_CERTIFIED",
         })
     return {
@@ -110,8 +123,10 @@ def produce(report: dict, *, expected_count=7) -> dict:
             for row in checked) else "INCOMPLETE_SAMPLE_SUMMARIES",
         "scientific_status": report.get("status", "UNKNOWN"),
         "performance_status": "NOT_CERTIFIED",
+        "observation_policy": "OBSERVATION_ONLY_NO_FIXED_THRESHOLD",
+        "release_gate_enabled": False,
         "default_regression_threshold": None,
-        "required_next_evidence": [
+        "optional_only_if_formal_gate_reconsidered": [
             "Raw same-case per-round values with counterbalanced base/HEAD order",
             "Stable CodSpeed Macro Runner or independently qualified same-cohort noise",
             "Enough rounds to resolve each case's empirical variance",
@@ -121,6 +136,11 @@ def produce(report: dict, *, expected_count=7) -> dict:
             "Timeout censoring: never use timeout bound as measured duration",
         ],
         "scope": "CodSpeed same-runner WallTime only; no mixed CPU/WallTime ratios",
+        "interpretation_policy": (
+            "Source-matched measured deltas remain readable; runner noise and "
+            "precision caveats do not suppress valid timing observations or "
+            "alter scientific verdicts. No performance gate blocks release."
+        ),
     }
 
 
@@ -134,13 +154,14 @@ def main():
     report = produce(json.loads(a.paired_report.read_text(encoding="utf-8")), expected_count=a.expected_count)
     a.output.write_text(json.dumps(report, indent=2, sort_keys=True)+"\n", encoding="utf-8")
     rows = [
-        "## P5 CodSpeed paired variance diagnostics (not performance GO)",
+        "## P5 CodSpeed WallTime observations (no automatic performance gate)",
         "Source: same runner, seven source-pinned base/HEAD Solver-inclusive WallTime pairs.",
-        "No statistically calibrated 1% threshold; raw counterbalanced rounds missing.",
+        "Median changes show observed direction, not statistical significance; "
+        "runner noise is a nonblocking caveat.",
         "Ganak near-equal source cases may retain CONDITIONAL timing deltas "
         "without certifying the mismatched numerical verdict.",
         "",
-        "| Circuit | base/head rounds | CV base/head | Median change | Status |",
+        "| Circuit | base/head rounds | CV base/head | Median change | Interpretation |",
         "|---|---:|---:|---:|---|",
     ]
     for x in report["cases"]:
@@ -150,7 +171,7 @@ def main():
         rows.append(
             f"| {x['case']} | {x['base_rounds']}/{x['head_rounds']} | "
             f"{cvs} | {f'{change:+.2f}%' if change is not None else 'N/A'} "
-            "| NOT_CERTIFIED |"
+            f"| {x['observation_status']} |"
         )
     if a.summary:
         with a.summary.open("a", encoding="utf-8") as stream:

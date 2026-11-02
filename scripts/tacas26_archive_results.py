@@ -139,8 +139,9 @@ def generate(download_dir,output=OUT):
         native=timing.get("values",{}) if timing else {}
         observed_time=any(value is not None for value in native.values())
         time_evidence_status=("ORIGINAL_V091_TIME_CAPTURED" if observed_time
-                              else "NOT_CAPTURED_IN_ARCHIVED_RUN" if raw
-                              else "NO_RESULT_FILE_OR_WATCHDOG")
+                              else "CENSORED_EXTERNAL_WATCHDOG" if status=="EXTERNAL_TIMEOUT"
+                              else "NO_RESULT_FILE" if status in ("MISSING_RESULT","NOT_ARCHIVED")
+                              else "NOT_CAPTURED_IN_ARCHIVED_RUN")
         row=dict(id=case["id"],suite=case["suite"],case=case["case"],
                  kind=case["kind"],method=case["method"],paper_expected=want,
                  observed_verdict=got,status=status,classification=classify(want,status,got),

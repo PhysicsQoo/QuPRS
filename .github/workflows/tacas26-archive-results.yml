@@ -34,8 +34,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check pytest
-          python -m pytest test/test_tacas26_archive_results.py test/test_tacas26_quprs_only.py test/test_tacas26_wmc_evidence.py -q
-          python -m compileall -q scripts/tacas26_archive_results.py scripts/tacas26_wmc_evidence.py
+          python -m pytest test/test_tacas26_archive_results.py test/test_tacas26_quprs_only.py test/test_tacas26_wmc_evidence.py test/test_tacas26_tolerance_replay.py -q
+          python -m compileall -q scripts/tacas26_archive_results.py scripts/tacas26_wmc_evidence.py scripts/tacas26_tolerance_replay.py
       - name: Download three historical original QuPRS source evidence runs
         run: |
           set -euo pipefail
@@ -50,6 +50,7 @@ jobs:
           set -euo pipefail
           python -m scripts.tacas26_archive_results --download-dir "$RUNNER_TEMP/tacas26-evidence"
           python -m scripts.tacas26_wmc_evidence
+          python -m scripts.tacas26_tolerance_replay
           python - <<'PY'
           import json
           from pathlib import Path
@@ -64,6 +65,11 @@ jobs:
           assert len(wmc['records']) == 184
           assert sum(v for k,v in wmc['counts'].items() if k=='WMC_PRINTED_VALUE_AVAILABLE') > 0, 'No printed GPMC evidence found'
           assert all(r['numeric_summary']['source_sha'] == obj['source_sha'] for r in wmc['records'])
+          replay=json.loads(Path('docs/development/tacas26-results/tolerance-offline-v0140/report.json').read_text())
+          assert replay['population']['wmc'] == 101
+          assert replay['phase_infeasibility']['single_phase_tolerance_possible'] is False
+          scored=next(x for x in replay['sweep'] if x['distance_tolerance']=='2e-5' and x['phase_tolerance']=='1e-8')
+          assert scored['binary_match'] == 101 and scored['exact_match'] == 96
           print('WMC_PRINTED_EVIDENCE_COUNTS', wmc['counts'])
           print('ARCHIVE_SOURCE_CONTRACT_PASS',obj['classifications'])
           PY

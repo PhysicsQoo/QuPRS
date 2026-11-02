@@ -8,14 +8,14 @@
   "measurement_limits": {
     "full_operator_max_qubits": 8,
     "number_of_independent_unique_pairs": 17,
-    "statevector_samples_max_qubits": 16
+    "statevector_samples_max_qubits": 22
   },
   "no_retranspilation": true,
   "numeric_certified": false,
   "numeric_limitations": [
     "Float64 Operator/Statevector observations are not rigorous mathematical certificates",
     "Sampled statevector error is not the trace-based projective distance",
-    "High-qubit circuit pairs may be resource bounded and unmeasured",
+    "The 64-qubit graph state remains resource bounded and unmeasured",
     "Frozen QASM comparison does not prove original transpiler emitted exact gates",
     "No source-to-QASM generator metadata or fixed transpiler seed is inferred"
   ],
@@ -32,7 +32,7 @@
         "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
         "numeric_type": "numpy.complex128_qiskit_operator",
         "qubits": 64,
-        "reason": "Only up to 16 qubits for deterministic science probe",
+        "reason": "Only up to 22 qubits for deterministic science probe",
         "source_global_phase": 0.0,
         "source_ops": 640,
         "status": "NOT_MEASURED_RESOURCE_BOUND",
@@ -300,12 +300,27 @@
       "ganak_print_resolution_distance": 5.6705814105272995e-05,
       "independent_qiskit_audit": {
         "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 5.401217173306974e-06,
+        "max_sample_state_infidelity_float": 2.9097391163190878e-11,
         "numeric_type": "numpy.complex128_qiskit_operator",
         "qubits": 20,
-        "reason": "Only up to 16 qubits for deterministic science probe",
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": -1.5707888366543326,
+            "state_distance_up_to_individual_phase_float": 5.401217173306974e-06,
+            "state_overlap_abs_float": 0.9999999999854513
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": -1.5707963267948917,
+            "state_distance_up_to_individual_phase_float": 1.3762536053557133e-15,
+            "state_overlap_abs_float": 1.0000000000000022
+          }
+        ],
         "source_global_phase": 0.0,
         "source_ops": 1040,
-        "status": "NOT_MEASURED_RESOURCE_BOUND",
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
         "transpiled_global_phase": 0.0,
         "transpiled_ops": 825
       },
@@ -321,12 +336,27 @@
       "ganak_print_resolution_distance": 0.0001301562865742245,
       "independent_qiskit_audit": {
         "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 9.392588484302024e-06,
+        "max_sample_state_infidelity_float": 9.055733940499522e-11,
         "numeric_type": "numpy.complex128_qiskit_operator",
         "qubits": 22,
-        "reason": "Only up to 16 qubits for deterministic science probe",
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": 1.5708146776392804,
+            "state_distance_up_to_individual_phase_float": 9.392588484302024e-06,
+            "state_overlap_abs_float": 0.9999999999547213
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": 1.5707963267949034,
+            "state_distance_up_to_individual_phase_float": 1.7740422812740892e-15,
+            "state_overlap_abs_float": 1.0000000000000038
+          }
+        ],
         "source_global_phase": 0.0,
         "source_ops": 1254,
-        "status": "NOT_MEASURED_RESOURCE_BOUND",
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
         "transpiled_global_phase": 0.0,
         "transpiled_ops": 970
       },
@@ -388,12 +418,27 @@
       "ganak_print_resolution_distance": 0.00011613350730964658,
       "independent_qiskit_audit": {
         "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
+        "max_sample_state_distance_float": 2.9960562261997886e-06,
+        "max_sample_state_infidelity_float": 8.975042931069765e-12,
         "numeric_type": "numpy.complex128_qiskit_operator",
         "qubits": 20,
-        "reason": "Only up to 16 qubits for deterministic science probe",
+        "samples": [
+          {
+            "input": "zero",
+            "relative_global_phase_radians_float": -2.3561914941361204,
+            "state_distance_up_to_individual_phase_float": 2.9960562261997886e-06,
+            "state_overlap_abs_float": 0.9999999999955125
+          },
+          {
+            "input": "uniform_plus",
+            "relative_global_phase_radians_float": -2.356194490192544,
+            "state_distance_up_to_individual_phase_float": 1.9522325753837729e-13,
+            "state_overlap_abs_float": 1.0000000000000546
+          }
+        ],
         "source_global_phase": 0.0,
         "source_ops": 1092,
-        "status": "NOT_MEASURED_RESOURCE_BOUND",
+        "status": "SAMPLED_FLOAT_STATEVECTORS",
         "transpiled_global_phase": 0.0,
         "transpiled_ops": 861
       },
@@ -469,7 +514,7 @@
       "independent_qiskit_audit": {
         "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
         "numeric_type": "numpy.complex128_qiskit_operator",
-        "phase_aligned_frobenius_normalized_float": 1.76075651882511e-15,
+        "phase_aligned_frobenius_normalized_float": 1.7607565188251105e-15,
         "projective_distance_float": 5.37269007483719e-08,
         "qubits": 3,
         "source_global_phase": 0.0,

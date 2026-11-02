@@ -50,7 +50,7 @@ jobs:
             test/test_tacas26_quprs_only.py -q
           python scripts/tacas26_paper_matrix.py --list \
             > "$RUNNER_TEMP/tacas26-full-matrix-index.json"
-          python scripts/tacas26_quprs_only.py --list \
+          python -m scripts.tacas26_quprs_only --list \
             > "$RUNNER_TEMP/tacas26-quprs-only-plan.json"
       - name: Preserve legacy case index and canonical QuPRS-only plan
         if: always()

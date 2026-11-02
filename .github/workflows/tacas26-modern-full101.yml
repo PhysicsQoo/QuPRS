@@ -1,0 +1,85 @@
+name: TACAS26 Full 101 Modern Binary Science Collection — Experiment Branch Only
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/tacas26/run-modern-full101-20261103.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tacas26-full101-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  modern-full101:
+    name: TACAS modern 101 GPMC verdict collection (${{ matrix.backend }} / shard ${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        backend: [rust, python]
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Checkout exact research SHA, never formal PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Restore solver binary cache without altering its source
+        uses: actions/cache@v4
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - name: Compile source and enforce full 101-case science contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/modern-quprs"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/modern-quprs" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/modern-quprs/bin" >> "$GITHUB_PATH"
+          source "$RUNNER_TEMP/modern-quprs/bin/activate"
+          python -m pip install --disable-pip-version-check maturin
+          maturin develop --release -E dev
+          python -m compileall -q scripts/tacas26_modern_full_101.py scripts/tacas26_modern_101_worker.py
+          python -m pytest test/test_tacas26_modern_full_101.py -q
+      - name: Execute bounded real modern GPMC with source-pinned EQ AND NEQ labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_modern_full_101 \
+            --root "$GITHUB_WORKSPACE" \
+            --sha "$GITHUB_SHA" \
+            --backend ${{ matrix.backend }} --digits 30 \
+            --shard ${{ matrix.shard }} --shards 24 \
+            --solver-timeout 200 --watchdog 215 \
+            --output "$RUNNER_TEMP/tacas26-modern-full101-${{ matrix.backend }}-${{ matrix.shard }}.jsonl"
+      - name: Preserve partial observations even after a process error
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-modern-full101-${{ matrix.backend }}-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/tacas26-modern-full101-${{ matrix.backend }}-${{ matrix.shard }}.jsonl
+            ${{ runner.temp }}/tacas26-modern-full101-${{ matrix.backend }}-${{ matrix.shard }}.summary.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -143,28 +143,53 @@ def process_term(term: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *
 
 
 @tracked_lru_cache(maxsize=65536)
-def _reduce_expression_cached(expr: se.Expr, mod_coeffs, linearize, drop_small, rr_tolerance):
-    # Cache both the value and approximation evidence, not side effects.
-    # This ensures independent verifications remain correct after LRU hits.
+def _reduce_expression_cached(
+    expr: se.Expr, mod_coeffs, linearize, drop_small, rr_tolerance, preserve_scalar
+):
+    """Normalize once, caching the value together with approximation evidence."""
     expanded_expr = expr.expand()
+    keep_phase = preserve_scalar and drop_small and mod_coeffs == 1
     if expanded_expr.is_Add:
-        processed = [
-            _process_term_cached(term, mod_coeffs, linearize, drop_small, rr_tolerance)
-            for term in expanded_expr.args
-        ]
-        result = se.Add(*(value for value, _ in processed))
-        discarded = any(dropped for _, dropped in processed)
+        normalized = []
+        scalar = se.S.Zero
+        discarded = False
+        for term in expanded_expr.args:
+            if keep_phase and not term.free_symbols:
+                scalar += term
+                continue
+            value, dropped = _process_term_cached(
+                term, mod_coeffs, linearize, drop_small, rr_tolerance
+            )
+            normalized.append(value)
+            discarded |= dropped
+        if scalar != se.S.Zero:
+            value, _ = _process_term_cached(
+                scalar, mod_coeffs, linearize, False, rr_tolerance
+            )
+            normalized.append(value)
+        result = se.Add(*normalized)
     else:
+        is_scalar = keep_phase and not expanded_expr.free_symbols
         result, discarded = _process_term_cached(
-            expanded_expr, mod_coeffs, linearize, drop_small, rr_tolerance
+            expanded_expr, mod_coeffs, linearize,
+            False if is_scalar else drop_small, rr_tolerance
         )
     return result, discarded
 
 
-def reduce_expression(expr: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *, rr_tolerance=None):
-    """Reduce phase with per-request tolerance as an LRU key component."""
+def reduce_expression(
+    expr: se.Expr, mod_coeffs=1, linearize=True, drop_small=True, *,
+    rr_tolerance=None, preserve_scalar=False,
+):
+    """Reduce with per-call tolerance; optionally preserve global source phase.
+
+    Phase-polynomial callers pass preserve_scalar=True, while matcher coefficient
+    checks use their unchanged tolerance-based zero classification.
+    """
     tol = current_rr_tolerance() if rr_tolerance is None else validate_rr_tolerance(rr_tolerance)
-    value, discarded = _reduce_expression_cached(expr, mod_coeffs, linearize, drop_small, tol)
+    value, discarded = _reduce_expression_cached(
+        expr, mod_coeffs, linearize, drop_small, tol, preserve_scalar
+    )
     if discarded:
         record_rr_approximation()
     return value

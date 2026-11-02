@@ -112,7 +112,7 @@ def HH_reduction(pathsum, yo_val, yi_val, Q_val, R_val):
             Q_val = logical_to_algebraic(Q_val)
 
         new_P = R_val.subs({yi_val: Q_val})
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, preserve_scalar=True)
     else:
         new_P = R_val
 
@@ -130,7 +130,7 @@ def omega_reduction(pathsum, yo_val, Q_val, R_val, return_flag):
         new_P = se.Rational(1, 8) - se.Rational(1, 4) * Q_val + R_val
     else:
         new_P = se.Rational(-1, 8) + se.Rational(1, 4) * Q_val + R_val
-    new_P = reduce_expression(new_P)
+    new_P = reduce_expression(new_P, preserve_scalar=True)
     new_pathvar = set(pathsum.pathvar)
     new_pathvar.remove(yo_val)
 

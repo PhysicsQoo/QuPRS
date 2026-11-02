@@ -6,6 +6,7 @@ on:
       - experiment/tacas26-paper-reproduction
     paths:
       - '.github/workflows/tacas26-qiskit142-frozen-audit.yml'
+      - 'scripts/tacas26_qiskit_142_audit.py'
   workflow_dispatch:
 
 permissions:

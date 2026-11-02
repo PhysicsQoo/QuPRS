@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 NAME = "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm"
-FIELDS = ("status", "verdict", "wmc_numerical_verdict", "wmc_printed_verdict",
+FIELDS = ("verdict", "wmc_numerical_verdict", "wmc_printed_verdict",
           "wmc_precision_reason", "wmc_print_resolution_distance",
           "wmc_numeric_model_bound", "wmc_log_wmc", "wmc_expected_log2",
           "rr_approximate", "solver_invoked", "effective_rr_tolerance",

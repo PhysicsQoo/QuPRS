@@ -48,3 +48,45 @@ def test_p1_report_imports_without_cwd_dependency(tmp_path):
     res=subprocess.run([sys.executable,str(script),"--help"],
                        cwd=tmp_path, capture_output=True,text=True,check=False)
     assert res.returncode==0, res.stderr
+
+def test_tolerance_probe_keeps_runner_status_when_solver_payload_has_null(monkeypatch, tmp_path):
+    """The harness owns status; solver metadata cannot overwrite COMPLETED."""
+    from scripts import diagnose_qpe20_tolerance as diag
+
+    class FakeProcess:
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            payload = {
+                "status": None,
+                "verdict": "not_equivalent",
+                "effective_distance_tolerance": 1e-8,
+                "solver_invoked": True,
+            }
+            return diag.MARKER + json.dumps(payload) + "\n", ""
+
+    monkeypatch.setattr(diag.subprocess, "Popen", lambda *a, **kw: FakeProcess())
+    row = diag.run_one(tmp_path, diag.PROBES[1])
+    assert row["status"] == "COMPLETED"
+    assert row["exit_code"] == 0
+    assert row["verdict"] == "not_equivalent"
+    assert row["effective_distance_tolerance"] == 1e-8
+
+
+def test_tolerance_transition_bracket_from_completed_rows():
+    from scripts.diagnose_qpe20_tolerance import classify
+    rows = [
+        {"id": "rust_default_d1e-8", "status": "COMPLETED",
+         "verdict": "not_equivalent", "effective_distance_tolerance": 1e-8},
+        {"id": "rust_qcec_reference_d2e-8", "status": "COMPLETED",
+         "verdict": "not_equivalent", "effective_distance_tolerance": 2e-8},
+        {"id": "rust_d3e-6", "status": "COMPLETED",
+         "verdict": "not_equivalent", "effective_distance_tolerance": 3e-6},
+        {"id": "rust_d5e-6", "status": "COMPLETED",
+         "verdict": "equivalent*", "effective_distance_tolerance": 5e-6},
+    ]
+    result = classify(rows)
+    assert result["last_nonequivalent_before_transition"] == 3e-6
+    assert result["first_equivalent_at_requested_tolerance"] == 5e-6
+    assert result["source_equivalence_certified"] is False
+    assert result["wmc_solver_arithmetic_certified"] is False

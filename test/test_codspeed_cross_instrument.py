@@ -101,3 +101,47 @@ def test_missing_walltime_is_baseline_only(tmp_path, monkeypatch):
     result = module.produce(tmp_path, SHA, "")
     assert result["scientific_status"] == "BASELINE_ONLY"
     assert result["walltime_paired_cases"] == 0
+
+
+def test_versioned_simulation_v3_dynamic_three_shards(tmp_path):
+    from benchmarks.codspeed.suite_compat import suite_spec_digest, load_catalog
+    suite = load_catalog()["suites"][1]
+    names = [f"benchmarks/codspeed/test_curated.py::candidate[{i}]"
+             for i in range(4)]
+    for shard in range(3):
+        directory = tmp_path / f"curated-{shard}"
+        directory.mkdir()
+        payload = json.dumps({"benchmarks": [
+            {"uri": uri, "stats": {"cpu_total_ns": 123}}
+            for i, uri in enumerate(names) if i % 3 == shard
+        ]}).encode()
+        (directory / f"simulation-{shard}.json").write_bytes(payload)
+        record = {
+            "schema": "quprs-codspeed-sha-v3", "family": "curated-cpu",
+            "sha": SHA, "fixture_revision_sha": SHA,
+            "measurement_status": "uploaded_by_codspeed_action",
+            "instrument": "simulation",
+            "suite_id": suite["suite_id"], "suite_version": suite["version"],
+            "suite_spec_sha256": suite_spec_digest(suite),
+            "measurement_scope": suite["measurement_scope"],
+            "simulation_track_subprocess": False,
+            "metric_units": "modeled_cpu_seconds",
+            "runner_cohort": "linux-hosted-cpu-a",
+            "shard": shard, "num_shards": 3,
+            "measurement_sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        (directory / "manifest.json").write_text(json.dumps(record))
+    found = module.validate_curated_simulation(
+        tmp_path, SHA, suite_id=suite["suite_id"], expected_uris=names,
+    )
+    assert set(found) == set(names)
+    with pytest.raises(ValueError, match="incomplete candidate URI"):
+        module.validate_curated_simulation(
+            tmp_path, SHA, suite_id=suite["suite_id"],
+            expected_uris=names+["unmeasured-case"],
+        )
+    (tmp_path / "curated-2" / "simulation-2.json").write_text("{}")
+    with pytest.raises(ValueError, match="digest mismatch"):
+        module.validate_curated_simulation(
+            tmp_path, SHA, suite_id=suite["suite_id"], expected_uris=names,
+        )

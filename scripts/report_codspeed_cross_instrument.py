@@ -19,6 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmarks.codspeed.case_registry import (
     WALLTIME_CASE_IDS, CROSS_INSTRUMENT_MATCH, NATIVE_IDS, PYTHON_CORE_CASE_IDS,
 )
+from benchmarks.codspeed.suite_compat import (
+    SuiteCompatibilityError, load_catalog, normalize_manifest, suite_spec_digest,
+)
 WALLTIME_CASES = len(WALLTIME_CASE_IDS)
 NATIVE_CASES = len(NATIVE_IDS)
 
@@ -38,8 +41,12 @@ def load_provenance(folder, family, *, expected_sha, mode=None, count=1):
     if len(matches) != count:
         raise ValueError(f"{family}/{mode}: expected {count} SHA manifests, got {len(matches)}")
     for row in matches:
-        if row.get("schema") != "quprs-codspeed-sha-v2":
-            raise ValueError(f"{family}: incompatible manifest schema")
+        try:
+            parsed = normalize_manifest(row)
+        except SuiteCompatibilityError as exc:
+            raise ValueError(f"{family}: incompatible manifest: {exc}") from exc
+        if parsed["schema_version"] not in (2, 3):
+            raise ValueError(f"{family}: unsupported provenance schema")
         if row.get("sha") != expected_sha or row.get("fixture_revision_sha") != expected_sha:
             raise ValueError(f"{family}: wrong SHA or fixture identity")
         if row.get("measurement_status") != "uploaded_by_codspeed_action":
@@ -77,6 +84,66 @@ def validate_simulation(folder, sha):
     identity = hashlib.sha256("\n".join(sorted(measurements)).encode()).hexdigest()
     if identity != CANONICAL_SHA:
         raise ValueError("original 32 CodSpeed benchmark identities changed")
+    return measurements
+
+
+def validate_curated_simulation(folder, sha, *, suite_id, expected_uris):
+    """Validate opt-in v3 sharded exports; never substitute for legacy 32.
+
+    Callers must supply independently collected benchmark URIs. The suite
+    cannot pass by inventing its own expected set from the observed export.
+    """
+    catalog = load_catalog()
+    suite = next(
+        (item for item in catalog["suites"] if item["suite_id"] == suite_id),
+        None,
+    )
+    if suite is None or suite["instrument"] != "simulation":
+        raise ValueError("Missing registered Simulation suite")
+    manifests = [
+        (path, read(path)) for path in collect(folder, "**/manifest.json")
+        if read(path).get("suite_id") == suite_id
+    ]
+    if not manifests:
+        raise ValueError(f"{suite_id}: no measured v3 manifests")
+    count = manifests[0][1].get("num_shards")
+    if type(count) is not int or count <= 0 or len(manifests) != count:
+        raise ValueError(f"{suite_id}: incomplete dynamic shard collection")
+    expected_rows = tuple(expected_uris)
+    expected = set(expected_rows)
+    if not expected or len(expected) != len(expected_rows):
+        raise ValueError("Expected benchmark URIs absent or duplicated")
+    found_shards = set()
+    measurements = {}
+    spec_digest = suite_spec_digest(suite)
+    for path, document in manifests:
+        try:
+            record = normalize_manifest(document)
+        except SuiteCompatibilityError as exc:
+            raise ValueError(f"{suite_id}: invalid manifest: {exc}") from exc
+        shard = record["shard"]
+        if (record["schema_version"] != 3 or document["sha"] != sha
+                or document["fixture_revision_sha"] != sha
+                or record["suite_spec_sha256"] != spec_digest
+                or record["num_shards"] != count or shard in found_shards):
+            raise ValueError(f"{suite_id}: SHA/suite/shard mismatch")
+        found_shards.add(shard)
+        raw_file = path.parent / f"simulation-{shard}.json"
+        if not raw_file.is_file():
+            raise ValueError(f"{suite_id}: missing shard instrument export")
+        payload = raw_file.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != document.get("measurement_sha256"):
+            raise ValueError(f"{suite_id}: instrument export digest mismatch")
+        results = json.loads(payload).get("benchmarks")
+        if not isinstance(results, list):
+            raise ValueError(f"{suite_id}: invalid CodSpeed benchmark export")
+        for result in results:
+            uri = result.get("uri")
+            if not isinstance(uri, str) or uri in measurements or uri not in expected:
+                raise ValueError(f"{suite_id}: unexpected or duplicate benchmark {uri}")
+            measurements[uri] = result
+    if found_shards != set(range(count)) or set(measurements) != expected:
+        raise ValueError(f"{suite_id}: incomplete candidate URI coverage")
     return measurements
 
 

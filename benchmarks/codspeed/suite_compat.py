@@ -37,6 +37,15 @@ def load_catalog(path: Path = CATALOG_FILE) -> dict:
     return data
 
 
+def suite_spec_digest(suite: dict) -> str:
+    """Stable versioned suite definition hash; never include runtime results."""
+    if not isinstance(suite, dict) or not suite.get("suite_id"):
+        raise SuiteCompatibilityError("Invalid suite specification")
+    return hashlib.sha256(
+        json.dumps(suite, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
 def normalize_manifest(document: dict) -> dict:
     """Normalize old SHA-v2 and new SHA-v3 provenance without fabricating data."""
     schema = document.get("schema")
@@ -84,6 +93,15 @@ def normalize_manifest(document: dict) -> dict:
                    for ch in document["suite_spec_sha256"])):
         raise SuiteCompatibilityError("Invalid suite specification SHA-256")
     instrument = document["instrument"].lower()
+    if document["suite_id"] not in {x["suite_id"] for x in load_catalog()["suites"]}:
+        raise SuiteCompatibilityError("Suite is not registered")
+    suite = next(x for x in load_catalog()["suites"] if x["suite_id"] == document["suite_id"])
+    if document["suite_version"] != suite["version"]:
+        raise SuiteCompatibilityError("Registered suite version mismatch")
+    if document["suite_spec_sha256"] != suite_spec_digest(suite):
+        raise SuiteCompatibilityError("Suite specification hash mismatch")
+    if document["measurement_scope"] != suite["measurement_scope"]:
+        raise SuiteCompatibilityError("Suite measurement scope mismatch")
     tracked = document.get("simulation_track_subprocess")
     if instrument == "simulation":
         if type(tracked) is not bool:

@@ -1,0 +1,6 @@
+TACAS 2026 modern science: aggregate authoritative completed 101-case GPMC runs.
+Run 41481701901 full Python30/Rust30: 48/48 Solver shards SUCCESS, preflight success, original source SHA ff4d3032a83c0ae18ba3a7d195cb1b1a8804492f.
+Run 41482585459 Python90: 24/24 Solver shards SUCCESS, preflight success, original source SHA 6b2b281c546e3369abb5061af74896bb50c48c3b.
+Collect each of 303 actual verifier records from original GitHub Action artifacts; require source hashes, same backend/circuit/CNF and independent EQ/NEQ recomputation from raw real verdict.
+Separate output gates: scientific 101/101 Python30, Rust30, Python90; CNF/30-vs90 convergence; full GPMC arithmetic certificate NOT_AVAILABLE until independently verified roundoff/weight/normalization bound.
+No production PR changes, research branch only, no timing claims.

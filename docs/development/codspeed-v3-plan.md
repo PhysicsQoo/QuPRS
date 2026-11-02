@@ -341,3 +341,46 @@ untouched and separately interpretable. Native total becomes 25; original
 and 5 Python-core identities remain unchanged. The new Rust IDs have no
 historical base; do not call their first CodSpeed results a speedup or
 compare them with differently scoped pipeline CPU times.
+
+
+
+## P4/P5 follow-up — official CodSpeed read capability and fail-closed evidence (2026-11-02)
+
+The official CodSpeed GitHub Action is a **measurement uploader**, not an
+authenticated download API for all platform-side modeled CPU values. CodSpeed's
+public pricing lists the Performance Data API as an Enterprise capability;
+a general-purpose, officially documented and authorized read credential for
+this project's GitHub CI has not been established. OIDC permission to **upload**
+benchmark data does not establish a permission to **read** service metrics.
+Do not reverse-engineer private GraphQL endpoints, scrape an authenticated
+browser session, infer undocumented scopes, or put personal auth tokens in CI.
+CodSpeed MCP can provide an authorized human-reviewed read of actual service
+runs, but it is not an unattended GitHub Action input. If CodSpeed grants an
+official supported read API later, verify its documented scope, the project
+entitlement, the service response/run identity and CI secret-handling protocol
+before implementing an automatic importer.
+
+Until then, the existing manual source-verified normalized service export
+feeds `join_codspeed_numeric.py`. Source SHA, run ID, directly measured flag,
+runner mode, unit and CPU model remain mandatory. A Simulation CPU time must
+have a time unit and a Memory observation a storage unit; contradictory
+instrument/unit pairs fail closed. All expected overlap, native, original and
+optional Python identities must have actual numeric values to claim full
+external numeric coverage. A verdict-incomparable row can carry its numeric
+measurement for diagnosis, but it does **not** satisfy scientific
+cross-validation. Source-independent GPMC rows are not invalidated by a
+separate Ganak precision-limited verdict. Missing numbers stay explicit; no
+performance GO is inferred.
+
+For P5, each source-pinned ABBA case must keep the identical QASM hash pair,
+method, backend, Solver, strategy, source fixtures and verdict **across all
+blocks**, not only within a block. The A1/A2 drift observed within the same
+GitHub-hosted execution is descriptive, not an independently replicated
+A/A runner-noise distribution; the report records an explicit zero independent
+A/A cohort count. Continue collecting seven same-job paired Solver-inclusive
+CodSpeed WallTime cases on every PR. Qualify an empirical threshold only
+after independent A/A cohorts with stable hardware/runner metadata, enough
+repetitions and a separately reviewed confidence procedure. A Ganak printed
+precision-limited mismatch with independent source witness remains eligible
+for **conditional same-workload timing**, but never automatic scientific
+reclassification or performance release certification.

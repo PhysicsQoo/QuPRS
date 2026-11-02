@@ -78,6 +78,7 @@ def produce(measurements: dict, provenance: list[dict], base_sha: str,
     for case in sorted(SELECTED):
         measures = []
         baseline_drift = []
+        case_signature = None
         for block in BLOCKS:
             b = [science[case, block, pos] for pos in POSITIONS]
             ref = b[0]
@@ -102,6 +103,18 @@ def produce(measurements: dict, provenance: list[dict], base_sha: str,
             verdicts = {x["verdict"] for w in b for x in w["observations"]}
             if len(verdicts) != 1:
                 raise ValueError(f"{case}/{block}: changed verdict inside ABBA")
+            # An ABBA block cannot silently switch fixture, settings or
+            # scientific verdict relative to another block for this case.
+            signature = (
+                ref.get("method"), ref.get("backend"), ref.get("solver"),
+                ref.get("strategy"), ref.get("reverse"),
+                ref.get("fixture_sha"), tuple(ref.get("qasm_sha256", [])),
+                next(iter(verdicts)),
+            )
+            if case_signature is None:
+                case_signature = signature
+            elif signature != case_signature:
+                raise ValueError(f"{case}/{block}: changed source/settings/verdict across ABBA blocks")
             a1 = metrics[case, block, "A1"]["median_ns"]
             b1 = metrics[case, block, "B1"]["median_ns"]
             b2 = metrics[case, block, "B2"]["median_ns"]
@@ -120,6 +133,8 @@ def produce(measurements: dict, provenance: list[dict], base_sha: str,
             "block_changes_percent": measures,
             "baseline_a1_a2_drift_percent": baseline_drift,
             "max_observed_baseline_drift_percent": max(baseline_drift),
+            "within_run_a1_a2_drift_is_independent_aa_cohort": False,
+            "independent_aa_cohort_count": 0,
             "decision": "CONDITIONAL_DIAGNOSTIC_ONLY",
             "warning": "Non-Macro hosted runner; intervals and stable hardware "
                        "qualification absent; cannot claim 1% regression GO.",

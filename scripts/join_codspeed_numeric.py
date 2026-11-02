@@ -37,8 +37,14 @@ def join(evidence: dict, remote: dict) -> dict:
         value = row.get("value")
         if not isinstance(value, (float, int)) or isinstance(value, bool) or not math.isfinite(value) or value < 0:
             raise ValueError("invalid CodSpeed numeric measurement")
-        if row.get("unit") not in {"s", "ms", "us", "ns", "B", "KiB", "MiB"}:
-            raise ValueError("missing or unsupported instrument unit")
+        mode = row.get("runner_mode")
+        valid_units = {
+            "Simulation": {"s", "ms", "us", "ns"},
+            "WallTime": {"s", "ms", "us", "ns"},
+            "Memory": {"B", "KiB", "MiB"},
+        }
+        if mode not in valid_units or row.get("unit") not in valid_units[mode]:
+            raise ValueError("instrument and unit are incompatible")
         if not row.get("cpu_model"):
             raise ValueError("runner cohort must be recorded")
         lookup[key] = row
@@ -126,13 +132,14 @@ def join(evidence: dict, remote: dict) -> dict:
         "native_core_missing_numeric": sum(x["measurement"] is None for x in native_core),
         "missing_numeric": sum(row["status"] == "MISSING_NUMERIC" for row in joined),
         "numerical_cross_validation_complete": bool(joined) and all(
-            row["numeric_cpu"] is not None for row in joined)
+            row["status"] == "NUMERIC_AVAILABLE" for row in joined)
             and all(row["measurement"] is not None for row in native_core)
             and (not legacy_uris or all(row["measurement"] is not None for row in legacy_core))
             and all(row["measurement"] is not None for row in python_core),
         "performance_certified": False,
         "external_source_status": ("PARTIALLY_MISSING" if (
-            any(row["measurement"] is None for row in native_core)
+            any(row["numeric_cpu"] is None for row in joined)
+            or any(row["measurement"] is None for row in native_core)
             or any(row["measurement"] is None for row in legacy_core)
             or any(row["measurement"] is None for row in python_core)
         ) else "EXACT_SHA_NUMERIC_RECEIVED"),

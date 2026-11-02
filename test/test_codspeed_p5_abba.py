@@ -85,3 +85,34 @@ def test_verdict_change_inside_block_rejected():
     witness[0]["observations"][-1]["verdict"] = "equivalent*"
     with pytest.raises(ValueError, match="changed verdict"):
         REPORT.produce(metric, witness, BASE, HEAD)
+
+
+
+def test_cross_block_verdict_change_is_not_certified_source_stability():
+    metric, witness = input_fixture()
+    case = next(iter(REPORT.SELECTED))
+    for row in witness:
+        if row["case"] == case and row["block"] == 1:
+            for obs in row["observations"]:
+                obs["verdict"] = "equivalent*"
+    with pytest.raises(ValueError, match="across ABBA blocks"):
+        REPORT.produce(metric, witness, BASE, HEAD)
+
+
+def test_cross_block_qasm_change_is_not_silently_accepted():
+    metric, witness = input_fixture()
+    case = next(iter(REPORT.SELECTED))
+    for row in witness:
+        if row["case"] == case and row["block"] == 2:
+            row["qasm_sha256"] = ["c"*64, "d"*64]
+    with pytest.raises(ValueError, match="across ABBA blocks"):
+        REPORT.produce(metric, witness, BASE, HEAD)
+
+
+def test_within_run_aa_drift_is_not_independent_runner_noise_evidence():
+    metric, witness = input_fixture()
+    report = REPORT.produce(metric, witness, BASE, HEAD)
+    for row in report["cases"]:
+        assert row["within_run_a1_a2_drift_is_independent_aa_cohort"] is False
+        assert row["independent_aa_cohort_count"] == 0
+        assert row["decision"] == "CONDITIONAL_DIAGNOSTIC_ONLY"

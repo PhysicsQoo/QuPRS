@@ -105,3 +105,52 @@ def test_global_ganak_science_caveat_does_not_mark_valid_gpmc_case_wrong():
     out = module.join(ev, {"results":[r]})
     assert out["cases"][0]["status"] == "NUMERIC_AVAILABLE"
     assert not out["performance_certified"]
+
+
+
+def test_missing_overlap_prevents_claiming_complete_external_numeric_source():
+    from benchmarks.codspeed.case_registry import NATIVE_IDS
+    ev = _input()
+    # Supplying every Rust ID is not enough to claim coverage when the
+    # same-source overlapping CPU row is still unavailable.
+    remote = {"results": [{
+        "sha": SHA, "runner_mode": "Simulation",
+        "uri": "benches/core.rs::" + name, "measured_in_run": True,
+        "run_id": "same-head-native", "cpu_model": "EPYC",
+        "value": 3.0, "unit": "us",
+    } for name in NATIVE_IDS]}
+    report = module.join(ev, remote)
+    assert report["native_core_missing_numeric"] == 0
+    assert report["missing_numeric"] == 1
+    assert report["external_source_status"] == "PARTIALLY_MISSING"
+    assert report["numerical_cross_validation_complete"] is False
+
+
+def test_incomparable_overlap_never_certifies_cross_validation():
+    from benchmarks.codspeed.case_registry import NATIVE_IDS
+    ev = _input()
+    ev["cross_instrument_rows"][0]["comparable_verdict"] = False
+    records = [{"sha": SHA, "runner_mode": "Simulation",
+                "uri": "benches/core.rs::" + name, "measured_in_run": True,
+                "run_id": "same-head-native", "cpu_model": "EPYC",
+                "value": 3.0, "unit": "us"} for name in NATIVE_IDS]
+    records.append({"sha": SHA, "runner_mode": "Simulation", "uri": CASE,
+                    "measured_in_run": True, "run_id": "same-head-legacy",
+                    "cpu_model": "EPYC", "value": 11.0, "unit": "us"})
+    report = module.join(ev, {"results": records})
+    assert report["missing_numeric"] == 0
+    assert report["external_source_status"] == "EXACT_SHA_NUMERIC_RECEIVED"
+    assert report["cases"][0]["status"] == "INCOMPARABLE_VERDICT"
+    assert report["numerical_cross_validation_complete"] is False
+
+
+@pytest.mark.parametrize("mode,unit", [
+    ("Simulation", "MiB"), ("WallTime", "B"), ("Memory", "ms"),
+    ("Unknown", "ms"),
+])
+def test_incompatible_instrument_unit_rejected(mode, unit):
+    row = {"sha": SHA, "runner_mode": mode, "uri": CASE,
+           "measured_in_run": True, "run_id": "service-source",
+           "cpu_model": "EPYC", "value": 1.0, "unit": unit}
+    with pytest.raises(ValueError, match="instrument and unit"):
+        module.join(_input(), {"results": [row]})

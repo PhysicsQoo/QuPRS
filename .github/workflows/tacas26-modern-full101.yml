@@ -16,11 +16,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  science-preflight:
+    name: Verify all 101 source identities and printed-bound contract (no Solver)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Preflight independently before 48 costly jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          python -m compileall -q scripts/tacas26_modern_full_101.py scripts/tacas26_modern_101_worker.py
+          python -m pip install --disable-pip-version-check pytest "numpy<3" "qiskit>=1,<2" sympy symengine
+          python -m pytest test/test_tacas26_modern_full_101.py -q
+
   modern-full101:
     name: TACAS modern 101 GPMC verdict collection (${{ matrix.backend }} / shard ${{ matrix.shard }})
+    needs: science-preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
+      max-parallel: 8
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]

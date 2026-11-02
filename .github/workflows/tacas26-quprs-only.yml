@@ -33,7 +33,7 @@ jobs:
           python -m pip install --disable-pip-version-check pytest
           python -m compileall -q scripts/tacas26_paper_matrix.py scripts/tacas26_quprs_only.py
           python -m pytest test/test_tacas26_quprs_only.py test/test_tacas26_paper_matrix.py -q
-          python scripts/tacas26_quprs_only.py --cohort pending --list > "$RUNNER_TEMP/tacas26-144-plan.json"
+          python -m scripts.tacas26_quprs_only --cohort pending --list > "$RUNNER_TEMP/tacas26-144-plan.json"
       - uses: actions/upload-artifact@v4
         with:
           name: tacas26-quprs-only-canonical-144-plan

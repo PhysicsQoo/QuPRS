@@ -135,3 +135,34 @@ actual v0.9.1 verdict differs from paper `equivalent*`, if GPMC was
 not invoked, if the phase replay is inconsistent, or if any original
 source SHA does not match. This option allows reproducing the original
 algorithm without first retrieving the large Zenodo Docker tarball.
+
+
+## Full source-pinned TACAS case registry (2026-11-02)
+
+The executable source-pinned matrix is built *from the existing* manifest
+\`docs/development/paper-corpus-manifest.json\` and \`benchmarks/codspeed/paper_difficulty.json\`.
+It explicitly covers 187 QuPRS invocations:
+- 36 Table2 positive pairs x 3 modes (Hybrid/RR/WMC) = 108.
+- Table3(a) supplemental WState32 positive Hybrid = 1.
+- 37 Table3(b) original-versus-Random_Rotation pairs x Hybrid/WMC = 74.
+- 4 Feynman source pairs as a separately labeled RR-only Figure3 sample.
+
+Table3(a) other positive Hybrid cases reuse the identical Table2 source/solver
+observations; separate QCEC/Quokka/PyZX experiments are *not* falsely
+presented as QuPRS reproductions. The paper says 35 in prose but Table2
+has 36 listed rows. Exact source Git blob SHA1 is verified for each official
+positive pair; negative QASM bytes are tied to the fixed v0.9.1 historical
+checkout, SHA256 recorded per invocation, never regenerated.
+
+Historical verdict fields not yet individually transcribed from the published
+tables are explicitly NOT_YET_TRANSCRIBED. Only the independently reproduced
+QPE-inexact20 positive equivalent* is hard-asserted. A returned verdict
+without reference expected outcome is an OBSERVATION, not an acceptance pass.
+The initial bounded 10-case CI smoke is run with two isolated shards,
+200-second QuPRS time limit, separate 215-second watchdog (timeout recorded
+as censored, not as not-equivalent), original GPMC native binary and Qiskit
+1.4.2. Per-case raw GPMC stdout, phase, complex counts and QASM hashes are
+retained. The script stores **no** non-CodSpeed performance measurements.
+
+Full matrix execution requires further explicit opt-in with bounded small
+batches; the manifest's 187 identities are a plan, not completed science.

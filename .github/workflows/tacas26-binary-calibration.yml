@@ -1,0 +1,63 @@
+name: TACAS26 historical binary tolerance replay (Git evidence only)
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/tacas26/run-binary-calibration-20261102.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tacas26-binary-calibration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  replay-archived-counts:
+    name: Historical GPMC printed counts to modern binary-equivalence threshold
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test exact-rational classifier on Git-tracked source only
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest test/test_tacas26_tolerance_replay.py -q
+          python -m compileall -q scripts/tacas26_tolerance_replay.py
+      - name: Generate results from permanent Git evidence (no Solver, no artifact download)
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_tolerance_replay
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('docs/development/tacas26-results/tolerance-offline-v0140/report.json')
+          report=json.loads(p.read_text(encoding='utf-8'))
+          assert report['primary_acceptance_metric']=='BINARY_EQUIVALENT_VS_NOT_EQUIVALENT'
+          assert report['binary_candidate']['matched']==101
+          assert report['binary_candidate']['mismatched_case_ids']==[]
+          assert report['source_sha']=='e928abc47dd15926364ec77905eb0d5dc92ce8cc'
+          assert len(report['cases'])==184
+          assert report['population']['wmc']==101
+          print('HISTORICAL_BINARY_TOLERANCE_REPLAY_PASS',report['binary_candidate'])
+          PY
+      - name: Commit immutable historical replay snapshot
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/development/tacas26-results/tolerance-offline-v0140/
+          if ! git diff --cached --quiet; then
+            git commit -m "data(tacas): preserve binary historic-to-v0140 WMC tolerance sweep"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          else
+            echo "Offline numeric calibration already preserved in Git"
+          fi

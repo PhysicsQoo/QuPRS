@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Independent small-QASM operator check OUTSIDE CodSpeed timed regions.
+"""Independent Qiskit operator check OUTSIDE CodSpeed timed regions.
 
-Complex128 evidence supports source equivalence up to phase but never
-certifies a rigorous 1e-8 projective-distance bound.
+Complex128 reference on vqe4/grover4/qnn4/vqe8 source pairs supports
+unitary consistency up to a global phase, NOT a rigorous 1e-8 certificate
+or a bound on the GPMC printed-count arithmetic error.
 """
 import argparse
 import hashlib
@@ -15,6 +16,8 @@ from qiskit.quantum_info import Operator
 SOURCES = {
     "vqe4": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
     "grover4": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+    "qnn4": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+    "vqe8": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
 }
 
 
@@ -29,17 +32,24 @@ def evaluate(root: Path, sha: str) -> dict:
                     source.decode("utf-8"))).data, dtype=np.complex128)
                     for source in original]
         a, b = matrices
-        if a.shape != (16, 16) or b.shape != (16, 16):
-            raise ValueError(f"{case}: expected 4-qubit unitary operators")
-        overlap = np.vdot(a, b) / 16
+        qubits = 8 if case == "vqe8" else 4
+        dimension = 1 << qubits
+        if a.shape != (dimension, dimension) or b.shape != (dimension, dimension):
+            raise ValueError(f"{case}: expected {qubits}-qubit unitary operators")
+        overlap = np.vdot(a, b) / dimension
         phase = overlap / abs(overlap) if abs(overlap) else 0j
-        residual = float(np.linalg.norm(b - phase * a, ord="fro") / 4)
+        # Stable near true equivalence; avoid catastrophic cancellation in
+        # sqrt(1 - abs(overlap)**2) using complex128 trace arithmetic.
+        residual = float(np.linalg.norm(b - phase * a, ord="fro")
+                         / np.sqrt(dimension))
         unitary_errors = [float(np.linalg.norm(
-            u.conj().T @ u - np.eye(16), ord="fro")) for u in matrices]
+            u.conj().T @ u - np.eye(dimension), ord="fro")) for u in matrices]
         # Independent double-precision sanity check, not a second QuPRS
         # distance classifier or an assertion of exact symbolic identity.
         consistent = residual < 1e-10 and max(unitary_errors) < 1e-10
         report["cases"][case] = {
+            "qubits": qubits,
+            "matrix_dimension": dimension,
             "qasm_sha256": [hashlib.sha256(x).hexdigest() for x in original],
             "phase_corrected_frobenius_normalized": residual,
             "normalized_trace_magnitude": float(abs(overlap)),

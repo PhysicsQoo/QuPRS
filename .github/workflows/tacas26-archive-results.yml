@@ -1,0 +1,75 @@
+name: Archive TACAS26 QuPRS-only source results into Git
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/tacas26/archive-results-20261102.txt'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: tacas26-permanent-archive-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preserve-results:
+    name: Archive 184 QuPRS cases, raw JSON and 37 derived RR cells
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit test archive without executing any Solver
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest test/test_tacas26_archive_results.py test/test_tacas26_quprs_only.py -q
+          python -m compileall -q scripts/tacas26_archive_results.py
+      - name: Download three historical original QuPRS source evidence runs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tacas26-evidence"
+          gh run download 41452992918 --repo "$GITHUB_REPOSITORY" --pattern 'tacas26-v091-matrix-smoke-*' --dir "$RUNNER_TEMP/tacas26-evidence"
+          gh run download 41453497227 --repo "$GITHUB_REPOSITORY" --pattern 'tacas26-v091-hybrid-full-*' --dir "$RUNNER_TEMP/tacas26-evidence"
+          gh run download 41461438155 --repo "$GITHUB_REPOSITORY" --pattern 'tacas26-quprs-v091-shard-*' --dir "$RUNNER_TEMP/tacas26-evidence"
+          find "$RUNNER_TEMP/tacas26-evidence" -name summary.json | sort > "$RUNNER_TEMP/summaries.txt"
+          test "$(wc -l < "$RUNNER_TEMP/summaries.txt")" -eq 36
+      - name: Build historical 184-case permanent source tables
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_archive_results --download-dir "$RUNNER_TEMP/tacas26-evidence"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('docs/development/tacas26-results/results.json')
+          obj=json.loads(p.read_text())
+          assert len(obj['rows'])==184
+          assert len(obj['derived_rr'])==37
+          assert all(x['status']!='NOT_ARCHIVED' for x in obj['rows']), 'Missing original archived case'
+          assert sum(x['classification']=='MISSING_RESULT' for x in obj['rows']) == 1
+          print('ARCHIVE_SOURCE_CONTRACT_PASS',obj['classifications'])
+          PY
+      - name: Commit Git-versioned results to the experiment branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/development/tacas26-results/
+          if ! git diff --cached --quiet; then
+            git commit -m "data(tacas): archive 184 source verdicts and full raw case evidence"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          else
+            echo "Historical paper archive already committed with identical contents"
+          fi

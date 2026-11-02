@@ -1,0 +1,5 @@
+Bounded single-run source-pinned modern Ganak 2.8.0 TACAS101 paper-EQ/NEQ verification.
+Motivation: user asks whether modern QuPRS with approximate_distance_tolerance=2e-5 and Ganak --mode=6 reproduces the original v0.9.1/GPMC paper decisions.
+Actual source cohort exactly 101 original successful GPMC-count calls, 45 EQ and 56 NEQ; includes hybrid 44 + WMC-only 57. This run uses only Python/Ganak to limit CI cost; cross-backend Ganak parity is studied in separate bounded 11-shard pilot #41539989361.
+Must verify actual pinned Ganak binary SHA and QASM SHA, record solver stage, modern three-class result/binary result, printed resolution warning and expected source GPMC verdict. Distinguish timeout/watchdog/missing results from true NEQ. Runs under 200s internal solver timeout plus 215s external watchdog per case, 24 independent source-preserving shards. No performance claims, no solver changes, no production defaults, no new branch/worktree/PR.
+Precision caveat: even 101/101 point-estimate verdict agreement does NOT imply a certified arithmetic error bound; print-resolution limitation must be reported. Preserve artifacts for audit.

@@ -15,6 +15,7 @@ from scripts.tacas26_quprs_only import matrix
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/"docs/development/tacas26-results"
 ORACLE=ROOT/"docs/development/tacas26-paper-verdict-oracle.json"
+PAPER_DIFFICULTY=ROOT/"benchmarks/codspeed/paper_difficulty.json"
 SOURCE_SHA="e928abc47dd15926364ec77905eb0d5dc92ce8cc"
 RUNS={"tacas26-v091-matrix-smoke-":(41452992918,0),
       "tacas26-v091-hybrid-full-":(41453497227,1),
@@ -22,6 +23,9 @@ RUNS={"tacas26-v091-matrix-smoke-":(41452992918,0),
 FIELDS=["id","suite","case","kind","method","paper_expected","observed_verdict",
         "status","classification","run_id","artifact","original_sha256",
         "counterpart_sha256","gpmc_sha256","raw_json_sha256","derived_rr",
+        "paper_hybrid_time_s","verification_time_s","pathsum_time_s",
+        "to_DIMACS_time_s","gpmc_time_s","wmc_time_s",
+        "time_evidence_status","time_instrument","codspeed_certified",
         "source_qasm","counterpart_qasm"]
 
 def expected(oracle,case):
@@ -103,6 +107,8 @@ def write_table(path,items,fields):
 def generate(download_dir,output=OUT):
     oracle=json.loads(ORACLE.read_text())
     selected,all_records,source_counts=load(download_dir)
+    paper_meta=json.loads(PAPER_DIFFICULTY.read_text())
+    reference_times={x["id"]:x for x in paper_meta["cases"]+paper_meta["table3_only_cases"]}
     canonical=matrix(ROOT)
     ids={x["id"] for x in canonical}
     # Original smoke includes one independent RR-only additional method control.
@@ -120,6 +126,21 @@ def generate(download_dir,output=OUT):
             value=raw.get(field) if raw else None
             return value.get("sha256") if isinstance(value,dict) else None
         derived=raw.get("derived_rr") if raw else None
+        meta=reference_times.get(case["case"],{})
+        if case["method"]=="hybrid" and case["kind"]=="positive":
+            paper_hybrid_time_s=meta.get("positive_hybrid_seconds")
+        elif case["method"]=="hybrid" and case["kind"]=="negative":
+            paper_hybrid_time_s=meta.get("random_rotation_hybrid_seconds")
+        else:
+            paper_hybrid_time_s=None
+        timing=raw.get("timing") if raw else None
+        if timing and timing.get("instrument")!="ORIGINAL_QU_PRS_V091_INTERNAL_CLOCK":
+            raise ValueError("Unexpected timing instrument for "+case["id"])
+        native=timing.get("values",{}) if timing else {}
+        observed_time=any(value is not None for value in native.values())
+        time_evidence_status=("ORIGINAL_V091_TIME_CAPTURED" if observed_time
+                              else "NOT_CAPTURED_IN_ARCHIVED_RUN" if raw
+                              else "NO_RESULT_FILE_OR_WATCHDOG")
         row=dict(id=case["id"],suite=case["suite"],case=case["case"],
                  kind=case["kind"],method=case["method"],paper_expected=want,
                  observed_verdict=got,status=status,classification=classify(want,status,got),
@@ -129,12 +150,23 @@ def generate(download_dir,output=OUT):
                  gpmc_sha256=raw.get("original_gpmc_sha256") if raw else None,
                  raw_json_sha256=evidence["raw_json_sha256"] if evidence else None,
                  derived_rr=derived.get("verdict") if isinstance(derived,dict) else None,
+                 paper_hybrid_time_s=paper_hybrid_time_s,
+                 verification_time_s=native.get("verification_time"),
+                 pathsum_time_s=native.get("pathsum_time"),
+                 to_DIMACS_time_s=native.get("to_DIMACS_time"),
+                 gpmc_time_s=native.get("gpmc_time"),
+                 wmc_time_s=native.get("wmc_time"),
+                 time_evidence_status=time_evidence_status,
+                 time_instrument=timing.get("instrument") if timing else None,
+                 codspeed_certified=False,
                  source_qasm=case["a"],counterpart_qasm=case["b"])
         rows.append(row)
         if case["kind"]=="positive" and case["method"]=="hybrid":
             paper_rr=oracle["table2"][case["case"]]["reduction_rules"] if case["suite"]=="table2" else "NOT_REPORTED_IN_TABLE"
             rr_rows.append(dict(case=case["case"],hybrid_id=case["id"],paper_rr=paper_rr,
                                 derived_rr=row["derived_rr"] or "UNOBSERVED",
+                                pathsum_time_s=row["pathsum_time_s"],
+                                time_evidence_status=row["time_evidence_status"],
                                 run_id=row["run_id"],status=status))
     if len(rows)!=184 or len(set(x["id"] for x in rows))!=184 or len(rr_rows)!=37:
         raise ValueError("Incomplete source registry")
@@ -142,13 +174,15 @@ def generate(download_dir,output=OUT):
     output.mkdir(parents=True,exist_ok=True)
     write_table(output/"results.csv",rows,FIELDS)
     write_table(output/"derived_rr.csv",rr_rows,
-                ["case","hybrid_id","paper_rr","derived_rr","run_id","status"])
+                ["case","hybrid_id","paper_rr","derived_rr","pathsum_time_s",
+                 "time_evidence_status","run_id","status"])
     archive=dict(schema="quprs-tacas26-permanent-results-v1",
-                 scope="QU_PRS_ONLY_NO_COMPETITOR_NO_TIMING",
+                 scope="QU_PRS_ONLY_SCIENCE_WITH_PAPER_REFERENCE_SECONDS",
                  source_sha=SOURCE_SHA,
                  paper_source_sha="d8d3e7da555e9e20bdec6f3abe4a13ad899af62b",
                  paper_reference=oracle["reference"],
                  paper_transcription=oracle["transcription_status"],
+                 timing_policy="Historical paper seconds are reference values, NOT new observations; QuPRS native timings were omitted by the original capture runner, no CodSpeed comparison",
                  classifications=dict(counts),run_sources=RUNS,rows=rows,
                  derived_rr=rr_rows,selected_raw_evidence=selected,
                  all_raw_observations_including_repeats=all_records)

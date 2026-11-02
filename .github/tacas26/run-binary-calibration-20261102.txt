@@ -1,0 +1,5 @@
+One-time v0.14.0 binary equivalence tolerance calibration.
+Use only immutable original v0.9.1 GPMC WMC printed-count evidence already stored in Git.
+Main score: equivalent + equivalent* versus not_equivalent. Phase-subtype is secondary.
+Record 101 historical WMC calculations and 184 original call identities.
+No Solver, no CodSpeed, no expiring workflow-artifact downloads, no PR #131 changes.

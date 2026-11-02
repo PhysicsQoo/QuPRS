@@ -1,6 +1,6 @@
 {
   "schema": "quprs-tacas26-difficulty-v1",
-  "provenance": "TACAS 2026 Table 2, Table 3(b); transcription of previously reported paper data. Verify table cells against archival PDF before promotion.",
+  "provenance": "TACAS 2026 Table 2 (36 operation-mode rows) and Table 3(a,b) (including supplemental WState32); original source-pinned manuscript. Numeric history is not current CodSpeed time.",
   "artifact": "https://github.com/PhysicsQoo/Artifact-of-tacas26",
   "hardware": "Azure Standard E8ads v5, 8 vCPU, 64 GiB",
   "timeout_seconds": 200,
@@ -156,6 +156,24 @@
         "watchdog_s": 24,
         "performance_certified": false
       }
+    },
+    {
+      "id": "graphstate64",
+      "fixture": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "qubits": 64,
+      "positive_hybrid_seconds": 1.068,
+      "random_rotation_hybrid_seconds": 1.223,
+      "historical_positive_timeout": false,
+      "candidate_tier": "targeted_candidate",
+      "promoted": false,
+      "modern_codspeed_status": "NOT_MEASURED",
+      "risk": "unqualified",
+      "modern_codspeed_run_id": null,
+      "modern_solver_stage": "UNVERIFIED",
+      "modern_verdict": "UNVERIFIED",
+      "modern_memory_risk": "UNVERIFIED",
+      "historical_negative_timeout": false,
+      "historical_negative_source": "Random_Rotation"
     },
     {
       "id": "grover4",
@@ -876,7 +894,14 @@
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
       "historical_negative_source": "Random_Rotation"
-    },
+    }
+  ],
+  "modern_index": {
+    "commit": "74334a8b7d555cdfbcb6175f625094d149626a91",
+    "run_id": "6ae805d90a6545d282da2311",
+    "status": "Current v2 CodSpeed run has original 32 case identities; per-candidate stage/verdict and actual CPU metric require independent lookup."
+  },
+  "table3_only_cases": [
     {
       "id": "wstate32",
       "fixture": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
@@ -893,12 +918,8 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "paper_cohort": "table3_only_not_table2"
     }
-  ],
-  "modern_index": {
-    "commit": "74334a8b7d555cdfbcb6175f625094d149626a91",
-    "run_id": "6ae805d90a6545d282da2311",
-    "status": "Current v2 CodSpeed run has original 32 case identities; per-candidate stage/verdict and actual CPU metric require independent lookup."
-  }
+  ]
 }

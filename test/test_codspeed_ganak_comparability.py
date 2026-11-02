@@ -85,8 +85,14 @@ def test_ganak_verdict_mismatch_is_conditional_timing_not_science_pass():
     audited = audit["cases"][0]
     assert audited["conditional_timing_comparable"] is True
     assert audited["exploratory_median_change_percent"] < 0
-    assert "PRECISION_LIMITED" in audited["blocking_reasons"]
+    # Printed-count limits affect numerical interpretation, not the
+    # comparability of source-matched CodSpeed WallTime measurements.
+    assert "PRECISION_LIMITED" in audited["nonblocking_interpretation_caveats"]
+    assert "TOLERANCE_PROVENANCE_DIFFERS" in audited["nonblocking_interpretation_caveats"]
+    assert "PRECISION_LIMITED" not in audited["blocking_reasons"]
     assert "INCOMPARABLE_VERDICT" not in audited["blocking_reasons"]
+    assert audited["observation_status"] == "CONDITIONAL_PRECISION_LIMIT"
+    assert audited["release_gate_effect"] == "NONE"
     assert audit["performance_status"] == "NOT_CERTIFIED"
     assert audit["default_regression_threshold"] is None
 

@@ -1,0 +1,4 @@
+One-time evidence preservation for QuPRS TACAS26 source reproduction.
+Archive GitHub Actions runs 41452992918, 41453497227 and 41461438155.
+Commit 184 direct-call result rows, 37 derived RR cells, full JSON raw science evidence and SHA256 identities to experiment branch.
+No new Solver, no QCEC, no Quokka-sharp, no PyZX, no Feynver, no timing.

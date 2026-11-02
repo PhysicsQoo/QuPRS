@@ -75,19 +75,27 @@ def compare(root, artifacts):
             label="PROVENANCE_MISMATCH"
         elif obs.get("status") not in ("RETURNED","EXTERNAL_TIMEOUT"):
             label="INVALID_OBSERVATION"
-        elif want=="UNTRANSCRIBED_FROM_FIGURE":
+        elif obs.get("status")=="EXTERNAL_TIMEOUT":
+            # A 215s watchdog cannot certify the verifier's own 200s verdict.
+            label=("CENSORED_WATCHDOG_COMPATIBLE" if want=="Timeout"
+                   else "CENSORED_WATCHDOG_UNRESOLVED")
+        elif want in ("UNTRANSCRIBED_FROM_FIGURE", "NOT_YET_TRANSCRIBED",
+                    "NOT_REPORTED_IN_TABLE"):
             label="REFERENCE_NOT_TRANSCRIBED"
-        elif obs.get("status")=="EXTERNAL_TIMEOUT" and want=="Timeout":
-            label="CENSORED_WATCHDOG_COMPATIBLE"
         elif want=="FAILED_TO_VERIFY":
             label=("PAPER_UNQUALIFIED_LABEL" if obs.get("verdict") in
                    ("unknown","Timeout","MemoryOut") else "REVIEW_PUBLISHED_FAILURE")
         elif obs.get("verdict")==want:
             label="MATCH"
+        elif obs.get("verdict") in ("Timeout", "MemoryOut"):
+            # Resource-limited verification is never a contradictory verdict.
+            label="RESOURCE_LIMIT_INCOMPLETE"
         elif (want in ("Timeout","MemoryOut")
               and obs.get("verdict") in (
-                  "equivalent","equivalent*","not_equivalent","Timeout","MemoryOut")):
+                  "equivalent","equivalent*","not_equivalent")):
             label="RESOURCE_LIMIT_DIFFERENCE"
+        elif obs.get("verdict")=="unknown":
+            label="UNKNOWN_NO_VERDICT"
         else:
             label="VERDICT_MISMATCH"
         report["rows"].append({"id":item["id"],"paper":want,
@@ -96,12 +104,11 @@ def compare(root, artifacts):
                                "classification":label})
     report["categories"]=dict(Counter(x["classification"] for x in report["rows"]))
     report["fully_executed"]=len(observed)==187
+    # Do not promote compatible-but-censored watchdogs or inconclusive
+    # resource outcomes to strict paper certification.
     report["strict_paper_match_certified"]=(
-        report["fully_executed"] and not any(x["classification"] in
-           ("NOT_EXECUTED","PROVENANCE_MISMATCH","INVALID_OBSERVATION",
-            "REFERENCE_NOT_TRANSCRIBED","REVIEW_PUBLISHED_FAILURE",
-            "RESOURCE_LIMIT_DIFFERENCE","VERDICT_MISMATCH")
-           for x in report["rows"]))
+        report["fully_executed"]
+        and all(x["classification"]=="MATCH" for x in report["rows"]))
     return report
 
 def main():

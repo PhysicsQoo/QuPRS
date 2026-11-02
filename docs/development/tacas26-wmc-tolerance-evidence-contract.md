@@ -4,6 +4,74 @@ Status: **HISTORICAL_REPRODUCTION_QUALIFIED; NUMERIC_ARCHIVE_IN_PROGRESS**.
 Scope: **original QuPRS v0.9.1 and bundled GPMC only**, never a performance
 comparison against contemporary dev/PR #131 or external verifiers.
 
+## Primary tolerance acceptance: binary equivalence boundary (2026-11-02)
+
+**Primary question:** which v0.14.0 `approximate_distance_tolerance`
+reproduces the TACAS paper's **equivalent OR equivalent*** versus
+**not_equivalent** classifications? A transition between
+`equivalent` and `equivalent*` is a *secondary phase-label diagnostic*,
+not a failure of the primary compatibility goal. This is independent
+of optimizing runtime or reproducing historical wall-clock timing.
+
+A reproducible offline scanner is
+`scripts/tacas26_tolerance_replay.py`. It consumes the Git-tracked
+`wmc-evidence.json` (101 captured, determinate original GPMC complex
+counts) and uses exact-rational squared magnitude comparison matching
+the v0.14.0 printed-count classifier. It does **not** execute either
+v0.9.1 or v0.14.0, nor change current production settings.
+
+The observed candidate is
+`approximate_distance_tolerance=2e-5`, with **101/101 binary
+historical-label matches** on the same original printed counts, versus
+**79/101** at the contemporary default `1e-8`. The required
+historical *printed-count* numerical window is approximately
+
+`1.37729954e-5 <= epsilon < 0.24656716`.
+
+The lower edge is the maximum accepted original
+`table2:qpeinexact24:positive:hybrid` distance estimate;
+the upper edge is the minimum rejected
+`table3_negative:qaoa11:negative:hybrid` estimate.
+The conservative working candidate `2e-5` is chosen to exceed the
+observed positive edge without approaching the negative edge;
+these values are **not certified Solver error bounds**.
+
+**Do not turn the 101/101 printed-count replay into a claim of full
+v0.14.0 reproduction.** There are 83 other direct calls with no
+replayable WMC count, some resolved by RR and some censored or missing.
+The current v0.14.0 pipeline can change RR, PathSum/CNF construction,
+weight precision and WMC output. Next, independently verify the
+difficult original positive cases and smallest-distance negative cases
+using the same paper QASM with a pinned v0.14.0 backend and unchanged
+200-second scientific limit. Track *binary verdict only* as the main
+pass/fail outcome. In the new tests explicitly distinguish RR-only,
+RR-terminated Hybrid, WMC-entered Hybrid, and WMC-only. Test both Python
+and Rust when feasible, with a separate source-run provenance record.
+
+The old classifier rounded `log2(|WMC|)` to three decimal places
+before applying its `1e-10` comparison. A worst-case accepted
+normalized magnitude deficit within a half-unit of that decimal
+rounding corresponds to an idealized distance of roughly `0.0263`,
+not `1e-10`. This is a *coarse theoretical legacy decision bound*;
+the observed corpus instead has its much smaller `1.38e-5` positive
+edge. Neither bound justifies a universal modern default change,
+especially given independently known circuit-equivalence safety goals.
+
+The original small negative-angle phase near `2*pi` caused five
+`equivalent*` versus `equivalent` label differences after
+modern phase wrapping. **These are not binary verdict failures.**
+Do not recreate the old phase-label issue merely to make exact
+three-label matches. For binary classification, vary distance tolerance
+and treat phase tolerance as independent metadata.
+
+Store results under
+`tacas26-results/tolerance-offline-v0140/` with two separate scores:
+`binary_match` (**primary**) and `exact_match` (**secondary**).
+Use `.github/workflows/tacas26-binary-calibration.yml` to regenerate
+the offline sweep directly from **Git-committed data** with no Artifacts
+download and no Solver invocation; this avoids the previously observed
+external HTTP 503 artifact-egress limitation.
+
 ## Primary purpose (in priority order)
 
 1. **Demonstrate whether the original TACAS Artifact is reproducible in CI**

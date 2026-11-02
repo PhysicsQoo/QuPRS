@@ -6,6 +6,35 @@ case, the archived Docker environment, or formal performance metrics have been
 strictly certified. The older strict-acceptance ambition described later in
 this document is superseded by the bounded acceptance decision below.
 
+## Historical execution-time provenance and limitations (2026-11-02)
+
+The immutable v0.9.1 `EquivalenceCheckResult` exposes five timings
+(`verification_time`, `pathsum_time`, `to_DIMACS_time`,
+`gpmc_time`, `wmc_time`). The first source-reproduction recorder
+captured `equivalent`, solver output and the derived RR verdict but
+**failed to serialize these timing values**. They are not recoverable
+as exact case-level elapsed times from the current raw JSON or CI job
+duration. Do not fill them with null-to-zero conversions, GitHub Actions
+job elapsed time or guessed 200-second timeout values.
+
+The Git-tracked `tacas26-results/results.csv` now separates
+**46 transcribed original-paper Hybrid reference seconds**
+(30 positive, 16 Random-Rotation negative) from
+**0/184 newly captured native elapsed times** in the existing v0.9.1
+source-run cohort. Numeric `paper_hybrid_time_s` values originate from
+`benchmarks/codspeed/paper_difficulty.json`; they are **not** measured
+on the current CI runner, nor are they available for all WMC-only or
+Feynman RR calls. Blank native timing columns explicitly mean
+`NOT_CAPTURED_IN_ARCHIVED_RUN` or the appropriate missing/watchdog
+reason, **not** zero. A future source rerun now captures the original
+v0.9.1 API timing fields without altering that historical solver.
+
+The original API's string `>200` describes censoring, not a measured
+numeric 200.0 s observation. Historical source timings are descriptive
+reproducibility metadata; **CodSpeed remains the only formal performance
+comparison authority**. The previously accepted majority-reproduction
+milestone does not require expensive whole-corpus timing recapture.
+
 ## Permanent Git-tracked result archive (2026-11-02)
 
 The experiment branch now retains actual historical QuPRS science

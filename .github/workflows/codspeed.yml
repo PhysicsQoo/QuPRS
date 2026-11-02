@@ -24,6 +24,23 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: 'Manual paired source baseline'
+        required: false
+        type: string
+      include_solver_cpu:
+        type: boolean
+        required: false
+        default: false
+      include_rust_memory:
+        type: boolean
+        required: false
+        default: false
+      include_cross_method:
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -47,10 +64,13 @@ jobs:
         num_shards: [5]
     env:
       BINARY_DIR: src/QuPRS/utils
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ runner.temp }}/simulation-${{ matrix.shard_id }}.json
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           fetch-depth: 0
 
@@ -89,6 +109,9 @@ jobs:
           python scripts/check_codspeed_shards.py
           python scripts/paper_corpus_audit.py --json "$RUNNER_TEMP/paper_corpus_sha256.json"
 
+      - name: Verify exact HEAD source
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v5
         with:
@@ -101,15 +124,28 @@ jobs:
           simulation-track-subprocess: 'false'
           run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }}
 
+      - name: Save original Simulation measurement and SHA
+        run: |
+          python scripts/write_codspeed_sha_manifest.py --sha "$HEAD_SHA" --family simulation-shard --instrument simulation --shard ${{ matrix.shard_id }} --measurement "$QUPRS_CODSPEED_EXPORT" --output "$RUNNER_TEMP/manifest.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-sha-simulation-${{ matrix.shard_id }}
+          path: |
+            ${{ runner.temp }}/simulation-${{ matrix.shard_id }}.json
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
   pr-solver-inclusive-walltime:
     name: Paired Solver-inclusive CodSpeed WallTime
     # Unlike CPU Simulation, measure complete verifier + GPMC/Ganak elapsed time.
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.base_sha != '') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout PR HEAD with benchmark harness
         uses: actions/checkout@v4
@@ -217,4 +253,275 @@ jobs:
             paired-walltime-report.md
             paired-walltime-report.json
           if-no-files-found: ignore
+          retention-days: 14
+
+
+  native-core:
+    name: Same SHA native Rust CPU
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare source-pinned Cargo benchmark
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo install --locked --version 6.0.0 cargo-codspeed
+          cd benchmarks/rust_core
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          cargo codspeed build
+      - name: CodSpeed Rust CPU
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          run: cd benchmarks/rust_core && cargo codspeed run
+      - name: Record exact native source and expected 11 IDs
+        run: |
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family rust-core --instrument simulation \
+            --output "$RUNNER_TEMP/manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-sha-rust-core-simulation
+          path: |
+            ${{ runner.temp }}/manifest.json
+            benchmarks/rust_core/Cargo.lock
+          if-no-files-found: error
+          retention-days: 14
+
+  native-memory:
+    name: Same SHA native Rust Memory (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_rust_memory }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare source-pinned memory benchmark
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo install --locked --version 6.0.0 cargo-codspeed
+          cd benchmarks/rust_core
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          cargo codspeed build
+      - name: CodSpeed Rust Memory
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: memory
+          run: cd benchmarks/rust_core && cargo codspeed run
+      - name: Record memory source
+        run: |
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family rust-core --instrument memory \
+            --output "$RUNNER_TEMP/manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-sha-rust-core-memory
+          path: ${{ runner.temp }}/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+
+  solver-inclusive-cpu:
+    name: Same SHA Solver subprocess CPU (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_solver_cpu }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ runner.temp }}/solver-cpu.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Build exact source and solver instrumentation
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.3
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Measure verifier plus Solver CPU
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          run: python -m pytest test/test_codspeed_solver_cpu.py -q --codspeed
+      - name: Record same SHA subprocess CPU evidence
+        run: |
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family solver-cpu --instrument simulation \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-sha-solver-cpu
+          path: |
+            ${{ runner.temp }}/solver-cpu.json
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+
+  cross-validate:
+    name: Per-SHA CodSpeed cross-instrument evidence
+    if: always()
+    needs: [codspeed, pr-solver-inclusive-walltime, native-core, native-memory, solver-inclusive-cpu, cross-method]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || '' }}
+      SOLVER_CPU: ${{ github.event_name == 'workflow_dispatch' && inputs.include_solver_cpu }}
+      RUST_MEMORY: ${{ github.event_name == 'workflow_dispatch' && inputs.include_rust_memory }}
+      CROSS_METHOD: ${{ github.event_name == 'workflow_dispatch' && inputs.include_cross_method }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require each selected experiment on exact HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "${{ needs.codspeed.result }}" = success
+          test "${{ needs.native-core.result }}" = success
+          if [[ -n "$BASE_SHA" ]]; then
+            test "${{ needs.pr-solver-inclusive-walltime.result }}" = success
+          fi
+          if [[ "$SOLVER_CPU" == true ]]; then
+            test "${{ needs.solver-inclusive-cpu.result }}" = success
+          fi
+          if [[ "$RUST_MEMORY" == true ]]; then
+            test "${{ needs.native-memory.result }}" = success
+          fi
+          if [[ "$CROSS_METHOD" == true ]]; then
+            test "${{ needs.cross-method.result }}" = success
+          fi
+      - name: Download original current-run instrument results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: quprs-sha-*
+          path: cross-evidence
+          merge-multiple: false
+      - name: Download current-run Solver-inclusive report
+        if: ${{ env.BASE_SHA != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: paired-codspeed-walltime-provenance
+          path: cross-evidence/walltime-report
+      - name: Check exact SHA, five shards, native core, and Solver verdict
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags=()
+          if [[ "$SOLVER_CPU" == true ]]; then flags+=(--require-solver-cpu); fi
+          if [[ "$RUST_MEMORY" == true ]]; then flags+=(--require-memory); fi
+          if [[ "$CROSS_METHOD" == true ]]; then flags+=(--require-cross-method); fi
+          python scripts/report_codspeed_cross_instrument.py \
+            --artifacts cross-evidence --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" --output cross-instrument-report.json \
+            --summary "$GITHUB_STEP_SUMMARY" "${flags[@]}"
+      - name: Preserve complete cross-instrument audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-cross-instrument-audit
+          path: cross-instrument-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  cross-method:
+    name: Same SHA expanded cross-method ${{ matrix.mode }} (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_cross_method && inputs.base_sha != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [simulation, walltime]
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      BASE_SHA: ${{ inputs.base_sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ runner.temp }}/cross-method-${{ matrix.mode }}.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          submodules: recursive
+          persist-credentials: false
+          path: cross-method-base
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build pinned base and HEAD environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C cross-method-base rev-parse HEAD)" = "$BASE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for variant in base head; do
+            if [[ "$variant" == base ]]; then source="$GITHUB_WORKSPACE/cross-method-base"; else source="$GITHUB_WORKSPACE"; fi
+            venv="$RUNNER_TEMP/cross-method-$variant"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (cd "$source" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev)
+          done
+          "$RUNNER_TEMP/cross-method-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.3
+      - name: Run same-source cross-method instrument
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: ${{ matrix.mode }}
+          simulation-track-subprocess: 'true'
+          cycle-estimation: 'true'
+          run: ${{ runner.temp }}/cross-method-head/bin/python -m pytest benchmarks/codspeed/test_cross_method_paired.py::test_cross_method_${{ matrix.mode == 'simulation' && 'cpu' || 'walltime' }} -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=10
+      - name: Record this SHA and CodSpeed instrument data
+        run: |
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family cross-method --instrument ${{ matrix.mode }} \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-sha-cross-method-${{ matrix.mode }}
+          path: |
+            ${{ runner.temp }}/cross-method-${{ matrix.mode }}.json
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: error
           retention-days: 14

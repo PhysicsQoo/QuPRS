@@ -1,0 +1,66 @@
+name: TACAS26 Historical Qiskit 1.4.2 Frozen-QASM Science Audit
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/tacas26-qiskit142-frozen-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tacas26-qiskit142-frozen-audit
+  cancel-in-progress: false
+
+jobs:
+  inspect-frozen-qasm:
+    name: Independent original/transpiled circuit check with Qiskit 1.4.2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/tacas26-paper-reproduction
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the exact Table-2 paper Qiskit version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'qiskit==1.4.2'
+          python -c 'import qiskit; assert qiskit.__version__ == "1.4.2"'
+      - name: Inspect source-pinned 20 EQ to NEQ cases, no solver or re-transpiling
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          python -m compileall -q scripts/tacas26_qiskit_142_audit.py
+          python -m scripts.tacas26_qiskit_142_audit \
+            --output docs/development/tacas26-qiskit142-frozen-audit/qiskit142-20.json
+          git diff --check
+      - name: Save scientific observations permanently on existing experiment branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/development/tacas26-qiskit142-frozen-audit/
+          if git diff --cached --quiet; then
+            echo "No numerical report differences."
+          else
+            git commit -m "research(tacas): archive historical Qiskit142 operator and statevector comparison"
+            git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+          fi
+      - name: Keep independent audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-qiskit142-frozen-qasm-audit
+          path: docs/development/tacas26-qiskit142-frozen-audit/
+          if-no-files-found: warn
+          retention-days: 30

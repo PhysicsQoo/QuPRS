@@ -113,7 +113,9 @@ def assemble(root, path30, path90, sha30, sha90):
              "python_rust_disagreement": [], "precision_30_90_disagreement": [],
              "binary_mismatch": [], "censored_or_invalid": [],
              "same_cnf_count": 0, "numeric_probe_without_raw_wmc": [],
-             "solver_arithmetic_certified": 0}
+             "solver_arithmetic_certified": 0,
+             "observed_gpmc_invocations": {"python_30": 0, "rust_30": 0, "python_90": 0},
+             "no_solver_stage_cases": []}
     for case_id in sorted(reference):
         p30 = rows30[(case_id,"python")]
         r30 = rows30[(case_id,"rust")]
@@ -130,6 +132,13 @@ def assemble(root, path30, path90, sha30, sha90):
             else:
                 stats["censored_or_invalid"].append({"id":case_id,"backend_digit":label,
                      "status":row["observation"].get("run_status"),"verdict":actual[label]})
+        for label, r in [("python_30",p30),("rust_30",r30),("python_90",p90)]:
+            invoked = r["observation"].get("solver_invoked")
+            if invoked is True:
+                stats["observed_gpmc_invocations"][label] += 1
+            else:
+                stats["no_solver_stage_cases"].append({
+                    "id":case_id, "backend_digits":label, "solver_invoked":invoked})
         if (binary(actual["python_30"]) is not None and
             binary(actual["rust_30"]) is not None and
             binary(actual["python_30"]) != binary(actual["rust_30"])):
@@ -147,6 +156,14 @@ def assemble(root, path30, path90, sha30, sha90):
             "id": case_id, "historical_verdict": reference[case_id][3]["verdict"],
             "historical_binary": binary(reference[case_id][3]["verdict"]),
             "new_verdicts": actual, "new_binary_comparisons": statuses,
+            "modern_solver_invoked_by_backend": {
+                "python_30":p30["observation"].get("solver_invoked"),
+                "rust_30":r30["observation"].get("solver_invoked"),
+                "python_90":p90["observation"].get("solver_invoked")},
+            "modern_wmc_precision_reasons": {
+                "python_30":p30["observation"].get("wmc_precision_reason"),
+                "rust_30":r30["observation"].get("wmc_precision_reason"),
+                "python_90":p90["observation"].get("wmc_precision_reason")},
             "empirical_30_vs_90": g,
             "modern_gpmc_sha256": p30["observation"].get("solver_binary_sha256"),
             "source_original_qasm_sha256": p30["source_original"]["sha256"],

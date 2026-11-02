@@ -38,6 +38,7 @@ jobs:
             scripts/tacas26_compare_paper.py \
             scripts/tacas26_paper_matrix.py \
             scripts/tacas26_archive_results.py \
+            scripts/tacas26_wmc_evidence.py \
             scripts/tacas26_archive_qpe20_probe.py \
             scripts/replay_tacas26_artifact.py
           python -m pip install --disable-pip-version-check pytest
@@ -50,7 +51,8 @@ jobs:
             test/test_tacas26_archive_probe.py \
             test/test_tacas26_quprs_only.py \
             test/test_tacas26_timeout_policy.py \
-            test/test_tacas26_archive_results.py -q
+            test/test_tacas26_archive_results.py \
+            test/test_tacas26_wmc_evidence.py -q
           python scripts/tacas26_paper_matrix.py --list \
             > "$RUNNER_TEMP/tacas26-full-matrix-index.json"
           python -m scripts.tacas26_quprs_only --list \

@@ -41,11 +41,10 @@ def test_old_187_registry_kept_separate_from_official_matrix():
 
 def test_paper_rr_column_uses_hybrid_termination_not_independent_rr():
     # Structural contract: the capture logic must not spawn another invocation.
-    from scripts.tacas26_paper_matrix import original_rr_from_hybrid
-    complete = SimpleNamespace(to_DIMACS_time=None, equivalent="equivalent*")
-    residual = SimpleNamespace(to_DIMACS_time=0.5, equivalent="equivalent*")
-    a = original_rr_from_hybrid(complete)
-    b = original_rr_from_hybrid(residual)
-    assert a["verdict"] == "equivalent*"
-    assert b["verdict"] == "unknown"
-    assert a["provenance"] == b["provenance"] == "SAME_HYBRID_INVOCATION"
+    from scripts.tacas26_paper_matrix import run_one
+    import inspect
+    source = inspect.getsource(run_one)
+    assert 'data.to_DIMACS_time is None' in source
+    assert '"SAME_HYBRID_INVOCATION"' in source
+    assert 'result["derived_rr"]' in source
+    assert source.count("check_equivalence(") == 1

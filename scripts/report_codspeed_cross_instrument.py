@@ -13,8 +13,14 @@ import sys
 from pathlib import Path
 
 CANONICAL_SHA = "7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed"
-NATIVE_CASES = 11
-WALLTIME_CASES = 7
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from benchmarks.codspeed.case_registry import (
+    WALLTIME_CASE_IDS, CROSS_INSTRUMENT_MATCH, NATIVE_IDS, PYTHON_CORE_CASE_IDS,
+)
+WALLTIME_CASES = len(WALLTIME_CASE_IDS)
+NATIVE_CASES = len(NATIVE_IDS)
 
 
 def read(path):
@@ -112,11 +118,7 @@ def validate_optional_export(folder, family, mode, sha, suffix, expected):
 
 
 def cross_rows(simulation, walltime):
-    labels = {
-        "vqe4_gpmc": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
-        "qaoa7_gpmc": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
-        "qft16_gpmc": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
-    }
+    labels = CROSS_INSTRUMENT_MATCH
     joined = []
     for row in walltime["cases"]:
         case = row["case"]
@@ -145,13 +147,16 @@ def cross_rows(simulation, walltime):
 
 
 def produce(folder, sha, base_sha, *, require_solver_cpu=False, require_memory=False,
-            require_cross_method=False):
+            require_cross_method=False, require_python_core=False):
     sim = validate_simulation(folder, sha)
     native = load_provenance(folder, "rust-core", expected_sha=sha, mode="simulation")[0]
     if len(native.get("expected_ids", [])) != NATIVE_CASES:
         raise ValueError("native Rust core must preserve its original 11 identities")
     if require_memory:
         load_provenance(folder, "rust-core", expected_sha=sha, mode="memory")
+    if require_python_core:
+        validate_optional_export(folder, "python-core", "simulation", sha,
+                                 "python-core-codspeed.json", len(PYTHON_CORE_CASE_IDS))
     if require_solver_cpu:
         validate_optional_export(folder, "solver-cpu", "simulation", sha,
                                  "solver-cpu.json", 7)
@@ -171,6 +176,7 @@ def produce(folder, sha, base_sha, *, require_solver_cpu=False, require_memory=F
         "native_core_metrics": "CodSpeed service only; no fabricated local numeric result",
         "walltime_paired_cases": WALLTIME_CASES if wall else 0,
         "optional_solver_cpu_count": 7 if require_solver_cpu else 0,
+        "optional_python_core_count": len(PYTHON_CORE_CASE_IDS) if require_python_core else 0,
         "optional_cross_method_cpu_count": 8 if require_cross_method else 0,
         "optional_cross_method_walltime_count": 48 if require_cross_method else 0,
         "optional_rust_memory_count": NATIVE_CASES if require_memory else 0,
@@ -196,6 +202,7 @@ def main():
     p.add_argument("--require-solver-cpu", action="store_true")
     p.add_argument("--require-memory", action="store_true")
     p.add_argument("--require-cross-method", action="store_true")
+    p.add_argument("--require-python-core", action="store_true")
     p.add_argument("--output", required=True, type=Path)
     p.add_argument("--summary", type=Path)
     a = p.parse_args()
@@ -203,7 +210,8 @@ def main():
         result = produce(a.artifacts, a.head_sha, a.base_sha,
                          require_solver_cpu=a.require_solver_cpu,
                          require_memory=a.require_memory,
-                         require_cross_method=a.require_cross_method)
+                         require_cross_method=a.require_cross_method,
+                         require_python_core=a.require_python_core)
     except (ValueError, KeyError, TypeError, OSError) as exc:
         print(f"CODEXPERIMENT_AUDIT_FAILED: {exc}", file=sys.stderr)
         return 1

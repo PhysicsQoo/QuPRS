@@ -20,22 +20,7 @@ POSITIVE = {"equivalent", "equivalent*"}
 # id, fixture, reduction strategy, reverse inputs, solver, backend.
 # Diverse cases deliberately avoid making Graphstate16's variable RR/WMC
 # path into a supposedly fixed solver benchmark.
-CASES = (
-    ("vqe4-gpmc-rust", "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
-     "proportional", False, "gpmc", "rust"),
-    ("vqe4-gpmc-python", "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
-     "proportional", False, "gpmc", "python"),
-    ("grover4-gpmc-rust", "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
-     "proportional", True, "gpmc", "rust"),
-    ("qft16-gpmc-rust", "qft_nativegates_ibm_qiskit_opt0_16.qasm",
-     "proportional", True, "gpmc", "rust"),
-    ("qft16-ganak-rust", "qft_nativegates_ibm_qiskit_opt0_16.qasm",
-     "proportional", True, "ganak", "rust"),
-    ("qaoa7-gpmc-rust", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
-     "proportional", False, "gpmc", "rust"),
-    ("qaoa7-ganak-python", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
-     "proportional", False, "ganak", "python"),
-)
+from benchmarks.codspeed.case_registry import SOLVER_CPU_CASES as CASES
 
 
 def _sha256(path: Path) -> str:

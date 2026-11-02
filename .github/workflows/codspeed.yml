@@ -25,6 +25,16 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
+      pilot_only:
+        description: 'Run bounded candidate pilot only, without regular 32+7+11 CI'
+        type: boolean
+        required: false
+        default: false
+      include_python_core:
+        description: 'Add opt-in pure Python core CodSpeed microbenchmark'
+        type: boolean
+        required: false
+        default: false
       base_sha:
         description: 'Manual paired source baseline'
         required: false
@@ -54,6 +64,7 @@ concurrency:
 
 jobs:
   codspeed:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Run benchmarks
     runs-on: ubuntu-latest
     strategy:
@@ -140,7 +151,7 @@ jobs:
   pr-solver-inclusive-walltime:
     name: Paired Solver-inclusive CodSpeed WallTime
     # Unlike CPU Simulation, measure complete verifier + GPMC/Ganak elapsed time.
-    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.base_sha != '') }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.base_sha != '')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -257,6 +268,7 @@ jobs:
 
 
   native-core:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Same SHA native Rust CPU
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -389,8 +401,8 @@ jobs:
 
   cross-validate:
     name: Per-SHA CodSpeed cross-instrument evidence
-    if: always()
-    needs: [codspeed, pr-solver-inclusive-walltime, native-core, native-memory, solver-inclusive-cpu, cross-method]
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
+    needs: [codspeed, pr-solver-inclusive-walltime, native-core, native-memory, solver-inclusive-cpu, cross-method, python-core]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -401,6 +413,7 @@ jobs:
       SOLVER_CPU: ${{ github.event_name == 'workflow_dispatch' && inputs.include_solver_cpu }}
       RUST_MEMORY: ${{ github.event_name == 'workflow_dispatch' && inputs.include_rust_memory }}
       CROSS_METHOD: ${{ github.event_name == 'workflow_dispatch' && inputs.include_cross_method }}
+      PYTHON_CORE: ${{ github.event_name == 'workflow_dispatch' && inputs.include_python_core }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -425,6 +438,9 @@ jobs:
           if [[ "$CROSS_METHOD" == true ]]; then
             test "${{ needs.cross-method.result }}" = success
           fi
+          if [[ "$PYTHON_CORE" == true ]]; then
+            test "${{ needs.python-core.result }}" = success
+          fi
       - name: Download original current-run instrument results
         uses: actions/download-artifact@v4
         with:
@@ -445,6 +461,7 @@ jobs:
           if [[ "$SOLVER_CPU" == true ]]; then flags+=(--require-solver-cpu); fi
           if [[ "$RUST_MEMORY" == true ]]; then flags+=(--require-memory); fi
           if [[ "$CROSS_METHOD" == true ]]; then flags+=(--require-cross-method); fi
+          if [[ "$PYTHON_CORE" == true ]]; then flags+=(--require-python-core); fi
           python scripts/report_codspeed_cross_instrument.py \
             --artifacts cross-evidence --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" --output cross-instrument-report.json \
@@ -520,6 +537,114 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: quprs-sha-cross-method-${{ matrix.mode }}
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+
+  candidate-pilot:
+    name: Bounded SAME-SHA candidate screening (manual only)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.pilot_only }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      BINARY_DIR: src/QuPRS/utils
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/candidate-pilot-codspeed.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reuse compiled WMC solver tools without changing them
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build same-SHA verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pytest test/test_codspeed_registry.py -q
+          python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --collect-only
+      - name: Run 8 bounded candidates with CodSpeed WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest benchmarks/codspeed/test_codspeed_candidate_pilot.py -q --codspeed --codspeed-max-rounds=1 --codspeed-max-time=120
+      - name: Record pilot source and original measured output
+        run: |
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family candidate-pilot --instrument walltime \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-codspeed-v3-candidate-pilot
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/candidate-pilot-science.jsonl
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  python-core:
+    name: SAME-SHA Python native-code CPU (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_python_core && !inputs.pilot_only }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/python-core-codspeed.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install source-pinned Python core
+        run: |
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pytest benchmarks/codspeed/test_python_core.py -q --collect-only
+      - name: CodSpeed isolated Python algorithm CPU
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          simulation-track-subprocess: 'false'
+          run: python -m pytest benchmarks/codspeed/test_python_core.py -q --codspeed
+
+      - name: Record original Python core cases
+        run: |
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family python-core --instrument simulation \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-sha-python-core
           path: |
             ${{ env.QUPRS_CODSPEED_EXPORT }}
             ${{ runner.temp }}/manifest.json

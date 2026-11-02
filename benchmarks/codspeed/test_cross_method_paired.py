@@ -12,23 +12,12 @@ import subprocess
 from pathlib import Path
 import pytest
 
-CIRCUITS = (
-    ("vqe4", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", False),
-    ("grover4", "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", True),
-    ("qaoa7", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional", False),
-    ("qft16", "qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", True),
-    ("graphstate16", "graphstate_nativegates_ibm_qiskit_opt0_16.qasm", "naive", False),
-    ("ghz32", "ghz_nativegates_ibm_qiskit_opt0_32.qasm", "straightforward", True),
+from benchmarks.codspeed.case_registry import (
+    CROSS_CIRCUITS as CIRCUITS,
+    CROSS_METHOD_CASES as CASES,
+    CROSS_METHOD_CPU_IDS,
 )
-CASES = tuple(
-    (f"{name}_{solver}_{backend}", filename, strategy, reverse, solver, backend)
-    for name, filename, strategy, reverse in CIRCUITS
-    for solver in ("gpmc", "ganak") for backend in ("rust", "python")
-)
-CPU_CASES = tuple(c for c in CASES if c[0] in {
-    "vqe4_gpmc_rust", "vqe4_ganak_rust",
-    "qaoa7_gpmc_rust", "qaoa7_ganak_rust",
-})
+CPU_CASES = tuple(c for c in CASES if c[0] in CROSS_METHOD_CPU_IDS)
 VALID_VERDICTS = {"equivalent", "equivalent*", "not_equivalent", "unknown"}
 
 

@@ -14,23 +14,19 @@ from collections import defaultdict
 from pathlib import Path
 
 ID = re.compile(r"test_pr_solver_inclusive_walltime\[([^\]]+)-(base|head)\]$")
-EXPECTED = {
-    "vqe4_gpmc", "qft16_gpmc", "qaoa7_gpmc",
-    "vqe4_ganak", "grover4_ganak", "vqe4_gpmc_python",
-    "vqe4_ganak_python",
-}
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from benchmarks.codspeed.case_registry import (
+    WALLTIME_CASE_IDS as EXPECTED,
+    GANAK_PRECISION_LIMIT_CASES as PRECISION_LIMITED_FIXTURES,
+)
 EQ = {"equivalent", "equivalent*"}
 
 
 def classify(verdict: str) -> str:
     return "equivalent" if verdict in EQ else verdict
 
-
-PRECISION_LIMITED_FIXTURES = {
-    "grover4_ganak": "grover4",
-    "vqe4_ganak": "vqe4",
-    "vqe4_ganak_python": "vqe4",
-}
 
 
 def evidenced_ganak_print_limitation(case: str, base: dict, head: dict,

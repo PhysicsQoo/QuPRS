@@ -1,6 +1,7 @@
 //! Native, solver-free Rust core diagnostics. Independent of the 32 historical
 //! pytest benchmark identities. No Python/PyO3 or GPMC/Ganak subprocess calls.
 use std::sync::OnceLock;
+use std::collections::HashMap;
 use pathsum::{check_equivalence_with_options, PathSum, PhaseCoeff, Rational,
               VerificationMethod, VerificationOptions, VerificationStrategy};
 use pathsum::gates::{QuantumGates, Side};
@@ -8,10 +9,19 @@ use pathsum::ir::QuantumOp;
 use pathsum::rational::{Angle, FreeRational};
 
 static DECIMAL: OnceLock<PhaseCoeff> = OnceLock::new();
+static UNIQUE_DECIMALS: OnceLock<Vec<PhaseCoeff>> = OnceLock::new();
 static SYMBOLIC: OnceLock<PhaseCoeff> = OnceLock::new();
 fn decimal() -> &'static PhaseCoeff {
     DECIMAL.get_or_init(|| {
         Angle::from_qasm_str("1.2345678901234567").unwrap().to_phase_coeff()
+    })
+}
+fn unique_decimals() -> &'static Vec<PhaseCoeff> {
+    UNIQUE_DECIMALS.get_or_init(|| {
+        (0..32).map(|i| {
+            let literal = format!("1.234567890123{:04}", i);
+            Angle::from_qasm_str(&literal).unwrap().to_phase_coeff()
+        }).collect()
     })
 }
 fn symbolic() -> &'static PhaseCoeff {
@@ -20,7 +30,7 @@ fn symbolic() -> &'static PhaseCoeff {
 
 fn main() {
     // Make decimal source parsing and fixture construction explicitly untimed.
-    let _ = (decimal(), symbolic());
+    let _ = (decimal(), symbolic(), unique_decimals());
     divan::main();
 }
 
@@ -105,4 +115,35 @@ fn native_rr_tolerance(tolerance: f64) {
     let result = check_equivalence_with_options(1, divan::black_box(&ops),
                                                divan::black_box(&[]), &options).unwrap();
     divan::black_box(result.status);
+}
+
+
+// Independent PhaseCoeff hash-lookup patterns: setup and exact decimal
+// parsing are OUTSIDE the timed function. These are NOT WMC encoder timings.
+#[divan::bench]
+fn phase_decimal_hash_repeated() {
+    let mut map = HashMap::with_capacity(32);
+    for i in 0..32 {
+        map.insert(divan::black_box(decimal().clone()), i);
+    }
+    divan::black_box(map);
+}
+
+#[divan::bench]
+fn phase_decimal_hash_unique() {
+    let mut map = HashMap::with_capacity(32);
+    for (i, phase) in unique_decimals().iter().enumerate() {
+        map.insert(divan::black_box(phase.clone()), i);
+    }
+    divan::black_box(map);
+}
+
+#[divan::bench]
+fn phase_decimal_hash_mixed() {
+    let mut map = HashMap::with_capacity(32);
+    for i in 0..32 {
+        let phase = &unique_decimals()[i % 8];
+        map.insert(divan::black_box(phase.clone()), i);
+    }
+    divan::black_box(map);
 }

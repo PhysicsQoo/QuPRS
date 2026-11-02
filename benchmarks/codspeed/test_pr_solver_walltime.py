@@ -15,15 +15,8 @@ import pytest
 
 # Match the existing representative MQT case settings (method=Hybrid,
 # backend, Solver, strategy, direction). IDs are stable across PR runs.
-CASES = (
-    ("vqe4_gpmc", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "gpmc", False, "rust"),
-    ("qft16_gpmc", "qft_nativegates_ibm_qiskit_opt0_16.qasm", "proportional", "gpmc", True, "rust"),
-    ("qaoa7_gpmc", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm", "proportional", "gpmc", False, "rust"),
-    ("vqe4_ganak", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "ganak", False, "rust"),
-    ("grover4_ganak", "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "ganak", True, "rust"),
-    ("vqe4_gpmc_python", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "gpmc", False, "python"),
-    ("vqe4_ganak_python", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "ganak", False, "python"),
-)
+from benchmarks.codspeed.case_registry import WALLTIME_CASES as CASES
+
 RESULT_PREFIX = "QUPRS_WALLTIME_RESULT "
 VALID_VERDICTS = {"equivalent", "equivalent*", "not_equivalent"}
 

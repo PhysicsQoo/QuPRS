@@ -12,6 +12,8 @@ SPEC = importlib.util.spec_from_file_location(
 )
 module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
+from benchmarks.codspeed.case_registry import NATIVE_IDS
+
 SHA = "a" * 40
 BASE = "b" * 40
 
@@ -50,7 +52,7 @@ def fixture_tree(tmp_path, monkeypatch, *, bad_sha=False, omit_case=False):
         "fixture_revision_sha": SHA,
         "measurement_status": "uploaded_by_codspeed_action",
         "family": "rust-core", "instrument": "simulation",
-        "expected_ids": [f"native-case-{i}" for i in range(11)],
+        "expected_ids": list(NATIVE_IDS),
     }))
     wall = tmp_path / "walltime-report"
     wall.mkdir()
@@ -74,7 +76,7 @@ def test_reports_same_sha_without_certifying_precision_limited(tmp_path, monkeyp
     fixture_tree(tmp_path, monkeypatch)
     output = module.produce(tmp_path, SHA, BASE)
     assert output["five_shard_canonical_count"] == 32
-    assert output["native_core_expected_count"] == 11
+    assert output["native_core_expected_count"] == len(NATIVE_IDS)
     assert output["walltime_paired_cases"] == 7
     assert output["scientific_status"] == "PRECISION_LIMITED"
     assert output["performance_certified"] is False

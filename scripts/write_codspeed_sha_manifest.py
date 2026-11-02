@@ -8,13 +8,9 @@ import subprocess
 from pathlib import Path
 
 
-NATIVE_IDS = (
-    "native_rr_tolerance[0.0000000001]", "native_rr_tolerance[0.00000001]",
-    "native_rr_tolerance[0]", "phase_clifford_add", "phase_clifford_sub",
-    "phase_decimal_add", "phase_decimal_scale", "phase_decimal_sub",
-    "phase_symbolic_add", "rr_hh_pipeline", "rr_nonclifford_pipeline",
-)
-
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchmarks.codspeed.case_registry import NATIVE_IDS
 
 def git(*args):
     return subprocess.check_output(["git", *args], text=True).strip()
@@ -53,7 +49,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--sha", required=True)
-    p.add_argument("--family", choices=("simulation-shard", "rust-core", "solver-cpu", "cross-method"), required=True)
+    p.add_argument("--family", choices=("simulation-shard", "rust-core", "solver-cpu", "cross-method", "candidate-pilot", "python-core"), required=True)
     p.add_argument("--instrument", required=True)
     p.add_argument("--shard", type=int, choices=range(5))
     p.add_argument("--measurement", type=Path)

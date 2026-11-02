@@ -86,7 +86,7 @@ jobs:
       - name: Execute bounded QuPRS-only missing calls and Hybrid RR recapture
         run: |
           set -euo pipefail
-          python scripts/tacas26_quprs_only.py \
+          python -m scripts.tacas26_quprs_only \
             --paper historical --cohort pending --shards 24 \
             --shard ${{ matrix.shard }} --max-cases 6 --watchdog 215 \
             --output "$RUNNER_TEMP/tacas26-quprs-only"

@@ -85,6 +85,26 @@ def matrix(root):
         raise ValueError("Paper identities not unique or smoke source missing")
     return rows
 
+def original_source_timings(data):
+    """Copy the *original* QuPRS v0.9.1 result's recorded stage times.
+
+    The historical API already tracks these durations (seconds).
+    It may return a string such as ">200" when interrupted by its own
+    timeout; preserve that as a censored value, not a fabricated 200.0.
+    These are descriptive historical-source timings, NOT CodSpeed
+    performance measurements.
+    """
+    keys=("verification_time", "pathsum_time", "to_DIMACS_time",
+          "gpmc_time", "wmc_time")
+    timings={key: getattr(data,key,None) for key in keys}
+    for key,value in timings.items():
+        if value is not None and not isinstance(value,(int,float,str)):
+            raise TypeError("Unexpected original QuPRS timing type: "+key)
+    return {"instrument":"ORIGINAL_QU_PRS_V091_INTERNAL_CLOCK",
+            "unit":"seconds","values":timings,
+            "codspeed_certified":False}
+
+
 def run_one(paper,case,outfile):
     result={"id":case["id"],"status":"ERROR","verdict":None,
             "source_sha":HISTORICAL_SHA,"original":None,"counterpart":None,
@@ -130,6 +150,7 @@ def run_one(paper,case,outfile):
             ps2wmc.subprocess.run=run
             ps2wmc.run_wmc=wmc
         result["verdict"]=str(data.equivalent)
+        result["timing"]=original_source_timings(data)
         # The published Table 2 RR column was derived from this very Hybrid
         # invocation, not a separate reduction_rules verification.
         if case["kind"] == "positive" and case["method"] == "hybrid":

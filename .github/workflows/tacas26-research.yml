@@ -47,7 +47,8 @@ jobs:
             test/test_tacas26_published_oracle.py \
             test/test_tacas26_reproduction_ledger.py \
             test/test_tacas26_archive_probe.py \
-            test/test_tacas26_quprs_only.py -q
+            test/test_tacas26_quprs_only.py \
+            test/test_tacas26_timeout_policy.py -q
           python scripts/tacas26_paper_matrix.py --list \
             > "$RUNNER_TEMP/tacas26-full-matrix-index.json"
           python -m scripts.tacas26_quprs_only --list \

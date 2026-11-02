@@ -166,3 +166,16 @@ retained. The script stores **no** non-CodSpeed performance measurements.
 
 Full matrix execution requires further explicit opt-in with bounded small
 batches; the manifest's 187 identities are a plan, not completed science.
+
+
+## Full WMC-only / RR-only / Feynman follow-up
+
+The remaining 109 invocations, after 10 actual smoke cases and 68
+independent Hybrid work items, are all non-Hybrid:
+70 Table2 RR-only/WMC-only, 36 Table3(b) WMC-only, and 3 Figure3
+Feynman RR-only. They have a separate opt-in 16-way source checkout
+workflow \`tacas26-paper-nonhybrid-full\`, never mixed into the 5 legacy
+CodSpeed Simulation shards. Some historical WMC-only examples deliberately
+require the full 200-second timeout, and source-run observation is not a
+performance benchmark. Launch the expensive continuation only after
+confirming full Hybrid evidence is intact and source/paper version checks pass.

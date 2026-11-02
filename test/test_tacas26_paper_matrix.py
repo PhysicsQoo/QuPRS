@@ -33,3 +33,11 @@ def test_paper_hybrid_full_run_excluding_proven_smoke_has_68_entries():
     remaining=[r for r in hybrid if r["id"] not in SMOKE_IDS]
     assert len(remaining)==68
     assert len({r["id"] for r in remaining})==68
+
+def test_all_remaining_non_hybrid_modes_have_109_cases():
+    rows=matrix(ROOT)
+    rem=[r for r in rows if r["method"]!="hybrid" and r["id"] not in SMOKE_IDS]
+    assert len(rem)==109
+    assert sum(r["suite"]=="table2" for r in rem)==70
+    assert sum(r["suite"]=="table3_negative" for r in rem)==36
+    assert sum(r["suite"]=="figure3" for r in rem)==3

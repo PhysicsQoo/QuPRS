@@ -1,6 +1,64 @@
 # TACAS 2026 paper reproducibility gate (v0.14.0)
 
-Status: **scientific acceptance requirement, NOT YET CERTIFIED**.
+Status: **SUBSTANTIALLY_REPRODUCED (QuPRS-only, qualified acceptance)**.
+This is a reproducibility milestone, **not** an assertion that every published
+case, the archived Docker environment, or formal performance metrics have been
+strictly certified. The older strict-acceptance ambition described later in
+this document is superseded by the bounded acceptance decision below.
+
+## QuPRS-only qualified closeout decision (2026-11-02)
+
+**User-approved rule:** most major QuPRS TACAS results are reproduced;
+exhaustive case-by-case reproduction is **not required**. Stop expensive
+retries unless later evidence reveals a clear scientific verdict contradiction
+or a correctness defect affecting modern QuPRS. This acceptance applies only
+to historical QuPRS source/algorithm behavior, and does **not** certify strict
+operator equivalence under the new v0.14.0 tolerance criteria.
+
+**Observed bounded evidence**, from the complete 24-shard original QuPRS
+v0.9.1/GPMC experiment
+[Actions 41461438155](https://github.com/PhysicsQoo/QuPRS/actions/runs/41461438155)
+at SHA `06c6346d0811383e443448d177b1054233cdf06f`:
+
+- All **184 historical QuPRS direct-call identities** were scheduled:
+  77 previously observed direct calls plus 107 previously missing calls.
+  A new 144-case cohort also repeated 37 positive Hybrid calls to capture
+  the RR-column provenance; this is not 144 additional distinct identities.
+- **23 / 24 CI shards succeeded**, 1 shard failed because the positive
+  `wstate32:wmc_only` child did not write a result file
+  (`MISSING_RESULT`); 24 shard artifacts were archived.
+- Among the 144 new invocation records: **104** direct comparisons match
+  the transcribed paper labels (including matching historical `Timeout`);
+  **2** WState16 records returned `Timeout` against the paper's
+  unqualified `FAILED_TO_VERIFY`; **3** external-watchdog terminations
+  are censored (not verified Solver outcomes); **1** positive WState32
+  WMC-only result file is missing; **34** have no independently usable
+  paper-label oracle for direct comparison. These categories partition
+  all 144 records. No established `equivalent` versus
+  `not_equivalent` contradictory verdict was observed.
+- A returned **QuPRS `Timeout` matching a paper `Timeout` is a
+  legitimate `MATCH`**. Do not count it as a CI failure or pressure
+  the solver to finish. `EXTERNAL_TIMEOUT` remains censored;
+  `MISSING_RESULT` remains missing, not an assumed timeout.
+- The positive **QPE-inexact20 Hybrid `equivalent*`** verdict was
+  reproduced directly from the original QuPRS v0.9.1/GPMC source.
+  This historical verdict does not change the scientific acceptance
+  criteria of the modern v0.14.0 numerical classifier.
+
+**Closeout outcome:** `QU_PRS_PAPER_MAJORITY_REPRODUCED`.
+Preserve existing immutable Actions logs, GPMC stdout, per-case JSON,
+QASM/source hashes and artifacts; do not delete or relabel ambiguous
+evidence. The old 187-item exploratory schema is not the official
+184-call execution protocol. The archived paper experiment is a
+**qualified historical result**, not a full archival-image/environment
+certification or a CodSpeed performance comparison.
+
+**No further large-scale Solver reruns** for WState32, censored watchdogs,
+or hard historical cases merely to reach 100% coverage. Keep the 24-shard
+reproducer opt-in only; ordinary docs, code or CI updates must not launch
+it. Continue separate v0.14.0 science/correctness and CodSpeed work under
+their own independent gates; do not attach this historical reproduction
+criterion to PR #131 or change production tolerances to force old labels.
 
 ## Scope locked: QuPRS only (user decision, 2026-11-02)
 

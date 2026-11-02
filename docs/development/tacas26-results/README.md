@@ -270,3 +270,6 @@ Science verdict reproduction. Paper reference seconds are historical, not curren
 - results.csv: full 184-row case table, original-paper reference times and explicitly nullable reproduction timings.
 - derived_rr.csv: 37 same-Hybrid RR result cells with optional native PathSum stage times, not 37 separate method calls.
 - results.json: full raw evidence (with repeated observations and provenance).
+- wmc-evidence.csv: one row per original QuPRS call, with raw GPMC printed real/imag, expected_log2 and original v0.9.1 classifier metadata.
+- wmc-evidence.json: original GPMC stdout and float64 outputs for future tolerance replay; no inferred digits or error bounds.
+- The aim of this archive is reproducibility in CI and preservation of scientific WMC values, not performance benchmarking.

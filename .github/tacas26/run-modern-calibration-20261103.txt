@@ -1,0 +1,9 @@
+TACAS 2026 modern QuPRS science-only binary verdict pilot
+Requested source: experiment/tacas26-paper-reproduction
+Reference historical QuPRS v0.9.1 source: e928abc47dd15926364ec77905eb0d5dc92ce8cc
+Modern candidates: approximate_distance_tolerance 1e-8, 1e-5, 1.4e-5, 2e-5, 3e-5
+Primary acceptance: equivalence (equivalent/equivalent*) vs not_equivalent, *both directions*
+Pinned cases: QPE-inexact24/20/16 positive; QAOA11/QWalk4/QPE-inexact20 Random_Rotation negatives
+Control: Rust/Python, rr_tolerance 1e-10/0, GPMC digits 30/90, hybrid vs selected WMC-only
+Scientific Solver timeout 30s with external 48s watchdog; timeout is censored
+No CodSpeed or ad hoc performance claims, no production defaults changed, do not merge PR #131

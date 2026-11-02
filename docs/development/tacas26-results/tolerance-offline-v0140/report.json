@@ -1,0 +1,4181 @@
+{
+  "binary_candidate": {
+    "approximate_distance_tolerance": "2e-5",
+    "matched": 101,
+    "mismatched_case_ids": [],
+    "phase_tolerance_independent": true,
+    "scope": "SAME_historical_GPMC_printed_counts_NOT_new_v014_solver_execution",
+    "total": 101
+  },
+  "binary_compatibility_window": {
+    "lower_bound_case_id": "table2:qpeinexact24:positive:hybrid",
+    "lower_bound_distance_estimate": "1.377299540961785e-05",
+    "lower_bound_inclusive": true,
+    "meaning": "eps >= max historical accepted distance and eps < min historical rejected distance for these same 101 original printed WMC counts only",
+    "upper_bound_case_id": "table3_negative:qaoa11:negative:hybrid",
+    "upper_bound_distance_estimate": "0.2465671607550327",
+    "upper_bound_exclusive": true
+  },
+  "cases": [
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:ghz32:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.0",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:ghz32:positive:wmc_only",
+      "original_unwrapped_phase_rad": "3.141592653589793",
+      "signed_abs_phase_rad": "3.1415926535897931",
+      "source_run": 41452992918,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:ghz64:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.0",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:ghz64:positive:wmc_only",
+      "original_unwrapped_phase_rad": "3.141592653589793",
+      "signed_abs_phase_rad": "3.1415926535897931",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:ghz128:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.301066497342335e-30",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:ghz128:positive:wmc_only",
+      "original_unwrapped_phase_rad": "3.141592653589793",
+      "signed_abs_phase_rad": "3.1415926535897931",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "table2:graphstate16:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "7.990792403242487e-15",
+      "estimated_distance": "8.93912322503862e-08",
+      "historical": "equivalent",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:graphstate16:positive:wmc_only",
+      "original_unwrapped_phase_rad": "6.088490204313364e-18",
+      "signed_abs_phase_rad": "6.0884902043133642e-18",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "table2:graphstate32:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.4722354757308427e-14",
+      "estimated_distance": "1.2133571097293834e-07",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:graphstate32:positive:wmc_only",
+      "original_unwrapped_phase_rad": "6.283185307179585",
+      "signed_abs_phase_rad": "1.2448467071525798e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:graphstate64:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "3.0283507769420114e-14",
+      "estimated_distance": "1.7402157271275337e-07",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:graphstate64:positive:wmc_only",
+      "original_unwrapped_phase_rad": "3.1415926535897905",
+      "signed_abs_phase_rad": "3.1415926535897909",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-1.3466449082720858e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:grover4:positive:hybrid",
+      "original_unwrapped_phase_rad": "1.5707963267948963",
+      "signed_abs_phase_rad": "1.5707963267948963",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.996009078086536e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:grover4:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.5707963267948968",
+      "signed_abs_phase_rad": "1.5707963267948968",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:grover5:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-3.688167663482351e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:grover5:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.570796326794896",
+      "signed_abs_phase_rad": "1.5707963267948959",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:grover6:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "2.41180007124786e-15",
+      "estimated_distance": "4.911008115700747e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:grover6:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.5707963267948934",
+      "signed_abs_phase_rad": "1.5707963267948934",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.9162497689892914e-14",
+      "estimated_distance": "1.3842867365503764e-07",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qaoa7:positive:hybrid",
+      "original_unwrapped_phase_rad": "6.283185307179582",
+      "signed_abs_phase_rad": "4.0956668376494212e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.9322193512083705e-14",
+      "estimated_distance": "1.3900429314263537e-07",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qaoa7:positive:wmc_only",
+      "original_unwrapped_phase_rad": "6.283185307179579",
+      "signed_abs_phase_rad": "7.4062275467238899e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-1.2033507115151666e-14",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qaoa9:positive:hybrid",
+      "original_unwrapped_phase_rad": "4.712388980384684",
+      "signed_abs_phase_rad": "1.5707963267949014",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-1.101946514448231e-14",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qaoa9:positive:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384683",
+      "signed_abs_phase_rad": "1.5707963267949034",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.1740925727342063e-15",
+      "estimated_distance": "3.426503425847122e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qaoa11:positive:hybrid",
+      "original_unwrapped_phase_rad": "4.712388980384681",
+      "signed_abs_phase_rad": "1.5707963267949059",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "7.564117569136401e-15",
+      "estimated_distance": "8.697193552598678e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qaoa11:positive:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384677",
+      "signed_abs_phase_rad": "1.5707963267949092",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.425383192740788e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qft16:positive:hybrid",
+      "original_unwrapped_phase_rad": "4.712388980384684",
+      "signed_abs_phase_rad": "1.5707963267949021",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-2.8275819857781014e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qft16:positive:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384677",
+      "signed_abs_phase_rad": "1.5707963267949088",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "4.936669655679747e-11",
+      "estimated_distance": "7.026143789931819e-06",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qft20:positive:hybrid",
+      "original_unwrapped_phase_rad": "1.570796326794889",
+      "signed_abs_phase_rad": "1.570796326794889",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "4.9368556346100194e-11",
+      "estimated_distance": "7.026276136482268e-06",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qft20:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.5707963267948803",
+      "signed_abs_phase_rad": "1.5707963267948803",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.3211743148188123e-10",
+      "estimated_distance": "1.1494234706229085e-05",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qft22:positive:hybrid",
+      "original_unwrapped_phase_rad": "4.712388980384681",
+      "signed_abs_phase_rad": "1.5707963267949052",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.3211839626605953e-10",
+      "estimated_distance": "1.1494276674330556e-05",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qft22:positive:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384674",
+      "signed_abs_phase_rad": "1.5707963267949121",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qft24:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qft24:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "8.576406977379716e-15",
+      "estimated_distance": "9.260889253943012e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qnn4:positive:hybrid",
+      "original_unwrapped_phase_rad": "3.9269908169872396",
+      "signed_abs_phase_rad": "2.3561944901923471",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "3.997501730315065e-15",
+      "estimated_distance": "6.322579956248133e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qnn4:positive:wmc_only",
+      "original_unwrapped_phase_rad": "3.926990816987239",
+      "signed_abs_phase_rad": "2.3561944901923471",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "6.537536796338203e-15",
+      "estimated_distance": "8.085503568942508e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qnn8:positive:hybrid",
+      "original_unwrapped_phase_rad": "2.3561944901923355",
+      "signed_abs_phase_rad": "2.356194490192336",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-3.3743320215299206e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qnn8:positive:wmc_only",
+      "original_unwrapped_phase_rad": "2.3561944901923315",
+      "signed_abs_phase_rad": "2.356194490192332",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qnn12:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qnn12:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:qpeexact8:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.64611369045478e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qpeexact8:positive:wmc_only",
+      "original_unwrapped_phase_rad": "2.356194490192345",
+      "signed_abs_phase_rad": "2.3561944901923453",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:qpeexact16:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.10981633396787e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qpeexact16:positive:wmc_only",
+      "original_unwrapped_phase_rad": "2.356194490192344",
+      "signed_abs_phase_rad": "2.3561944901923439",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.7953157370692086e-11",
+      "estimated_distance": "4.237116634067569e-06",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qpeexact20:positive:hybrid",
+      "original_unwrapped_phase_rad": "2.356194490192344",
+      "signed_abs_phase_rad": "2.3561944901923444",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qpeexact20:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qpeexact24:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qpeexact24:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:qpeinexact8:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-3.208501897259196e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qpeinexact8:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.5707963267948963",
+      "signed_abs_phase_rad": "1.5707963267948966",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:qpeinexact16:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.298012331638613e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qpeinexact16:positive:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384688",
+      "signed_abs_phase_rad": "1.5707963267948986",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.7953088354682027e-11",
+      "estimated_distance": "4.237108489840923e-06",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qpeinexact20:positive:hybrid",
+      "original_unwrapped_phase_rad": "4.71238898038469",
+      "signed_abs_phase_rad": "1.5707963267948966",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qpeinexact20:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.8969540255335436e-10",
+      "estimated_distance": "1.377299540961785e-05",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qpeinexact24:positive:hybrid",
+      "original_unwrapped_phase_rad": "1.5707963267948957",
+      "signed_abs_phase_rad": "1.5707963267948957",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qpeinexact24:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "table2:qwalk3:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "4.598444638831639e-16",
+      "estimated_distance": "2.144398432855154e-08",
+      "historical": "equivalent",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qwalk3:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.2730511624847277e-15",
+      "signed_abs_phase_rad": "1.2730511624847277e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:qwalk4:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-6.574597268631717e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qwalk4:positive:wmc_only",
+      "original_unwrapped_phase_rad": "3.1415926535897984",
+      "signed_abs_phase_rad": "3.1415926535897882",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:qwalk5:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-6.658109568975506e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:qwalk5:positive:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384673",
+      "signed_abs_phase_rad": "1.5707963267949134",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "4.676064087661413e-15",
+      "estimated_distance": "6.838175259278906e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:vqe4:positive:hybrid",
+      "original_unwrapped_phase_rad": "1.5707963267948954",
+      "signed_abs_phase_rad": "1.5707963267948954",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.979405845363245e-15",
+      "estimated_distance": "4.4490514105405046e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:vqe4:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.570796326794895",
+      "signed_abs_phase_rad": "1.570796326794895",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "1.1830978748657607e-15",
+      "estimated_distance": "3.4396189830644914e-08",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:vqe8:positive:hybrid",
+      "original_unwrapped_phase_rad": "6.2831853071795845",
+      "signed_abs_phase_rad": "1.7483017300886841e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-2.958436355417982e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:vqe8:positive:wmc_only",
+      "original_unwrapped_phase_rad": "6.283185307179584",
+      "signed_abs_phase_rad": "3.0123209633391743e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.228488415775138e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:vqe16:positive:hybrid",
+      "original_unwrapped_phase_rad": "1.2380665171390073e-11",
+      "signed_abs_phase_rad": "1.2380665171390074e-11",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-7.527569279947689e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:vqe16:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.7575987803713213e-12",
+      "signed_abs_phase_rad": "1.7575987803713213e-12",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "table2:wstate4:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-4.589626663780125e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:wstate4:positive:wmc_only",
+      "original_unwrapped_phase_rad": "1.5707963267948963",
+      "signed_abs_phase_rad": "1.5707963267948963",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-2.554468952965816e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:wstate8:positive:hybrid",
+      "original_unwrapped_phase_rad": "4.712388980384688",
+      "signed_abs_phase_rad": "1.5707963267948981",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "-7.685226903609486e-15",
+      "estimated_distance": "0.0",
+      "historical": "equivalent*",
+      "historical_binary": "EQUIVALENT",
+      "id": "table2:wstate8:positive:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384691",
+      "signed_abs_phase_rad": "1.5707963267948957",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:wstate16:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table2:wstate16:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": null,
+      "id": "table3_positive:wstate32:positive:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9986852504022348",
+      "estimated_distance": "0.999342408988148",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:ghz32:negative:hybrid",
+      "original_unwrapped_phase_rad": "6.28318530717958",
+      "signed_abs_phase_rad": "6.4288561794454852e-15",
+      "source_run": 41452992918,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9986852504022348",
+      "estimated_distance": "0.999342408988148",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:ghz32:negative:wmc_only",
+      "original_unwrapped_phase_rad": "6.28318530717958",
+      "signed_abs_phase_rad": "6.4288561794454852e-15",
+      "source_run": 41452992918,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.8745664639991343",
+      "estimated_distance": "0.9351825832419755",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:ghz64:negative:hybrid",
+      "original_unwrapped_phase_rad": "6.283185307179586",
+      "signed_abs_phase_rad": "1.4159368095601353e-16",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.8745664639991343",
+      "estimated_distance": "0.9351825832419755",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:ghz64:negative:wmc_only",
+      "original_unwrapped_phase_rad": "6.283185307179586",
+      "signed_abs_phase_rad": "1.4159368095601353e-16",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.7697451886596808",
+      "estimated_distance": "0.8773512344891758",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:ghz128:negative:hybrid",
+      "original_unwrapped_phase_rad": "3.141592653589793",
+      "signed_abs_phase_rad": "3.1415926535897931",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.7697451886596808",
+      "estimated_distance": "0.8773512344891758",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:ghz128:negative:wmc_only",
+      "original_unwrapped_phase_rad": "3.141592653589793",
+      "signed_abs_phase_rad": "3.1415926535897931",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9942848612286074",
+      "estimated_distance": "0.9971383360540339",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:graphstate16:negative:hybrid",
+      "original_unwrapped_phase_rad": "3.1415926535897984",
+      "signed_abs_phase_rad": "3.1415926535897878",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9942848612286074",
+      "estimated_distance": "0.9971383360540339",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:graphstate16:negative:wmc_only",
+      "original_unwrapped_phase_rad": "3.141592653589795",
+      "signed_abs_phase_rad": "3.1415926535897913",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.6975216579953553",
+      "estimated_distance": "0.8351776206265079",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:graphstate32:negative:hybrid",
+      "original_unwrapped_phase_rad": "7.22425184517299e-15",
+      "signed_abs_phase_rad": "7.2242518451729896e-15",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.6975216579953599",
+      "estimated_distance": "0.8351776206265108",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:graphstate32:negative:wmc_only",
+      "original_unwrapped_phase_rad": "6.283185307179585",
+      "signed_abs_phase_rad": "1.0515193818962513e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9359377564163062",
+      "estimated_distance": "0.9674387610677516",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:graphstate64:negative:hybrid",
+      "original_unwrapped_phase_rad": "1.3919198745039947e-14",
+      "signed_abs_phase_rad": "1.3919198745039947e-14",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9359377564163078",
+      "estimated_distance": "0.9674387610677525",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:graphstate64:negative:wmc_only",
+      "original_unwrapped_phase_rad": "6.283185307179584",
+      "signed_abs_phase_rad": "2.6861365361561925e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.09886067516868886",
+      "estimated_distance": "0.3144211748096633",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:grover4:negative:hybrid",
+      "original_unwrapped_phase_rad": "1.5707963267948954",
+      "signed_abs_phase_rad": "1.5707963267948954",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.09886067516868419",
+      "estimated_distance": "0.31442117480965587",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:grover4:negative:wmc_only",
+      "original_unwrapped_phase_rad": "1.5707963267948957",
+      "signed_abs_phase_rad": "1.5707963267948957",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:grover5:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.8359997790579173",
+      "estimated_distance": "0.9143302352311867",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:grover5:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.713497977694921",
+      "signed_abs_phase_rad": "1.5696873294846656",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "MemoryOut",
+      "id": "table3_negative:grover6:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999433719993813",
+      "estimated_distance": "0.999971685598838",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:grover6:negative:wmc_only",
+      "original_unwrapped_phase_rad": "5.4421174655029265",
+      "signed_abs_phase_rad": "0.84106784167665916",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.8784938504513135",
+      "estimated_distance": "0.9372800277672161",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qaoa7:negative:hybrid",
+      "original_unwrapped_phase_rad": "3.14159265358979",
+      "signed_abs_phase_rad": "3.14159265358979",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.8784938504513135",
+      "estimated_distance": "0.9372800277672161",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qaoa7:negative:wmc_only",
+      "original_unwrapped_phase_rad": "3.1415926535897865",
+      "signed_abs_phase_rad": "3.1415926535897865",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9354063136143317",
+      "estimated_distance": "0.9671640572386526",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qaoa9:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.712388980384685",
+      "signed_abs_phase_rad": "1.570796326794901",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.935406313614332",
+      "estimated_distance": "0.9671640572386527",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qaoa9:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384683",
+      "signed_abs_phase_rad": "1.5707963267949034",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.06079536476279814",
+      "estimated_distance": "0.2465671607550327",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qaoa11:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.71238898038468",
+      "signed_abs_phase_rad": "1.5707963267949061",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.06079536476280501",
+      "estimated_distance": "0.24656716075504664",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qaoa11:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384677",
+      "signed_abs_phase_rad": "1.5707963267949092",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9996245083727174",
+      "estimated_distance": "0.9998122365588038",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qft16:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.7123889803846835",
+      "signed_abs_phase_rad": "1.570796326794903",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9996245083727174",
+      "estimated_distance": "0.9998122365588038",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qft16:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.712388980384678",
+      "signed_abs_phase_rad": "1.5707963267949079",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9966574096626383",
+      "estimated_distance": "0.998327305878507",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qft20:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.713194138230416",
+      "signed_abs_phase_rad": "1.5699911689491701",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9966574096626383",
+      "estimated_distance": "0.998327305878507",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qft20:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.71319413823041",
+      "signed_abs_phase_rad": "1.5699911689491766",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qft22:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qft22:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qft24:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qft24:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.990087937668956",
+      "estimated_distance": "0.9950316264666947",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qnn4:negative:hybrid",
+      "original_unwrapped_phase_rad": "0.7853981633974451",
+      "signed_abs_phase_rad": "0.78539816339744517",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9900879376689559",
+      "estimated_distance": "0.9950316264666947",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qnn4:negative:wmc_only",
+      "original_unwrapped_phase_rad": "0.7853981633974461",
+      "signed_abs_phase_rad": "0.78539816339744606",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9993871579147321",
+      "estimated_distance": "0.9996935319960473",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qnn8:negative:hybrid",
+      "original_unwrapped_phase_rad": "2.3561977347936205",
+      "signed_abs_phase_rad": "2.3561977347936205",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9993871579147321",
+      "estimated_distance": "0.9996935319960473",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qnn8:negative:wmc_only",
+      "original_unwrapped_phase_rad": "2.3561977347936143",
+      "signed_abs_phase_rad": "2.3561977347936147",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qnn12:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qnn12:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.14843610600600415",
+      "estimated_distance": "0.38527406609581727",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeexact8:negative:hybrid",
+      "original_unwrapped_phase_rad": "5.497787143782138",
+      "signed_abs_phase_rad": "0.78539816339744806",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.14843610600600132",
+      "estimated_distance": "0.38527406609581355",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeexact8:negative:wmc_only",
+      "original_unwrapped_phase_rad": "5.497787143782138",
+      "signed_abs_phase_rad": "0.78539816339744861",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.999354088950894",
+      "estimated_distance": "0.9996769923084626",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeexact16:negative:hybrid",
+      "original_unwrapped_phase_rad": "2.359018039899913",
+      "signed_abs_phase_rad": "2.359018039899913",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.999354088950894",
+      "estimated_distance": "0.9996769923084626",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeexact16:negative:wmc_only",
+      "original_unwrapped_phase_rad": "2.3590180398999134",
+      "signed_abs_phase_rad": "2.3590180398999134",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999999996859305",
+      "estimated_distance": "0.9999999998429652",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeexact20:negative:hybrid",
+      "original_unwrapped_phase_rad": "2.3561944894306555",
+      "signed_abs_phase_rad": "2.3561944894306555",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qpeexact20:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qpeexact24:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qpeexact24:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9930381842028022",
+      "estimated_distance": "0.9965130125607002",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeinexact8:negative:hybrid",
+      "original_unwrapped_phase_rad": "1.5707963267948954",
+      "signed_abs_phase_rad": "1.5707963267948954",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9930381842028022",
+      "estimated_distance": "0.9965130125607002",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeinexact8:negative:wmc_only",
+      "original_unwrapped_phase_rad": "1.5707963267948957",
+      "signed_abs_phase_rad": "1.5707963267948959",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.999998976516837",
+      "estimated_distance": "0.9999994882582875",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeinexact16:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.7123889803846915",
+      "signed_abs_phase_rad": "1.5707963267948952",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.999998976516837",
+      "estimated_distance": "0.9999994882582875",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeinexact16:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.71238898038469",
+      "signed_abs_phase_rad": "1.5707963267948963",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999999992554873",
+      "estimated_distance": "0.9999999996277437",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeinexact20:negative:hybrid",
+      "original_unwrapped_phase_rad": "1.5707963267949054",
+      "signed_abs_phase_rad": "1.5707963267949054",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qpeinexact20:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999467768956971",
+      "estimated_distance": "0.9999733880937518",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qpeinexact24:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.7123922780369645",
+      "signed_abs_phase_rad": "1.5707930291426215",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qpeinexact24:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999701296961825",
+      "estimated_distance": "0.9999850647365602",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qwalk3:negative:hybrid",
+      "original_unwrapped_phase_rad": "7.434500554928322e-15",
+      "signed_abs_phase_rad": "7.434500554928322e-15",
+      "source_run": 41452992918,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999701296961825",
+      "estimated_distance": "0.9999850647365602",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qwalk3:negative:wmc_only",
+      "original_unwrapped_phase_rad": "1.3721589392225473e-14",
+      "signed_abs_phase_rad": "1.3721589392225473e-14",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9985587443007415",
+      "estimated_distance": "0.9992791123108405",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qwalk4:negative:hybrid",
+      "original_unwrapped_phase_rad": "3.8795476795095046e-15",
+      "signed_abs_phase_rad": "3.8795476795095046e-15",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9985587443007415",
+      "estimated_distance": "0.9992791123108405",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qwalk4:negative:wmc_only",
+      "original_unwrapped_phase_rad": "1.2677547468478165e-16",
+      "signed_abs_phase_rad": "1.2677547468478167e-16",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:qwalk5:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999342563154852",
+      "estimated_distance": "0.9999671276174458",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:qwalk5:negative:wmc_only",
+      "original_unwrapped_phase_rad": "5.544959821132274",
+      "signed_abs_phase_rad": "0.7382254860473122",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.25810048275709",
+      "estimated_distance": "0.5080359069564768",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:vqe4:negative:hybrid",
+      "original_unwrapped_phase_rad": "1.570796326794895",
+      "signed_abs_phase_rad": "1.570796326794895",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.2581004827570879",
+      "estimated_distance": "0.5080359069564748",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:vqe4:negative:wmc_only",
+      "original_unwrapped_phase_rad": "1.570796326794895",
+      "signed_abs_phase_rad": "1.5707963267948952",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.8958428291039509",
+      "estimated_distance": "0.9464897406226603",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:vqe8:negative:hybrid",
+      "original_unwrapped_phase_rad": "6.2831853071795845",
+      "signed_abs_phase_rad": "1.6956651926579931e-15",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.8958428291039509",
+      "estimated_distance": "0.9464897406226603",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:vqe8:negative:wmc_only",
+      "original_unwrapped_phase_rad": "6.283185307179584",
+      "signed_abs_phase_rad": "2.3814200622443396e-15",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999949301208287",
+      "estimated_distance": "0.9999974650572014",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:vqe16:negative:hybrid",
+      "original_unwrapped_phase_rad": "3.1415926536021646",
+      "signed_abs_phase_rad": "3.1415926535774217",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9999949301208287",
+      "estimated_distance": "0.9999974650572014",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:vqe16:negative:wmc_only",
+      "original_unwrapped_phase_rad": "3.1415926535915424",
+      "signed_abs_phase_rad": "3.1415926535880438",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9154031151358615",
+      "estimated_distance": "0.9567670119396161",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:wstate4:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.712388980384689",
+      "signed_abs_phase_rad": "1.5707963267948977",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.9154031151358611",
+      "estimated_distance": "0.9567670119396159",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:wstate4:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.71238898038469",
+      "signed_abs_phase_rad": "1.570796326794897",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.35059214873786665",
+      "estimated_distance": "0.5921082238390771",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:wstate8:negative:hybrid",
+      "original_unwrapped_phase_rad": "4.71238898038469",
+      "signed_abs_phase_rad": "1.570796326794897",
+      "source_run": 41453497227,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "candidate_binary": "NOT_EQUIVALENT",
+      "candidate_binary_matches": true,
+      "defect": "0.35059214873786554",
+      "estimated_distance": "0.5921082238390761",
+      "historical": "not_equivalent",
+      "historical_binary": "NOT_EQUIVALENT",
+      "id": "table3_negative:wstate8:negative:wmc_only",
+      "original_unwrapped_phase_rad": "4.7123889803846915",
+      "signed_abs_phase_rad": "1.5707963267948946",
+      "source_run": 41461438155,
+      "status": "ORIGINAL_PRINTED_WMC_REPLAY"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:wstate16:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "table3_negative:wstate16:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": null,
+      "id": "table3_negative:wstate32:negative:hybrid",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": null,
+      "id": "table3_negative:wstate32:negative:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:adder_8:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^4_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:tof_3:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:vbe_adder_3:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": null,
+      "id": "table3_positive:wstate32:positive:wmc_only",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:barenco_tof_10:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:barenco_tof_3:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:barenco_tof_4:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:barenco_tof_5:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:csla_mux_3:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:csum_mux_9:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^10_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^16_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^32_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^5_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": null,
+      "id": "figure3:gf2^64_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^6_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^7_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^8_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:gf2^9_mult:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "figure3:grover_5:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "figure3:ham15-high:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:ham15-low:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:ham15-med:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "figure3:hwb6:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "figure3:mod5_4:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "MemoryOut",
+      "id": "figure3:mod_adder_1024:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:mod_mult_55:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "figure3:mod_red_21:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:qcla_adder_10:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent*",
+      "id": "figure3:qcla_com_7:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "Timeout",
+      "id": "figure3:qcla_mod_7:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:qft_4:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:rc_adder_6:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:tof_10:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:tof_4:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    },
+    {
+      "defect": null,
+      "estimated_distance": null,
+      "historical": "equivalent",
+      "id": "figure3:tof_5:positive:reduction_rules",
+      "signed_abs_phase_rad": null,
+      "status": "NOT_REPLAYABLE"
+    }
+  ],
+  "limitations": [
+    "Not a current v0.14 QASM/solver execution",
+    "Source RR reductions and CNF conversion may differ",
+    "GPMC printed digits have no certified solver error bound",
+    "Missing/censored/WMC-less cases excluded",
+    "No universal default implied; no CodSpeed measurement"
+  ],
+  "max_accepted_distance": {
+    "id": "table2:qpeinexact24:positive:hybrid",
+    "value": "1.377299540961785e-05"
+  },
+  "methodology": "Exact Fraction(Decimal(GPMC stdout)) squared-defect comparison with v0.14 printed-count classifier and scaled atan2 phase; original v0.9.1 source only",
+  "min_rejected_distance": {
+    "id": "table3_negative:qaoa11:negative:hybrid",
+    "value": "0.2465671607550327"
+  },
+  "phase_infeasibility": {
+    "case_needing_large_phase_tol": "table2:vqe16:positive:hybrid",
+    "case_needing_small_phase_tol": "table2:graphstate32:positive:wmc_only",
+    "old_equivalent_requires_phase_tol_gt": 1.2380665171390074e-11,
+    "old_equivalent_star_requires_phase_tol_le": 1.2448467071525798e-15,
+    "single_phase_tolerance_possible": false
+  },
+  "population": {
+    "all": 184,
+    "negative": 56,
+    "positive": 45,
+    "wmc": 101
+  },
+  "primary_acceptance_metric": "BINARY_EQUIVALENT_VS_NOT_EQUIVALENT",
+  "schema": "tacas26-historical-wmc-v0140-offline-calibration-v2",
+  "source_sha": "e928abc47dd15926364ec77905eb0d5dc92ce8cc",
+  "sweep": [
+    {
+      "binary_match": 79,
+      "distance_tolerance": "1e-8",
+      "exact_match": 77,
+      "mismatches": [
+        {
+          "id": "table2:graphstate16:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:grover6:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 79,
+      "distance_tolerance": "1e-8",
+      "exact_match": 76,
+      "mismatches": [
+        {
+          "id": "table2:graphstate16:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:grover6:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 79,
+      "distance_tolerance": "1e-8",
+      "exact_match": 78,
+      "mismatches": [
+        {
+          "id": "table2:graphstate16:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:grover6:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 79,
+      "distance_tolerance": "1e-8",
+      "exact_match": 78,
+      "mismatches": [
+        {
+          "id": "table2:graphstate16:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:grover6:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa11:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qnn8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe4:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    },
+    {
+      "binary_match": 90,
+      "distance_tolerance": "1e-7",
+      "exact_match": 87,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 90,
+      "distance_tolerance": "1e-7",
+      "exact_match": 86,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 90,
+      "distance_tolerance": "1e-7",
+      "exact_match": 88,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 90,
+      "distance_tolerance": "1e-7",
+      "exact_match": 88,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:graphstate64:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    },
+    {
+      "binary_match": 94,
+      "distance_tolerance": "1e-6",
+      "exact_match": 91,
+      "mismatches": [
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 94,
+      "distance_tolerance": "1e-6",
+      "exact_match": 87,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 94,
+      "distance_tolerance": "1e-6",
+      "exact_match": 89,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 94,
+      "distance_tolerance": "1e-6",
+      "exact_match": 89,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qft20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft20:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact20:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    },
+    {
+      "binary_match": 98,
+      "distance_tolerance": "1e-5",
+      "exact_match": 95,
+      "mismatches": [
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 98,
+      "distance_tolerance": "1e-5",
+      "exact_match": 91,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 98,
+      "distance_tolerance": "1e-5",
+      "exact_match": 93,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 98,
+      "distance_tolerance": "1e-5",
+      "exact_match": 93,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qft22:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qft22:positive:wmc_only",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:qpeinexact24:positive:hybrid",
+          "new": "not_equivalent",
+          "old": "equivalent*",
+          "type": "distance"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1.4e-5",
+      "exact_match": 98,
+      "mismatches": [
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1.4e-5",
+      "exact_match": 94,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1.4e-5",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1.4e-5",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "2e-5",
+      "exact_match": 98,
+      "mismatches": [
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "2e-5",
+      "exact_match": 94,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "2e-5",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "2e-5",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-4",
+      "exact_match": 98,
+      "mismatches": [
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-4",
+      "exact_match": 94,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-4",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-4",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-3",
+      "exact_match": 98,
+      "mismatches": [
+        {
+          "id": "table2:qwalk3:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-15"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-3",
+      "exact_match": 94,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:hybrid",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe16:positive:wmc_only",
+          "new": "equivalent*",
+          "old": "equivalent",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-12"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-3",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-10"
+    },
+    {
+      "binary_match": 101,
+      "distance_tolerance": "1e-3",
+      "exact_match": 96,
+      "mismatches": [
+        {
+          "id": "table2:graphstate32:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:qaoa7:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:hybrid",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        },
+        {
+          "id": "table2:vqe8:positive:wmc_only",
+          "new": "equivalent",
+          "old": "equivalent*",
+          "type": "phase"
+        }
+      ],
+      "numeric_records": 101,
+      "phase_tolerance": "1e-8"
+    }
+  ],
+  "target_classifier_sha": "2e3c5f1b160324445240db8ee204988c5d1aed70"
+}

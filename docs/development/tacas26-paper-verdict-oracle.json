@@ -1,0 +1,239 @@
+{
+  "schema": "quprs-tacas26-published-verdict-oracle-v1",
+  "reference": "https://arxiv.org/pdf/2604.24504",
+  "reference_page_labels": {
+    "table2": 13,
+    "table3a": 16,
+    "table3b": 16
+  },
+  "transcription_status": "MANUAL_PDF_TEXT_TRANSCRIPTION_PENDING_INDEPENDENT_VISUAL_AUDIT",
+  "notes": "Historic tool labels, not an assertion of exact full operator equality. Paper Table2 prose says 35 but 36 rows shown. FAIL_TO_VERIFY for WState16 TO/x ambiguous. Performance times not transcribed.",
+  "table2": {
+    "ghz32": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "ghz64": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "ghz128": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "graphstate16": {
+      "hybrid": "equivalent",
+      "reduction_rules": "equivalent",
+      "wmc_only": "equivalent"
+    },
+    "graphstate32": {
+      "hybrid": "equivalent",
+      "reduction_rules": "equivalent",
+      "wmc_only": "equivalent*"
+    },
+    "graphstate64": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "grover4": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "grover5": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "grover6": {
+      "hybrid": "Timeout",
+      "reduction_rules": "Timeout",
+      "wmc_only": "equivalent*"
+    },
+    "qaoa7": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qaoa9": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qaoa11": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qft16": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qft20": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qft22": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qft24": {
+      "hybrid": "Timeout",
+      "reduction_rules": "unknown",
+      "wmc_only": "Timeout"
+    },
+    "qnn4": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qnn8": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "qnn12": {
+      "hybrid": "Timeout",
+      "reduction_rules": "unknown",
+      "wmc_only": "Timeout"
+    },
+    "qpeexact8": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "qpeexact16": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "qpeexact20": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "Timeout"
+    },
+    "qpeexact24": {
+      "hybrid": "Timeout",
+      "reduction_rules": "unknown",
+      "wmc_only": "Timeout"
+    },
+    "qpeinexact8": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "qpeinexact16": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "qpeinexact20": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "Timeout"
+    },
+    "qpeinexact24": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "Timeout"
+    },
+    "qwalk3": {
+      "hybrid": "equivalent",
+      "reduction_rules": "equivalent",
+      "wmc_only": "equivalent"
+    },
+    "qwalk4": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "qwalk5": {
+      "hybrid": "Timeout",
+      "reduction_rules": "Timeout",
+      "wmc_only": "equivalent*"
+    },
+    "vqe4": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "vqe8": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "vqe16": {
+      "hybrid": "equivalent",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent"
+    },
+    "wstate4": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "equivalent*",
+      "wmc_only": "equivalent*"
+    },
+    "wstate8": {
+      "hybrid": "equivalent*",
+      "reduction_rules": "unknown",
+      "wmc_only": "equivalent*"
+    },
+    "wstate16": {
+      "hybrid": "FAILED_TO_VERIFY",
+      "reduction_rules": "FAILED_TO_VERIFY",
+      "wmc_only": "FAILED_TO_VERIFY"
+    }
+  },
+  "table3_positive": {
+    "wstate32": {
+      "hybrid": "Timeout"
+    }
+  },
+  "table3_negative": {
+    "default_verdict": "not_equivalent",
+    "hybrid_timeout": [
+      "grover5",
+      "qft22",
+      "qft24",
+      "qnn12",
+      "qpeexact24",
+      "qwalk5",
+      "wstate16",
+      "wstate32"
+    ],
+    "hybrid_memoryout": [
+      "grover6"
+    ],
+    "wmc_only_timeout": [
+      "qft22",
+      "qft24",
+      "qnn12",
+      "qpeexact20",
+      "qpeexact24",
+      "qpeinexact20",
+      "qpeinexact24",
+      "wstate16",
+      "wstate32"
+    ]
+  },
+  "figure3": {
+    "tof_3": {
+      "reduction_rules": "UNTRANSCRIBED_FROM_FIGURE"
+    },
+    "adder_8": {
+      "reduction_rules": "UNTRANSCRIBED_FROM_FIGURE"
+    },
+    "gf2^4_mult": {
+      "reduction_rules": "UNTRANSCRIBED_FROM_FIGURE"
+    },
+    "vbe_adder_3": {
+      "reduction_rules": "UNTRANSCRIBED_FROM_FIGURE"
+    }
+  }
+}

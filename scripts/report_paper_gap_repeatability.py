@@ -3,8 +3,12 @@ import argparse
 import json
 import math
 import re
+import sys
 from pathlib import Path
 
+# Direct execution "python scripts/..." sets sys.path[0] to scripts/, not
+# the repo root. Restore the original reporter import contract.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmarks.codspeed.test_paper_gap_repeatability import EXPECT
 URI = re.compile(r"test_paper_gap_repeatability\[([^\]]+)\]$")
 

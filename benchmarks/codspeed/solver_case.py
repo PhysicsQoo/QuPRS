@@ -36,9 +36,22 @@ def main() -> None:
     if not first.is_file() or not second.is_file():
         raise FileNotFoundError(f"missing benchmark fixtures: {first}, {second}")
 
+    # Per-call overrides are diagnostics only. Existing benchmarks with no
+    # environment overrides retain their historical default semantics.
+    optional = {}
+    for name, env_name in (
+        ("rr_tolerance", "QUPRS_DIAGNOSTIC_RR_TOLERANCE"),
+        ("approximate_distance_tolerance", "QUPRS_DIAGNOSTIC_DISTANCE_TOLERANCE"),
+        ("wmc_phase_tolerance", "QUPRS_DIAGNOSTIC_PHASE_TOLERANCE"),
+    ):
+        if env_name in os.environ:
+            optional[name] = float(os.environ[env_name])
+    if "QUPRS_DIAGNOSTIC_GPMC_DIGITS" in os.environ:
+        optional["gpmc_precision_digits"] = int(os.environ["QUPRS_DIAGNOSTIC_GPMC_DIGITS"])
     result = check_equivalence(
         str(first), str(second), method=method,
         strategy=strategy, tool_name=solver, backend=backend,
+        **optional,
         # Simulation under Valgrind can slow child Solver work dramatically.
         # Both versions use the same bounded experiment-specific override.
         # Standard Solver-inclusive WallTime retains the original 90 seconds.
@@ -55,6 +68,14 @@ def main() -> None:
         "solver": solver,
         "method": method,
         "pair_variant": pair_variant,
+        "effective_rr_tolerance": optional.get("rr_tolerance", 1e-10),
+        "effective_distance_tolerance": optional.get(
+            "approximate_distance_tolerance", 1e-8),
+        "effective_phase_tolerance": optional.get("wmc_phase_tolerance", 1e-8),
+        "effective_gpmc_digits": optional.get("gpmc_precision_digits", 30),
+        "wmc_log_wmc": getattr(result, "log_wmc", None),
+        "wmc_expected_log2": getattr(result, "expect", None),
+        "wmc_numeric_model_bound": getattr(result, "wmc_numeric_model_bound", None),
         "rr_approximate": getattr(result, "rr_approximate", None),
         # Diagnostic only; these fields come from the already-executed
         # verifier request, so no additional Solver call is made.

@@ -21,3 +21,30 @@ def test_qpe20_scientific_script_avoids_20q_full_unitary():
     a=Statevector([1,0])
     b=Statevector(np.array([1j,0j]))
     assert phase_corrected_residual(a,b)["phase_corrected_state_residual"] < 1e-12
+
+
+def test_tolerance_sweep_has_qcec_reference_and_independent_dimensions():
+    from scripts.diagnose_qpe20_tolerance import PROBES, classify
+    ids=[row[0] for row in PROBES]
+    assert len(ids)==len(set(ids))
+    assert {"rust_default_d1e-8","rust_qcec_reference_d2e-8",
+            "rust_rr_exact","rust_mpfr90","rust_rotation_control"}<=set(ids)
+    fake=[{"id":"rust_default_d1e-8","status":"COMPLETED",
+           "verdict":"not_equivalent","effective_distance_tolerance":1e-8},
+          {"id":"rust_qcec_reference_d2e-8","status":"COMPLETED",
+           "verdict":"not_equivalent","effective_distance_tolerance":2e-8},
+          {"id":"rust_d1e-5","status":"COMPLETED",
+           "verdict":"equivalent*","effective_distance_tolerance":1e-5}]
+    p=classify(fake)
+    assert p["qcec_2e-8_verdict"]=="not_equivalent"
+    assert p["first_equivalent_at_requested_tolerance"]==1e-5
+    assert p["source_equivalence_certified"] is False
+
+
+def test_p1_report_imports_without_cwd_dependency(tmp_path):
+    import subprocess,sys
+    from pathlib import Path
+    script=Path(__file__).resolve().parents[1]/"scripts/report_paper_gap_repeatability.py"
+    res=subprocess.run([sys.executable,str(script),"--help"],
+                       cwd=tmp_path, capture_output=True,text=True,check=False)
+    assert res.returncode==0, res.stderr

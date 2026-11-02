@@ -61,3 +61,35 @@ v0.17.0 and 90 days dual operation; earliest retirement v0.18.0 and only
 after full benchmark replacement coverage and stable release baselines.
 When semantic identity changes introduce a NEW URI and NEW baseline.
 Archive the old suite's original sources/hash and v2 manifest reader.
+
+
+## P0 tolerance sensitivity: required independent axes (2026-11-02)
+
+A source-pinned Qiskit 20q statevector sample at parent SHA fcf5bfd
+found nonzero relative-phase-corrected residuals:
+- zero input: 4.237063348873223e-6;
+- deterministic nontrivial product: 3.7867814364903053e-6.
+This is neither an exact source-operator verdict nor the QuPRS projective
+Hilbert-Schmidt distance. Both Python/Rust Hybrid reported not_equivalent
+at default approximate_distance_tolerance=1e-8; WMC-only timed out with a
+15-second subprocess limit. Do not automatically conclude a tool bug.
+
+New opt-in diagnostic uses independent public API settings: sweep distance
+tolerances 1e-9 .. 1e-5 (explicit QCEC comparator 2e-8);
+hold RR default 1e-10 and GPMC MPFR 30 digits fixed for that lane;
+separately compare rr_tolerance=0 and 1e-7, wmc_phase_tolerance=1e-6 and
+MPFR 90 digits. GPMC 90 is a *diagnostic precision control*, not a proposal
+to make all production solvers always use maximum precision. Only actual
+solver returned verdicts and warning reasons can be used to infer a
+printed-numerical threshold bracket; this is NOT a certified exact source
+distance, and timeout entries remain censored. Never change the defaults
+just to force a desired equivalent verdict. The phase tolerance determines
+equivalent vs equivalent*, not the projective non-equivalence boundary.
+
+The prior P1 five-round CodSpeed experiment DID capture 5 measured rounds
+per case and stable stage/verdict for all 7 observed invocations; only the
+standalone report script failed with ModuleNotFoundError due to Python
+script sys.path. The report import is repaired without changing any original
+CodSpeed measurements or re-running that five-round workload. Archive and
+analyze its raw CodSpeed export separately until the fixed reporter is
+tested via CI.

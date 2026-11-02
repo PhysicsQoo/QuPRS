@@ -35,4 +35,4 @@ vqe16,table2:vqe16:positive:hybrid,unknown,unknown,,NOT_CAPTURED_IN_ARCHIVED_RUN
 wstate4,table2:wstate4:positive:hybrid,equivalent*,equivalent*,,NOT_CAPTURED_IN_ARCHIVED_RUN,41461438155,RETURNED
 wstate8,table2:wstate8:positive:hybrid,unknown,unknown,,NOT_CAPTURED_IN_ARCHIVED_RUN,41461438155,RETURNED
 wstate16,table2:wstate16:positive:hybrid,FAILED_TO_VERIFY,unknown,,NOT_CAPTURED_IN_ARCHIVED_RUN,41461438155,RETURNED
-wstate32,table3_positive:wstate32:positive:hybrid,NOT_REPORTED_IN_TABLE,UNOBSERVED,,NOT_CAPTURED_IN_ARCHIVED_RUN,41461438155,EXTERNAL_TIMEOUT
+wstate32,table3_positive:wstate32:positive:hybrid,NOT_REPORTED_IN_TABLE,UNOBSERVED,,CENSORED_EXTERNAL_WATCHDOG,41461438155,EXTERNAL_TIMEOUT

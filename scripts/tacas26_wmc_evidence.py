@@ -53,9 +53,9 @@ def extract_printed_count(stdout):
     found = COMPLEX.search(text)
     if found:
         real, imag = found.groups()
-    elif (found := IMAGINARY.search(text)) and not REAL.match(text):
+    elif (found := IMAGINARY.fullmatch(text)):
         real, imag = "0", found.group(1)
-    elif (found := REAL.search(text)) and not IMAGINARY.search(text):
+    elif (found := REAL.fullmatch(text)):
         real, imag = found.group(0), "0"
     else:
         return {"raw_line": line, "real": None, "imag": None,

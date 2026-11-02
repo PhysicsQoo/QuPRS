@@ -63,9 +63,12 @@ def format_change(percent: float | None) -> str:
 
 
 def produce(measurements: dict, records: list[dict], base_sha: str,
-            head_sha: str, source_oracle: dict | None = None):
+            head_sha: str, source_oracle: dict | None = None, required_cases=None):
     if measurements.get("instrument", {}).get("type") != "walltime":
         raise ValueError("Not a CodSpeed WallTime measurement")
+    expected = frozenset(EXPECTED if required_cases is None else required_cases)
+    if not expected or not expected.issubset(EXPECTED):
+        raise ValueError('paired case selection must be nonempty subset of registry')
     times = {}
     for entry in measurements.get("benchmarks", []):
         match = ID.search(entry.get("uri", ""))
@@ -88,7 +91,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
         if key in provenance:
             raise ValueError(f"Duplicated semantic record: {key}")
         provenance[key] = record
-    keys = {(case, rev) for case in EXPECTED for rev in ("base", "head")}
+    keys = {(case, rev) for case in expected for rev in ("base", "head")}
     if set(times) != keys or set(provenance) != keys:
         raise ValueError(
             f"Incomplete/extra paired coverage: missing_times={keys - set(times)} "
@@ -99,7 +102,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
     outcome = []
     errors = []
     precision_incomparable = []
-    for case in sorted(EXPECTED):
+    for case in sorted(expected):
         b, h = provenance[case, "base"], provenance[case, "head"]
         bt, ht = times[case, "base"], times[case, "head"]
         for revision, record, sha in (("base", b, base_sha), ("head", h, head_sha)):
@@ -259,12 +262,14 @@ def main() -> int:
     p.add_argument("--markdown", type=Path, required=True)
     p.add_argument("--json", type=Path, required=True)
     p.add_argument("--summary", type=Path)
+    p.add_argument("--required-cases", nargs='+', choices=sorted(EXPECTED))
     a = p.parse_args()
     report, markdown = produce(
         json.loads(a.measurements.read_text(encoding="utf-8")),
         [json.loads(line) for line in a.provenance.read_text(encoding="utf-8").splitlines() if line.strip()],
         a.base_sha, a.head_sha,
         json.loads(a.source_oracle.read_text(encoding="utf-8")),
+        required_cases=a.required_cases,
     )
     a.markdown.write_text(markdown, encoding="utf-8")
     a.json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

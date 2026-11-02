@@ -75,3 +75,14 @@ def test_invalid_rounds_fails_closed():
     report["cases"][0]["head_rounds"] = 0
     with pytest.raises(ValueError, match="invalid CodSpeed sample"):
         variance.produce(report)
+
+
+def test_p5_opt_in_subset_remains_noncertifying():
+    r = fixture()
+    r['cases'] = r['cases'][:4]
+    report = variance.produce(r, expected_count=4)
+    assert report['case_count'] == 4
+    assert report['performance_status'] == 'NOT_CERTIFIED'
+    assert report['default_regression_threshold'] is None
+    with pytest.raises(ValueError, match='expected 7'):
+        variance.produce(r)

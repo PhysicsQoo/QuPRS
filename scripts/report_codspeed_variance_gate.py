@@ -16,13 +16,13 @@ BLOCKS = ("INCOMPARABLE_VERDICT", "MISSING_ROUND_DISTRIBUTION",
           "UNKNOWN_RUNNER_STABILITY", "PRECISION_LIMITED")
 
 
-def produce(report: dict) -> dict:
+def produce(report: dict, *, expected_count=7) -> dict:
     if not report.get("head_sha") or not report.get("base_sha"):
         raise ValueError("missing verified base/head source SHA")
     cases = report.get("cases")
-    if not isinstance(cases, list) or len(cases) != 7:
-        raise ValueError("expected seven same-case WallTime base/HEAD pairs")
-    if len({row.get("case") for row in cases}) != 7:
+    if not isinstance(cases, list) or len(cases) != expected_count:
+        raise ValueError(f"expected {expected_count} same-case WallTime base/HEAD pairs")
+    if len({row.get("case") for row in cases}) != expected_count:
         raise ValueError("duplicate paired case identity")
     checked = []
     for row in cases:
@@ -93,8 +93,9 @@ def main():
     p.add_argument("--paired-report", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--summary", type=Path)
+    p.add_argument("--expected-count", type=int, default=7)
     a = p.parse_args()
-    report = produce(json.loads(a.paired_report.read_text(encoding="utf-8")))
+    report = produce(json.loads(a.paired_report.read_text(encoding="utf-8")), expected_count=a.expected_count)
     a.output.write_text(json.dumps(report, indent=2, sort_keys=True)+"\n", encoding="utf-8")
     rows = [
         "## P5 CodSpeed paired variance diagnostics (not performance GO)",

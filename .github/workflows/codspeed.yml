@@ -734,3 +734,134 @@ jobs:
             ${{ runner.temp }}/manifest.json
           if-no-files-found: warn
           retention-days: 14
+
+  p5-ab-screen:
+    name: P5 SAME-RUNNER 4-case base-HEAD CodSpeed seven-round diagnostic (one-shot)
+    # Unlike CPU Simulation, measure complete verifier + GPMC/Ganak elapsed time.
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-ab-pilot -->') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout PR HEAD with benchmark harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout exact PR base on the SAME runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
+          submodules: recursive
+          persist-credentials: false
+          path: pr-walltime-base
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build independent base and head verifier environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          for variant in base head; do
+            if [[ "$variant" == base ]]; then
+              source_root="$GITHUB_WORKSPACE/pr-walltime-base"
+            else
+              source_root="$GITHUB_WORKSPACE"
+            fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$variant"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (
+              cd "$source_root"
+              VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev
+            )
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/pr-walltime-$variant-freeze.txt"
+          done
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.3
+          {
+            echo "### PR CodSpeed WallTime provenance"
+            echo "- Base SHA: $BASE_SHA"
+            echo "- Head SHA: $HEAD_SHA"
+            echo "- Base GPMC submodule: $(git -C pr-walltime-base rev-parse HEAD:GPMC)"
+            echo "- Head GPMC submodule: $(git rev-parse HEAD:GPMC)"
+            echo "- Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify WallTime case inventory
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pytest benchmarks/codspeed/test_pr_solver_walltime.py --collect-only -q -k 'qaoa7_gpmc or qft16_gpmc or vqe4_gpmc'
+
+      - name: CodSpeed paired end-to-end GPMC/Ganak WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q -k 'qaoa7_gpmc or qft16_gpmc or vqe4_gpmc' --codspeed --codspeed-max-rounds=7 --codspeed-max-time=30
+
+      - name: Independent four-qubit source oracle for Ganak print limits
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" \
+            scripts/check_codspeed_source_oracle.py \
+            --fixture-root "$GITHUB_WORKSPACE" --head-sha "$HEAD_SHA" \
+            --output "$RUNNER_TEMP/quprs-source-oracle.json"
+
+      - name: Pair measured CodSpeed WallTime and audit Solver semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_codspeed_paired_walltime.py \
+            --measurements "$RUNNER_TEMP/quprs-paired-walltime-codspeed.json" \
+            --provenance "$RUNNER_TEMP/quprs-paired-walltime-provenance.jsonl" \
+            --source-oracle "$RUNNER_TEMP/quprs-source-oracle.json" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --required-cases qaoa7_gpmc qft16_gpmc vqe4_gpmc vqe4_gpmc_python \
+            --markdown paired-walltime-report.md \
+            --json paired-walltime-report.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: P5 non-certifying CodSpeed WallTime sampling audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_codspeed_variance_gate.py \
+            --paired-report paired-walltime-report.json \
+            --expected-count 4 \
+            --output paired-walltime-sampling.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload pinned dependency provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-codspeed-v3-p5-ab7
+          path: |
+            ${{ runner.temp }}/pr-walltime-base-freeze.txt
+            ${{ runner.temp }}/pr-walltime-head-freeze.txt
+            ${{ runner.temp }}/quprs-paired-walltime-codspeed.json
+            ${{ runner.temp }}/quprs-paired-walltime-provenance.jsonl
+            ${{ runner.temp }}/quprs-source-oracle.json
+            paired-walltime-report.md
+            paired-walltime-report.json
+            paired-walltime-sampling.json
+          if-no-files-found: ignore
+          retention-days: 14
+

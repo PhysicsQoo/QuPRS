@@ -205,3 +205,33 @@ This P5 report is deliberately non-certifying:
 
 Existing seven paired WallTime identities and canonical 32/five shards
 are unchanged. Performance GO/NO-GO calibration remains QOO-165.
+
+## P5 — opt-in same-case paired seven-round A/B screen
+
+The normal PR CodSpeed suite preserves its original 32 IDs/five shards and seven
+paired Solver-inclusive WallTime identities at three instrumented rounds.
+The P5 diagnostic duplicates neither identity set nor everyday test workload:
+it is triggered one time by the PR-description marker
+`<!-- quprs-codspeed-v3-ab-pilot -->` on `pull_request.edited`, and only
+the `p5-ab-screen` job runs (all expensive normal jobs skip metadata-only edits).
+On one hosted runner it builds exact dev base SHA and current PR HEAD SHA,
+selects four **matching circuit/settings** from the existing seven:
+`qaoa7_gpmc`, `qft16_gpmc`, `vqe4_gpmc`, `vqe4_gpmc_python`,
+runs CodSpeed WallTime with seven rounds per revision, and applies
+source-SHA/fixture/provenance/solver-invocation/exact-verdict checks.
+The subset option in the existing paired report is opt-in; normal seven-case
+coverage remains strict. The variance reporter accepts a declared expected
+case count (four for pilot, seven for every-PR).
+
+The resulting seven-round distributions are **exploratory**. CodeSpeed
+round samples are not a counterbalanced block-level distribution, and no
+stable Macro Runner is guaranteed. The scientific judgment and real Solver
+invocation are required, but do not certify external Solver printed arithmetic
+bounds. The default allowed regression threshold remains **unset** and
+`performance_status=NOT_CERTIFIED` until independently measured baseline
+noise, stable runner cohort, and counterbalanced base/HEAD blocks support a
+scientifically defensible per-case threshold. Do NOT calculate speedup when
+verdict labels differ, nor mix CPU Simulation with WallTime.
+
+After the pilot job finishes and evidence is saved, remove only that PR body
+marker. The cleanup metadata event must skip all performance jobs.

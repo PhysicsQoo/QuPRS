@@ -48,3 +48,9 @@ def test_paper_rr_column_uses_hybrid_termination_not_independent_rr():
     assert '"SAME_HYBRID_INVOCATION"' in source
     assert 'result["derived_rr"]' in source
     assert source.count("check_equivalence(") == 1
+
+
+def test_solver_workflow_executes_reproducer_as_module():
+    workflow = (ROOT / ".github/workflows/tacas26-quprs-only.yml").read_text()
+    assert "python -m scripts.tacas26_quprs_only \\" in workflow
+    assert "python scripts/tacas26_quprs_only.py" not in workflow

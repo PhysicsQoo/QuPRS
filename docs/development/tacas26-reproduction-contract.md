@@ -6,6 +6,43 @@ case, the archived Docker environment, or formal performance metrics have been
 strictly certified. The older strict-acceptance ambition described later in
 this document is superseded by the bounded acceptance decision below.
 
+## Permanent Git-tracked result archive (2026-11-02)
+
+The experiment branch now retains actual historical QuPRS science
+observations, not only expiring GitHub Actions links:
+
+- [Human-readable 184-case table](tacas26-results/README.md)
+- [184 direct-call CSV](tacas26-results/results.csv)
+- [37 same-Hybrid derived RR cells](tacas26-results/derived_rr.csv)
+- [Full historical evidence JSON](tacas26-results/results.json)
+
+Archive commit: `29237b7f8ae936e39814086f0330efa251b513c9`.
+Source observations ingested: smoke **10**, historical full Hybrid **68**,
+and QuPRS-only completion **144**; **222 raw execution records** including
+historical repeats, reconciled to **184 unique direct-call identities**.
+Preserve all raw observations and alternate historical runs in the JSON
+archive; selected table rows prefer the most recent source recapture.
+
+Of the 184 direct calls, **142 MATCH** the transcribed reference,
+including legitimate Solver `Timeout` matches; **35** have no usable
+published per-case verdict; **2** WState16 calls are compatible with an
+unqualified paper failure; **3** external-watchdog observations are
+compatible-but-censored; **1** watchdog observation is unresolved; and
+**1** WState32 positive WMC-only execution lacks a result JSON.
+The 37 derived RR cells include **35 exact paper-label matches**,
+**1 WState16 unqualified reference**, and **1 censored WState32**.
+No explicit `equivalent` versus `not_equivalent` contradictory verdict
+was observed in this archive. These are historical science outcomes,
+not CodSpeed measurements or exact v0.14.0 numerical-equivalence proofs.
+
+The archive is regenerable from the three pinned Actions runs via
+`python -m scripts.tacas26_archive_results --download-dir <extracted-artifacts>`;
+the opt-in `.github/workflows/tacas26-archive-results.yml` downloads
+those artifacts and commits data. This operation runs **no Solver**.
+Git content survives GitHub Actions log/artifact retention as long as the
+repository and commit remain available. Future results should be appended
+with provenance rather than silently overwriting or replacing raw evidence.
+
 ## QuPRS-only qualified closeout decision (2026-11-02)
 
 **User-approved rule:** most major QuPRS TACAS results are reproduced;

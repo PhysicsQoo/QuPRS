@@ -44,8 +44,19 @@ module.exports = async function resolver({ github, context, core, workflowFile, 
         });
         const diff = comparison.data;
         if (diff.status !== 'ahead' || diff.behind_by !== 0 || !Array.isArray(diff.files) || diff.files.length >= 300) continue;
-        if (diff.files.some(f => !/^(?:docs\/.*\.md|README\.md|CHANGELOG\.md|CONTRIBUTING\.md|\.github\/ISSUE_TEMPLATE\/.*\.md)$/.test(f.filename || '') ||
-          (f.previous_filename && !/^(?:docs\/.*\.md|README\.md|CHANGELOG\.md|CONTRIBUTING\.md|\.github\/ISSUE_TEMPLATE\/.*\.md)$/.test(f.previous_filename)))) continue;
+        // Independent workflow files do not alter this lane's program/fixtures.
+        // Own workflows, transitive reusable-workflow inputs and shared CI
+        // logic must invalidate previous evidence and run normally.
+        const documentation = /^(?:docs\/.*\.md|README\.md|CHANGELOG\.md|CONTRIBUTING\.md|\.github\/ISSUE_TEMPLATE\/.*\.md)$/;
+        const workflowSource = /^\.github\/workflows\/([a-zA-Z0-9_-]+\.ya?ml)$/;
+        const indirect = workflowFile === 'native-cross-platform-pr.yml' ? ['pytest.yml'] : [];
+        const isUnrelated = path => {
+          if (documentation.test(path)) return true;
+          const match = workflowSource.exec(path);
+          return Boolean(match && match[1] !== workflowFile && !indirect.includes(match[1]));
+        };
+        if (diff.files.some(f => !isUnrelated(f.filename || '') ||
+          (f.previous_filename && !isUnrelated(f.previous_filename)))) continue;
       }
       const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
         owner, repo, run_id: candidate.id, filter: 'latest', per_page: 100
@@ -55,9 +66,9 @@ module.exports = async function resolver({ github, context, core, workflowFile, 
         const items = jobs.filter(job => job.name === rule.name || (rule.prefix && job.name.startsWith(rule.prefix)));
         return items.length === rule.count && items.every(job => job.status === 'completed' && job.conclusion === 'success');
       });
-      if (matches) return result(false, 'Only safe documentation differs from a completed, same-base, same-PR full successful workflow.', candidate);
+      if (matches) return result(false, 'Only source-irrelevant paths differ from a completed, same-base, same-PR successful workflow.', candidate);
     }
-    return result(true, 'No same-base, same-PR completed SUCCESS run with matching required jobs and documentation-only source difference.');
+    return result(true, 'No same-base, same-PR completed SUCCESS run with matching required jobs and source-irrelevant differences.');
   } catch (error) {
     core.warning(`Evidence resolution failed closed: ${error.message || error}`);
     return result(true, 'GitHub evidence query unavailable; fail-closed.');

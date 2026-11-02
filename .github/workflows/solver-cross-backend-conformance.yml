@@ -17,6 +17,8 @@ on:
       - 'scripts/run_source_interval_bridge.py'
       - '.diagnostics/wmc_interval_reference/**'
       - '.github/workflows/solver-cross-backend-conformance.yml'
+      - '.github/scripts/ci-impact-reuse.cjs'
+      - '.github/scripts/test-ci-impact-reuse.cjs'
   push:
     branches:
       - test/solver-cross-backend-conformance-20261024
@@ -27,6 +29,8 @@ on:
       - '.diagnostics/wmc_interval_reference/**'
       - 'rust/pathsum/examples/solver_conformance.rs'
       - '.github/workflows/solver-cross-backend-conformance.yml'
+      - '.github/scripts/ci-impact-reuse.cjs'
+      - '.github/scripts/test-ci-impact-reuse.cjs'
       - 'rust/pathsum/src/wmc.rs'
       - 'rust/pathsum/src/solver_adapter.rs'
       - 'rust/pathsum/src/solver_result.rs'
@@ -43,7 +47,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  ci-impact:
+    name: Incremental CI impact / solver-cross-backend-conformance.yml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_heavy: ${{ steps.resolve.outputs.run_heavy }}
+      reused_run_id: ${{ steps.resolve.outputs.reused_run_id }}
+      measured_head_sha: ${{ steps.resolve.outputs.measured_head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Validate incremental routing contract tests
+        run: node .github/scripts/test-ci-impact-reuse.cjs
+      - name: Validate previous successful results for unchanged source
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const resolve = require('./.github/scripts/ci-impact-reuse.cjs');
+            await resolve({
+              github, context, core,
+              workflowFile: 'solver-cross-backend-conformance.yml',
+              requiredJobs: [{"name":"Independent Python and Rust invocation over identical emitted CNFs","count":1}]
+            });
+
   python-rust-real-solver:
+    needs: [ci-impact]
+    if: ${{ needs.ci-impact.outputs.run_heavy == 'true' }}
     name: Independent Python and Rust invocation over identical emitted CNFs
     runs-on: ubuntu-24.04
     timeout-minutes: 35

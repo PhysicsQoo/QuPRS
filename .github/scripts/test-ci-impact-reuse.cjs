@@ -18,7 +18,8 @@ const before = (overrides = {}) => ({
 async function execute({files = [{filename: 'docs/development/notes.md'}], prior = before(),
   jobs = [{name: 'Named Bench', status: 'completed', conclusion: 'success'}],
   action = 'synchronize', eventName = 'pull_request', compareStatus = 'ahead',
-  compareBehind = 0, throwAPI = false} = {}) {
+  compareBehind = 0, throwAPI = false, workflowFile = 'codspeed.yml',
+  requiredJobs = [{name: 'Named Bench', count: 1}]} = {}) {
   const outputs = {};
   const context = {
     repo: {owner: 'PhysicsQoo', repo: 'QuPRS'}, runId: 1000,
@@ -50,8 +51,7 @@ async function execute({files = [{filename: 'docs/development/notes.md'}], prior
     async paginate() {return jobs;}
   };
   const result = await resolve({
-    github,context,core, workflowFile: 'codspeed.yml',
-    requiredJobs: [{name: 'Named Bench', count: 1}]
+    github,context,core, workflowFile, requiredJobs
   });
   assert.equal(outputs.run_heavy, String(result.runHeavy));
   return result.runHeavy;
@@ -70,5 +70,13 @@ async function execute({files = [{filename: 'docs/development/notes.md'}], prior
   assert.equal(await execute({eventName:'push'}), true, 'push unchanged policy');
   assert.equal(await execute({action:'opened'}), true, 'first PR opens require fresh evidence');
   assert.equal(await execute({files: [], prior: before({head_sha:sha}), action:'edited'}), false, 'non-code edited event can reuse exact successful SHA');
-  process.stdout.write('ci-impact-reuse: 12 contract cases passed\n');
+  assert.equal(await execute({files: [{filename: '.github/workflows/wmc-conservative-policy.yml'}]}), false, 'unrelated WMC workflow does not force CodSpeed');
+  assert.equal(await execute({workflowFile: 'wmc-conservative-policy.yml', files: [{filename: '.github/workflows/wmc-conservative-policy.yml'}]}), true, 'own workflow change forces validation');
+  assert.equal(await execute({workflowFile: 'native-cross-platform-pr.yml', files: [{filename: '.github/workflows/pytest.yml'}]}), true, 'called pytest workflow invalidates native evidence');
+  assert.equal(await execute({jobs: [{name:'Native parser and Qiskit 1.4.6 source semantics',status:'completed',conclusion:'success'},
+      {name:'Native parser and Qiskit 2.6.1 source semantics',status:'completed',conclusion:'success'}],
+      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{prefix:'Native parser and Qiskit ',count:2}]}), false, 'two native QASM jobs reused only together');
+  assert.equal(await execute({jobs: [{name:'Native parser and Qiskit 1.4.6 source semantics',status:'completed',conclusion:'success'}],
+      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{prefix:'Native parser and Qiskit ',count:2}]}), true, 'partial native QASM matrix never reused');
+  process.stdout.write('ci-impact-reuse: 17 contract cases passed\\n');
 })().catch(error => { console.error(error); process.exitCode = 1; });

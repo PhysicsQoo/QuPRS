@@ -21,9 +21,15 @@ def match_Elim(P, reducible_vars):
     return None
 
 
-def match_HH(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
-    P_expanded = P.expand()
-    valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
+def match_HH(
+    P, reducible_vars, pathvar, bits, *, coeff_cache=None,
+    expanded_phase=None, valid_symbols=None,
+):
+    # Standalone matcher calls still expand their own phase. RR passes the
+    # already-expanded normalization so Omega/HH see identical coefficients.
+    P_expanded = P.expand() if expanded_phase is None else expanded_phase
+    if valid_symbols is None:
+        valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
 
     for yo_val in reducible_vars:
         # Use only coefficients of the *same* phase, recorded earlier by Omega.
@@ -53,10 +59,14 @@ def match_HH(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
     return None, None, None, None
 
 
-def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
+def match_omega(
+    P, reducible_vars, pathvar, bits, *, coeff_cache=None,
+    expanded_phase=None, valid_symbols=None,
+):
     tolerance = current_rr_tolerance()
-    P_expanded = P.expand()
-    valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
+    P_expanded = P.expand() if expanded_phase is None else expanded_phase
+    if valid_symbols is None:
+        valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
     for yo_val in reducible_vars:
         coeff = P_expanded.coeff(yo_val)
         if coeff_cache is not None:

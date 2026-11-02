@@ -112,9 +112,12 @@ impl WmcManager {
         #[cfg(feature="high-precision-gpmc")]
         // A singleton phase cannot reuse a cached weight. Avoid hashing a
         // potentially very large BigRational key on this common VQE path.
-        let mut precise_cache: Option<HashMap<&PhaseCoeff, (String, String)>> =
+        // The weight table already owns the decimal strings. Index it by
+        // first-use literal ID rather than cloning each miss into a second map.
+        // Reserve a small bounded table, not a second full-sized allocation.
+        let mut precise_cache: Option<HashMap<&PhaseCoeff, i32>> =
             (self.precise_weights.is_some() && ps.p.terms.len() > 1)
-                .then(HashMap::new);
+                .then(|| HashMap::with_capacity(ps.p.terms.len().min(8)));
         for (mono, coeff) in &ps.p.terms {
             // Do not compute an f64 weight at all when the precise GPMC
             // distance-mode input is selected. The separate optional map
@@ -123,13 +126,15 @@ impl WmcManager {
             let weight = if let Some(ref mut precise) = self.precise_weights {
                 let id = self.next_var_id;
                 let digits = if let Some(cache) = precise_cache.as_mut() {
-                    if let Some(existing) = cache.get(coeff) {
-                        existing.clone()
+                    if let Some(&first_id) = cache.get(coeff) {
+                        precise.get(&first_id).ok_or_else(|| anyhow!(
+                            "Precise source weight cache references an absent variable"
+                        ))?.clone()
                     } else {
                         let generated = crate::precise_weight::from_phase(
                             coeff, self.precise_weight_bits,
                         )?;
-                        cache.insert(coeff, generated.clone());
+                        cache.insert(coeff, id);
                         generated
                     }
                 } else {
@@ -879,6 +884,32 @@ mod repeated_precise_weight_tests {
         assert_eq!(precise.len(), 1);
         let cnf = manager.to_dimacs_string("gpmc");
         assert!(cnf.contains("c p weight "));
+    }
+
+    #[test]
+    fn unique_source_angles_do_not_share_precise_cnf_weights() {
+        let mut ps = PathSum::new(2);
+        let a = PhaseCoeff {
+            constant: Rational::new(1, 8),
+            radians: Some(BigRational::new(BigInt::from(1), BigInt::from(10_u8).pow(20))),
+            symbols: Default::default(),
+        };
+        let b = PhaseCoeff {
+            constant: Rational::new(1, 16),
+            radians: Some(BigRational::new(BigInt::from(2), BigInt::from(10_u8).pow(20))),
+            symbols: Default::default(),
+        };
+        ps.p.add_term(vec![0], a);
+        ps.p.add_term(vec![1], b);
+        let mut manager = WmcManager::new(&ps);
+        manager.enable_precise_gpmc_weights(96);
+        manager.encode_trace(&ps).unwrap();
+        let precise = manager.precise_weights.as_ref().unwrap();
+        assert_eq!(precise.len(), 2);
+        let mut values = precise.values();
+        assert_ne!(values.next(), values.next());
+        let cnf = manager.to_dimacs_string("gpmc");
+        assert_eq!(cnf.matches("c p weight ").count(), 4);
     }
 
     #[test]

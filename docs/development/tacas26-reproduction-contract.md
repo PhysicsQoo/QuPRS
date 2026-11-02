@@ -6,6 +6,31 @@ case, the archived Docker environment, or formal performance metrics have been
 strictly certified. The older strict-acceptance ambition described later in
 this document is superseded by the bounded acceptance decision below.
 
+## Scientific purpose: CI reproducibility and WMC value corpus (2026-11-02)
+
+The overriding purpose of reproducing the TACAS Artifact is to confirm
+that the QuPRS paper experiments can run and reproduce their scientific
+outcomes in CI, and to retain **actual GPMC WMC numbers for future
+tolerance-policy experiments**. It is **not** an attempt to benchmark
+modern QuPRS against v0.9.1 or to force every difficult case to finish.
+
+Preserve, alongside the final verdict, the GPMC `-mode=1` printed complex
+count (including exact raw stdout decimal text and original Python
+float64 parse), expected normalization log, rounded WMC log, phase,
+old-classifier replay and original solver/input/source hashes. This
+corpus now has a dedicated extractor `scripts/tacas26_wmc_evidence.py`
+and data files `tacas26-results/wmc-evidence.csv` and
+`wmc-evidence.json`. Missing/censored WMC outputs do not establish
+numerical zero. Printed values support bounded offline historical
+classifier replay, but not an automatic high-precision error certificate.
+
+The detailed controlling design is
+[WMC numerical evidence for future tolerance work](tacas26-wmc-tolerance-evidence-contract.md).
+The previously proposed
+[historical CodSpeed experiment](tacas26-historical-codspeed-design.md)
+is explicitly **optional and secondary**, separated from current
+`dev` / PR #131 and not part of this reproduction acceptance gate.
+
 ## Historical execution-time provenance and limitations (2026-11-02)
 
 The immutable v0.9.1 `EquivalenceCheckResult` exposes five timings

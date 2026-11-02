@@ -1,0 +1,101 @@
+name: TACAS26 101 Modern GPMC 90-Digit Numeric Conformance — Experiment Branch Only
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/tacas26/run-modern-precision90-20261103.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tacas26-precision90-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  source-gate:
+    name: Exactly 101 original GPMC cases and input fidelity (no Solver)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source integrity and static precision contract
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          python -m compileall -q scripts/tacas26_modern_101_worker.py scripts/tacas26_modern_full_101.py
+          python -m pip install -q pytest
+          python -m pytest test/test_tacas26_modern_full_101.py -q -k "not printed_decimal and not wmc_raw_output"
+
+  modern-precision90:
+    name: QuPRS Python GPMC 90 digits science (shard ${{ matrix.shard }})
+    needs: source-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - name: Exact modern QuPRS source and independent precision tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/modern-quprs90"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/modern-quprs90" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/modern-quprs90/bin" >> "$GITHUB_PATH"
+          source "$RUNNER_TEMP/modern-quprs90/bin/activate"
+          python -m pip install --disable-pip-version-check maturin
+          maturin develop --release -E dev
+          python -m pytest test/test_tacas26_modern_full_101.py -q
+      - name: Source-pinned GPMC 90 digits 101-case output and precision margin
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_modern_full_101 \
+            --root "$GITHUB_WORKSPACE" --sha "$GITHUB_SHA" \
+            --backend python --digits 90 --shard ${{ matrix.shard }} --shards 24 \
+            --solver-timeout 200 --watchdog 215 \
+            --output "$RUNNER_TEMP/tacas26-modern-precision90-${{ matrix.shard }}.jsonl"
+      - name: Preserve all bounded, possibly censored numeric observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-modern-precision90-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/tacas26-modern-precision90-${{ matrix.shard }}.jsonl
+            ${{ runner.temp }}/tacas26-modern-precision90-${{ matrix.shard }}.summary.json
+          if-no-files-found: warn
+          retention-days: 30

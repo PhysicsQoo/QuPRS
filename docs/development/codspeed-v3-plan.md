@@ -194,9 +194,10 @@ This P5 report is deliberately non-certifying:
 - A raw median ratio is exploratory; neither summary stats nor an
   unpaired coefficient-of-variation estimate is a valid matched
   confidence interval.
-- A verdict mismatch, stage change, timeout or unqualified external
-  arithmetic error blocks comparability; numerical values remain
-  diagnostic, not replaced with the timeout cap.
+- An **unexplained** verdict mismatch, stage change or timeout blocks
+  workload comparability. A source-oracle-supported Ganak printed-resolution
+  mismatch retains a **conditional timing** delta but not a scientific PASS
+  or a certified performance gate. Timeout caps are never treated as samples.
 - Hosted non-Macro Runner experiments remain NOT_CERTIFIED even if
   the 3 measured rounds are stable. Only CodSpeed supplies timing.
 - Preserve actual QASM and method/solver/backend/tolerance/precision
@@ -230,8 +231,42 @@ invocation are required, but do not certify external Solver printed arithmetic
 bounds. The default allowed regression threshold remains **unset** and
 `performance_status=NOT_CERTIFIED` until independently measured baseline
 noise, stable runner cohort, and counterbalanced base/HEAD blocks support a
-scientifically defensible per-case threshold. Do NOT calculate speedup when
-verdict labels differ, nor mix CPU Simulation with WallTime.
+scientifically defensible per-case threshold. Never present a changed-verdict
+conditional timing delta as certified speedup; never mix CPU Simulation with
+WallTime.
 
 After the pilot job finishes and evidence is saved, remove only that PR body
 marker. The cleanup metadata event must skip all performance jobs.
+
+
+## Ganak verdict change: independent science and conditional performance
+
+A cross-revision `equivalent*` → `not_equivalent` is NOT automatically a
+reason to discard measured Solver-inclusive WallTime. Comparing **runtime**
+and certifying **numerical correctness** are separate claims. In the observed
+source-pinned Grover4/VQE4 Ganak cases, both revisions invoked Ganak for the
+same fixture, solver, strategy, backend and input orientation. The PR's
+`wmc_printed_verdict=unknown` and
+`wmc_precision_reason=ganak_point_estimate_resolution_limited` are supported
+by the independent Qiskit full-operator source witness, while the printed
+resolution distances (~7.34e-5 and ~1.16e-4) are far above the configured
+1e-8 projective-distance tolerance.
+
+For this **strictly evidenced** case, paired reports now retain an actual
+base/HEAD CodSpeed timing delta as `CONDITIONAL_GANAK_PRINT_LIMIT`,
+mark `verdict_comparable=false`, preserve both raw verdicts and warnings,
+and keep `scientific_status=PRECISION_LIMITED`. The P5 sampling audit
+shows the same-case timing delta and CV but **blocks performance
+certification**: external arithmetic is unproven, base tolerance provenance
+is not identical, and hosted-runner variance is unqualified. No
+reclassification to `equivalent*` is inferred from the measured duration or
+the complex128 source oracle alone.
+
+If the source-operator witness, real Solver invocation, matching fixture/
+settings, documented output-precision limitation or numeric width/tolerance
+relationship is missing, changed verdict still means
+`BLOCKED_UNEXPLAINED_VERDICT`; it is not whitelisted on a family name
+alone. No new tolerance override, exactness demand or Solver modification is
+introduced. Other P5 source-matched, same-verdict candidates remain
+`SAME_VERDICT` and all original 32 IDs, five shards and seven daily
+paired Solver-inclusive cases remain unchanged.

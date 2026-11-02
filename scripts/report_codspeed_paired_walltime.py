@@ -137,7 +137,8 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
             warning.append(
                 "PRECISION_LIMITED: independent complex128 source witness and "
                 "insufficient Ganak printed resolution; no equivalence certificate "
-                "and no comparable performance delta"
+                "but the same-source Solver workload retains a conditional "
+                "CodSpeed WallTime comparison (not a scientific PASS)"
             )
         if b["verdict"] != h["verdict"]:
             warning.append("verdict labeling changed")
@@ -149,13 +150,37 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
         # Do not merge equivalent and equivalent*: global-phase labels are
         # scientifically distinct and must be compared explicitly.
         same_semantics = b["verdict"] == h["verdict"]
-        # CodSpeed provides both durations, but a verdict change means the
-        # revisions did not execute a semantically comparable workload.
-        # Preserve the raw numbers for diagnosis; do not publish a misleading
-        # speedup/regression percentage for such a pair.
-        delta = 100 * (h_ms / b_ms - 1) if same_semantics else None
+        # A changed verdict does not, by itself, change the measured workload.
+        # Independent source-operator evidence + Ganak printed-resolution
+        # limitation allow a CONDITIONAL same-source performance comparison.
+        # The scientific verdict remains different and is not certified.
+        same_workload = (
+            b.get("solver_invoked") is True
+            and h.get("solver_invoked") is True
+            and all(b.get(field) == h.get(field) for field in
+                    ("method", "backend", "solver", "strategy", "reverse",
+                     "fixture_sha"))
+        )
+        workload_comparable = same_workload and (same_semantics or expected_precision_limit)
+        delta = 100 * (h_ms / b_ms - 1) if workload_comparable else None
         if not same_semantics:
-            warning.append("INCOMPARABLE_VERDICT: retain measured durations only")
+            warning.append(
+                "CONDITIONAL_SAME_WORKLOAD_TIMING: independent source oracle "
+                "and Ganak printed-resolution limitation; scientific verdict "
+                "differs, performance data retained for diagnostics"
+                if expected_precision_limit else
+                "INCOMPARABLE_UNEXPLAINED_VERDICT: retain durations, no ratio"
+            )
+        # Base lacked an explicit distance tolerance and may have used a
+        # different classifier policy. Never claim a controlled precision
+        # comparison solely from a successful source-pair matrix reference.
+        if expected_precision_limit and (
+            b.get("approximate_distance_tolerance") is None
+            or b.get("approximate_distance_tolerance") !=
+               h.get("approximate_distance_tolerance")
+        ):
+            warning.append("TOLERANCE_PROVENANCE_DIFFERS: historical base "
+                           "policy is not proven identical to HEAD")
         # Provenance from the final CodSpeed repetition only. A quantitative
         # limit for *printed* Solver resolution is not an arithmetic error
         # proof; never convert a negative observation to equivalence here.
@@ -192,14 +217,28 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
             "base_rounds": bt["rounds"], "head_rounds": ht["rounds"],
             "median_change_percent": (
                 100 * (ht["median_ns"] / bt["median_ns"] - 1)
-                if same_semantics else None
+                if workload_comparable else None
             ),
             "sampling_scope": (
                 "same-runner CodSpeed WallTime summary, no per-round paired samples"
             ),
 
             "change_percent": delta,
-            "performance_comparable": same_semantics,
+            "performance_comparable": workload_comparable,
+            "verdict_comparable": same_semantics,
+            "performance_comparison_tier": (
+                "BLOCKED_WORKLOAD_MISMATCH" if not same_workload else
+                "SAME_VERDICT" if same_semantics else
+                "CONDITIONAL_GANAK_PRINT_LIMIT" if expected_precision_limit else
+                "BLOCKED_UNEXPLAINED_VERDICT"
+            ),
+            "numeric_tolerance_evidence": (
+                {"head_print_resolution_distance": h.get("wmc_print_resolution_distance"),
+                 "head_distance_tolerance": h.get("approximate_distance_tolerance"),
+                 "independent_source_operator_numerically_consistent": True,
+                 "solver_arithmetic_certified": False}
+                if expected_precision_limit else None
+            ),
             "base_median_ms": bt["median_ns"] / 1e6,
             "head_median_ms": ht["median_ns"] / 1e6,
             "verdict_base": b["verdict"], "verdict_head": h["verdict"],
@@ -243,12 +282,13 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
                        if precision_incomparable else "PASS")
     header += ["", f"Coverage: {len(outcome)} exact case pairs, {len(times)} instrumented samples.",
                "**Semantic/stage evidence:** " + evidence_status,
-               f"Precision-limited incomparable pairs: {len(precision_incomparable)}.",
+               f"Precision-limited verdict-mismatch pairs with conditional timing: {len(precision_incomparable)}.",
                "PRECISION_LIMITED is not a scientific equivalence PASS.", ""]
     if errors:
         header.extend(["Errors:"] + [f"- {error}" for error in errors])
     return {"base_sha": base_sha, "head_sha": head_sha, "cases": outcome,
             "errors": errors, "precision_incomparable": precision_incomparable,
+            "conditional_timing_cases": list(precision_incomparable),
             "status": evidence_status}, "\n".join(header) + "\n"
 
 

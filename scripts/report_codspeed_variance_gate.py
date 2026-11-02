@@ -28,11 +28,38 @@ def produce(report: dict, *, expected_count=7) -> dict:
     for row in cases:
         key = row["case"]
         reasons = []
+        changed_verdict = row.get("verdict_base") != row.get("verdict_head")
+        category = row.get("performance_comparison_tier")
+        proven_print_limit = category == "CONDITIONAL_GANAK_PRINT_LIMIT"
+        numeric = row.get("numeric_tolerance_evidence") or {}
+        print_width, distance_tol = (
+            numeric.get("head_print_resolution_distance"),
+            numeric.get("head_distance_tolerance"),
+        )
+        precision_witness_ok = (
+            proven_print_limit
+            and numeric.get("independent_source_operator_numerically_consistent") is True
+            and numeric.get("solver_arithmetic_certified") is False
+            and isinstance(print_width, (int, float)) and math.isfinite(print_width)
+            and isinstance(distance_tol, (int, float)) and math.isfinite(distance_tol)
+            and 0 < distance_tol < print_width
+        )
         comparable = row.get("performance_comparable") is True
-        if not comparable:
+        # Do not let a caller mark an unexplained verdict change comparable.
+        if changed_verdict and not precision_witness_ok:
+            comparable = False
+            reasons.append("INCOMPARABLE_VERDICT")
+        elif changed_verdict:
+            reasons.append("PRECISION_LIMITED")
+            reasons.append("VERDICT_CHANGED_NUMERICAL_LIMIT")
+            if any("TOLERANCE_PROVENANCE_DIFFERS" in str(w)
+                   for w in row.get("warning", [])):
+                reasons.append("TOLERANCE_PROVENANCE_DIFFERS")
+        if not comparable and "INCOMPARABLE_VERDICT" not in reasons:
             reasons.append("INCOMPARABLE_VERDICT")
         if not row.get("solver_invoked_base") or not row.get("solver_invoked_head"):
             reasons.append("MISSING_SOLVER_STAGE")
+            comparable = False
         if any("NOT a scientific PASS" in str(w) or "PRECISION_LIMITED" in str(w)
                for w in row.get("warning", [])):
             reasons.append("PRECISION_LIMITED")
@@ -57,6 +84,13 @@ def produce(report: dict, *, expected_count=7) -> dict:
         checked.append({
             "case": key, "verdict_base": row.get("verdict_base"),
             "verdict_head": row.get("verdict_head"),
+            "verdict_comparable": not changed_verdict,
+            "conditional_timing_comparable": bool(changed_verdict and precision_witness_ok),
+            "performance_comparison_tier": (
+                "CONDITIONAL_GANAK_PRINT_LIMIT" if changed_verdict and precision_witness_ok
+                else "BLOCKED_UNEXPLAINED_VERDICT" if changed_verdict
+                else "SAME_VERDICT"
+            ),
             "category": "EXTERNAL_SOLVER_PRINT_LIMITED" if "PRECISION_LIMITED" in reasons
                         else "SAME_CASE_SOLVER_INCLUSIVE",
             "base_rounds": row.get("base_rounds"), "head_rounds": row.get("head_rounds"),
@@ -81,7 +115,9 @@ def produce(report: dict, *, expected_count=7) -> dict:
             "Raw same-case per-round values with counterbalanced base/HEAD order",
             "Stable CodSpeed Macro Runner or independently qualified same-cohort noise",
             "Enough rounds to resolve each case's empirical variance",
-            "Identical QASM, method, Solver stage, tolerance and precision verdict",
+            "Identical source QASM, method and Solver stage; a changed verdict needs "
+            "independent source witness and quantified precision limitation, with "
+            "conditional timing only and NOT a scientific PASS",
             "Timeout censoring: never use timeout bound as measured duration",
         ],
         "scope": "CodSpeed same-runner WallTime only; no mixed CPU/WallTime ratios",
@@ -101,6 +137,8 @@ def main():
         "## P5 CodSpeed paired variance diagnostics (not performance GO)",
         "Source: same runner, seven source-pinned base/HEAD Solver-inclusive WallTime pairs.",
         "No statistically calibrated 1% threshold; raw counterbalanced rounds missing.",
+        "Ganak near-equal source cases may retain CONDITIONAL timing deltas "
+        "without certifying the mismatched numerical verdict.",
         "",
         "| Circuit | base/head rounds | CV base/head | Median change | Status |",
         "|---|---:|---:|---:|---|",

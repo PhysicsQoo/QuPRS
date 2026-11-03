@@ -873,7 +873,10 @@
         "precision_reason": "printed_count_uncertified_solver_arithmetic",
         "printed_resolution_distance": null,
         "performance_base_head_comparable": false,
-        "admission_decision": "RESEARCH_ONLY_AWAIT_SCIENCE_AND_REPEATABILITY"
+        "admission_decision": "P5_CONDITIONAL_RESEARCH_REPEATABILITY_ONLY",
+        "independent_source_evidence": "QAOA7_DENSE_OPERATOR_POS_AND_NEG",
+        "science_qualification": "EMPIRICALLY_SOURCE_QUALIFIED_FOR_REPEATABILITY",
+        "independent_rigorous_error_bound": false
       },
       {
         "case_id": "q261_gap_qaoa7_neq_wmconly_python_gpmc",
@@ -898,7 +901,10 @@
         "precision_reason": "gpmc_printed_uncertified_printed_distance_exceeds_threshold",
         "printed_resolution_distance": null,
         "performance_base_head_comparable": false,
-        "admission_decision": "RESEARCH_ONLY_AWAIT_SCIENCE_AND_REPEATABILITY"
+        "admission_decision": "P5_CONDITIONAL_RESEARCH_REPEATABILITY_ONLY",
+        "independent_source_evidence": "QAOA7_DENSE_OPERATOR_POS_AND_NEG",
+        "science_qualification": "EMPIRICALLY_SOURCE_QUALIFIED_FOR_REPEATABILITY",
+        "independent_rigorous_error_bound": false
       },
       {
         "case_id": "q261_gap_qaoa7_neq_hybrid_python_gpmc",
@@ -923,7 +929,10 @@
         "precision_reason": "gpmc_printed_uncertified_printed_distance_exceeds_threshold",
         "printed_resolution_distance": null,
         "performance_base_head_comparable": false,
-        "admission_decision": "RESEARCH_ONLY_AWAIT_SCIENCE_AND_REPEATABILITY"
+        "admission_decision": "P5_CONDITIONAL_RESEARCH_REPEATABILITY_ONLY",
+        "independent_source_evidence": "QAOA7_DENSE_OPERATOR_POS_AND_NEG",
+        "science_qualification": "EMPIRICALLY_SOURCE_QUALIFIED_FOR_REPEATABILITY",
+        "independent_rigorous_error_bound": false
       },
       {
         "case_id": "q261_gap_qft16_neq_hybrid_python_gpmc",
@@ -948,7 +957,10 @@
         "precision_reason": "gpmc_printed_uncertified_printed_distance_exceeds_threshold",
         "printed_resolution_distance": null,
         "performance_base_head_comparable": false,
-        "admission_decision": "RESEARCH_ONLY_AWAIT_SCIENCE_AND_REPEATABILITY"
+        "admission_decision": "P5_CONDITIONAL_RESEARCH_REPEATABILITY_ONLY",
+        "independent_source_evidence": "QFT16_THREE_INPUT_STATE_NEQ_WITNESS",
+        "science_qualification": "EMPIRICALLY_SOURCE_QUALIFIED_FOR_REPEATABILITY",
+        "independent_rigorous_error_bound": false
       },
       {
         "case_id": "q261_gap_vqe8_eq_wmconly_rust_gpmc",
@@ -973,7 +985,10 @@
         "precision_reason": "printed_count_uncertified_solver_arithmetic",
         "printed_resolution_distance": null,
         "performance_base_head_comparable": false,
-        "admission_decision": "RESEARCH_ONLY_AWAIT_SCIENCE_AND_REPEATABILITY"
+        "admission_decision": "P5_CONDITIONAL_RESEARCH_REPEATABILITY_ONLY",
+        "independent_source_evidence": "VQE8_DENSE_OPERATOR_EQ",
+        "science_qualification": "EMPIRICALLY_SOURCE_QUALIFIED_FOR_REPEATABILITY",
+        "independent_rigorous_error_bound": false
       },
       {
         "case_id": "q261_gap_qaoa7_neq_hybrid_rust_ganak",
@@ -998,9 +1013,58 @@
         "precision_reason": "printed_count_uncertified_solver_arithmetic",
         "printed_resolution_distance": 0.000011360936307389317,
         "performance_base_head_comparable": false,
-        "admission_decision": "RESEARCH_ONLY_AWAIT_SCIENCE_AND_REPEATABILITY"
+        "admission_decision": "OPT_IN_PRINT_RESOLUTION_LIMIT",
+        "independent_source_evidence": "QAOA7_DENSE_OPERATOR_POS_AND_NEG",
+        "science_qualification": "EMPIRICALLY_SOURCE_QUALIFIED_FOR_REPEATABILITY",
+        "independent_rigorous_error_bound": false
       }
-    ]
+    ],
+    "independent_source_witness": {
+      "run_id": 41608129315,
+      "artifact_id": 13217731272,
+      "workflow_conclusion": "success",
+      "source": "Qiskit 2.6.1 QuantumCircuit Operator/Statevector, complex128, no QuPRS Solver",
+      "source_hashes_verified_against": "benchmarks/codspeed/qasm_variant_audit.json",
+      "full_operator_arithmetic_certified": false,
+      "qaoa7": {
+        "qubits": 7,
+        "positive_frob_residual": 6.213641066591759e-15,
+        "negative_frob_residual": 1.3125632972634713,
+        "negative_independent_source_neq": true
+      },
+      "vqe8": {
+        "qubits": 8,
+        "positive_frob_residual": 8.507407837095461e-15,
+        "positive_independent_source_eq_empirical": true
+      },
+      "qft16": {
+        "qubits": 16,
+        "full_operator_matrix_built": false,
+        "basis_indices": [
+          0,
+          256,
+          65535
+        ],
+        "positive_input_phase_residuals": [
+          2.666692963215645e-15,
+          2.922851292848287e-15,
+          3.300029244847869e-15
+        ],
+        "negative_input_phase_residuals": [
+          1.152874685489739,
+          1.1490892925330485,
+          1.1529984534520206
+        ],
+        "derived_projective_distance_lower_witnesses": [
+          0.0031843965155004005,
+          0.0031739407458553554,
+          0.003184738379427834
+        ],
+        "floating_not_interval_certified": true
+      },
+      "interpretation": "Independent bounded numerical source evidence supports QAOA7/QFT16 NEQ far above 1e-8 and VQE8 EQ near floating precision. Not formal operator error bound or GPMC/Ganak numerical arithmetic certification."
+    },
+    "science_conclusion": "6/6 observed solver & verdict; independent source QAOA7/VQE8 full dense operator complex128, QFT16 finite-state strong NEQ witnesses, but not mathematically certified 1e-8 or solver arithmetic. Eligible for bounded P5 repeatability, not every-PR promotion."
   },
   "current_status_note": "Historical summary/formal_pr represent prior SHA snapshots; use post_merge_six_case_observations and formal_pr_latest_paired_validation for later evidence. No automatic benchmark promotion."
 }

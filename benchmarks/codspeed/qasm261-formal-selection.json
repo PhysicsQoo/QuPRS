@@ -1,0 +1,230 @@
+{
+  "schema": "quprs-qasm261-formal-selection-v1",
+  "recorded_on": "2026-11-03",
+  "experiment_branch": "experiment/qoo160-qasm261-codspeed-selection",
+  "experiment_sha": "fe47ba5f783535e387735d1de4b66cab548efa90",
+  "dev_sha": "2dd451edeaab4e7c80ea19203e36cc22f3548d85",
+  "pr_sha": "07d5c8d0d688f0c3d66d9e83cb44be119f56a498",
+  "workflow": {
+    "run_id": 41589357492,
+    "url": "https://github.com/PhysicsQoo/QuPRS/actions/runs/41589357492",
+    "conclusion": "success",
+    "native_artifact_id": 13209324069,
+    "paired_artifact_id": 13209902171,
+    "paired_artifact_zip_sha256": "e3e19c3d7839970ab2fbb0483776f6345b7f501a5491f06914ddfee74b0b8c4b"
+  },
+  "instrument": {
+    "native": "CodSpeed CPU Simulation",
+    "solver": "CodSpeed WallTime",
+    "runner": "hosted-github-actions-not-macro",
+    "native_qasm_corpus": "qiskit-2.6.1-opt0",
+    "cmp_pattern": "A1-B1-B2-A2",
+    "rounds_per_position": 5,
+    "positions_per_case": 4,
+    "solver_cases": 5,
+    "total_rounds": 100
+  },
+  "science": {
+    "positive_negative_verdict_and_solver_stage_consistency": "PASS_5_OF_5",
+    "stable_source_and_sha": "PASS_5_OF_5",
+    "solver_arithmetic_certified": false,
+    "statistical_significance_certified": false,
+    "performance_gate_fixed_threshold": false
+  },
+  "native_rr": [
+    {
+      "id": "q261_rr_ghz32_positive",
+      "circuit": "GHZ32",
+      "modeled_cpu_ms": 1.1,
+      "role": "low-cost control",
+      "solver_invoked": false,
+      "code_stage": "miter-plus-reduction-rules",
+      "source_parse_timed": false
+    },
+    {
+      "id": "q261_rr_graphstate16_positive",
+      "circuit": "Graphstate16",
+      "modeled_cpu_ms": 6.6,
+      "role": "Naive RR structure",
+      "solver_invoked": false,
+      "code_stage": "miter-plus-reduction-rules",
+      "source_parse_timed": false
+    },
+    {
+      "id": "q261_rr_qft16_positive",
+      "circuit": "QFT16",
+      "modeled_cpu_ms": 42.7,
+      "role": "Bra-CX phase substitution",
+      "solver_invoked": false,
+      "code_stage": "miter-plus-reduction-rules",
+      "source_parse_timed": false
+    },
+    {
+      "id": "q261_rr_qpeexact8_positive",
+      "circuit": "QPE-exact8",
+      "modeled_cpu_ms": 4.8,
+      "role": "phase-boundary RR",
+      "solver_invoked": false,
+      "code_stage": "miter-plus-reduction-rules",
+      "source_parse_timed": false
+    },
+    {
+      "id": "q261_rr_vqe4_positive",
+      "circuit": "VQE4",
+      "modeled_cpu_ms": 6.5,
+      "role": "decimal/mixed RR",
+      "solver_invoked": false,
+      "code_stage": "miter-plus-reduction-rules",
+      "source_parse_timed": false
+    }
+  ],
+  "solver_abba": [
+    {
+      "id": "q261_qaoa7_negative",
+      "base_median_ms": 985.5958,
+      "pr_median_ms": 1003.4017,
+      "change_percent": 1.8066,
+      "base_A1_A2_drift_percent": -2.1953,
+      "cv_by_position": {
+        "A1": 0.011176,
+        "A2": 0.009417,
+        "B1": 0.034369,
+        "B2": 0.035754
+      },
+      "rounds": {
+        "A1": 5,
+        "B1": 5,
+        "B2": 5,
+        "A2": 5
+      },
+      "science_stage": "COMPARABLE_OBSERVATION",
+      "selection": "every-pr candidate",
+      "reason": "moderate NEQ Solver guard"
+    },
+    {
+      "id": "q261_qft16_negative",
+      "base_median_ms": 3555.0894,
+      "pr_median_ms": 1478.5501,
+      "change_percent": -58.4103,
+      "base_A1_A2_drift_percent": -1.4458,
+      "cv_by_position": {
+        "A1": 0.0123,
+        "A2": 0.015904,
+        "B1": 0.031719,
+        "B2": 0.025131
+      },
+      "rounds": {
+        "A1": 5,
+        "B1": 5,
+        "B2": 5,
+        "A2": 5
+      },
+      "science_stage": "COMPARABLE_OBSERVATION",
+      "selection": "every-pr candidate",
+      "reason": "strong meaningful QFT16 solver-inclusive signal"
+    },
+    {
+      "id": "q261_qnn4_negative",
+      "base_median_ms": 1020.1677,
+      "pr_median_ms": 1027.363,
+      "change_percent": 0.7053,
+      "base_A1_A2_drift_percent": 14.703,
+      "cv_by_position": {
+        "A1": 0.019263,
+        "A2": 0.075964,
+        "B1": 0.016492,
+        "B2": 0.040743
+      },
+      "rounds": {
+        "A1": 5,
+        "B1": 5,
+        "B2": 5,
+        "A2": 5
+      },
+      "science_stage": "COMPARABLE_OBSERVATION",
+      "selection": "opt-in",
+      "reason": "A/A drift exceeds delta"
+    },
+    {
+      "id": "q261_vqe4_negative",
+      "base_median_ms": 1040.7487,
+      "pr_median_ms": 1071.8219,
+      "change_percent": 2.9857,
+      "base_A1_A2_drift_percent": -5.0439,
+      "cv_by_position": {
+        "A1": 0.103368,
+        "A2": 0.185271,
+        "B1": 0.160471,
+        "B2": 0.048766
+      },
+      "rounds": {
+        "A1": 5,
+        "B1": 5,
+        "B2": 5,
+        "A2": 5
+      },
+      "science_stage": "COMPARABLE_OBSERVATION",
+      "selection": "opt-in",
+      "reason": "large CV; not a regression signal"
+    },
+    {
+      "id": "q261_vqe8_positive",
+      "base_median_ms": 1354.7787,
+      "pr_median_ms": 1347.8653,
+      "change_percent": -0.5103,
+      "base_A1_A2_drift_percent": 2.1262,
+      "cv_by_position": {
+        "A1": 0.153199,
+        "A2": 0.147286,
+        "B1": 0.105953,
+        "B2": 0.011463
+      },
+      "rounds": {
+        "A1": 5,
+        "B1": 5,
+        "B2": 5,
+        "A2": 5
+      },
+      "science_stage": "COMPARABLE_OBSERVATION",
+      "selection": "periodic",
+      "reason": "WMC positive coverage but high CV"
+    }
+  ],
+  "ci_job_cost_seconds": {
+    "source_audit": 9,
+    "native_total": 156,
+    "native_compile": 125,
+    "native_codspeed": 20,
+    "paired_total": 459,
+    "paired_both_builds": 226,
+    "paired_codspeed": 213
+  },
+  "final_selection": {
+    "incremental_default_native_rr_ids": [
+      "q261_rr_ghz32_positive",
+      "q261_rr_graphstate16_positive",
+      "q261_rr_qft16_positive",
+      "q261_rr_qpeexact8_positive",
+      "q261_rr_vqe4_positive"
+    ],
+    "incremental_default_solver_ids": [
+      "q261_qft16_negative",
+      "q261_qaoa7_negative"
+    ],
+    "periodic_solver_ids": [
+      "q261_vqe8_positive"
+    ],
+    "opt_in_solver_ids": [
+      "q261_qnn4_negative",
+      "q261_vqe4_negative"
+    ],
+    "formal_pr_currently_modified": false,
+    "coexistence_legacy_simulation_count": 32,
+    "legacy_simulation_shards": 5,
+    "legacy_paired_walltime_cases": 7,
+    "older_simulation_uris_untouched": true,
+    "source_semantics_unchanged": true
+  },
+  "acceptance_policy": "Research-only decision: no new formal CI until source versioned IDs are integrated into existing native-core and solver-inclusive jobs and new CI pass; avoid duplicating cold builds or using old QASM baselines for new source; P5 observational only.",
+  "contamination_warning": "Additional 32+24 Simulation experiment 41588474734 failed one shard source/report contract; do not promote it as a 56-case complete suite."
+}

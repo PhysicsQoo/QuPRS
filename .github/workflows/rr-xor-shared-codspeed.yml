@@ -1,0 +1,118 @@
+name: RR XOR shared expansion isolated CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo151-rr-xor-reuse-20261103
+    paths:
+      - 'rust/pathsum/src/pathsum/phase_poly.rs'
+      - '.github/workflows/rr-xor-shared-codspeed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rr-xor-shared-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-oracle:
+    name: Exact Rust phase substitution and reduction tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Verify SHA and exact Rust semantic tests
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib substitution_tests -- --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib
+
+  bounded-paired-walltime:
+    name: Source-pinned CodSpeed base-HEAD 4-case ABBA
+    needs: [semantic-oracle]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      BASE_SHA: 2e3c5f1b160324445240db8ee204988c5d1aed70
+      HEAD_SHA: ${{ github.sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/rr-xor-abba-codspeed.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2e3c5f1b160324445240db8ee204988c5d1aed70
+          path: pr-walltime-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build source-pinned baseline and candidate in separate environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for variant in base head; do
+            root="$GITHUB_WORKSPACE"
+            if [[ "$variant" == base ]]; then root="$GITHUB_WORKSPACE/pr-walltime-base"; fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$variant"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            ( cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev )
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/rr-xor-$variant-freeze.txt"
+          done
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.4
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pytest benchmarks/codspeed/test_p5_abba.py --collect-only -q
+      - name: CodSpeed exact-source A1-B1-B2-A2 times three blocks
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_p5_abba.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=90
+      - name: Audit 48 positions, scientific semantics, and base drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_codspeed_p5_abba.py \
+            --measurements "$QUPRS_CODSPEED_EXPORT" \
+            --provenance "$RUNNER_TEMP/p5-abba-provenance.jsonl" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --output "$RUNNER_TEMP/rr-xor-abba-report.json"
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family p5-abba --instrument walltime \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/rr-xor-manifest.json"
+      - name: Keep first-party CodSpeed/solver and dependency evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rr-xor-shared-source-pinned-codspeed
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/p5-abba-provenance.jsonl
+            ${{ runner.temp }}/rr-xor-abba-report.json
+            ${{ runner.temp }}/rr-xor-base-freeze.txt
+            ${{ runner.temp }}/rr-xor-head-freeze.txt
+            ${{ runner.temp }}/rr-xor-manifest.json

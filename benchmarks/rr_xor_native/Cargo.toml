@@ -4,6 +4,9 @@ name = "quprs-rr-xor-native"
 version = "0.0.0"
 edition = "2021"
 publish = false
+# Only the explicitly named Base/HEAD bench target; alias files are
+# byte-identical source fixtures and must never be auto-discovered.
+autobenches = false
 
 [dependencies]
 pathsum = { path = "../../rust/pathsum" }

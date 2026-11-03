@@ -362,7 +362,7 @@ mod substitution_tests {
         let symbolic = PhaseCoeff::new_symbolic(17, FreeRational::HALF);
         let clifford = PhaseCoeff::HALF;
 
-        let cheap = vec![(vec![1], clifford), (vec![2], symbolic.clone())];
+        let cheap = vec![(vec![1], clifford.clone()), (vec![2], symbolic.clone())];
         assert!(should_share_xor_expansion(&cheap, 5));
         assert!(!should_share_xor_expansion(&cheap, 13));
         assert!(!should_share_xor_expansion(&cheap[..1], 5));

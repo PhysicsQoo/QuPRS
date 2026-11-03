@@ -208,3 +208,43 @@ QASM261_PILOT_CASES = (
               "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
               qasm_corpus="qiskit-2.6.1-opt0"),
 )
+
+
+# Six *research-only* case IDs selected to fill missing evidence axes:
+# WMC-only vs Hybrid, Python vs Rust, WMC positive vs negative, and
+# a genuine NEQ Ganak sample.  Zero candidates are routine every-PR cases.
+# CodSpeed WallTime is the only timing instrument; this first pass is
+# ONE measured round per case, with 15s solver / 24s process watchdog.
+# Any timeout is censored (not a zero/24s timing result).
+QASM261_COVERAGE_GAP_CASES = (
+    PilotCase("q261_gap_qaoa7_neq_wmconly_rust_gpmc",
+              "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+              backend="rust", solver="gpmc", method="wmc_only",
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              expected_solver_invoked=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_gap_qaoa7_neq_wmconly_python_gpmc",
+              "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+              backend="python", solver="gpmc", method="wmc_only",
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              expected_solver_invoked=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_gap_qaoa7_neq_hybrid_python_gpmc",
+              "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+              backend="python", solver="gpmc", method="hybrid",
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              expected_solver_invoked=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_gap_qft16_neq_hybrid_python_gpmc",
+              "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+              backend="python", solver="gpmc", method="hybrid", reverse=True,
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              expected_solver_invoked=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_gap_vqe8_eq_wmconly_rust_gpmc",
+              "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+              backend="rust", solver="gpmc", method="wmc_only",
+              expected_verdict="equivalent_or_phase",
+              expected_solver_invoked=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_gap_qaoa7_neq_hybrid_rust_ganak",
+              "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+              backend="rust", solver="ganak", method="hybrid",
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              expected_solver_invoked=True, qasm_corpus="qiskit-2.6.1-opt0"),
+)

@@ -87,6 +87,10 @@ def run_source_pinned_candidate(benchmark, case):
               and (result.get("verdict") in {"equivalent", "equivalent*"}
                    if case.expected_verdict == "equivalent_or_phase"
                    else result.get("verdict") == case.expected_verdict))
+    if case.expected_solver_invoked is not None:
+        # Never promote an RR-terminated request as Solver-inclusive.
+        # Timeouts and missing observations remain censored, not stage PASS.
+        passed = (passed and result.get("solver_invoked") is case.expected_solver_invoked)
     status = ("ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW" if passed else
               "NEEDS_SCIENTIFIC_OR_TIMEOUT_REVIEW")
     metadata = {
@@ -94,6 +98,7 @@ def run_source_pinned_candidate(benchmark, case):
         "pair_variant": case.pair_variant,
         "qasm_corpus": case.qasm_corpus,
         "expected_verdict": case.expected_verdict,
+        "expected_solver_invoked": case.expected_solver_invoked,
         "qasm_sha256": source_hashes,
         "codspeed_sample_policy": "one_measured_round_no_warmup_exploratory",
         "run_id": os.environ.get("GITHUB_RUN_ID"),

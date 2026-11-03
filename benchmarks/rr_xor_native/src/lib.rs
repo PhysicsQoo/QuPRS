@@ -86,7 +86,7 @@ pub fn legacy_substitute(
         polynomial.terms.remove(&monomial);
     }
     for (product, coeff) in additions {
-        polynomial += (&product, coeff);
+        *polynomial += (&product, coeff);
     }
 }
 

@@ -40,9 +40,89 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib substitution_tests -- --nocapture
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib
 
+  native-xor-simulation:
+    name: Native-only source-pinned Rust XOR CodSpeed Simulation
+    needs: [semantic-oracle]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    env:
+      BASE_SHA: 2e3c5f1b160324445240db8ee204988c5d1aed70
+      HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2e3c5f1b160324445240db8ee204988c5d1aed70
+          path: pr-walltime-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native CodSpeed and source-exact fixture in both revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo install --locked --version 6.0.0 cargo-codspeed
+          mkdir -p pr-walltime-base/benchmarks
+          cp -a benchmarks/rr_xor_native pr-walltime-base/benchmarks/rr_xor_native
+          cmp benchmarks/rr_xor_native/src/lib.rs pr-walltime-base/benchmarks/rr_xor_native/src/lib.rs
+          cmp benchmarks/rr_xor_native/benches/rr_xor_native.rs pr-walltime-base/benchmarks/rr_xor_native/benches/rr_xor_native.rs
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          head = Path("benchmarks/rr_xor_native")
+          base = Path("pr-walltime-base/benchmarks/rr_xor_native")
+          with open(os.environ["RUNNER_TEMP"] + "/rr-xor-native-source.txt", "w") as out:
+              out.write("base_sha=" + os.environ["BASE_SHA"] + "\n")
+              out.write("head_sha=" + os.environ["HEAD_SHA"] + "\n")
+              for rel in ("src/lib.rs", "benches/rr_xor_native.rs"):
+                  lhs, rhs = (base / rel).read_bytes(), (head / rel).read_bytes()
+                  assert lhs == rhs, f"Different native fixture: {rel}"
+                  out.write(f"{rel} sha256={hashlib.sha256(lhs).hexdigest()}\n")
+          for root, label in ((base, "base"), (head, "head")):
+              path = root / "Cargo.toml"
+              content = path.read_text()
+              original = 'name = "rr_xor_native"'
+              assert content.count(original) == 1
+              path.write_text(content.replace(original, f'name = "rr_xor_native_{label}"'))
+          PY
+          for root in pr-walltime-base/benchmarks/rr_xor_native benchmarks/rr_xor_native; do
+            cargo test --manifest-path "$root/Cargo.toml" --lib -- --nocapture
+            (cd "$root" && cargo codspeed build)
+          done
+      - name: CodSpeed CPU-only Base and HEAD on the same runner
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          simulation-track-subprocess: 'false'
+          run: |
+            set -euo pipefail
+            (cd pr-walltime-base/benchmarks/rr_xor_native && cargo codspeed run)
+            (cd benchmarks/rr_xor_native && cargo codspeed run)
+      - name: Save native source and dependency evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rr-xor-source-pinned-native-codspeed
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            ${{ runner.temp }}/rr-xor-native-source.txt
+            pr-walltime-base/benchmarks/rr_xor_native/Cargo.lock
+            benchmarks/rr_xor_native/Cargo.lock
+
   bounded-paired-walltime:
     name: Source-pinned CodSpeed base-HEAD 4-case ABBA
-    needs: [semantic-oracle]
+    needs: [semantic-oracle, native-xor-simulation]
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:

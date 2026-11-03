@@ -117,10 +117,16 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             ));
         }
         if version == Some(3) && line.starts_with("gphase") {
-            // QuantumOp does not carry scalar phase.  Never silently discard
-            // a QASM3 global phase, even when comparing up to global phase:
-            // exact-vs-phase verdict provenance would be corrupted.
-            return Err(format!("Unsupported QASM3 global phase at line {}", line_num + 1));
+            // Preserve the exact circuit-wide scalar as an operation in the
+            // ordinary ordered IR, including for the inverse (bra) side.
+            // Do not round-trip through a QASM2 exporter or f64 angle.
+            let angle = line.strip_prefix("gphase(")
+                .and_then(|body| body.strip_suffix(");"))
+                .ok_or_else(|| format!("Invalid QASM3 gphase syntax at line {}", line_num + 1))?;
+            let angle = Angle::from_qasm_str(angle)
+                .map_err(|e| format!("Invalid QASM3 gphase at line {}: {}", line_num + 1, e))?;
+            ops.push(QuantumOp::GlobalPhase(angle));
+            continue;
         }
 
         // Split gate parameters and targets using the last closing parenthesis
@@ -231,6 +237,9 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             _ => unreachable!("All gate names validated above"),
         };
         ops.push(op);
+    }
+    if version == Some(3) && current_qubit_count == 0 {
+        return Err("QASM3 program requires a quantum register in this verifier".to_string());
     }
     let final_qubit_count = if current_qubit_count > 0 {
         current_qubit_count
@@ -410,7 +419,7 @@ mod tests {
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncsx q[0],q[1];", "Unsupported QASM gate 'csx'"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncrx(0.1) q[0],q[1];", "Unsupported QASM gate 'crx'"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nmeasure q[0] -> c[0];", "Unsupported QASM gate 'measure'"),
-            ("OPENQASM 3.0;\nqubit[1] q;\ngphase(pi/4);\nx q[0];", "Unsupported QASM3 global phase"),
+            ("OPENQASM 3.0;\nqubit[1] q;\ngphase(theta);\nx q[0];", "Invalid QASM3 gphase"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nreset q[0];", "Unsupported QASM gate 'reset'"),
         ] {
             let msg = parse_qasm_str(qasm).unwrap_err();
@@ -447,10 +456,53 @@ mod tests {
     }
 
     #[test]
+    fn qasm3_global_scalar_is_exact_and_bra_conjugates_it() {
+        use crate::rational::{PhaseCoeff, Rational};
+        let source = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit q;\ngphase(pi/2);";
+        let (ops, n) = parse_qasm_str(source).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(ops, vec![QuantumOp::GlobalPhase(Angle::from_qasm_str("pi/2").unwrap())]);
+        let mut ket = PathSum::new(1);
+        ket.set_auto_reduce(false);
+        ops[0].apply(&mut ket, false);
+        assert_eq!(ket.p.constant, PhaseCoeff::new_constant(Rational::QUARTER));
+        let mut bra = PathSum::new(1);
+        bra.set_auto_reduce(false);
+        ops[0].apply(&mut bra, true);
+        assert_eq!(bra.p.constant, PhaseCoeff::new_constant(Rational::THREE_QUARTERS));
+        ops[0].apply(&mut bra, false);
+        assert_eq!(bra.p.constant, PhaseCoeff::ZERO);
+    }
+
+    #[test]
+    fn qasm3_global_scalar_decimal_and_full_period() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let (ops, n) = parse_qasm_str(
+            "OPENQASM 3.0;\nqubit q;\ngphase(1e-12);\ngphase(-1e-12);"
+        ).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(ops.len(), 2);
+        if let QuantumOp::GlobalPhase(theta) = &ops[0] {
+            assert_eq!(theta.radians,
+                Some(BigRational::new(BigInt::from(1), BigInt::from(1_000_000_000_000_i64))));
+        } else { panic!("gphase was not preserved"); }
+        let mut ps = PathSum::new(1);
+        ps.set_auto_reduce(false);
+        for op in &ops { op.apply(&mut ps, false); }
+        assert!(ps.p.constant.is_zero(), "opposite scalar phases must cancel");
+        let (full, _) = parse_qasm_str("OPENQASM 3.0;\nqubit q;\ngphase(2*pi);").unwrap();
+        let mut p2 = PathSum::new(1);
+        p2.set_auto_reduce(false);
+        full[0].apply(&mut p2, false);
+        assert!(p2.p.constant.is_zero(), "2pi scalar must be exact identity");
+    }
+
+    #[test]
     fn qasm3_unsupported_constructs_fail_closed() {
         let prefix = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\n";
         for statement in [
-            "gphase(pi/8);", "bit[1] c;", "c[0] = measure q[0];",
+            "gphase(theta);", "gphase(pi/8) q[0];", "bit[1] c;", "c[0] = measure q[0];",
             "measure q[0];", "reset q[0];", "if (true) x q[0];",
             "ctrl @ x q[0], q[1];", "x q;", "qubit[1] q;",
             "gate custom a { x a; }", "rz(theta) q[0];",

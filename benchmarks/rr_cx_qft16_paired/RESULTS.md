@@ -97,3 +97,25 @@ exact coefficient arithmetic. An entirely new PhasePolynomial container is
   formal PR #131 untouched until that evidence exists.
 
 Markdown-only updates to this report do **not** trigger expensive workflows.
+
+## Incremental Solver-inclusive CodSpeed — 2026-11-03
+
+**Full CI succeeded:** [GitHub Actions 41578375935](https://github.com/PhysicsQoo/QuPRS/actions/runs/41578375935), both jobs PASS, 36/36 benchmark identities. [Official CodSpeed Run 6ae9657e](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6ae9657e381332605c0dbb1d) completed. CodSpeed reports its standard **non-Macro Runner WallTime reliability warning on all 36 identities**.
+
+Source-pinned comparison:
+- Baseline: prior guarded-XOR `1ebe7442d5004a522a915f18e163b1c78da648ab`
+- Exact direct Bra-CX: native-certified source `2c6f68a578bb84dc916a5c871e0bcd9e1f0f6132`
+- Final CI HEAD: `d5ca40348ba9a561a447632ca0fdbf417e8a56d2`. The source guard confirms exactly the same verifier code as the native-certified source; only isolated experiment CI/report files differ.
+- Cases: QFT16 Rust/GPMC, VQE4 Rust/GPMC and VQE4 Python/GPMC drift control. QPE-exact8 is RR-terminating and stays in native RR/semantic admission, never forced to WMC.
+- Same-host three blocks A1–B1–B2–A2 each, five official CodSpeed rounds per position. Full verifier including GPMC subprocess, fixed `rr=1e-10`, `distance=1e-8`, `wmc_phase=1e-8`, `GPMC digits=30`. The CI report verifies all source hashes, Solver invocation, full verdict consistency and records every WMC numerical observation.
+- GitHub run artifact: `rr-cx-solver-inclusive-abba` (CodSpeed export, source/provenance JSONL, arithmetic observations, block report, SHA manifest, dependency freezes).
+
+| Complete Solver-inclusive workload | Block 0 | Block 1 | Block 2 | Median HEAD/Base | Max Base A1/A2 drift |
+|---|---:|---:|---:|---:|---:|
+| QFT16 Rust/GPMC | -1.908% | -1.229% | +0.507% | **-1.229%** | 2.636% |
+| VQE4 Rust/GPMC | -0.553% | +4.090% | -0.351% | **-0.351%** | 3.514% |
+| VQE4 Python/GPMC | +2.831% | +1.184% | +6.167% | **+2.831%** | 6.529% |
+
+Deltas are `100*((B1+B2)/(A1+A2)-1)` from official CodSpeed position medians. **Scientific and Solver stage PASS, native CPU gain previously established; complete end-to-end performance remains INCONCLUSIVE.** QFT16's -1.229% median is below measured 2.636% baseline drift, and Python control shows several-percent variation. No statistically certified end-to-end speedup or regression is asserted.
+
+**Decision: retain exact direct Bra-CX on this isolated experiment branch; do not integrate into formal Draft PR #131 yet.** Additional EQ/NEQ boundary, Python/Rust consistency and release review gates remain. The new CI is scoped to its own workflow/test/reporter/manifest; Markdown changes do not retrigger costly measurement. Earlier failed E2E attempts stopped before Solver because of shallow Git checkout; corrected full-history source guard passed in the final run.

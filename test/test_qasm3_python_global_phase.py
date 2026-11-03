@@ -133,3 +133,20 @@ def test_direct_qasm3_python_rust_verdict_parity(method, suffix, expected):
         )
         actual[backend] = result.equivalent
     assert actual == {"python": expected, "rust": expected}, (suffix, actual)
+
+
+
+def test_qasm3_global_scalar_wmc_only_python_rust_verdict_parity():
+    source = BASE + "gphase(pi/2);\n"
+    actual = {}
+    for backend in ("python", "rust"):
+        result = check_equivalence(
+            BASE, source, backend=backend, method="wmc_only",
+            strategy="Naive", rr_tolerance=0, tool_name="gpmc",
+            phase_tolerance=1e-15,
+            approximate_distance_tolerance=1e-8, timeout=30,
+        )
+        actual[backend] = result.equivalent
+    assert actual == {
+        "python": "equivalent*", "rust": "equivalent*"
+    }, actual

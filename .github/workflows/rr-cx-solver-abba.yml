@@ -43,6 +43,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          # Required to compare the source against the previous native
+          # certified commit; shallow depth=1 makes that SHA unavailable.
+          fetch-depth: 0
           submodules: recursive
           persist-credentials: false
       - uses: actions/checkout@v4

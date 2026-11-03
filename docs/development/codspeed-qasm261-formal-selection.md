@@ -1,5 +1,7 @@
 # Qiskit 2.6.1 Level-0 CodSpeed — multi-round acceptance and formal-case decision
 
+> **Post-merge status (2026-11-03):** PR [#131](https://github.com/PhysicsQoo/QuPRS/pull/131) is **merged into `dev@a4c7b126`**; the final [nine-pair corrected numerical-contract workflow #41598328358](https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358) succeeded with all nine true Solver-inclusive base/HEAD pairs. The original decision and prior 100-round data below are preserved as **historical study observations**, not a pending PR admission request. Their 30/90-digit and older-default differences remain documented. For current admission decisions use [CodSpeed v3 plan](codspeed-v3-plan.md), [nine-pair acceptance](codspeed-solver-coverage-matrix.md), and [six-case follow-up pilot](codspeed-qasm261-coverage-gap-pilot.md).
+
 > **2026-11-03 PRECISION / FAIRNESS ERRATUM:** The retained 100-round CodSpeed
 > numbers below are true historical observations, but the experimental
 > `solver_case.py` did not pass explicit distance/RR/precision kwargs to
@@ -14,7 +16,7 @@
 > does not alter raw historical samples/CV figures.
 
 
-**Decision date:** 2026-11-03. **Status:** science and CodSpeed research gates passed; **formal PR #131 not modified by this decision**. The previous 32/five-shard Simulation and seven paired WallTime identities are preserved.
+**Historical decision date:** 2026-11-03. **At that time:** science and CodSpeed research gates passed; formal PR #131 was not modified by this experiment. **Current status:** PR #131 is now merged as noted above. The previous 32/five-shard Simulation and seven paired WallTime identities are preserved.
 
 ### Source-pinned independent evidence
 
@@ -57,7 +59,7 @@ QFT16-negative's magnitude substantially exceeds its observed A1/A2 drift and pe
 | Standalone Native RR job | 156 s | 20 s CodSpeed (125 s build) |
 | Standalone paired Solver job | 459 s | 213 s CodSpeed (226 s building dev and PR environments) |
 
-**Promotion scope for a future formal PR update:** preserve 32 historical Simulation, five shards, and 7 old paired WallTime source identities. Add **all five new native RR IDs** within the already-installed native-core workflow: coverage is broad, and incremental measurement work is small. Add only **QFT16-negative and QAOA7-negative** as separately-versioned, solver-inclusive base/HEAD cases into the existing paired WallTime workflow, ideally using three routine CodSpeed rounds; retain the four-position, five-round evidence suite as opt-in for investigations. Keep VQE8-positive periodic, QNN4-negative/VQE4-negative opt-in. Do not include Ganak mode 6 QASM261 by default without independent printed-resolution qualification.
+**Historical promotion proposal, subsequently integrated in PR #131:** retain the 32 historical Simulation identities and five shards; add the five new native RR IDs to the existing native-core job and QFT16-negative plus QAOA7-negative as separately versioned pairs to the existing seven paired WallTime cases (now **nine total**). Retain larger four-position/five-round research cohorts as opt-in. VQE8-positive remains periodic; QNN4-negative/VQE4-negative opt-in; Ganak mode 6 QASM261 needs separate printed-resolution qualification. This paragraph is an archival decision record, not an unexecuted PR task.
 
 The 24 extra QASM261 Simulation URIs in a separate 32+24 research experiment are not part of this acceptance: [run #41588474734](https://github.com/PhysicsQoo/QuPRS/actions/runs/41588474734) had 4 of 5 shards succeed, while shard0 failed a reporter expectation; do not describe that experiment as a fully accepted 56-case suite.
 

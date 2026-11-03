@@ -1,0 +1,82 @@
+name: Research / Qiskit 1.x and 2.x source-install gate
+on:
+  push:
+    branches: [research/qoo169-qiskit-dual-major-installer-20261103]
+    paths: ['.github/workflows/qoo169-qiskit-sdist.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-install:
+    name: Sdist / Python 3.12 / Qiskit ${{ matrix.qiskit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.4.6', '2.6.1']
+    env:
+      EXPECTED_QISKIT: ${{ matrix.qiskit }}
+      EXPECTED_SOURCE_SHA: 'b503021d2269755e04bfc1d1295ed8623538b73a'
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo169-sdist-resolver
+      - name: Download previously sealed wheel and sdist; do not rebuild wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: qoo169-built-artifacts
+          path: dist
+          run-id: 41665710296
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify original exact source and content fingerprints
+        run: |
+          set -euo pipefail
+          test "$(cat dist/source-sha.txt)" = "$EXPECTED_SOURCE_SHA"
+          (cd dist && sha256sum -c SHA256SUMS)
+      - name: Native sdist build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+      - name: Truly resolve, build and install sdist with Qiskit dependencies
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          echo "$EXPECTED_SOURCE_SHA" > evidence/source-sha.txt
+          python -m pip install --upgrade pip
+          python -m pip install "qiskit==$EXPECTED_QISKIT" dist/*.tar.gz 2>&1 | tee evidence/sdist-install.log
+          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip freeze > evidence/pip-freeze.txt
+          python - <<'PY' 2>&1 | tee evidence/public-smoke.log
+          import importlib.metadata as md
+          import os
+          from qiskit import QuantumCircuit
+          from QuPRS import check_equivalence
+          assert md.version('qiskit') == os.environ['EXPECTED_QISKIT']
+          qc = QuantumCircuit(1)
+          qc.h(0); qc.h(0)
+          identity = QuantumCircuit(1)
+          for backend in ('python', 'rust'):
+              for method in ('reduction_rules', 'hybrid'):
+                  result = check_equivalence(qc, identity, backend=backend, method=method,
+                                             tool_name='gpmc', timeout=30)
+                  assert result.equivalent == 'equivalent', (backend, method, result)
+                  print(backend, method, result.equivalent)
+          PY
+      - name: Preserve actual resolver / native installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo169-sdist-python312-qiskit${{ matrix.qiskit }}
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14

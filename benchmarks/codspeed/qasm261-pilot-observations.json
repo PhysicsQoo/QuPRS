@@ -1,0 +1,161 @@
+{
+  "schema": "quprs-qasm261-codspeed-pilot-observations-v1",
+  "experiment_branch": "experiment/qoo160-qasm261-codspeed-selection",
+  "sha": "0b192c3549cbc2580f83b892b72c741c6040f02e",
+  "workflow_run_id": 41587178934,
+  "artifact_id": 13208287655,
+  "artifact_sha256": "eb9c109bdc906e66e59acb028effed04ef47f26f1108a9099f86c44f5e0ce514",
+  "instrument": "codspeed-walltime",
+  "runner": "shared-github-hosted-not-macro",
+  "qubits_basis": "new-qiskit-2.6.1-level0",
+  "measurements_per_case": 1,
+  "scientific_precision_proof": false,
+  "performance_comparable_to_historical": false,
+  "every_row_status": "COMPLETED",
+  "eligible_for_independent_oracle_review": true,
+  "positive_negative": {
+    "positive": 11,
+    "negative": 4
+  },
+  "stages": {
+    "RR": 10,
+    "WMC": 5
+  },
+  "rows": [
+    {
+      "id": "q261_ghz32_positive",
+      "measured_walltime_ms": 844.15,
+      "stage": "RR",
+      "verdict": "equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_graphstate16_positive",
+      "measured_walltime_ms": 869.54,
+      "stage": "RR",
+      "verdict": "equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_grover4_positive",
+      "measured_walltime_ms": 806.37,
+      "stage": "RR",
+      "verdict": "equivalent*",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qaoa7_positive",
+      "measured_walltime_ms": 826.04,
+      "stage": "RR",
+      "verdict": "equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qaoa7_negative",
+      "measured_walltime_ms": 840.61,
+      "stage": "WMC",
+      "verdict": "not_equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qft16_positive",
+      "measured_walltime_ms": 821.21,
+      "stage": "RR",
+      "verdict": "equivalent",
+      "rr_approximate": true,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qft16_negative",
+      "measured_walltime_ms": 1354.24,
+      "stage": "WMC",
+      "verdict": "not_equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qnn4_positive",
+      "measured_walltime_ms": 850.29,
+      "stage": "RR",
+      "verdict": "equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qnn4_negative",
+      "measured_walltime_ms": 848.68,
+      "stage": "WMC",
+      "verdict": "not_equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_vqe4_positive",
+      "measured_walltime_ms": 835.85,
+      "stage": "RR",
+      "verdict": "equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_vqe4_negative",
+      "measured_walltime_ms": 828.66,
+      "stage": "WMC",
+      "verdict": "not_equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qpeexact8_positive",
+      "measured_walltime_ms": 812.97,
+      "stage": "RR",
+      "verdict": "equivalent*",
+      "rr_approximate": true,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_wstate4_positive",
+      "measured_walltime_ms": 865.87,
+      "stage": "RR",
+      "verdict": "equivalent*",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_vqe8_positive",
+      "measured_walltime_ms": 1110.69,
+      "stage": "WMC",
+      "verdict": "equivalent",
+      "rr_approximate": false,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    },
+    {
+      "id": "q261_qpeinexact20_positive",
+      "measured_walltime_ms": 816.52,
+      "stage": "RR",
+      "verdict": "equivalent*",
+      "rr_approximate": true,
+      "verdict_status": "COMPLETED",
+      "scientific_pilot_qualification": "ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW"
+    }
+  ]
+}

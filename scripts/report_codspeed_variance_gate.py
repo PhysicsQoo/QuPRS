@@ -11,13 +11,16 @@ import argparse
 import json
 import math
 from pathlib import Path
+from benchmarks.codspeed.case_registry import ALL_WALLTIME_CASE_IDS
+
+DEFAULT_PAIRED_COUNT = len(ALL_WALLTIME_CASE_IDS)
 
 # Only missing or unverified measurement/workload evidence blocks a timing
 # comparison. Runner noise and printed-count precision remain nonblocking
 # interpretation caveats; no statistical regression gate is installed.
 
 
-def produce(report: dict, *, expected_count=9) -> dict:
+def produce(report: dict, *, expected_count=DEFAULT_PAIRED_COUNT) -> dict:
     if not report.get("head_sha") or not report.get("base_sha"):
         raise ValueError("missing verified base/head source SHA")
     cases = report.get("cases")
@@ -149,13 +152,13 @@ def main():
     p.add_argument("--paired-report", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--summary", type=Path)
-    p.add_argument("--expected-count", type=int, default=9)
+    p.add_argument("--expected-count", type=int, default=DEFAULT_PAIRED_COUNT)
     a = p.parse_args()
     report = produce(json.loads(a.paired_report.read_text(encoding="utf-8")), expected_count=a.expected_count)
     a.output.write_text(json.dumps(report, indent=2, sort_keys=True)+"\n", encoding="utf-8")
     rows = [
         "## P5 CodSpeed WallTime observations (no automatic performance gate)",
-        "Source: same runner, nine source-pinned base/HEAD Solver-inclusive WallTime pairs (seven original + two QASM261 negative).",
+        f"Source: same runner, {a.expected_count} source-pinned base/HEAD Solver-inclusive WallTime pairs (seven original Hybrid + two QASM261 Hybrid negative + one QASM261 Rust WMC-only negative).",
         "Median changes show observed direction, not statistical significance; "
         "runner noise is a nonblocking caveat.",
         "Ganak near-equal source cases may retain CONDITIONAL timing deltas "

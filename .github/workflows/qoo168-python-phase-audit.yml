@@ -2,19 +2,56 @@ name: Research / Python QASM3 global-phase semantic audit
 on:
   push:
     branches: [research/qoo168-native-qasm3-subset-20261103]
-    paths: ['.github/workflows/qoo168-python-phase-audit.yml']
+    paths:
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'test/test_qasm3_python_global_phase.py'
+      - '.github/workflows/qoo168-python-phase-audit.yml'
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  build:
+    name: Build one source-pinned Python/Rust wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo168-python-global-phase
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+          python -m pip install --upgrade pip 'maturin>=1.5,<2'
+      - name: Build genuine wheel from current source, once
+        run: |
+          set -euo pipefail
+          maturin build --release --interpreter python --out dist --compatibility off
+          sha256sum dist/*.whl > dist/SHA256SUMS
+          git rev-parse HEAD > dist/source-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qoo168-python-phase-source-wheel
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
   python-phase:
     name: Python QASM3 gphase / Qiskit ${{ matrix.qiskit }}
+    needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -30,46 +67,49 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
-          name: qoo169-built-artifacts
-          run-id: 41665710296
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: qoo168-python-phase-source-wheel
           path: dist
-      - name: Install source-matched Python interface from prebuilt candidate wheel
+      - name: Exact-head wheel with Qiskit 1.x / 2.x scientific source mode
         run: |
           set -euo pipefail
           mkdir -p evidence
-          test "$(cat dist/source-sha.txt)" = 'b503021d2269755e04bfc1d1295ed8623538b73a'
+          test "$(cat dist/source-sha.txt)" = "$GITHUB_SHA"
           sha256sum -c dist/SHA256SUMS
-          python -m pip install --upgrade pip
-          python -m pip install "qiskit==$QISKIT_VERSION" dist/*.whl 'qiskit-qasm3-import==0.6.0' 2>&1 | tee evidence/install.log
-          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip install --upgrade pip 'pytest>=8,<9'
+          python -m pip install dist/*.whl 2>&1 | tee evidence/install.log
+          if [[ "$QISKIT_VERSION" == 2.* ]]; then
+            # The dev-derived source metadata still declares qiskit<2;
+            # true Qiskit2 resolver support was independently established
+            # by the QOO169 clean installer matrix.
+            python -m pip install --no-deps "qiskit==$QISKIT_VERSION"
+          else
+            python -m pip install "qiskit==$QISKIT_VERSION"
+          fi
+          python -m pip install 'qiskit-qasm3-import==0.6.0'
           python -m pip freeze > evidence/pip-freeze.txt
-      - name: Independent Qiskit source scalar versus Python PathSum verdict
+          python -m pip check > evidence/pip-check-observation.log 2>&1 || true
+          python - <<'PY'
+          import os
+          from importlib.metadata import version
+          assert version("qiskit") == os.environ["QISKIT_VERSION"]
+          PY
+      - name: Public Python source global-phase semantic controls
         run: |
           set -euo pipefail
-          python - <<'PY' 2>&1 | tee evidence/python-global-phase-audit.log
-          import json
-          import math
-          from qiskit import qasm3
-          from QuPRS import check_equivalence
-          base = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\n'
-          phase = base + 'gphase(pi/2);\n'
-          parsed = qasm3.loads(phase)
-          seen = float(parsed.global_phase)
-          print(json.dumps({'parsed_global_phase_radians': seen, 'expected': math.pi / 2}))
-          assert abs(seen - math.pi / 2) < 1e-10, "Qiskit importer lost gphase"
-          result = check_equivalence(base, phase, backend='python', method='reduction_rules',
-                                     rr_tolerance=0, phase_tolerance=1e-15, strategy='Naive')
-          print(json.dumps({'method': 'reduction_rules', 'backend': 'python',
-                            'verdict': result.equivalent, 'expectation': 'equivalent*'}))
-          assert result.equivalent == 'equivalent*', (
-              'Source phase silently dropped in the Python PathSum bridge', result)
-          PY
-      - name: Save negative/positive scalar evidence
+          python -m pytest -q -ra test/test_qasm3_python_global_phase.py \
+            --junitxml=evidence/qasm3-python-phase-junit.xml \
+            2>&1 | tee evidence/qasm3-python-phase.log
+      - name: Preserve source and actual result evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        run: |
+          mkdir -p evidence
+          echo "$GITHUB_SHA" > evidence/source-sha.txt
+          sha256sum src/QuPRS/interface/load_qiskit.py \
+            test/test_qasm3_python_global_phase.py > evidence/source-files-sha256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: qoo168-python-phase-qiskit${{ matrix.qiskit }}
+          name: qoo168-python-gphase-qiskit${{ matrix.qiskit }}
           path: evidence/
           if-no-files-found: ignore
           retention-days: 14

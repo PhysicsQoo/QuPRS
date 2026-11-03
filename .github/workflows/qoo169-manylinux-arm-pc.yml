@@ -17,7 +17,7 @@ jobs:
       - name: Reproduce installed header versus missing pkg-config metadata
         run: |
           set -euo pipefail
-          docker run --rm \
+          docker run --rm -i \
             -v "$PWD:/project:ro" -w /project \
             quay.io/pypa/manylinux_2_28_aarch64:2026.01.04-1 /bin/bash -s <<'CONTAINER'
           set -euo pipefail

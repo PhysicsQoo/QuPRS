@@ -16,6 +16,8 @@
         "metric": 2.0669803123364205e-15,
         "metric_kind": "float_projective_operator"
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "original_file": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
       "original_gates": 190,
       "original_sha256": "f64bc99e09b5ac3aebd569505c38bae27beee38c2de5f89b96ecc91e4af7c9d9",
       "qubits": 4,
@@ -30,6 +32,7 @@
           "gates": 249,
           "global_phase": 4.71238898038469,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/grover4-opt0.qasm",
           "qasm2_sha256": "ab338d8c185c841e30a0001293697eeae2f989a10c06effaf09f5584223c5781",
           "serialized": {
             "aligned_frobenius": 4.181197107095887e-15,
@@ -48,6 +51,7 @@
           "gates": 160,
           "global_phase": 1.5707963267948948,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/grover4-opt3.qasm",
           "qasm2_sha256": "b95b3b8378e4a0d736f4dc948f3124017f26936961e025a21b8b801c75cd8b64",
           "serialized": {
             "aligned_frobenius": 2.0349134170563114e-15,
@@ -67,6 +71,8 @@
         "metric": 7.013441274109397e-15,
         "metric_kind": "float_projective_operator"
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "original_file": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
       "original_gates": 319,
       "original_sha256": "814fb55735b75d952b99d0768b9287c623aa3b49bf8742198334a6d9e4403d9d",
       "qubits": 8,
@@ -81,6 +87,7 @@
           "gates": 415,
           "global_phase": 0.0,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qnn8-opt0.qasm",
           "qasm2_sha256": "c72742fe2c085b24e98d6124df51e46be7d04ca327470e1fcf3abdb5c2cde9c2",
           "serialized": {
             "aligned_frobenius": 8.590198363215875e-15,
@@ -99,6 +106,7 @@
           "gates": 239,
           "global_phase": 3.9269908169872427,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qnn8-opt3.qasm",
           "qasm2_sha256": "93d4173ad401bb897ce3b198f4181b3b02101fe07b315c16518ffbc09d0df840",
           "serialized": {
             "aligned_frobenius": 1.7382722257697682e-15,
@@ -118,6 +126,8 @@
         "metric": 1.1791855949116897e-15,
         "metric_kind": "float_projective_operator"
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "original_file": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
       "original_gates": 192,
       "original_sha256": "ce85b852f0b5918d0e067967a500003934867879a428242aa54dc16c0bf53703",
       "qubits": 8,
@@ -132,6 +142,7 @@
           "gates": 221,
           "global_phase": 4.71238898038469,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qpeinexact8-opt0.qasm",
           "qasm2_sha256": "a5f7e852cf8a2e1db19f55716dab201bc1d95f83ae0ea3ac80b7d80e666f58f8",
           "serialized": {
             "aligned_frobenius": 2.3703249846165893e-15,
@@ -150,6 +161,7 @@
           "gates": 150,
           "global_phase": 1.5707963267948966,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qpeinexact8-opt3.qasm",
           "qasm2_sha256": "537a295506f893b0a72f9c55db4011cb36572443157e8519115040ec9cffe633",
           "serialized": {
             "aligned_frobenius": 1.1634384537625817e-15,
@@ -180,6 +192,8 @@
           }
         ]
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "original_file": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
       "original_gates": 171,
       "original_sha256": "870bb0c73f92406927676c80dc5dfb2b52b3df24f4082289ced293705df50502",
       "qubits": 9,
@@ -205,6 +219,7 @@
           "gates": 261,
           "global_phase": 0.0,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qaoa9-opt0.qasm",
           "qasm2_sha256": "d4019dee0a0de8f660c5abe253b2356424e7a6a51bb1eea14a7f634f36e30914",
           "serialized": {
             "metric": 8.108069672893581e-15,
@@ -245,6 +260,7 @@
           "gates": 173,
           "global_phase": 4.712388980384683,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qaoa9-opt3.qasm",
           "qasm2_sha256": "cf05b12b80712cd85d527f15c2101e6f0a87e0965b4736c4a6ca94dcc318820c",
           "serialized": {
             "metric": 3.4416193845465673e-15,
@@ -286,6 +302,8 @@
           }
         ]
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "original_file": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm",
       "original_gates": 672,
       "original_sha256": "39b6889497a4e98098b6bb2b4563ace2fb660f4cc3fe8d0763d3f69fc200d865",
       "qubits": 16,
@@ -311,6 +329,7 @@
           "gates": 704,
           "global_phase": 0.0,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qft16-opt0.qasm",
           "qasm2_sha256": "4d491b99a17106ded6b0f59b12e08be692d9eaf09501cda31955909ad479005b",
           "serialized": {
             "metric": 3.1617963762049895e-15,
@@ -351,6 +370,7 @@
           "gates": 532,
           "global_phase": 0.0,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qft16-opt3.qasm",
           "qasm2_sha256": "be280d3b046004621158a8b11159b1883a8bebc6943da1c047f0bbf48ab01914",
           "serialized": {
             "metric": 2.3968449809844704e-05,
@@ -392,6 +412,8 @@
           }
         ]
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "original_file": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
       "original_gates": 270,
       "original_sha256": "e07da062ab05cbbf38828e7dfa4b1617f6e2a755f955307e3e2f6c979f0697a5",
       "qubits": 16,
@@ -417,6 +439,7 @@
           "gates": 462,
           "global_phase": 0.0,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/vqe16-opt0.qasm",
           "qasm2_sha256": "01b74bbfa3d54c7aa39e24192957dcd20a1f798a65a2a52337050fc987ddb510",
           "serialized": {
             "metric": 1.7407446087820484e-14,
@@ -457,6 +480,7 @@
           "gates": 158,
           "global_phase": 3.141592653589925,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/vqe16-opt3.qasm",
           "qasm2_sha256": "56e08836985d31be9512d5f97d2483d6cae5eb070ba80071be0f9f85a749bd5e",
           "serialized": {
             "metric": 2.212814337574621e-15,
@@ -498,6 +522,8 @@
           }
         ]
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "original_file": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_20.qasm",
       "original_gates": 1040,
       "original_sha256": "a80541cefa7de60ad0c49bf3277edbd2f9cacecdef186114c14f75a11f88bfb9",
       "qubits": 20,
@@ -523,6 +549,7 @@
           "gates": 1080,
           "global_phase": 0.0,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qft20-opt0.qasm",
           "qasm2_sha256": "a63e27169ad2e042bcf08d3d6c39a9f55e113ff898246bcc99fc019f66610cee",
           "serialized": {
             "metric": 3.5070262803739627e-15,
@@ -563,6 +590,7 @@
           "gates": 774,
           "global_phase": 0.0,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qft20-opt3.qasm",
           "qasm2_sha256": "b46c31f7eff16dd16774015b3deaaf201d05ac763c39f65ef3d5bae1f1112884",
           "serialized": {
             "metric": 8.833286339413054e-05,
@@ -604,6 +632,8 @@
           }
         ]
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "original_file": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_22.qasm",
       "original_gates": 1254,
       "original_sha256": "5d082b45c74ef9d075d657314e33864adc00928f2737b458d2743b2333fd8a54",
       "qubits": 22,
@@ -629,6 +659,7 @@
           "gates": 1298,
           "global_phase": 0.0,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qft22-opt0.qasm",
           "qasm2_sha256": "30bde477b2aaf8d797a62adef14a54d1b8017f884fe1fa3aa75bc3aa75a8985e",
           "serialized": {
             "metric": 3.975202017729967e-15,
@@ -669,6 +700,7 @@
           "gates": 895,
           "global_phase": 0.0,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qft22-opt3.qasm",
           "qasm2_sha256": "49ab182ed4b77d5a83b7f32aeab1d8d75176b58817b7d50e089dfe604dbb37c0",
           "serialized": {
             "metric": 0.00011007194151743034,
@@ -710,6 +742,8 @@
           }
         ]
       },
+      "historical_transpiled_file": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "original_file": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
       "original_gates": 1092,
       "original_sha256": "c90b5aa8a03d84bcdee505f167b69a93eb17c063ce5cb4916145c7a2296a2831",
       "qubits": 20,
@@ -735,6 +769,7 @@
           "gates": 1169,
           "global_phase": 4.71238898038469,
           "level": 0,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qpeexact20-opt0.qasm",
           "qasm2_sha256": "393e48697781c50d90524d8e6d92b0b4c8c2cc4d141d1975204c6f165fc8e6ed",
           "serialized": {
             "metric": 6.8405457824602326e-15,
@@ -775,6 +810,7 @@
           "gates": 826,
           "global_phase": 5.497787143782139,
           "level": 3,
+          "qasm2_file": "generated-qasm/qiskit-2.6.1/qpeexact20-opt3.qasm",
           "qasm2_sha256": "c9a4fcf4479881b6f82a767c527e6d32ef9ea5bbbc77333ff13b04756cc2457f",
           "serialized": {
             "metric": 7.514070784045552e-05,
@@ -797,7 +833,16 @@
       ]
     }
   ],
+  "github_run_id": "41556086634",
+  "github_source_sha": "4c1cc5000fb5e53d0235dde52cf75af04a4a0086",
   "historical_transpile_configuration": "NOT_DOCUMENTED_OR_ASSUMED",
+  "installed_dependencies": {
+    "numpy": "2.2.6",
+    "qiskit": "2.6.1",
+    "rustworkx": "0.18.1",
+    "scipy": "1.18.1",
+    "sympy": null
+  },
   "levels": [
     0,
     3
@@ -805,8 +850,11 @@
   "numerical_certified": false,
   "numpy_version": "2.2.6",
   "performance_certified": false,
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+  "python_version": "3.12.15",
   "qiskit_version": "2.6.1",
-  "schema": "tacas26-qiskit-version-fidelity-v1",
+  "runner_architecture": "x86_64",
+  "schema": "tacas26-qiskit-version-fidelity-v2",
   "seed": 42,
   "source_sha": "b50bd86bb134d04593bab25cd758cfa1c5df9260"
 }

@@ -1,0 +1,142 @@
+name: QuPRS PR131 Qiskit 1.x versus 2.x Runtime Dependency Audit
+on:
+  push:
+    branches: [experiment/tacas26-paper-reproduction]
+    paths: ['.github/workflows/qiskit-pr131-runtime-compat.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  matrix:
+    name: QuPRS Qiskit ${{ matrix.qiskit }} API/QASM compatibility
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.4.2','2.6.1']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build unchanged QuPRS with declared 1.4.2 dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/qiskit-runtime"
+          echo "$RUNNER_TEMP/qiskit-runtime/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/qiskit-runtime" >> "$GITHUB_ENV"
+          source "$RUNNER_TEMP/qiskit-runtime/bin/activate"
+          python -m pip install 'maturin>=1.5,<2' 'numpy==1.26.4' 'qiskit==1.4.2' 'qiskit-qasm3-import==0.6.0'
+          maturin develop --release
+          python - <<'PY'
+          import qiskit, numpy
+          assert qiskit.__version__=='1.4.2'
+          assert numpy.__version__=='1.26.4'
+          PY
+      - name: Isolated 2.6.1 Qiskit runtime override (not production supported)
+        if: matrix.qiskit == '2.6.1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-deps 'qiskit==2.6.1'
+          python -c 'import qiskit; assert qiskit.__version__=="2.6.1"'
+      - name: Probe Python and Rust RR, QASM2/QASM3, parameter, utility APIs
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/compat"
+          python -m compileall -q .diagnostics/qiskit_compatibility/pr131_runtime_probe.py
+          python .diagnostics/qiskit_compatibility/pr131_runtime_probe.py \
+            --qiskit '${{ matrix.qiskit }}' --output "$RUNNER_TEMP/compat/observations.json"
+      - name: Preserve successful and failed observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiskit-pr131-runtime-${{ matrix.qiskit }}
+          path: ${{ runner.temp }}/compat/
+          retention-days: 30
+          if-no-files-found: warn
+  aggregate:
+    name: Persist Qiskit 1.x/2.x current-head audit
+    if: always()
+    needs: [matrix]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qiskit-pr131-runtime-*
+          path: ${{ runner.temp }}/qiskit-probe
+      - name: Compare both Qiskit environments without changing semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/merged"
+          cp "$RUNNER_TEMP/qiskit-probe/qiskit-pr131-runtime-1.4.2/observations.json" "$RUNNER_TEMP/merged/qiskit-1.4.2.json"
+          cp "$RUNNER_TEMP/qiskit-probe/qiskit-pr131-runtime-2.6.1/observations.json" "$RUNNER_TEMP/merged/qiskit-2.6.1.json"
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"merged"
+          a=json.loads((root/"qiskit-1.4.2.json").read_text())
+          b=json.loads((root/"qiskit-2.6.1.json").read_text())
+          assert a["qiskit_actual"]=="1.4.2" and b["qiskit_actual"]=="2.6.1"
+          summary={
+              "schema":"quprs-pr131-qiskit2-compat-aggregate-v1",
+              "run_id":os.environ["GITHUB_RUN_ID"],
+              "source_sha":os.environ["GITHUB_SHA"],
+              "production_pyproject_unchanged":True,
+              "qiskit2_metadata_mismatch_expected":True,
+              "per_version":{
+                  k:{"api_checks":len(v["diagnostics"]),
+                     "failures":v["blocking_failures"],
+                     "pip_check_exit":v["pip_check_exit"],
+                     "results":{n:d["status"] for n,d in v["diagnostics"].items()}}
+                  for k,v in (("1.4.2",a),("2.6.1",b))
+              },
+              "performance":"NOT_MEASURED",
+              "solvers":"NOT_RUN",
+              "evidence_sha256":{
+                  name:hashlib.sha256((root/name).read_bytes()).hexdigest()
+                  for name in ("qiskit-1.4.2.json","qiskit-2.6.1.json")
+              },
+          }
+          (root/"summary.json").write_text(json.dumps(summary,indent=2,sort_keys=True)+"\n")
+          print("QISKIT_PR131_COMPAT_SUMMARY",json.dumps(summary["per_version"]))
+          PY
+      - name: Archive small diagnostic evidence only to isolated experiment branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin experiment/tacas26-paper-reproduction
+          git rebase origin/experiment/tacas26-paper-reproduction
+          folder="docs/development/qiskit2-pr131-compat/runs/$GITHUB_RUN_ID"
+          mkdir -p "$folder"
+          cp "$RUNNER_TEMP/merged/"* "$folder/"
+          git add "$folder"
+          git diff --cached --check
+          git commit -m "research(qiskit2): archive PR131-compatible Qiskit 1.4.2/2.6.1 diagnostics run $GITHUB_RUN_ID"
+          git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qiskit-pr131-runtime-aggregate
+          path: ${{ runner.temp }}/merged/
+          retention-days: 30
+          if-no-files-found: warn

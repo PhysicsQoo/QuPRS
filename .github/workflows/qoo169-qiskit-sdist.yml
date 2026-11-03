@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(cat dist/source-sha.txt)" = "$EXPECTED_SOURCE_SHA"
-          (cd dist && sha256sum -c SHA256SUMS)
+          sha256sum -c dist/SHA256SUMS
       - name: Native sdist build prerequisites
         run: |
           sudo apt-get update

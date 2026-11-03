@@ -1,0 +1,105 @@
+name: TACAS26 Qiskit 1.4.2 versus 2.6.1 Transpiler Fidelity
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/tacas26-qiskit-transpiler-fidelity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tacas26-qiskit-142-261-fidelity
+  cancel-in-progress: false
+
+jobs:
+  versions:
+    name: Qiskit ${{ matrix.qiskit }} scientific fidelity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.4.2', '2.6.1']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/tacas26-paper-reproduction
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install one exact Qiskit version in isolated environment
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'numpy==2.2.6' 'qiskit==${{ matrix.qiskit }}'
+          python -c 'import qiskit; assert qiskit.__version__ == "${{ matrix.qiskit }}"'
+      - name: Evaluate same pinned source QASMs, fixed basis and optimization
+        run: |
+          set -euo pipefail
+          python scripts/tacas26_qiskit_version_fidelity.py run \
+            --version '${{ matrix.qiskit }}' \
+            --output 'qiskit-evidence/qiskit${{ matrix.qiskit }}.json'
+      - name: Archive per-version observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiskit-fidelity-${{ matrix.qiskit }}
+          path: qiskit-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  compare:
+    name: Same-QASM source-pinned cross-version comparison
+    needs: versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/tacas26-paper-reproduction
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qiskit-fidelity-*
+          path: qiskit-evidence
+          merge-multiple: true
+      - name: Scientifically compare two exact versions
+        run: |
+          set -euo pipefail
+          python scripts/tacas26_qiskit_version_fidelity.py aggregate \
+            --old qiskit-evidence/qiskit1.4.2.json \
+            --new qiskit-evidence/qiskit2.6.1.json \
+            --output docs/development/tacas26-qiskit-version-fidelity
+          cp qiskit-evidence/qiskit1.4.2.json \
+            docs/development/tacas26-qiskit-version-fidelity/qiskit142.json
+          cp qiskit-evidence/qiskit2.6.1.json \
+            docs/development/tacas26-qiskit-version-fidelity/qiskit261.json
+          git diff --check
+      - name: Commit complete scientific evidence to existing experiment branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/development/tacas26-qiskit-version-fidelity/
+          if git diff --cached --quiet; then
+            echo "Evidence already committed."
+          else
+            git commit -m "research(tacas): archive Qiskit 1.4.2 and 2.6.1 original-QASM fidelity comparison"
+            git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+          fi
+      - name: Archive combined comparison as CI artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiskit-142-vs-261-fidelity-comparison
+          path: docs/development/tacas26-qiskit-version-fidelity/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,16 @@
+# Research-only, independent from QuPRS shipping dependencies and legacy CodSpeed IDs.
+[package]
+name = "quprs-codspeed-qasm261"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+pathsum = { path = "../../rust/pathsum" }
+divan = { package = "codspeed-divan-compat", version = "=6.0.0" }
+
+[workspace]
+
+[[bench]]
+name = "native_rr"
+harness = false

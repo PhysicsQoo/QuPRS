@@ -1,0 +1,207 @@
+name: QOO160 QASM261 Native RR + Paired Solver CodSpeed (research)
+
+on:
+  push:
+    branches: ['experiment/qoo160-qasm261-codspeed-selection']
+    paths:
+      - 'benchmarks/rust_qasm261/**'
+      - 'benchmarks/codspeed/qasm261_paired_cases.py'
+      - 'benchmarks/codspeed/test_qasm261_solver_pair.py'
+      - 'benchmarks/MQTBench/qiskit-2.6.1-opt0/**'
+      - 'scripts/report_codspeed_qasm261_paired.py'
+      - 'test/test_qasm261_comparison.py'
+      - '.github/workflows/qoo160-qasm261-comparison.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: qoo160-native-walltime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-report-gate:
+    name: QASM261 exact source and paired-report contract (no Solver)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      FIXTURE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify unchanged QASM and 20 candidate URI shape
+        run: |
+          test "$(git rev-parse HEAD)" = "$FIXTURE_SHA"
+          python -m scripts.audit_codspeed_qasm_variants
+          python -m pytest test/test_qasm261_comparison.py -q
+
+  qasm261-native-rr:
+    name: Source-pinned QASM261 native Rust RR CPU Simulation
+    needs: [source-and-report-gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      FIXTURE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build separate native RR bench, compiled QASM outside timed span
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FIXTURE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo install --locked --version 6.0.0 cargo-codspeed
+          cd benchmarks/rust_qasm261
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          cargo codspeed build
+      - name: CodSpeed native QASM261 RR CPU Simulation
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'false'
+          run: cd benchmarks/rust_qasm261 && cargo codspeed run
+      - name: Save source and executable identity evidence
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          names=("ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+                 "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+                 "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+                 "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+                 "vqe_nativegates_ibm_qiskit_opt0_4.qasm")
+          root=Path("benchmarks/MQTBench")
+          evidence={name:{
+            "source_sha256":hashlib.sha256((root/name).read_bytes()).hexdigest(),
+            "level0_sha256":hashlib.sha256(
+                (root/"qiskit-2.6.1-opt0"/"h,ry,rz,cx"/name).read_bytes()
+            ).hexdigest()
+          } for name in names}
+          data={"schema":"qasm261-native-rr-codspeed-source-v1",
+                "fixture_sha":os.environ["FIXTURE_SHA"],
+                "tool":"cargo-codspeed 6.0.0 / CodSpeed CPU Simulation",
+                "scope":"pure native Rust RR-only; QASM parsed before measured code",
+                "legacy_ids_changed":False,"source_pairs":evidence}
+          Path(os.environ["RUNNER_TEMP"],"qasm261-native-source.json").write_text(
+              json.dumps(data,sort_keys=True,indent=2)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo160-qasm261-native-rr-source
+          path: |
+            ${{ runner.temp }}/qasm261-native-source.json
+            benchmarks/rust_qasm261/Cargo.lock
+          if-no-files-found: warn
+          retention-days: 14
+
+  qasm261-solver-paired:
+    name: QASM261 5-case 4-position multi-round Solver-inclusive CodSpeed
+    needs: [source-and-report-gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      FIXTURE_SHA: ${{ github.sha }}
+      BASE_SHA: 2dd451edeaab4e7c80ea19203e36cc22f3548d85
+      HEAD_SHA: 07d5c8d0d688f0c3d66d9e83cb44be119f56a498
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/qasm261-paired-codspeed.json
+    steps:
+      - name: Checkout source-pinned experiment harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: false
+          persist-credentials: false
+      - name: Checkout exact dev base on same runner
+        uses: actions/checkout@v4
+        with:
+          ref: 2dd451edeaab4e7c80ea19203e36cc22f3548d85
+          submodules: recursive
+          persist-credentials: false
+          path: qasm261-dev-base
+      - name: Checkout exact PR131 head on same runner
+        uses: actions/checkout@v4
+        with:
+          ref: 07d5c8d0d688f0c3d66d9e83cb44be119f56a498
+          submodules: recursive
+          persist-credentials: false
+          path: qasm261-pr-head
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build independent exact-SHA verifier installations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FIXTURE_SHA"
+          test "$(git -C qasm261-dev-base rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C qasm261-pr-head rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for rev in base head; do
+            if [ "$rev" = base ]; then root="$GITHUB_WORKSPACE/qasm261-dev-base"; else root="$GITHUB_WORKSPACE/qasm261-pr-head"; fi
+            venv="$RUNNER_TEMP/qasm261-$rev"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev)
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/qasm261-$rev-freeze.txt"
+          done
+          "$RUNNER_TEMP/qasm261-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.4
+          "$RUNNER_TEMP/qasm261-head/bin/python" -m pytest benchmarks/codspeed/test_qasm261_solver_pair.py --collect-only -q
+          {
+            echo "## QASM261 paired provenance"
+            echo "- Source experiment fixtures: $FIXTURE_SHA"
+            echo "- dev/base: $BASE_SHA"
+            echo "- PR/head: $HEAD_SHA"
+            echo "- base GPMC: $(git -C qasm261-dev-base rev-parse HEAD:GPMC)"
+            echo "- head GPMC: $(git -C qasm261-pr-head rev-parse HEAD:GPMC)"
+            echo "- Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: CodSpeed ABBA full-request WallTime (5 cases, up to 5 rounds each)
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/qasm261-head/bin/python -m pytest benchmarks/codspeed/test_qasm261_solver_pair.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=90
+      - name: Report source/stage/round/CV/A-A drift without fixed thresholds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.report_codspeed_qasm261_paired \
+            --measurements "$QUPRS_CODSPEED_EXPORT" \
+            --provenance "$RUNNER_TEMP/qasm261-paired-provenance.jsonl" \
+            --audit benchmarks/codspeed/qasm_variant_audit.json \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --fixture-sha "$FIXTURE_SHA" \
+            --report "$RUNNER_TEMP/qasm261-paired-report.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo160-qasm261-paired-walltime-evidence
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/qasm261-paired-provenance.jsonl
+            ${{ runner.temp }}/qasm261-paired-report.json
+            ${{ runner.temp }}/qasm261-base-freeze.txt
+            ${{ runner.temp }}/qasm261-head-freeze.txt
+          if-no-files-found: warn
+          retention-days: 14

@@ -96,7 +96,7 @@ def pqc_generator(
         if isinstance(n_local, type):
             cir = n_local(
                 qubit_num,
-                rotation_blocks=[standard_gates.RYGate()],
+                rotation_blocks=[standard_gates.RYGate(Parameter("θ"))],
                 entanglement_blocks=standard_gates.CXGate(),
                 reps=reps,
             )

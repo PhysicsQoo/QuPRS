@@ -1,0 +1,1033 @@
+{
+  "compiler": {
+    "approximation_degree": 1.0,
+    "basis": [
+      "h",
+      "ry",
+      "rz",
+      "cx"
+    ],
+    "input_process": "remove_final_measurements_only",
+    "optimization_level": 0,
+    "output_format": "OPENQASM_2",
+    "seed_transpiler": 42
+  },
+  "dependencies": {
+    "numpy": "2.2.6",
+    "qiskit": "2.6.1",
+    "rustworkx": "0.18.1",
+    "scipy": "1.18.1",
+    "sympy": null
+  },
+  "files": [
+    {
+      "file": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "generated_bytes": 2187,
+      "generated_depth": 132,
+      "generated_gates": 132,
+      "generated_operation_counts": {
+        "cx": 127,
+        "h": 2,
+        "rz": 3
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "generated_sha256": "5e6296f8dd6f7b90f991067a5a709ddf2176293a80bc9348cd41367dcf047f17",
+      "global_phase_float": 0.0,
+      "num_qubits": 128,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 2240,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "137d71ec02fcaa6ee69d73aa28f93758ab1d36ef",
+      "source_instructions": 130,
+      "source_path": "benchmarks/MQTBench/ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "source_sha256": "345e217b8199c324d92e655a7282d810bd0620039ce59aaf6275575f0c4fd40c"
+    },
+    {
+      "file": "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "generated_bytes": 590,
+      "generated_depth": 36,
+      "generated_gates": 36,
+      "generated_operation_counts": {
+        "cx": 31,
+        "h": 2,
+        "rz": 3
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "generated_sha256": "a1118619e1bb10387c83254c1ef42a10cfe2295e87b23f36c17aac98c75a6dab",
+      "global_phase_float": 0.0,
+      "num_qubits": 32,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 645,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "07c16aaefc4b33750e86a73a0cf276fafe59f8cd",
+      "source_instructions": 34,
+      "source_path": "benchmarks/MQTBench/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "source_sha256": "2e8196ef11f31d8bff5a9bbd08780c585521ca40a9f80930ccd606c32311d1c3"
+    },
+    {
+      "file": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "generated_bytes": 1102,
+      "generated_depth": 68,
+      "generated_gates": 68,
+      "generated_operation_counts": {
+        "cx": 63,
+        "h": 2,
+        "rz": 3
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "generated_sha256": "5655c49ac4ac5ba18a0160fdb5b32c803241b2abaf116d3d6894761fad0b7372",
+      "global_phase_float": 0.0,
+      "num_qubits": 64,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 1157,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "85cdcd6812a26459c896030cc3486b2249eb4db8",
+      "source_instructions": 66,
+      "source_path": "benchmarks/MQTBench/ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "source_sha256": "04d5dec48eb3390fb94e810f83f48572509de9d6f8df77ec3ca6473cf65653a4"
+    },
+    {
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_bytes": 3331,
+      "generated_depth": 45,
+      "generated_gates": 256,
+      "generated_operation_counts": {
+        "cx": 16,
+        "h": 96,
+        "rz": 144
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_sha256": "6f6b5643387b8ba54bb869244560b364411104d2735af13ca23bd1e294677ca4",
+      "global_phase_float": 0.0,
+      "num_qubits": 16,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 2682,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "ab34308febb31ea9a49e9761a988aad7017f3487",
+      "source_instructions": 160,
+      "source_path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "source_sha256": "cf068868f970e553ac9a8fb4998c7c2a6a2e3e6e7a437e3a636f477e34682e36"
+    },
+    {
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "generated_bytes": 6775,
+      "generated_depth": 51,
+      "generated_gates": 512,
+      "generated_operation_counts": {
+        "cx": 32,
+        "h": 192,
+        "rz": 288
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "generated_sha256": "644416e4ff2387642b9843697d224ff78e80b04adebacdfaf8f959546f20eea6",
+      "global_phase_float": 0.0,
+      "num_qubits": 32,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 5350,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "4c0f3a339f1624a33455595830cfbc27f7b31a72",
+      "source_instructions": 320,
+      "source_path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "source_sha256": "34a670c77f7b8ba0ffa7290f5ec349936f87ab02c5482fcabd6e03c8cb281aea"
+    },
+    {
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "generated_bytes": 13613,
+      "generated_depth": 45,
+      "generated_gates": 1024,
+      "generated_operation_counts": {
+        "cx": 64,
+        "h": 384,
+        "rz": 576
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "generated_sha256": "fdcc784a675a859c6ddf4d1139dbc69a88601fb78b2f5158dcafb21c66ef9f1a",
+      "global_phase_float": 0.0,
+      "num_qubits": 64,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 10656,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "14246fa37530dc83ce6d7da83291d44a6b1bc946",
+      "source_instructions": 640,
+      "source_path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "source_sha256": "a6eb00805919afe0b0970bf67aa6e7ad275d37e491133aa380d11647750e54db"
+    },
+    {
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_bytes": 3569,
+      "generated_depth": 149,
+      "generated_gates": 249,
+      "generated_operation_counts": {
+        "cx": 52,
+        "h": 46,
+        "ry": 13,
+        "rz": 138
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_sha256": "ab338d8c185c841e30a0001293697eeae2f989a10c06effaf09f5584223c5781",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 4,
+      "science_diagnostic": {
+        "metric": 4.181197107095887e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 3081,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "0babf2aa735c17cf1e201baeea2874fe3c3ffcf8",
+      "source_instructions": 190,
+      "source_path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "source_sha256": "f64bc99e09b5ac3aebd569505c38bae27beee38c2de5f89b96ecc91e4af7c9d9"
+    },
+    {
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "generated_bytes": 9054,
+      "generated_depth": 377,
+      "generated_gates": 604,
+      "generated_operation_counts": {
+        "cx": 174,
+        "h": 80,
+        "ry": 25,
+        "rz": 325
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "generated_sha256": "0eadddc840a5afc07bca37e792a03989c693fca40066ffde1a569eb4daaff37f",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 5,
+      "science_diagnostic": {
+        "metric": 8.023460444756065e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 8112,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "0bb566ed3fa41b07a106c2c40f25dd4a817fb18d",
+      "source_instructions": 499,
+      "source_path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "source_sha256": "cfb6249443b1f5adede131d0b618285ea5d469d0e2b54c6129301b6830d2b0a3"
+    },
+    {
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "generated_bytes": 28297,
+      "generated_depth": 1345,
+      "generated_gates": 1923,
+      "generated_operation_counts": {
+        "cx": 512,
+        "h": 314,
+        "ry": 41,
+        "rz": 1056
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "generated_sha256": "5bdf1ef9bcef0af9535ae685888300539cf28e0bd7ed5ee311fcbad7941cfc43",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 6,
+      "science_diagnostic": {
+        "metric": 3.01168701725502e-14,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 25429,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "fe7a801a1d2966b6c5a9de509212f95fab1c78fa",
+      "source_instructions": 1568,
+      "source_path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "source_sha256": "eaaeb3dd38e0f9020b38bcfc9d3987d48f564728d370d18b3afe11b2ecd044a7"
+    },
+    {
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "generated_bytes": 4713,
+      "generated_depth": 41,
+      "generated_gates": 319,
+      "generated_operation_counts": {
+        "cx": 44,
+        "h": 110,
+        "rz": 165
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "generated_sha256": "9380d7741e3cf611d13b97906c6e2c640777fb0b3f3d06a90c7cc6826eb23fa4",
+      "global_phase_float": 0.0,
+      "num_qubits": 11,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 4004,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "2bb62b0695c877a8a2a670bd8c26c96aef17b35b",
+      "source_instructions": 209,
+      "source_path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "source_sha256": "ab6e4f800de4405f482461c3c6d32f31ee85d1599bce45a57b70414a6974db9a"
+    },
+    {
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "generated_bytes": 3000,
+      "generated_depth": 41,
+      "generated_gates": 203,
+      "generated_operation_counts": {
+        "cx": 28,
+        "h": 70,
+        "rz": 105
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "generated_sha256": "5b2d23a05302fc9a1deef4c937f68d29bbbf9a3c48edda05b0c0321b800b890d",
+      "global_phase_float": 0.0,
+      "num_qubits": 7,
+      "science_diagnostic": {
+        "metric": 6.213641066591759e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 2581,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "4c314c32caef3d2577d7efe849635bcbc2b2335f",
+      "source_instructions": 133,
+      "source_path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "source_sha256": "1e54b95b2caa399f8f5c49b17a9868c4baf730ab1194d85dca3733cec92a5b5e"
+    },
+    {
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "generated_bytes": 3853,
+      "generated_depth": 41,
+      "generated_gates": 261,
+      "generated_operation_counts": {
+        "cx": 36,
+        "h": 90,
+        "rz": 135
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "generated_sha256": "d4019dee0a0de8f660c5abe253b2356424e7a6a51bb1eea14a7f634f36e30914",
+      "global_phase_float": 0.0,
+      "num_qubits": 9,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 3294,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "654a0e2e4956bd15ee6765fbf3d29a7181ecd623",
+      "source_instructions": 171,
+      "source_path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "source_sha256": "870bb0c73f92406927676c80dc5dfb2b52b3df24f4082289ced293705df50502"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_bytes": 13359,
+      "generated_depth": 158,
+      "generated_gates": 704,
+      "generated_operation_counts": {
+        "cx": 264,
+        "h": 32,
+        "rz": 408
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_sha256": "4d491b99a17106ded6b0f59b12e08be692d9eaf09501cda31955909ad479005b",
+      "global_phase_float": 0.0,
+      "num_qubits": 16,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 10947,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "398b32262259af75fcf44ab711b77281818d0cc7",
+      "source_instructions": 672,
+      "source_path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "source_sha256": "39b6889497a4e98098b6bb2b4563ace2fb660f4cc3fe8d0763d3f69fc200d865"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "generated_bytes": 21800,
+      "generated_depth": 198,
+      "generated_gates": 1080,
+      "generated_operation_counts": {
+        "cx": 410,
+        "h": 40,
+        "rz": 630
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "generated_sha256": "a63e27169ad2e042bcf08d3d6c39a9f55e113ff898246bcc99fc019f66610cee",
+      "global_phase_float": 0.0,
+      "num_qubits": 20,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 17302,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "828c42db83d043772e9feeabe2360d490ee20a98",
+      "source_instructions": 1040,
+      "source_path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "source_sha256": "a80541cefa7de60ad0c49bf3277edbd2f9cacecdef186114c14f75a11f88bfb9"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "generated_bytes": 26820,
+      "generated_depth": 218,
+      "generated_gates": 1298,
+      "generated_operation_counts": {
+        "cx": 495,
+        "h": 44,
+        "rz": 759
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "generated_sha256": "30bde477b2aaf8d797a62adef14a54d1b8017f884fe1fa3aa75bc3aa75a8985e",
+      "global_phase_float": 0.0,
+      "num_qubits": 22,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 21069,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "7566e9c039a50aa291f845e6770c8443c01decfb",
+      "source_instructions": 1254,
+      "source_path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "source_sha256": "5d082b45c74ef9d075d657314e33864adc00928f2737b458d2743b2333fd8a54"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "generated_bytes": 32377,
+      "generated_depth": 238,
+      "generated_gates": 1536,
+      "generated_operation_counts": {
+        "cx": 588,
+        "h": 48,
+        "rz": 900
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "generated_sha256": "cbc3d55e6d66769d9dac788e97c6386d7bf524f47c672def463ac3d278fa0221",
+      "global_phase_float": 0.0,
+      "num_qubits": 24,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 25235,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "0203ce377f63ed2f19e2c6fb9c8c1e9608370d87",
+      "source_instructions": 1488,
+      "source_path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "source_sha256": "9294728f34d8c0eecddf57af543dce9f9db8e64d037f7982e636ece0bf0d7a99"
+    },
+    {
+      "file": "qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "generated_bytes": 12406,
+      "generated_depth": 140,
+      "generated_gates": 767,
+      "generated_operation_counts": {
+        "cx": 275,
+        "h": 144,
+        "rz": 348
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "generated_sha256": "336d9a7875ee1c5bbba5a0023dfe16458272196cfd865067423ff9b64d4fbc2c",
+      "global_phase_float": 0.0,
+      "num_qubits": 12,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 11445,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "ab7002b656a38ca32b9a5f0402f316cbcb98ee9d",
+      "source_instructions": 623,
+      "source_path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "source_sha256": "fd903500b07a063d664b23327fd7702339a0d1057cfbf2ac15e7d47c438863dd"
+    },
+    {
+      "file": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_bytes": 2298,
+      "generated_depth": 60,
+      "generated_gates": 159,
+      "generated_operation_counts": {
+        "cx": 27,
+        "h": 48,
+        "rz": 84
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_sha256": "386c6242be9cc398a461559db3f33401cbfcc0ec57379b8f92862292e4135752",
+      "global_phase_float": 0.0,
+      "num_qubits": 4,
+      "science_diagnostic": {
+        "metric": 4.127173860332481e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 2033,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "0a0997353a8cb5cbdac9e574e42a36015a8037db",
+      "source_instructions": 111,
+      "source_path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "source_sha256": "f76af749135c82f3f4fe8c72fc217e6db63d0421637aecc5ac06b78584c1e0f4"
+    },
+    {
+      "file": "qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_bytes": 6361,
+      "generated_depth": 100,
+      "generated_gates": 415,
+      "generated_operation_counts": {
+        "cx": 119,
+        "h": 96,
+        "rz": 200
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_sha256": "c72742fe2c085b24e98d6124df51e46be7d04ca327470e1fcf3abdb5c2cde9c2",
+      "global_phase_float": 0.0,
+      "num_qubits": 8,
+      "science_diagnostic": {
+        "metric": 8.590198363215875e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 5760,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "17245438ff96cbe0fbd054c6db2322ac079f2cd8",
+      "source_instructions": 319,
+      "source_path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "source_sha256": "814fb55735b75d952b99d0768b9287c623aa3b49bf8742198334a6d9e4403d9d"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_bytes": 14290,
+      "generated_depth": 185,
+      "generated_gates": 773,
+      "generated_operation_counts": {
+        "cx": 261,
+        "h": 60,
+        "ry": 1,
+        "rz": 451
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_sha256": "6fe7238679b25a30fee233aefddc5c25d13276dff8fc5062dea864ce469087c1",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 16,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 12125,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "6c3031ab98a2059d2c3077e6e29b9ee90a603133",
+      "source_instructions": 712,
+      "source_path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "source_sha256": "6d9d97c0e92b6aa126b9547c4b81f895e752a1ed9af7855e2799f86d5241ccc3"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "generated_bytes": 23037,
+      "generated_depth": 233,
+      "generated_gates": 1169,
+      "generated_operation_counts": {
+        "cx": 407,
+        "h": 76,
+        "ry": 1,
+        "rz": 685
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "generated_sha256": "393e48697781c50d90524d8e6d92b0b4c8c2cc4d141d1975204c6f165fc8e6ed",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 20,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 18875,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "fb9dfc0852dd28ce5f67bb37a6e5cdc5a0d38ecc",
+      "source_instructions": 1092,
+      "source_path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "source_sha256": "c90b5aa8a03d84bcdee505f167b69a93eb17c063ce5cb4916145c7a2296a2831"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "generated_bytes": 33532,
+      "generated_depth": 257,
+      "generated_gates": 1630,
+      "generated_operation_counts": {
+        "cx": 579,
+        "h": 92,
+        "ry": 1,
+        "rz": 958
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "generated_sha256": "821ee9bf1c3e3d3b1bf0ba3bf9c52f21c77c45caebdb793bdb84c9195bedf408",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 24,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 26803,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "fabc0b909f0dde27689df38cb3cee116663ee3c9",
+      "source_instructions": 1537,
+      "source_path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "source_sha256": "7cf35f505f5c1aa5a744bb2277f39b46b6bf263a1c394652f1ea1b9b04091bed"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_bytes": 3347,
+      "generated_depth": 89,
+      "generated_gates": 221,
+      "generated_operation_counts": {
+        "cx": 65,
+        "h": 28,
+        "ry": 1,
+        "rz": 127
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_sha256": "1defd8140a18e9c22e9f16bdb1d77f8adf68a0e700290468d50be8592600ba90",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 8,
+      "science_diagnostic": {
+        "metric": 2.61371921956462e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 3232,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "4582df5b4cefe3cc69227d29eb2894ccd1c5412a",
+      "source_instructions": 192,
+      "source_path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "source_sha256": "8d514d06f7c9e81abda1042796cc34227624c9ed66097bee1ce5e97a87884dda"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_bytes": 14321,
+      "generated_depth": 185,
+      "generated_gates": 773,
+      "generated_operation_counts": {
+        "cx": 261,
+        "h": 60,
+        "ry": 1,
+        "rz": 451
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_sha256": "937e360ee8e3264396d9b2ae424085a75a29aa8c255cbd6b63b6ff5d09068e45",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 16,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 12162,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "c1fc704452a864dcffb95d603db371d1a7530e48",
+      "source_instructions": 712,
+      "source_path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "source_sha256": "612dd1f1c213b95d525b88a48da13ddda55696469652b0b1265307cfb5600b44"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "generated_bytes": 23065,
+      "generated_depth": 233,
+      "generated_gates": 1169,
+      "generated_operation_counts": {
+        "cx": 407,
+        "h": 76,
+        "ry": 1,
+        "rz": 685
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "generated_sha256": "f79c11ea0de8bf99f90e4f9f0c7f97a2cf1e7ee5e7df7908127d9169e5007a19",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 20,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 18906,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "4535af5bd2c7603e40e2828bb7438ab6240aea9f",
+      "source_instructions": 1092,
+      "source_path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "source_sha256": "1aab3d61462144fc59ace2ffda5d2382776aec4bf5f1bacdb8ac31ee7400751c"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "generated_bytes": 33948,
+      "generated_depth": 281,
+      "generated_gates": 1645,
+      "generated_operation_counts": {
+        "cx": 585,
+        "h": 92,
+        "ry": 1,
+        "rz": 967
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "generated_sha256": "4ec352b91bdf8efe2d4f67692659e4246b1212e5c88484ea0c141ede0b668bf3",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 24,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 27213,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "9832ae8ba0754f08fb19751051095fa5f276e529",
+      "source_instructions": 1552,
+      "source_path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "source_sha256": "963434a6a990fd83bd8cedd44d2fd2bc76d15206883f3e37ce68ff867ef23dc9"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_bytes": 3400,
+      "generated_depth": 89,
+      "generated_gates": 221,
+      "generated_operation_counts": {
+        "cx": 65,
+        "h": 28,
+        "ry": 1,
+        "rz": 127
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_sha256": "a5f7e852cf8a2e1db19f55716dab201bc1d95f83ae0ea3ac80b7d80e666f58f8",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 8,
+      "science_diagnostic": {
+        "metric": 2.3703249846165893e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 3276,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "65f0bf861d13f398c0f6059867e6d8cec7b08f15",
+      "source_instructions": 192,
+      "source_path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "source_sha256": "ce85b852f0b5918d0e067967a500003934867879a428242aa54dc16c0bf53703"
+    },
+    {
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "generated_bytes": 3201,
+      "generated_depth": 108,
+      "generated_gates": 183,
+      "generated_operation_counts": {
+        "cx": 42,
+        "h": 30,
+        "ry": 12,
+        "rz": 99
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "generated_sha256": "4def4f0591b4f350acb00a1fe52c78245887af0f4bd8cc896fac7f589f6044e8",
+      "global_phase_float": 0.0,
+      "num_qubits": 3,
+      "science_diagnostic": {
+        "metric": 2.5740402638888605e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 2720,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "0960c698e44cb5320301f7bd4acdd892d9069db0",
+      "source_instructions": 141,
+      "source_path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "source_sha256": "222dc90a8f82826527fb7b6d3c2cd657675d45461a94f8eb7988f92faf0422ed"
+    },
+    {
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_bytes": 7647,
+      "generated_depth": 263,
+      "generated_gates": 429,
+      "generated_operation_counts": {
+        "cx": 126,
+        "h": 54,
+        "ry": 18,
+        "rz": 231
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_sha256": "0a202baf8a0d744980bdc103d9b23be5c95d9ae23085977d2718af5a5d9e97e2",
+      "global_phase_float": 3.141592653589793,
+      "num_qubits": 4,
+      "science_diagnostic": {
+        "metric": 4.7842158029523556e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 6800,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "d44a138cc54ab06cc586706ed6aabc312e551dc6",
+      "source_instructions": 357,
+      "source_path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "source_sha256": "a3f074906d631366b9de34d3aa372e3161fadf31730ddece0df56b7b9d0bda04"
+    },
+    {
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "generated_bytes": 28983,
+      "generated_depth": 1152,
+      "generated_gates": 1695,
+      "generated_operation_counts": {
+        "cx": 342,
+        "h": 366,
+        "ry": 24,
+        "rz": 963
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "generated_sha256": "bc8bb94625bf2c967eea710a643a557e79271ad2bc3b9ac6fac820899080ef99",
+      "global_phase_float": 0.0,
+      "num_qubits": 5,
+      "science_diagnostic": {
+        "metric": 3.230724254166089e-14,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 24890,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "7d3f1f9703a1548163470c8b2e98456a0aa11eb3",
+      "source_instructions": 1305,
+      "source_path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "source_sha256": "91615d04fd301e581bdd5631adfc4378ecc5bdb88c49e4018a35c70e5ba43c91"
+    },
+    {
+      "file": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_bytes": 6225,
+      "generated_depth": 44,
+      "generated_gates": 462,
+      "generated_operation_counts": {
+        "cx": 30,
+        "h": 192,
+        "rz": 240
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_sha256": "01b74bbfa3d54c7aa39e24192957dcd20a1f798a65a2a52337050fc987ddb510",
+      "global_phase_float": 0.0,
+      "num_qubits": 16,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 4880,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "220f9ce7d976d88e38665523cf5cf9e913d205d8",
+      "source_instructions": 270,
+      "source_path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "source_sha256": "e07da062ab05cbbf38828e7dfa4b1617f6e2a755f955307e3e2f6c979f0697a5"
+    },
+    {
+      "file": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_bytes": 1545,
+      "generated_depth": 32,
+      "generated_gates": 114,
+      "generated_operation_counts": {
+        "cx": 6,
+        "h": 48,
+        "rz": 60
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_sha256": "f34462262c32144d660a95b21471e32eceb4e849799490296370d6e658b972d0",
+      "global_phase_float": 0.0,
+      "num_qubits": 4,
+      "science_diagnostic": {
+        "metric": 4.338918749125135e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 1280,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "20e9fd16e5f464338c72c5da8bede32225791414",
+      "source_instructions": 66,
+      "source_path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "source_sha256": "757e5714303e731bebc156c230024480b1d72df503d70dd0a9eb76d112ffdd62"
+    },
+    {
+      "file": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_bytes": 3020,
+      "generated_depth": 36,
+      "generated_gates": 230,
+      "generated_operation_counts": {
+        "cx": 14,
+        "h": 96,
+        "rz": 120
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_sha256": "f8f0442167844113802283e6135ba5fc050bd548c828094b7ee1b3634fad3a55",
+      "global_phase_float": 0.0,
+      "num_qubits": 8,
+      "science_diagnostic": {
+        "metric": 8.507407837095461e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 2419,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "c3914ae2a113da973ab2f9d2c34f2c29ec11a64e",
+      "source_instructions": 134,
+      "source_path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "source_sha256": "7a09dfcd231d4ef6932ac988ee7db18895a932428cfbbaa69498e19d2962515b"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_bytes": 5962,
+      "generated_depth": 240,
+      "generated_gates": 452,
+      "generated_operation_counts": {
+        "cx": 30,
+        "h": 180,
+        "ry": 1,
+        "rz": 241
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "generated_sha256": "e02b98fb8288c63fad764799f933f67c41cfde0955b42928cab1016ad4464e16",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 16,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 4694,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "29e97e27e043866f1b3bcd3f5526fe356382003f",
+      "source_instructions": 271,
+      "source_path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "source_sha256": "c02981a497a5a7e0e4fc78c5c54c201b0970a0ef9eb03b2206055a09c800643d"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "generated_bytes": 12631,
+      "generated_depth": 480,
+      "generated_gates": 932,
+      "generated_operation_counts": {
+        "cx": 62,
+        "h": 372,
+        "ry": 1,
+        "rz": 497
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "generated_sha256": "07c866b4f021ea5fefef98f46708c20fdd0a8183e2be4ab9c3b1ab447a99a746",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 32,
+      "science_diagnostic": {
+        "metric": null,
+        "metric_name": "float_projective_operator_distance",
+        "status": "NOT_MEASURED_RESOURCE_BOUND"
+      },
+      "source_bytes": 9827,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "a2a5e61b7429c961712d4f82a4f8aa1446556838",
+      "source_instructions": 559,
+      "source_path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "source_sha256": "02660362fa9d16fd15ee98459357b35ff2fd5d51cf9437a76b91974016c5404a"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_bytes": 1180,
+      "generated_depth": 60,
+      "generated_gates": 92,
+      "generated_operation_counts": {
+        "cx": 6,
+        "h": 36,
+        "ry": 1,
+        "rz": 49
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "generated_sha256": "7953657af765e3410785328394e834d27ed7b5f8f7d922e6f94bcfbd725d9993",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 4,
+      "science_diagnostic": {
+        "metric": 3.2356719141618996e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 981,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "b929dc5eca00dd0771c8f28e0fda42c2abcb68bf",
+      "source_instructions": 55,
+      "source_path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "source_sha256": "67df82fe7a72fe7b405046de061f4af875f1f4a25695eb47472cf85611b38684"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_bytes": 2720,
+      "generated_depth": 120,
+      "generated_gates": 212,
+      "generated_operation_counts": {
+        "cx": 14,
+        "h": 84,
+        "ry": 1,
+        "rz": 113
+      },
+      "generated_path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "generated_sha256": "c56aced37340637db93d491a6b72b2e88eada3890813f0a72e3eda4903ed4dcf",
+      "global_phase_float": 4.71238898038469,
+      "num_qubits": 8,
+      "science_diagnostic": {
+        "metric": 7.692182171751875e-15,
+        "metric_name": "phase_aligned_float_projective_operator_distance",
+        "status": "FLOAT64_OBSERVATION_NOT_FORMAL_CERTIFICATE"
+      },
+      "source_bytes": 2185,
+      "source_final_measurements_removed": 0,
+      "source_git_blob_sha1": "f5a0acd086121079e704956bfa948a830a7aaffc",
+      "source_instructions": 127,
+      "source_path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "source_sha256": "fee4d0c68b92940a4eee6f18525c5cdcdbbb83a818c0d2df1e6abe8fb0c044cb"
+    }
+  ],
+  "full_large_operator_verified": false,
+  "generated_qasm_count": 37,
+  "generation_ci_run_id": "41567725254",
+  "generation_source_sha": "43035c8d93787455a3c2199c0caaee79e56c2f37",
+  "historical_input_commit": "e928abc47dd15926364ec77905eb0d5dc92ce8cc",
+  "historical_input_tag": "v0.9.1",
+  "historical_only_without_source": [
+    "qft_nativegates_ibm_qiskit_opt0_21.qasm",
+    "qft_nativegates_ibm_qiskit_opt0_23.qasm",
+    "qpeexact_nativegates_ibm_qiskit_opt0_21.qasm",
+    "qpeexact_nativegates_ibm_qiskit_opt0_22.qasm",
+    "qpeexact_nativegates_ibm_qiskit_opt0_23.qasm",
+    "qpeinexact_nativegates_ibm_qiskit_opt0_21.qasm",
+    "qpeinexact_nativegates_ibm_qiskit_opt0_22.qasm",
+    "qpeinexact_nativegates_ibm_qiskit_opt0_23.qasm"
+  ],
+  "historical_target_count": 45,
+  "legacy_files_modified": false,
+  "new_folder": "benchmarks/MQTBench/qiskit-2.6.1-opt0",
+  "performance_measured_with_codspeed": false,
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+  "python_version": "3.12.15",
+  "qiskit_version": "2.6.1",
+  "quprs_equivalence_verdict_verified": false,
+  "schema": "quprs-mqtbench-qiskit261-level0-complete-v1",
+  "source_qasm_count": 37,
+  "source_register_sha256": "27ac511a56d24cb1baf309c2a18f2fa0f04d81d95dfa0b68f139b15e9046e616",
+  "status": "GENERATED_WITH_BYTE_PROVENANCE_NOT_FULL_OPERATOR_CERTIFIED",
+  "target_folder": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx"
+}

@@ -1,0 +1,107 @@
+name: Research / Qiskit dual-major cross-platform installer
+on:
+  push:
+    branches: [research/qoo169-qiskit-dual-major-installer-20261103]
+    paths:
+      - '.github/workflows/qoo169-qiskit-crossplatform.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-wheel-installer:
+    name: Candidate wheel / ${{ matrix.os }} / Qiskit 1+2
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04-arm, macos-15, macos-15-intel]
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo169-packaging-crossplatform
+      - name: Native build libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+      - name: Native build libraries and runtime links (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install cmake gmp mpfr zlib
+          GMP="$(brew --prefix gmp)"
+          MPFR="$(brew --prefix mpfr)"
+          ZLIB="$(brew --prefix zlib)"
+          echo "CFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib -L$ZLIB/lib -Wl,-rpath,$ZLIB/lib" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$GMP/lib:$MPFR/lib:$ZLIB/lib" >> "$GITHUB_ENV"
+      - name: Build one native candidate wheel per OS
+        run: |
+          set -euo pipefail
+          mkdir -p evidence dist
+          echo "HEAD=$(git rev-parse HEAD)" | tee evidence/source-sha.txt
+          python -m pip install --upgrade pip 'maturin>=1.5,<2'
+          maturin build --release --interpreter python --out dist --compatibility off 2>&1 | tee evidence/build.log
+          python - <<'PY'
+          from pathlib import Path
+          wheels = list(Path('dist').glob('*.whl'))
+          assert len(wheels) == 1, wheels
+          PY
+          python - <<'PY' > evidence/wheel-sha256.txt
+          from hashlib import sha256
+          from pathlib import Path
+          for p in Path('dist').glob('*.whl'):
+              print(sha256(p.read_bytes()).hexdigest(), p)
+          PY
+      - name: Two fresh installation environments with actual pip resolver
+        run: |
+          set -euo pipefail
+          for qiskit in 1.4.6 2.6.1; do
+            python -m venv "$RUNNER_TEMP/qiskit-$qiskit"
+            PY="$RUNNER_TEMP/qiskit-$qiskit/bin/python"
+            "$PY" -m pip install --upgrade pip
+            "$PY" -m pip install "qiskit==$qiskit" dist/*.whl 2>&1 | tee "evidence/install-qiskit-$qiskit.log"
+            "$PY" -m pip check 2>&1 | tee "evidence/pip-check-qiskit-$qiskit.log"
+            "$PY" -m pip freeze > "evidence/pip-freeze-qiskit-$qiskit.txt"
+            QISKIT_EXPECTED="$qiskit" "$PY" - <<'PY' 2>&1 | tee "evidence/smoke-qiskit-$qiskit.log"
+          import importlib.metadata as md
+          import os
+          from qiskit import QuantumCircuit
+          from QuPRS import check_equivalence
+          assert md.version('qiskit') == os.environ['QISKIT_EXPECTED']
+          assert any('qiskit' in r.lower() and '<3.0' in r for r in md.requires('QuPRS') or [])
+          bell = QuantumCircuit(2)
+          bell.h(0); bell.cx(0, 1)
+          for backend in ('python', 'rust'):
+              for method in ('reduction_rules', 'hybrid'):
+                  r = check_equivalence(bell, bell.copy(), backend=backend,
+                                        method=method, timeout=30, tool_name='gpmc')
+                  assert r.equivalent == 'equivalent', (backend, method, r)
+                  print(backend, method, r.equivalent)
+          PY
+          done
+      - name: Preserve cross-platform installer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo169-crossplatform-${{ matrix.os }}
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: ignore

@@ -1,6 +1,6 @@
 # QuPRS CodSpeed Solver-inclusive / Native RR 既有實驗測項覆蓋矩陣
 
-> **Current status (2026-11-03, after PR #131 merge).** The scientific verifier source was integrated into `dev@a4c7b126` and the routine paired Solver-inclusive suite has **nine** source-pinned cases ([exact-head paired SUCCESS #41598328358](https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358)). [Six additional QASM261 candidates were run once in #41600679301](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301), but their per-case science JSONL and actual solver status **have not yet been independently audited**. They must not be added to the qualified WMC-only coverage count from `6 pytest passed`. See the [active CodSpeed v3 plan](codspeed-v3-plan.md) and [candidate evidence](codspeed-qasm261-coverage-gap-pilot.md).
+> **Current status (2026-11-03, after PR #131 merge).** The scientific verifier source was integrated into `dev@a4c7b126` and the routine paired Solver-inclusive suite has **nine** source-pinned cases ([exact-head paired SUCCESS #41598328358](https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358)). [Six additional QASM261 candidates were run once in #41600679301](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301), and their original science JSONL/manifest **have now been audited**: six completed solver invocations with matching EQ/NEQ pilot expectations, including **three observed WMC-only** executions. Independent full-operator/solver arithmetic certificates and repeatability remain incomplete. Do not treat all six as permanently science-qualified merely from this observation. See the [active CodSpeed v3 plan](codspeed-v3-plan.md) and [candidate evidence](codspeed-qasm261-coverage-gap-pilot.md).
 
 > **Reading rule:** Sections A–E below are pre-merge and prior-SHA **historical snapshots**, including old statements such as seven routine pairs or zero measured WMC-only. They remain for forensic comparison and are **not** the current CI inventory. The nine-pair addendum at the bottom records the later formal acceptance. Future edits should append separately qualified per-case data rather than rewriting old samples.
 
@@ -116,4 +116,22 @@ Native source parsing is outside the modeled timed region. The 1.1–42.7 ms num
 
 兩組新增 QASM261 NEQ 均以 **`rr=1e-10`、`distance=1e-8`、`phase=1e-8`、GPMC `-prec=90`** 比較：舊版 `dev` 的 `TOLERANCE` 與實際 Rust adapter 90 位來源在執行時驗證，HEAD 使用公開 per-call 90 位設定；不是沿用舊實驗沒有真正套用的參數標籤。QFT16 median −59.81%、QAOA7 median −3.80% 是真實 CodSpeed **觀測**，非算術精度或顯著性認證。Ganak 三組為印出數值解析度不足的條件式計時，**不可視為科學 EQ PASS**。
 
-目前九組工作 elapsed **266s**，歷史七組成功工作 **220s**，增加 46s 為跨次 CI 觀察差；快取/建置與併行 runner 差異未控制，不可直接當作兩個新增案例的邊際成本。六組 WMC-only/Python/Ganak 覆蓋候選已在後續 [manual Run #41600679301](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301) 進行**單輪** CodSpeed 測試並上傳 [artifact #13213994435](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301/artifacts/13213994435)；**逐案例 science JSONL 的 status、真 Solver invocation、verdict 與數值資格尚待查核**，不能因 pytest 全綠提前計入正式可比測項。詳見 [候選驗收文件](codspeed-qasm261-coverage-gap-pilot.md)。本節不是全體八個 PR workflow 已通過的宣告；仍須檢查完整 CodSpeed cross-validate 與其他 CI job。
+目前九組工作 elapsed **266s**，歷史七組成功工作 **220s**，增加 46s 為跨次 CI 觀察差；快取/建置與併行 runner 差異未控制，不可直接當作兩個新增案例的邊際成本。六組 WMC-only/Python/Ganak 覆蓋候選已在後續 [manual Run #41600679301](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301) 進行**單輪** CodSpeed 測試並上傳 [artifact #13213994435](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301/artifacts/13213994435)；**逐案例 science JSONL、instrument/manifest 已實際核對：六組均 COMPLETED、exit=0、solver_invoked=true、verdict 符合研究案例假設；仍非獨立 operator/Solver 算術認證，未納入每 PR 正式測項。**詳見 [候選驗收文件](codspeed-qasm261-coverage-gap-pilot.md)。本節不是全體八個 PR workflow 已通過的宣告；仍須檢查完整 CodSpeed cross-validate 與其他 CI job。
+
+
+## F. 2026-11-03 六組 Pilot 原始證據逐筆稽核（目前最新版）
+
+本節直接讀取 [Actions #41600679301](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301) 的 [原始 artifact #13213994435](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301/artifacts/13213994435)（`candidate-pilot-science.jsonl`、`candidate-pilot-codspeed.json`、`manifest.json`），並核對 [CodSpeed 官方 run 6ae9962b](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6ae9962b054dbb193744c042) 及 `qasm_variant_audit.json` 來源登錄。六筆 JSONL 均 `COMPLETED`、退出碼 0、`solver_invoked=true`、實際判定符合 expected，6/6 為 `ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW`；0 timeout。原始 CodSpeed JSON SHA256 `68c35bfb104a1d3d1e5551b758a7f17ea6796faee7fe4f19607ff031071cf042` 與 manifest 相符，six unique case IDs 對 six official WallTime benchmark URIs 一對一。
+
+| Candidate | Backend / Method / Solver | Actual stage / verdict | Single-round official CodSpeed WallTime | Scientific status |
+|---|---|---|---:|---|
+| `q261_gap_qaoa7_neq_wmconly_rust_gpmc` | Rust / WMC-only / GPMC | WMC, NEQ | 547.914 ms | Pilot eligible; independent operator oracle pending |
+| `q261_gap_qaoa7_neq_wmconly_python_gpmc` | Python / WMC-only / GPMC | WMC, NEQ | 754.322 ms | Pilot eligible; independent operator oracle pending |
+| `q261_gap_qaoa7_neq_hybrid_python_gpmc` | Python / Hybrid / GPMC | WMC, NEQ | 788.577 ms | Pilot eligible; independent operator oracle pending |
+| `q261_gap_qft16_neq_hybrid_python_gpmc` | Python / Hybrid / GPMC | WMC, NEQ | 1379.078 ms | Pilot eligible; independent operator oracle pending |
+| `q261_gap_vqe8_eq_wmconly_rust_gpmc` | Rust / WMC-only / GPMC | WMC, EQ | 876.605 ms | Pilot eligible; printed Solver arithmetic uncertified |
+| `q261_gap_qaoa7_neq_hybrid_rust_ganak` | Rust / Hybrid / Ganak | WMC, NEQ | 717.095 ms | Pilot eligible; **Ganak print resolution caveat** |
+
+**精度及科學界線：** 執行數值政策 `rr=1e-10`、`distance=1e-8`、`phase=1e-8`、GPMC 30 digits；Ganak case 的 `wmc_print_resolution_distance=1.1360936307389317e-05`，高於所求的 1e-8。獨立 `qasm_variant_audit.json` 中 QAOA7/QFT16/VQE8 的 Python/Rust × Hybrid/WMC-only 均有相符分類觀察，但負例 `full_operator_neq_certified=false`；這不是完整高精度算子真值證書。可**認證本次實際執行、Solver provenance 與 observation-vs-case-oracle 一致性**，不可認證 Solver 算術誤差上界或一切 full-operator correctness。保留 Ganak 科學／計時分離。
+
+**量測界線：** 六組僅一輪，無 CV、沒有 base/HEAD，非 Macro Runner、服務端六組均有 WallTime reliability warning 及 unresolved flamegraph。workflow 約 127 秒、pytest 測試階段 16.09 秒，不是每個案例的 CI 邊際成本。**已觀測 WMC-only = 3，新正式 every-PR 晉升 = 0**；歷史未測不補值。詳細 machine-readable 維度見 [同名 JSON](codspeed-solver-coverage-matrix.json) 的 `post_merge_six_case_observations`。

@@ -465,13 +465,13 @@ mod tests {
         let mut ket = PathSum::new(1);
         ket.set_auto_reduce(false);
         ops[0].apply(&mut ket, false);
-        assert_eq!(ket.p.constant, PhaseCoeff::new_constant(Rational::QUARTER));
+        assert_eq!(ket.p.terms.get(&vec![]), Some(&PhaseCoeff::new_constant(Rational::QUARTER)));
         let mut bra = PathSum::new(1);
         bra.set_auto_reduce(false);
         ops[0].apply(&mut bra, true);
-        assert_eq!(bra.p.constant, PhaseCoeff::new_constant(Rational::THREE_QUARTERS));
+        assert_eq!(bra.p.terms.get(&vec![]), Some(&PhaseCoeff::new_constant(Rational::THREE_QUARTERS)));
         ops[0].apply(&mut bra, false);
-        assert_eq!(bra.p.constant, PhaseCoeff::ZERO);
+        assert!(bra.p.terms.get(&vec![]).is_none(), "canceled global phase must vanish");
     }
 
     #[test]
@@ -490,12 +490,12 @@ mod tests {
         let mut ps = PathSum::new(1);
         ps.set_auto_reduce(false);
         for op in &ops { op.apply(&mut ps, false); }
-        assert!(ps.p.constant.is_zero(), "opposite scalar phases must cancel");
+        assert!(ps.p.terms.get(&vec![]).is_none(), "opposite scalar phases must cancel");
         let (full, _) = parse_qasm_str("OPENQASM 3.0;\nqubit q;\ngphase(2*pi);").unwrap();
         let mut p2 = PathSum::new(1);
         p2.set_auto_reduce(false);
         full[0].apply(&mut p2, false);
-        assert!(p2.p.constant.is_zero(), "2pi scalar must be exact identity");
+        assert!(p2.p.terms.get(&vec![]).is_none(), "2pi scalar must be exact identity");
     }
 
     #[test]

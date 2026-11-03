@@ -1,0 +1,70 @@
+name: QOO170 light pedantic ABBA contract (research only)
+
+on:
+  push:
+    branches:
+      - experiment/qoo160-qasm261-codspeed-selection
+    paths:
+      - test/test_codspeed_pedantic_abba_contract.py
+      - scripts/check_codspeed_pedantic_abba_contract.py
+      - .github/workflows/qoo170-codspeed-pedantic-abba-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo170-light-pedantic-abba-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-pedantic-contract:
+    name: One official measured round and exactly one mock-Solver run per ABBA position
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      QUPRS_CONTRACT_TRACE: ${{ runner.temp }}/abba-contract-trace.jsonl
+      CODSPEED_PROFILE_FOLDER: ${{ runner.temp }}/abba-contract-codspeed
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install just pinned pytest/pytest-codspeed (no QuPRS Solver or Rust build)
+        run: |
+          python -m pip install --disable-pip-version-check pytest==8.4.2 pytest-codspeed==5.0.4
+          python - <<'PY'
+          from importlib.metadata import version
+          assert version("pytest-codspeed") == "5.0.4"
+          assert version("pytest") == "8.4.2"
+          print("PLUGIN_VERSION_CONTRACT_PASS")
+          PY
+      - name: Check ordered ABBA/BAAB test schedule without instrumentation
+        run: |
+          python -m pytest test/test_codspeed_pedantic_abba_contract.py::test_counterbalanced_schedule_is_valid -q
+      - name: Execute only synthetic CodSpeed WallTime pedantic positions
+        run: |
+          python -m pytest test/test_codspeed_pedantic_abba_contract.py::test_codspeed_single_position \
+            -q --codspeed --codspeed-mode=walltime
+      - name: Match official CodSpeed output to actual mock target and simulated solver counts
+        run: |
+          python scripts/check_codspeed_pedantic_abba_contract.py \
+            --measurements-dir "$CODSPEED_PROFILE_FOLDER" \
+            --trace "$QUPRS_CONTRACT_TRACE" \
+            --out "$RUNNER_TEMP/abba-contract-report.json"
+          cat "$RUNNER_TEMP/abba-contract-report.json"
+      - name: Archive lightweight instrumentation-only contract
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo170-light-pedantic-abba-contract
+          path: |
+            ${{ env.QUPRS_CONTRACT_TRACE }}
+            ${{ env.CODSPEED_PROFILE_FOLDER }}/results/*.json
+            ${{ runner.temp }}/abba-contract-report.json
+          if-no-files-found: warn
+          retention-days: 14

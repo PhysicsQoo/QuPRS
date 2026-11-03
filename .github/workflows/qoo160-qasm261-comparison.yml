@@ -1,16 +1,8 @@
 name: QOO160 QASM261 Native RR + Paired Solver CodSpeed (research)
 
 on:
-  push:
-    branches: ['experiment/qoo160-qasm261-codspeed-selection']
-    paths:
-      - 'benchmarks/rust_qasm261/**'
-      - 'benchmarks/codspeed/qasm261_paired_cases.py'
-      - 'benchmarks/codspeed/test_qasm261_solver_pair.py'
-      - 'benchmarks/MQTBench/qiskit-2.6.1-opt0/**'
-      - 'scripts/report_codspeed_qasm261_paired.py'
-      - 'test/test_qasm261_comparison.py'
-      - '.github/workflows/qoo160-qasm261-comparison.yml'
+  # Archived exact-SHA 100-round study. Automatic branch pushes must NOT
+  # rebuild and repeat the same pinned old base/HEAD comparison.
   workflow_dispatch:
 
 permissions:

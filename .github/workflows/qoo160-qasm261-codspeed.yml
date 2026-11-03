@@ -1,19 +1,8 @@
 name: QOO160 QASM261 Versioned CodSpeed Pilot (research only)
 
 on:
-  push:
-    branches: ['experiment/qoo160-qasm261-codspeed-selection']
-    # Only executable benchmark/source changes justify another expensive pilot.
-    # Archived observations, manifests and Markdown must not rerun CodSpeed.
-    paths:
-      - 'benchmarks/codspeed/case_registry.py'
-      - 'benchmarks/codspeed/solver_case.py'
-      - 'benchmarks/codspeed/test_codspeed_candidate_pilot.py'
-      - 'benchmarks/codspeed/test_qasm261_candidate_pilot.py'
-      - 'benchmarks/MQTBench/qiskit-2.6.1-opt0/**'
-      - 'scripts/audit_codspeed_qasm_variants.py'
-      - 'test/test_codspeed_qasm_variants.py'
-      - '.github/workflows/qoo160-qasm261-codspeed.yml'
+  # Archived one-shot study; use explicit action only. No new-cost rerun on
+  # unrelated coverage-gap registry/harness/docs changes.
   workflow_dispatch:
 
 permissions:

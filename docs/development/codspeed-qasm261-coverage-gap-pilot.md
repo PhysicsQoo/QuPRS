@@ -85,3 +85,12 @@ uses **90 output digits**, not the new PR's default **30**. The formal paired PR
 code now pins both revisions to 90 for the two new QASM261 NEQ cases, verifying
 the old dev source before timing. Do not describe the earlier ~58% QFT16 delta
 as an isolated optimized-RR gain.
+
+### Research workflow cost containment
+
+The original `qoo160-qasm261-codspeed.yml` (15-case pilot) and
+`qoo160-qasm261-comparison.yml` (pinned 100-round A1/B1/B2/A2)
+are now archival **workflow_dispatch only**; editing the shared registry,
+new coverage-gap harness or evidence notes no longer automatically repeats
+old studies. The only suggested new work is the six-case **manual**
+`codspeed.yml` `pilot_only` job, using one pinned v0.14 verifier build.

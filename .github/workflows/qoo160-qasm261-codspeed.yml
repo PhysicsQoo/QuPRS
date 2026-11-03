@@ -38,7 +38,7 @@ jobs:
       - name: Audit all 37 versioned pairs, selected 20 MQT and four Feynman sources
         run: |
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          python scripts/audit_codspeed_qasm_variants.py
+          python -m scripts.audit_codspeed_qasm_variants
 
   bounded-codspeed-pilot:
     name: QASM261 distinct-URI bounded GPMC CodSpeed WallTime

@@ -1,6 +1,6 @@
 # QASM261 Solver coverage-gap study — bounded manual CodSpeed admission
 
-**Date:** 2026-11-03. **Current status:** six-case manual CodSpeed pilot has run successfully and timing/provenance artifact was uploaded; **per-case scientific eligibility still requires raw JSONL review**. See [post-run admission evidence below](#post-run-admission-evidence-and-next-actions-2026-11-03) and the [prior empirical matrix](codspeed-solver-coverage-matrix.md).
+**Date:** 2026-11-03. **Current status:** six-case manual CodSpeed pilot has run successfully and timing/provenance artifact was uploaded; **raw JSONL has now been reviewed for actual invocation/verdict/completion; independent full-operator scientific certificates and repeatability remain pending**. See [post-run admission evidence below](#post-run-admission-evidence-and-next-actions-2026-11-03) and the [prior empirical matrix](codspeed-solver-coverage-matrix.md).
 
 The existing 7 legacy + 2 new paired cases were retained when PR #131 merged to `dev`. This research pilot does not expand them.
 No ordinary PR job, default five Simulation shards, native Rust job or
@@ -17,9 +17,9 @@ P5 release gate is expanded by this experiment.
 | `q261_gap_vqe8_eq_wmconly_rust_gpmc` | VQE8 / transpiled | Rust | WMC-only | GPMC | EQ / EQ* | Positive WMC-only |
 | `q261_gap_qaoa7_neq_hybrid_rust_ganak` | QAOA7 / Random_Rotation | Rust | Hybrid | Ganak | NEQ | Distinct Solver, genuine NEQ |
 
-Expected source verdicts remain **independent-oracle hypotheses awaiting the already-executed pilot's per-case raw science JSONL review**; historic QASM
+Expected source verdicts remain **independent operator-oracle hypotheses with matching observed pilot EQ/NEQ after raw JSONL review**; historic QASM
 and the strict operator-science oracle give context but do not certify these
-new method/backend observations solely because pytest passed. Ganak's printed-count resolution must be assessed
+new method/backend observations solely because pytest passed; the source audit's `full_operator_neq_certified` remains false for these negative variants. Ganak's printed-count resolution must be assessed
 separately, even if this case is expected to be truly NEQ.
 
 ## Original CI and measurement budget (pre-run plan; superseded by observed results below)
@@ -122,3 +122,13 @@ this new matched numerical policy as if they were one controlled cohort.
 4. **Integration boundary:** reuse the existing five Simulation shards, 32 protected historical IDs, retained nine Solver-inclusive base/HEAD pairs and existing native RR IDs. Prefer placing a proven new case in the **existing** paired job and path-sensitive CI routing, not creating a new default expensive build/shard or automatic research trigger. CodSpeed remains the sole timing authority; P5 remains observational with no fixed percentage release gate. Documentation-only edits should reuse successful evidence rather than rerunning expensive measurements.
 
 The admission work is tracked in the existing benchmark research plan; this documentation update does not open a new PR or expand automatic CI.
+
+
+### Actual six-case admission audit (2026-11-03)
+
+- Original [artifact #13213994435](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301/artifacts/13213994435) **downloaded and read**; 6 unique science JSONL rows, 6 unique one-round CodSpeed WallTime rows, matching instrument and SHA256 manifest. Six cases are **COMPLETED, exit=0, observed Solver invoked=true, verdict expected class match**; no timeout. All are `ELIGIBLE_FOR_INDEPENDENT_ORACLE_REVIEW` (not equivalent to arithmetic/operator certification).
+- Raw single-round official WallTime: Rust QAOA7 WMC-only GPMC **547.914 ms**, Python QAOA7 WMC-only GPMC **754.322 ms**, Python QAOA7 Hybrid GPMC **788.577 ms**, Python QFT16 Hybrid GPMC **1379.078 ms**, Rust VQE8 EQ WMC-only GPMC **876.605 ms**, Rust QAOA7 Hybrid Ganak **717.095 ms**. Official [CodSpeed run](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6ae9962b054dbb193744c042) displays identical rounded values with non-Macro WallTime reliability warning and absent resolved flamegraphs.
+- Three additional **observed** WMC-only cases are now real data. Do not treat them as three *formally qualified every-PR* identities. Negative QASM pairs have independent source-registry agreement and cross-method/back-end GPMC classification evidence, but `full_operator_neq_certified=false` in `qasm_variant_audit.json`. Ganak printed distance resolution `1.1360936307389317e-05` is worse than requested `1e-8`; keep its NEQ observation and timing conditional, not Solver arithmetic certification.
+- The 30-digit pilot and earlier corrected 90-digit old-dev/PR-head paired timing are **different numerical cohorts**. This is a **single round**, with no CV and no version delta; prefer review of the already saved source-oracle evidence first, then a selectively justified three-round **same merged-dev SHA** repeatability sample before adding recurring CI. For real future verifier code changes, compare new PR HEAD to then-current dev with matched numerical policy.
+
+Cross-issue source of truth: [CodSpeed v3 plan](codspeed-v3-plan.md), [combined source/timing matrix](codspeed-solver-coverage-matrix.md), Linear QOO-149/QOO-164/QOO-165.

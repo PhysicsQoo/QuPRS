@@ -102,6 +102,23 @@ hosted runners must not be compared as if they were identical hardware.
 The benchmark comparison remains report-only for timing regressions on shared
 runners. Numerical or resource uncertainty must not be converted into a
 positive semantic verdict.
+## Qiskit 2.6.1 source-pinned admission (2026-11-03)
+
+The original 32 Simulation case identities and five shards are unchanged. The
+additional 24 QASM261 positive pytest Simulation identities use separate URIs;
+many terminate during RR and therefore **do not** measure a Solver even when
+`tool_name` selects GPMC or Ganak. Five new pure native Rust Miter+RR CPU
+identities (`q261_rr_*`) are measured inside the existing native-core CodSpeed
+job, with source QASM parsing outside the timed span; all 25 prior native
+identities remain. Two separately named Random_Rotation genuine negatives
+(`q261_qft16_negative`, `q261_qaoa7_negative`) extend the existing seven
+paired base/HEAD Solver-inclusive WallTime workloads to nine, using the same
+runner and three routine CodSpeed rounds, with actual GPMC invocation,
+QASM source/target hashes, and explicit NEQ oracle checks. The original seven
+IDs and historical QASM bytes remain untouched.
+
+The source selection is documented by the isolated [QOO-160 research report](https://github.com/PhysicsQoo/QuPRS/blob/experiment/qoo160-qasm261-codspeed-selection/docs/development/codspeed-qasm261-formal-selection.md) and [multi-round experiment](https://github.com/PhysicsQoo/QuPRS/actions/runs/41589357492). Its A1/B1/B2/A2 diagnostic is not a routine PR gate. Solver arithmetic and statistical significance are not certified by a successful CodSpeed upload; P5 is observational only. QNN4/VQE4-negative remain opt-in; VQE8-positive periodic. No Solver source changes.
+
 ## CodSpeed v5 measurement boundary
 
 CodSpeed v5 Simulation estimates CPU cycles; it is **not directly comparable**

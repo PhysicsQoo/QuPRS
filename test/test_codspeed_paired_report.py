@@ -30,6 +30,7 @@ def sample():
                 },
             })
             solver = "ganak" if "ganak" in case else "gpmc"
+            versioned_negative = case.startswith("q261_")
             records.append({
                 "case": case, "revision": revision,
                 "sha": "base-sha" if revision == "base" else "head-sha",
@@ -37,17 +38,24 @@ def sample():
                 "backend": "python" if "python" in case else "rust",
                 "solver": solver, "strategy": "proportional",
                 "reverse": False, "solver_invoked": True,
-                "verdict": "equivalent", "rr_approximate": False,
-                "verification_status": "PASS",
+                "verdict": "not_equivalent" if versioned_negative else "equivalent",
+                "rr_approximate": False,
+                "verification_status": "EXPECTED_SOURCE_NEGATIVE" if versioned_negative else "PASS",
+                "pair_variant": "random_rotation" if versioned_negative else "transpiled",
+                "qasm_corpus": "qiskit-2.6.1-opt0" if versioned_negative else "historical",
+                "fixture_sha256": ["a" * 64, "b" * 64] if versioned_negative else None,
             })
     return measurement, records
 
 
-def test_exact_seven_pairs_emit_codspeed_percentages():
+def test_exact_nine_pairs_keep_legacy_and_qasm261_separate():
     instrument, records = sample()
     report, markdown = report_module.produce(instrument, records, "base-sha", "head-sha")
     assert report["status"] == "PASS"
-    assert len(report["cases"]) == 7
+    assert len(report["cases"]) == 9
+    assert {x["case"] for x in report["cases"] if x["case"].startswith("q261_")} == {
+        "q261_qaoa7_negative", "q261_qft16_negative",
+    }
     assert all(abs(x["change_percent"] - 5) < 1e-10 for x in report["cases"])
     assert "shared" in markdown.lower()
 

@@ -21,12 +21,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmarks.codspeed.case_registry import (
-    WALLTIME_CASE_IDS, CROSS_INSTRUMENT_MATCH, NATIVE_IDS, PYTHON_CORE_CASE_IDS,
+    ALL_WALLTIME_CASE_IDS, CROSS_INSTRUMENT_MATCH, NATIVE_IDS, PYTHON_CORE_CASE_IDS,
 )
 from benchmarks.codspeed.suite_compat import (
     SuiteCompatibilityError, load_catalog, normalize_manifest, suite_spec_digest,
 )
-WALLTIME_CASES = len(WALLTIME_CASE_IDS)
+WALLTIME_CASES = len(ALL_WALLTIME_CASE_IDS)
 NATIVE_CASES = len(NATIVE_IDS)
 
 

@@ -155,7 +155,7 @@ def main():
     a.output.write_text(json.dumps(report, indent=2, sort_keys=True)+"\n", encoding="utf-8")
     rows = [
         "## P5 CodSpeed WallTime observations (no automatic performance gate)",
-        "Source: same runner, seven source-pinned base/HEAD Solver-inclusive WallTime pairs.",
+        "Source: same runner, nine source-pinned base/HEAD Solver-inclusive WallTime pairs (seven original + two QASM261 negative).",
         "Median changes show observed direction, not statistical significance; "
         "runner noise is a nonblocking caveat.",
         "Ganak near-equal source cases may retain CONDITIONAL timing deltas "

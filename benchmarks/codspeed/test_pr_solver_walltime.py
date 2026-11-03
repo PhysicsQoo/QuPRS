@@ -4,6 +4,7 @@ Base and HEAD have separate built Python/Rust installations but read the
 exact same QASM files from HEAD. The timed unit is a complete verification
 request, including the Solver subprocess when the Hybrid stage reaches WMC.
 """
+import hashlib
 import json
 import os
 import signal
@@ -15,7 +16,9 @@ import pytest
 
 # Match the existing representative MQT case settings (method=Hybrid,
 # backend, Solver, strategy, direction). IDs are stable across PR runs.
-from benchmarks.codspeed.case_registry import WALLTIME_CASES as CASES
+from benchmarks.codspeed.case_registry import (
+    ALL_WALLTIME_CASES as CASES, QASM261_WALLTIME_CASE_IDS,
+)
 
 RESULT_PREFIX = "QUPRS_WALLTIME_RESULT "
 VALID_VERDICTS = {"equivalent", "equivalent*", "not_equivalent"}
@@ -32,6 +35,8 @@ def execute_source_pinned_case(revision: str, case: tuple) -> dict:
         str(interpreter), str(harness), str(workspace),
         filename, strategy, solver, backend, "1" if reverse else "0",
     ]
+    if case[0] in QASM261_WALLTIME_CASE_IDS:
+        command.extend(("random_rotation", "hybrid", "qiskit-2.6.1-opt0"))
     process = subprocess.Popen(
         command,
         cwd=source_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -74,7 +79,15 @@ PARAMS = [
 @pytest.mark.parametrize("revision,case", PARAMS)
 def test_pr_solver_inclusive_walltime(benchmark, revision, case):
     measured = benchmark(execute_source_pinned_case, revision, case)
-    case_id, _, strategy, solver, reverse, backend = case
+    case_id, filename, strategy, solver, reverse, backend = case
+    versioned_negative = case_id in QASM261_WALLTIME_CASE_IDS
+    fixture_hashes = None
+    if versioned_negative:
+        folder = Path(os.environ["GITHUB_WORKSPACE"]) / "benchmarks" / "MQTBench"
+        fixture_hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (
+            folder / filename,
+            folder / "qiskit-2.6.1-opt0" / "Random_Rotation" / filename,
+        )]
     benchmark.extra_info.update({
         "measurement": "solver_inclusive_end_to_end_walltime",
         "case": case_id,
@@ -88,8 +101,12 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         "solver": solver,
         "solver_invoked": str(measured["solver_invoked"]),
         "verdict": measured["verdict"],
+        "fixture_sha256": fixture_hashes,
+        "pair_variant": "random_rotation" if versioned_negative else "transpiled",
+        "qasm_corpus": "qiskit-2.6.1-opt0" if versioned_negative else "historical",
         "verification_status": (
-            "EXTERNAL_GANAK_PRINT_LIMITATION"
+            "EXPECTED_SOURCE_NEGATIVE" if versioned_negative and measured["verdict"] == "not_equivalent"
+            else "EXTERNAL_GANAK_PRINT_LIMITATION"
             if measured["verdict"] == "not_equivalent" and solver == "ganak"
             else "PASS" if measured["verdict"] in {"equivalent", "equivalent*"}
             else "INVALID_RESULT"
@@ -112,7 +129,11 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
     # The historical VQE4/Grover4 Ganak printed-resolution problem may yield
     # a negative numerical point estimate for a near-equivalent pair. Retain
     # that timing with explicit provenance; it is NOT a correctness PASS.
-    if measured["verdict"] == "not_equivalent":
+    if versioned_negative:
+        assert measured["verdict"] == "not_equivalent" and measured["pair_variant"] == "random_rotation", (
+            f"QASM261 Random_Rotation must give genuine NEQ: {case_id}: {measured}"
+        )
+    if measured["verdict"] == "not_equivalent" and not versioned_negative:
         assert solver == "ganak" and case_id in {"vqe4_ganak", "grover4_ganak", "vqe4_ganak_python"}, (
             f"unexpected not-equivalent verdict: {revision}/{case_id}"
         )
@@ -138,6 +159,13 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         "approximate_distance_tolerance": measured.get("approximate_distance_tolerance"),
         "wmc_numerical_verdict": measured.get("wmc_numerical_verdict"),
         "verification_status": benchmark.extra_info["verification_status"],
+        "pair_variant": benchmark.extra_info["pair_variant"],
+        "qasm_corpus": benchmark.extra_info["qasm_corpus"],
+        "fixture_sha256": fixture_hashes,
+        "effective_rr_tolerance": measured.get("effective_rr_tolerance"),
+        "effective_distance_tolerance": measured.get("effective_distance_tolerance"),
+        "effective_phase_tolerance": measured.get("effective_phase_tolerance"),
+        "effective_gpmc_digits": measured.get("effective_gpmc_digits"),
     }
     output = Path(os.environ["RUNNER_TEMP"]) / "quprs-paired-walltime-provenance.jsonl"
     with output.open("a", encoding="utf-8") as log:

@@ -18,7 +18,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmarks.codspeed.case_registry import (
-    WALLTIME_CASE_IDS as EXPECTED,
+    ALL_WALLTIME_CASE_IDS as EXPECTED,
+    QASM261_WALLTIME_CASE_IDS,
     GANAK_PRECISION_LIMIT_CASES as PRECISION_LIMITED_FIXTURES,
 )
 EQ = {"equivalent", "equivalent*"}
@@ -114,11 +115,25 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
                 errors.append(f"{case}/{revision}: inconclusive verdict {record['verdict']}")
             if record["method"] != "hybrid":
                 errors.append(f"{case}/{revision}: expected Hybrid")
-            if (record["verdict"] == "not_equivalent"
-                    and record["verification_status"] != "EXTERNAL_GANAK_PRINT_LIMITATION"):
+            versioned_negative = case in QASM261_WALLTIME_CASE_IDS
+            if versioned_negative:
+                if (record["verdict"] != "not_equivalent"
+                        or record["verification_status"] != "EXPECTED_SOURCE_NEGATIVE"
+                        or record.get("pair_variant") != "random_rotation"
+                        or record.get("qasm_corpus") != "qiskit-2.6.1-opt0"
+                        or not isinstance(record.get("fixture_sha256"), list)
+                        or len(record["fixture_sha256"]) != 2
+                        or any(not re.fullmatch(r"[0-9a-f]{64}", v)
+                               for v in record["fixture_sha256"])):
+                    errors.append(f"{case}/{revision}: wrong QASM261 NEQ source/stage/fixture")
+            elif (record["verdict"] == "not_equivalent"
+                  and record["verification_status"] != "EXTERNAL_GANAK_PRINT_LIMITATION"):
                 errors.append(f"{case}/{revision}: negative without known Solver limitation")
 
-        for field in ("method", "backend", "solver", "strategy", "reverse", "fixture_sha"):
+        for field in ("method", "backend", "solver", "strategy", "reverse", "fixture_sha",
+                      "pair_variant", "qasm_corpus", "fixture_sha256",
+                      "effective_rr_tolerance", "effective_distance_tolerance",
+                      "effective_phase_tolerance", "effective_gpmc_digits"):
             if b[field] != h[field]:
                 errors.append(f"{case}: unequal {field}: {b[field]} != {h[field]}")
         expected_precision_limit = evidenced_ganak_print_limitation(
@@ -144,7 +159,9 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
             warning.append("verdict labeling changed")
         if b["rr_approximate"] != h["rr_approximate"]:
             warning.append("RR approximate provenance changed")
-        if classify(b["verdict"]) == "not_equivalent":
+        if case in QASM261_WALLTIME_CASE_IDS:
+            warning.append("source-pinned QASM261 Random_Rotation expected NEQ; GPMC invoked")
+        elif classify(b["verdict"]) == "not_equivalent":
             warning.append("known external Ganak precision limitation; NOT a scientific PASS")
         b_ms, h_ms = bt["min_ns"] / 1e6, ht["min_ns"] / 1e6
         # Do not merge equivalent and equivalent*: global-phase labels are
@@ -159,7 +176,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
             and h.get("solver_invoked") is True
             and all(b.get(field) == h.get(field) for field in
                     ("method", "backend", "solver", "strategy", "reverse",
-                     "fixture_sha"))
+                     "fixture_sha", "pair_variant", "qasm_corpus", "fixture_sha256"))
         )
         workload_comparable = same_workload and (same_semantics or expected_precision_limit)
         delta = 100 * (h_ms / b_ms - 1) if workload_comparable else None

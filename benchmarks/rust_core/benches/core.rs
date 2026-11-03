@@ -63,10 +63,13 @@ fn preencoded_mpfr96() -> &'static WmcManager {
     })
 }
 
+include!("qasm261.rs");
+
 fn main() {
     // Make decimal source parsing and fixture construction explicitly untimed.
     let _ = (decimal(), symbolic(), unique_decimals(),
              wmc_fixture(true), wmc_fixture(false), preencoded_mpfr96());
+    q261_preload_and_validate();
     divan::main();
 }
 

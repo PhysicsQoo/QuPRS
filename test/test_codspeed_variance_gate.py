@@ -41,10 +41,10 @@ def fixture():
     return paired.produce(measurements, records, "b"*40, "a"*40)[0]
 
 
-def test_all_seven_sample_summaries_reported_without_go():
+def test_all_nine_sample_summaries_reported_without_go():
     r = variance.produce(fixture())
     assert r["collection_status"] == "PAIRED_ROUND_SUMMARIES_AVAILABLE"
-    assert r["case_count"] == 7
+    assert r["case_count"] == 9
     assert r["performance_status"] == "NOT_CERTIFIED"
     assert r["default_regression_threshold"] is None
     assert all(x["base_rounds"] == 3 and x["head_rounds"] == 3 for x in r["cases"])

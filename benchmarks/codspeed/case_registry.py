@@ -23,6 +23,9 @@ NATIVE_IDS = (
     "wmc_trace_mpfr192_unique",
     "wmc_dimacs_mpfr96_unique",
     "rr_elim_direct", "rr_hh_direct", "rr_omega_direct",
+    "q261_rr_ghz32_positive", "q261_rr_graphstate16_positive",
+    "q261_rr_qft16_positive", "q261_rr_qpeexact8_positive",
+    "q261_rr_vqe4_positive",
 )
 
 LEGACY_CASE_COUNT = 32
@@ -41,6 +44,17 @@ WALLTIME_CASES = (
     ("vqe4_ganak_python", "vqe_nativegates_ibm_qiskit_opt0_4.qasm", "proportional", "ganak", False, "python"),
 )
 WALLTIME_CASE_IDS = frozenset(row[0] for row in WALLTIME_CASES)
+# Preserve all seven original paired IDs; add only science-verified QASM261
+# Random_Rotation genuine negatives (QOO-160).
+QASM261_WALLTIME_CASES = (
+    ("q261_qft16_negative", "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+     "proportional", "gpmc", True, "rust"),
+    ("q261_qaoa7_negative", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+     "proportional", "gpmc", False, "rust"),
+)
+QASM261_WALLTIME_CASE_IDS = frozenset(row[0] for row in QASM261_WALLTIME_CASES)
+ALL_WALLTIME_CASES = WALLTIME_CASES + QASM261_WALLTIME_CASES
+ALL_WALLTIME_CASE_IDS = WALLTIME_CASE_IDS | QASM261_WALLTIME_CASE_IDS
 GANAK_PRECISION_LIMIT_CASES = {
     "grover4_ganak": "grover4",
     "vqe4_ganak": "vqe4",

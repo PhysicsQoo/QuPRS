@@ -8,6 +8,7 @@ from benchmarks.codspeed.case_registry import (
     GANAK_PRECISION_LIMIT_CASES, LEGACY_CASE_COUNT, LEGACY_SHARD_COUNT,
     PILOT_CASES, PAPER_GAP_PILOT_CASES, SOLVER_CPU_CASES, WALLTIME_CASES, WALLTIME_CASE_IDS,
     PYTHON_CORE_CASE_IDS, NATIVE_IDS, REPEATABILITY_CASES,
+    ALL_WALLTIME_CASES, ALL_WALLTIME_CASE_IDS, QASM261_WALLTIME_CASES, QASM261_WALLTIME_CASE_IDS,
     REPEATABILITY_EXPECTATIONS,
 )
 
@@ -32,7 +33,11 @@ def test_shared_registry_stable_7_plus_7_and_cross_case_ids():
     assert len(CROSS_METHOD_CASES) == 24
     assert len(CROSS_METHOD_CPU_IDS) == 4
     assert len(PYTHON_CORE_CASE_IDS) == 5
-    assert len(NATIVE_IDS) == 25
+    assert len(NATIVE_IDS) == 30
+    assert len(QASM261_WALLTIME_CASES) == len(QASM261_WALLTIME_CASE_IDS) == 2
+    assert len(ALL_WALLTIME_CASES) == len(ALL_WALLTIME_CASE_IDS) == 9
+    assert not (WALLTIME_CASE_IDS & QASM261_WALLTIME_CASE_IDS)
+    assert all(row[3] == "gpmc" and row[5] == "rust" for row in QASM261_WALLTIME_CASES)
     assert {"rr_elim_direct", "rr_hh_direct", "rr_omega_direct"}.issubset(set(NATIVE_IDS))
     assert len(REPEATABILITY_CASES) == 4
     assert {case.id for case in REPEATABILITY_CASES} == set(REPEATABILITY_EXPECTATIONS)

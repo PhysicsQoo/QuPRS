@@ -11,6 +11,10 @@ import argparse
 import json
 import math
 from pathlib import Path
+import sys
+# Direct `python scripts/report_codspeed_variance_gate.py` sets sys.path[0]
+# to scripts/, so make the repo-root registry import explicit and source-pinned.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmarks.codspeed.case_registry import ALL_WALLTIME_CASE_IDS
 
 DEFAULT_PAIRED_COUNT = len(ALL_WALLTIME_CASE_IDS)

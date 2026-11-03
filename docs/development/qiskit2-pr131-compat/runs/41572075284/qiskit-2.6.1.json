@@ -1,0 +1,172 @@
+{
+  "blocking_failures": [
+    "RR_rust_qasm3",
+    "pqc_generator_NLocal"
+  ],
+  "ci_run_id": "41572075284",
+  "diagnostics": {
+    "QASM_global_phase_serialization_observation": {
+      "status": "PASS",
+      "value": {
+        "inmemory": 0.125,
+        "not_a_formal_equivalence_assertion": true,
+        "qasm2_loaded": 0.0,
+        "qasm3_loaded": 0.0
+      }
+    },
+    "Qiskit_Circuit_Utils_import": {
+      "status": "PASS",
+      "value": {
+        "functions": [
+          "pqc_generator",
+          "random_circuit",
+          "random_clifford_T_circuit",
+          "add_random_rotation_gates"
+        ],
+        "loaded_module": "QuPRS.utils.Qiskit_Circuit_Utils"
+      }
+    },
+    "RR_python_objects": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_python_qasm2": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_python_qasm3": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_rust_objects": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_rust_qasm2": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_rust_qasm3": {
+      "message": "Unsupported QASM header at line 1: only OPENQASM 2.0 is supported",
+      "status": "FAIL",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/runner/work/QuPRS/QuPRS/.diagnostics/qiskit_compatibility/pr131_runtime_probe.py\", line 32, in run\n    value = f()\n            ^^^\n  File \"/home/runner/work/QuPRS/QuPRS/.diagnostics/qiskit_compatibility/pr131_runtime_probe.py\", line 153, in <lambda>\n    lambda b=backend,v=representation: check_rr(b,v))\n                                       ^^^^^^^^^^^^^\n  File \"/home/runner/work/QuPRS/QuPRS/.diagnostics/qiskit_compatibility/pr131_runtime_probe.py\", line 51, in check_rr\n    res = check_equivalence(left, right, backend=backend,\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/QuPRS/QuPRS/src/QuPRS/interface/load_qiskit.py\", line 368, in check_equivalence\n    rust_res = _pathsum_rust.check_equivalence(\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: Unsupported QASM header at line 1: only OPENQASM 2.0 is supported\n",
+      "type": "ValueError"
+    },
+    "load_qasm2_register_partitions": {
+      "status": "PASS",
+      "value": {
+        "gate_qubits": [
+          [
+            0
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            1
+          ]
+        ],
+        "loaded": [
+          [
+            "alpha",
+            2
+          ],
+          [
+            "beta",
+            1
+          ]
+        ],
+        "original": [
+          [
+            "alpha",
+            2
+          ],
+          [
+            "beta",
+            1
+          ]
+        ]
+      }
+    },
+    "parameter_pi_check": {
+      "status": "PASS",
+      "value": {
+        "expr": "theta/pi",
+        "type": "Mul"
+      }
+    },
+    "pqc_generator_NLocal": {
+      "message": "NoneType copy mode not allowed.",
+      "status": "FAIL",
+      "traceback": "_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/transpiler/preset_passmanagers/plugin.py\", line 268, in get_passmanager_stage\n    return self._build_pm(\n           ^^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/transpiler/preset_passmanagers/plugin.py\", line 305, in _build_pm\n    return plugin_obj.obj.pass_manager(pm_config, optimization_level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/transpiler/preset_passmanagers/builtin_plugins.py\", line 175, in pass_manager\n    init.append(ConsolidateBlocks())\n                ^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/transpiler/basepasses.py\", line 50, in __call__\n    pass_instance = type.__call__(cls, *args, **kwargs)\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/transpiler/passes/optimization/consolidate_blocks.py\", line 152, in __init__\n    self.decomposer = TwoQubitBasisDecomposer(CXGate())\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/synthesis/two_qubit/two_qubit_decompose.py\", line 434, in __init__\n    Operator(gate).data,\n    ^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/quantum_info/operators/operator.py\", line 124, in __init__\n    self._data = self._init_instruction(data).data\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/quantum_info/operators/operator.py\", line 778, in _init_instruction\n    return Operator(np.array(instruction, dtype=complex))\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/runner/work/_temp/qiskit-runtime/lib/python3.12/site-packages/qiskit/circuit/_utils.py\", line 145, in __array__\n    return numpy.array(arr, dtype=dtype, copy=copy)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: NoneType copy mode not allowed.\n",
+      "type": "ValueError"
+    },
+    "qasm2_to_pathsum": {
+      "status": "PASS",
+      "value": {
+        "num_qubits": 2
+      }
+    },
+    "qasm3_loader": {
+      "status": "PASS",
+      "value": {
+        "counts": {
+          "cx": 1,
+          "h": 1
+        },
+        "qregs": [
+          [
+            "q",
+            2
+          ]
+        ]
+      }
+    },
+    "random_clifford_generator": {
+      "status": "PASS",
+      "value": {
+        "gate_types": {
+          "cx": 1,
+          "s": 2,
+          "sx": 1,
+          "sxdg": 1,
+          "x": 1
+        },
+        "n": 6
+      }
+    },
+    "rust_global_phase_guard": {
+      "status": "PASS",
+      "value": {
+        "unequal_phase_rejected": true
+      }
+    }
+  },
+  "performance_measured": false,
+  "pip_check_exit": 1,
+  "pip_check_stderr": "",
+  "pip_check_stdout": "qiskit 2.6.1 has requirement numpy<3,>=2.0, but you have numpy 1.26.4.\nquprs 0.13.4 has requirement qiskit<2.0,>=1.0.0, but you have qiskit 2.6.1.\n",
+  "qiskit2_metadata_requirement_intentionally_violated": true,
+  "qiskit_actual": "2.6.1",
+  "qiskit_qasm3_import": "0.6.0",
+  "quprs_dependency_qiskit": "qiskit>=1.0.0,<2.0",
+  "quprs_source_sha": "a43004a38c90648ee1e38e480935f9a9dda15113",
+  "schema": "quprs-pr131-qiskit2-compat-v1",
+  "solver_tests_executed": false
+}

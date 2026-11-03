@@ -1,0 +1,64 @@
+{
+  "evidence_sha256": {
+    "qiskit-1.4.2.json": "afe9b61003f67de53c185cabc7e78a00ee0a1bd1b1f90d088b57b6b64bf39994",
+    "qiskit-2.6.1.json": "a783a9650fa6b67afaf1e844f4ec9d3add798c3d3088f581c00e01fafde4857b"
+  },
+  "per_version": {
+    "1.4.2": {
+      "api_checks": 15,
+      "failures": [
+        "RR_rust_qasm3"
+      ],
+      "pip_check_exit": 0,
+      "results": {
+        "QASM_global_phase_serialization_observation": "PASS",
+        "Qiskit_Circuit_Utils_import": "PASS",
+        "RR_python_objects": "PASS",
+        "RR_python_qasm2": "PASS",
+        "RR_python_qasm3": "PASS",
+        "RR_rust_objects": "PASS",
+        "RR_rust_qasm2": "PASS",
+        "RR_rust_qasm3": "FAIL",
+        "load_qasm2_register_partitions": "PASS",
+        "parameter_pi_check": "PASS",
+        "pqc_generator_NLocal": "PASS",
+        "qasm2_to_pathsum": "PASS",
+        "qasm3_loader": "PASS",
+        "random_clifford_generator": "PASS",
+        "rust_global_phase_guard": "PASS"
+      }
+    },
+    "2.6.1": {
+      "api_checks": 15,
+      "failures": [
+        "RR_rust_qasm3",
+        "pqc_generator_NLocal"
+      ],
+      "pip_check_exit": 1,
+      "results": {
+        "QASM_global_phase_serialization_observation": "PASS",
+        "Qiskit_Circuit_Utils_import": "PASS",
+        "RR_python_objects": "PASS",
+        "RR_python_qasm2": "PASS",
+        "RR_python_qasm3": "PASS",
+        "RR_rust_objects": "PASS",
+        "RR_rust_qasm2": "PASS",
+        "RR_rust_qasm3": "FAIL",
+        "load_qasm2_register_partitions": "PASS",
+        "parameter_pi_check": "PASS",
+        "pqc_generator_NLocal": "FAIL",
+        "qasm2_to_pathsum": "PASS",
+        "qasm3_loader": "PASS",
+        "random_clifford_generator": "PASS",
+        "rust_global_phase_guard": "PASS"
+      }
+    }
+  },
+  "performance": "NOT_MEASURED",
+  "production_pyproject_unchanged": true,
+  "qiskit2_metadata_mismatch_expected": true,
+  "run_id": "41572075284",
+  "schema": "quprs-pr131-qiskit2-compat-aggregate-v1",
+  "solvers": "NOT_RUN",
+  "source_sha": "a43004a38c90648ee1e38e480935f9a9dda15113"
+}

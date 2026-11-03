@@ -177,6 +177,19 @@ impl QuantumGates for PathSum {
                 #[cfg(feature = "rr-xor-witness")]
                 crate::rr_xor_witness::observe_bra_cx(&self.p, x_t, x_c);
 
+                // Keep the F_2 BooleanState transformation unchanged.
+                // Only P uses the exact two-term Bra-CX specialization.
+                // Unusual x_t == x_c inputs retain the prior generic behavior.
+                #[cfg(feature = "bra-cx-direct")]
+                {
+                    if x_t == x_c {
+                        self.substitute_var_with_poly(x_t, &sub_poly);
+                    } else {
+                        self.f.substitute_var_with_poly(x_t, &sub_poly);
+                        self.p.substitute_bra_cx(x_t, x_c);
+                    }
+                }
+                #[cfg(not(feature = "bra-cx-direct"))]
                 self.substitute_var_with_poly(x_t, &sub_poly);
             }
         }

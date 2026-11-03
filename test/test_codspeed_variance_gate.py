@@ -1,5 +1,7 @@
 """P5 is a CodSpeed sampling audit, not an automatically tuned GO threshold."""
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 import pytest
 
@@ -146,3 +148,14 @@ def test_incomparable_source_cannot_be_misread_as_observed_improvement():
     assert observed["observation_status"] == "NOT_COMPARABLE"
     assert observed["exploratory_median_change_percent"] is None
     assert "INCOMPARABLE_VERDICT" in observed["blocking_reasons"]
+
+def test_standalone_variance_report_cli_can_import_registry_from_any_cwd(tmp_path):
+    """Actual GitHub job invokes this as a script, not through pytest import."""
+    script = ROOT / "scripts" / "report_codspeed_variance_gate.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=tmp_path, text=True, capture_output=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--paired-report" in result.stdout
+

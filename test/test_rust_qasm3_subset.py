@@ -100,11 +100,20 @@ def test_native_qasm3_exact_global_phase_classification(method):
 def test_native_qasm3_exact_decimal_global_phase_survives_parser():
     base = 'OPENQASM 3.0;\nqubit q;\n'
     phase = base + 'gphase(1e-12);\n'
-    result = check_equivalence(
+    # v0.14.0 deliberately considers a nonzero scalar smaller than
+    # phase_tolerance to be exact-enough. Tighten *phase* tolerance rather
+    # than confusing it with the independent reduction tolerance.
+    default = check_equivalence(
         base, phase, backend="rust", method="reduction_rules",
         strategy="Naive", rr_tolerance=0.0, timeout=30,
     )
-    assert result.equivalent == "equivalent*", result
+    assert default.equivalent == "equivalent", default
+    strict = check_equivalence(
+        base, phase, backend="rust", method="reduction_rules",
+        strategy="Naive", rr_tolerance=0.0,
+        phase_tolerance=1e-15, timeout=30,
+    )
+    assert strict.equivalent == "equivalent*", strict
 
 
 @pytest.mark.parametrize("unsupported", [

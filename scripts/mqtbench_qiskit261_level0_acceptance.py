@@ -409,7 +409,7 @@ def run_case(args):
         "source_registry":sources,
         "case_inputs":case,
         "canonical_input":canonical_meta,
-        "expected_count":len(VARiANTS) if False else 8,
+        "expected_count":len(VARIANTS) * len(PROFILES) * len(METHODS),
         "observed_count":len(invocations),
         "outcomes":[{
             "variant":r["variant"],"method":r["method"],"backend":r["backend"],

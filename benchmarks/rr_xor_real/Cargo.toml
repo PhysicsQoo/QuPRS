@@ -1,0 +1,19 @@
+# Real-QASM HH-only diagnostic, strictly isolated from legacy identities.
+[package]
+name = "quprs-rr-xor-real-witness"
+version = "0.0.0"
+edition = "2021"
+publish = false
+autobenches = false
+
+[dependencies]
+pathsum = { path = "../../rust/pathsum", features = ["rr-xor-witness"] }
+divan = { package = "codspeed-divan-compat", version = "=6.0.0" }
+sha2 = "0.10"
+
+[workspace]
+
+[[bench]]
+name = "real_rr"
+path = "benches/real_rr.rs"
+harness = false

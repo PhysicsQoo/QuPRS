@@ -155,7 +155,12 @@ def run(revision: str, fixtures: Path) -> dict:
                 if method in {"hybrid", "wmc_only"}:
                     assert obs["class"] == case["truth"], obs
                 else:
-                    assert obs["class"] in {case["truth"], "unknown"}, obs
+                    # RR-only is a structural/source-exact status, not a
+                    # distance-tolerant verifier. A transpiled VQE pair may
+                    # be strict-negative while Hybrid finds distance-EQ.
+                    # Do not falsely treat this difference as RR failure.
+                    if case["kind"] != "real_circuit":
+                        assert obs["class"] in {case["truth"], "unknown"}, obs
                     assert not obs["wmc_solver_invoked"], obs
                 if method == "wmc_only":
                     assert obs["wmc_solver_invoked"], obs

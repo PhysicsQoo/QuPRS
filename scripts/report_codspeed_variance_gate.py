@@ -17,7 +17,7 @@ from pathlib import Path
 # interpretation caveats; no statistical regression gate is installed.
 
 
-def produce(report: dict, *, expected_count=7) -> dict:
+def produce(report: dict, *, expected_count=9) -> dict:
     if not report.get("head_sha") or not report.get("base_sha"):
         raise ValueError("missing verified base/head source SHA")
     cases = report.get("cases")
@@ -149,7 +149,7 @@ def main():
     p.add_argument("--paired-report", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--summary", type=Path)
-    p.add_argument("--expected-count", type=int, default=7)
+    p.add_argument("--expected-count", type=int, default=9)
     a = p.parse_args()
     report = produce(json.loads(a.paired_report.read_text(encoding="utf-8")), expected_count=a.expected_count)
     a.output.write_text(json.dumps(report, indent=2, sort_keys=True)+"\n", encoding="utf-8")

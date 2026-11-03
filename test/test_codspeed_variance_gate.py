@@ -28,12 +28,22 @@ def fixture():
                           "min_ns": 790_000_000, "median_ns": 800_000_000,
                           "mean_ns": 810_000_000, "stdev_ns": 12_000_000},
             })
+            versioned_negative = case.startswith("q261_")
             records.append({
                 "case": case, "revision": rev,
                 "sha": "b" * 40 if rev == "base" else "a" * 40,
                 "fixture_sha": "a" * 40,
                 "solver_invoked": True, "method": "hybrid",
-                "verdict": "equivalent", "verification_status": "PASS",
+                "verdict": "not_equivalent" if versioned_negative else "equivalent",
+                "verification_status": ("EXPECTED_SOURCE_NEGATIVE"
+                                        if versioned_negative else "PASS"),
+                "pair_variant": "random_rotation" if versioned_negative else "transpiled",
+                "qasm_corpus": "qiskit-2.6.1-opt0" if versioned_negative else "historical",
+                "fixture_sha256": ["a" * 64, "b" * 64] if versioned_negative else None,
+                "effective_rr_tolerance": 1e-10,
+                "effective_distance_tolerance": 1e-8,
+                "effective_phase_tolerance": 1e-8,
+                "effective_gpmc_digits": 30,
                 "backend": "rust", "solver": "gpmc",
                 "strategy": "proportional", "reverse": False,
                 "rr_approximate": False,
@@ -84,7 +94,7 @@ def test_p5_opt_in_subset_remains_noncertifying():
     assert report['case_count'] == 4
     assert report['performance_status'] == 'NOT_CERTIFIED'
     assert report['default_regression_threshold'] is None
-    with pytest.raises(ValueError, match='expected 7'):
+    with pytest.raises(ValueError, match='expected 9'):
         variance.produce(r)
 
 

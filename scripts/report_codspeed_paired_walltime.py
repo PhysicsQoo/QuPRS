@@ -124,7 +124,11 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
                         or not isinstance(record.get("fixture_sha256"), list)
                         or len(record["fixture_sha256"]) != 2
                         or any(not re.fullmatch(r"[0-9a-f]{64}", v)
-                               for v in record["fixture_sha256"])):
+                               for v in record["fixture_sha256"])
+                        or record.get("effective_rr_tolerance") != 1e-10
+                        or record.get("effective_distance_tolerance") != 1e-8
+                        or record.get("effective_phase_tolerance") != 1e-8
+                        or record.get("effective_gpmc_digits") != 30):
                     errors.append(f"{case}/{revision}: wrong QASM261 NEQ source/stage/fixture")
             elif (record["verdict"] == "not_equivalent"
                   and record["verification_status"] != "EXTERNAL_GANAK_PRINT_LIMITATION"):
@@ -134,7 +138,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
                       "pair_variant", "qasm_corpus", "fixture_sha256",
                       "effective_rr_tolerance", "effective_distance_tolerance",
                       "effective_phase_tolerance", "effective_gpmc_digits"):
-            if b[field] != h[field]:
+            if b.get(field) != h.get(field):
                 errors.append(f"{case}: unequal {field}: {b[field]} != {h[field]}")
         expected_precision_limit = evidenced_ganak_print_limitation(
             case, b, h, source_oracle, head_sha

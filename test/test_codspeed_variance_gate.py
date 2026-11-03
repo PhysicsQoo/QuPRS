@@ -33,7 +33,8 @@ def fixture():
                 "case": case, "revision": rev,
                 "sha": "b" * 40 if rev == "base" else "a" * 40,
                 "fixture_sha": "a" * 40,
-                "solver_invoked": True, "method": "hybrid",
+                "solver_invoked": True,
+                "method": "wmc_only" if case == "q261_qaoa7_negative_wmconly" else "hybrid",
                 "verdict": "not_equivalent" if versioned_negative else "equivalent",
                 "verification_status": ("EXPECTED_SOURCE_NEGATIVE"
                                         if versioned_negative else "PASS"),
@@ -51,10 +52,10 @@ def fixture():
     return paired.produce(measurements, records, "b"*40, "a"*40)[0]
 
 
-def test_all_nine_sample_summaries_reported_without_go():
+def test_all_ten_sample_summaries_reported_without_go():
     r = variance.produce(fixture())
     assert r["collection_status"] == "PAIRED_ROUND_SUMMARIES_AVAILABLE"
-    assert r["case_count"] == 9
+    assert r["case_count"] == 10
     assert r["performance_status"] == "NOT_CERTIFIED"
     assert r["default_regression_threshold"] is None
     assert all(x["base_rounds"] == 3 and x["head_rounds"] == 3 for x in r["cases"])
@@ -94,7 +95,7 @@ def test_p5_opt_in_subset_remains_noncertifying():
     assert report['case_count'] == 4
     assert report['performance_status'] == 'NOT_CERTIFIED'
     assert report['default_regression_threshold'] is None
-    with pytest.raises(ValueError, match='expected 9'):
+    with pytest.raises(ValueError, match='expected 10'):
         variance.produce(r)
 
 

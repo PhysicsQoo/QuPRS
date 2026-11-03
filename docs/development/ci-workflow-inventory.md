@@ -1,6 +1,6 @@
 # QuPRS GitHub Actions execution inventory and parallelism
 
-Reviewed against PR #131 source `90c7da78a81caf8e86b92809970f7519410634e4` and `dev@55e78c7597966617c1a193b89056ff4e99c3ddfb` on 2026-11-01.
+Pre-merge CI cleanup reviewed on 2026-11-03 against PR #131 source `a3009801d4143656d2186c36b8dc8db41442c553`, latest `dev@2dd451edeaab4e7c80ea19203e36cc22f3548d85`, and the **measured** CodSpeed base `dev@55e78c7597966617c1a193b89056ff4e99c3ddfb`. The newer dev commit adds a separate Qiskit 2.6.1 Level-0 QASM corpus; an earlier-base measurement must not be mislabeled as a new-base measurement.
 
 ## Policy
 
@@ -8,7 +8,7 @@ Reviewed against PR #131 source `90c7da78a81caf8e86b92809970f7519410634e4` and `
 2. Never insert a cross-workflow dependency solely to force a serial build. The first shard of CodSpeed checks five-shard union/disjointness and paper inputs before running its own benchmark; the other four shards begin concurrently.
 3. Use per-workflow, per-PR `concurrency` cancellation for *superseded commits* only; do not serialize jobs of the same commit and never cancel protected main/dev push acceptance.
 4. Retain all 12 distinct native platform/Python combinations for solver-sensitive dev PRs and dev/main pushes. Matrix entries are concurrent; actual allocation of scarce GitHub-hosted macOS Intel runners is controlled by GitHub and **cannot be guaranteed by YAML**.
-5. Long source-pinned PR #131 diagnostic cohorts run **on demand only** (see labels below), not on every synchronization. A PR `paths:` filter matches the cumulative PR diff, not just the newest commit.
+5. Long source-pinned research cohorts run on demand, outside mandatory PR checks. A PR `paths:` filter matches the cumulative PR diff, not just the newest commit; the shared incremental evidence resolver must independently validate same-source reuse.
 6. The final `Release-Ready / Required` aggregate remains fail-closed: it must see all 12 source-platform jobs and the expected wheel/sdist build and smoke matrix, even though these suites now start independently.
 7. All timing and regression judgments must use CodSpeed, with Simulation syscall-exclusion and non-Macro WallTime caveats stated explicitly. Don't silently replace a solver-inclusive measurement with a solver-excluding estimate.
 
@@ -17,8 +17,8 @@ Reviewed against PR #131 source `90c7da78a81caf8e86b92809970f7519410634e4` and `
 | Workflow | Scope | Why not fold into another job? |
 | --- | --- | --- |
 | `dev-fast.yml` | Native/Rust smoke and comprehensive Python correctness, representative evidence | Fast feedback; needs only one Linux environment |
-| `benchmarks.yml` | Paper benchmark reporting and evidence contract | Benchmark report/coverage output and source provenance differ from pytest correctness |
-| `codspeed.yml` | Five parallel simulation shards, one collection/integrity audit on shard 0 | Performance profiling and canonical CodSpeed publication |
+| `benchmarks.yml` | Legacy PR benchmark reporting is label-opt-in (`ci-legacy-benchmark`); main push retains baseline publication | The default PR run only validates impact/provenance and does not duplicate CodSpeed measurement |
+| `codspeed.yml` | Five Simulation shards (shard-0 identity check), seven source-pinned paired Solver-inclusive WallTime cases, native Rust CPU, same-SHA evidence audit | CodSpeed performance authority; all timing claims distinguish simulated CPU from solver-inclusive WallTime |
 | `native-cross-platform-pr.yml` | Reuses `pytest.yml` for 12 OS/Python cells | Actual platform/ABI coverage; independent matrix jobs |
 | `docker-build.yml` | Tester-stage Docker build matrix | Installed/container artifacts are not source pytest |
 | `wmc-conservative-policy.yml` | WMC numerical and phase classification contract | Independent physics/precision gate |
@@ -27,17 +27,54 @@ Reviewed against PR #131 source `90c7da78a81caf8e86b92809970f7519410634e4` and `
 
 The `codspeed.yml` separate `verify_shard_coverage` runner was eliminated. Proof moved to **shard 0**, before its CodSpeed measurement, so failure still fails the matrix without delaying four other shards.
 
-## PR #131 deep diagnostics (explicit request only)
+## Pre-merge retirement of PR-number-specific diagnostics (2026-11-03)
 
-These workflows no longer execute automatically on `opened/synchronize/reopened`; they run on `pull_request:labeled` for PR #131, or `workflow_dispatch` from a branch containing the workflow.
+The two PR-#131-only workflow files `pr131-paired-walltime.yml` and
+`pr131-qft-diagnostic.yml` were **added solely on this feature PR** and
+are removed from its final tree before integration into `dev`.
+They were label/manual-triggered, not part of the required PR-to-dev
+science or benchmark matrix. Their definitions remain retrievable in
+[the immutable pre-cleanup source](https://github.com/PhysicsQoo/QuPRS/tree/a3009801d4143656d2186c36b8dc8db41442c553/.github/workflows)
+and their historical measurement artifacts remain associated with the
+original Actions runs. Removing a workflow from the integration tree
+does not erase an earlier run or certify its numerical results.
 
-| Workflow | Explicit PR label | Purpose |
-| --- | --- | --- |
-| `codspeed-solver-cpu-pilot.yml` | `ci-solver-cpu-pilot` | Process-inclusive CPU diagnostic, subject to syscall-exclusion caveat |
-| `pr131-paired-walltime.yml` | `ci-pr131-walltime` | Source-pinned main/dev/PR same-host walltime, non-Macro exploratory |
-| `pr131-qft-diagnostic.yml` | `ci-pr131-qft` | QFT16 source, solver, and feature-flag diagnosis |
+Do **not** reinstate per-PR experiment workflow files on `dev` or
+`main`. For repeatability studies and source-pinned experimental
+diagnostics, prefer the isolated research branch and existing
+`workflow_dispatch`/bounded experiment infrastructure. The standard
+`codspeed.yml` still contains compatibility opt-in research jobs;
+they are not default release gates and should be relocated only in a
+separate, focused CI migration with its own contract tests, not by
+silently deleting historic benchmark identities.
 
-To rerun, remove and re-add the corresponding label, or dispatch manually after the workflow is present on the default branch. The active PR's pinned prior results are retained in GitHub Actions and CodSpeed; a successful old SHA is not acceptance of a changed source SHA.
+### Exact-HEAD evidence before integration
+
+- [CI on PR HEAD a300980](https://github.com/PhysicsQoo/QuPRS/actions/runs/41582565268):
+  five Simulation shards, seven paired Solver-inclusive WallTime
+  cases (14 measured base/head identities), native Rust CPU, and
+  cross-instrument provenance all completed successfully.
+- [CodSpeed Performance Analysis](https://github.com/PhysicsQoo/QuPRS/runs/125743839069):
+  check SUCCESS; 20 improved, 12 unchanged, 39 new and 102 skipped
+  identities **against measured dev@55e78c7**, with hardware and
+  syscall warnings. Check SUCCESS is not an unconditional end-to-end
+  solver-speed guarantee or proof that every case improved.
+- [Second evidence-reuse workflow](https://github.com/PhysicsQoo/QuPRS/actions/runs/41582663166):
+  source-verified incremental reuse succeeded; expensive jobs skipped
+  deliberately. Reuse references previous exact-source evidence and
+  never creates a measurement for a new SHA.
+- WMC numerical, Python/Rust Solver Conformance, QASM 1.x/2.x,
+  full Dev Fast, 12 native platform cells and both Docker test
+  architectures also completed successfully on a300980.
+- P5 is observation-only: no fixed percentage threshold or automated
+  performance veto. Ganak near-boundary verdict differences remain
+  separately qualified and cannot be used as science PASS.
+
+The later `dev@2dd451e` contains the separately merged, versioned
+MQTBench QASM corpus. Verify its source-impact and benchmark identity
+before merging #131; do not claim the older CodSpeed base already
+measured this commit, or rerun unrelated expensive suites without a
+scientific/workflow input change.
 
 ## Integration pushes, main release, and publication
 

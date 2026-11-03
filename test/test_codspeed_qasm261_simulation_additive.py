@@ -10,16 +10,20 @@ from benchmarks.codspeed.simulation_addon import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_additive_24_uri_identities_are_distinct_and_pinned():
+def test_additive_12_cpu_uri_identities_preserve_legacy_32():
     assert len(QASM261_CASES) == 6
-    assert len(QASM261_URIS) == len(set(QASM261_URIS)) == QASM261_COUNT == 24
+    assert len(QASM261_URIS) == len(set(QASM261_URIS)) == QASM261_COUNT == 12
     assert hashlib.sha256(
         "\n".join(sorted(QASM261_URIS)).encode("utf-8")
     ).hexdigest() == QASM261_SHA256
     assert {u.split("::")[0] for u in QASM261_URIS} == {
         "benchmarks/codspeed/test_mqt_qasm261_simulation.py"
     }
-    assert len(BACKENDS) == len(SOLVERS) == 2
+    assert len(BACKENDS) == 2 and SOLVERS == ("gpmc",)
+    # Before v0.14 release, the Ganak aliases were dev-only and retired:
+    # CPU Simulation cannot include the actual child Solver subprocess.
+    assert all("_ganak_" not in uri for uri in QASM261_URIS)
+    assert all("_gpmc_" in uri for uri in QASM261_URIS)
 
 
 def test_all_six_additive_pairs_match_qiskit261_source_manifest():

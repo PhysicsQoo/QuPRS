@@ -131,6 +131,25 @@ mod tests {
             assert_eq!(witness.counts.hh_substitutions, observed.stats.hh.successes);
             assert_eq!(witness.samples.len() + witness.counts.sample_truncations,
                 witness.counts.phase_affected);
+            let bra = &witness.bra_cx;
+            let expected_cx = source.candidate.iter()
+                .filter(|op| matches!(**op, QuantumOp::CX(_, _))).count();
+            assert_eq!(bra.calls, expected_cx,
+                "each real Bra-CX must be counted once for {:?}", case);
+            assert_eq!(bra.calls, bra.touched_calls + bra.unaffected_calls);
+            assert_eq!(bra.calls, bra.affected_histogram.iter().sum());
+            assert_eq!(bra.affected_terms, bra.affected_per_call.iter().sum());
+            assert!(bra.exact_radian_terms <= bra.affected_terms);
+            assert!(bra.symbolic_terms <= bra.affected_terms);
+            assert!(bra.control_overlap_terms <= bra.affected_terms);
+            println!(
+                "RR_CX_REAL_WITNESS={{\"case\":\"{}\",\"bra_cx_calls\":{},\"touched_calls\":{},\"unaffected_calls\":{},\"total_affected\":{},\"radian_terms\":{},\"symbolic_terms\":{},\"control_overlap_terms\":{},\"peak_phase_terms\":{},\"peak_affected_terms\":{},\"affected_histogram\":{:?},\"affected_per_call\":{:?}}}",
+                case.id(), bra.calls, bra.touched_calls,
+                bra.unaffected_calls, bra.affected_terms, bra.exact_radian_terms,
+                bra.symbolic_terms, bra.control_overlap_terms,
+                bra.peak_phase_terms, bra.peak_affected_terms,
+                bra.affected_histogram, bra.affected_per_call,
+            );
             let c = witness.counts;
             assert_eq!(c.hh_substitutions, c.phase_affected + c.no_affected_terms);
             assert_eq!(c.phase_affected,

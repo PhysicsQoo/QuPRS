@@ -6,6 +6,9 @@ on:
       - experiment/qoo151-rr-xor-reuse-20261103
     paths:
       - 'rust/pathsum/src/pathsum/phase_poly.rs'
+      - 'benchmarks/rr_xor_native/Cargo.toml'
+      - 'benchmarks/rr_xor_native/src/**'
+      - 'benchmarks/rr_xor_native/benches/**'
       - '.github/workflows/rr-xor-shared-codspeed.yml'
   workflow_dispatch:
 

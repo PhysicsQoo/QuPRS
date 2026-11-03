@@ -40,7 +40,7 @@ The optimal global-phase adjusted, dimension-normalized Frobenius distance is
 `D_gp(U,V) = min_φ ||U-e^{iφ}V||_F / √d
             = √(2-2|Tr(U†V)|/d).`
 
-The v0.14.0 optional `approximate_distance_tolerance` uses the
+The v0.14.0 default `approximate_distance_tolerance=1e-8` uses the
 **projective Hilbert--Schmidt distance** rather than the phase-adjusted
 normalized Frobenius distance above. Writing `m=|Tr(U†V)|/d`:
 
@@ -49,7 +49,7 @@ normalized Frobenius distance above. Writing `m=|Tr(U†V)|/d`:
 In particular `D_proj²=D_gp²-D_gp⁴/4`; at `m=√3/2`,
 `D_proj=0.5` but `D_gp≈0.517638`. The stable projective
 threshold uses `1-m ≤ epsilon²/(1+√(1-epsilon²))`, with a
-**non-certified empirical** numerical guard. These metric tolerances
+printed-count output precision interval, not a fixed numerical guard. These metric tolerances
 must not be conflated with one another or with other tools' settings.
 
 These are **mathematical identities**, not permission to test an approximate
@@ -60,7 +60,7 @@ For `I` versus `RZ(δ)` on one qubit:
 `|Tr(RZ(δ))|/2=|cos(δ/2)|`. For `δ=0.001` radians,
 the defect `1-|cos(δ/2)|≈1.249999974×10⁻⁷` is nonzero.
 Thus `I` and `RZ(0.001)` are **not** globally-phase equivalent,
-even though the magnitude is inside the current `10⁻⁶` WMC band.
+even though a retired magnitude-based heuristic with a `10⁻⁶` band would have accepted it. The v0.14.0 default distance criterion does not.
 In contrast, `RZ(2π)=-I` is globally-phase equivalent to `I`
 but not exactly equal.
 
@@ -91,19 +91,21 @@ Python reductions, or finite-precision WMC.
 | `equivalent` | Symbolic identity or numerical near-identity under the selected thresholds; WMC acceptance is not proof of exact equality. |
 | `equivalent*` | Symbolic up-to-global-phase result or numerically accepted trace with phase above the phase threshold. |
 | `not_equivalent` | Structural mismatch, strict symbolic counterexample, or numerical WMC rejection; numerical negatives are not universal source-exact proofs. |
-| `unknown` | Insufficient symbolic evidence or an unresolved numerical boundary. |
+| `unknown` | Incomplete symbolic reduction or another genuinely inconclusive verification outcome; printed output rounding uncertainty is separately reported. |
 | `Timeout`, `MemoryOut` | Resource limit, not physical non-equivalence. |
 | exception | Invalid input, missing solver or failed parsing, not non-equivalence. |
 
-`decision_basis` distinguishes `structural`, `symbolic`,
-`numerical_legacy`, `numerical_approximate`,
-`analytic_empty_cnf`, `inconclusive` and `execution_limit`.
-A `symbolic` label means no external WMC, not necessarily a
-machine-checkable certificate for Python's tolerance-based reductions.
-`wmc_numerical_verdict` can include `unknown` after a real solver;
-`wmc_solver_invoked` on Rust indicates whether an external solver
-was actually launched. Rust FFI display strings are normalized by
-the Python facade. Solver failures do not silently select a different solver.
+A result classified without WMC has `wmc_time=None` and
+`tool_time=None`. A populated `wmc_time` indicates that the
+WMC stage was reached; use `wmc_solver_invoked` (available for both
+backends) to establish whether an external solver actually ran.
+This distinction is necessary for Rust's empty-CNF analytic shortcut.
+For finite WMC counts, `wmc_printed_verdict` can be `unknown`
+while the operational `wmc_numerical_verdict` is determinate.
+Timing alone does not provide a mathematical proof, and a reduction
+verdict can depend on RR tolerance. Rust FFI display strings are
+normalized by the Python facade. Solver failures do not silently
+select a different solver.
 
 **Implementation status for the v0.14.0 candidate (2026-10-28):**
 
@@ -121,8 +123,9 @@ the Python facade. Solver failures do not silently select a different solver.
 3. **Remaining known limitation:** floating WMC thresholds can classify
    strictly inequivalent near-identity rotations as numerically equivalent.
    There is no selectable `wmc_policy`; the solver observation remains
-   available through `wmc_numerical_verdict`. An opt-in projective-distance classifier now handles uncertain
-   numerical boundaries with an empirical rather than certified error guard.
+   available through `wmc_numerical_verdict`. The default finite-count projective-distance classifier uses the
+   printed-count central value. Printing resolution remains a distinct
+   diagnostic, not a certified arithmetic bound or a veto.
    Strict and approximate Qiskit-transpilation relations (including
    Graphstate16) remain separate.
 4. **Release gate:** source-pinned QPE, Graphstate16, CP/U2/SX and global-phase

@@ -22,8 +22,13 @@ on:
       - 'docs/development/paper-corpus-manifest.json'
       - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
+      - '.github/scripts/ci-impact-reuse.cjs'
+      - '.github/scripts/test-ci-impact-reuse.cjs'
   pull_request:
     branches: [ main, dev ]
+    # Historical pytest-benchmark PR reporting is opt-in. Canonical 32-case
+    # CodSpeed Simulation remains always-on in codspeed.yml.
+    types: [opened, reopened, synchronize, labeled]
     paths:
       - 'src/**'
       - 'test/test_Feynman.py'
@@ -43,6 +48,8 @@ on:
       - 'docs/development/paper-corpus-manifest.json'
       - 'scripts/profile_wmc_weight_precision.py'
       - '.github/workflows/benchmarks.yml'
+      - '.github/scripts/ci-impact-reuse.cjs'
+      - '.github/scripts/test-ci-impact-reuse.cjs'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -54,6 +61,35 @@ permissions:
   actions: read
 
 jobs:
+  ci-impact:
+    name: Incremental CI impact / benchmarks.yml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_heavy: ${{ steps.resolve.outputs.run_heavy }}
+      reused_run_id: ${{ steps.resolve.outputs.reused_run_id }}
+      measured_head_sha: ${{ steps.resolve.outputs.measured_head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run incremental routing negative contracts
+        run: node .github/scripts/test-ci-impact-reuse.cjs
+      - id: resolve
+        name: Validate source and successful previous CI evidence
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const resolve = require('./.github/scripts/ci-impact-reuse.cjs');
+            await resolve({
+              github, context, core,
+              workflowFile: 'benchmarks.yml',
+              requiredJobs: [{"name":"test-and-benchmark-pr","count":1}]
+            });
+
   # ====================================================================
   # JOB 1: Build and save a new performance baseline when code is merged into main.
   # This job's sole responsibility is to run on the main branch and store
@@ -193,7 +229,10 @@ jobs:
   # This is the definitive version to solve the artifact download issues.
   # ====================================================================
   test-and-benchmark-pr:
-    if: github.event_name == 'pull_request'
+    needs: [ci-impact]
+    # Explicit legacy diagnostic only; do not rebuild and time the same
+    # 32 cases twice on every PR. Main-push baseline publication is unchanged.
+    if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-legacy-benchmark') }}
     permissions:
       actions: read  # Required for accessing workflow history.
       pull-requests: write  # Needed for commenting on PRs.

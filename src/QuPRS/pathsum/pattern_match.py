@@ -3,7 +3,9 @@ import math
 import symengine as se
 import sympy as sp
 
-from QuPRS import config
+from QuPRS.utils.verification_tolerances import (
+    current_rr_tolerance, record_rr_approximation,
+)
 from QuPRS.utils.util import (
     algebraic_to_logical,
     logical_to_algebraic,
@@ -19,10 +21,19 @@ def match_Elim(P, reducible_vars):
     return None
 
 
-def match_HH(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
-    P_expanded = P.expand()
-    valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
+def match_HH(
+    P, reducible_vars, pathvar, bits, *, coeff_cache=None,
+    expanded_phase=None, valid_symbols=None,
+):
+    # Standalone matcher calls still expand their own phase. RR passes the
+    # already-expanded normalization so Omega/HH see identical coefficients.
+    P_expanded = P.expand() if expanded_phase is None else expanded_phase
+    if valid_symbols is None:
+        valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
 
+    # Membership is tested once per coefficient candidate, often against a
+    # large set of path variables. Avoid repeated linear scans over tuples.
+    allowed_pathvars = pathvar if isinstance(pathvar, (set, frozenset)) else set(pathvar)
     for yo_val in reducible_vars:
         # Use only coefficients of the *same* phase, recorded earlier by Omega.
         # Direct matcher calls retain their original standalone behavior.
@@ -34,16 +45,21 @@ def match_HH(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
         possible_yi = [
             yi_val
             for yi_val in P_coeff.free_symbols
-            if yi_val in pathvar and yi_val != yo_val
+            if yi_val in allowed_pathvars and yi_val != yo_val
         ]
 
+        if not possible_yi:
+            continue
+        doubled_coefficient = 2 * P_coeff
         for yi_val in possible_yi:
-            Q_val = reduce_expression((2 * P_coeff - yi_val), 2)
+            Q_val = reduce_expression(doubled_coefficient - yi_val, 2)
             Q_val_free_symbols = Q_val.free_symbols
             if (
                 yi_val not in Q_val_free_symbols
                 and all(str(symbol) in valid_symbols for symbol in Q_val_free_symbols)
-                and reduce_expression(Q_val).is_zero
+                # An exact zero has no RR approximation provenance. Skip
+                # only that unnecessary second normalization.
+                and (Q_val.is_zero or reduce_expression(Q_val).is_zero)
             ):
                 R_val = (P_expanded - yo_val * P_coeff).expand()
                 return yo_val, yi_val, Q_val, R_val
@@ -51,10 +67,14 @@ def match_HH(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
     return None, None, None, None
 
 
-def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
-    tolerance = config.TOLERANCE
-    P_expanded = P.expand()
-    valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
+def match_omega(
+    P, reducible_vars, pathvar, bits, *, coeff_cache=None,
+    expanded_phase=None, valid_symbols=None,
+):
+    tolerance = current_rr_tolerance()
+    P_expanded = P.expand() if expanded_phase is None else expanded_phase
+    if valid_symbols is None:
+        valid_symbols = {str(bit) for bit in bits}.union(str(var) for var in pathvar)
     for yo_val in reducible_vars:
         coeff = P_expanded.coeff(yo_val)
         if coeff_cache is not None:
@@ -76,6 +96,12 @@ def match_omega(P, reducible_vars, pathvar, bits, *, coeff_cache=None):
                     and reduce_expression(Q_val).is_zero
                 ):
                     R_val = (P_expanded - yo_val * coeff).expand()
+                    # Omega matching may accept a near-quarter coefficient
+                    # without dropping a term. Such acceptance is approximate
+                    # and must not be reported as source-exact.
+                    target = se.Rational(1, 4) if return_flag else se.Rational(3, 4)
+                    if term != target:
+                        record_rr_approximation()
                     return yo_val, Q_val, R_val, return_flag
 
     return None, None, None, None
@@ -104,7 +130,7 @@ def HH_reduction(pathsum, yo_val, yi_val, Q_val, R_val):
             Q_val = logical_to_algebraic(Q_val)
 
         new_P = R_val.subs({yi_val: Q_val})
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, preserve_scalar=True)
     else:
         new_P = R_val
 
@@ -122,7 +148,7 @@ def omega_reduction(pathsum, yo_val, Q_val, R_val, return_flag):
         new_P = se.Rational(1, 8) - se.Rational(1, 4) * Q_val + R_val
     else:
         new_P = se.Rational(-1, 8) + se.Rational(1, 4) * Q_val + R_val
-    new_P = reduce_expression(new_P)
+    new_P = reduce_expression(new_P, preserve_scalar=True)
     new_pathvar = set(pathsum.pathvar)
     new_pathvar.remove(yo_val)
 

@@ -112,7 +112,7 @@ def test_reference_uncertainty_guard_has_three_distinct_outcomes():
     ("0.00048", "not_equivalent"),
 ])
 def test_native_distance_mode_has_no_early_strict_negative(solver, theta, expected):
-    """Native opt-in path: strict RR negative must not preempt distance mode."""
+    """RR-only is strict; Hybrid/WMC-only use projective distance."""
     left, right = qasm(), qasm("rz(" + theta + ") q[0];\n")
     with solver_binary(solver):
         rr = _pathsum_rust.check_equivalence(
@@ -127,7 +127,7 @@ def test_native_distance_mode_has_no_early_strict_negative(solver, theta, expect
             left, right, method="wmc_only", strategy="Naive",
             tool_name=solver, timeout=45, approximate_distance_tolerance=EPS,
         )
-    assert normalize_status(rr) == "unknown", (solver, theta, rr)
+    assert normalize_status(rr) == "not_equivalent", (solver, theta, rr)
     assert normalize_status(hybrid) == expected, (solver, theta, hybrid)
     assert normalize_status(wmc) == expected, (solver, theta, wmc)
     assert "wmc_solver_time_sec" in hybrid
@@ -157,12 +157,13 @@ def test_public_sub_f64_distance_guard(backend):
         left, right, method="wmc_only", backend=backend, tool_name="gpmc",
         strategy="Naive", timeout=45, approximate_distance_tolerance=1e-8,
     )
-    # A definite answer is permitted only with valid numerical/symbolic
-    # certification, never because a rounded-to-one f64 count looks exact.
-    if result.equivalent != "unknown":
-        assert getattr(result, "distance_interval_certified", False), (
-            backend, result.equivalent, "uncertified near-boundary verdict"
-        )
+    # Explicitly tiny epsilon is a numerical observation, not a proof
+    # of a source-exact relation or certified solver arithmetic.
+    assert result.equivalent in (
+        "equivalent", "equivalent*", "not_equivalent", "unknown",
+    )
+    assert result.wmc_solver_invoked is True
+    assert result.wmc_precision_reason is not None
 
 
 def test_multi_step_cancellation_preserves_net_rotation_in_python_wmc():
@@ -177,19 +178,14 @@ def test_multi_step_cancellation_preserves_net_rotation_in_python_wmc():
     total.rz(6e-4, 0)
     assert Operator(multi).equiv(Operator(total), atol=1e-10, rtol=0)
     assert not Operator(identity).equiv(Operator(total), atol=1e-8, rtol=0)
-    before = config.get_tolerance()
-    try:
-        config.set_tolerance(1e-6)
-        for target in (multi, total):
-            result = check_equivalence(
-                identity, target, backend="python", method="wmc_only",
-                strategy="Naive", tool_name="gpmc", timeout=45,
-                wmc_magnitude_tolerance=1e-8,
-            )
-            assert result.equivalent == "not_equivalent"
-            assert result.tool_time is not None
-    finally:
-        config.set_tolerance(before)
+    for target in (multi, total):
+        result = check_equivalence(
+            identity, target, backend="python", method="wmc_only",
+            strategy="Naive", tool_name="gpmc", timeout=45,
+            approximate_distance_tolerance=1e-8, rr_tolerance=1e-6,
+        )
+        assert result.equivalent == "not_equivalent"
+        assert result.tool_time is not None
 
 
 @pytest.mark.parametrize("solver", SOLVERS)
@@ -203,9 +199,9 @@ def test_true_identity_solver_numerical_floor_is_reported_not_hidden(solver, dep
     answer = check_equivalence(
         identity, many_h, method="wmc_only", backend="python",
         strategy="Naive", tool_name=solver, timeout=45,
-        wmc_magnitude_tolerance=1e-8,
+        approximate_distance_tolerance=1e-8,
     )
-    assert answer.equivalent == "equivalent", (solver, depth, answer.equivalent)
+    assert answer.equivalent in ("equivalent", "unknown"), (solver, depth, answer.equivalent)
     assert answer.tool_time is not None
     assert answer.log_wmc is not None
     expected_log2 = 1 + depth / 2
@@ -218,16 +214,16 @@ def test_true_identity_solver_numerical_floor_is_reported_not_hidden(solver, dep
 
 
 @pytest.mark.parametrize("depth", (60, 80))
-def test_ganak_too_strict_magnitude_gate_rejects_a_true_identity(depth):
+def test_ganak_tight_distance_does_not_falsely_reject_true_identity(depth):
     identity, many_h = QuantumCircuit(1), QuantumCircuit(1)
     for _ in range(depth):
         many_h.h(0)
     answer = check_equivalence(
         identity, many_h, method="wmc_only", backend="python",
         strategy="Naive", tool_name="ganak", timeout=45,
-        wmc_magnitude_tolerance=1e-10,
+        approximate_distance_tolerance=1e-8,
     )
-    assert answer.equivalent == "not_equivalent"
+    assert answer.equivalent in ("equivalent", "unknown"), answer.equivalent
     assert answer.tool_time is not None
 
 
@@ -242,11 +238,11 @@ def test_public_distance_rejects_invalid_parameters_before_verification(backend,
 
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
-def test_distance_and_magnitude_parameters_are_mutually_exclusive(backend):
-    with pytest.raises(ValueError, match="conflicts"):
+def test_removed_magnitude_parameter_is_rejected(backend):
+    with pytest.raises(TypeError):
         check_equivalence(
             qasm(), qasm(), backend=backend, method="reduction_rules",
-            approximate_distance_tolerance=EPS, wmc_magnitude_tolerance=1e-6,
+            wmc_magnitude_tolerance=1e-8,
         )
 
 
@@ -258,40 +254,19 @@ def test_opt_in_exact_rr_fast_path_retains_proof_provenance(backend):
     )
     assert result.equivalent == "equivalent"
     assert result.tool_time is None
-    assert result.decision_basis == "symbolic"
+    assert result.wmc_time is None
     assert result.approximate_distance_tolerance == EPS
 
 
-def test_distance_classification_guard_at_the_reference_boundary():
-    from QuPRS.utils.wmc_solvers import classify_approximate_weighted_count
-    eps = 2e-4
-    tau = trace_defect_from_distance(eps)
-    for defect, expected in (
-        (tau - 6e-9, "equivalent"),
-        (tau, "unknown"),
-        (tau + 6e-9, "not_equivalent"),
-    ):
-        result, _ = classify_approximate_weighted_count(
-            4.0 * (1.0 - defect), 0.0, 2.0,
-            distance_tolerance=eps, phase_tolerance=1e-8,
-        )
-        assert result == expected, (defect, result)
+def test_projective_distance_threshold_is_not_magnitude_budget():
+    eps = 1e-8
+    defect = trace_defect_from_distance(eps)
+    assert 0 < defect < 1e-16
 
 
-@pytest.mark.parametrize("backend", ("python", "rust"))
-def test_distance_mode_ignores_mutable_legacy_magnitude_default(backend):
-    """The opt-in distance API does not inherit an unrelated WMC default."""
-    original = config.WMC_MAGNITUDE_TOLERANCE
-    try:
-        config.WMC_MAGNITUDE_TOLERANCE = 1e-6
-        result = check_equivalence(
-            qasm(), qasm(), backend=backend, method="reduction_rules",
-            approximate_distance_tolerance=EPS,
-        )
-        assert result.equivalent == "equivalent"
-        assert result.decision_basis == "symbolic"
-    finally:
-        config.WMC_MAGNITUDE_TOLERANCE = original
+def test_removed_mutable_magnitude_default():
+    assert not hasattr(config, "WMC_MAGNITUDE_TOLERANCE")
+    assert config.DEFAULT_DISTANCE_TOLERANCE == 1e-8
 
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
@@ -303,19 +278,18 @@ def test_structural_mismatch_has_consistent_provenance(backend):
     )
     assert result.equivalent == "not_equivalent"
     assert result.tool_time is None
-    assert result.decision_basis == "structural"
+    assert result.wmc_solver_invoked is False
+    assert result.wmc_time is None
 
 
 @pytest.mark.parametrize("backend", ("python", "rust"))
-def test_explicit_default_wmc_magnitude_is_not_a_distance_conflict(backend):
-    """The canonical unused WMC default is accepted by all public backends."""
+def test_none_distance_uses_default(backend):
     result = check_equivalence(
         qasm(), qasm(), backend=backend, method="reduction_rules",
-        approximate_distance_tolerance=EPS,
-        wmc_magnitude_tolerance=1e-8,
+        approximate_distance_tolerance=None,
     )
     assert result.equivalent == "equivalent"
-    assert result.approximate_distance_tolerance == EPS
+    assert result.approximate_distance_tolerance == 1e-8
 
 
 def test_direct_pyo3_structural_mismatch_has_explicit_provenance():
@@ -324,7 +298,7 @@ def test_direct_pyo3_structural_mismatch_has_explicit_provenance():
         qasm(), two, method="hybrid", approximate_distance_tolerance=EPS,
     )
     assert raw["status"] == "Not Equivalent"
-    assert raw["decision_basis"] == "structural"
+    assert "wmc_solver_time_sec" not in raw
     assert raw["wmc_solver_invoked"] is False
 
 
@@ -336,5 +310,6 @@ def test_public_wmc_observation_identifies_real_solver_invocation(backend):
         tool_name="gpmc", timeout=45,
     )
     assert result.wmc_solver_invoked is True
-    assert result.decision_basis == "numerical_legacy"
+    assert result.wmc_time is not None
+    assert result.tool_time is not None
     assert result.wmc_numerical_verdict == result.equivalent

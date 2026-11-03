@@ -252,8 +252,10 @@ def test_python_cnf_removed_even_when_solver_times_out(tmp_path, monkeypatch):
     def timeout(*args, **kwargs):
         raise SolverTimeout("SolverTimeout: fake hung WMC")
     monkeypatch.setattr(wmc, "run_wmc", timeout)
+    target = QuantumCircuit(1)
+    target.x(0)  # Non-tautological CNF must invoke the patched solver.
     result = check_equivalence(
-        QuantumCircuit(1), QuantumCircuit(1),
+        QuantumCircuit(1), target,
         method="wmc_only", backend="python", timeout=4,
     )
     assert result.equivalent == "Timeout"
@@ -428,8 +430,10 @@ def test_existing_host_sigalrm_timer_is_never_replaced(monkeypatch, failure):
     try:
         circuit = QuantumCircuit(1)
         if failure:
+            target = QuantumCircuit(1)
+            target.x(0)  # Exact tautology fast path would not run a solver.
             with pytest.raises(RuntimeError, match="intentional solver failure"):
-                check_equivalence(circuit, circuit, method="wmc_only", timeout=5)
+                check_equivalence(circuit, target, method="wmc_only", timeout=5)
         else:
             result = check_equivalence(
                 circuit, circuit, method="reduction_rules", timeout=5
@@ -587,8 +591,10 @@ def test_non_quprs_timeout_from_solver_callback_is_not_swallowed(monkeypatch):
 
     monkeypatch.setattr(wmc, "run_wmc", external_failure)
     circuit = QuantumCircuit(1)
+    target = QuantumCircuit(1)
+    target.x(0)  # Force a nontrivial CNF to exercise the callback.
     with pytest.raises(TimeoutError, match="external caller deadline"):
         check_equivalence(
-            circuit, circuit, method="wmc_only",
+            circuit, target, method="wmc_only",
             backend="python", timeout=5,
         )

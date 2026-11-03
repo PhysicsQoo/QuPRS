@@ -1,13 +1,14 @@
 # Benchmark inputs, correctness tests, and resource profiling
 
-The benchmark files in this repository serve three different purposes.
+The benchmark files in this repository serve several distinct purposes.
 These purposes are **not** interchangeable.
 
 | Purpose | Existing entry point | Runs a solver? | Required for each PR? |
 | --- | --- | --- | --- |
 | Paper input integrity | `python scripts/paper_corpus_audit.py` | No | Cheap, source-sensitive checks only |
 | Small correctness and error handling | `pytest test/test_backend_semantics.py test/test_solver_failure_matrix.py` | Yes, bounded | Via existing pytest CI |
-| Representative elapsed-time benchmarks | `test/test_MQT.py`, `test/test_Feynman.py` | Yes | Via existing Benchmark/CodSpeed workflows |
+| Canonical 32-case CPU Simulation | `test/test_MQT.py`, `test/test_Feynman.py` via CodSpeed | Solver may be invoked but subprocess time is not modeled | Every code-affecting PR |
+| Solver-inclusive CodSpeed WallTime (matched base/HEAD) | `benchmarks/codspeed/test_pr_solver_walltime.py` | **Required: GPMC/Ganak subprocess** | Every PR, in addition to five-shard Simulation |
 | Full publication reproduction | Original complete paper input corpus | Yes, potentially very expensive | No; use a controlled, comparable machine |
 | Process-tree RSS profiling | `scripts/profile_benchmark_resources.py` | Yes, isolated | No, opt-in until actual runner measurements pass |
 
@@ -55,6 +56,14 @@ a separate bounded trial; do not retry inside a CodSpeed timed function.
 
 ## Memory and time
 
+The dedicated per-PR WallTime cohort additionally covers source-pinned VQE4,
+QFT16, QAOA7 and Grover4 with actual Solver invocation, measured by CodSpeed
+on the same runner for immutable base/head revisions. Its seven representative
+case IDs and methods must stay stable unless a new baseline is explicitly
+started. WallTime includes Solver launch/wait; CPU Simulation excludes
+syscalls. Shared-host timing is observational rather than a fixed-hardware
+performance release certificate.
+
 The existing MQT benchmark suite already covers **QFT16, QAOA7 and
 Grover4** in both Python and Rust with GPMC and Ganak. The optional
 resource observer reuses those same QASM paths, Proportional strategy,
@@ -93,6 +102,23 @@ hosted runners must not be compared as if they were identical hardware.
 The benchmark comparison remains report-only for timing regressions on shared
 runners. Numerical or resource uncertainty must not be converted into a
 positive semantic verdict.
+## Qiskit 2.6.1 source-pinned admission (2026-11-03)
+
+The original 32 Simulation case identities and five shards are unchanged. The
+additional 24 QASM261 positive pytest Simulation identities use separate URIs;
+many terminate during RR and therefore **do not** measure a Solver even when
+`tool_name` selects GPMC or Ganak. Five new pure native Rust Miter+RR CPU
+identities (`q261_rr_*`) are measured inside the existing native-core CodSpeed
+job, with source QASM parsing outside the timed span; all 25 prior native
+identities remain. Two separately named Random_Rotation genuine negatives
+(`q261_qft16_negative`, `q261_qaoa7_negative`) extend the existing seven
+paired base/HEAD Solver-inclusive WallTime workloads to nine, using the same
+runner and three routine CodSpeed rounds, with actual GPMC invocation,
+QASM source/target hashes, and explicit NEQ oracle checks. The original seven
+IDs and historical QASM bytes remain untouched.
+
+The source selection is documented by the isolated [QOO-160 research report](https://github.com/PhysicsQoo/QuPRS/blob/experiment/qoo160-qasm261-codspeed-selection/docs/development/codspeed-qasm261-formal-selection.md) and [multi-round experiment](https://github.com/PhysicsQoo/QuPRS/actions/runs/41589357492). Its A1/B1/B2/A2 diagnostic is not a routine PR gate. Solver arithmetic and statistical significance are not certified by a successful CodSpeed upload; P5 is observational only. QNN4/VQE4-negative remain opt-in; VQE8-positive periodic. No Solver source changes.
+
 ## CodSpeed v5 measurement boundary
 
 CodSpeed v5 Simulation estimates CPU cycles; it is **not directly comparable**
@@ -125,3 +151,65 @@ Later snapshots may differ as normal baseline updates continue. Preserve the
 historical artifacts and provenance before disabling or removing the old
 benchmark workflow. Simulation metrics are not direct measurements of solver
 wall-time, system calls, or sampled peak memory.
+ 
+The seven-case paired WallTime job now produces a CodSpeed-only base/HEAD
+Markdown/JSON table, verifies immutable source identity, actual GPMC/Ganak
+invocation, semantic verdict category and path parity. Validation and report
+generation happen **after** CodSpeed measurement, not inside the timed call.
+Known Ganak print-resolution negatives remain external limitations.
+
+The opt-in weighted three-shard Simulation candidate retains all 32
+existing benchmark identities and the unchanged CPU Simulation instrument.
+It is not automatically used by normal PRs; the production setup remains
+five shards until the controlled pilot is evaluated.
+
+## Legacy PR benchmark de-duplication (v0.14.0 candidate)
+
+The `Python CI & Benchmarks` workflow continues to publish the original
+`pytest-benchmark` history on **main push** using the existing
+`benchmarks` branch, `main_baseline.json`, and provenance. It does not
+delete or rebase any historical values. On PRs, its duplicate full 32-case
+benchmark job is now **explicit opt-in** with label `ci-legacy-benchmark`;
+labeling a PR triggers its historical comparison and optional Python
+weight profiler. The default PR performance signal remains the 32-identity
+`CodSpeed` CPU Simulation plus the bounded Solver-inclusive CodSpeed WallTime
+(whose scientific/stage mismatch is not automatically accepted).
+
+The `resource-pilot` label continues to control the independent RSS observer.
+Removing the repeated PR history job is a **CI cost optimization**, not a
+claim that old shared-host pytest timing equals reproducible CodSpeed
+Simulation or qualified Macro Runner WallTime. Retain all 32 original node
+IDs; add Rust native and Memory measurements as new, separate instrument
+histories. Three-shard production promotion is separate and evidence-gated.
+
+## Controlled 3-shard GO/NO-GO (2026-11-01)
+
+**NO-GO** for three-shard promotion. Compared matched source
+`3ed3f4524eadde97bc20811913b9c6fd88e12695`, with identical 32 existing
+node IDs, CPU Simulation v5 settings, QASM input identities, and benchmark
+framework. Production five-shard Actions run: `41323120238`; weighted
+three-shard pilot Actions run: `41323666421`.
+
+- Five shards: 8/12/2/4/6 benchmark executions, all 32 PASS.
+- Three shards: 10/11/11 executions, all 32 PASS, no duplicates or missing.
+- Summed **CodSpeed action step execution durations** (CI scheduling / runner
+  cost metric, *not* scientific circuit runtime): five shards 1075.303 s;
+  three shards 1326.235 s (+23.3%).
+- Longest action step: five shards 313.780 s; three shards 493.000 s (+57.1%).
+
+These results reject the proposal to reduce the number of shards now. Do not
+mix CI setup or action-step time with CodSpeed measured CPU cycles. Keep
+production at five shards; weighted three-shard pilot remains opt-in for
+historical research, not a release requirement. A new sharding candidate
+needs a new same-HEAD controlled test rather than retroactively selecting
+partial runs or changing benchmark IDs.
+
+## Canonical five-shard identity guard
+
+The production `scripts/check_codspeed_shards.py` now checks not only the
+unsharded-to-sharded 32-case union, absence of missing or duplicate nodes,
+and five-shard execution, but also the immutable sorted pytest node-ID
+SHA-256 `7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed`.
+The original eight Feynman plus 24 MQT cases cannot be silently renamed
+or replaced while retaining a count of 32; a deliberate corpus revision
+requires an explicit baseline migration.

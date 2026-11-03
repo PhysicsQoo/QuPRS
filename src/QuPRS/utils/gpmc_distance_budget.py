@@ -25,6 +25,14 @@ class GpmcSingleCountEvidence:
     source_weight_certified: bool = False
     solver_arithmetic_certified: bool = False
     model: str = "single_pass_conditional_v1"
+    # Independent single-distance point estimate. Unlike status, this
+    # must never be gated on the optional research model's assumptions.
+    numerical_verdict: str = "unknown"
+
+    @property
+    def model_status(self) -> str:
+        """Conditional diagnostic status, not the public verifier's verdict."""
+        return self.status
 
 
 def classify_gpmc_single_count(
@@ -34,15 +42,19 @@ def classify_gpmc_single_count(
     maximum_weight_magnitude_squared: Fraction,
     precision_digits: int,
 ) -> GpmcSingleCountEvidence:
-    """Classify one printed solver count with explicitly conditional errors.
+    """Report a conditional research model, not a production verdict.
 
-    Assume source weight accuracy of at least 100 bits and GPMC MPFR
-    operations at the requested decimal-digit precision. Both are
-    engineering assumptions; no universal count-arithmetic enclosure
-    is claimed. Ineligible workloads are unknown, not a false verdict.
+    numerical_verdict always uses the public projective-distance point
+    estimate. The conditional model's status may remain unknown when its
+    engineering precision assumptions do not apply, without changing the
+    public verifier's equivalent/equivalent*/not_equivalent result. Source
+    weights and MPFR error budgets are not universal certified bounds.
     """
     printed = classify_printed_distance(
         count, expected_twice_log2, distance_tolerance,
+    )
+    numerical_verdict, _ = classify_observed_distance(
+        count, expected_twice_log2, distance_tolerance, phase_tolerance,
     )
     eligible = (
         type(cnf_vars) is int and 0 <= cnf_vars <= MAX_MODEL_VARS
@@ -57,7 +69,7 @@ def classify_gpmc_single_count(
     if not eligible:
         return GpmcSingleCountEvidence(
             "unknown", "unsupported_single_pass_precision_model",
-            printed.status, None,
+            printed.status, None, numerical_verdict=numerical_verdict,
         )
     # Source conversion allowance, expressed in absolute count units.
     normal_scale = Fraction(2) ** ((expected_twice_log2 + 1) // 2)
@@ -78,4 +90,5 @@ def classify_gpmc_single_count(
         "single_pass_uncertified_" + evidence.reason,
         printed.status,
         str(component_error),
+        numerical_verdict=numerical_verdict,
     )

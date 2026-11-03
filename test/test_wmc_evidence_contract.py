@@ -35,9 +35,20 @@ def test_wmc_numerical_evidence_available_without_policy(backend, solver, case):
         strategy="Naive", timeout=60,
     )
     assert result.tool_name == solver
-    assert result.tool_time is not None
-    assert result.equivalent in {"equivalent", "equivalent*", "not_equivalent"}
-    assert result.wmc_numerical_verdict == result.equivalent
+    if case == "identity":
+        # A tautological, unweighted CNF is counted exactly; it must not
+        # fabricate numerical solver evidence or a subprocess runtime.
+        assert result.equivalent == "equivalent"
+        assert result.wmc_precision_reason == "analytic_unweighted_tautology"
+        assert result.wmc_solver_invoked is False
+        assert result.tool_time is None
+        assert result.wmc_numerical_verdict is None
+    else:
+        assert result.wmc_solver_invoked is True
+        assert result.tool_time is not None
+        # Independent one-qubit oracle has D >> 1e-8.
+        assert result.equivalent == "not_equivalent"
+        assert result.wmc_numerical_verdict == result.equivalent
     assert not hasattr(result, "wmc_policy")
 
 

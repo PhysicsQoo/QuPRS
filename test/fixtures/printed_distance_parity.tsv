@@ -9,6 +9,6 @@ small_non_equivalence_uncertain	c s exact octuple float 9.9999999999999994746875
 small_non_equivalence_narrow_error	c s exact octuple float 9.9999999999999994746875000000000000000117e-01 + 0e+00i	0	1e-8	1e-20	not_equivalent
 near_threshold_with_error	c s exact octuple float 9.9999999999999995000000000000000000000000e-01 + 0e+00i	0	1e-8	1e-19	unknown_resolution
 zero_count	c s exact arb frac 0/1	0	1e-8	0	not_equivalent
-nonphysical_overshoot	c s exact octuple float 1.0000000000000000525312499999999999999988e+00 + 0e+00i	0	1e-8	0	unknown_overshoot
+outside_distance_band	c s exact octuple float 1.0000000000000000525312499999999999999988e+00 + 0e+00i	0	1e-8	0	unknown_distance_range
 complex_global_phase	c s exact octuple float 0e+00 + 1.0000000000000000000000000000000000000000e+00i	0	1e-8	0	equivalent
 scaled_non_equivalence	c s exact octuple float 3.99999999999999978987500000000000000000468e+00 + 0e+00i	4	1e-8	0	not_equivalent

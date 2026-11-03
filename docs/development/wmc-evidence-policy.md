@@ -1,92 +1,93 @@
 # Weighted model counting: numerical evidence versus proof
 
-QuPRS supports the `reduction_rules`, `hybrid`, and `wmc_only`
-verification methods. When a run invokes Ganak or GPMC, the solver returns
-a finite-precision weighted count rather than a universal exact-equivalence
-certificate. The API does **not** expose a `wmc_policy` selector.
-
-## What the current classifier means
-
-The normalized trace magnitude is
+QuPRS implements `reduction_rules`, `hybrid` and `wmc_only`.
+The default WMC numerical metric for all public Python/PyO3/Rust
+entry points in v0.14.0 is **projective Hilbert-Schmidt distance**
 
 \[
-m=\frac{|\mathrm{Tr}(U^\dagger V)|}{2^n}.
+D(U,V)=\sqrt{1-|\operatorname{Tr}(U^\dagger V)|^2/4^n}
 \]
 
-Without an opt-in projective distance, the current WMC decision threshold
-is based on `|m - 1|` with a
-default `wmc_magnitude_tolerance=1e-8`, not a distance certificate.
-The independent phase threshold `wmc_phase_tolerance=1e-8`
-separates `equivalent` from `equivalent*` once the magnitude gate passes.
-These thresholds have the same defaults in the Python public API,
-PyO3/Rust FFI, and direct Rust crate entry points.
+with `approximate_distance_tolerance=1e-8`. Users may select
+a different finite distance tolerance in (0, 1) on each verification.
+`None` means the documented default, not legacy magnitude mode.
 
-For instance, identity versus `Rz(0.0002)` is not strictly equivalent
-even up to global phase, but its *ideal* trace-magnitude defect is
-about `5e-9`, within the current numerical acceptance band. The
-historical `1e-6` threshold would additionally include
-`Rz(0.001)` (ideal defect about `1.25e-7`).
-These facts describe numeric thresholds, **not** mathematical equality.
+The historical `wmc_magnitude_tolerance` and `wmc_policy`
+public parameters are **removed**: callers supplying them receive
+`TypeError`. The global-phase label tolerance
+`phase_tolerance` / `wmc_phase_tolerance` is independent;
+`rr_tolerance` governs per-call Python reduction and native Rust's
+conservative aggregate diagonal-residual RR acceptance.
 
-## Public Python API
+## Python and Rust example
 
 ```python
 from QuPRS import check_equivalence
 
 result = check_equivalence(
     original, optimized,
-    backend="rust", method="wmc_only", tool_name="ganak",
-    wmc_magnitude_tolerance=1e-8,
-    wmc_phase_tolerance=1e-8,
+    backend="rust", method="hybrid", tool_name="gpmc",
+    approximate_distance_tolerance=1e-8,
 )
-
-print(result.equivalent)             # Numerical classification
-print(result.wmc_numerical_verdict)  # Original solver-derived observation
+print(result.equivalent)
+print(result.wmc_numerical_verdict)
+print(result.wmc_solver_invoked)
 ```
 
-`wmc_numerical_verdict` records the final classification from an
-**actually invoked** external WMC solver, including `unknown` when
-precision is insufficient. It is `None` when reduction alone settles
-the comparison, or in the Rust empty-CNF analytic fast path where no
-solver process is launched. Both backend results expose `wmc_solver_invoked`; the Rust
-`decision_basis="analytic_empty_cnf"` additionally identifies the
-no-child shortcut.
-Legacy timing fields may still be present for compatibility, and are
-not proof that an external child process was started.
+`equivalent` and `equivalent*` are numerical WMC classifications
+when an external solver ran. `wmc_numerical_verdict=None`
+indicates no external WMC observation. A reduced or analytic
+empty-CNF result can be obtained without invoking the solver; use
+`wmc_solver_invoked`, not walltime, to distinguish that case.
 
-There is no `wmc_policy="conservative"` option in the updated API.
-Previous callers explicitly setting `wmc_policy` must remove that
-argument; it raises `TypeError` instead of being ignored. Historical
-v0.13.4 behavior remains documented in the changelog.
+## What printed-count precision establishes
 
-## Current scope and limitations
-
-In this initial API integration, WMC output remains a numerical
-classification. No general solver rounding-error enclosure is claimed.
-The projective Hilbert--Schmidt metric,
+Both solvers return numerical weighted complex counts, not universal
+certificates of the actual trace. The numerical classifier compares
+the central printed complex count's squared magnitude with the
+projective threshold. Printed rounding intervals are retained as
+separate, uncertified precision diagnostics, not a second acceptance
+criterion.
+For an observed magnitude deficit `t`,
 
 \[
-D(U,V)=\sqrt{1-|\mathrm{Tr}(U^\dagger V)|^2/4^n},
+t(\epsilon)=\frac{\epsilon^2}{1+\sqrt{1-\epsilon^2}}.
 \]
 
-supports an explicit user-supplied `approximate_distance_tolerance=epsilon`
-boundary. Its stable magnitude-defect threshold is
-`epsilon**2 / (1 + sqrt(1-epsilon**2))`. A fixed 3e-9 empirical guard
-returns `unknown` for unresolved boundaries or precision-limited results.
-This engineering guard is **not** a certified error enclosure for arbitrary
-CNF encodings, normalization or external solver rounding. Omission of the
-approximate option preserves the existing WMC magnitude/phase thresholds.
+At `epsilon=1e-8`, `t\approx5e-17`.
+GPMC may be run with 90 decimal output digits; Ganak mode 6 has its
+own precision. The GPMC source-phase weights use MPFR input precision
+on the supported native path, but **neither** the solver output nor
+MPFR input precision proves an upper bound for all internal solver
+steps. For this reason, a finite-count WMC verdict is a **numerical
+observation**, not a source-exact certificate. The printed interval
+can be `unknown` independently of a determinate operational result.
 
-Python local RR coefficient tolerance is configured using process-global
-`config.set_tolerance()`; the Rust native symbolic reduction engine has
-different exact-angle semantics and does not silently emulate that knob.
-An RR fast-path which proves exact equivalence or equality up to global
-phase does not need WMC. A nonzero source-exact residual, however, cannot
-alone establish that an operator lies *outside* an explicitly requested
-approximate-distance boundary.
+`unknown` remains appropriate when reduction is inconclusive or the
+verification stage genuinely cannot classify; printed resolution
+alone does not veto the central-count distance classifier. QuPRS
+does not retry GPMC at another precision or silently switch Solvers. The default has no process-global mutable
+WMC policy; reduction always occurs before WMC in Hybrid mode.
 
-Solver parse failures, timeouts, memory exhaustion, and missing binaries
-must be reported separately from physical non-equivalence; neither solver
-may silently fall back to the other. QASM source literals and already
-floating-quantized Qiskit inputs must remain distinguishable when
-interpreting numerical evidence.
+## Scientific acceptance and limits
+
+A source-angle exact identity, a numerical projective-distance
+threshold and an external Solver observation are three distinct
+claims. QuPRS retains gate-source semantics and explicitly reports
+numerical uncertainty rather than asserting that floating WMC
+arithmetic is a source-exact proof.
+
+For physics-oriented regression tests, retain Qiskit full-unitary
+oracles where tractable and analytical one-qubit controls such as
+
+\[
+D(I,R_z(\theta))=|\sin(\theta/2)|.
+\]
+
+A reported result inconsistent with such an oracle is a **scientific
+failure** and must not be treated as harmless because a broader
+regression suite passed. CodSpeed Simulation detects in-process CPU
+regressions, whereas real external Solver latency needs WallTime.
+
+See [WMC numerical tolerance](wmc-numerical-tolerance.md) and
+[Equivalence semantics](equivalence-semantics.md).

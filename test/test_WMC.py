@@ -3,12 +3,12 @@ import tempfile
 
 import pytest
 
-from QuPRS import config
+from QuPRS.utils.verification_tolerances import DEFAULT_RR_TOLERANCE
 from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
 from QuPRS.pathsum import PathSum
 from QuPRS.utils.util import get_theta
 
-TOLERANCE = config.TOLERANCE
+TOLERANCE = DEFAULT_RR_TOLERANCE
 
 
 def generte_test(circuit, tool_name):

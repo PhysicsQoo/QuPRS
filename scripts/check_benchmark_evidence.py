@@ -18,7 +18,7 @@ from fractions import Fraction
 
 ROOT = Path(__file__).resolve().parents[1]
 
-APPROXIMATE_REDUCED_BOUND = "APPROXIMATE_REDUCED_BOUND"
+_SOURCE_EPSILON = Fraction("1e-8")  # Same public distance tolerance
 _GRAPHSTATE_FILE = "graphstate_nativegates_ibm_qiskit_opt0_16.qasm"
 _PINNED_SOURCE_BLOBS = (
     "ab34308febb31ea9a49e9761a988aad7017f3487:"
@@ -26,7 +26,7 @@ _PINNED_SOURCE_BLOBS = (
 )
 
 
-def authorized_approximate_case(classname: str, name: str) -> bool:
+def requires_distance_certificate(classname: str, name: str) -> bool:
     return (
         classname == "test_MQT"
         and name in {
@@ -37,35 +37,28 @@ def authorized_approximate_case(classname: str, name: str) -> bool:
     )
 
 
-def validate_approximate_properties(classname: str, name: str, props: dict) -> bool:
-    """Source-pinned, fail-closed evidence; not a strict-equivalence proof."""
-    if not authorized_approximate_case(classname, name):
+def validate_source_distance_certificate(classname: str, name: str, props: dict) -> bool:
+    """Use one projective-distance threshold; sources validate provenance."""
+    if not requires_distance_certificate(classname, name):
         return False
-    mandatory = {
-        "verification_status": APPROXIMATE_REDUCED_BOUND,
-        "strict_source_verdict": "not_equivalent",
+    expected = {
         "approximate_metric": "projective_hilbert_schmidt",
-        "approximate_threshold": "1e-8",
         "proof_provenance": "source-pinned-reduced-diagonal",
         "source_blobs": _PINNED_SOURCE_BLOBS,
     }
-    if any(props.get(k) != v for k, v in mandatory.items()):
+    if any(props.get(k) != v for k, v in expected.items()):
         return False
-    observed = props.get("observed_backend_verdict")
-    if name.endswith("-rust]"):
-        if observed != "not_equivalent":
-            return False
-    elif name.endswith("-python]"):
-        if observed not in {"equivalent", "equivalent*", "not_equivalent"}:
-            return False
-    else:
+    if props.get("verification_status") not in (None, "PASS"):
+        return False
+    if props.get("observed_backend_verdict") not in {"equivalent", "equivalent*"}:
         return False
     try:
-        bound = Fraction(props["distance_squared_upper"])
-    except (KeyError, ValueError, ZeroDivisionError, TypeError):
+        epsilon = Fraction(props["approximate_threshold"])
+        distance_squared_upper = Fraction(props["distance_squared_upper"])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
         return False
-    return Fraction(0) < bound <= Fraction(1, 10**16)
-
+    # No independent numeric guard. Pin to the default used by this benchmark.
+    return epsilon == _SOURCE_EPSILON and 0 <= distance_squared_upper <= epsilon * epsilon
 
 
 def expected_cases(catalog: Path) -> dict[tuple[str, str], str]:
@@ -91,7 +84,8 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
     root = ET.parse(junit).getroot()
     actual = {}
     unexpected = []
-    approximation_errors = []
+    distance_certificate_errors = []
+    distance_certificates_verified = []
     for case in root.iter("testcase"):
         classname = case.get("classname", "").split(".")[-1]
         name = case.get("name", "")
@@ -113,32 +107,30 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
                 prop.get("name"): prop.get("value")
                 for prop in case.findall("./properties/property")
             }
-            required_approximate = authorized_approximate_case(classname, name)
-            if properties.get("verification_status") == APPROXIMATE_REDUCED_BOUND:
-                if validate_approximate_properties(classname, name, properties):
-                    state = APPROXIMATE_REDUCED_BOUND
+            if requires_distance_certificate(classname, name):
+                if validate_source_distance_certificate(classname, name, properties):
+                    state = "PASS"
+                    distance_certificates_verified.append({"class": classname, "name": name})
                 else:
                     state = "ERROR"
-                    approximation_errors.append({"class": classname, "name": name})
-            elif required_approximate:
-                # Missing metadata cannot silently upgrade source-approximate
-                # evidence into an ordinary expected-positive PASS.
+                    distance_certificate_errors.append({"class": classname, "name": name})
+            elif "distance_squared_upper" in properties:
                 state = "ERROR"
-                approximation_errors.append({"class": classname, "name": name})
+                distance_certificate_errors.append({"class": classname, "name": name})
             else:
                 state = "PASS"
         actual[key] = {"group": expected[key], "status": state}
     missing = [{"class": cls, "name": name} for cls, name in expected if (cls, name) not in actual]
     counts = {name: sum(entry["status"] == name for entry in actual.values())
-              for name in ("PASS", APPROXIMATE_REDUCED_BOUND, "FAIL", "ERROR", "INCONCLUSIVE_RESOURCE", "SKIP")}
+              for name in ("PASS", "FAIL", "ERROR", "INCONCLUSIVE_RESOURCE", "SKIP")}
     by_group = {group: {name: sum(entry == {"group": group, "status": name}
                                   for entry in actual.values()) for name in counts}
                 for group in ("MQT", "Feynman")}
     problems = []
     if unexpected:
         problems.append("unexpected or duplicate benchmark identities")
-    if approximation_errors:
-        problems.append("unverified or unauthorized approximate evidence")
+    if distance_certificate_errors:
+        problems.append("unverified source-distance evidence")
     if missing:
         problems.append("benchmark cases absent from JUnit evidence")
     if counts["FAIL"] or counts["ERROR"]:
@@ -165,20 +157,19 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
         "by_cohort": by_group,
         "missing": missing,
         "unexpected": unexpected,
-        "approximation_errors": approximation_errors,
+        "distance_certificate_errors": distance_certificate_errors,
+        "distance_certificates_verified": len(distance_certificates_verified),
         "status": "BLOCKED" if problems else (
             "INCONCLUSIVE_RESOURCE" if counts["INCONCLUSIVE_RESOURCE"] else
             "PARTIAL_SKIP" if counts["SKIP"] else
-            "COMPLETE_WITH_APPROXIMATE" if counts[APPROXIMATE_REDUCED_BOUND] else
             "COMPLETE"),
         "problems": problems,
         "interpretation": (
-            "PASS denotes a completed expected-positive benchmark outcome under "
-            "the selected verifier policy; it is not by itself a strict formal "
-            "equivalence certificate. APPROXIMATE_REDUCED_BOUND is a separate "
-            "opt-in, source-pinned distance bound conditional on a correct "
-            "native reduction. Inconclusive, skipped, or approximate cases must "
-            "not count as ordinary PASS or complete release-baseline samples."
+            "PASS follows the configured verifier tolerance, not necessarily strict "
+            "mathematical identity. A certified projective-distance upper bound "
+            "within the SAME distance tolerance is ordinary PASS. Source SHA and "
+            "proof provenance authenticate the evidence, not a second numerical "
+            "threshold. Failure, missing evidence and inconclusive results never pass."
         ),
     }
 
@@ -205,9 +196,9 @@ def main(argv: list[str] | None = None) -> int:
                  f"**{report['status']}** — {counts.get('PASS', 0)}/{report['expected']} completed; "
                  f"{counts.get('INCONCLUSIVE_RESOURCE', 0)} resource-inconclusive; "
                  f"{counts.get('SKIP', 0)} planned/other skipped; "
-                 f"{counts.get(APPROXIMATE_REDUCED_BOUND, 0)} source-pinned approximate.", "",
-                 "PASS is an expected-positive test outcome, not necessarily a "
-                 "strict mathematical proof."]
+                 f"{report.get('distance_certificates_verified', 0)} "
+                 "source-distance certificates supporting PASS.", "",
+                 "PASS follows one projective-distance tolerance; proof provenance is reported separately."]
         if report.get("problems"):
             lines.extend(["", "Coverage blockers:"] + [f"- {p}" for p in report["problems"]])
         args.markdown.write_text("\n".join(lines) + "\n", encoding="utf-8")

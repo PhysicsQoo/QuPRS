@@ -77,7 +77,7 @@ class PythonProbe:
         import QuPRS.pathsum.reduction as reduction
         import QuPRS.interface.ps2wmc as ps2wmc
         import QuPRS.utils.solver_process as solver_process
-        import QuPRS.utils.wmc_solvers as wmc_solvers
+        import QuPRS.utils.precision_count as precision_count
         from QuPRS.utils.strategy import Strategy
 
         original_get = Strategy.get
@@ -103,7 +103,7 @@ class PythonProbe:
             patch(ps2wmc, "to_DIMACS", "cnf_encode_and_write")
             patch(ps2wmc, "run_wmc", "wmc_dispatch_and_parse")
             patch(solver_process, "run", "solver_supervision")
-            patch(wmc_solvers, "classify_weighted_count", "wmc_classification")
+            patch(precision_count, "classify_observed_distance", "wmc_classification")
             saved.append((Strategy, "get", Strategy.__dict__["get"]))
             Strategy.get = traced_get
             yield

@@ -1,0 +1,82 @@
+'use strict';
+const assert = require('node:assert/strict');
+const resolve = require('./ci-impact-reuse.cjs');
+
+const sha = 'a'.repeat(40);
+const previous = 'b'.repeat(40);
+const base = 'c'.repeat(40);
+const before = (overrides = {}) => ({
+  id: 99, conclusion: 'success', status: 'completed', head_sha: previous,
+  pull_requests: [{
+    number: 131,
+    head: {repo: {id: 11}},
+    base: {sha: base, ref: 'dev'}
+  }],
+  ...overrides
+});
+
+async function execute({files = [{filename: 'docs/development/notes.md'}], prior = before(),
+  jobs = [{name: 'Named Bench', status: 'completed', conclusion: 'success'}],
+  action = 'synchronize', eventName = 'pull_request', compareStatus = 'ahead',
+  compareBehind = 0, throwAPI = false, workflowFile = 'codspeed.yml',
+  requiredJobs = [{name: 'Named Bench', count: 1}]} = {}) {
+  const outputs = {};
+  const context = {
+    repo: {owner: 'PhysicsQoo', repo: 'QuPRS'}, runId: 1000,
+    eventName, payload: {action,
+      pull_request: {number: 131, head: {sha, ref: 'feat/per-call-tolerance-api',
+        repo: {full_name: 'PhysicsQoo/QuPRS', id: 11}},
+      base: {sha: base, ref: 'dev'}}
+    }
+  };
+  const core = {
+    setOutput: (k,v) => {outputs[k] = v;}, info: () => {}, warning: () => {},
+    summary: {addRaw() {return this;}, async write() {}}
+  };
+  const github = {
+    rest: {
+      actions: {
+        async listWorkflowRuns() {
+          if (throwAPI) throw new Error('unavailable');
+          return {data: {workflow_runs: [prior]}};
+        },
+        listJobsForWorkflowRun: () => {}
+      },
+      repos: {
+        async compareCommits() {
+          return {data: {status: compareStatus, behind_by: compareBehind, files}};
+        }
+      }
+    },
+    async paginate() {return jobs;}
+  };
+  const result = await resolve({
+    github,context,core, workflowFile, requiredJobs
+  });
+  assert.equal(outputs.run_heavy, String(result.runHeavy));
+  return result.runHeavy;
+}
+
+(async () => {
+  assert.equal(await execute(), false, 'docs-only can reuse prior success');
+  assert.equal(await execute({files: [{filename: 'src/QuPRS/core.py'}]}), true, 'code must run');
+  assert.equal(await execute({files: [{filename: 'benchmarks/codspeed/suite_catalog.json'}]}), true, 'registry must run');
+  assert.equal(await execute({prior: before({conclusion: 'failure'})}), true, 'failed run cannot reuse');
+  assert.equal(await execute({prior: before({pull_requests: [{number: 131, head: {repo: {id: 11}}, base: {sha: 'd'.repeat(40), ref:'dev'}}]})}), true, 'base mismatch');
+  assert.equal(await execute({jobs: [{name:'Named Bench', conclusion:'skipped', status:'completed'}]}), true, 'skipped job is not successful evidence');
+  assert.equal(await execute({files: Array.from({length: 300}, (_,i) => ({filename:`docs/${i}.md`}))}), true, 'truncated diff fails closed');
+  assert.equal(await execute({compareStatus:'diverged', compareBehind:1}), true, 'force/rebase cannot reuse');
+  assert.equal(await execute({throwAPI:true}), true, 'API outage fails closed');
+  assert.equal(await execute({eventName:'push'}), true, 'push unchanged policy');
+  assert.equal(await execute({action:'opened'}), true, 'first PR opens require fresh evidence');
+  assert.equal(await execute({files: [], prior: before({head_sha:sha}), action:'edited'}), false, 'non-code edited event can reuse exact successful SHA');
+  assert.equal(await execute({files: [{filename: '.github/workflows/wmc-conservative-policy.yml'}]}), false, 'unrelated WMC workflow does not force CodSpeed');
+  assert.equal(await execute({workflowFile: 'wmc-conservative-policy.yml', files: [{filename: '.github/workflows/wmc-conservative-policy.yml'}]}), true, 'own workflow change forces validation');
+  assert.equal(await execute({workflowFile: 'native-cross-platform-pr.yml', files: [{filename: '.github/workflows/pytest.yml'}]}), true, 'called pytest workflow invalidates native evidence');
+  assert.equal(await execute({jobs: [{name:'Native parser and Qiskit 1.4.6 source semantics',status:'completed',conclusion:'success'},
+      {name:'Native parser and Qiskit 2.6.1 source semantics',status:'completed',conclusion:'success'}],
+      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{prefix:'Native parser and Qiskit ',count:2}]}), false, 'two native QASM jobs reused only together');
+  assert.equal(await execute({jobs: [{name:'Native parser and Qiskit 1.4.6 source semantics',status:'completed',conclusion:'success'}],
+      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{prefix:'Native parser and Qiskit ',count:2}]}), true, 'partial native QASM matrix never reused');
+  process.stdout.write('ci-impact-reuse: 17 contract cases passed\\n');
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -99,10 +99,33 @@ class F:
         return self.data[key_name]
 
     def sub(self, arg1, arg2):
-        new_data = {
-            key: to_anf(sp.sympify(value).subs(arg1, arg2))
-            for key, value in self.data.items()
-        }
+        # Only unchanged, already-normalized ANF expressions may bypass
+        # SymPy substitution. A non-ANF expression must still run to_anf(),
+        # even when the substituted variable is absent.
+        target = sp.sympify(arg1)
+
+        def is_anf(expr):
+            if expr in (sp.true, sp.false) or isinstance(expr, sp.Symbol):
+                return True
+            if isinstance(expr, sp.And):
+                return all(isinstance(item, sp.Symbol) for item in expr.args)
+            if isinstance(expr, sp.Xor):
+                return all(
+                    isinstance(item, sp.Symbol)
+                    or item is sp.true
+                    or (isinstance(item, sp.And) and
+                        all(isinstance(factor, sp.Symbol) for factor in item.args))
+                    for item in expr.args
+                )
+            return False
+
+        new_data = {}
+        for key, value in self.data.items():
+            expr = sp.sympify(value)
+            if is_anf(expr) and target not in expr.free_symbols:
+                new_data[key] = expr
+            else:
+                new_data[key] = to_anf(expr.subs(arg1, arg2))
         return self.update_data(new_data)
 
     def update(self, key: int | se.Symbol | str, value):

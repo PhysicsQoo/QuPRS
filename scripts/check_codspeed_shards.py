@@ -7,6 +7,7 @@ stdout. Each collection runs in a fresh subprocess to avoid pytest plugin state.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -14,8 +15,20 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BENCHMARKS = (ROOT / "test/test_Feynman.py", ROOT / "test/test_MQT.py")
+BENCHMARKS = (
+    ROOT / "test/test_Feynman.py",
+    ROOT / "test/test_MQT.py",
+    ROOT / "benchmarks/codspeed/test_mqt_qasm261_simulation.py",
+)
 NUM_SHARDS = 5
+CANONICAL_COUNT = 32
+ADDON_COUNT = 24
+TOTAL_COUNT = CANONICAL_COUNT + ADDON_COUNT
+ADDON_PREFIX = "benchmarks/codspeed/test_mqt_qasm261_simulation.py::"
+ADDON_SHA256 = "b19b1331f912f7abd976bfa6911d1969c718b4159211f428506f2b8a4ebb49aa"
+# Immutable 8 Feynman + 24 MQT exact node IDs; changing any ID requires an
+# explicit benchmark-baseline migration, not merely preserving the count.
+CANONICAL_SHA256 = '7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed'
 
 
 def capture(destination: Path, shard: int | None) -> None:
@@ -55,6 +68,29 @@ def validate() -> None:
         whole = collect(dest / "whole.json", None)
         if not whole or len(whole) != len(set(whole)):
             raise SystemExit("Unsharded collection is empty or has duplicate node IDs")
+        # Keep the main-published original 32 stable AND require every new
+        # Qiskit 2.6.1 Level-0 URI as a separate additive identity.
+        legacy = [uri for uri in whole if uri.startswith(
+            ("test/test_Feynman.py::", "test/test_MQT.py::"))]
+        addon = [uri for uri in whole if uri.startswith(ADDON_PREFIX)]
+        digest = lambda values: hashlib.sha256(
+            "\n".join(sorted(values)).encode("utf-8")
+        ).hexdigest()
+        if len(legacy) != CANONICAL_COUNT or digest(legacy) != CANONICAL_SHA256:
+            raise SystemExit(
+                "Canonical CodSpeed 32-node identity changed: "
+                f"count={len(legacy)}, sha256={digest(legacy)}"
+            )
+        if len(addon) != ADDON_COUNT or digest(addon) != ADDON_SHA256:
+            raise SystemExit(
+                "QASM261 additive 24-node identity changed: "
+                f"count={len(addon)}, sha256={digest(addon)}"
+            )
+        if len(whole) != TOTAL_COUNT:
+            raise SystemExit(
+                f"Simulation requires 32 legacy + 24 QASM261 = {TOTAL_COUNT} "
+                f"unique identities; found {len(whole)}"
+            )
         full = set(whole)
         owner: dict[str, int] = {}
         counts: dict[int, int] = {}
@@ -76,7 +112,8 @@ def validate() -> None:
                 f"Missing={sorted(full - collected)}, extra={sorted(collected - full)}"
             )
         print(json.dumps({
-            "unsharded": len(whole), "num_shards": NUM_SHARDS,
+            "unsharded": len(whole), "legacy": len(legacy),
+            "qasm261_addon": len(addon), "num_shards": NUM_SHARDS,
             "shard_counts": counts, "union": len(collected),
             "missing": 0, "duplicate": 0,
         }, sort_keys=True))

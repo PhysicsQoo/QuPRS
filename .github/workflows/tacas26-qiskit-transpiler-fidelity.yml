@@ -6,6 +6,9 @@ on:
       - experiment/tacas26-paper-reproduction
     paths:
       - '.github/workflows/tacas26-qiskit-transpiler-fidelity.yml'
+      - 'scripts/tacas26_qiskit_version_fidelity.py'
+      - 'scripts/tacas26_comparison_evidence.py'
+      - 'docs/development/paper-corpus-manifest.json'
   workflow_dispatch:
 
 permissions:
@@ -81,6 +84,12 @@ jobs:
             docs/development/tacas26-qiskit-version-fidelity/qiskit142.json
           cp qiskit-evidence/qiskit2.6.1.json \
             docs/development/tacas26-qiskit-version-fidelity/qiskit261.json
+          test -d qiskit-evidence/generated-qasm
+          cp -r qiskit-evidence/generated-qasm \
+            docs/development/tacas26-qiskit-version-fidelity/
+          python -m scripts.tacas26_comparison_evidence \
+            --archive-dir docs/development/tacas26-qiskit-version-fidelity
+          test -s docs/development/tacas26-qiskit-version-fidelity/evidence-manifest.json
           git diff --check
       - name: Commit complete scientific evidence to existing experiment branch
         run: |

@@ -1,0 +1,53 @@
+name: QOO160 TACAS original Table2-3b source ledger guard (research only)
+
+on:
+  push:
+    branches:
+      - experiment/qoo160-qasm261-codspeed-selection
+    paths:
+      - benchmarks/codspeed/paper_difficulty.json
+      - test/test_codspeed_registry.py
+      - .github/workflows/qoo160-paper-ledger-guard.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo160-paper-source-only-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paper-source-ledger-only:
+    name: Historical TACAS 36+37 PDF ledger and pinned-QASM source guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact experiment SHA (no expensive submodules/build)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only lightweight Python testing
+        run: python -m pip install --disable-pip-version-check pytest==8.4.2
+      - name: Verify Table2-3b and previous eight source-pinned historical records
+        run: |
+          python -m pytest test/test_codspeed_registry.py -q -k 'tacas_2026_pdf_table2_and_table3b_source_verified or paper_candidates_source_pinned_and_history_not_promoted'
+          python -m pytest test/test_paper_corpus_manifest.py -q
+      - name: Print reproducible source summary (not performance)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('benchmarks/codspeed/paper_difficulty.json').read_text())
+          print('SOURCE_SHA: ${{ github.sha }}')
+          print('PAPER_TABLE2_ROWS:', len(p['cases']))
+          print('PAPER_TABLE3B_ROWS:', len(p['cases']) + len(p['table3_only_cases']))
+          print('MISSING_FINITE_TABLE3B_ROWS:', sum(
+              c['random_rotation_hybrid_seconds'] is None and not c['historical_negative_timeout']
+              for c in p['cases']))
+          print('NO_SOLVER_NO_CODSPEED: true')
+          PY

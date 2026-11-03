@@ -17,9 +17,9 @@ P5 release gate is expanded by this experiment.
 | `q261_gap_vqe8_eq_wmconly_rust_gpmc` | VQE8 / transpiled | Rust | WMC-only | GPMC | EQ / EQ* | Positive WMC-only |
 | `q261_gap_qaoa7_neq_hybrid_rust_ganak` | QAOA7 / Random_Rotation | Rust | Hybrid | Ganak | NEQ | Distinct Solver, genuine NEQ |
 
-Expected source verdicts are **hypotheses pending new execution**; historic QASM
+Expected source verdicts remain **independent-oracle hypotheses awaiting the already-executed pilot's per-case raw science JSONL review**; historic QASM
 and the strict operator-science oracle give context but do not certify these
-new method/backend runs. Ganak's printed-count resolution must be assessed
+new method/backend observations solely because pytest passed. Ganak's printed-count resolution must be assessed
 separately, even if this case is expected to be truly NEQ.
 
 ## Original CI and measurement budget (pre-run plan; superseded by observed results below)
@@ -55,8 +55,9 @@ gh workflow run codspeed.yml \
 
 Check one source SHA, all 6 result markers, Solver stage, binary verdict, QASM
 hashes, CodSpeed duration and actual job cost. Only stable, determinate,
-genuinely WMC-invoked candidates may be shortlisted for 3-round base/HEAD
-research; **no automatic every-PR promotion**. In particular, Python QFT16
+genuinely WMC-invoked candidates may be shortlisted for bounded same-SHA
+repeatability, and subsequently matched base/HEAD research if a **future code PR**
+changes the verifier; **no automatic every-PR promotion**. In particular, Python QFT16
 or Rust WMC-only VQE8 may remain opt-in/censored if expensive.
 
 ## Historical PR #131 CI failure (resolved before merge)
@@ -117,7 +118,7 @@ this new matched numerical policy as if they were one controlled cohort.
 
 1. **Science/admission audit:** parse all six `candidate-pilot-science.jsonl` entries and timing JSON; attach each exact case ID, two QASM SHA256 hashes, verifier SHA, expected/observed binary verdict, explicit observed Solver invocation, status/exit code, numeric precision and any timeout. Treat missing evidence and censored observations as non-admitted, not silent PASS. Cross-check Ganak printed-count resolution independently.
 2. **Shortlist, do not bulk-promote:** first consider `q261_gap_qaoa7_neq_wmconly_rust_gpmc` for a distinct, versioned regular paired identity because the retained formal suite otherwise lacks WMC-only. Keep the Python WMC-only/Hybrid QAOA7 cases as conditional cross-backend/method controls, Python QFT16 Hybrid as expensive opt-in, VQE8 positive WMC-only periodic, and Rust/Ganak NEQ opt-in pending numerical print qualification. These are **candidate decisions, not approved additions**.
-3. **Paired repeatability / cost:** for science-qualified shortlist candidates, run bounded **three-round base/HEAD official CodSpeed WallTime** with identical source/target QASM hashes, runner cohort, solver, method, RR/distance/phase and GPMC precision on both sides, and record paired per-case medians/CV, stage/verdict parity, artifact provenance and incremental CI duration. When comparing old `dev@2dd451e` to v0.14, retain source-verified 90 digits or explicitly establish a genuinely equivalent numerical contract before attributing gains to algorithm changes. The post-merge `dev` is now a new baseline for future PRs; do not replay unmatched historical cohorts as if they were comparable.
+3. **Repeatability / cost, then genuine A/B:** PR #131 is already integrated; for science-qualified shortlist candidates first use bounded **three-round same-SHA official CodSpeed WallTime** to study stage stability/CV if justified by current one-round noise and incremental CI cost. When a future verifier PR creates a real code difference, run three-round **current-dev versus new-HEAD** paired CodSpeed with identical QASM hashes, runner cohort, solver, method, RR/distance/phase and GPMC precision, recording paired medians/CV, stage/verdict parity, artifact provenance and CI duration. When comparing old `dev@2dd451e` to v0.14, retain source-verified 90 digits or explicitly establish a genuinely equivalent numerical contract before attributing gains to algorithm changes. The post-merge `dev` is now a new baseline for future PRs; do not replay unmatched historical cohorts as if they were comparable.
 4. **Integration boundary:** reuse the existing five Simulation shards, 32 protected historical IDs, retained nine Solver-inclusive base/HEAD pairs and existing native RR IDs. Prefer placing a proven new case in the **existing** paired job and path-sensitive CI routing, not creating a new default expensive build/shard or automatic research trigger. CodSpeed remains the sole timing authority; P5 remains observational with no fixed percentage release gate. Documentation-only edits should reuse successful evidence rather than rerunning expensive measurements.
 
 The admission work is tracked in the existing benchmark research plan; this documentation update does not open a new PR or expand automatic CI.

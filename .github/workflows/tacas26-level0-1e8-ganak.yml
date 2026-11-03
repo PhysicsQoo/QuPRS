@@ -1,0 +1,141 @@
+name: TACAS26 Level0 GPMC Ganak 1e-8 Science (Python Rust)
+on:
+  push:
+    branches: [experiment/tacas26-paper-reproduction]
+    paths: ['.github/workflows/tacas26-level0-1e8-ganak.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: tacas26-opt0-1e8-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate original immutable QASM identities
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m compileall -q scripts/tacas26_level0_1e8_ganak.py
+          python -m scripts.tacas26_level0_1e8_ganak preflight
+  science:
+    name: ${{ matrix.solver }} ${{ matrix.backend }} ${{ matrix.group }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        solver: [gpmc, ganak]
+        backend: [python, rust]
+        group: [small, large, vqe]
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - name: Install pinned modern QuPRS and exact Qiskit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/quprs-level0"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/quprs-level0" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/quprs-level0/bin" >> "$GITHUB_PATH"
+          source "$RUNNER_TEMP/quprs-level0/bin/activate"
+          python -m pip install --disable-pip-version-check maturin 'numpy==1.26.4' 'qiskit==1.4.2'
+          maturin develop --release -E dev
+          python -c 'import qiskit; assert qiskit.__version__=="1.4.2"'
+      - name: Validate pinned Ganak 2.8.0 binary, no source change
+        if: matrix.solver == 'ganak'
+        run: python -m QuPRS.utils.ganak_distribution
+      - name: Real 1e-8 WMC and Hybrid scientific verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_level0_1e8_ganak run \
+            --backend ${{ matrix.backend }} --solver ${{ matrix.solver }} \
+            --group ${{ matrix.group }} --timeout 200 --watchdog 215 \
+            --output "$RUNNER_TEMP/level0-${{ matrix.solver }}-${{ matrix.backend }}-${{ matrix.group }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: level0-${{ matrix.solver }}-${{ matrix.backend }}-${{ matrix.group }}
+          path: ${{ runner.temp }}/level0-${{ matrix.solver }}-${{ matrix.backend }}-${{ matrix.group }}/
+          if-no-files-found: warn
+          retention-days: 30
+  archive:
+    if: always()
+    needs: [preflight, science]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: level0-*
+          path: ${{ runner.temp }}/level0-shards
+          merge-multiple: false
+      - name: Validate actual Solver evidence and create aggregate
+        run: |
+          set -euo pipefail
+          python -m scripts.tacas26_level0_1e8_ganak aggregate \
+            --input "$RUNNER_TEMP/level0-shards" \
+            --output "$RUNNER_TEMP/level0-result" \
+            --sha "$GITHUB_SHA"
+      - name: Permanently archive scientific results, no change to PR/dev
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin experiment/tacas26-paper-reproduction
+          git rebase origin/experiment/tacas26-paper-reproduction
+          dest="docs/development/tacas26-level0-1e8-ganak/runs/$GITHUB_RUN_ID"
+          if test -e "$dest/manifest.json"; then exit 0; fi
+          mkdir -p "$dest"
+          cp "$RUNNER_TEMP/level0-result/"* "$dest/"
+          git add "$dest"
+          git -c core.whitespace=cr-at-eol diff --cached --check
+          git commit -m "research(tacas): archive QASM opt0 GPMC Ganak 1e-8 Python Rust run $GITHUB_RUN_ID"
+          git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: level0-1e8-ganak-aggregate
+          path: ${{ runner.temp }}/level0-result/
+          if-no-files-found: warn
+          retention-days: 30

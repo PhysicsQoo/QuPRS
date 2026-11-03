@@ -25,6 +25,25 @@ pub struct Counts {
     pub sample_truncations: usize,
 }
 
+/// Untimed classification of real Bra-CX phase substitutions. Only
+/// collected when the HH witness session is explicitly active.
+#[derive(Clone, Debug, Default)]
+pub struct BraCxCounts {
+    pub calls: usize,
+    pub touched_calls: usize,
+    pub unaffected_calls: usize,
+    pub affected_terms: usize,
+    pub exact_radian_terms: usize,
+    pub symbolic_terms: usize,
+    pub control_overlap_terms: usize,
+    pub peak_phase_terms: usize,
+    pub peak_affected_terms: usize,
+    /// Number of calls touching 0, 1, 2-4, 5-16, 17-64, 65-256, >256 terms.
+    pub affected_histogram: [usize; 7],
+    /// Small and lossless for the bounded source-pinned QASM fixtures.
+    pub affected_per_call: Vec<usize>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub polynomial: PhasePolynomial,
@@ -35,6 +54,7 @@ pub struct Snapshot {
 #[derive(Clone, Debug, Default)]
 pub struct Witness {
     pub counts: Counts,
+    pub bra_cx: BraCxCounts,
     pub samples: Vec<Snapshot>,
     pub sample_limit: usize,
 }
@@ -109,6 +129,38 @@ pub(crate) fn observe_hh(
     });
 }
 
+/// Observe a genuine Bra-side CX before its exact phase substitution.
+/// Distinguish it from HH and from the Ket-side BooleanState-only CX.
+/// Counts, sizes and coefficient classes have no CPU timer and are never
+/// evaluated inside the official CodSpeed measured path.
+pub(crate) fn observe_bra_cx(phase: &PhasePolynomial, target: u32, control: u32) {
+    ACTIVE.with(|slot| {
+        let mut guard = slot.borrow_mut();
+        let Some(w) = guard.as_mut() else { return; };
+        let b = &mut w.bra_cx;
+        b.calls += 1;
+        b.peak_phase_terms = b.peak_phase_terms.max(phase.terms.len());
+        let mut affected = 0;
+        for (mono, coeff) in &phase.terms {
+            if !mono.contains(&target) { continue; }
+            affected += 1;
+            b.exact_radian_terms += usize::from(coeff.radians.is_some());
+            b.symbolic_terms += usize::from(!coeff.symbols.is_empty());
+            b.control_overlap_terms += usize::from(mono.contains(&control));
+        }
+        if affected == 0 { b.unaffected_calls += 1; }
+        else { b.touched_calls += 1; }
+        b.affected_terms += affected;
+        b.peak_affected_terms = b.peak_affected_terms.max(affected);
+        b.affected_per_call.push(affected);
+        let bucket = match affected {
+            0 => 0, 1 => 1, 2..=4 => 2, 5..=16 => 3,
+            17..=64 => 4, 65..=256 => 5, _ => 6,
+        };
+        b.affected_histogram[bucket] += 1;
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,10 +175,15 @@ mod tests {
         begin(1);
         observe_hh(&p, 0, &sub);
         observe_hh(&p, 0, &sub);
+        observe_bra_cx(&p, 0, 2);
         let w = finish();
         assert_eq!(w.counts.hh_substitutions, 2);
         assert_eq!(w.counts.shared_xor_hits, 2);
         assert_eq!(w.samples.len(), 1);
         assert_eq!(w.counts.sample_truncations, 1);
+        assert_eq!(w.bra_cx.calls, 1);
+        assert_eq!(w.bra_cx.affected_terms, 2);
+        assert_eq!(w.bra_cx.control_overlap_terms, 1);
+        assert_eq!(w.bra_cx.affected_histogram[2], 1);
     }
 }

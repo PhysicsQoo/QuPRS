@@ -7,6 +7,7 @@ on:
     paths:
       - 'rust/pathsum/src/rr_xor_witness.rs'
       - 'rust/pathsum/src/reduction.rs'
+      - 'rust/pathsum/src/gates.rs'
       - 'rust/pathsum/src/lib.rs'
       - 'rust/pathsum/Cargo.toml'
       - 'benchmarks/rr_xor_real/Cargo.toml'
@@ -56,24 +57,40 @@ jobs:
           source = Path(os.environ["RUNNER_TEMP"]) / "rr-xor-real-qasm-test.log"
           marker = "RR_XOR_REAL_WITNESS="
           rows = []
+          cx_rows = []
           for line in source.read_text().splitlines():
               if marker in line:
                   row = json.loads(line.split(marker, 1)[1])
                   rows.append(row)
+              cx_marker = "RR_CX_REAL_WITNESS="
+              if cx_marker in line:
+                  cx_rows.append(json.loads(line.split(cx_marker, 1)[1]))
           expected = {"qft16", "qpeexact8", "qpeinexact8", "vqe4"}
           seen = {r["case"] for r in rows}
+          seen_cx = {r["case"] for r in cx_rows}
           assert len(rows) == 4 and seen == expected, (len(rows), seen)
+          assert len(cx_rows) == 4 and seen_cx == expected, (len(cx_rows), seen_cx)
           for row in rows:
               assert row["hh_substitutions"] == row["hh_successes"]
               assert row["hh_substitutions"] == row["affected"] + row["no_affected"]
               assert row["affected"] == row["shared_xor_hits"] + row["parity_xor_hits"] + row["singleton"] + row["zero"]
               assert row["snapshots"] + row["truncated"] == row["affected"]
               assert len(row["sha_reference"]) == len(row["sha_candidate"]) == 64
+          for cx in cx_rows:
+              sizes = cx["affected_per_call"]
+              assert cx["bra_cx_calls"] == len(sizes)
+              assert cx["total_affected"] == sum(sizes)
+              assert cx["bra_cx_calls"] == sum(cx["affected_histogram"])
+              assert cx["bra_cx_calls"] == cx["touched_calls"] + cx["unaffected_calls"]
+              assert cx["peak_affected_terms"] == max(sizes, default=0)
+              assert cx["radian_terms"] <= cx["total_affected"]
+              assert cx["control_overlap_terms"] <= cx["total_affected"]
           output = {
               "head_sha": os.environ["HEAD_SHA"],
               "instrument": "count-only-outside-codspeed",
-              "scope": "actual-hh-substitution-from-native-qasm-miter",
+              "scope": "actual-hh-and-bra-cx-substitutions-from-native-qasm-miter",
               "qasm_cases": rows,
+              "bra_cx_cases": cx_rows,
               "shared_total": sum(r["shared_xor_hits"] for r in rows),
           }
           dest = Path(os.environ["RUNNER_TEMP"]) / "rr-xor-real-qasm-report.json"
@@ -83,6 +100,14 @@ jobs:
                             "shared": r["shared_xor_hits"],
                             "parity": r["parity_xor_hits"],
                             "truncated": r["truncated"]} for r in rows}, sort_keys=True))
+          print("RR_CX_REAL_SUMMARY=" + json.dumps(
+              {r["case"]: {"bra_cx": r["bra_cx_calls"],
+                            "touched": r["touched_calls"],
+                            "max_phase_terms": r["peak_phase_terms"],
+                            "max_affected": r["peak_affected_terms"],
+                            "radian_terms": r["radian_terms"],
+                            "control_overlap_terms": r["control_overlap_terms"]}
+               for r in cx_rows}, sort_keys=True))
           PY
       - name: Persist scientific QASM witness and SHA
         uses: actions/upload-artifact@v4

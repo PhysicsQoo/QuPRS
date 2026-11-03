@@ -32,7 +32,9 @@ sha2 = "0.10"
 proptest = "1.0"
 
 [features]
-default = ["high-precision-gpmc"]
+default = ["high-precision-gpmc", "bra-cx-direct"]
 high-precision-gpmc = []
+# Isolated experimental candidate; not a published/default API commitment.
+bra-cx-direct = []
 # Opt-in real-RR path evidence only; never used in shipping/default builds.
 rr-xor-witness = []

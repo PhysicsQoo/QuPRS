@@ -114,3 +114,22 @@ def test_qasm3_reset_is_not_silently_verified_as_identity(backend):
         check_equivalence(
             BASE, source, backend=backend, method="reduction_rules", timeout=30,
         )
+
+
+
+@pytest.mark.parametrize("method", ["reduction_rules", "hybrid"])
+@pytest.mark.parametrize("suffix, expected", [
+    ("gphase(pi/2);\n", "equivalent*"),
+    ("gphase(pi/2);\ngphase(-pi/2);\n", "equivalent"),
+    ("rz(pi/4) q[0];\n", "not_equivalent"),
+])
+def test_direct_qasm3_python_rust_verdict_parity(method, suffix, expected):
+    actual = {}
+    for backend in ("python", "rust"):
+        result = check_equivalence(
+            BASE, BASE + suffix, backend=backend, method=method,
+            strategy="Naive", rr_tolerance=0,
+            phase_tolerance=1e-15, tool_name="gpmc", timeout=30,
+        )
+        actual[backend] = result.equivalent
+    assert actual == {"python": expected, "rust": expected}, (suffix, actual)

@@ -35,14 +35,27 @@ import random
 import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3, transpile
 from qiskit.circuit import CircuitInstruction
-from qiskit.circuit.library import (
-    efficient_su2,
-    excitation_preserving,
-    n_local,
-    pauli_two_design,
-    real_amplitudes,
-    standard_gates,
+from qiskit.circuit import library as circuit_library
+from qiskit.circuit.library import standard_gates
+
+# Qiskit 1.0 used BlueprintCircuit classes; later 1.x and 2.x expose
+# faster function constructors. Keep the original public generator names
+# while selecting the constructor available in the installed Qiskit version.
+# Never use an eager fallback expression: legacy classes may be removed in 2.x.
+def _supported_library_constructor(function_name: str, class_name: str):
+    constructor = getattr(circuit_library, function_name, None)
+    if constructor is None:
+        constructor = getattr(circuit_library, class_name)
+    return constructor
+
+
+efficient_su2 = _supported_library_constructor("efficient_su2", "EfficientSU2")
+excitation_preserving = _supported_library_constructor(
+    "excitation_preserving", "ExcitationPreserving"
 )
+n_local = _supported_library_constructor("n_local", "NLocal")
+pauli_two_design = _supported_library_constructor("pauli_two_design", "PauliTwoDesign")
+real_amplitudes = _supported_library_constructor("real_amplitudes", "RealAmplitudes")
 from qiskit.circuit.parameter import Parameter
 from qiskit.circuit.parametervector import ParameterVectorElement
 from qiskit.quantum_info.operators.symplectic.clifford_circuits import (

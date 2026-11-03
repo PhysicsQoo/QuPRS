@@ -10,6 +10,8 @@ pub mod strategy;
 pub mod stats;    
 pub mod wmc;
 pub mod precision_count;
+#[cfg(feature = "rr-xor-witness")]
+pub mod rr_xor_witness;
 mod solver_adapter;
 mod wmc_problem;
 #[cfg(feature="high-precision-gpmc")]

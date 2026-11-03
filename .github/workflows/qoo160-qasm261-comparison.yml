@@ -41,6 +41,7 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$FIXTURE_SHA"
           python -m scripts.audit_codspeed_qasm_variants
+          python -m pip install --disable-pip-version-check pytest==8.4.2
           python -m pytest test/test_qasm261_comparison.py -q
 
   qasm261-native-rr:

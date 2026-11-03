@@ -93,3 +93,23 @@ Native source parsing is outside the modeled timed region. The 1.1–42.7 ms num
 6. **Cost policy:** preserve original 32 historical IDs, five shards, versioned 24 Q261 Simulation identities, 30 native Rust and current seven legacy cases; no expensive rerun or P5 numerical threshold solely for documentation.
 
 **Companion machine-readable coverage:** [codspeed-solver-coverage-matrix.json](codspeed-solver-coverage-matrix.json). `null` denotes absent empirical evidence, never an imputed zero.
+
+## 2026-11-03 最新正式九組驗收：配對 WallTime 已成功（追補證據）
+
+**此節是後續實測追補，先前表 A/B/D/E 均保留當時 SHA 的歷史快照**，請以此節辨識最新正式九組狀態，不能把前一輪失敗覆寫成成功。正式 PR [`ce51fd6`](https://github.com/PhysicsQoo/QuPRS/commit/ce51fd6155c381c84d41c1031ccd109982b9ea64) 對 `dev@2dd451e` 的 [CodSpeed workflow #41598328358](https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358) 中，paired job `125791567259` **SUCCESS**，9/9 base/HEAD paired identities 共 18 URIs、均實際呼叫 Solver。原始 [CodSpeed + provenance artifacts](https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358/artifacts/13213217186)。
+
+| Case | Backend/Solver | 最短 base → HEAD (ms) | Median 變化（3/3 輪） | CV base/head | Verdict | 限制 |
+|---|---|---:|---:|---:|---|---|
+| `grover4_ganak` | Rust/Ganak | 770.01 → 786.48 | +3.31% | 2.97%/6.18% | EQ*→NEQ | Ganak print-limited |
+| `q261_qaoa7_negative` | Rust/GPMC | 575.42 → 549.99 | -3.80% | 0.77%/1.20% | NEQ→NEQ | GPMC WMC confirmed |
+| `q261_qft16_negative` | Rust/GPMC | 2350.31 → 920.05 | -59.81% | 0.64%/1.62% | NEQ→NEQ | GPMC WMC confirmed |
+| `qaoa7_gpmc` | Rust/GPMC | 559.63 → 605.02 | +6.87% | 2.53%/1.14% | EQ→EQ | GPMC |
+| `qft16_gpmc` | Rust/GPMC | 1394.48 → 1195.71 | -12.10% | 2.48%/2.79% | EQ*→EQ* | GPMC |
+| `vqe4_ganak` | Rust/Ganak | 759.20 → 813.29 | +8.34% | 1.55%/1.89% | EQ*→NEQ | Ganak print-limited |
+| `vqe4_ganak_python` | Python/Ganak | 960.82 → 1056.12 | +10.38% | 1.52%/2.25% | EQ*→NEQ | Ganak print-limited |
+| `vqe4_gpmc` | Rust/GPMC | 608.91 → 570.43 | -18.43% | 8.20%/4.62% | EQ*→EQ* | GPMC noisy |
+| `vqe4_gpmc_python` | Python/GPMC | 740.67 → 690.45 | -12.95% | 10.37%/12.91% | EQ*→EQ* | GPMC noisy |
+
+兩組新增 QASM261 NEQ 均以 **`rr=1e-10`、`distance=1e-8`、`phase=1e-8`、GPMC `-prec=90`** 比較：舊版 `dev` 的 `TOLERANCE` 與實際 Rust adapter 90 位來源在執行時驗證，HEAD 使用公開 per-call 90 位設定；不是沿用舊實驗沒有真正套用的參數標籤。QFT16 median −59.81%、QAOA7 median −3.80% 是真實 CodSpeed **觀測**，非算術精度或顯著性認證。Ganak 三組為印出數值解析度不足的條件式計時，**不可視為科學 EQ PASS**。
+
+目前九組工作 elapsed **266s**，歷史七組成功工作 **220s**，增加 46s 為跨次 CI 觀察差；快取/建置與併行 runner 差異未控制，不可直接當作兩個新增案例的邊際成本。新 6-case WMC-only/Python/Ganak 覆蓋缺口仍僅**手動研究候選，尚未量測**：見 [手動六組實驗規格](codspeed-qasm261-coverage-gap-pilot.md)。本節不是全體八個 PR workflow 已通過的宣告；仍須檢查完整 CodSpeed cross-validate 與其他 CI job。

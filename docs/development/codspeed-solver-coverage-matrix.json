@@ -659,5 +659,150 @@
     "Base/head numeric EQ vs NEQ for legacy Ganak near-equal does not establish scientific disagreement; conditional performance only with precision warning.",
     "All new q261 15-case pilot GPMC Hybrid; no WMC-only or Python variant certified in that pilot.",
     "Versioned new QASM and historical QASM must never share baselines."
-  ]
+  ],
+  "formal_pr_latest_paired_validation": {
+    "schema": "quprs-codspeed-nine-paired-exact-sha-observation-v1",
+    "base_sha": "2dd451edeaab4e7c80ea19203e36cc22f3548d85",
+    "head_sha": "ce51fd6155c381c84d41c1031ccd109982b9ea64",
+    "workflow_run": 41598328358,
+    "job_id": 125791567259,
+    "job_conclusion": "success",
+    "runner_job_elapsed_s": 266,
+    "comparative_legacy_seven_job_elapsed_s": 220,
+    "official_codspeed_instrument": "WallTime",
+    "runner": "shared-github-actions-not-macro",
+    "paired_rounds_per_revision": 3,
+    "registered_cases": 9,
+    "actual_solver_invocation_in_both": true,
+    "formal_paired_report_science_status": "PRECISION_LIMITED",
+    "numerical_contract_for_q261": {
+      "rr_tolerance": 1e-10,
+      "distance": 1e-8,
+      "phase": 1e-8,
+      "gpmc_digits": 90,
+      "legacy_dev_api_bridge": "verified legacy config.TOLERANCE=1e-10 and old rust GPMC -prec=90 source",
+      "head_api": "explicit per-call precision digits=90"
+    },
+    "cases": [
+      {
+        "id": "grover4_ganak",
+        "min_base_ms": 770.01,
+        "min_head_ms": 786.48,
+        "median_delta_percent": 3.31,
+        "cv_base_percent": 2.97,
+        "cv_head_percent": 6.18,
+        "verdict": "EQ*→NEQ",
+        "interpretation": "Ganak print-limited",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "q261_qaoa7_negative",
+        "min_base_ms": 575.42,
+        "min_head_ms": 549.99,
+        "median_delta_percent": -3.8,
+        "cv_base_percent": 0.77,
+        "cv_head_percent": 1.2,
+        "verdict": "NEQ→NEQ",
+        "interpretation": "GPMC WMC confirmed",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "q261_qft16_negative",
+        "min_base_ms": 2350.31,
+        "min_head_ms": 920.05,
+        "median_delta_percent": -59.81,
+        "cv_base_percent": 0.64,
+        "cv_head_percent": 1.62,
+        "verdict": "NEQ→NEQ",
+        "interpretation": "GPMC WMC confirmed",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "qaoa7_gpmc",
+        "min_base_ms": 559.63,
+        "min_head_ms": 605.02,
+        "median_delta_percent": 6.87,
+        "cv_base_percent": 2.53,
+        "cv_head_percent": 1.14,
+        "verdict": "EQ→EQ",
+        "interpretation": "GPMC",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "qft16_gpmc",
+        "min_base_ms": 1394.48,
+        "min_head_ms": 1195.71,
+        "median_delta_percent": -12.1,
+        "cv_base_percent": 2.48,
+        "cv_head_percent": 2.79,
+        "verdict": "EQ*→EQ*",
+        "interpretation": "GPMC",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "vqe4_ganak",
+        "min_base_ms": 759.2,
+        "min_head_ms": 813.29,
+        "median_delta_percent": 8.34,
+        "cv_base_percent": 1.55,
+        "cv_head_percent": 1.89,
+        "verdict": "EQ*→NEQ",
+        "interpretation": "Ganak print-limited",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "vqe4_ganak_python",
+        "min_base_ms": 960.82,
+        "min_head_ms": 1056.12,
+        "median_delta_percent": 10.38,
+        "cv_base_percent": 1.52,
+        "cv_head_percent": 2.25,
+        "verdict": "EQ*→NEQ",
+        "interpretation": "Ganak print-limited",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "vqe4_gpmc",
+        "min_base_ms": 608.91,
+        "min_head_ms": 570.43,
+        "median_delta_percent": -18.43,
+        "cv_base_percent": 8.2,
+        "cv_head_percent": 4.62,
+        "verdict": "EQ*→EQ*",
+        "interpretation": "GPMC noisy",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      },
+      {
+        "id": "vqe4_gpmc_python",
+        "min_base_ms": 740.67,
+        "min_head_ms": 690.45,
+        "median_delta_percent": -12.95,
+        "cv_base_percent": 10.37,
+        "cv_head_percent": 12.91,
+        "verdict": "EQ*→EQ*",
+        "interpretation": "GPMC noisy",
+        "stage": "external WMC invoked base/head",
+        "has_paired_raw_round_times": false
+      }
+    ],
+    "limitations": [
+      "Ganak 3 rows are not scientific EQ passes due to printed resolution and legacy policy divergence",
+      "P5 observational; not a statistically certified performance gate",
+      "Elapsed difference between jobs includes runner/cache/build variation; not per-case marginal cost",
+      "Old research 100 round experiment had unmatched defaults and should not supersede this paired same-numerical-contract evidence for the two QASM261 negatives"
+    ],
+    "sources": [
+      "https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358",
+      "https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358/artifacts/13213217186",
+      "https://github.com/PhysicsQoo/QuPRS/commit/ce51fd6155c381c84d41c1031ccd109982b9ea64"
+    ]
+  }
 }

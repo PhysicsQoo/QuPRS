@@ -1,0 +1,19 @@
+# Source-exact real-QASM native performance comparison, independent of legacy CodSpeed identities.
+[package]
+name = "quprs-rr-cx-qft16-paired"
+version = "0.0.0"
+edition = "2021"
+publish = false
+autobenches = false
+
+[dependencies]
+pathsum = { path = "../../rust/pathsum" }
+divan = { package = "codspeed-divan-compat", version = "=6.0.0" }
+sha2 = "0.10"
+
+[workspace]
+
+[[bench]]
+name = "qft16_pair"
+path = "benches/qft16_pair.rs"
+harness = false

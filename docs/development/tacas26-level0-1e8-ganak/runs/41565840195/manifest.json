@@ -1,0 +1,49 @@
+{
+  "distance_tolerance": 1e-08,
+  "expected_count": 88,
+  "gpmc_precision_digits": 30,
+  "missing_shards": [],
+  "native_rust_stdout": "NOT_EXPOSED_WHEN_SOLVER_INVOKED",
+  "observed_count": 88,
+  "output_sha256": {
+    "classification.csv": "8713526189f3e1b182acedc5f331a1006d8b13d90ce6cfea5bdc5f9af6c4530d",
+    "observations.jsonl": "851448d9aebcdbedc61314f8896002082481e713bde3c13ac7f448d138b62fbf"
+  },
+  "performance": "SCIENCE_ONLY_NO_CODSPEED_TIMING",
+  "phase_tolerance": 1e-08,
+  "replay_instructions": "Use precisely QASM SHA256 in original inputs/41562334781 and archive generated-qasm",
+  "rr_tolerance": 1e-10,
+  "run_id": "41565840195",
+  "samples_qiskit_version": "1.4.2",
+  "schema": "tacas26-qiskit142-opt0-gpmc-ganak-1e8-v1-aggregate",
+  "science_inputs_ci": 41562334781,
+  "solver_arithmetic_certified": false,
+  "source_corpus_manifest_sha256": "889388e03cf18354ee56c9cc567a198160d06a9fea6c1c930906ce4442271690",
+  "source_sha": "e960ec9a6ad9f0b069523018c1187156740bc49e",
+  "summary": {
+    "ganak:python": {
+      "matches": 16,
+      "mismatches": 5,
+      "no_binary": 1,
+      "records": 22
+    },
+    "ganak:rust": {
+      "matches": 16,
+      "mismatches": 5,
+      "no_binary": 1,
+      "records": 22
+    },
+    "gpmc:python": {
+      "matches": 20,
+      "mismatches": 0,
+      "no_binary": 2,
+      "records": 22
+    },
+    "gpmc:rust": {
+      "matches": 20,
+      "mismatches": 0,
+      "no_binary": 2,
+      "records": 22
+    }
+  }
+}

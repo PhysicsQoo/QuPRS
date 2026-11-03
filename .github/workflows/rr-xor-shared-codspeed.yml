@@ -91,11 +91,26 @@ jobs:
                   assert lhs == rhs, f"Different native fixture: {rel}"
                   out.write(f"{rel} sha256={hashlib.sha256(lhs).hexdigest()}\n")
           for root, label in ((base, "base"), (head, "head")):
+              # CodSpeed/Divan URI may include the bench source filename,
+              # not only the cargo target. Use distinct paths to guarantee
+              # independent same-run Base and HEAD identities while keeping
+              # every byte of benchmark implementation identical.
+              original_bench = root / "benches/rr_xor_native.rs"
+              aliased_bench = root / f"benches/rr_xor_native_{label}.rs"
+              aliased_bench.write_bytes(original_bench.read_bytes())
+              assert hashlib.sha256(aliased_bench.read_bytes()).digest() == (
+                  hashlib.sha256(original_bench.read_bytes()).digest()
+              )
               path = root / "Cargo.toml"
               content = path.read_text()
-              original = 'name = "rr_xor_native"'
-              assert content.count(original) == 1
-              path.write_text(content.replace(original, f'name = "rr_xor_native_{label}"'))
+              original_name = 'name = "rr_xor_native"'
+              original_path = 'path = "benches/rr_xor_native.rs"'
+              assert content.count(original_name) == 1
+              assert content.count(original_path) == 1
+              content = content.replace(original_name, f'name = "rr_xor_native_{label}"')
+              content = content.replace(original_path,
+                                        f'path = "benches/rr_xor_native_{label}.rs"')
+              path.write_text(content)
           PY
           for root in pr-walltime-base/benchmarks/rr_xor_native benchmarks/rr_xor_native; do
             cargo test --manifest-path "$root/Cargo.toml" --lib -- --nocapture

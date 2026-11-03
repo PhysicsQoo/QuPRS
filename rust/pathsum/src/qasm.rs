@@ -11,24 +11,84 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
     let mut register_map: HashMap<String, usize> = HashMap::new();
     let mut register_sizes: HashMap<String, usize> = HashMap::new();
     let mut current_qubit_count = 0;
+    // A restricted, explicitly versioned *unitary* QASM3 subset.  Any
+    // unsupported declaration remains an error, never an omitted operation.
+    let mut version: Option<u8> = None;
 
-    for (line_num, line) in source.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with("//") { continue; }
+    for (line_num, raw_line) in source.lines().enumerate() {
+        // Trailing comments are harmless; multiple statements per line are
+        // still rejected by the normal strict target/semicolon checks.
+        let line = raw_line.split("//").next().unwrap_or("").trim();
+        if line.is_empty() { continue; }
         if line.starts_with("OPENQASM") {
-            if line != "OPENQASM 2.0;" {
-                return Err(format!("Unsupported QASM header at line {}: only OPENQASM 2.0 is supported", line_num + 1));
+            if version.is_some() || current_qubit_count != 0 || !ops.is_empty() {
+                return Err(format!("Duplicate or misplaced QASM header at line {}", line_num + 1));
             }
+            version = match line {
+                "OPENQASM 2.0;" => Some(2),
+                "OPENQASM 3.0;" => Some(3),
+                _ => return Err(format!(
+                    "Unsupported QASM header at line {}: expected OPENQASM 2.0 or 3.0",
+                    line_num + 1
+                )),
+            };
             continue;
         }
         if line.starts_with("include") {
-            if line != "include \"qelib1.inc\";" {
+            let allowed = match version {
+                Some(3) => line == "include \"stdgates.inc\";",
+                Some(2) | None => line == "include \"qelib1.inc\";",
+                _ => false,
+            };
+            if !allowed {
                 return Err(format!("Unsupported QASM include at line {}", line_num + 1));
             }
             continue;
         }
 
+        if version == Some(3) && line.starts_with("qubit") {
+            // QASM3 quantum declarations: qubit[SIZE] NAME; or qubit NAME;
+            // No hardware qubits, aliases, slices, dynamic allocation or
+            // implicit broadcasting.  Declaration order fixes wire indices.
+            if !line.ends_with(';') {
+                return Err(format!("Invalid QASM3 qubit declaration at line {}", line_num + 1));
+            }
+            let declared = line.trim_end_matches(';').trim();
+            let (name, size) = if let Some(rest) = declared.strip_prefix("qubit[") {
+                let (length, tail) = rest.split_once(']').ok_or_else(|| {
+                    format!("Invalid QASM3 qubit declaration at line {}", line_num + 1)
+                })?;
+                let size = length.trim().parse::<usize>().map_err(|_| {
+                    format!("Invalid QASM3 qubit size at line {}", line_num + 1)
+                })?;
+                (tail.trim(), size)
+            } else if let Some(rest) = declared.strip_prefix("qubit ") {
+                (rest.trim(), 1)
+            } else {
+                return Err(format!("Invalid QASM3 qubit declaration at line {}", line_num + 1));
+            };
+            let is_identifier = name
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic() || c == '_')
+                .unwrap_or(false)
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if size == 0 || !is_identifier || register_map.contains_key(name) {
+                return Err(format!(
+                    "Empty, malformed or duplicate QASM3 quantum register at line {}",
+                    line_num + 1
+                ));
+            }
+            register_map.insert(name.to_string(), current_qubit_count);
+            register_sizes.insert(name.to_string(), size);
+            current_qubit_count = current_qubit_count.checked_add(size)
+                .ok_or_else(|| format!("Qubit count overflow at line {}", line_num + 1))?;
+            continue;
+        }
         if line.starts_with("qreg ") {
+            if version == Some(3) {
+                return Err(format!("QASM2 qreg declaration in QASM3 at line {}", line_num + 1));
+            }
             let parts: Vec<&str> = line.split(&[' ', '[', ']', ';'][..]).filter(|s| !s.is_empty()).collect();
             if parts.len() != 3 || parts[0] != "qreg" || !line.ends_with(';') {
                 return Err(format!("Invalid qreg at line {}", line_num + 1));
@@ -44,7 +104,30 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
                 .ok_or_else(|| format!("Qubit count overflow at line {}", line_num + 1))?;
             continue;
         }
-        if line.starts_with("creg ") { continue; }
+        if line.starts_with("creg ") {
+            if version == Some(3) {
+                return Err(format!("QASM2 creg declaration in QASM3 at line {}", line_num + 1));
+            }
+            continue; // Legacy QASM2 metadata; measurement is rejected below.
+        }
+        if version == Some(3) && line.starts_with("bit") {
+            return Err(format!(
+                "Unsupported QASM3 classical declaration at line {}: unitary input only",
+                line_num + 1
+            ));
+        }
+        if version == Some(3) && line.starts_with("gphase") {
+            // Preserve the exact circuit-wide scalar as an operation in the
+            // ordinary ordered IR, including for the inverse (bra) side.
+            // Do not round-trip through a QASM2 exporter or f64 angle.
+            let angle = line.strip_prefix("gphase(")
+                .and_then(|body| body.strip_suffix(");"))
+                .ok_or_else(|| format!("Invalid QASM3 gphase syntax at line {}", line_num + 1))?;
+            let angle = Angle::from_qasm_str(angle)
+                .map_err(|e| format!("Invalid QASM3 gphase at line {}: {}", line_num + 1, e))?;
+            ops.push(QuantumOp::GlobalPhase(angle));
+            continue;
+        }
 
         // Split gate parameters and targets using the last closing parenthesis
         let (full_gate_part, targets_part) = if let Some(last_paren_idx) = line.rfind(')') {
@@ -77,7 +160,7 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
             | "p" | "cp" | "u1" | "u2" | "u3" | "u" | "barrier") {
             return Err(format!("Unsupported QASM gate '{}' at line {}", gate_name, line_num + 1));
         }
-        let qubits = parse_targets(targets_part, &register_map, &register_sizes)
+        let qubits = parse_targets(targets_part, &register_map, &register_sizes, version == Some(3))
             .map_err(|e| format!("Line {}: {}", line_num + 1, e))?;
         // Reject malformed parameter/arity combinations instead of silently
         // constructing a different quantum operation or indexing past a Vec.
@@ -155,6 +238,9 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
         };
         ops.push(op);
     }
+    if version == Some(3) && current_qubit_count == 0 {
+        return Err("QASM3 program requires a quantum register in this verifier".to_string());
+    }
     let final_qubit_count = if current_qubit_count > 0 {
         current_qubit_count
     } else if ops.is_empty() {
@@ -191,7 +277,7 @@ fn parse_gate_name_and_params(token: &str) -> Result<(String, Vec<Angle>), Strin
     Ok((token.trim().to_lowercase(), vec![]))
 }
 
-fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>, sizes: &HashMap<String, usize>) -> Result<Vec<usize>, String> {
+fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>, sizes: &HashMap<String, usize>, qasm3: bool) -> Result<Vec<usize>, String> {
     let clean_str = targets_str.trim().trim_matches(';');
     if clean_str.is_empty() { return Ok(vec![]); }
     
@@ -200,6 +286,17 @@ fn parse_targets(targets_str: &str, reg_map: &HashMap<String, usize>, sizes: &Ha
 
     for part in parts {
         let part = part.trim();
+        if qasm3 && !part.contains('[') {
+            let offset = reg_map.get(part)
+                .ok_or_else(|| format!("Unknown QASM3 qubit: {}", part))?;
+            let size = sizes.get(part)
+                .ok_or_else(|| format!("Unknown QASM3 qubit size: {}", part))?;
+            if *size != 1 {
+                return Err(format!("Unsupported QASM3 whole-register operand: {}", part));
+            }
+            indices.push(*offset);
+            continue;
+        }
         let open_bracket = part.find('[').ok_or_else(|| format!("Missing '[' in target '{}'", part))?;
         let close_bracket = part.find(']').ok_or_else(|| format!("Missing ']' in target '{}'", part))?;
         
@@ -322,11 +419,101 @@ mod tests {
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncsx q[0],q[1];", "Unsupported QASM gate 'csx'"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\ncrx(0.1) q[0],q[1];", "Unsupported QASM gate 'crx'"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nmeasure q[0] -> c[0];", "Unsupported QASM gate 'measure'"),
-            ("OPENQASM 3.0;\nqubit[1] q;\nx q[0];", "Unsupported QASM header"),
+            ("OPENQASM 3.0;\nqubit[1] q;\ngphase(theta);\nx q[0];", "Invalid QASM3 gphase"),
             ("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nreset q[0];", "Unsupported QASM gate 'reset'"),
         ] {
             let msg = parse_qasm_str(qasm).unwrap_err();
             assert!(msg.contains(expected), "expected {expected}, got: {msg}");
+        }
+    }
+
+    #[test]
+    fn qasm3_supported_subset_keeps_wire_order_and_gate_ir() {
+        let qasm3 = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] alpha;\nqubit[1] beta;\nh alpha[0];\ncx alpha[0], beta[0];\nrz(pi/2) beta[0];";
+        let (ops, n) = parse_qasm_str(qasm3).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(ops[0], QuantumOp::H(0));
+        assert_eq!(ops[1], QuantumOp::CX(0, 1));
+        assert_eq!(ops[2], QuantumOp::RZ(1, Angle::from_qasm_str("pi/2").unwrap()));
+        let qasm2 = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg alpha[1];\nqreg beta[1];\nh alpha[0];\ncx alpha[0],beta[0];\nrz(pi/2) beta[0];";
+        assert_eq!(parse_qasm_str(qasm2).unwrap(), (ops, n));
+    }
+
+    #[test]
+    fn qasm3_scalar_qubit_and_exact_decimal_source() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let src = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit q;\nrz(1e-12) q;";
+        let (ops, n) = parse_qasm_str(src).unwrap();
+        assert_eq!(n, 1);
+        match &ops[0] {
+            QuantumOp::RZ(0, angle) => assert_eq!(
+                angle.radians,
+                Some(BigRational::new(BigInt::from(1), BigInt::from(1_000_000_000_000_i64)))
+            ),
+            op => panic!("unexpected QASM3 operation: {op:?}"),
+        }
+    }
+
+    #[test]
+    fn qasm3_global_scalar_is_exact_and_bra_conjugates_it() {
+        use crate::rational::{PhaseCoeff, Rational};
+        let source = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit q;\ngphase(pi/2);";
+        let (ops, n) = parse_qasm_str(source).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(ops, vec![QuantumOp::GlobalPhase(Angle::from_qasm_str("pi/2").unwrap())]);
+        let mut ket = PathSum::new(1);
+        ket.set_auto_reduce(false);
+        ops[0].apply(&mut ket, false);
+        assert_eq!(ket.p.terms.get(&vec![]), Some(&PhaseCoeff::new_constant(Rational::QUARTER)));
+        let mut bra = PathSum::new(1);
+        bra.set_auto_reduce(false);
+        ops[0].apply(&mut bra, true);
+        assert_eq!(bra.p.terms.get(&vec![]), Some(&PhaseCoeff::new_constant(Rational::THREE_QUARTERS)));
+        ops[0].apply(&mut bra, false);
+        assert!(bra.p.terms.get(&vec![]).is_none(), "canceled global phase must vanish");
+    }
+
+    #[test]
+    fn qasm3_global_scalar_decimal_and_full_period() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let (ops, n) = parse_qasm_str(
+            "OPENQASM 3.0;\nqubit q;\ngphase(1e-12);\ngphase(-1e-12);"
+        ).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(ops.len(), 2);
+        if let QuantumOp::GlobalPhase(theta) = &ops[0] {
+            assert_eq!(theta.radians,
+                Some(BigRational::new(BigInt::from(1), BigInt::from(1_000_000_000_000_i64))));
+        } else { panic!("gphase was not preserved"); }
+        let mut ps = PathSum::new(1);
+        ps.set_auto_reduce(false);
+        for op in &ops { op.apply(&mut ps, false); }
+        assert!(ps.p.terms.get(&vec![]).is_none(), "opposite scalar phases must cancel");
+        let (full, _) = parse_qasm_str("OPENQASM 3.0;\nqubit q;\ngphase(2*pi);").unwrap();
+        let mut p2 = PathSum::new(1);
+        p2.set_auto_reduce(false);
+        full[0].apply(&mut p2, false);
+        assert!(p2.p.terms.get(&vec![]).is_none(), "2pi scalar must be exact identity");
+    }
+
+    #[test]
+    fn qasm3_unsupported_constructs_fail_closed() {
+        let prefix = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\n";
+        for statement in [
+            "gphase(theta);", "gphase(pi/8) q[0];", "bit[1] c;", "c[0] = measure q[0];",
+            "measure q[0];", "reset q[0];", "if (true) x q[0];",
+            "ctrl @ x q[0], q[1];", "x q;", "qubit[1] q;",
+            "gate custom a { x a; }", "rz(theta) q[0];",
+            "x q[0]; x q[1];",
+        ] {
+            let src = format!("{prefix}{statement}");
+            assert!(parse_qasm_str(&src).is_err(), "incorrectly accepted: {statement}");
+        }
+        for decl in ["qubit[0] bad;", "qubit[2] bad-name;", "qubit[999999999999999999999999] bad;"] {
+            let src = format!("OPENQASM 3.0;\n{decl}");
+            assert!(parse_qasm_str(&src).is_err(), "accepted malformed: {decl}");
         }
     }
 

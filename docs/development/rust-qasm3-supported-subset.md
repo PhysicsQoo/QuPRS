@@ -16,26 +16,33 @@ transpilation. The original QASM2 parser remains a separate versioned path.
 - Rational multiples of `pi` and source decimal-radian angles retain the
   same Rust `Angle::from_qasm_str` representation and rejection thresholds as
   existing QASM2. No conversion via double-precision transpilation is added.
+- `gphase(theta);` as a standalone scalar statement with bounded, static
+  source angles. The new native `QuantumOp::GlobalPhase(Angle)` adds
+  `theta/(2*pi)` to the normalized PathSum constant phase for ket and
+  its negative for bra. Identical/opposite source scalars cancel exactly.
+  Source decimal radians never pass through a floating QASM2 bridge.
 
 ## Intentionally unsupported (errors, not ignored)
 
-`gphase` (including zero), measured/classical `bit`, measurement, reset,
+Unbound or malformed `gphase`, measured/classical `bit`, measurement, reset,
 conditional/loop statements, `input` parameters, opaque/custom gates or
 declarations, gate modifiers (`ctrl @`, `inv @`), aliases/slices, custom
 includes, hardware qubits, broadcasting and complex OpenQASM3 expressions.
 
-Crucially, `QuantumOp` cannot yet carry an independent scalar `gphase`.
-Silently dropping it would corrupt the distinction between exact equality
-and equality up to global phase. Therefore *every* gphase statement is
-rejected. The parser preserves physical wire ordering via declaration-order
-offsets; it does **not** yet round-trip named register metadata through
-`PathSum`. QOO-16 owns the broader register-partition proof obligations.
+The native IR now carries standalone `gphase` without dropping the
+exact-vs-up-to-global-phase distinction. **This only applies to direct QASM3
+text/file input**, not a Python `QuantumCircuit.global_phase` routed through
+the existing QASM2 exporter. That public Python-object transport retains its
+separate fail-closed rule for unequal explicit source phases. The parser
+preserves physical wire ordering via declaration-order offsets but does **not**
+yet round-trip named register metadata through `PathSum`. QOO-16 owns the
+broader register-partition proof obligations.
 
 ## Validation boundary
 
 - Native Rust unit tests cover 2/3 dual-format equivalent gate IR, multiple
   registers, standalone scalar qubits, exact decimal source, malformed sizes,
-  and fail-closed unsupported control.
+  exact scalar phase (ket/bra, cancellation, full-period), and fail-closed unsupported control.
 - Public FFI pytest covers direct QASM3 text, a `.qasm3` file, Python/Rust
   positive controls, a negative Solver-invoking control, source-small-angle
   RR and nonzero relative scalar classification. Unsupported programs must
@@ -46,5 +53,6 @@ offsets; it does **not** yet round-trip named register metadata through
   No performance claim is made (CodSpeed is the only performance authority).
 
 This is not a general-purpose OpenQASM 3 parser. Remaining semantic gaps,
-especially gphase, aliases, register metadata, and full generator-emitted
-custom gates, require separate bounded acceptance before release.
+especially Qiskit-object global-phase transport, aliases, register metadata,
+and full generator-emitted custom gates, require separate bounded acceptance
+before release.

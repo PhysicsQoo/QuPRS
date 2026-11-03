@@ -150,6 +150,15 @@ def get_gate(circuit: QuantumCircuit, gate):
 def get_gates(circuit: QuantumCircuit):
     gates = []
     for gate in circuit.data:
+        # The public API proves unitary circuit equivalence, not instrument
+        # or classical-outcome equivalence. Measurement/reset cannot be
+        # interpreted as a unitary identity, even if the QASM importer
+        # successfully parses them.
+        if gate.operation.name in ("measure", "reset"):
+            raise ValueError(
+                "Non-unitary Qiskit instruction "
+                f"'{gate.operation.name}' is unsupported for equivalence"
+            )
         gates.append(get_gate(circuit, gate))
     return gates
 

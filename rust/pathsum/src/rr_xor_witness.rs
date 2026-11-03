@@ -33,6 +33,13 @@ pub struct BraCxCounts {
     pub touched_calls: usize,
     pub unaffected_calls: usize,
     pub affected_terms: usize,
+    /// Actual generic PhasePolynomial shared path triggered by Bra-CX.
+    pub shared_xor_calls: usize,
+    pub shared_affected_terms: usize,
+    pub shared_call_indices: Vec<usize>,
+    pub parity_xor_calls: usize,
+    pub parity_affected_terms: usize,
+    pub exact_radian_parity_calls: usize,
     pub exact_radian_terms: usize,
     pub symbolic_terms: usize,
     pub control_overlap_terms: usize,
@@ -141,15 +148,32 @@ pub(crate) fn observe_bra_cx(phase: &PhasePolynomial, target: u32, control: u32)
         b.calls += 1;
         b.peak_phase_terms = b.peak_phase_terms.max(phase.terms.len());
         let mut affected = 0;
+        let mut has_exact_radians = false;
         for (mono, coeff) in &phase.terms {
             if !mono.contains(&target) { continue; }
             affected += 1;
+            has_exact_radians |= coeff.radians.is_some();
             b.exact_radian_terms += usize::from(coeff.radians.is_some());
             b.symbolic_terms += usize::from(!coeff.symbols.is_empty());
             b.control_overlap_terms += usize::from(mono.contains(&control));
         }
-        if affected == 0 { b.unaffected_calls += 1; }
-        else { b.touched_calls += 1; }
+        if affected == 0 {
+            b.unaffected_calls += 1;
+        } else {
+            b.touched_calls += 1;
+            // Bra CX always substitutes exactly two distinct single
+            // monomials: [target] XOR [control]. This exactly matches the
+            // existing production predicate for 2-source XOR expansion.
+            if affected > 1 && !has_exact_radians {
+                b.shared_xor_calls += 1;
+                b.shared_affected_terms += affected;
+                b.shared_call_indices.push(b.calls - 1);
+            } else {
+                b.parity_xor_calls += 1;
+                b.parity_affected_terms += affected;
+                b.exact_radian_parity_calls += usize::from(has_exact_radians);
+            }
+        }
         b.affected_terms += affected;
         b.peak_affected_terms = b.peak_affected_terms.max(affected);
         b.affected_per_call.push(affected);
@@ -185,5 +209,8 @@ mod tests {
         assert_eq!(w.bra_cx.affected_terms, 2);
         assert_eq!(w.bra_cx.control_overlap_terms, 1);
         assert_eq!(w.bra_cx.affected_histogram[2], 1);
+        assert_eq!(w.bra_cx.shared_xor_calls, 1);
+        assert_eq!(w.bra_cx.shared_call_indices, vec![0]);
+        assert_eq!(w.bra_cx.parity_xor_calls, 0);
     }
 }

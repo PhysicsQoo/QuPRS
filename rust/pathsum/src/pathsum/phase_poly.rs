@@ -81,8 +81,36 @@ impl PhasePolynomial {
             return;
         }
 
-        // General XOR substitution: retain the existing arithmetic expansion
-        // and modulo-one coefficient semantics, but move the original coeff.
+        // For several affected terms, expand the *same* XOR replacement only
+        // once per coefficient truncation order.  Over the Boolean ring,
+        // rest AND (a XOR b) = (rest AND a) XOR (rest AND b), and the
+        // arithmetic expansion distributes through the AND.  The omitted
+        // higher-order terms are multiples of 1 in the phase when a
+        // power-of-two denominator permits truncation.
+        //
+        // Keep the original path for singleton sources and large XORs:
+        // the pre-expansion can otherwise grow exponentially even when
+        // multiplication by 'rest' would cancel many Boolean terms.
+        if extracted.len() > 1 && sub_poly.len() <= 12 {
+            let mut expansions: FxHashMap<usize, FxHashMap<Monomial, i64>> =
+                FxHashMap::default();
+            for (rest, phase) in extracted {
+                let max_order = phase_xor_max_order(&phase);
+                let expanded = expansions.entry(max_order)
+                    .or_insert_with(|| expand_xor_to_arithmetic(sub_poly, max_order));
+                for (part, &factor) in expanded.iter() {
+                    if factor == 0 { continue; }
+                    let mut monomial = rest.clone();
+                    monomial.extend_from_slice(part);
+                    // add_term canonicalizes the Boolean product and merges
+                    // collisions, preserving the exact modulo-one phase.
+                    self.add_term(monomial, phase.clone() * factor);
+                }
+            }
+            return;
+        }
+
+        // Fallback: preserve the established parity-first path.
         for (rest, coeff) in extracted {
             let mut rest_poly = FxHashSet::default();
             rest_poly.insert(rest);
@@ -99,21 +127,27 @@ impl AddAssign<PhaseCoeff> for PhasePolynomial {
     }
 }
 
+// This is also used by the shared XOR expansion above.  Keep the
+// truncation rule identical to the original PhasePolynomial AddAssign path.
+#[inline]
+fn phase_xor_max_order(phase: &PhaseCoeff) -> usize {
+    if !phase.symbols.is_empty() || phase.radians.is_some() {
+        usize::MAX
+    } else {
+        let denom_u64 = phase.constant.denom as u64;
+        if denom_u64.is_power_of_two() {
+            denom_u64.trailing_zeros() as usize
+        } else {
+            usize::MAX
+        }
+    }
+}
+
 impl AddAssign<(&FxHashSet<Monomial>, PhaseCoeff)> for PhasePolynomial {
     fn add_assign(&mut self, (poly, phase): (&FxHashSet<Monomial>, PhaseCoeff)) {
         if poly.is_empty() || phase.is_zero() { return; }
 
-        let max_order = if !phase.symbols.is_empty() || phase.radians.is_some() {
-            usize::MAX
-        } else {
-            let denom_u64 = phase.constant.denom as u64;
-            if denom_u64.is_power_of_two() {
-                denom_u64.trailing_zeros() as usize
-            } else {
-                usize::MAX
-            }
-        };
-
+        let max_order = phase_xor_max_order(&phase);
         let arith_poly = expand_xor_to_arithmetic(poly, max_order);
 
         for (term, coeff) in arith_poly {
@@ -244,6 +278,44 @@ mod substitution_tests {
                     candidate.terms, expected.terms,
                     "target={target}, substitution={terms:?}",
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_xor_expansion_matches_legacy_for_exact_and_symbolic_phases() {
+        // Multiple source terms force the shared-expansion path.  The
+        // substitutions include collisions under AND, an empty monomial,
+        // and three-plus XOR terms.  Coefficients cover all truncation
+        // orders, exact decimal radians, and free phase symbols.
+        let substitutions: Vec<Vec<Monomial>> = vec![
+            vec![vec![], vec![1], vec![2]],
+            vec![vec![1], vec![2], vec![3]],
+            vec![vec![1], vec![1, 2], vec![2, 3], vec![3]],
+            vec![vec![], vec![1], vec![2], vec![3], vec![1, 3]],
+            vec![vec![1], vec![1, 2], vec![2, 3], vec![1, 3], vec![3]],
+        ];
+        for target in [0, 1, 2, 3] {
+            for terms in &substitutions {
+                let replacement: FxHashSet<Monomial> =
+                    terms.iter().cloned().collect();
+                let mut expected = source_polynomial();
+                // Vary the number of affected terms and force term merges
+                // across both the original and replacement variables.
+                expected.add_term(vec![target, 4],
+                    PhaseCoeff::new_constant(Rational::new(1, 16)));
+                expected.add_term(vec![target, 5],
+                    PhaseCoeff::new_constant(Rational::new(1, 3)));
+                expected.add_term(vec![target, 1, 6],
+                    Angle::from_qasm_str("0.00000000000000000000000012345")
+                        .expect("exact decimal").to_phase_coeff());
+                expected.add_term(vec![target, 2, 7],
+                    PhaseCoeff::new_symbolic(19, FreeRational::new(5, 7)));
+                let mut candidate = expected.clone();
+                legacy_substitute(&mut expected, target, &replacement);
+                candidate.substitute_var_with_poly(target, &replacement);
+                assert_eq!(candidate.terms, expected.terms,
+                    "target={target}, replacement={terms:?}");
             }
         }
     }

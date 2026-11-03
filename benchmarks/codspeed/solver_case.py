@@ -46,7 +46,7 @@ def _compatible_solver_kwargs(optional: dict) -> tuple[dict, str]:
         adapter_source = Path.cwd() / "rust/pathsum/src/solver_adapter.rs"
         text = adapter_source.read_text(encoding="utf-8")
         if re.search(
-            r"impl SolverAdapter for GpmcDistanceAdapter\\s*\\{.{0,600}?[-]prec=90",
+            r"impl[ ]+SolverAdapter[ ]+for[ ]+GpmcDistanceAdapter[ ]*[{].{0,600}?[-]prec=90",
             text, flags=re.DOTALL,
         ) is None:
             raise RuntimeError("Legacy dev GPMC distance precision not proven to be 90")

@@ -134,8 +134,10 @@ def test_legacy_dev_api_uses_verified_90_digits_not_unsupported_args(harness, mo
     rust_src = tmp_path / "rust/pathsum/src/solver_adapter.rs"
     rust_src.parent.mkdir(parents=True)
     rust_src.write_text(
-        "impl SolverAdapter for GpmcDistanceAdapter {\\n"
-        "fn arguments(&self) -> &'static [&'static str] { &[\\\"-mode=1\\\", \\\"-prec=90\\\"] } }\\n",
+        """impl SolverAdapter for GpmcDistanceAdapter {
+    fn arguments(&self) -> &'static [&'static str] { &["-mode=1", "-prec=90"] }
+}
+""",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)

@@ -1,0 +1,812 @@
+{
+  "approximation_degree": 1.0,
+  "basis": [
+    "h",
+    "ry",
+    "rz",
+    "cx"
+  ],
+  "cases": [
+    {
+      "case": "grover4",
+      "historic_gates": 160,
+      "historic_sha256": "6bdbc083e4b92c4de9f2a007f8695af739bb7aabf9f11c5bb7cbcd530055d537",
+      "historical_saved": {
+        "aligned_frobenius": 2.0669803123364205e-15,
+        "metric": 2.0669803123364205e-15,
+        "metric_kind": "float_projective_operator"
+      },
+      "original_gates": 190,
+      "original_sha256": "f64bc99e09b5ac3aebd569505c38bae27beee38c2de5f89b96ecc91e4af7c9d9",
+      "qubits": 4,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "aligned_frobenius": 3.642036941939232e-15,
+            "metric": 3.642036941939232e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "depth": 227,
+          "gates": 387,
+          "global_phase": 4.71238898038469,
+          "level": 0,
+          "qasm2_sha256": "ba6c5cd4a6f607c429acb376a852395444af10d7a5c4dc335d8d2a0460c61844",
+          "serialized": {
+            "aligned_frobenius": 3.5228607652704204e-15,
+            "metric": 3.5228607652704204e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "aligned_frobenius": 3.0454551358177988e-15,
+            "metric": 3.0454551358177988e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "depth": 101,
+          "gates": 160,
+          "global_phase": 4.712388980384683,
+          "level": 3,
+          "qasm2_sha256": "70a291b8b6f197816183dbbb2ffd55019096eadad36f6c5cdb750a763ef2809e",
+          "serialized": {
+            "aligned_frobenius": 2.0669803123364205e-15,
+            "metric": 2.0669803123364205e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "qnn8",
+      "historic_gates": 334,
+      "historic_sha256": "15bc243cce22c2e3714df3baa073fc29334b1f090631b38d2d37a1d8cb2cebf4",
+      "historical_saved": {
+        "aligned_frobenius": 7.013441274109397e-15,
+        "metric": 7.013441274109397e-15,
+        "metric_kind": "float_projective_operator"
+      },
+      "original_gates": 319,
+      "original_sha256": "814fb55735b75d952b99d0768b9287c623aa3b49bf8742198334a6d9e4403d9d",
+      "qubits": 8,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "aligned_frobenius": 6.8739897493015035e-15,
+            "metric": 6.8739897493015035e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "depth": 136,
+          "gates": 703,
+          "global_phase": 0.0,
+          "level": 0,
+          "qasm2_sha256": "3452d02eead6e21d66321519dba4bf8b8335a1559ea7ecbe98120f92bf3fa742",
+          "serialized": {
+            "aligned_frobenius": 6.8739897493015035e-15,
+            "metric": 6.8739897493015035e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "aligned_frobenius": 1.1880672982107459e-14,
+            "metric": 1.1880672982107459e-14,
+            "metric_kind": "float_projective_operator"
+          },
+          "depth": 143,
+          "gates": 334,
+          "global_phase": 2.356194490192337,
+          "level": 3,
+          "qasm2_sha256": "b82104dc6c2e93561f77c89831292cc6ad5f55c2bda0fd5ad3fcaa22980b3461",
+          "serialized": {
+            "aligned_frobenius": 7.125856596223131e-15,
+            "metric": 7.125856596223131e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "qpeinexact8",
+      "historic_gates": 150,
+      "historic_sha256": "dcb05342f86dc7173985ec478d1a7e5e543da856a0d6d9e7aabf311c965357d6",
+      "historical_saved": {
+        "aligned_frobenius": 1.1791855949116897e-15,
+        "metric": 1.1791855949116897e-15,
+        "metric_kind": "float_projective_operator"
+      },
+      "original_gates": 192,
+      "original_sha256": "ce85b852f0b5918d0e067967a500003934867879a428242aa54dc16c0bf53703",
+      "qubits": 8,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "aligned_frobenius": 2.183631325328997e-15,
+            "metric": 2.183631325328997e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "depth": 137,
+          "gates": 305,
+          "global_phase": 4.71238898038469,
+          "level": 0,
+          "qasm2_sha256": "3545f2876754706372ce608666613983e4d13ab6e61cfb69616854ea8dd94842",
+          "serialized": {
+            "aligned_frobenius": 2.1384933103726665e-15,
+            "metric": 2.1384933103726665e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "aligned_frobenius": 1.1956513101581922e-15,
+            "metric": 1.1956513101581922e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "depth": 68,
+          "gates": 150,
+          "global_phase": 1.570796326794901,
+          "level": 3,
+          "qasm2_sha256": "c184aa38f96a574d614d658d6d302512155aa8b302049eff9a9fbf7bd230fb7f",
+          "serialized": {
+            "aligned_frobenius": 1.1791855949116897e-15,
+            "metric": 1.1791855949116897e-15,
+            "metric_kind": "float_projective_operator"
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "qaoa9",
+      "historic_gates": 209,
+      "historic_sha256": "bd55008f4fa00b8251c1ab0b1226cbea38b2818b80a8340a01d9d5bb62d49fb6",
+      "historical_saved": {
+        "metric": 2.1321730239629808e-15,
+        "metric_kind": "two_sample_statevector_max_not_projective",
+        "samples": [
+          {
+            "aligned_l2": 2.1321730239629808e-15,
+            "input": "zero",
+            "overlap_abs": 0.9999999999999996
+          },
+          {
+            "aligned_l2": 1.9493014601194612e-15,
+            "input": "uniform_plus",
+            "overlap_abs": 0.9999999999999978
+          }
+        ]
+      },
+      "original_gates": 171,
+      "original_sha256": "870bb0c73f92406927676c80dc5dfb2b52b3df24f4082289ced293705df50502",
+      "qubits": 9,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "metric": 7.502213315412343e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 6.934360523659748e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999937
+              },
+              {
+                "aligned_l2": 7.502213315412343e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999907
+              }
+            ]
+          },
+          "depth": 71,
+          "gates": 531,
+          "global_phase": 0.0,
+          "level": 0,
+          "qasm2_sha256": "c96a7117842f1ec0fff999f91c40ebd448eb1f1f118b7f4a32ce0b39203dbb93",
+          "serialized": {
+            "metric": 7.502213315412343e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 6.934360523659748e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999937
+              },
+              {
+                "aligned_l2": 7.502213315412343e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999907
+              }
+            ]
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "metric": 2.648693919589047e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.648693919589047e-15,
+                "input": "zero",
+                "overlap_abs": 1.0
+              },
+              {
+                "aligned_l2": 2.5580357274662395e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.999999999999998
+              }
+            ]
+          },
+          "depth": 44,
+          "gates": 209,
+          "global_phase": 1.5707963267948983,
+          "level": 3,
+          "qasm2_sha256": "1ed21a54ca22db80d689f8146acbcf097034e54b89d9c86d91731e87aad0a52a",
+          "serialized": {
+            "metric": 2.095486137428086e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.095486137428086e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999997
+              },
+              {
+                "aligned_l2": 1.9032948086914033e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999979
+              }
+            ]
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "qft16",
+      "historic_gates": 543,
+      "historic_sha256": "aa85188d731454bd85b0fe2ae089ab8e6b812501730eee5f1651ac11d7b7fcbc",
+      "historical_saved": {
+        "metric": 2.0586633638834475e-15,
+        "metric_kind": "two_sample_statevector_max_not_projective",
+        "samples": [
+          {
+            "aligned_l2": 2.0586633638834475e-15,
+            "input": "zero",
+            "overlap_abs": 0.9999999999999656
+          },
+          {
+            "aligned_l2": 1.324830275797601e-15,
+            "input": "uniform_plus",
+            "overlap_abs": 0.9999999999999993
+          }
+        ]
+      },
+      "original_gates": 672,
+      "original_sha256": "39b6889497a4e98098b6bb2b4563ace2fb660f4cc3fe8d0763d3f69fc200d865",
+      "qubits": 16,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "metric": 2.9066709924053057e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.348877650984784e-15,
+                "input": "zero",
+                "overlap_abs": 0.999999999999962
+              },
+              {
+                "aligned_l2": 2.9066709924053057e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999968
+              }
+            ]
+          },
+          "depth": 254,
+          "gates": 800,
+          "global_phase": 0.0,
+          "level": 0,
+          "qasm2_sha256": "637c2be475fe71feff1071e90a076a14bd11f90b0afab7a23ca39209cd83fa65",
+          "serialized": {
+            "metric": 2.9066709924053057e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.348877650984784e-15,
+                "input": "zero",
+                "overlap_abs": 0.999999999999962
+              },
+              {
+                "aligned_l2": 2.9066709924053057e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999968
+              }
+            ]
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "metric": 2.491772374289669e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.491772374289669e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999664
+              },
+              {
+                "aligned_l2": 1.5414807465910122e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 1.0000000000000002
+              }
+            ]
+          },
+          "depth": 114,
+          "gates": 543,
+          "global_phase": 4.712388980384635,
+          "level": 3,
+          "qasm2_sha256": "3147a407416fb573f228e33abb26b4fa183a2c24070e2801466e1ced175f4a9b",
+          "serialized": {
+            "metric": 2.0309027584896755e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.0309027584896755e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999657
+              },
+              {
+                "aligned_l2": 1.3326142578622226e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999993
+              }
+            ]
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "vqe16",
+      "historic_gates": 211,
+      "historic_sha256": "81df3d29f12f06095129a27c06f79c833b84e576e0f7303e3a477aff8d6a52fb",
+      "historical_saved": {
+        "metric": 1.0624870954217675e-11,
+        "metric_kind": "two_sample_statevector_max_not_projective",
+        "samples": [
+          {
+            "aligned_l2": 1.0624870954217675e-11,
+            "input": "zero",
+            "overlap_abs": 0.9999999999999969
+          },
+          {
+            "aligned_l2": 1.7606917500743665e-12,
+            "input": "uniform_plus",
+            "overlap_abs": 0.9999999999999961
+          }
+        ]
+      },
+      "original_gates": 270,
+      "original_sha256": "e07da062ab05cbbf38828e7dfa4b1617f6e2a755f955307e3e2f6c979f0697a5",
+      "qubits": 16,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "metric": 1.425727228753475e-14,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 1.3670603227527139e-14,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999821
+              },
+              {
+                "aligned_l2": 1.425727228753475e-14,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999809
+              }
+            ]
+          },
+          "depth": 80,
+          "gates": 1038,
+          "global_phase": 0.0,
+          "level": 0,
+          "qasm2_sha256": "9cfbccad077f99ffce8c872c9e7ab35eda6ad8212b35d5c46dca3cda0e44b5d7",
+          "serialized": {
+            "metric": 1.425727228753475e-14,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 1.3670603227527139e-14,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999821
+              },
+              {
+                "aligned_l2": 1.425727228753475e-14,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999809
+              }
+            ]
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "metric": 1.06292601596481e-11,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 1.06292601596481e-11,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999969
+              },
+              {
+                "aligned_l2": 2.0526438192152128e-12,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999966
+              }
+            ]
+          },
+          "depth": 65,
+          "gates": 211,
+          "global_phase": 3.141592653590109,
+          "level": 3,
+          "qasm2_sha256": "b8051bc9b05099ce910d38cd0267e3fbeacdaa494e13473ea944e9fd9eaa7f64",
+          "serialized": {
+            "metric": 1.0624904960099656e-11,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 1.0624904960099656e-11,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999968
+              },
+              {
+                "aligned_l2": 1.760689987716964e-12,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999961
+              }
+            ]
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "qft20",
+      "historic_gates": 825,
+      "historic_sha256": "c022adb37206f5b21b617136d1df369af588ac43b88fc65843d4b2ca402dab13",
+      "historical_saved": {
+        "metric": 5.401217173306974e-06,
+        "metric_kind": "two_sample_statevector_max_not_projective",
+        "samples": [
+          {
+            "aligned_l2": 5.401217173306974e-06,
+            "input": "zero",
+            "overlap_abs": 0.9999999999854513
+          },
+          {
+            "aligned_l2": 1.6411174357188477e-15,
+            "input": "uniform_plus",
+            "overlap_abs": 0.9999999999999988
+          }
+        ]
+      },
+      "original_gates": 1040,
+      "original_sha256": "a80541cefa7de60ad0c49bf3277edbd2f9cacecdef186114c14f75a11f88bfb9",
+      "qubits": 20,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "metric": 3.0924782734981568e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.990558928593299e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999994592
+              },
+              {
+                "aligned_l2": 3.0924782734981568e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999968
+              }
+            ]
+          },
+          "depth": 318,
+          "gates": 1200,
+          "global_phase": 0.0,
+          "level": 0,
+          "qasm2_sha256": "eb02ce14ddfb7b8f994d053af7cf21383b54dbbbec330ece088244a54fd9df48",
+          "serialized": {
+            "metric": 3.0924782734981568e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.990558928593299e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999994592
+              },
+              {
+                "aligned_l2": 3.0924782734981568e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999968
+              }
+            ]
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "metric": 5.401217173155408e-06,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 5.401217173155408e-06,
+                "input": "zero",
+                "overlap_abs": 0.9999999999854513
+              },
+              {
+                "aligned_l2": 2.0957864855685056e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999986
+              }
+            ]
+          },
+          "depth": 142,
+          "gates": 825,
+          "global_phase": 1.5707963267947012,
+          "level": 3,
+          "qasm2_sha256": "2b36e0db7ab3100c4622ac4622718970fdf3b78586066c584a4fc7af90a0d9ea",
+          "serialized": {
+            "metric": 5.401217173306974e-06,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 5.401217173306974e-06,
+                "input": "zero",
+                "overlap_abs": 0.9999999999854513
+              },
+              {
+                "aligned_l2": 1.6411174357188477e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999988
+              }
+            ]
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "qft22",
+      "historic_gates": 970,
+      "historic_sha256": "749570a67457c0b53a221974f73c4f9d8151d4ba23a4e66cb922286e7763df8f",
+      "historical_saved": {
+        "metric": 9.392588484302024e-06,
+        "metric_kind": "two_sample_statevector_max_not_projective",
+        "samples": [
+          {
+            "aligned_l2": 9.392588484302024e-06,
+            "input": "zero",
+            "overlap_abs": 0.9999999999547213
+          },
+          {
+            "aligned_l2": 1.4107768345683939e-15,
+            "input": "uniform_plus",
+            "overlap_abs": 1.0000000000000009
+          }
+        ]
+      },
+      "original_gates": 1254,
+      "original_sha256": "5d082b45c74ef9d075d657314e33864adc00928f2737b458d2743b2333fd8a54",
+      "qubits": 22,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "metric": 3.2449612367231487e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 3.2449612367231487e-15,
+                "input": "zero",
+                "overlap_abs": 1.0000000000001374
+              },
+              {
+                "aligned_l2": 3.121597526282599e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999974
+              }
+            ]
+          },
+          "depth": 350,
+          "gates": 1430,
+          "global_phase": 0.0,
+          "level": 0,
+          "qasm2_sha256": "bde8494d372f656f0d057bd30ee410a730182f8d6ff9e1ca2b550d6659e5b02a",
+          "serialized": {
+            "metric": 3.2449612367231487e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 3.2449612367231487e-15,
+                "input": "zero",
+                "overlap_abs": 1.0000000000001374
+              },
+              {
+                "aligned_l2": 3.121597526282599e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999999974
+              }
+            ]
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "metric": 9.392588484234165e-06,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 9.392588484234165e-06,
+                "input": "zero",
+                "overlap_abs": 0.9999999999547213
+              },
+              {
+                "aligned_l2": 2.510578528163166e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 1.0000000000000024
+              }
+            ]
+          },
+          "depth": 156,
+          "gates": 970,
+          "global_phase": 4.712388980384418,
+          "level": 3,
+          "qasm2_sha256": "c1c36c9fc7c5cdc597655643482912a7e744da8f6d8c670b22cc141f6c478b80",
+          "serialized": {
+            "metric": 9.392588484302024e-06,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 9.392588484302024e-06,
+                "input": "zero",
+                "overlap_abs": 0.9999999999547213
+              },
+              {
+                "aligned_l2": 1.4107768345683939e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 1.0000000000000009
+              }
+            ]
+          },
+          "status": "OK"
+        }
+      ]
+    },
+    {
+      "case": "qpeexact20",
+      "historic_gates": 861,
+      "historic_sha256": "620a6bf48a008656e60d2d78a3d80d8ec49ca4682a07de074048fdf67f4840a7",
+      "historical_saved": {
+        "metric": 2.9960562261997886e-06,
+        "metric_kind": "two_sample_statevector_max_not_projective",
+        "samples": [
+          {
+            "aligned_l2": 2.9960562261997886e-06,
+            "input": "zero",
+            "overlap_abs": 0.9999999999955125
+          },
+          {
+            "aligned_l2": 1.9594849356226898e-13,
+            "input": "uniform_plus",
+            "overlap_abs": 1.0000000000000544
+          }
+        ]
+      },
+      "original_gates": 1092,
+      "original_sha256": "c90b5aa8a03d84bcdee505f167b69a93eb17c063ce5cb4916145c7a2296a2831",
+      "qubits": 20,
+      "transpiles": [
+        {
+          "compiled_in_memory": {
+            "metric": 7.158320067642796e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 5.4316755789305515e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999959
+              },
+              {
+                "aligned_l2": 7.158320067642796e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999991186
+              }
+            ]
+          },
+          "depth": 353,
+          "gates": 1397,
+          "global_phase": 4.71238898038469,
+          "level": 0,
+          "qasm2_sha256": "09caecb08fbe2f6dc058c5d901080202f68d1edaaccd0e60e350b5d36230fd48",
+          "serialized": {
+            "metric": 7.698023765821414e-15,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 5.4316755789305515e-15,
+                "input": "zero",
+                "overlap_abs": 0.9999999999999959
+              },
+              {
+                "aligned_l2": 7.698023765821414e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.9999999999991186
+              }
+            ]
+          },
+          "status": "OK"
+        },
+        {
+          "compiled_in_memory": {
+            "metric": 2.9960562262205875e-06,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.9960562262205875e-06,
+                "input": "zero",
+                "overlap_abs": 0.999999999995513
+              },
+              {
+                "aligned_l2": 2.4718631302564963e-15,
+                "input": "uniform_plus",
+                "overlap_abs": 0.999999999999119
+              }
+            ]
+          },
+          "depth": 188,
+          "gates": 861,
+          "global_phase": 5.497787143782141,
+          "level": 3,
+          "qasm2_sha256": "6e9607dd3f4a5a28f551dea968c08c1f7b237b5cdd5c73e29123a27158e771b6",
+          "serialized": {
+            "metric": 2.9960562261997886e-06,
+            "metric_kind": "two_sample_statevector_max_not_projective",
+            "samples": [
+              {
+                "aligned_l2": 2.9960562261997886e-06,
+                "input": "zero",
+                "overlap_abs": 0.9999999999955125
+              },
+              {
+                "aligned_l2": 1.9594849356226898e-13,
+                "input": "uniform_plus",
+                "overlap_abs": 1.0000000000000544
+              }
+            ]
+          },
+          "status": "OK"
+        }
+      ]
+    }
+  ],
+  "historical_transpile_configuration": "NOT_DOCUMENTED_OR_ASSUMED",
+  "levels": [
+    0,
+    3
+  ],
+  "numerical_certified": false,
+  "numpy_version": "2.2.6",
+  "performance_certified": false,
+  "qiskit_version": "1.4.2",
+  "schema": "tacas26-qiskit-version-fidelity-v1",
+  "seed": 42,
+  "source_sha": "b50bd86bb134d04593bab25cd758cfa1c5df9260"
+}

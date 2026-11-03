@@ -142,11 +142,18 @@ mod tests {
             assert!(bra.exact_radian_terms <= bra.affected_terms);
             assert!(bra.symbolic_terms <= bra.affected_terms);
             assert!(bra.control_overlap_terms <= bra.affected_terms);
+            assert_eq!(bra.shared_xor_calls + bra.parity_xor_calls, bra.touched_calls);
+            assert_eq!(bra.shared_affected_terms + bra.parity_affected_terms,
+                bra.affected_terms);
+            assert_eq!(bra.shared_call_indices.len(), bra.shared_xor_calls);
+            assert!(bra.exact_radian_parity_calls <= bra.parity_xor_calls);
             println!(
-                "RR_CX_REAL_WITNESS={{\"case\":\"{}\",\"bra_cx_calls\":{},\"touched_calls\":{},\"unaffected_calls\":{},\"total_affected\":{},\"radian_terms\":{},\"symbolic_terms\":{},\"control_overlap_terms\":{},\"peak_phase_terms\":{},\"peak_affected_terms\":{},\"affected_histogram\":{:?},\"affected_per_call\":{:?}}}",
+                "RR_CX_REAL_WITNESS={{\"case\":\"{}\",\"bra_cx_calls\":{},\"touched_calls\":{},\"unaffected_calls\":{},\"total_affected\":{},\"shared_xor_calls\":{},\"shared_affected_terms\":{},\"shared_call_indices\":{:?},\"parity_xor_calls\":{},\"parity_affected_terms\":{},\"exact_radian_parity_calls\":{},\"radian_terms\":{},\"symbolic_terms\":{},\"control_overlap_terms\":{},\"peak_phase_terms\":{},\"peak_affected_terms\":{},\"affected_histogram\":{:?},\"affected_per_call\":{:?}}}",
                 case.id(), bra.calls, bra.touched_calls,
-                bra.unaffected_calls, bra.affected_terms, bra.exact_radian_terms,
-                bra.symbolic_terms, bra.control_overlap_terms,
+                bra.unaffected_calls, bra.affected_terms,
+                bra.shared_xor_calls, bra.shared_affected_terms, bra.shared_call_indices,
+                bra.parity_xor_calls, bra.parity_affected_terms, bra.exact_radian_parity_calls,
+                bra.exact_radian_terms, bra.symbolic_terms, bra.control_overlap_terms,
                 bra.peak_phase_terms, bra.peak_affected_terms,
                 bra.affected_histogram, bra.affected_per_call,
             );

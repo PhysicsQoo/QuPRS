@@ -85,6 +85,10 @@ jobs:
               assert cx["peak_affected_terms"] == max(sizes, default=0)
               assert cx["radian_terms"] <= cx["total_affected"]
               assert cx["control_overlap_terms"] <= cx["total_affected"]
+              assert cx["shared_xor_calls"] + cx["parity_xor_calls"] == cx["touched_calls"]
+              assert cx["shared_affected_terms"] + cx["parity_affected_terms"] == cx["total_affected"]
+              assert len(cx["shared_call_indices"]) == cx["shared_xor_calls"]
+              assert cx["exact_radian_parity_calls"] <= cx["parity_xor_calls"]
           output = {
               "head_sha": os.environ["HEAD_SHA"],
               "instrument": "count-only-outside-codspeed",
@@ -103,6 +107,8 @@ jobs:
           print("RR_CX_REAL_SUMMARY=" + json.dumps(
               {r["case"]: {"bra_cx": r["bra_cx_calls"],
                             "touched": r["touched_calls"],
+                            "shared": r["shared_xor_calls"],
+                            "parity": r["parity_xor_calls"],
                             "max_phase_terms": r["peak_phase_terms"],
                             "max_affected": r["peak_affected_terms"],
                             "radian_terms": r["radian_terms"],

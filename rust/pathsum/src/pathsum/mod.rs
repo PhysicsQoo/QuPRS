@@ -1,6 +1,7 @@
 // src/pathsum/mod.rs
 #![allow(dead_code)]
 pub mod phase_poly;
+mod bra_cx;
 pub mod boolean_state;
 pub mod var_manager;
 

@@ -1,0 +1,18 @@
+# Experimental benchmark crate. Not part of legacy CodSpeed identifiers.
+[package]
+name = "quprs-rr-xor-native"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+pathsum = { path = "../../rust/pathsum" }
+rustc-hash = "2.0"
+divan = { package = "codspeed-divan-compat", version = "=6.0.0" }
+
+[workspace]
+
+[[bench]]
+name = "rr_xor_native"
+path = "benches/rr_xor_native.rs"
+harness = false

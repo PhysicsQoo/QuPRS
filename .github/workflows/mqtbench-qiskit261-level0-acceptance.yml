@@ -77,7 +77,7 @@ jobs:
           echo "$RUNNER_TEMP/quprs-mqt37/bin" >> "$GITHUB_PATH"
           source "$RUNNER_TEMP/quprs-mqt37/bin/activate"
           python -m pip install --disable-pip-version-check maturin 'numpy==1.26.4' 'qiskit==1.4.2'
-          maturin develop --release -E dev
+          maturin develop --release
           python - <<'PY'
           import qiskit, numpy
           assert qiskit.__version__ == "1.4.2"

@@ -50,6 +50,14 @@ def write_manifest(path, *, expected_sha, family, instrument, shard=None,
         "measurement_status": "uploaded_by_codspeed_action",
         "fixture_revision_sha": fixture_sha or actual_sha,
     }
+    if family == "simulation-shard":
+        # v2 manifest remains readable. Explicit source-suite marker makes an
+        # incomplete new run distinguishable from archived 32-only runs.
+        from benchmarks.codspeed.simulation_addon import QASM261_COUNT, QASM261_SHA256
+        document["simulation_addon"] = {
+            "suite": "qiskit-2.6.1-opt0-v1", "count": QASM261_COUNT,
+            "identity_sha256": QASM261_SHA256,
+        }
     if suite_id is not None:
         catalog = load_catalog()
         suite = next(

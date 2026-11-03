@@ -13,6 +13,10 @@ import sys
 from pathlib import Path
 
 CANONICAL_SHA = "7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed"
+QASM261_ADDON_SHA = "b19b1331f912f7abd976bfa6911d1969c718b4159211f428506f2b8a4ebb49aa"
+QASM261_ADDON_COUNT = 24
+QASM261_ADDON_ID = "qiskit-2.6.1-opt0-v1"
+QASM261_PREFIX = "benchmarks/codspeed/test_mqt_qasm261_simulation.py::"
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -77,16 +81,36 @@ def validate_simulation(folder, sha):
             raise ValueError(f"shard {idx}: missing original instrument benchmarks")
         for result in decoded["benchmarks"]:
             uri = result.get("uri")
-            if not isinstance(uri, str) or not uri.startswith(("test/test_Feynman.py::", "test/test_MQT.py::")):
+            if not isinstance(uri, str) or not uri.startswith((
+                "test/test_Feynman.py::", "test/test_MQT.py::", QASM261_PREFIX
+            )):
                 raise ValueError(f"unexpected original CodSpeed benchmark: {uri}")
             if uri in measurements:
                 raise ValueError(f"duplicate benchmark across shards: {uri}")
             measurements[uri] = result
-    if found != set(range(5)) or len(measurements) != 32:
-        raise ValueError(f"incomplete canonical five-shard suite: {found}, n={len(measurements)}")
-    identity = hashlib.sha256("\n".join(sorted(measurements)).encode()).hexdigest()
-    if identity != CANONICAL_SHA:
+    if found != set(range(5)):
+        raise ValueError(f"incomplete canonical five-shard suite: {found}")
+    legacy = [uri for uri in measurements if uri.startswith(
+        ("test/test_Feynman.py::", "test/test_MQT.py::"))]
+    addon = [uri for uri in measurements if uri.startswith(QASM261_PREFIX)]
+    digest = lambda rows: hashlib.sha256(
+        "\n".join(sorted(rows)).encode("utf-8")
+    ).hexdigest()
+    if len(legacy) != 32 or digest(legacy) != CANONICAL_SHA:
         raise ValueError("original 32 CodSpeed benchmark identities changed")
+    declared = [entry.get("simulation_addon") for entry in entries]
+    if any(x is not None for x in declared):
+        expected = {"suite": QASM261_ADDON_ID,
+                    "count": QASM261_ADDON_COUNT,
+                    "identity_sha256": QASM261_ADDON_SHA}
+        if any(x != expected for x in declared):
+            raise ValueError("QASM261 additive provenance mismatch across five shards")
+        if len(addon) != QASM261_ADDON_COUNT or digest(addon) != QASM261_ADDON_SHA:
+            raise ValueError("incomplete QASM261 additive 24-node Simulation identities")
+        if len(measurements) != 32 + QASM261_ADDON_COUNT:
+            raise ValueError("incomplete canonical five-shard suite: expected 56 identities")
+    elif addon or len(measurements) != 32:
+        raise ValueError("unversioned Simulation cannot contain new/additive IDs")
     return measurements
 
 
@@ -195,7 +219,8 @@ def cross_rows(simulation, walltime):
         if case not in labels:
             continue
         matching = [key for key in simulation
-                    if labels[case] in key and key.endswith("-gpmc-rust]")]
+                    if key.startswith("test/test_MQT.py::")
+                    and labels[case] in key and key.endswith("-gpmc-rust]")]
         if len(matching) != 1:
             raise ValueError(f"missing/ambiguous same-SHA CPU and WallTime case {case}")
         observed = simulation[matching[0]]
@@ -243,7 +268,9 @@ def produce(folder, sha, base_sha, *, require_solver_cpu=False, require_memory=F
         "schema": "quprs-codspeed-cross-instrument-v2",
         "head_sha": sha, "base_sha": base_sha,
         "simulation_uris": sorted(sim),
-        "five_shard_canonical_count": len(sim),
+        "five_shard_canonical_count": 32,
+        "qasm261_addon_count": len(sim) - 32,
+        "simulation_total_count": len(sim),
         "native_core_expected_count": NATIVE_CASES,
         "native_core_metrics": "CodSpeed service only; no fabricated local numeric result",
         "walltime_paired_cases": WALLTIME_CASES if wall else 0,
@@ -291,7 +318,8 @@ def main():
     markdown = [
         "## CodSpeed same-SHA cross-instrument v2",
         f"- HEAD: \`{a.head_sha}\`; base: \`{a.base_sha or '(baseline only)'}\`",
-        "- Canonical: 32/32 original CPU Simulation IDs across five shards",
+        f"- Canonical: 32/32 original CPU Simulation IDs plus "
+        f"{result['qasm261_addon_count']} versioned QASM261 IDs across five shards",
         f"- Native Rust: {result['native_core_expected_count']} benchmark identities uploaded; numeric metrics only in CodSpeed",
         f"- Solver-inclusive: {result['walltime_paired_cases']} paired workloads, 2 revisions each",
         f"- Scientific status: **{result['scientific_status']}** (independent of CI collection)",

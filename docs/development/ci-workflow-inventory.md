@@ -18,7 +18,7 @@ Pre-merge CI cleanup reviewed on 2026-11-03 against PR #131 source `a3009801d414
 | --- | --- | --- |
 | `dev-fast.yml` | Native/Rust smoke and comprehensive Python correctness, representative evidence | Fast feedback; needs only one Linux environment |
 | `benchmarks.yml` | Legacy PR benchmark reporting is label-opt-in (`ci-legacy-benchmark`); main push retains baseline publication | The default PR run only validates impact/provenance and does not duplicate CodSpeed measurement |
-| `codspeed.yml` | Five Simulation shards (shard-0 identity check), seven source-pinned paired Solver-inclusive WallTime cases, native Rust CPU, same-SHA evidence audit | CodSpeed performance authority; all timing claims distinguish simulated CPU from solver-inclusive WallTime |
+| `codspeed.yml` | Five Simulation shards (32 immutable historical + 24 Qiskit261 Level-0 new IDs, shard-0 source/identity check), seven source-pinned paired Solver-inclusive WallTime cases, native Rust CPU, same-SHA evidence audit | CodSpeed performance authority; all timing claims distinguish simulated CPU from solver-inclusive WallTime |
 | `native-cross-platform-pr.yml` | Reuses `pytest.yml` for 12 OS/Python cells | Actual platform/ABI coverage; independent matrix jobs |
 | `docker-build.yml` | Tester-stage Docker build matrix | Installed/container artifacts are not source pytest |
 | `wmc-conservative-policy.yml` | WMC numerical and phase classification contract | Independent physics/precision gate |

@@ -39,6 +39,10 @@ on:
         required: false
         default: legacy_eight
         options: [legacy_eight, paper_gap, qasm261_gap]
+      coverage_gap_verifier_sha:
+        description: 'Exact 40-hex PR #131 verifier SHA for qasm261_gap manual pilot'
+        type: string
+        required: false
       include_python_core:
         description: 'Add opt-in pure Python core CodSpeed microbenchmark'
         type: boolean
@@ -606,12 +610,27 @@ jobs:
       QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/candidate-pilot-codspeed.json
       QUPRS_PAPER_GAP_PILOT: ${{ (github.event_name == 'workflow_dispatch' && inputs.pilot_group == 'paper_gap') || (github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-paper-gap -->')) }}
       QUPRS_QASM261_GAP_PILOT: ${{ github.event_name == 'workflow_dispatch' && inputs.pilot_group == 'qasm261_gap' }}
+      QUPRS_GAP_VERIFIER_SHA: ${{ inputs.coverage_gap_verifier_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
+      - name: Validate exact pinned v0.14 gap verifier SHA
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pilot_group == 'qasm261_gap' }}
+        run: |
+          [[ "$QUPRS_GAP_VERIFIER_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::qasm261_gap requires an exact 40-hex verifier SHA"
+            exit 1
+          }
+      - uses: actions/checkout@v4
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pilot_group == 'qasm261_gap' }}
+        with:
+          ref: ${{ inputs.coverage_gap_verifier_sha }}
+          submodules: recursive
+          persist-credentials: false
+          path: qasm261-gap-verifier
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -630,7 +649,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
           python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
-          maturin develop --release -E dev
+          if [ "$QUPRS_QASM261_GAP_PILOT" = "true" ]; then
+            test "$(git -C qasm261-gap-verifier rev-parse HEAD)" = "$QUPRS_GAP_VERIFIER_SHA"
+            (cd qasm261-gap-verifier && maturin develop --release -E dev)
+          else
+            maturin develop --release -E dev
+          fi
           python -m pytest test/test_codspeed_registry.py -q
           if [ "$QUPRS_QASM261_GAP_PILOT" = "true" ]; then
             python -m pytest test/test_codspeed_qasm261_gap_registry.py -q

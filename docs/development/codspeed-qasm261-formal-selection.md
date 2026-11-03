@@ -1,5 +1,19 @@
 # Qiskit 2.6.1 Level-0 CodSpeed — multi-round acceptance and formal-case decision
 
+> **2026-11-03 PRECISION / FAIRNESS ERRATUM:** The retained 100-round CodSpeed
+> numbers below are true historical observations, but the experimental
+> `solver_case.py` did not pass explicit distance/RR/precision kwargs to
+> `dev@2dd451e` and PR `07d5c8d`. The two APIs therefore selected differing
+> numerical defaults (legacy magnitude versus v0.14 distance). The returned
+> stage and binary verdict observations remain meaningful, but their measured
+> deltas **do not certify equal-policy base/HEAD speedups**. If a distance
+> is explicitly pinned on old dev, its Rust GPMC adapter runs `-prec=90`, not
+> the new default 30. The formal PR's [corrected harness](https://github.com/PhysicsQoo/QuPRS/commit/ce51fd6155c381c84d41c1031ccd109982b9ea64)
+> requests the same 90 digits in both revisions, and the resulting CI must be
+> assessed independently before using any new promotion baseline. This erratum
+> does not alter raw historical samples/CV figures.
+
+
 **Decision date:** 2026-11-03. **Status:** science and CodSpeed research gates passed; **formal PR #131 not modified by this decision**. The previous 32/five-shard Simulation and seven paired WallTime identities are preserved.
 
 ### Source-pinned independent evidence

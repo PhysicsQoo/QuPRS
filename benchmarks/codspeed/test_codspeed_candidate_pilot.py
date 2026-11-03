@@ -24,6 +24,15 @@ def sample_candidate(case):
     harness = workspace / "benchmarks" / "codspeed" / "solver_case.py"
     env = os.environ.copy()
     env["QUPRS_CROSS_METHOD_SOLVER_TIMEOUT"] = str(case.solver_timeout_s)
+    if case.id.startswith("q261_gap_"):
+        # The manually checked-out v0.14 verifier, NOT the older experiment
+        # branch implementation, receives explicit per-call semantics.
+        env.update({
+            "QUPRS_DIAGNOSTIC_RR_TOLERANCE": "1e-10",
+            "QUPRS_DIAGNOSTIC_DISTANCE_TOLERANCE": "1e-8",
+            "QUPRS_DIAGNOSTIC_PHASE_TOLERANCE": "1e-8",
+            "QUPRS_DIAGNOSTIC_GPMC_DIGITS": "30",
+        })
     command = [
         sys.executable, str(harness), str(workspace), case.qasm,
         case.strategy, case.solver, case.backend, "1" if case.reverse else "0",
@@ -102,7 +111,14 @@ def run_source_pinned_candidate(benchmark, case):
         "qasm_sha256": source_hashes,
         "codspeed_sample_policy": "one_measured_round_no_warmup_exploratory",
         "run_id": os.environ.get("GITHUB_RUN_ID"),
-        "source_sha": os.environ["HEAD_SHA"], "method": case.method,
+        "source_sha": os.environ["HEAD_SHA"],
+        "verifier_sha": (os.environ.get("QUPRS_GAP_VERIFIER_SHA")
+                         if case.id.startswith("q261_gap_") else os.environ["HEAD_SHA"]),
+        "per_call_numerical_contract": ({
+            "rr_tolerance": 1e-10, "distance": 1e-8, "phase": 1e-8,
+            "gpmc_digits": 30,
+        } if case.id.startswith("q261_gap_") else None),
+        "method": case.method,
         "strategy": case.strategy, "backend": case.backend,
         "solver": case.solver, "reverse": case.reverse,
         "solver_timeout_s": case.solver_timeout_s,

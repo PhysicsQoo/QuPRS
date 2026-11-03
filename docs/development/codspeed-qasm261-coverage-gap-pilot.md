@@ -28,12 +28,12 @@ separately, even if this case is expected to be truly NEQ.
 ## CI and measurement budget
 
 - Use the **existing** `.github/workflows/codspeed.yml` only via
-  `workflow_dispatch`: `pilot_only=true`, `pilot_group=qasm261_gap`.
+  `workflow_dispatch`: `pilot_only=true`, `pilot_group=qasm261_gap`, and an **exact** `coverage_gap_verifier_sha`. The research branch supplies the harness and QASM; one checkout/build of that pinned formal PR **v0.14 verifier** supplies the implementation.
   A normal PR or push on the research branch does **not** run this group.
 - At most **six separate single-round official CodSpeed WallTime samples**,
   each with a bounded **15 s verifier solver timeout and 24 s process-group
   watchdog**. This is an admission pilot, **not** a regression estimate.
-- Use **one shared verifier build** and 1 upload artifact
+- Use **one shared pinned PR verifier build** (no six separate builds) and 1 upload artifact
   `quprs-codspeed-v3-candidate-pilot` (CodSpeed first-party JSON,
   `candidate-pilot-science.jsonl`, exact-SHA manifest).
 - If the solver times out, preserve `SOLVER_TIMEOUT` or
@@ -42,7 +42,7 @@ separately, even if this case is expected to be truly NEQ.
 - `run_source_pinned_candidate` now requires a configured
   `expected_solver_invoked=True` to agree with **observed** Solver provenance
   before marking the result eligible for review.
-- Job elapsed, build and CodSpeed action duration are **unknown until the
+- The six gap cases explicitly pass v0.14 `rr=1e-10`, `distance=1e-8`, `phase=1e-8`, GPMC digits 30; their execution is against the checked-out **PR verifier SHA**, not the older experiment branch's `dev` API. This pilot is not a base/HEAD comparison.\n- Job elapsed, build and CodSpeed action duration are **unknown until the
   manual job actually runs**. The existing 459-second 100-round ABBA job
   is not a valid per-case price estimator for this different matrix.
 
@@ -52,7 +52,8 @@ separately, even if this case is expected to be truly NEQ.
 gh workflow run codspeed.yml \
   --repo PhysicsQoo/QuPRS \
   --ref experiment/qoo160-qasm261-codspeed-selection \
-  -f pilot_only=true -f pilot_group=qasm261_gap
+  -f pilot_only=true -f pilot_group=qasm261_gap \
+  -f coverage_gap_verifier_sha=ce51fd6155c381c84d41c1031ccd109982b9ea64
 ```
 
 Check one source SHA, all 6 result markers, Solver stage, binary verdict, QASM
@@ -69,3 +70,18 @@ harness fix was committed separately to formal PR #131 as
 [`675c806`](https://github.com/PhysicsQoo/QuPRS/commit/675c8065110a59b1e6641a70ea8020ab873c78c3).
 Treat that fix's newer CI as independent required evidence; this research
 pilot cannot waive it.
+
+### Precision and history qualification (2026-11-03)
+
+Previous 100-round ABBA observations were collected through the experimental harness
+without explicit diagnostic tolerance environment variables. Consequently, old
+`dev@2dd451e` used its legacy API default (magnitude classifier unless distance
+was requested), while PR v0.14 used default distance=1e-8; the recorded default
+`effective_distance_tolerance` label in that harness did **not** prove the base
+received the option. The reported timing/CV values remain raw measurements, but
+**cannot certify an equal-numerical-contract algorithmic speedup**. In addition,
+if distance=1e-8 is explicitly requested on old dev, its Rust GPMC distance adapter
+uses **90 output digits**, not the new PR's default **30**. The formal paired PR
+code now pins both revisions to 90 for the two new QASM261 NEQ cases, verifying
+the old dev source before timing. Do not describe the earlier ~58% QFT16 delta
+as an isolated optimized-RR gain.

@@ -226,5 +226,19 @@
     "source_semantics_unchanged": true
   },
   "acceptance_policy": "Research-only decision: no new formal CI until source versioned IDs are integrated into existing native-core and solver-inclusive jobs and new CI pass; avoid duplicating cold builds or using old QASM baselines for new source; P5 observational only.",
-  "contamination_warning": "Additional 32+24 Simulation experiment 41588474734 failed one shard source/report contract; do not promote it as a 56-case complete suite."
+  "contamination_warning": "Additional 32+24 Simulation experiment 41588474734 failed one shard source/report contract; do not promote it as a 56-case complete suite.",
+  "posthoc_numeric_policy_audit": {
+    "as_of": "2026-11-03",
+    "status": "PREVIOUS_ABBA_NOT_EQUAL_NUMERICAL_POLICY",
+    "reason": "Prior experiment test_qasm261_solver_pair.py called solver_case.py without QUPRS_DIAGNOSTIC_* environment overrides. Old dev API default approximate_distance=None (magnitude), PR default 1e-8 (projective distance). The harness labeled effective_distance=1e-8 by optional.get but this was not passed to dev. If explicitly enabled, dev Rust GPMC distance adapter runs -prec=90 whereas PR default is 30.",
+    "effect": "Previous recorded CodSpeed sample times and CV remain authentic, but relative delta is not an equal-numerical-policy performance certification. Case stage and raw verdict observations unchanged.",
+    "remediation": "Formal paired PR source commit ce51fd6155c381c84d41c1031ccd109982b9ea64 uses exact explicit distance/phase and verifies legacy dev defaults; requests GPMC 90 in HEAD and runs dev's -prec=90. Evaluate fresh exact-SHA full CI before promotion.",
+    "prior_candidate_selection": "PRELIMINARY_SIGNAL_PENDING_MATCHED_POLICY_ADMISSION",
+    "sources": [
+      "src/QuPRS/interface/load_qiskit.py@dev:approximate_distance_tolerance=None",
+      "rust/pathsum/src/solver_adapter.rs@dev:GpmcDistanceAdapter -prec=90",
+      "benchmarks/codspeed/test_qasm261_solver_pair.py@experiment:unmodified env",
+      "benchmarks/codspeed/solver_case.py@experiment:optional absent means defaults"
+    ]
+  }
 }

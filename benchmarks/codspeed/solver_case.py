@@ -12,17 +12,23 @@ from QuPRS import check_equivalence
 
 
 def main() -> None:
-    if len(sys.argv) not in (7, 8, 9):
+    if len(sys.argv) not in (7, 8, 9, 10):
         raise SystemExit(
             "usage: solver_case.py FIXTURE_ROOT FILENAME STRATEGY SOLVER "
-            "BACKEND REVERSE [transpiled|random_rotation] [hybrid|wmc_only|reduction_rules]"
+            "BACKEND REVERSE [transpiled|random_rotation] [hybrid|wmc_only|reduction_rules] "
+            "[historical|qiskit-2.6.1-opt0]"
         )
 
     fixture_root = Path(sys.argv[1])
     filename, strategy, solver, backend = sys.argv[2:6]
     reverse = sys.argv[6] == "1"
     pair_variant = sys.argv[7] if len(sys.argv) >= 8 else "transpiled"
-    method = sys.argv[8] if len(sys.argv) == 9 else "hybrid"
+    method = sys.argv[8] if len(sys.argv) >= 9 else "hybrid"
+    qasm_corpus = sys.argv[9] if len(sys.argv) == 10 else "historical"
+    if qasm_corpus not in {"historical", "qiskit-2.6.1-opt0"}:
+        raise ValueError(f"Unsupported QASM corpus: {qasm_corpus}")
+    if Path(filename).name != filename or not filename.endswith(".qasm"):
+        raise ValueError("QASM filename must be a basename")
     if method not in {"hybrid", "wmc_only", "reduction_rules"}:
         raise ValueError(f"Unsupported diagnostic method: {method}")
     if pair_variant not in {"transpiled", "random_rotation"}:
@@ -30,7 +36,10 @@ def main() -> None:
     counterpart = ("Random_Rotation" if pair_variant == "random_rotation"
                    else "h,ry,rz,cx")
     first = fixture_root / "benchmarks" / "MQTBench" / filename
-    second = fixture_root / "benchmarks" / "MQTBench" / counterpart / filename
+    target_dir = fixture_root / "benchmarks" / "MQTBench"
+    if qasm_corpus != "historical":
+        target_dir /= qasm_corpus
+    second = target_dir / counterpart / filename
     if reverse:
         first, second = second, first
     if not first.is_file() or not second.is_file():
@@ -68,6 +77,7 @@ def main() -> None:
         "solver": solver,
         "method": method,
         "pair_variant": pair_variant,
+        "qasm_corpus": qasm_corpus,
         "effective_rr_tolerance": optional.get("rr_tolerance", 1e-10),
         "effective_distance_tolerance": optional.get(
             "approximate_distance_tolerance", 1e-8),

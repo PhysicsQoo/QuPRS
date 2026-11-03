@@ -44,7 +44,7 @@ def execute_source_pinned_case(revision: str, case: tuple) -> dict:
             "QUPRS_DIAGNOSTIC_RR_TOLERANCE": "1e-10",
             "QUPRS_DIAGNOSTIC_DISTANCE_TOLERANCE": "1e-8",
             "QUPRS_DIAGNOSTIC_PHASE_TOLERANCE": "1e-8",
-            "QUPRS_DIAGNOSTIC_GPMC_DIGITS": "30",
+            "QUPRS_DIAGNOSTIC_GPMC_DIGITS": "90",
         })
     process = subprocess.Popen(
         command,
@@ -114,6 +114,7 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         "fixture_sha256": fixture_hashes,
         "pair_variant": "random_rotation" if versioned_negative else "transpiled",
         "qasm_corpus": "qiskit-2.6.1-opt0" if versioned_negative else "historical",
+        "precision_contract": measured.get("precision_contract"),
         "verification_status": (
             "EXPECTED_SOURCE_NEGATIVE" if versioned_negative and measured["verdict"] == "not_equivalent"
             else "EXTERNAL_GANAK_PRINT_LIMITATION"
@@ -171,6 +172,7 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         "verification_status": benchmark.extra_info["verification_status"],
         "pair_variant": benchmark.extra_info["pair_variant"],
         "qasm_corpus": benchmark.extra_info["qasm_corpus"],
+        "precision_contract": measured.get("precision_contract"),
         "fixture_sha256": fixture_hashes,
         "effective_rr_tolerance": measured.get("effective_rr_tolerance"),
         "effective_distance_tolerance": measured.get("effective_distance_tolerance"),

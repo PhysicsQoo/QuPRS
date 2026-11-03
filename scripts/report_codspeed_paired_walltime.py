@@ -128,7 +128,7 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
                         or record.get("effective_rr_tolerance") != 1e-10
                         or record.get("effective_distance_tolerance") != 1e-8
                         or record.get("effective_phase_tolerance") != 1e-8
-                        or record.get("effective_gpmc_digits") != 30):
+                        or record.get("effective_gpmc_digits") != 90):
                     errors.append(f"{case}/{revision}: wrong QASM261 NEQ source/stage/fixture")
             elif (record["verdict"] == "not_equivalent"
                   and record["verification_status"] != "EXTERNAL_GANAK_PRINT_LIMITATION"):

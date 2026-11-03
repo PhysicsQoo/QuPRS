@@ -4,11 +4,58 @@ The enclosing CodSpeed WallTime benchmark captures parent startup, Rust
 execution, Solver execution/wait, and I/O. This script does not time anything.
 """
 import json
+import inspect
+import re
 import os
 import sys
 from pathlib import Path
 
 from QuPRS import check_equivalence
+
+
+def _compatible_solver_kwargs(optional: dict) -> tuple[dict, str]:
+    """Fail-closed bridge for the frozen pre-v0.14 dev verifier API.
+
+    The old dev API supports distance=1e-8 and phase=1e-8, but does
+    not accept per-call RR tolerance or GPMC digits. Its global RR value
+    must already match 1e-10, and the old Rust GPMC *distance* adapter
+    uses -prec=90 (NOT the new 30-digit default). Do not silently
+    compare mixed GPMC precision or mutate old verifier code.
+    """
+    if not optional:
+        return {}, "historical_api_defaults"
+    supported = set(inspect.signature(check_equivalence).parameters)
+    clean = dict(optional)
+    legacy = False
+    if "rr_tolerance" in clean and "rr_tolerance" not in supported:
+        from QuPRS import config
+        if getattr(config, "TOLERANCE", None) != clean["rr_tolerance"]:
+            raise RuntimeError(
+                "Legacy dev RR default differs from explicitly pinned 1e-10"
+            )
+        del clean["rr_tolerance"]
+        legacy = True
+    if "gpmc_precision_digits" in clean and "gpmc_precision_digits" not in supported:
+        # The frozen dev Rust distance solver runs with -prec=90. Verify
+        # the actual checked-out dev source instead of trusting a label.
+        if (clean["gpmc_precision_digits"] != 90
+                or clean.get("approximate_distance_tolerance") is None):
+            raise RuntimeError(
+                "Cannot compare old GPMC distance precision against non-90 digits"
+            )
+        adapter_source = Path.cwd() / "rust/pathsum/src/solver_adapter.rs"
+        text = adapter_source.read_text(encoding="utf-8")
+        if re.search(
+            r"impl SolverAdapter for GpmcDistanceAdapter\\s*\\{.{0,600}?[-]prec=90",
+            text, flags=re.DOTALL,
+        ) is None:
+            raise RuntimeError("Legacy dev GPMC distance precision not proven to be 90")
+        del clean["gpmc_precision_digits"]
+        legacy = True
+    unknown = set(clean) - supported
+    if unknown:
+        raise RuntimeError("Unrecognized verifier numerical parameters: " + ", ".join(sorted(unknown)))
+    return clean, "legacy_90_digit_distance_source_checked" if legacy else "public_per_call_pinned"
 
 
 def main() -> None:
@@ -57,10 +104,11 @@ def main() -> None:
             optional[name] = float(os.environ[env_name])
     if "QUPRS_DIAGNOSTIC_GPMC_DIGITS" in os.environ:
         optional["gpmc_precision_digits"] = int(os.environ["QUPRS_DIAGNOSTIC_GPMC_DIGITS"])
+    supported_optional, precision_contract = _compatible_solver_kwargs(optional)
     result = check_equivalence(
         str(first), str(second), method=method,
         strategy=strategy, tool_name=solver, backend=backend,
-        **optional,
+        **supported_optional,
         # Simulation under Valgrind can slow child Solver work dramatically.
         # Both versions use the same bounded experiment-specific override.
         # Standard Solver-inclusive WallTime retains the original 90 seconds.
@@ -78,6 +126,7 @@ def main() -> None:
         "method": method,
         "pair_variant": pair_variant,
         "qasm_corpus": qasm_corpus,
+        "precision_contract": precision_contract,
         "effective_rr_tolerance": optional.get("rr_tolerance", 1e-10),
         "effective_distance_tolerance": optional.get(
             "approximate_distance_tolerance", 1e-8),

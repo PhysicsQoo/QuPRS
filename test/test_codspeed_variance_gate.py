@@ -43,7 +43,7 @@ def fixture():
                 "effective_rr_tolerance": 1e-10,
                 "effective_distance_tolerance": 1e-8,
                 "effective_phase_tolerance": 1e-8,
-                "effective_gpmc_digits": 30,
+                "effective_gpmc_digits": 90,
                 "backend": "rust", "solver": "gpmc",
                 "strategy": "proportional", "reverse": False,
                 "rr_approximate": False,

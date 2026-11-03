@@ -117,3 +117,68 @@ def test_qasm_basename_rejects_traversal(harness, monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="basename"):
         module.main()
     assert calls == []
+
+
+def test_legacy_dev_api_uses_verified_90_digits_not_unsupported_args(harness, monkeypatch, tmp_path):
+    module, calls = harness
+    # The checked-out dev API has no RR or precision-digits keyword.
+    def legacy_checker(first, second, *, method, strategy, tool_name,
+                       backend, timeout, wmc_phase_tolerance,
+                       approximate_distance_tolerance):
+        return None
+    monkeypatch.setattr(module, "check_equivalence", legacy_checker)
+    monkeypatch.setattr(
+        sys.modules["QuPRS"], "config",
+        types.SimpleNamespace(TOLERANCE=1e-10), raising=False,
+    )
+    rust_src = tmp_path / "rust/pathsum/src/solver_adapter.rs"
+    rust_src.parent.mkdir(parents=True)
+    rust_src.write_text(
+        "impl SolverAdapter for GpmcDistanceAdapter {\\n"
+        "fn arguments(&self) -> &'static [&'static str] { &[\\\"-mode=1\\\", \\\"-prec=90\\\"] } }\\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    options, provenance = module._compatible_solver_kwargs({
+        "rr_tolerance": 1e-10, "approximate_distance_tolerance": 1e-8,
+        "wmc_phase_tolerance": 1e-8, "gpmc_precision_digits": 90,
+    })
+    assert options == {
+        "approximate_distance_tolerance": 1e-8,
+        "wmc_phase_tolerance": 1e-8,
+    }
+    assert provenance == "legacy_90_digit_distance_source_checked"
+    assert calls == []
+
+
+def test_legacy_dev_api_rejects_mixed_precision_or_unproven_defaults(harness, monkeypatch, tmp_path):
+    module, _ = harness
+    def legacy_checker(first, second, *, method, strategy, tool_name,
+                       backend, timeout, wmc_phase_tolerance,
+                       approximate_distance_tolerance):
+        return None
+    monkeypatch.setattr(module, "check_equivalence", legacy_checker)
+    monkeypatch.setattr(
+        sys.modules["QuPRS"], "config",
+        types.SimpleNamespace(TOLERANCE=1e-10), raising=False,
+    )
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(RuntimeError, match="non-90"):
+        module._compatible_solver_kwargs({
+            "rr_tolerance": 1e-10,
+            "approximate_distance_tolerance": 1e-8,
+            "gpmc_precision_digits": 30,
+        })
+    with pytest.raises(FileNotFoundError):
+        module._compatible_solver_kwargs({
+            "rr_tolerance": 1e-10,
+            "approximate_distance_tolerance": 1e-8,
+            "gpmc_precision_digits": 90,
+        })
+    sys.modules["QuPRS"].config.TOLERANCE = 1e-9
+    with pytest.raises(RuntimeError, match="RR default"):
+        module._compatible_solver_kwargs({
+            "rr_tolerance": 1e-10,
+            "approximate_distance_tolerance": 1e-8,
+            "gpmc_precision_digits": 90,
+        })

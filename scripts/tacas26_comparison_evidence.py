@@ -78,6 +78,8 @@ def make_archive(root: Path) -> None:
                 raise ValueError("Two versions did not share input identity: " + case)
         for version in VERSIONS:
             sample = versions[version][case]
+            if by_version[version].get("installed_dependencies", {}).get("qiskit") != version:
+                raise ValueError("Installed Qiskit package version provenance mismatched")
             for level in LEVELS:
                 transpile = next(row for row in sample["transpiles"]
                                  if row["level"] == level)
@@ -146,14 +148,14 @@ def make_archive(root: Path) -> None:
                         "basis": source["basis"],
                         "optimization_level": level,
                         "approximation_degree": source["approximation_degree"],
-                        "numpy_version": source["numpy_version"],
-                        "python_version": source.get("python_version"),
-                        "runner_platform": source.get("platform"),
-                        "runner_architecture": source.get("runner_architecture"),
-                        "installed_dependencies": source.get("installed_dependencies"),
-                        "github_source_sha": source.get("github_source_sha"),
-                        "github_run_id": source.get("github_run_id"),
-                        "source_corpus_commit": source["source_sha"],
+                        "numpy_version": by_version[version]["numpy_version"],
+                        "python_version": by_version[version].get("python_version"),
+                        "runner_platform": by_version[version].get("platform"),
+                        "runner_architecture": by_version[version].get("runner_architecture"),
+                        "installed_dependencies": by_version[version].get("installed_dependencies"),
+                        "github_source_sha": by_version[version].get("github_source_sha"),
+                        "github_run_id": by_version[version].get("github_run_id"),
+                        "source_corpus_commit": by_version[version]["source_sha"],
                     },
                     "circuit": {
                         "gates": transpile["gates"],

@@ -111,6 +111,7 @@ def classification(verdict: str) -> str:
 
 def run(revision: str, fixtures: Path) -> dict:
     rows = []
+    residual_states = {}
     cases = manifest(fixtures)
     hashes = {}
     for case in cases:
@@ -129,6 +130,11 @@ def run(revision: str, fixtures: Path) -> dict:
                     method=method, backend=backend, **OPTIONS
                 )
                 verdict = str(result.equivalent)
+                # The public result returns the RR residual: Python exposes
+                # the PathSum object, and Rust exposes its printed snapshot.
+                # Preserve it until all requests are finished so we can
+                # test the exact RR-only -> Hybrid handoff (not just statuses).
+                residual_states[(ident, backend, method)] = result.final_pathsum
                 stage = getattr(result, "wmc_solver_invoked", None)
                 if stage is None:
                     stage = getattr(result, "tool_time", None) is not None
@@ -170,10 +176,33 @@ def run(revision: str, fixtures: Path) -> dict:
                 rows.append(obs)
                 print("RR_CX_BOUNDARY_WITNESS=" + json.dumps(
                     obs, sort_keys=True, default=str), flush=True)
+    residual_checks = []
+    for ident in ("decimal_exact_eq", "mixed_exact_eq", "vqe4_real_eq"):
+        for backend in ("python", "rust"):
+            rr = residual_states[ident, backend, "reduction_rules"]
+            hybrid = residual_states[ident, backend, "hybrid"]
+            assert rr == hybrid, (
+                "Hybrid must preserve the *same* RR residual sent to WMC",
+                revision, backend, ident, repr(rr), repr(hybrid)
+            )
+            residual_checks.append({
+                "case": ident, "backend": backend, "equal": True,
+                # Source-print fingerprint is for evidence only; cross-backend
+                # polynomial formatting is not a canonical source representation.
+                "rr_residual_repr_sha256": hashlib.sha256(
+                    repr(rr).encode()).hexdigest(),
+                "hybrid_residual_repr_sha256": hashlib.sha256(
+                    repr(hybrid).encode()).hexdigest(),
+            })
+    assert len(residual_checks) == 6
+    print("RR_CX_RESIDUAL_IDENTITY_PASS=" + json.dumps({
+        "revision": revision, "cases": residual_checks
+    }, sort_keys=True), flush=True)
     return {
         "schema": "quprs-rr-cx-exact-boundary-v1",
         "revision": revision, "tolerances": OPTIONS,
         "sources": hashes, "observations": rows,
+        "rr_hybrid_residual_checks": residual_checks,
     }
 
 

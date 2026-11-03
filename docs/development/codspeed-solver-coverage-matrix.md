@@ -1,8 +1,12 @@
 # QuPRS CodSpeed Solver-inclusive / Native RR 既有實驗測項覆蓋矩陣
 
+> **Current status (2026-11-03, after PR #131 merge).** The scientific verifier source was integrated into `dev@a4c7b126` and the routine paired Solver-inclusive suite has **nine** source-pinned cases ([exact-head paired SUCCESS #41598328358](https://github.com/PhysicsQoo/QuPRS/actions/runs/41598328358)). [Six additional QASM261 candidates were run once in #41600679301](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301), but their per-case science JSONL and actual solver status **have not yet been independently audited**. They must not be added to the qualified WMC-only coverage count from `6 pytest passed`. See the [active CodSpeed v3 plan](codspeed-v3-plan.md) and [candidate evidence](codspeed-qasm261-coverage-gap-pilot.md).
+
+> **Reading rule:** Sections A–E below are pre-merge and prior-SHA **historical snapshots**, including old statements such as seven routine pairs or zero measured WMC-only. They remain for forensic comparison and are **not** the current CI inventory. The nine-pair addendum at the bottom records the later formal acceptance. Future edits should append separately qualified per-case data rather than rewriting old samples.
+
 > **2026-11-03 evidence-only snapshot.** Base `dev@2dd451e`, formal PR #131 `@542eded`, independent research branch `@91d7a62` before this documentation commit. All figures trace to official CodSpeed reports and GitHub Actions logs. **No new benchmarks were run.**
 
-## 範圍及分類規則
+## 歷史快照範圍及分類規則（pre-merge prior-SHA）
 
 - **27 distinct versioned benchmark IDs:** 7 historical paired Solver WallTime, 15 Qiskit 2.6.1 single-round Hybrid pilots (including 5 already subjected to ABBA repeats and 2 registered into formal PR), 5 pure native RR Simulation. Different instruments/source corpora are separate rows and **must not be conflated**.
 - The formal PR currently registers **9 paired (18 base/head URIs), 30 native Rust**, and five shards of **32 legacy + 24 extra Q261 Simulation URIs**. Other 56 Simulation stage results are **not** evidence of Solver invocation by themselves.
@@ -112,4 +116,4 @@ Native source parsing is outside the modeled timed region. The 1.1–42.7 ms num
 
 兩組新增 QASM261 NEQ 均以 **`rr=1e-10`、`distance=1e-8`、`phase=1e-8`、GPMC `-prec=90`** 比較：舊版 `dev` 的 `TOLERANCE` 與實際 Rust adapter 90 位來源在執行時驗證，HEAD 使用公開 per-call 90 位設定；不是沿用舊實驗沒有真正套用的參數標籤。QFT16 median −59.81%、QAOA7 median −3.80% 是真實 CodSpeed **觀測**，非算術精度或顯著性認證。Ganak 三組為印出數值解析度不足的條件式計時，**不可視為科學 EQ PASS**。
 
-目前九組工作 elapsed **266s**，歷史七組成功工作 **220s**，增加 46s 為跨次 CI 觀察差；快取/建置與併行 runner 差異未控制，不可直接當作兩個新增案例的邊際成本。新 6-case WMC-only/Python/Ganak 覆蓋缺口仍僅**手動研究候選，尚未量測**：見 [手動六組實驗規格](codspeed-qasm261-coverage-gap-pilot.md)。本節不是全體八個 PR workflow 已通過的宣告；仍須檢查完整 CodSpeed cross-validate 與其他 CI job。
+目前九組工作 elapsed **266s**，歷史七組成功工作 **220s**，增加 46s 為跨次 CI 觀察差；快取/建置與併行 runner 差異未控制，不可直接當作兩個新增案例的邊際成本。六組 WMC-only/Python/Ganak 覆蓋候選已在後續 [manual Run #41600679301](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301) 進行**單輪** CodSpeed 測試並上傳 [artifact #13213994435](https://github.com/PhysicsQoo/QuPRS/actions/runs/41600679301/artifacts/13213994435)；**逐案例 science JSONL 的 status、真 Solver invocation、verdict 與數值資格尚待查核**，不能因 pytest 全綠提前計入正式可比測項。詳見 [候選驗收文件](codspeed-qasm261-coverage-gap-pilot.md)。本節不是全體八個 PR workflow 已通過的宣告；仍須檢查完整 CodSpeed cross-validate 與其他 CI job。

@@ -1,6 +1,8 @@
 // src/pathsum/mod.rs
 #![allow(dead_code)]
 pub mod phase_poly;
+#[cfg(feature = "bra-cx-direct")]
+mod bra_cx;
 pub mod boolean_state;
 pub mod var_manager;
 

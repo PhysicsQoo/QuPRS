@@ -81,3 +81,21 @@ def test_same_sha_and_duplicate_official_uri_rejected():
     m["benchmarks"].append(copy.deepcopy(m["benchmarks"][0]))
     with pytest.raises(ValueError,match="duplicate official"):
         REPORT.produce(m,s,w,BASE,HEAD)
+
+
+def test_retired_three_block_p5_not_present_and_current_job_is_opt_in():
+    """Old unpublished experimental P5 identities must not re-enter CI."""
+    retired = (
+        "benchmarks/codspeed/test_p5_abba.py",
+        "scripts/report_codspeed_p5_abba.py",
+        "test/test_codspeed_p5_abba.py",
+    )
+    assert all(not (ROOT / path).exists() for path in retired)
+    workflow = (ROOT / ".github/workflows/codspeed.yml").read_text(encoding="utf-8")
+    job = workflow.split("\n  p5-abba:\n", 1)[1]
+    assert "test_qoo170_real_abba.py" in job
+    assert "report_qoo170_real_abba.py" in job
+    assert "test_p5_abba.py" not in job
+    assert "report_codspeed_p5_abba.py" not in job
+    assert "github.event.action == 'edited'" in job
+    assert "quprs-codspeed-v3-abba" in job

@@ -1,7 +1,20 @@
 # CodSpeed v3 phased update and scientific/timeout acceptance
 
+> **Current PR #133 strategy (2026-11-03):** retain **32 legacy +
+> 12 QASM261 CPU** simulation URIs across five shards, **30 Rust Native**
+> identities, and **10 paired Solver-inclusive WallTime** cases per PR.
+> The earlier three-block/five-round P5 opt-in prototype has been retired;
+> the only current ABBA job is the validated **2-case × 4-block,
+> single-invocation ABBA/BAAB** opt-in. Its results are observational,
+> not a performance release gate. See
+> [CodSpeed formal policy](codspeed-performance-policy.md).
+>
+> Sections below describe *dated prior research plans* and should not
+> be interpreted as a current seven-pair or 24-URI release policy.
 
-## 2026-11-02 P5 final observation-only policy (overrides earlier gate proposals)
+
+
+## 2026-11-02 P5 observation-only policy (historical seven-pair snapshot)
 
 P5 does **not** set any fixed regression percentage, performance pass/fail
 threshold or release-blocking GO/NO-GO. Keep the existing seven same-case
@@ -328,29 +341,32 @@ the existing `join_codspeed_numeric.py` contract; automated service
 collection is an explicit external integration limit, not a scientific
 or correctness issue.
 
-## P5 source-verified three-block ABBA experiment
+## P5 true single-round ABBA/BAAB (replaces the original pilot)
 
-An additional **opt-in** same-host walltime experiment (trigger:
-`<!-- quprs-codspeed-v3-abba -->` on an edited PR description) uses
-the *same four real* GPMC cases as the prior seven-round screen:
-VQE4/GPMC Rust and Python, QAOA7/GPMC Rust, and QFT16/GPMC Rust.
-It runs three independent A1/B1/B2/A2 ordered blocks per case using
-distinct CodSpeed benchmark identities for each position, total
-48 unique opt-in identities. Each position must have at least five
-real CodSpeed WallTime measured rounds and first-party metric JSON.
-Every measured and warmup verifier invocation records scientific
-result, GPMC actual invocation, source/base SHA and original/
-transpiled QASM SHA256. The report rejects missing rounds, a stage
-change, a changed verdict within a case or an invalid source. It
-reports per-block HEAD/base ratio and observed A1/A2 baseline drift
-separately. These are source-matched within the same hosted runner
-but are **NOT** a qualified CodSpeed Macro Runner and do not create
-a default regression threshold or a certified performance GO.
-Confidence-gate activation requires independent baseline A/A cohorts,
-stable runner and enough blocks; until then `NOT_CERTIFIED`.
-No walltime is measured with Python clocks, and no CPU/WallTime
-arithmetic is used. Remove the one-shot marker only after the
-experiment is terminal and evidence saved.
+The original four-case × three-block × five-round-per-position program
+was a **block-interleaved research pilot**, not a true interleaving of
+individual Solver calls. Its active test fixture, reporter, and dedicated
+unit tests were retired before PR #133 integration. The research code
+and original measurements remain in Git history and CodSpeed records.
+
+The current opt-in `p5-abba` job runs QAOA7 Rust/GPMC **Hybrid and
+WMC-only**, each in four balanced blocks (ABBA, BAAB, BAAB, ABBA),
+for **32 distinct CodSpeed WallTime single-round positions**. Each
+officially timed position invokes the complete verifier/GPMC subprocess
+exactly once. The known additional unmeasured target-return call from
+`pytest-codspeed==5.0.4` uses a cached result, never a second Solver.
+The four explicit prewarm calls are separately recorded. Scientific
+guards check every NEQ result, source SHA, QASM hash, numerical contract,
+Solver invocation, and exact 32-position execution schedule.
+
+[Final PR #133 ABBA Actions #41645323941](https://github.com/PhysicsQoo/QuPRS/actions/runs/41645323941)
+passed 32/32 official rounds and real GPMC calls. Max within-run A/A
+baseline drift was **7.78% Hybrid and 17.58% WMC-only**; effects changed
+sign across blocks. Therefore `P5 NOT_CERTIFIED` is the only supportable
+performance conclusion on a shared GitHub Hosted Runner. Exact opt-in
+activation rules are in the [formal policy](codspeed-performance-policy.md).
+Historical source and measurement provenance are preserved, but the old
+48-identity opt-in protocol must not re-enter routine CI.
 
 ## P3 final native RR rule-specific CPU isolation
 

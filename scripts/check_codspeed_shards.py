@@ -83,7 +83,7 @@ def validate() -> None:
             )
         if len(addon) != ADDON_COUNT or digest(addon) != ADDON_SHA256:
             raise SystemExit(
-                "QASM261 additive 24-node identity changed: "
+                "QASM261 additive 12-node identity changed: "
                 f"count={len(addon)}, sha256={digest(addon)}"
             )
         if len(whole) != TOTAL_COUNT:

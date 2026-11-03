@@ -1,0 +1,154 @@
+name: Bra-CX exact candidate solver-inclusive ABBA CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo151-rr-xor-reuse-20261103
+    # E2E runs only after a deliberate experiment promotion. Iterating on
+    # Rust/Markdown does not silently consume Solver-intensive CI.
+    paths:
+      - '.github/workflows/rr-cx-solver-abba.yml'
+      - 'benchmarks/codspeed/test_rr_cx_solver_abba.py'
+      - 'scripts/report_rr_cx_solver_abba.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rr-cx-solver-abba-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Previously source-matched, scientifically validated guarded shared XOR.
+  BASE_SHA: 1ebe7442d5004a522a915f18e163b1c78da648ab
+  # This exact native candidate passed QFT16, QPE8, Decimal and Mixed.
+  APPROVED_NATIVE_SHA: 2c6f68a578bb84dc916a5c871e0bcd9e1f0f6132
+  HEAD_SHA: ${{ github.sha }}
+  QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/rr-cx-solver-abba-codspeed.json
+  QUPRS_DIAGNOSTIC_RR_TOLERANCE: '1e-10'
+  QUPRS_DIAGNOSTIC_DISTANCE_TOLERANCE: '1e-8'
+  QUPRS_DIAGNOSTIC_PHASE_TOLERANCE: '1e-8'
+  QUPRS_DIAGNOSTIC_GPMC_DIGITS: '30'
+  QUPRS_CROSS_METHOD_SOLVER_TIMEOUT: '90'
+
+jobs:
+  source-and-configuration:
+    name: Existing native-certified Rust SHA and source-matched inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1ebe7442d5004a522a915f18e163b1c78da648ab
+          path: pr-walltime-base
+          submodules: recursive
+          persist-credentials: false
+      - name: Verify exact code identity, source QASM bytes and 36 ABBA IDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          # Unlike a generic branch benchmark, prevent accidentally timing
+          # unreviewed code changes beyond the previous native science gate.
+          git diff --exit-code "$APPROVED_NATIVE_SHA" "$HEAD_SHA" -- \
+            rust/pathsum pyproject.toml Cargo.toml Cargo.lock
+          for file in \
+            qft_nativegates_ibm_qiskit_opt0_16.qasm \
+            vqe_nativegates_ibm_qiskit_opt0_4.qasm; do
+            cmp "benchmarks/MQTBench/$file" "pr-walltime-base/benchmarks/MQTBench/$file"
+            cmp "benchmarks/MQTBench/h,ry,rz,cx/$file" \
+                "pr-walltime-base/benchmarks/MQTBench/h,ry,rz,cx/$file"
+          done
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          m=ast.parse(Path("benchmarks/codspeed/test_rr_cx_solver_abba.py").read_text())
+          assert m is not None
+          print("RR_CX_E2E_SOURCE_AND_SYNTAX_PASS")
+          PY
+
+  bounded-solver-codspeed:
+    name: QFT16/VQE4 Rust and Python-control 36-position CodSpeed ABBA
+    needs: [source-and-configuration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1ebe7442d5004a522a915f18e163b1c78da648ab
+          path: pr-walltime-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Independent baseline and candidate Python/Rust installs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for revision in base head; do
+            root="$GITHUB_WORKSPACE"
+            if [[ "$revision" == base ]]; then root="$GITHUB_WORKSPACE/pr-walltime-base"; fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$revision"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev)
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/rr-cx-$revision-freeze.txt"
+          done
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pip install \
+            --disable-pip-version-check pytest-codspeed==5.0.4
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pytest \
+            benchmarks/codspeed/test_rr_cx_solver_abba.py --collect-only -q \
+            | tee "$RUNNER_TEMP/rr-cx-collection.txt"
+          grep -q '36 tests collected' "$RUNNER_TEMP/rr-cx-collection.txt"
+      - name: Official CodSpeed solver-inclusive A1 B1 B2 A2 × 3 blocks
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_rr_cx_solver_abba.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=90
+      - name: Audit all 36 official CodSpeed positions, source and Solver verdict
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_rr_cx_solver_abba.py \
+            --measurements "$QUPRS_CODSPEED_EXPORT" \
+            --provenance "$RUNNER_TEMP/rr-cx-solver-abba-provenance.jsonl" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --output "$RUNNER_TEMP/rr-cx-solver-abba-report.json"
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family rr-cx-solver-abba --instrument walltime \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/rr-cx-solver-abba-manifest.json"
+      - name: Archive measured solver arithmetic and code/source provenance
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rr-cx-solver-inclusive-abba
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/rr-cx-solver-abba-provenance.jsonl
+            ${{ runner.temp }}/rr-cx-solver-abba-report.json
+            ${{ runner.temp }}/rr-cx-solver-abba-manifest.json
+            ${{ runner.temp }}/rr-cx-base-freeze.txt
+            ${{ runner.temp }}/rr-cx-head-freeze.txt
+            ${{ runner.temp }}/rr-cx-collection.txt

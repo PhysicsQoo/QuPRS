@@ -342,7 +342,7 @@ def run_case(args):
             for backend in PROFILES:
                 name=f"{variant}-{method}-{backend}"
                 cmd=[
-                    sys.executable,str(Path(__file__).resolve()),"worker",
+                    sys.executable,"-m","scripts.mqtbench_qiskit261_level0_acceptance","worker",
                     "--file",args.file,
                     "--canonical",str(canonical.resolve()),
                     "--canonical-sha256",canonical_meta["canonical_sha256"],
@@ -427,6 +427,15 @@ def run_case(args):
     write(out/"manifest.json",json.dumps(manifest,indent=2,sort_keys=True)+"\n")
     if len(invocations)!=8:
         raise RuntimeError("Incomplete per-case invocation ledger")
+    # A successful artifact upload must not be misreported as scientific
+    # evidence when child processes failed before reaching the verifier.
+    instrumentation_errors = [r for r in invocations if r["status"] in (
+        "MISSING_WORKER_OUTPUT", "MALFORMED_WORKER_OUTPUT", "EXCEPTION"
+    )]
+    if instrumentation_errors:
+        raise RuntimeError("Instrument failure after evidence preservation: "+
+                           str([(r["variant"],r["method"],r["backend"],r["status"])
+                                for r in instrumentation_errors]))
 
 
 def aggregate(args):

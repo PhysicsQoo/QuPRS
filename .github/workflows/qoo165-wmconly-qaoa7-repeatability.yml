@@ -1,0 +1,110 @@
+name: QOO165 QAOA7 Rust WMC-only three-round repeatability (research only)
+
+on:
+  push:
+    branches:
+      - experiment/qoo160-qasm261-codspeed-selection
+    paths:
+      - .github/workflows/qoo165-wmconly-qaoa7-repeatability.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: qoo165-first-wmconly-repeatability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  one-case-same-verifier:
+    name: Three official CodSpeed WallTime rounds for one oracle-supported WMC-only case
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      QUPRS_GAP_VERIFIER_SHA: a4c7b12652b3c59c086f5d408a95e004df570bad
+      QUPRS_QASM261_GAP_PILOT: "true"
+      BINARY_DIR: src/QuPRS/utils
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/qoo165-qaoa7-repeatability-codspeed.json
+    steps:
+      - name: Research harness and pinned source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Single exact dev verifier source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.QUPRS_GAP_VERIFIER_SHA }}
+          submodules: recursive
+          persist-credentials: false
+          path: qasm261-gap-verifier
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build one exact current-dev verifier and static source guard
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C qasm261-gap-verifier rev-parse HEAD)" = "$QUPRS_GAP_VERIFIER_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          (cd qasm261-gap-verifier && maturin develop --release -E dev)
+          python -m pytest test/test_codspeed_qasm261_gap_registry.py -q
+          python -m pytest benchmarks/codspeed/test_qasm261_coverage_gap_pilot.py -q --collect-only
+      - name: Official CodSpeed full verifier and real GPMC subprocess, only one case
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: |
+            python -m pytest benchmarks/codspeed/test_qasm261_coverage_gap_pilot.py -q \
+              -k q261_gap_qaoa7_neq_wmconly_rust_gpmc \
+              --codspeed --codspeed-warmup-time=0 \
+              --codspeed-max-rounds=3 --codspeed-max-time=120
+      - name: Verify no fabricated three-round coverage and preserve metrics
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["QUPRS_CODSPEED_EXPORT"])
+          raw=json.loads(p.read_text())
+          rows=raw['benchmarks']
+          assert len(rows)==1, f"Expected exactly one case, observed {len(rows)}"
+          row=rows[0]
+          assert 'q261_gap_qaoa7_neq_wmconly_rust_gpmc' in row['uri']
+          assert raw['instrument']['type']=='walltime'
+          assert row['stats']['rounds']==3, row['stats']
+          evidence=Path(os.environ['RUNNER_TEMP'])/'candidate-pilot-science.jsonl'
+          observed=[json.loads(x) for x in evidence.read_text().splitlines() if x.strip()]
+          assert len(observed)==1, len(observed)
+          x=observed[0]
+          assert (x['verifier_sha']==os.environ["QUPRS_GAP_VERIFIER_SHA"]
+                  and x['observed']['solver_invoked'] is True
+                  and x['observed']['status']=='COMPLETED'
+                  and x['observed']['verdict']=='not_equivalent')
+          print('QOO165_SAME_SHA_WMCONLY_3_ROUNDS_PASS',row['stats'])
+          PY
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family candidate-pilot --instrument walltime \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/manifest.json"
+      - name: Save CodSpeed and scientific metadata for future PR admission
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo165-qaoa7-rust-wmconly-three-rounds
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/candidate-pilot-science.jsonl
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: warn
+          retention-days: 14

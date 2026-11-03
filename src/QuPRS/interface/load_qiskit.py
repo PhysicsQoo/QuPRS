@@ -67,6 +67,44 @@ def timeout_handler(signum, frame):
 
 
 
+def _qiskit_global_phase_cycles(circuit: QuantumCircuit):
+    """Qiskit numeric global phase in PathSum's 2*pi-cycle convention.
+
+    Qiskit may already have converted source QASM3 expressions into a float.
+    This preserves the numeric scalar that Qiskit represents; it is not a
+    certificate of source-literal exact angle fidelity. An unbound or
+    non-finite global phase must fail closed rather than disappear.
+    """
+    import symengine as se
+    import sympy as sp
+
+    try:
+        phase = float(circuit.global_phase)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "Python backend requires a bound numeric QuantumCircuit.global_phase"
+        ) from exc
+    if not math.isfinite(phase):
+        raise ValueError("Python backend requires a finite QuantumCircuit.global_phase")
+    if phase == 0.0:
+        return se.S.Zero
+    # Rationalize the *already represented* binary64 value, without another
+    # fixed decimal truncation or using the RR tolerance as a parser policy.
+    return se.sympify(sp.Rational(phase / math.tau))
+
+
+def _add_global_phase_cycles(pathsum_circuit: PathSum, cycles):
+    """Attach scalar phase without modifying gates, RR, or solver policy."""
+    if cycles == 0:
+        return pathsum_circuit
+    from QuPRS.utils.util import reduce_expression
+    new_phase = reduce_expression(pathsum_circuit.P + cycles, drop_small=False)
+    return PathSum(
+        new_phase, pathsum_circuit.f, pathsum_circuit.pathvar,
+        pathsum_circuit._stats,
+    )
+
+
 def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
     pathsum_circuit = initialize(circuit, initial_state)
     gate_list = get_gates(circuit)
@@ -80,7 +118,9 @@ def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = 
             gate[2],
         )
 
-    return pathsum_circuit
+    return _add_global_phase_cycles(
+        pathsum_circuit, _qiskit_global_phase_cycles(circuit)
+    )
 
 
 def initialize(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
@@ -543,6 +583,15 @@ def check_equivalence(
                 )
             else:
                 pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
+        # The public check_equivalence path builds the two-circuit miter
+        # directly, without calling build_circuit. Inject the Qiskit numeric
+        # scalar exactly once: ket(source1) - bra(source2), after the gate
+        # strategy and before RR *or* WMC inspect the same residual PathSum.
+        relative_cycles = (
+            _qiskit_global_phase_cycles(qiskit_circuit1)
+            - _qiskit_global_phase_cycles(qiskit_circuit2)
+        )
+        pathsum_circuit = _add_global_phase_cycles(pathsum_circuit, relative_cycles)
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 

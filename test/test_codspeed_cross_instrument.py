@@ -87,7 +87,7 @@ def test_reports_same_sha_without_certifying_precision_limited(tmp_path, monkeyp
 
 @pytest.mark.parametrize("corruption, expected", [
     ({"bad_sha": True}, "wrong SHA"),
-    ({"omit_case": True}, "incomplete canonical five-shard"),
+    ({"omit_case": True}, "original 32 CodSpeed benchmark identities changed"),
 ])
 def test_source_identity_and_missing_case_block_cross_report(tmp_path, monkeypatch,
                                                               corruption, expected):

@@ -55,7 +55,7 @@ def validate(measurement: dict, observations: list[dict]) -> dict:
             raise AssertionError(f"revision mapping corrupt: {event}")
         if (event["target_calls"], event["synthetic_solver_calls"]) != (2, 1):
             raise AssertionError(f"incorrect pedantic extra return call guard: {event}")
-        if event["verdict"] != "equivalent" or event["value"] != 44509696:
+        if event["verdict"] != "equivalent" or event["value"] != 44608256:
             # Calculated expected sum of squares for range(512).
             raise AssertionError(f"incorrect deterministic fake return: {event}")
     return {

@@ -22,7 +22,8 @@ def audit(base: dict, head: dict) -> dict:
         key = (row["case"], row["method"], row["backend"])
         assert row["revision"] not in grouped[key], (row["revision"], key)
         grouped[key][row["revision"]] = row
-    assert len(grouped) == 2 * 4 * 2 + 2 * 2 * 2 + 2 * 2, len(grouped)
+    # Two 4-variant Decimal/Mixed suites (14 each), plus VQE EQ/NEQ (6).
+    assert len(grouped) == 34, len(grouped)
     observed_equivalence = []
     numeric_observations = []
     rr_to_hybrid_witnesses = []

@@ -91,10 +91,19 @@ def pqc_generator(
         tuple: Original circuit, transpiled circuit, and circuit name string.
     """
     if function_name == "NLocal":
-        # cir = library.TwoLocal(qubit_num, ["ry"], "cx", reps=reps)
-        cir = n_local(
-            qubit_num, rotation_blocks=["ry"], entanglement_blocks="cx", reps=reps
-        )
+        # Qiskit 1.0's NLocal BlueprintCircuit requires Gate objects,
+        # while the modern n_local function accepts gate-name strings.
+        if isinstance(n_local, type):
+            cir = n_local(
+                qubit_num,
+                rotation_blocks=[standard_gates.RYGate()],
+                entanglement_blocks=standard_gates.CXGate(),
+                reps=reps,
+            )
+        else:
+            cir = n_local(
+                qubit_num, rotation_blocks=["ry"], entanglement_blocks="cx", reps=reps
+            )
     if function_name == "ExcitationPreserving":
         # cir = library.ExcitationPreserving(qubit_num, reps=reps)
         cir = excitation_preserving(qubit_num, reps=reps)

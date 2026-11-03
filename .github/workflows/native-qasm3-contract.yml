@@ -63,17 +63,12 @@ jobs:
           path: evidence/
           if-no-files-found: ignore
           retention-days: 14
+  # One current-resolver scientific regression, not a pinned Qiskit major/minor matrix.
   public-parity:
-    name: Public QASM3 Python/Rust / Qiskit ${{ matrix.qiskit }}
+    name: Public QASM3 Python/Rust / resolved Qiskit
     needs: build-native
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        qiskit: ['1.0.0', '1.4.6', '2.6.1']
-    env:
-      EXPECTED_QISKIT: ${{ matrix.qiskit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,13 +87,12 @@ jobs:
           test "$(cat dist/source-sha.txt)" = "$GITHUB_SHA"
           sha256sum -c dist/SHA256SUMS
           python -m pip install --upgrade pip
-          python -m pip install "qiskit==$EXPECTED_QISKIT" dist/*.whl 'pytest>=8,<9' 2>&1 | tee evidence/install.log
+          python -m pip install dist/*.whl 'pytest>=8,<9' 2>&1 | tee evidence/install.log
           python -m pip check 2>&1 | tee evidence/pip-check.log
           python -m pip freeze > evidence/pip-freeze.txt
           python - <<'PY'
           from importlib.metadata import version
-          import os
-          assert version('qiskit') == os.environ['EXPECTED_QISKIT']
+          print('RESOLVED_QISKIT_VERSION', version('qiskit'))
           PY
       - name: Exact-head public Rust, Python and fail-closed contract
         run: |
@@ -111,7 +105,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: qasm3-public-${{ matrix.qiskit }}
+          name: qasm3-public-resolved
           path: evidence/
           if-no-files-found: ignore
           retention-days: 14

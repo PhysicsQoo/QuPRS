@@ -16,7 +16,7 @@ symbolic `RYGate(Parameter)` rotation block and a `CXGate` instance.
 The established `pqc_generator` API, gate selection, and return triple are
 unchanged.
 
-## Pinned supporting evidence
+## Historical pinned acceptance evidence (archived; no recurring version matrix)
 
 - Native source/angle audit, 1.4.6 and 2.6.1: [Actions 39949138567](https://github.com/PhysicsQoo/QuPRS/actions/runs/39949138567)
 - True clean Linux x86_64 wheel installation: [Actions 41665710296](https://github.com/PhysicsQoo/QuPRS/actions/runs/41665710296), Python 3.11–3.13 × Qiskit 1.4.6/2.6.1, 6/6
@@ -25,11 +25,28 @@ unchanged.
 - Qiskit lower-version regression found: [Actions 41728559783](https://github.com/PhysicsQoo/QuPRS/actions/runs/41728559783), Qiskit 1.0.0 failed the historical function-only import even though package dependency resolution was valid
 - Candidate constructor compatibility with source-pinned wheel and 5 generator semantics + Python/Rust RR: [Actions 41730738840](https://github.com/PhysicsQoo/QuPRS/actions/runs/41730738840), Qiskit 1.0.0, 1.4.6, 2.0.0, 2.6.1 4/4
 
-The above research artifacts were pinned to their *own* source trees;
-the **combined integration commit** must also pass its exact-HEAD clean
-resolver, public API and appropriate native CI before merging. Successful
-installation and floating operator parity do not certify all arbitrary
-decimal-angle or source-global-phase semantics.
+The above research artifacts were pinned to their *own* source trees.
+The combined integration PR [#134](https://github.com/PhysicsQoo/QuPRS/pull/134)
+completed its exact-HEAD four-version fresh resolver and public-API gate
+[Actions 41734841446](https://github.com/PhysicsQoo/QuPRS/actions/runs/41734841446),
+then merged into dev. The follow-on bounded QASM3 PR
+[#135](https://github.com/PhysicsQoo/QuPRS/pull/135)
+also completed [QASM3 source/FFI acceptance Actions 41739717835](https://github.com/PhysicsQoo/QuPRS/actions/runs/41739717835)
+before merging.
+
+**CI policy after acceptance (2026-11-04):** the historical
+Qiskit 1.0.0 / 1.4.6 / 2.0.0 / 2.6.1 install-and-function matrix is
+a one-time admission record, **not** recurring pull-request CI.
+Do not reintroduce the pinned multi-version installer or duplicate
+QASM3/Rust-QASM semantic matrices. The existing normal Dev Fast,
+native/platform and release package checks still run according to their
+respective change filters. Scoped QASM3 source/FFI and Rust parse-safety
+checks use the ordinary resolved, supported Qiskit dependency **once**.
+Any future explicit migration decision can use the archived evidence
+without an always-on version pinning matrix.
+
+Successful installation and floating operator parity do not certify
+all arbitrary decimal-angle or source-global-phase semantics.
 
 ## Explicit limitations
 

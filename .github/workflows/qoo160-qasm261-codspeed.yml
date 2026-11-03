@@ -1,0 +1,95 @@
+name: QOO160 QASM261 Versioned CodSpeed Pilot (research only)
+
+on:
+  push:
+    branches: ['experiment/qoo160-qasm261-codspeed-selection']
+    paths:
+      - 'benchmarks/codspeed/**'
+      - 'scripts/audit_codspeed_qasm_variants.py'
+      - 'test/test_codspeed_qasm_variants.py'
+      - 'docs/development/codspeed-qasm261-selection-review.md'
+      - '.github/workflows/qoo160-qasm261-codspeed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: qoo160-qasm261-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  versioned-qasm-source-audit:
+    name: QASM261 all registered source/target/hash science-record audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit all 37 versioned pairs, selected 20 MQT and four Feynman sources
+        run: |
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          python scripts/audit_codspeed_qasm_variants.py
+
+  bounded-codspeed-pilot:
+    name: QASM261 distinct-URI bounded GPMC CodSpeed WallTime
+    needs: [versioned-qasm-source-audit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      BINARY_DIR: src/QuPRS/utils
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/qasm261-pilot.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build pinned verifier and assert source/URI contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pytest test/test_codspeed_qasm_variants.py -q
+          python -m pytest benchmarks/codspeed/test_qasm261_candidate_pilot.py --collect-only -q
+      - name: Run versioned QASM261 CodSpeed WallTime (censored != success)
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest benchmarks/codspeed/test_qasm261_candidate_pilot.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=1 --codspeed-max-time=120
+      - name: Preserve source SHA, CodSpeed measurements and per-case scientific status
+        run: |
+          python scripts/write_codspeed_sha_manifest.py --sha "$HEAD_SHA" --family candidate-pilot --instrument walltime --measurement "$QUPRS_CODSPEED_EXPORT" --output "$RUNNER_TEMP/manifest.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo160-qasm261-source-pinned-codspeed-pilot
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/candidate-pilot-science.jsonl
+            ${{ runner.temp }}/manifest.json

@@ -29,6 +29,8 @@ def sample_candidate(case):
         case.strategy, case.solver, case.backend, "1" if case.reverse else "0",
         case.pair_variant,
     ]
+    if case.qasm_corpus != "historical":
+        command.extend([case.method, case.qasm_corpus])
     child = subprocess.Popen(
         command, cwd=workspace, env=env, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, start_new_session=True,
@@ -72,8 +74,10 @@ def run_source_pinned_candidate(benchmark, case):
     fixture_root = Path(os.environ["GITHUB_WORKSPACE"]) / "benchmarks" / "MQTBench"
     counterpart = ("Random_Rotation" if case.pair_variant == "random_rotation"
                    else "h,ry,rz,cx")
+    target_root = (fixture_root if case.qasm_corpus == "historical"
+                   else fixture_root / case.qasm_corpus)
     sources = (fixture_root / case.qasm,
-               fixture_root / counterpart / case.qasm)
+               target_root / counterpart / case.qasm)
     source_hashes = [hashlib.sha256(source.read_bytes()).hexdigest()
                      for source in sources]
     result = benchmark(sample_candidate, case)
@@ -88,6 +92,7 @@ def run_source_pinned_candidate(benchmark, case):
     metadata = {
         "case_id": case.id, "filename": case.qasm,
         "pair_variant": case.pair_variant,
+        "qasm_corpus": case.qasm_corpus,
         "expected_verdict": case.expected_verdict,
         "qasm_sha256": source_hashes,
         "codspeed_sample_policy": "one_measured_round_no_warmup_exploratory",

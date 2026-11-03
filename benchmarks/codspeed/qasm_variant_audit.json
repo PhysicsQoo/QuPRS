@@ -1,0 +1,2173 @@
+{
+  "schema": "quprs-codspeed-qasm-variant-audit-v1",
+  "created_on": "2026-11-03",
+  "source_review_of_pr_head": "07d5c8d0d688f0c3d66d9e83cb44be119f56a498",
+  "merged_corpus_from_dev": "2dd451edeaab4e7c80ea19203e36cc22f3548d85",
+  "qiskit_corpus": "qiskit-2.6.1-opt0",
+  "qiskit_source_version": "2.6.1",
+  "science_evidence": {
+    "branch": "experiment/tacas26-paper-reproduction",
+    "source_sha": "364dbc5ce51a4651aab12f5d99c053a3128fd3ce",
+    "workflow_run_id": "41573879894",
+    "relative_path": "docs/development/mqtbench-qiskit261-level0-acceptance/runs/41573879894/classification.csv",
+    "backend": [
+      "python",
+      "rust"
+    ],
+    "methods": [
+      "hybrid",
+      "wmc_only"
+    ],
+    "variants": [
+      "positive",
+      "negative"
+    ],
+    "distance": 1e-8,
+    "solver": "gpmc",
+    "work_digits": 30,
+    "total": 296,
+    "returned_and_binary_matching": 244,
+    "censored": 52,
+    "determinate_binary_contradictions": 0,
+    "solver_arithmetic_certified": false,
+    "operator_distance_full_certificate": false,
+    "not_codspeed_performance_data": true
+  },
+  "policy": {
+    "main_legacy_benchmark_identities": 32,
+    "main_mqt_benchmark_identities": 24,
+    "main_feynman_benchmark_identities": 8,
+    "canonical_shards": 5,
+    "main_identity_sha256": "7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed",
+    "legacy_sources_and_URIs_unchanged": true,
+    "old_solver_walltime_URIs_unchanged": true,
+    "new_corpus_requires_distinct_benchmark_URI": true
+  },
+  "selected_mqt_unique": 20,
+  "selected_feynman_unique": 4,
+  "all_available_qiskit261_pairs": 37,
+  "mqt": [
+    {
+      "file": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "family": "ghz",
+      "qubits": 128,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+        "git_blob_sha1": "137d71ec02fcaa6ee69d73aa28f93758ab1d36ef"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+        "git_blob_sha1": "7e9d10b5608a6523fb7c61425a17960c884e81a4"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+        "sha256": "5e6296f8dd6f7b90f991067a5a709ddf2176293a80bc9348cd41367dcf047f17"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+        "sha256": "cefb905e2de916a3523ba1a1ed15512430243ecb911a31f04438d26f9d054a71",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "family": "ghz",
+      "qubits": 32,
+      "selected_by": [
+        "legacy-simulation-32",
+        "cross-method-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "07c16aaefc4b33750e86a73a0cf276fafe59f8cd"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "dc87f6aa2dde89a153685bd2b16c446bbc30c261"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+        "sha256": "a1118619e1bb10387c83254c1ef42a10cfe2295e87b23f36c17aac98c75a6dab"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+        "sha256": "61e239fc87dfb1f1dfa6c75ea96a78ffd12c223dac176b10cec3c3150215a722",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "KEEP_LEGACY_AND_ADD_VERSIONED_V2_URI"
+    },
+    {
+      "file": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "family": "ghz",
+      "qubits": 64,
+      "selected_by": [
+        "pilot-eight-opt-in",
+        "curated-v2-proposed"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+        "git_blob_sha1": "85cdcd6812a26459c896030cc3486b2249eb4db8"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+        "git_blob_sha1": "eb9312fd5989ab4b7a8c6f6f76fd3603ca42af6f"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+        "sha256": "5655c49ac4ac5ba18a0160fdb5b32c803241b2abaf116d3d6894761fad0b7372"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+        "sha256": "70647ba675dd04d42da98576d32b54bd553910f1a3ef58fd5be0c44b8cfd6a7e",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "family": "graphstate",
+      "qubits": 16,
+      "selected_by": [
+        "legacy-simulation-32",
+        "cross-method-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "ab34308febb31ea9a49e9761a988aad7017f3487"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "c2c6f9d04f6a8c2778415572aa247ee93e138c09"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "6f6b5643387b8ba54bb869244560b364411104d2735af13ca23bd1e294677ca4"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "d542c9991822f3772b71a35140b2db9aec9511aa25084bea0d398f2cfdbdb452",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "KEEP_LEGACY_AND_ADD_VERSIONED_V2_URI"
+    },
+    {
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "family": "graphstate",
+      "qubits": 32,
+      "selected_by": [
+        "pilot-eight-opt-in",
+        "curated-v2-proposed"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "4c0f3a339f1624a33455595830cfbc27f7b31a72"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "fcb0e73f614f7e3951b3a720c27736d88076dcca"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "sha256": "644416e4ff2387642b9843697d224ff78e80b04adebacdfaf8f959546f20eea6"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "sha256": "e83227981069b642e6f51efb12c95ce5230abfc7d12820d33685034cd671802e",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "family": "graphstate",
+      "qubits": 64,
+      "selected_by": [
+        "paper-gap-seven-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+        "git_blob_sha1": "14246fa37530dc83ce6d7da83291d44a6b1bc946"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+        "git_blob_sha1": "d2165c98386379829dc4b5ab28679535186fd299"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+        "sha256": "fdcc784a675a859c6ddf4d1139dbc69a88601fb78b2f5158dcafb21c66ef9f1a"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+        "sha256": "ef74305dbcccf63ef412e5deba9b778234089d2885138b4b66aac2ce9b17884e",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "family": "grover-noancilla",
+      "qubits": 4,
+      "selected_by": [
+        "legacy-simulation-32",
+        "solver-walltime-7",
+        "solver-cpu-opt-in",
+        "cross-method-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "0babf2aa735c17cf1e201baeea2874fe3c3ffcf8"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "6ebf83dd8e0b85a274bef3eb2485df279564cb30"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "ab338d8c185c841e30a0001293697eeae2f989a10c06effaf09f5584223c5781"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "43557c87d1830c4bda99b956e2e16ade646310b0b89f8a4f9dc3b11e90935db2",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "KEEP_LEGACY_AND_ADD_VERSIONED_V2_URI"
+    },
+    {
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "family": "grover-noancilla",
+      "qubits": 5,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "0bb566ed3fa41b07a106c2c40f25dd4a817fb18d"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "e89866053df52b2a3e637aceb765b9cfb15b5877"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "sha256": "0eadddc840a5afc07bca37e792a03989c693fca40066ffde1a569eb4daaff37f"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "sha256": "fd9974db4821b04c0e4d1e8728ae643160fe4606525c335df9cc0d3736c2ae15",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 1,
+          "censored": 1,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "family": "grover-noancilla",
+      "qubits": 6,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+        "git_blob_sha1": "fe7a801a1d2966b6c5a9de509212f95fab1c78fa"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+        "git_blob_sha1": "84a0818d78588451514324e1a2eff8250419765a"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+        "sha256": "5bdf1ef9bcef0af9535ae685888300539cf28e0bd7ed5ee311fcbad7941cfc43"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+        "sha256": "348f2b26af6f2fc607f834812148a9c35d768d9ab1b438ae47291af588a055a0",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "family": "qaoa",
+      "qubits": 11,
+      "selected_by": [
+        "paper-gap-seven-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+        "git_blob_sha1": "2bb62b0695c877a8a2a670bd8c26c96aef17b35b"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+        "git_blob_sha1": "7401be04da003994b630b60fac36af6bc1322c71"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+        "sha256": "9380d7741e3cf611d13b97906c6e2c640777fb0b3f3d06a90c7cc6826eb23fa4"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+        "sha256": "ba998d1919d4c7a0a56422ac81233744bf193dbd8067f743e92156aa74e65ca3",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "family": "qaoa",
+      "qubits": 7,
+      "selected_by": [
+        "legacy-simulation-32",
+        "solver-walltime-7",
+        "solver-cpu-opt-in",
+        "cross-method-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "4c314c32caef3d2577d7efe849635bcbc2b2335f"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "git_blob_sha1": "d4d115ba912d2d4129c238d8972b0a7dd0c4249c"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "sha256": "5b2d23a05302fc9a1deef4c937f68d29bbbf9a3c48edda05b0c0321b800b890d"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+        "sha256": "c25cd0215b2c69f26fc569829fadf13ea6bf3ce2a73af7bba8f6553cea44baff",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "KEEP_LEGACY_AND_ADD_VERSIONED_V2_URI"
+    },
+    {
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "family": "qaoa",
+      "qubits": 9,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "git_blob_sha1": "654a0e2e4956bd15ee6765fbf3d29a7181ecd623"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "git_blob_sha1": "b35b73076f33bbeea3501ca2e27d7124c4a77e02"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "sha256": "d4019dee0a0de8f660c5abe253b2356424e7a6a51bb1eea14a7f634f36e30914"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+        "sha256": "d73a3dbd1c7113ec832a1b901fb061c355506f713a25504ee75d0b4494ba93b8",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "family": "qft",
+      "qubits": 16,
+      "selected_by": [
+        "legacy-simulation-32",
+        "solver-walltime-7",
+        "solver-cpu-opt-in",
+        "cross-method-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "398b32262259af75fcf44ab711b77281818d0cc7"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "d321013120dbad7082892026e1ee7a70f9edc206"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "4d491b99a17106ded6b0f59b12e08be692d9eaf09501cda31955909ad479005b"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qft_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "664cabdaf82e5f78368971ab43aeb9c4a5f4445439eafccb9f39578c0348f2ac",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "KEEP_LEGACY_AND_ADD_VERSIONED_V2_URI"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "family": "qft",
+      "qubits": 20,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "828c42db83d043772e9feeabe2360d490ee20a98"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "7fbba5865a93f4c9b7cf6ad3027d2da2e3aa8d60"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "sha256": "a63e27169ad2e042bcf08d3d6c39a9f55e113ff898246bcc99fc019f66610cee"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qft_nativegates_ibm_qiskit_opt0_20.qasm",
+        "sha256": "be68cc726ce7a284e67d25bfe70544c0301f37a6531e003f9d391cb49b64c124",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "OPT_IN_V2_FIDELITY_STRESS"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "family": "qft",
+      "qubits": 22,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+        "git_blob_sha1": "7566e9c039a50aa291f845e6770c8443c01decfb"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+        "git_blob_sha1": "2f5346965f10b6b8fb7f83f751a4f7145843244f"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+        "sha256": "30bde477b2aaf8d797a62adef14a54d1b8017f884fe1fa3aa75bc3aa75a8985e"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qft_nativegates_ibm_qiskit_opt0_22.qasm",
+        "sha256": "48b679d4e313c430f35ec00ed80f348d00ddc534bf2e0cbc59ff2959ce74feae",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "OPT_IN_V2_FIDELITY_STRESS"
+    },
+    {
+      "file": "qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "family": "qft",
+      "qubits": 24,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_24.qasm",
+        "git_blob_sha1": "0203ce377f63ed2f19e2c6fb9c8c1e9608370d87"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_24.qasm",
+        "git_blob_sha1": "2fb0b851aa436bd7cc572c436bf2c50cbe1b45c4"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qft_nativegates_ibm_qiskit_opt0_24.qasm",
+        "sha256": "cbc3d55e6d66769d9dac788e97c6386d7bf524f47c672def463ac3d278fa0221"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qft_nativegates_ibm_qiskit_opt0_24.qasm",
+        "sha256": "f13a3baffea1041564f4a58b663d2d94c9d72a9ca5439952665cc193eb466d5d",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "family": "qnn",
+      "qubits": 12,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+        "git_blob_sha1": "ab7002b656a38ca32b9a5f0402f316cbcb98ee9d"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+        "git_blob_sha1": "5294dc6573b2d153ceb7e4b6f95dab8c689da7ce"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+        "sha256": "336d9a7875ee1c5bbba5a0023dfe16458272196cfd865067423ff9b64d4fbc2c"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+        "sha256": "3c4d8d9d21c58dd1cf5cb687be7ed6797b266064134e582a35a5c447b7d41bec",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "family": "qnn",
+      "qubits": 4,
+      "selected_by": [
+        "pilot-eight-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "0a0997353a8cb5cbdac9e574e42a36015a8037db"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "2a0b1bef7c396944fbb1687a10f040979fb7fa50"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "386c6242be9cc398a461559db3f33401cbfcc0ec57379b8f92862292e4135752"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "72df8dde80402b096d532864b1862fb116503af1a141a19ec843fe7bbf2c440d",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "family": "qnn",
+      "qubits": 8,
+      "selected_by": [
+        "paper-gap-seven-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "17245438ff96cbe0fbd054c6db2322ac079f2cd8"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "3fcefcf2becb5208f5914b99596db23068c508e8"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "c72742fe2c085b24e98d6124df51e46be7d04ca327470e1fcf3abdb5c2cde9c2"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "743539378d0541101ec6c12cd00a16c9e8c33a7365c74fdb82cdb36d3c70c1a4",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "family": "qpeexact",
+      "qubits": 16,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "6c3031ab98a2059d2c3077e6e29b9ee90a603133"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "d1c8a43bd4ca0eadacc45c9d98e17cb6b140f62d"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "6fe7238679b25a30fee233aefddc5c25d13276dff8fc5062dea864ce469087c1"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "281d281bdb873320322de6e894b00ccf4c9e41730c4cc80104c2c6924059bdbf",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "family": "qpeexact",
+      "qubits": 20,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "fb9dfc0852dd28ce5f67bb37a6e5cdc5a0d38ecc"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "922bd4a5f749bff7e1eb4a226f87728663d18567"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "sha256": "393e48697781c50d90524d8e6d92b0b4c8c2cc4d141d1975204c6f165fc8e6ed"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "sha256": "97754131ee3f767cd69d0cabcba5b9bd6c7cec4381752b44a3f6e4977e06353c",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "OPT_IN_V2_FIDELITY_STRESS"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "family": "qpeexact",
+      "qubits": 24,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "git_blob_sha1": "fabc0b909f0dde27689df38cb3cee116663ee3c9"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "git_blob_sha1": "3f4cddee422bf3c62620b0f545613d493be9c1ce"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "sha256": "821ee9bf1c3e3d3b1bf0ba3bf9c52f21c77c45caebdb793bdb84c9195bedf408"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "sha256": "e0ba8daafeb3db47916617a02a496a3ab56ec970a469eda2664a1c9dc4545826",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 1,
+          "censored": 1,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "family": "qpeexact",
+      "qubits": 8,
+      "selected_by": [
+        "pilot-eight-opt-in",
+        "curated-v2-proposed"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "4582df5b4cefe3cc69227d29eb2894ccd1c5412a"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "46a2b00a19bbc769aefa77eebb14fa262fd98302"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "1defd8140a18e9c22e9f16bdb1d77f8adf68a0e700290468d50be8592600ba90"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "7c0db606330de9dbf0a3a9d1b835833c053ef9a1630ae536bab552bfb9f3b938",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "family": "qpeinexact",
+      "qubits": 16,
+      "selected_by": [
+        "curated-v2-proposed"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "c1fc704452a864dcffb95d603db371d1a7530e48"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "d9f92ad512ed6f7739ed440c9093634f2a4bfc15"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "937e360ee8e3264396d9b2ae424085a75a29aa8c255cbd6b63b6ff5d09068e45"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "9d8ac9cb889c5285241f551a93cc55c03d663d2d7bfc814502ed11f174aa43c3",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "family": "qpeinexact",
+      "qubits": 20,
+      "selected_by": [
+        "paper-gap-seven-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "4535af5bd2c7603e40e2828bb7438ab6240aea9f"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "git_blob_sha1": "f7dd85917d461a9d3cfcacc71ba2d9410ba3c471"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "sha256": "f79c11ea0de8bf99f90e4f9f0c7f97a2cf1e7ee5e7df7908127d9169e5007a19"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+        "sha256": "6edf7d4116df1894fade51d6d39d7853a9a7f0e74c5ea21cd6c784d24fec2ffb",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "OPT_IN_V2_CENSORED_GUARD"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "family": "qpeinexact",
+      "qubits": 24,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "git_blob_sha1": "9832ae8ba0754f08fb19751051095fa5f276e529"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "git_blob_sha1": "502aa6f72ae9b89c05591c5ed0e00ecc5a3fdf16"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "sha256": "4ec352b91bdf8efe2d4f67692659e4246b1212e5c88484ea0c141ede0b668bf3"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+        "sha256": "8237f46042c5295fd5a72dad59e84085ecc757496fc19395eec82eea48d57329",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "family": "qpeinexact",
+      "qubits": 8,
+      "selected_by": [
+        "pilot-eight-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "65f0bf861d13f398c0f6059867e6d8cec7b08f15"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "8667aa6d6c20d1622e1a3e044f887e5b0f481eea"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "a5f7e852cf8a2e1db19f55716dab201bc1d95f83ae0ea3ac80b7d80e666f58f8"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "7f48d77c1693c7227e460b3c0a509dbedd4292fcc7571c6bb4a4a97f8d5891b0",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "family": "qwalk-noancilla",
+      "qubits": 3,
+      "selected_by": [
+        "pilot-eight-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "0960c698e44cb5320301f7bd4acdd892d9069db0"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "git_blob_sha1": "ea56fe6eb2ff58503931784f0ceb9bc2bb59fab2"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "sha256": "4def4f0591b4f350acb00a1fe52c78245887af0f4bd8cc896fac7f589f6044e8"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+        "sha256": "e12d5e603827136e44b10c05834afbefe49320636fd3278a673cfa6fbd4cc019",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "family": "qwalk-noancilla",
+      "qubits": 4,
+      "selected_by": [
+        "paper-gap-seven-opt-in",
+        "curated-v2-proposed"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "d44a138cc54ab06cc586706ed6aabc312e551dc6"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "ffa8a7ecd9613a11f0a2bf79f8f8d80bf53618e1"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "0a202baf8a0d744980bdc103d9b23be5c95d9ae23085977d2718af5a5d9e97e2"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "b25c6e314b5c9c3e4778f5a086744ed678497e5f57bc867b950fc8515814f7b5",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "family": "qwalk-noancilla",
+      "qubits": 5,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "7d3f1f9703a1548163470c8b2e98456a0aa11eb3"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "git_blob_sha1": "93ac3681aa2f5bb40f9f85e9bce5da0d479fdd58"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "sha256": "bc8bb94625bf2c967eea710a643a557e79271ad2bc3b9ac6fac820899080ef99"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+        "sha256": "e239f55089cb915fdd7185607bf2e38869415e8237d94782c51ea825ec4b5529",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "family": "vqe",
+      "qubits": 16,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "220f9ce7d976d88e38665523cf5cf9e913d205d8"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "c926a393c89a70e82c5eb5b9f8294bb245fc44a1"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "01b74bbfa3d54c7aa39e24192957dcd20a1f798a65a2a52337050fc987ddb510"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "f0e647e854c87a72294b8aade63121070330d4efe19fb9b076f25f6e6af81403",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "family": "vqe",
+      "qubits": 4,
+      "selected_by": [
+        "legacy-simulation-32",
+        "solver-walltime-7",
+        "solver-cpu-opt-in",
+        "cross-method-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "20e9fd16e5f464338c72c5da8bede32225791414"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "e42732073c416e61ffa5e0fe69dcb042f0c91cc7"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "f34462262c32144d660a95b21471e32eceb4e849799490296370d6e658b972d0"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "48219e9b1358d25dc612132fceceb007df0ce341b1b80a55cf66575c7b8f2a82",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "KEEP_LEGACY_AND_ADD_VERSIONED_V2_URI"
+    },
+    {
+      "file": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "family": "vqe",
+      "qubits": 8,
+      "selected_by": [
+        "pilot-eight-opt-in"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "c3914ae2a113da973ab2f9d2c34f2c29ec11a64e"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "89a9ff4e548f2596c64b61935f6f234f34b3ac06"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "f8f0442167844113802283e6135ba5fc050bd548c828094b7ee1b3634fad3a55"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "2d8e64602cd9e9fe5c3728dca957b8797d3c54a49fcfbc68a6a39f1b82f2b4b3",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "family": "wstate",
+      "qubits": 16,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "29e97e27e043866f1b3bcd3f5526fe356382003f"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "git_blob_sha1": "8a109b5afe088bd09eb9b40ec6ecf23fb12b4120"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "e02b98fb8288c63fad764799f933f67c41cfde0955b42928cab1016ad4464e16"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+        "sha256": "1875650d9142843c165394b1d05c5bca63f5ecd5eef65c882ecdd3cf2992761c",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "family": "wstate",
+      "qubits": 32,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "a2a5e61b7429c961712d4f82a4f8aa1446556838"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "git_blob_sha1": "9ca3c77442b32e032eb2fec2affca380806fa434"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "sha256": "07c866b4f021ea5fefef98f46708c20fdd0a8183e2be4ab9c3b1ab447a99a746"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+        "sha256": "73a02f130b5355ca0a5ba65c8ada40a72dc0b7bba9e38fc818168691261dd6de",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_hybrid": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        },
+        "negative_wmc_only": {
+          "matched": 0,
+          "censored": 2,
+          "contradictions": 0,
+          "python": "CENSORED",
+          "rust": "CENSORED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "family": "wstate",
+      "qubits": 4,
+      "selected_by": [
+        "pilot-eight-opt-in",
+        "curated-v2-proposed"
+      ],
+      "source": {
+        "path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "b929dc5eca00dd0771c8f28e0fda42c2abcb68bf"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "git_blob_sha1": "1744626787c08edc1070af0eb3c161c38c93d077"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "7953657af765e3410785328394e834d27ed7b5f8f7d922e6f94bcfbd725d9993"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+        "sha256": "ddb60973eb84c7231f14cb2d3422134161122ff14c5ad02da9794b030462d0b3",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "OPT_IN_V2_CANDIDATE"
+    },
+    {
+      "file": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "family": "wstate",
+      "qubits": 8,
+      "selected_by": [],
+      "source": {
+        "path": "benchmarks/MQTBench/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "f5a0acd086121079e704956bfa948a830a7aaffc"
+      },
+      "historical_target": {
+        "path": "benchmarks/MQTBench/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+        "git_blob_sha1": "d22e778778fda642bc5374234c1d37ab6e5bff6b"
+      },
+      "qiskit261_positive": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "c56aced37340637db93d491a6b72b2e88eada3890813f0a72e3eda4903ed4dcf"
+      },
+      "qiskit261_negative": {
+        "path": "benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+        "sha256": "1b28207752fecdb9893dff91e7996699d1cc0f6f9dd67c48b9cba5fe301faf8c",
+        "full_operator_neq_certified": false
+      },
+      "strict_1e8_gpmc30": {
+        "positive_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "positive_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_hybrid": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        },
+        "negative_wmc_only": {
+          "matched": 2,
+          "censored": 0,
+          "contradictions": 0,
+          "python": "RETURNED",
+          "rust": "RETURNED"
+        }
+      },
+      "migration": "NOT_CURRENTLY_CODSPEED_SELECTED"
+    }
+  ],
+  "feynman": [
+    {
+      "file": "adder_8.qasm",
+      "source": {
+        "path": "benchmarks/Feynman/adder_8.qasm",
+        "git_blob_sha1": "6e50a11c77830861cf5b309e2cd755f66633b121"
+      },
+      "historical_target": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/adder_8.qasm",
+        "git_blob_sha1": "819faf91bdfb47506ad3dbfc6278c9052c3d007a"
+      },
+      "selected_by": [
+        "legacy-simulation-32"
+      ],
+      "migration": "NO_QISKIT261_COUNTERPART_PRESERVE_HISTORY"
+    },
+    {
+      "file": "gf2^4_mult.qasm",
+      "source": {
+        "path": "benchmarks/Feynman/gf2^4_mult.qasm",
+        "git_blob_sha1": "ff3e384fd36cea71f4ca74b673cc570bac11a40f"
+      },
+      "historical_target": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/gf2^4_mult.qasm",
+        "git_blob_sha1": "61de8c91e6ee46441f64c3775e0b64590ff5bb54"
+      },
+      "selected_by": [
+        "legacy-simulation-32",
+        "curated-v2-proposed"
+      ],
+      "migration": "NO_QISKIT261_COUNTERPART_PRESERVE_HISTORY"
+    },
+    {
+      "file": "tof_3.qasm",
+      "source": {
+        "path": "benchmarks/Feynman/tof_3.qasm",
+        "git_blob_sha1": "a918b651a16c9c600bb9c85f2c7546b21b200a04"
+      },
+      "historical_target": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/tof_3.qasm",
+        "git_blob_sha1": "29bbf9c6304ae44cca84cb4a599b6d65636ac790"
+      },
+      "selected_by": [
+        "legacy-simulation-32",
+        "curated-v2-proposed"
+      ],
+      "migration": "NO_QISKIT261_COUNTERPART_PRESERVE_HISTORY"
+    },
+    {
+      "file": "vbe_adder_3.qasm",
+      "source": {
+        "path": "benchmarks/Feynman/vbe_adder_3.qasm",
+        "git_blob_sha1": "792e739e413f42a3bfbe0a413e09741e87a9668f"
+      },
+      "historical_target": {
+        "path": "benchmarks/Feynman/h,y,z,t,tdg,cx/vbe_adder_3.qasm",
+        "git_blob_sha1": "b31b2a6d83c5ebfe8d6c5c1de2d217c7f9b0721b"
+      },
+      "selected_by": [
+        "legacy-simulation-32",
+        "curated-v2-proposed"
+      ],
+      "migration": "NO_QISKIT261_COUNTERPART_PRESERVE_HISTORY"
+    }
+  ]
+}

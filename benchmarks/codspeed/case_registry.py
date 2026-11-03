@@ -101,6 +101,8 @@ class PilotCase:
     expected_solver_invoked: bool | None = None
     # Explicit positive (transpiled) or negative (Random_Rotation) QASM pair.
     pair_variant: str = "transpiled"
+    # New corpus needs a separate CodSpeed benchmark URI and fixture root.
+    qasm_corpus: str = "historical"
 
 # Pilot tests DIFFERENT circuit classes; stage is observed, not forced.
 # Candidate is not promoted to nightly or every-PR on historical timing alone.
@@ -148,4 +150,61 @@ REPEATABILITY_EXPECTATIONS = {
 }
 REPEATABILITY_CASES = tuple(
     case for case in PILOT_CASES if case.id in REPEATABILITY_EXPECTATIONS
+)
+
+# Qiskit 2.6.1 Level-0 is a NEW measured input identity, never a replacement
+# for main's original 32 Simulation IDs or the seven baseline WallTime IDs.
+# Every row has source-pinned strict 1e-8 GPMC Python/Rust EQ/NEQ evidence
+# in docs/development/mqtbench-qiskit261-level0-acceptance on the TACAS
+# research branch; this bounded CodSpeed pilot is a separate timing study.
+QASM261_PILOT_CASES = (
+    PilotCase("q261_ghz32_positive",
+              "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+              "straightforward", reverse=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_graphstate16_positive",
+              "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+              "naive", qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_grover4_positive",
+              "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+              reverse=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qaoa7_positive",
+              "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qaoa7_negative",
+              "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qft16_positive",
+              "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+              reverse=True, qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qft16_negative",
+              "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+              reverse=True, pair_variant="random_rotation",
+              expected_verdict="not_equivalent", qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qnn4_positive",
+              "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qnn4_negative",
+              "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_vqe4_positive",
+              "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_vqe4_negative",
+              "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+              pair_variant="random_rotation", expected_verdict="not_equivalent",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qpeexact8_positive",
+              "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_wstate4_positive",
+              "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_vqe8_positive",
+              "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+              qasm_corpus="qiskit-2.6.1-opt0"),
+    PilotCase("q261_qpeinexact20_positive",
+              "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+              qasm_corpus="qiskit-2.6.1-opt0"),
 )

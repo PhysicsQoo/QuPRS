@@ -77,7 +77,7 @@ def test_reports_same_sha_without_certifying_precision_limited(tmp_path, monkeyp
     output = module.produce(tmp_path, SHA, BASE)
     assert output["five_shard_canonical_count"] == 32
     assert output["native_core_expected_count"] == len(NATIVE_IDS)
-    assert output["walltime_paired_cases"] == 9
+    assert output["walltime_paired_cases"] == 10
     assert output["scientific_status"] == "PRECISION_LIMITED"
     assert output["performance_certified"] is False
     assert {row["case"] for row in output["cross_instrument_rows"]} == {

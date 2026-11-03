@@ -1,0 +1,200 @@
+name: TACAS26 Level 0 Same-QASM QuPRS v0.9.1 Python Rust Cross Verification
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/tacas26-level0-quprs-cross.yml'
+      - 'scripts/tacas26_level0_cross.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tacas26-level0-cross-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate frozen QASM2 and create exact unitary comparison pairs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin Qiskit 1.4.2 for source input normalization only
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m pip install --disable-pip-version-check 'qiskit==1.4.2' 'numpy==1.26.4'
+          python -m compileall -q scripts/tacas26_level0_cross.py
+          python -m scripts.tacas26_level0_cross preflight --output "$RUNNER_TEMP/level0-pairs"
+      - name: Preserve exactly prepared inputs and negative controls
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-level0-inputs
+          path: ${{ runner.temp }}/level0-pairs/
+          retention-days: 30
+          if-no-files-found: error
+
+  verify:
+    name: ${{ matrix.profile }} / source case shard ${{ matrix.shard }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        profile: [v091, python, rust]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - name: Checkout historical QuPRS v0.9.1 separately
+        if: matrix.profile == 'v091'
+        uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: e928abc47dd15926364ec77905eb0d5dc92ce8cc
+          path: historical
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: tacas26-level0-inputs
+          path: ${{ runner.temp }}/level0-pairs
+      - name: Prepare historical v0.9.1 scientific environment and original GPMC
+        if: matrix.profile == 'v091'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C historical rev-parse HEAD)" = e928abc47dd15926364ec77905eb0d5dc92ce8cc
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libgmp10 libmpfr6 libatomic1
+          python -m pip install --disable-pip-version-check 'numpy==1.26.4' 'qiskit==1.4.2' \
+            qiskit-qasm3-import sympy symengine psutil
+          python -m pip install --disable-pip-version-check --no-deps -e ./historical
+          echo "PYTHONPATH=$GITHUB_WORKSPACE/historical/src:$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.profile != 'v091'
+      - uses: actions/cache@v4
+        if: matrix.profile != 'v091'
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - name: Build current QuPRS once, use same source for Python and Rust
+        if: matrix.profile != 'v091'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/level0-current"
+          source "$RUNNER_TEMP/level0-current/bin/activate"
+          python -m pip install --disable-pip-version-check maturin 'numpy==1.26.4' 'qiskit==1.4.2'
+          maturin develop --release
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/level0-current" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/level0-current/bin" >> "$GITHUB_PATH"
+          echo "PYTHONPATH=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - name: Run QuPRS science without silently switching solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m scripts.tacas26_level0_cross run \
+            --prepare "$RUNNER_TEMP/level0-pairs" \
+            --profile ${{ matrix.profile }} \
+            --shard ${{ matrix.shard }} --shards 9 \
+            --timeout 200 --watchdog 215 \
+            --output "$RUNNER_TEMP/level0-out"
+      - name: Seal all partial, successful and censored scientific evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/level0-out"
+          cd "$RUNNER_TEMP/level0-out"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+      - name: Preserve every case record, raw output, exception and checksum
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-level0-${{ matrix.profile }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/level0-out/
+          retention-days: 30
+          if-no-files-found: warn
+
+  collect:
+    name: Archive complete and incomplete source-pinned QuPRS results in Git
+    if: always()
+    needs: [prepare, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tacas26-level0-*
+          path: ${{ runner.temp }}/level0-all
+          merge-multiple: false
+      - name: Aggregate per-case evidence without changing science outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/aggregate"
+          python -m scripts.tacas26_level0_cross aggregate \
+            --input "$RUNNER_TEMP/level0-all" \
+            --output "$RUNNER_TEMP/aggregate" \
+            --sha "$GITHUB_SHA"
+          python -m compileall -q scripts/tacas26_level0_cross.py
+      - name: Permanent, append-only Git archive of original observations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin experiment/tacas26-paper-reproduction
+          git rebase origin/experiment/tacas26-paper-reproduction
+          dest="docs/development/tacas26-level0-quprs-cross/runs/$GITHUB_RUN_ID"
+          mkdir -p "$dest"
+          cp "$RUNNER_TEMP/aggregate/"* "$dest/"
+          cp "$RUNNER_TEMP/level0-all/tacas26-level0-inputs/pairs.json" "$dest/pairs.json"
+          git add "$dest"
+          git diff --cached --check
+          git commit -m "research(tacas): archive Level0 QASM v0.9.1 vs Python/Rust GPMC CI evidence run $GITHUB_RUN_ID"
+          git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+      - name: Preserve aggregate even if Git push cannot fast-forward
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacas26-level0-cross-aggregate
+          path: ${{ runner.temp }}/aggregate/
+          retention-days: 30
+          if-no-files-found: warn

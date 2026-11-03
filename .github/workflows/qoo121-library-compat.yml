@@ -13,41 +13,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: 'rust -> target'
-          key: qoo121-qiskit-api
-      - name: Build prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
-          python -m pip install --upgrade pip 'maturin>=1.5,<2'
-      - name: One source-pinned wheel for the four API versions
-        run: |
-          set -euo pipefail
-          maturin build --release --interpreter python --out dist --compatibility off
-          sha256sum dist/*.whl > dist/wheel-sha256.txt
-          git rev-parse HEAD > dist/source-head.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: qoo121-api-candidate-wheel
-          path: dist/
-          retention-days: 14
-          if-no-files-found: error
   api:
-    needs: build
     name: Qiskit ${{ matrix.qiskit }} / actual public generators
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -68,10 +34,13 @@ jobs:
         with:
           name: qoo121-api-candidate-wheel
           path: dist
+          run-id: 41729145182
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install real package and pinned Qiskit in a fresh environment
         run: |
           set -euo pipefail
           mkdir -p evidence
+          test "$(cat dist/source-head.txt)" = '19d05426f3777b463cad1cfac37c559785de8e84'
           sha256sum -c dist/wheel-sha256.txt
           python -m pip install --upgrade pip
           if [[ "$QISKIT_VERSION" == 2.* ]]; then

@@ -1,0 +1,79 @@
+name: QOO170 clean-dev integration focused CI (research branch only)
+
+on:
+  push:
+    branches:
+      - experiment/qoo160-qasm261-codspeed-selection
+    paths:
+      - .github/workflows/qoo170-clean-integration-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo170-integration-focused-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-registry:
+    name: QOO170 exact candidate SHA - source, 10-pair report and no-Solver gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b197f0aff93a0fa9e945cf89784b516b00af3efd
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Focused source-pinned registry and numerical-provenance contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b197f0aff93a0fa9e945cf89784b516b00af3efd"
+          python -m pip install --disable-pip-version-check pytest==8.4.2
+          python -m pytest -q \
+            test/test_codspeed_qasm261_simulation_additive.py \
+            test/test_codspeed_cross_instrument.py \
+            test/test_codspeed_registry.py \
+            test/test_codspeed_paired_report.py \
+            test/test_codspeed_ganak_comparability.py \
+            test/test_codspeed_variance_gate.py \
+            test/test_codspeed_numeric_join.py \
+            test/test_codspeed_suite_compatibility.py
+          echo QOO170_FOCUSED_SOURCE_CONTRACTS_PASS
+
+  shard-collection:
+    name: QOO170 exact candidate SHA - collect 32 + 12 on five shards (no measurement)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      BINARY_DIR: src/QuPRS/utils
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b197f0aff93a0fa9e945cf89784b516b00af3efd
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build verifier for pytest collection, do not measure Solver or CodSpeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b197f0aff93a0fa9e945cf89784b516b00af3efd"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest==8.4.2 pytest-shard pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python scripts/check_codspeed_shards.py
+          echo QOO170_44_UNIQUE_5_SHARDS_COLLECT_ONLY_PASS

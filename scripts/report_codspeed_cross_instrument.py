@@ -13,9 +13,9 @@ import sys
 from pathlib import Path
 
 CANONICAL_SHA = "7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed"
-QASM261_ADDON_SHA = "b19b1331f912f7abd976bfa6911d1969c718b4159211f428506f2b8a4ebb49aa"
-QASM261_ADDON_COUNT = 24
-QASM261_ADDON_ID = "qiskit-2.6.1-opt0-v1"
+QASM261_ADDON_SHA = "59d46eb951ca5280fddd19000ca14bfc45a71ea22717b178e76b76fd715e9a18"
+QASM261_ADDON_COUNT = 12
+QASM261_ADDON_ID = "qiskit-2.6.1-opt0-v2-cpu"
 QASM261_PREFIX = "benchmarks/codspeed/test_mqt_qasm261_simulation.py::"
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -106,9 +106,9 @@ def validate_simulation(folder, sha):
         if any(x != expected for x in declared):
             raise ValueError("QASM261 additive provenance mismatch across five shards")
         if len(addon) != QASM261_ADDON_COUNT or digest(addon) != QASM261_ADDON_SHA:
-            raise ValueError("incomplete QASM261 additive 24-node Simulation identities")
+            raise ValueError("incomplete QASM261 additive 12-node Simulation identities")
         if len(measurements) != 32 + QASM261_ADDON_COUNT:
-            raise ValueError("incomplete canonical five-shard suite: expected 56 identities")
+            raise ValueError("incomplete canonical five-shard suite: expected 44 identities")
     elif addon or len(measurements) != 32:
         raise ValueError("unversioned Simulation cannot contain new/additive IDs")
     return measurements

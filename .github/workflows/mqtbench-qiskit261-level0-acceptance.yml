@@ -36,9 +36,84 @@ jobs:
           python -m compileall -q scripts/mqtbench_qiskit261_level0_acceptance.py
           python -m scripts.mqtbench_qiskit261_level0_acceptance preflight
           echo "matrix=$(python -m scripts.mqtbench_qiskit261_level0_acceptance matrix)" >> "$GITHUB_OUTPUT"
+  smoke:
+    name: Fail-fast actual GPMC smoke before 37-way scientific matrix
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install only production verification dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/qsmoke"
+          echo "$RUNNER_TEMP/qsmoke/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/qsmoke" >> "$GITHUB_ENV"
+          source "$RUNNER_TEMP/qsmoke/bin/activate"
+          python -m pip install --disable-pip-version-check maturin 'numpy==1.26.4' 'qiskit==1.4.2'
+          maturin develop --release
+          python - <<'PY'
+          import qiskit,numpy
+          assert qiskit.__version__=='1.4.2'
+          assert numpy.__version__=='1.26.4'
+          PY
+      - name: Run smallest scientifically meaningful 8-way Python/Rust EQ NEQ GPMC smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.mqtbench_qiskit261_level0_acceptance run \
+            --file qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm \
+            --timeout 50 --watchdog 60 \
+            --output "$RUNNER_TEMP/mqt37-preflight-science-smoke"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"mqt37-preflight-science-smoke"/"observations.jsonl"
+          a=[json.loads(x) for x in p.read_text().splitlines()]
+          assert len(a)==8
+          invalid=[(x["method"],x["backend"],x["variant"],x["status"])
+                   for x in a if x["status"] in (
+                       "EXCEPTION","MISSING_WORKER_OUTPUT",
+                       "MALFORMED_WORKER_OUTPUT","NOT_STARTED")]
+          if invalid:raise AssertionError("Instrument failure: "+repr(invalid))
+          classified=[x for x in a if (x.get("result") or {}).get("binary") in ("EQ","NEQ")]
+          if not classified:
+              raise AssertionError("No scientifically classifiable outcomes; refusing 37-way matrix")
+          print("MQT37_SCIENCE_SMOKE_PASS",json.dumps({
+              "collected":len(a),"classified":len(classified),
+              "correct":sum((x.get("result") or {}).get("matches_expected") is True
+                            for x in classified),
+              "errors":invalid
+          }))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mqt37-preflight-science-smoke
+          path: ${{ runner.temp }}/mqt37-preflight-science-smoke/
+          if-no-files-found: warn
+          retention-days: 30
+
   science:
     name: ${{ matrix.key }} / 1e-8 EQ+NEQ Python+Rust
-    needs: preflight
+    needs: [preflight, smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:

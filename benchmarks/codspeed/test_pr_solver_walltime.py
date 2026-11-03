@@ -35,10 +35,20 @@ def execute_source_pinned_case(revision: str, case: tuple) -> dict:
         str(interpreter), str(harness), str(workspace),
         filename, strategy, solver, backend, "1" if reverse else "0",
     ]
+    case_env = os.environ.copy()
     if case[0] in QASM261_WALLTIME_CASE_IDS:
         command.extend(("random_rotation", "hybrid", "qiskit-2.6.1-opt0"))
+        # Explicitly pin numerical semantics in BOTH verifier revisions.
+        # Do not merely label historical defaults as effective tolerances.
+        case_env.update({
+            "QUPRS_DIAGNOSTIC_RR_TOLERANCE": "1e-10",
+            "QUPRS_DIAGNOSTIC_DISTANCE_TOLERANCE": "1e-8",
+            "QUPRS_DIAGNOSTIC_PHASE_TOLERANCE": "1e-8",
+            "QUPRS_DIAGNOSTIC_GPMC_DIGITS": "30",
+        })
     process = subprocess.Popen(
         command,
+        env=case_env,
         cwd=source_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, start_new_session=True,
     )

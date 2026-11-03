@@ -10,6 +10,7 @@ on:
       - '.github/workflows/rr-cx-solver-abba.yml'
       - 'benchmarks/codspeed/test_rr_cx_solver_abba.py'
       - 'scripts/report_rr_cx_solver_abba.py'
+      - 'scripts/write_codspeed_sha_manifest.py'
   workflow_dispatch:
 
 permissions:

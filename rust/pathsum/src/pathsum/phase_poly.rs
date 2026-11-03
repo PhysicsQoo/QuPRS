@@ -81,17 +81,21 @@ impl PhasePolynomial {
             return;
         }
 
-        // For several affected terms, expand the *same* XOR replacement only
-        // once per coefficient truncation order.  Over the Boolean ring,
-        // rest AND (a XOR b) = (rest AND a) XOR (rest AND b), and the
-        // arithmetic expansion distributes through the AND.  The omitted
-        // higher-order terms are multiples of 1 in the phase when a
-        // power-of-two denominator permits truncation.
+        // Split the Boolean and phase domains by their true cost:
+        // - Clifford/symbolic-only coefficients can profit from reusing one
+        //   bounded integer XOR expansion across affected source terms.
+        // - An exact-radian coefficient owns a potentially large BigRational.
+        //   First multiply AND/XOR over F_2 so duplicate Boolean monomials
+        //   cancel BEFORE cloning/scaling any expensive source phase.
         //
-        // Keep the original path for singleton sources and large XORs:
-        // the pre-expansion can otherwise grow exponentially even when
-        // multiplication by 'rest' would cancel many Boolean terms.
-        if extracted.len() > 1 && sub_poly.len() <= 12 {
+        // Mixing exact radians with cheap coefficients is deliberately kept
+        // in the parity-first path as a whole. The native CodSpeed Decimal5
+        // and Mixed5 witnesses showed substantial regressions when eagerly
+        // expanding before these Boolean cancellations.
+        //
+        // The legacy 12-term bound is a defensive combinatorial cap; never
+        // truncate arbitrary-angle terms or change source precision.
+        if should_share_xor_expansion(&extracted, sub_poly.len()) {
             let mut expansions: FxHashMap<usize, FxHashMap<Monomial, i64>> =
                 FxHashMap::default();
             for (rest, phase) in extracted {
@@ -110,15 +114,46 @@ impl PhasePolynomial {
             return;
         }
 
-        // Fallback: preserve the established parity-first path.
+        // Parity-first: materialize only the surviving Boolean monomials
+        // before the arithmetic phase expansion. The single-monomial
+        // product avoids allocating a one-element temporary polynomial.
         for (rest, coeff) in extracted {
-            let mut rest_poly = FxHashSet::default();
-            rest_poly.insert(rest);
-            let product = crate::pathsum::mul_boolean_polys(&rest_poly, sub_poly);
+            let product = boolean_monomial_xor_product(&rest, sub_poly);
             *self += (&product, coeff);
         }
     }
 }
+
+// The shared path must be cheap for *every* affected term. Otherwise a
+// single exact-radian coefficient can force a full expensive expansion
+// before Boolean XOR cancellations, as established by native CodSpeed.
+#[inline]
+fn should_share_xor_expansion(
+    extracted: &[(Monomial, PhaseCoeff)],
+    xor_terms: usize,
+) -> bool {
+    extracted.len() > 1
+        && xor_terms <= 12
+        && extracted.iter().all(|(_, phase)| phase.radians.is_none())
+}
+
+// Preserve F_2 parity before invoking any exact-radian phase arithmetic.
+// Multiplication by one monomial distributes over XOR. If two products
+// coincide by Boolean idempotence, they cancel, not add.
+fn boolean_monomial_xor_product(
+    rest: &Monomial,
+    xor_terms: &FxHashSet<Monomial>,
+) -> FxHashSet<Monomial> {
+    let mut product = FxHashSet::default();
+    for part in xor_terms {
+        let combined = crate::pathsum::mul_monomials(rest, part);
+        if !product.remove(&combined) {
+            product.insert(combined);
+        }
+    }
+    product
+}
+
 impl AddAssign<PhaseCoeff> for PhasePolynomial {
     fn add_assign(&mut self, rhs: PhaseCoeff) {
         if !rhs.is_zero() {
@@ -316,6 +351,42 @@ mod substitution_tests {
                 candidate.substitute_var_with_poly(target, &replacement);
                 assert_eq!(candidate.terms, expected.terms,
                     "target={target}, replacement={terms:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn parity_first_gate_avoids_expensive_exact_radians() {
+        let exact = Angle::from_qasm_str("0.12345678901234567890123456789")
+            .expect("exact QASM decimal").to_phase_coeff();
+        let symbolic = PhaseCoeff::new_symbolic(17, FreeRational::HALF);
+        let clifford = PhaseCoeff::HALF;
+
+        let cheap = vec![(vec![1], clifford), (vec![2], symbolic.clone())];
+        assert!(should_share_xor_expansion(&cheap, 5));
+        assert!(!should_share_xor_expansion(&cheap, 13));
+        assert!(!should_share_xor_expansion(&cheap[..1], 5));
+
+        let exact_only = vec![(vec![1], exact.clone()), (vec![2], exact.clone())];
+        let mixed = vec![(vec![1], clifford), (vec![2], exact), (vec![3], symbolic)];
+        assert!(!should_share_xor_expansion(&exact_only, 5));
+        assert!(!should_share_xor_expansion(&mixed, 5));
+    }
+
+    #[test]
+    fn parity_first_monomial_product_matches_boolean_ring_with_collisions() {
+        let substitutions: Vec<Vec<Monomial>> = vec![
+            vec![vec![1], vec![2], vec![1, 2]],
+            vec![vec![], vec![1], vec![2], vec![1, 2]],
+            vec![vec![1], vec![1, 3], vec![2, 3], vec![3], vec![1, 2, 3]],
+        ];
+        for terms in substitutions {
+            let sub_poly: FxHashSet<Monomial> = terms.into_iter().collect();
+            for rest in [vec![], vec![1], vec![1, 3], vec![2, 3], vec![1, 2, 3]] {
+                let direct = boolean_monomial_xor_product(&rest, &sub_poly);
+                let singleton: FxHashSet<Monomial> = [rest.clone()].into_iter().collect();
+                let reference = crate::pathsum::mul_boolean_polys(&singleton, &sub_poly);
+                assert_eq!(direct, reference, "rest={rest:?}");
             }
         }
     }

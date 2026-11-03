@@ -1,0 +1,57 @@
+name: QOO160 independent QASM261 gap source oracle (research only)
+
+on:
+  push:
+    branches:
+      - experiment/qoo160-qasm261-codspeed-selection
+    paths:
+      - scripts/audit_qasm261_gap_source_oracle.py
+      - .github/workflows/qoo160-gap-independent-source-oracle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo160-qasm261-independent-oracle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  independent-source-witness:
+    name: QAOA7/VQE8 complex128 operators + QFT16 state witnesses (no Solver)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout pinned source and QASM
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install independent reference packages (no QuPRS build)
+        run: python -m pip install --disable-pip-version-check qiskit==2.6.1 numpy
+      - name: Compute bounded independent source witnesses
+        run: |
+          python -m scripts.audit_qasm261_gap_source_oracle \
+            --output "$RUNNER_TEMP/qasm261-gap-source-oracle.json"
+          python - "$RUNNER_TEMP/qasm261-gap-source-oracle.json" <<'PY'
+          import json, sys
+          j = json.load(open(sys.argv[1], encoding='utf-8'))
+          assert sorted(j['cases']) == ['qaoa7', 'qft16', 'vqe8']
+          assert j['cases']['qaoa7']['negative_relative_frobenius_residual'] > 1e-3
+          assert len(j['cases']['qft16']['basis_state_witnesses']) == 3
+          assert j['cases']['vqe8']['positive_relative_frobenius_residual'] < 1e-9
+          assert not j['rigorous_arithmetic_certification']
+          print('INDEPENDENT_SOURCE_WITNESS_PASS')
+          PY
+      - name: Preserve independent oracle output and source SHA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo160-gap-independent-source-witness
+          path: ${{ runner.temp }}/qasm261-gap-source-oracle.json
+          if-no-files-found: warn
+          retention-days: 14

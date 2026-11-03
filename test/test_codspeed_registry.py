@@ -137,3 +137,64 @@ def test_paper_gap_pilot_has_independent_ids_and_pinned_positive_negative_pairs(
             assert case.expected_verdict == "not_equivalent"
         else:
             assert case.expected_verdict == "equivalent_or_phase"
+
+
+def test_tacas_2026_pdf_table2_and_table3b_source_verified():
+    """Fast no-Solver guard for original TACAS printed tables, not modern speed."""
+    report = json.loads(DIFFICULTY.read_text(encoding="utf-8"))
+    audit = report["source_paper_audit"]
+    assert audit["table2_rows"] == 36
+    assert audit["table3b_rows"] == 37
+    assert audit["original_table2_positive_seconds_matched"] == 36
+    assert audit["original_transpiler_version"] == "1.4.2"
+    assert audit["current_qiskit261_sources_distinct"] is True
+    assert audit["original_paper_says_35_prose_examples_but_table2_contains_36_rows"] is True
+    cases = report["cases"]
+    assert len(cases) == 36
+    assert len({c["id"] for c in cases}) == 36
+    assert sum(c["historical_positive_timeout"] for c in cases) == 6
+    assert sum(c["historical_negative_timeout"] for c in cases) == 7
+    assert sum(c["random_rotation_hybrid_seconds"] is not None for c in cases) == 29
+    assert sum(c["positive_hybrid_seconds"] is not None for c in cases) == 30
+    for case in cases:
+        for suffix, time, timeout, page, table in (
+            ("table2", "positive_hybrid_seconds", "historical_positive_timeout", 431, "Table 2"),
+            ("table3b", "random_rotation_hybrid_seconds", "historical_negative_timeout", 434, "Table 3(b)"),
+        ):
+            source = case[f"historical_{suffix}_source"]
+            assert source["paper_page"] == page and source["table"] == table
+            assert source["hybrid_time_s"] == case[time]
+            assert source["timeout"] is case[timeout]
+            assert (case[time] is None) is case[timeout]
+            if case[time] is not None:
+                assert 0 < case[time] < report["timeout_seconds"]
+        counts = case["historical_gate_counts"]
+        assert all(isinstance(v, int) and v > 0 for v in counts.values())
+        assert counts["table3b_injected_gates"] > counts["table2_transpiled_gates"]
+        assert case["modern_codspeed_status"] in (
+            "RUN_INDEX_ONLY", "MEASURED_PRIOR_SHA", "NOT_MEASURED"
+        )
+    # These exact values were visually checked against printed Table 3(b) p.434.
+    new_finite = {
+        "ghz64": .095, "ghz128": .352, "graphstate32": .399,
+        "grover6": 45.913, "qaoa9": 1.046, "qaoa11": 1.806,
+        "qpeexact16": .993, "qpeexact20": 9.718,
+        "qpeinexact16": 2.147, "qpeinexact20": 9.124,
+        "qpeinexact24": 1.934, "vqe16": 8.79, "wstate8": .187,
+    }
+    by_id = {x["id"]: x for x in cases}
+    for case_id, value in new_finite.items():
+        assert by_id[case_id]["random_rotation_hybrid_seconds"] == value
+        assert by_id[case_id]["historical_negative_timeout"] is False
+    for case_id in ("grover5", "qft22", "qft24", "qnn12",
+                    "qpeexact24", "qwalk5", "wstate16"):
+        assert by_id[case_id]["historical_negative_timeout"] is True
+        assert by_id[case_id]["random_rotation_hybrid_seconds"] is None
+    assert len(report["table3_only_cases"]) == 1
+    extra = report["table3_only_cases"][0]
+    assert extra["id"] == "wstate32"
+    assert extra["paper_cohort"] == "table3_only_not_table2"
+    assert extra["historical_negative_timeout"] is True
+    assert extra["random_rotation_hybrid_seconds"] is None
+    assert extra["historical_gate_counts"]["table3b_injected_gates"] == 264
+    assert extra["historical_table3b_source"]["paper_page"] == 434

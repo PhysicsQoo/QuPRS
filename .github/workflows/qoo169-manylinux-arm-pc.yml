@@ -37,27 +37,9 @@ jobs:
           test -f /usr/lib64/libgmp.so
           test -f /usr/lib64/libmpfr.so
           echo "HEADERS_AND_LINK_LIBS_PRESENT"
-          echo "========== GENERATED SITE-LOCAL FALLBACK =========="
-          install -d /usr/local/lib/pkgconfig
-          for dep in gmp mpfr; do
-            if ! pkg-config --exists "$dep"; then
-              v="$(rpm -q --queryformat '%{VERSION}' "${dep}-devel")"
-              cat > "/usr/local/lib/pkgconfig/$dep.pc" <<EOF
-          prefix=/usr
-          exec_prefix=\${prefix}
-          libdir=/usr/lib64
-          includedir=/usr/include
-          Name: $dep
-          Description: $dep development package installed by the system RPM
-          Version: $v
-          Libs: -L\${libdir} -l$dep
-          Cflags: -I\${includedir}
-          EOF
-            fi
-            pkg-config --modversion "$dep"
-            pkg-config --libs --cflags "$dep"
-            echo "PKGCONFIG_FIXED:$dep"
-          done
+          echo "========== ASSERT ACTUAL INSTALLER CONTRACT =========="
+          pkg-config --exists gmp mpfr
+          echo "PKGCONFIG_BOTH_AVAILABLE_AFTER_SCRIPT"
           cat >/tmp/quprs-mpfr-probe.c <<'EOF'
           #include <gmp.h>
           #include <mpfr.h>

@@ -31,7 +31,7 @@ NEG = "qiskit-2.6.1-opt0/Random_Rotation"
 
 
 def exact_git_blob_sha1(data: bytes) -> str:
-    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\\x00" + data).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\x00" + data).hexdigest()
 
 
 def load_circuits():
@@ -136,7 +136,7 @@ def main() -> int:
                "qft16": state_oracle(*qft),
            }}
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(out, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+    args.output.write_text(json.dumps(out, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({name: {"class": row["negative_class"],
                              "positive_residual": row.get("positive_relative_frobenius_residual"),
                              "state_witness_count": len(row.get("basis_state_witnesses", []))}

@@ -1,0 +1,140 @@
+name: RR XOR real-QASM HH hit and native CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo151-rr-xor-reuse-20261103
+    paths:
+      - 'rust/pathsum/src/rr_xor_witness.rs'
+      - 'rust/pathsum/src/reduction.rs'
+      - 'rust/pathsum/src/lib.rs'
+      - 'rust/pathsum/Cargo.toml'
+      - 'benchmarks/rr_xor_real/Cargo.toml'
+      - 'benchmarks/rr_xor_real/src/**'
+      - 'benchmarks/rr_xor_real/benches/**'
+      - '.github/workflows/rr-xor-real-qasm-codspeed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rr-xor-real-qasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-qasm-science:
+    name: Real QFT/QPE HH source, exact provenance and semantic oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build native source dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Actual QASM HH-only trace and uninstrumented semantic agreement
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path benchmarks/rr_xor_real/Cargo.toml --lib -- --nocapture 2>&1 |
+            tee "$RUNNER_TEMP/rr-xor-real-qasm-test.log"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          source = Path(os.environ["RUNNER_TEMP"]) / "rr-xor-real-qasm-test.log"
+          marker = "RR_XOR_REAL_WITNESS="
+          rows = []
+          for line in source.read_text().splitlines():
+              if marker in line:
+                  row = json.loads(line.split(marker, 1)[1])
+                  rows.append(row)
+          expected = {"qft16", "qpeexact8", "qpeinexact8", "vqe4"}
+          seen = {r["case"] for r in rows}
+          assert len(rows) == 4 and seen == expected, (len(rows), seen)
+          for row in rows:
+              assert row["hh_substitutions"] == row["hh_successes"]
+              assert row["hh_substitutions"] == row["affected"] + row["no_affected"]
+              assert row["affected"] == row["shared_xor_hits"] + row["parity_xor_hits"] + row["singleton"] + row["zero"]
+              assert row["snapshots"] + row["truncated"] == row["affected"]
+              assert len(row["sha_reference"]) == len(row["sha_candidate"]) == 64
+          output = {
+              "head_sha": os.environ["HEAD_SHA"],
+              "instrument": "count-only-outside-codspeed",
+              "scope": "actual-hh-substitution-from-native-qasm-miter",
+              "qasm_cases": rows,
+              "shared_total": sum(r["shared_xor_hits"] for r in rows),
+          }
+          dest = Path(os.environ["RUNNER_TEMP"]) / "rr-xor-real-qasm-report.json"
+          dest.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n")
+          print("RR_XOR_REAL_SUMMARY=" + json.dumps(
+              {r["case"]: {"hh": r["hh_successes"],
+                            "shared": r["shared_xor_hits"],
+                            "parity": r["parity_xor_hits"],
+                            "truncated": r["truncated"]} for r in rows}, sort_keys=True))
+          PY
+      - name: Persist scientific QASM witness and SHA
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rr-xor-real-qasm-science
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/rr-xor-real-qasm-test.log
+            ${{ runner.temp }}/rr-xor-real-qasm-report.json
+            benchmarks/rr_xor_real/Cargo.lock
+
+  native-real-qasm:
+    name: Real QFT/QPE miter RR and HH-only replay CodSpeed Simulation
+    needs: [real-qasm-science]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare source-pinned native CodSpeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo install --locked --version 6.0.0 cargo-codspeed
+          (cd benchmarks/rr_xor_real && cargo codspeed build)
+      - name: Official native CodSpeed Simulation, no subprocess or wall clock
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          simulation-track-subprocess: 'false'
+          run: cd benchmarks/rr_xor_real && cargo codspeed run
+      - name: Store source identity
+        run: |
+          printf "head_sha=%s\n" "$HEAD_SHA" > "$RUNNER_TEMP/rr-xor-real-native-source.txt"
+          sha256sum benchmarks/rr_xor_real/src/lib.rs benchmarks/rr_xor_real/benches/real_rr.rs >> "$RUNNER_TEMP/rr-xor-real-native-source.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rr-xor-real-qasm-native-codspeed
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/rr-xor-real-native-source.txt
+            benchmarks/rr_xor_real/Cargo.lock

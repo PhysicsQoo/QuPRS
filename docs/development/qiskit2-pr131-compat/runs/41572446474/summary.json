@@ -1,0 +1,59 @@
+{
+  "evidence_sha256": {
+    "qiskit-1.4.2.json": "f7de12291f1c9d3aa0bd5e1acf9bba019000957fb0cba911ff8d2d978ea7e19a",
+    "qiskit-2.6.1.json": "908677a8d2dcb908b3ba5bf81281cf27bafe9470cc9fe88203cdbd28684c94dd"
+  },
+  "per_version": {
+    "1.4.2": {
+      "api_checks": 15,
+      "failures": [],
+      "pip_check_exit": 0,
+      "results": {
+        "QASM_global_phase_serialization_observation": "PASS",
+        "Qiskit_Circuit_Utils_import": "PASS",
+        "RR_python_objects": "PASS",
+        "RR_python_qasm2": "PASS",
+        "RR_python_qasm3": "PASS",
+        "RR_rust_objects": "PASS",
+        "RR_rust_qasm2": "PASS",
+        "RR_rust_qasm3": "PASS",
+        "load_qasm2_register_partitions": "PASS",
+        "parameter_pi_check": "PASS",
+        "pqc_generator_NLocal": "PASS",
+        "qasm2_to_pathsum": "PASS",
+        "qasm3_loader": "PASS",
+        "random_clifford_generator": "PASS",
+        "rust_global_phase_guard": "PASS"
+      }
+    },
+    "2.6.1": {
+      "api_checks": 15,
+      "failures": [],
+      "pip_check_exit": 1,
+      "results": {
+        "QASM_global_phase_serialization_observation": "PASS",
+        "Qiskit_Circuit_Utils_import": "PASS",
+        "RR_python_objects": "PASS",
+        "RR_python_qasm2": "PASS",
+        "RR_python_qasm3": "PASS",
+        "RR_rust_objects": "PASS",
+        "RR_rust_qasm2": "PASS",
+        "RR_rust_qasm3": "PASS",
+        "load_qasm2_register_partitions": "PASS",
+        "parameter_pi_check": "PASS",
+        "pqc_generator_NLocal": "PASS",
+        "qasm2_to_pathsum": "PASS",
+        "qasm3_loader": "PASS",
+        "random_clifford_generator": "PASS",
+        "rust_global_phase_guard": "PASS"
+      }
+    }
+  },
+  "performance": "NOT_MEASURED",
+  "production_pyproject_unchanged": true,
+  "qiskit2_metadata_mismatch_expected": true,
+  "run_id": "41572446474",
+  "schema": "quprs-pr131-qiskit2-compat-aggregate-v1",
+  "solvers": "NOT_RUN",
+  "source_sha": "4fce9a2d7530310dc18e66bd115856f6881b80ed"
+}

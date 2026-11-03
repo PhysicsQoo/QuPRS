@@ -1,0 +1,177 @@
+{
+  "blocking_failures": [],
+  "ci_run_id": "41572446474",
+  "diagnostics": {
+    "QASM_global_phase_serialization_observation": {
+      "status": "PASS",
+      "value": {
+        "inmemory": 0.125,
+        "not_a_formal_equivalence_assertion": true,
+        "qasm2_loaded": 0.0,
+        "qasm3_loaded": 0.0
+      }
+    },
+    "Qiskit_Circuit_Utils_import": {
+      "status": "PASS",
+      "value": {
+        "functions": [
+          "pqc_generator",
+          "random_circuit",
+          "random_clifford_T_circuit",
+          "add_random_rotation_gates"
+        ],
+        "loaded_module": "QuPRS.utils.Qiskit_Circuit_Utils"
+      }
+    },
+    "RR_python_objects": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_python_qasm2": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_python_qasm3": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_rust_objects": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_rust_qasm2": {
+      "status": "PASS",
+      "value": {
+        "solver_invoked": false,
+        "verdict": "equivalent"
+      }
+    },
+    "RR_rust_qasm3": {
+      "status": "PASS",
+      "value": {
+        "qasm3_native_status": "EXPECTED_UNSUPPORTED_FAIL_CLOSED"
+      }
+    },
+    "load_qasm2_register_partitions": {
+      "status": "PASS",
+      "value": {
+        "gate_qubits": [
+          [
+            0
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            1
+          ]
+        ],
+        "loaded": [
+          [
+            "alpha",
+            2
+          ],
+          [
+            "beta",
+            1
+          ]
+        ],
+        "original": [
+          [
+            "alpha",
+            2
+          ],
+          [
+            "beta",
+            1
+          ]
+        ]
+      }
+    },
+    "parameter_pi_check": {
+      "status": "PASS",
+      "value": {
+        "expr": "theta/pi",
+        "type": "Mul"
+      }
+    },
+    "pqc_generator_NLocal": {
+      "status": "PASS",
+      "value": {
+        "basis2": {
+          "cx": 1,
+          "rz": 8,
+          "sx": 8
+        },
+        "name": "NLocal_2_1",
+        "num_qubits": 2
+      }
+    },
+    "qasm2_to_pathsum": {
+      "status": "PASS",
+      "value": {
+        "num_qubits": 2
+      }
+    },
+    "qasm3_loader": {
+      "status": "PASS",
+      "value": {
+        "counts": {
+          "cx": 1,
+          "h": 1
+        },
+        "qregs": [
+          [
+            "q",
+            2
+          ]
+        ]
+      }
+    },
+    "random_clifford_generator": {
+      "status": "PASS",
+      "value": {
+        "gate_types": {
+          "cx": 1,
+          "s": 2,
+          "sx": 1,
+          "sxdg": 1,
+          "x": 1
+        },
+        "n": 6
+      }
+    },
+    "rust_global_phase_guard": {
+      "status": "PASS",
+      "value": {
+        "unequal_phase_rejected": true
+      }
+    }
+  },
+  "expected_numpy": "1.26.4",
+  "numpy_actual": "1.26.4",
+  "performance_measured": false,
+  "pip_check_exit": 0,
+  "pip_check_stderr": "",
+  "pip_check_stdout": "No broken requirements found.\n",
+  "qiskit2_metadata_requirement_intentionally_violated": false,
+  "qiskit_actual": "1.4.2",
+  "qiskit_qasm3_import": "0.6.0",
+  "quprs_dependency_qiskit": "qiskit>=1.0.0,<2.0",
+  "quprs_source_sha": "4fce9a2d7530310dc18e66bd115856f6881b80ed",
+  "schema": "quprs-pr131-qiskit2-compat-v2",
+  "solver_tests_executed": false
+}

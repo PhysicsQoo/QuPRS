@@ -156,8 +156,10 @@ def worker(p,method,backend,solver,timeout):
     real_run=proc.run
     captures=[]
     if backend=="python":
-        def intercept(command,deadline):
-            out=real_run(command,deadline)
+        def intercept(command,*args,**kwargs):
+            # Solver adapters pass timeout by keyword. Preserve the actual
+            # call signature without changing deadlines or Solver behavior.
+            out=real_run(command,*args,**kwargs)
             path=str(command[0]).lower()
             if solver in Path(path).name:
                 cnf=Path(command[-1])

@@ -514,7 +514,7 @@
       "independent_qiskit_audit": {
         "interpretation": "FLOAT_OBSERVATION_NOT_CERTIFIED",
         "numeric_type": "numpy.complex128_qiskit_operator",
-        "phase_aligned_frobenius_normalized_float": 1.7607565188251105e-15,
+        "phase_aligned_frobenius_normalized_float": 1.76075651882511e-15,
         "projective_distance_float": 5.37269007483719e-08,
         "qubits": 3,
         "source_global_phase": 0.0,

@@ -1,0 +1,223 @@
+{
+  "schema": "quprs-mqtbench-transpiler-source-register-v1",
+  "provenance": {
+    "repository": "PhysicsQoo/QuPRS",
+    "historical_tag": "v0.9.1",
+    "historical_commit": "e928abc47dd15926364ec77905eb0d5dc92ce8cc",
+    "current_source_matches_historical_git_blobs": true
+  },
+  "compiler": {
+    "package": "qiskit",
+    "exact_version": "2.6.1",
+    "target_basis": [
+      "h",
+      "ry",
+      "rz",
+      "cx"
+    ],
+    "optimization_level": 0,
+    "approximation_degree": 1,
+    "seed_transpiler": 42,
+    "serialized_format": "OPENQASM_2",
+    "processing": "remove_final_measurements_only"
+  },
+  "source_qasm_count": 37,
+  "historical_transpiled_count": 45,
+  "legacy_transpiled_without_source": [
+    "qft_nativegates_ibm_qiskit_opt0_21.qasm",
+    "qft_nativegates_ibm_qiskit_opt0_23.qasm",
+    "qpeexact_nativegates_ibm_qiskit_opt0_21.qasm",
+    "qpeexact_nativegates_ibm_qiskit_opt0_22.qasm",
+    "qpeexact_nativegates_ibm_qiskit_opt0_23.qasm",
+    "qpeinexact_nativegates_ibm_qiskit_opt0_21.qasm",
+    "qpeinexact_nativegates_ibm_qiskit_opt0_22.qasm",
+    "qpeinexact_nativegates_ibm_qiskit_opt0_23.qasm"
+  ],
+  "source_qasms": [
+    {
+      "path": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "git_blob_sha1": "137d71ec02fcaa6ee69d73aa28f93758ab1d36ef",
+      "bytes": 2240
+    },
+    {
+      "path": "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "git_blob_sha1": "07c16aaefc4b33750e86a73a0cf276fafe59f8cd",
+      "bytes": 645
+    },
+    {
+      "path": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "git_blob_sha1": "85cdcd6812a26459c896030cc3486b2249eb4db8",
+      "bytes": 1157
+    },
+    {
+      "path": "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "git_blob_sha1": "ab34308febb31ea9a49e9761a988aad7017f3487",
+      "bytes": 2682
+    },
+    {
+      "path": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "git_blob_sha1": "4c0f3a339f1624a33455595830cfbc27f7b31a72",
+      "bytes": 5350
+    },
+    {
+      "path": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "git_blob_sha1": "14246fa37530dc83ce6d7da83291d44a6b1bc946",
+      "bytes": 10656
+    },
+    {
+      "path": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "git_blob_sha1": "0babf2aa735c17cf1e201baeea2874fe3c3ffcf8",
+      "bytes": 3081
+    },
+    {
+      "path": "grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "git_blob_sha1": "0bb566ed3fa41b07a106c2c40f25dd4a817fb18d",
+      "bytes": 8112
+    },
+    {
+      "path": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "git_blob_sha1": "fe7a801a1d2966b6c5a9de509212f95fab1c78fa",
+      "bytes": 25429
+    },
+    {
+      "path": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "git_blob_sha1": "2bb62b0695c877a8a2a670bd8c26c96aef17b35b",
+      "bytes": 4004
+    },
+    {
+      "path": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "git_blob_sha1": "4c314c32caef3d2577d7efe849635bcbc2b2335f",
+      "bytes": 2581
+    },
+    {
+      "path": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "git_blob_sha1": "654a0e2e4956bd15ee6765fbf3d29a7181ecd623",
+      "bytes": 3294
+    },
+    {
+      "path": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "git_blob_sha1": "398b32262259af75fcf44ab711b77281818d0cc7",
+      "bytes": 10947
+    },
+    {
+      "path": "qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "git_blob_sha1": "828c42db83d043772e9feeabe2360d490ee20a98",
+      "bytes": 17302
+    },
+    {
+      "path": "qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "git_blob_sha1": "7566e9c039a50aa291f845e6770c8443c01decfb",
+      "bytes": 21069
+    },
+    {
+      "path": "qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "git_blob_sha1": "0203ce377f63ed2f19e2c6fb9c8c1e9608370d87",
+      "bytes": 25235
+    },
+    {
+      "path": "qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "git_blob_sha1": "ab7002b656a38ca32b9a5f0402f316cbcb98ee9d",
+      "bytes": 11445
+    },
+    {
+      "path": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "git_blob_sha1": "0a0997353a8cb5cbdac9e574e42a36015a8037db",
+      "bytes": 2033
+    },
+    {
+      "path": "qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "git_blob_sha1": "17245438ff96cbe0fbd054c6db2322ac079f2cd8",
+      "bytes": 5760
+    },
+    {
+      "path": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "git_blob_sha1": "6c3031ab98a2059d2c3077e6e29b9ee90a603133",
+      "bytes": 12125
+    },
+    {
+      "path": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "git_blob_sha1": "fb9dfc0852dd28ce5f67bb37a6e5cdc5a0d38ecc",
+      "bytes": 18875
+    },
+    {
+      "path": "qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "git_blob_sha1": "fabc0b909f0dde27689df38cb3cee116663ee3c9",
+      "bytes": 26803
+    },
+    {
+      "path": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "git_blob_sha1": "4582df5b4cefe3cc69227d29eb2894ccd1c5412a",
+      "bytes": 3232
+    },
+    {
+      "path": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "git_blob_sha1": "c1fc704452a864dcffb95d603db371d1a7530e48",
+      "bytes": 12162
+    },
+    {
+      "path": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "git_blob_sha1": "4535af5bd2c7603e40e2828bb7438ab6240aea9f",
+      "bytes": 18906
+    },
+    {
+      "path": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "git_blob_sha1": "9832ae8ba0754f08fb19751051095fa5f276e529",
+      "bytes": 27213
+    },
+    {
+      "path": "qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "git_blob_sha1": "65f0bf861d13f398c0f6059867e6d8cec7b08f15",
+      "bytes": 3276
+    },
+    {
+      "path": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "git_blob_sha1": "0960c698e44cb5320301f7bd4acdd892d9069db0",
+      "bytes": 2720
+    },
+    {
+      "path": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "git_blob_sha1": "d44a138cc54ab06cc586706ed6aabc312e551dc6",
+      "bytes": 6800
+    },
+    {
+      "path": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "git_blob_sha1": "7d3f1f9703a1548163470c8b2e98456a0aa11eb3",
+      "bytes": 24890
+    },
+    {
+      "path": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "git_blob_sha1": "220f9ce7d976d88e38665523cf5cf9e913d205d8",
+      "bytes": 4880
+    },
+    {
+      "path": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "git_blob_sha1": "20e9fd16e5f464338c72c5da8bede32225791414",
+      "bytes": 1280
+    },
+    {
+      "path": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "git_blob_sha1": "c3914ae2a113da973ab2f9d2c34f2c29ec11a64e",
+      "bytes": 2419
+    },
+    {
+      "path": "wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "git_blob_sha1": "29e97e27e043866f1b3bcd3f5526fe356382003f",
+      "bytes": 4694
+    },
+    {
+      "path": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "git_blob_sha1": "a2a5e61b7429c961712d4f82a4f8aa1446556838",
+      "bytes": 9827
+    },
+    {
+      "path": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "git_blob_sha1": "b929dc5eca00dd0771c8f28e0fda42c2abcb68bf",
+      "bytes": 981
+    },
+    {
+      "path": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "git_blob_sha1": "f5a0acd086121079e704956bfa948a830a7aaffc",
+      "bytes": 2185
+    }
+  ]
+}

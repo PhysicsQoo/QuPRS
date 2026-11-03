@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from benchmarks.codspeed.case_registry import (
-    QASM261_COVERAGE_GAP_CASES, QASM261_PILOT_CASES, ALL_WALLTIME_CASE_IDS,
+    QASM261_COVERAGE_GAP_CASES, QASM261_PILOT_CASES, WALLTIME_CASE_IDS,
 )
 
 FIXTURES = Path(__file__).resolve().parents[1] / "benchmarks/MQTBench"
@@ -12,7 +12,7 @@ def test_gap_six_distinct_versioned_research_identities():
     cases = QASM261_COVERAGE_GAP_CASES
     assert len(cases) == len({c.id for c in cases}) == 6
     assert not ({c.id for c in cases}
-                & ({c.id for c in QASM261_PILOT_CASES} | ALL_WALLTIME_CASE_IDS))
+                & ({c.id for c in QASM261_PILOT_CASES} | WALLTIME_CASE_IDS))
     assert all(c.id.startswith("q261_gap_") for c in cases)
 
 

@@ -23,14 +23,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 34,
+        "table2_transpiled_gates": 33,
+        "table3b_injected_gates": 34
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.027,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.04,
+        "timeout": false
+      }
     },
     {
       "id": "ghz64",
       "fixture": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
       "qubits": 64,
       "positive_hybrid_seconds": 0.084,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 0.095,
       "historical_positive_timeout": false,
       "candidate_tier": "routine_candidate",
       "promoted": false,
@@ -71,6 +89,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 66,
+        "table2_transpiled_gates": 65,
+        "table3b_injected_gates": 66
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.084,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.095,
+        "timeout": false
       }
     },
     {
@@ -78,7 +114,7 @@
       "fixture": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
       "qubits": 128,
       "positive_hybrid_seconds": 0.306,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 0.352,
       "historical_positive_timeout": false,
       "candidate_tier": "release_candidate",
       "promoted": false,
@@ -89,7 +125,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 130,
+        "table2_transpiled_gates": 129,
+        "table3b_injected_gates": 131
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.306,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.352,
+        "timeout": false
+      }
     },
     {
       "id": "graphstate16",
@@ -107,14 +161,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 160,
+        "table2_transpiled_gates": 108,
+        "table3b_injected_gates": 110
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.162,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.16,
+        "timeout": false
+      }
     },
     {
       "id": "graphstate32",
       "fixture": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
       "qubits": 32,
       "positive_hybrid_seconds": 0.33,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 0.399,
       "historical_positive_timeout": false,
       "candidate_tier": "routine_candidate",
       "promoted": false,
@@ -155,6 +227,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 320,
+        "table2_transpiled_gates": 219,
+        "table3b_injected_gates": 222
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.33,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.399,
+        "timeout": false
       }
     },
     {
@@ -173,7 +263,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 640,
+        "table2_transpiled_gates": 435,
+        "table3b_injected_gates": 440
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 1.068,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 1.223,
+        "timeout": false
+      }
     },
     {
       "id": "grover4",
@@ -191,7 +299,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 190,
+        "table2_transpiled_gates": 160,
+        "table3b_injected_gates": 162
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.213,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.478,
+        "timeout": false
+      }
     },
     {
       "id": "grover5",
@@ -209,14 +335,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": true,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 499,
+        "table2_transpiled_gates": 409,
+        "table3b_injected_gates": 414
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.194,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     },
     {
       "id": "grover6",
       "fixture": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
       "qubits": 6,
       "positive_hybrid_seconds": null,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 45.913,
       "historical_positive_timeout": true,
       "candidate_tier": "stress_candidate",
       "promoted": false,
@@ -227,7 +371,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1568,
+        "table2_transpiled_gates": 1400,
+        "table3b_injected_gates": 1415
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": null,
+        "timeout": true
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 45.913,
+        "timeout": false
+      }
     },
     {
       "id": "qaoa7",
@@ -245,14 +407,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 133,
+        "table2_transpiled_gates": 170,
+        "table3b_injected_gates": 172
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 1.023,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 1.61,
+        "timeout": false
+      }
     },
     {
       "id": "qaoa9",
       "fixture": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
       "qubits": 9,
       "positive_hybrid_seconds": 0.974,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 1.046,
       "historical_positive_timeout": false,
       "candidate_tier": "routine_candidate",
       "promoted": false,
@@ -263,14 +443,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 171,
+        "table2_transpiled_gates": 209,
+        "table3b_injected_gates": 212
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.974,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 1.046,
+        "timeout": false
+      }
     },
     {
       "id": "qaoa11",
       "fixture": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
       "qubits": 11,
       "positive_hybrid_seconds": 1.636,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 1.806,
       "historical_positive_timeout": false,
       "candidate_tier": "release_candidate",
       "promoted": false,
@@ -281,7 +479,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 209,
+        "table2_transpiled_gates": 270,
+        "table3b_injected_gates": 273
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 1.636,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 1.806,
+        "timeout": false
+      }
     },
     {
       "id": "qft16",
@@ -299,7 +515,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 672,
+        "table2_transpiled_gates": 543,
+        "table3b_injected_gates": 549
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 1.818,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 5.674,
+        "timeout": false
+      }
     },
     {
       "id": "qft20",
@@ -317,7 +551,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1040,
+        "table2_transpiled_gates": 825,
+        "table3b_injected_gates": 834
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 20.122,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 30.508,
+        "timeout": false
+      }
     },
     {
       "id": "qft22",
@@ -334,8 +586,26 @@
       "modern_solver_stage": "UNVERIFIED",
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
-      "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_timeout": true,
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1254,
+        "table2_transpiled_gates": 970,
+        "table3b_injected_gates": 980
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 82.866,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     },
     {
       "id": "qft24",
@@ -352,8 +622,26 @@
       "modern_solver_stage": "UNVERIFIED",
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
-      "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_timeout": true,
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1488,
+        "table2_transpiled_gates": 1111,
+        "table3b_injected_gates": 1123
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": null,
+        "timeout": true
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     },
     {
       "id": "qnn4",
@@ -401,6 +689,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 111,
+        "table2_transpiled_gates": 122,
+        "table3b_injected_gates": 124
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.738,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.838,
+        "timeout": false
       }
     },
     {
@@ -419,7 +725,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 319,
+        "table2_transpiled_gates": 334,
+        "table3b_injected_gates": 338
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 15.694,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 13.421,
+        "timeout": false
+      }
     },
     {
       "id": "qnn12",
@@ -436,8 +760,26 @@
       "modern_solver_stage": "UNVERIFIED",
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
-      "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_timeout": true,
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 623,
+        "table2_transpiled_gates": 648,
+        "table3b_injected_gates": 655
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": null,
+        "timeout": true
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     },
     {
       "id": "qpeexact8",
@@ -485,6 +827,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 192,
+        "table2_transpiled_gates": 150,
+        "table3b_injected_gates": 152
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.326,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 45.512,
+        "timeout": false
       }
     },
     {
@@ -492,7 +852,7 @@
       "fixture": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
       "qubits": 16,
       "positive_hybrid_seconds": 0.33,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 0.993,
       "historical_positive_timeout": false,
       "candidate_tier": "targeted_candidate",
       "promoted": false,
@@ -503,14 +863,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 712,
+        "table2_transpiled_gates": 562,
+        "table3b_injected_gates": 568
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.33,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.993,
+        "timeout": false
+      }
     },
     {
       "id": "qpeexact20",
       "fixture": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
       "qubits": 20,
       "positive_hybrid_seconds": 0.581,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 9.718,
       "historical_positive_timeout": false,
       "candidate_tier": "targeted_candidate",
       "promoted": false,
@@ -521,7 +899,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1092,
+        "table2_transpiled_gates": 861,
+        "table3b_injected_gates": 870
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.581,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 9.718,
+        "timeout": false
+      }
     },
     {
       "id": "qpeexact24",
@@ -538,8 +934,26 @@
       "modern_solver_stage": "UNVERIFIED",
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
-      "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_timeout": true,
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1537,
+        "table2_transpiled_gates": 1173,
+        "table3b_injected_gates": 1185
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": null,
+        "timeout": true
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     },
     {
       "id": "qpeinexact8",
@@ -587,6 +1001,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 192,
+        "table2_transpiled_gates": 150,
+        "table3b_injected_gates": 152
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.333,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.66,
+        "timeout": false
       }
     },
     {
@@ -594,7 +1026,7 @@
       "fixture": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
       "qubits": 16,
       "positive_hybrid_seconds": 0.295,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 2.147,
       "historical_positive_timeout": false,
       "candidate_tier": "routine_candidate",
       "promoted": false,
@@ -605,14 +1037,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 712,
+        "table2_transpiled_gates": 562,
+        "table3b_injected_gates": 568
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.295,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 2.147,
+        "timeout": false
+      }
     },
     {
       "id": "qpeinexact20",
       "fixture": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
       "qubits": 20,
       "positive_hybrid_seconds": 0.623,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 9.124,
       "historical_positive_timeout": false,
       "candidate_tier": "targeted_candidate",
       "promoted": false,
@@ -623,14 +1073,32 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1092,
+        "table2_transpiled_gates": 861,
+        "table3b_injected_gates": 870
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.623,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 9.124,
+        "timeout": false
+      }
     },
     {
       "id": "qpeinexact24",
       "fixture": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
       "qubits": 24,
       "positive_hybrid_seconds": 1.075,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 1.934,
       "historical_positive_timeout": false,
       "candidate_tier": "targeted_candidate",
       "promoted": false,
@@ -641,7 +1109,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1552,
+        "table2_transpiled_gates": 1175,
+        "table3b_injected_gates": 1187
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 1.075,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 1.934,
+        "timeout": false
+      }
     },
     {
       "id": "qwalk3",
@@ -689,6 +1175,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 141,
+        "table2_transpiled_gates": 113,
+        "table3b_injected_gates": 115
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.107,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.707,
+        "timeout": false
       }
     },
     {
@@ -707,7 +1211,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 357,
+        "table2_transpiled_gates": 294,
+        "table3b_injected_gates": 297
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.154,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 5.314,
+        "timeout": false
+      }
     },
     {
       "id": "qwalk5",
@@ -724,8 +1246,26 @@
       "modern_solver_stage": "UNVERIFIED",
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
-      "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_timeout": true,
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 1305,
+        "table2_transpiled_gates": 1158,
+        "table3b_injected_gates": 1170
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": null,
+        "timeout": true
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     },
     {
       "id": "vqe4",
@@ -743,7 +1283,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 66,
+        "table2_transpiled_gates": 44,
+        "table3b_injected_gates": 45
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.388,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 1.215,
+        "timeout": false
+      }
     },
     {
       "id": "vqe8",
@@ -791,6 +1349,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 134,
+        "table2_transpiled_gates": 95,
+        "table3b_injected_gates": 96
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.818,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.509,
+        "timeout": false
       }
     },
     {
@@ -798,7 +1374,7 @@
       "fixture": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
       "qubits": 16,
       "positive_hybrid_seconds": 2.878,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 8.79,
       "historical_positive_timeout": false,
       "candidate_tier": "targeted_candidate",
       "promoted": false,
@@ -809,7 +1385,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 270,
+        "table2_transpiled_gates": 211,
+        "table3b_injected_gates": 214
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 2.878,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 8.79,
+        "timeout": false
+      }
     },
     {
       "id": "wstate4",
@@ -857,6 +1451,24 @@
         "solver_timeout_s": 15,
         "watchdog_s": 24,
         "performance_certified": false
+      },
+      "historical_gate_counts": {
+        "original_gates": 55,
+        "table2_transpiled_gates": 25,
+        "table3b_injected_gates": 26
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.147,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.127,
+        "timeout": false
       }
     },
     {
@@ -864,7 +1476,7 @@
       "fixture": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
       "qubits": 8,
       "positive_hybrid_seconds": 0.182,
-      "random_rotation_hybrid_seconds": null,
+      "random_rotation_hybrid_seconds": 0.187,
       "historical_positive_timeout": false,
       "candidate_tier": "targeted_candidate",
       "promoted": false,
@@ -875,7 +1487,25 @@
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
       "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 127,
+        "table2_transpiled_gates": 61,
+        "table3b_injected_gates": 62
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": 0.182,
+        "timeout": false
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": 0.187,
+        "timeout": false
+      }
     },
     {
       "id": "wstate16",
@@ -892,8 +1522,26 @@
       "modern_solver_stage": "UNVERIFIED",
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
-      "historical_negative_timeout": false,
-      "historical_negative_source": "Random_Rotation"
+      "historical_negative_timeout": true,
+      "historical_negative_source": "Random_Rotation",
+      "historical_gate_counts": {
+        "original_gates": 271,
+        "table2_transpiled_gates": 129,
+        "table3b_injected_gates": 131
+      },
+      "historical_table2_source": {
+        "paper_page": 431,
+        "table": "Table 2",
+        "qiskit_transpiler": "1.4.2",
+        "hybrid_time_s": null,
+        "timeout": true
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     }
   ],
   "modern_index": {
@@ -917,9 +1565,44 @@
       "modern_solver_stage": "UNVERIFIED",
       "modern_verdict": "UNVERIFIED",
       "modern_memory_risk": "UNVERIFIED",
-      "historical_negative_timeout": false,
+      "historical_negative_timeout": true,
       "historical_negative_source": "Random_Rotation",
-      "paper_cohort": "table3_only_not_table2"
+      "paper_cohort": "table3_only_not_table2",
+      "historical_gate_counts": {
+        "original_gates": 559,
+        "table3a_transpiled_gates": 261,
+        "table3b_injected_gates": 264
+      },
+      "historical_table3b_source": {
+        "paper_page": 434,
+        "table": "Table 3(b)",
+        "hybrid_time_s": null,
+        "timeout": true
+      }
     }
-  ]
+  ],
+  "source_paper_audit": {
+    "verified_on": "2026-11-03",
+    "paper": "https://link.springer.com/content/pdf/10.1007/978-3-032-22749-2_21.pdf",
+    "doi": "10.1007/978-3-032-22749-2_21",
+    "table2_pdf_page_index": 12,
+    "table2_printed_page": 431,
+    "table3_pdf_page_index": 15,
+    "table3_printed_page": 434,
+    "table2_rows": 36,
+    "table3b_rows": 37,
+    "table3b_additional_id": "wstate32",
+    "original_table2_positive_seconds_matched": 36,
+    "table3b_finite_seconds_completed_from_original_pdf": 13,
+    "table3b_timeout_flags_corrected": 7,
+    "original_paper_says_35_prose_examples_but_table2_contains_36_rows": true,
+    "original_transpiler_version": "1.4.2",
+    "historical_tool": "QuPRS Python Hybrid",
+    "historical_runtime_unit": "seconds",
+    "timeout_contract": "200 seconds; table TO and >200 preserved as null with explicit timeout boolean",
+    "current_qiskit261_sources_distinct": true,
+    "modern_data_not_inferred": true,
+    "evidence_level": "VISUALLY_CHECKED_ORIGINAL_PDF_TABLE_COLUMNS",
+    "methodology_note": "Do not use old Azure E8ads v5 seconds as modern CodSpeed data, and do not mix Table 2 positive with Table 3(b) injected rotation."
+  }
 }

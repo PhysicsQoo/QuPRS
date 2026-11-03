@@ -85,3 +85,32 @@ def test_python_wmc_only_uses_source_scalar_instead_of_analytic_identity():
         phase_tolerance=1e-15, rr_tolerance=0,
     )
     assert result.equivalent == "equivalent*", result
+
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+@pytest.mark.parametrize("format", ["qasm2", "qasm3"])
+def test_measurement_is_not_silently_verified_as_identity(backend, format):
+    if format == "qasm3":
+        source = (
+            'OPENQASM 3.0;\ninclude "stdgates.inc";\n'
+            'qubit[1] q;\nbit[1] c;\nc[0] = measure q[0];\n'
+        )
+    else:
+        source = (
+            'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
+            'qreg q[1];\ncreg c[1];\nmeasure q[0] -> c[0];\n'
+        )
+    with pytest.raises((ValueError, AssertionError)):
+        check_equivalence(
+            source, source, backend=backend, method="reduction_rules", timeout=30,
+        )
+
+
+@pytest.mark.parametrize("backend", ["python", "rust"])
+def test_qasm3_reset_is_not_silently_verified_as_identity(backend):
+    source = BASE + "reset q[0];\n"
+    with pytest.raises((ValueError, AssertionError)):
+        check_equivalence(
+            BASE, source, backend=backend, method="reduction_rules", timeout=30,
+        )

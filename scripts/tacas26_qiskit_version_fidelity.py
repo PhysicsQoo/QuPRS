@@ -88,11 +88,18 @@ def run(version, output):
                             seed_transpiler=SEED,approximation_degree=1.0)
                 compiled=compare(original,qc,np,Operator,Statevector)
                 packed=qasm2.dumps(qc)
+                # Save the actual bytes passed to future QuPRS v0.9.1/v0.14.0.
+                # A SHA256 alone cannot reconstruct the compiled circuit.
+                qasm2_relative=Path("generated-qasm") / ("qiskit-"+version) / (short+"-opt"+str(level)+".qasm")
+                qasm2_path=output.parent / qasm2_relative
+                qasm2_path.parent.mkdir(parents=True,exist_ok=True)
+                qasm2_path.write_bytes(packed.encode("utf-8"))
                 serial=compare(original,qasm2.loads(packed),np,Operator,Statevector)
                 r["transpiles"].append({
                     "level":level,"status":"OK",
                     "compiled_in_memory":compiled,"serialized":serial,
-                    "qasm2_sha256":sha(packed.encode()),
+                    "qasm2_sha256":sha(packed.encode("utf-8")),
+                    "qasm2_file":qasm2_relative.as_posix(),
                     "gates":qc.size(),"depth":qc.depth(),
                     "global_phase":float(qc.global_phase)})
             except Exception as ex:

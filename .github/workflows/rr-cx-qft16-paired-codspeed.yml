@@ -1,0 +1,193 @@
+name: QFT16 Bra-CX real-QASM native Base vs HEAD CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo151-rr-xor-reuse-20261103
+    paths:
+      - 'benchmarks/rr_cx_qft16_paired/Cargo.toml'
+      - 'benchmarks/rr_cx_qft16_paired/src/**'
+      - 'benchmarks/rr_cx_qft16_paired/benches/**'
+      - '.github/workflows/rr-cx-qft16-paired-codspeed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rr-cx-qft16-paired-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 2e3c5f1b160324445240db8ee204988c5d1aed70
+  HEAD_SHA: ${{ github.sha }}
+
+jobs:
+  source-and-science:
+    name: Identical QASM and exact native RR residual oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2e3c5f1b160324445240db8ee204988c5d1aed70
+          path: pr-cx-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build dependencies and verify immutable QASM and bench source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-cx-base rev-parse HEAD)" = "$BASE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          mkdir -p pr-cx-base/benchmarks
+          cp -a benchmarks/rr_cx_qft16_paired pr-cx-base/benchmarks/
+          for file in src/lib.rs benches/qft16_pair.rs; do
+            cmp "benchmarks/rr_cx_qft16_paired/$file" "pr-cx-base/benchmarks/rr_cx_qft16_paired/$file"
+          done
+          for file in qft_nativegates_ibm_qiskit_opt0_16.qasm qpeexact_nativegates_ibm_qiskit_opt0_8.qasm; do
+            cmp "benchmarks/MQTBench/$file" "pr-cx-base/benchmarks/MQTBench/$file"
+            cmp "benchmarks/MQTBench/h,ry,rz,cx/$file" "pr-cx-base/benchmarks/MQTBench/h,ry,rz,cx/$file"
+          done
+      - name: Execute both real QASM source-science oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variant in base head; do
+            root="benchmarks/rr_cx_qft16_paired"
+            if [[ "$variant" == base ]]; then root="pr-cx-base/benchmarks/rr_cx_qft16_paired"; fi
+            cargo test --manifest-path "$root/Cargo.toml" --lib -- --nocapture 2>&1 \
+              | tee "$RUNNER_TEMP/rr-cx-$variant-science.log"
+          done
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          tmp = Path(os.environ["RUNNER_TEMP"])
+          tag = "RR_CX_NATIVE_PAIRED_ORACLE="
+          def load(side):
+              rows = []
+              for line in (tmp / f"rr-cx-{side}-science.log").read_text().splitlines():
+                  if tag in line:
+                      rows.append(json.loads(line.split(tag, 1)[1]))
+              assert len(rows) == 2, (side, rows)
+              assert {r["case"] for r in rows} == {"qft16", "qpeexact8"}
+              return {r["case"]: r for r in rows}
+          a = load("base")
+          b = load("head")
+          for case in a:
+              assert a[case] == b[case], f"Scientific residual/source mismatch for {case}: {a[case]} != {b[case]}"
+          summary = {
+              "base_sha": os.environ["BASE_SHA"],
+              "head_sha": os.environ["HEAD_SHA"],
+              "same_source": True,
+              "canonical_residual_equal": True,
+              "cases": a,
+          }
+          (tmp / "rr-cx-native-science-comparison.json").write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + "\n"
+          )
+          print("RR_CX_NATIVE_SCIENCE_PASS=" + json.dumps(summary, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rr-cx-qft16-paired-source-science
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/rr-cx-base-science.log
+            ${{ runner.temp }}/rr-cx-head-science.log
+            ${{ runner.temp }}/rr-cx-native-science-comparison.json
+
+  paired-native-codspeed:
+    name: QFT16/QPEexact8 Base HEAD native CodSpeed Simulation
+    needs: [source-and-science]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2e3c5f1b160324445240db8ee204988c5d1aed70
+          path: pr-cx-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile identical-source Base and HEAD native CodSpeed benches
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-cx-base rev-parse HEAD)" = "$BASE_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo install --locked --version 6.0.0 cargo-codspeed
+          mkdir -p pr-cx-base/benchmarks
+          cp -a benchmarks/rr_cx_qft16_paired pr-cx-base/benchmarks/
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          roots = {
+              "base": Path("pr-cx-base/benchmarks/rr_cx_qft16_paired"),
+              "head": Path("benchmarks/rr_cx_qft16_paired"),
+          }
+          lines = ["base_sha=" + os.environ["BASE_SHA"], "head_sha=" + os.environ["HEAD_SHA"]]
+          for rel in ("src/lib.rs", "benches/qft16_pair.rs"):
+              raw = roots["base"].joinpath(rel).read_bytes()
+              assert raw == roots["head"].joinpath(rel).read_bytes()
+              lines.append(f"{rel} sha256={hashlib.sha256(raw).hexdigest()}")
+          for variant, root in roots.items():
+              bench_src = root / "benches/qft16_pair.rs"
+              alias = root / f"benches/qft16_pair_{variant}.rs"
+              alias.write_bytes(bench_src.read_bytes())
+              assert alias.read_bytes() == bench_src.read_bytes()
+              manifest = root / "Cargo.toml"
+              src = manifest.read_text()
+              assert src.count('name = "qft16_pair"') == 1
+              assert src.count('path = "benches/qft16_pair.rs"') == 1
+              src = src.replace('name = "qft16_pair"', f'name = "qft16_pair_{variant}"')
+              src = src.replace('path = "benches/qft16_pair.rs"',
+                                f'path = "benches/qft16_pair_{variant}.rs"')
+              manifest.write_text(src)
+          Path(os.environ["RUNNER_TEMP"], "rr-cx-native-source-hashes.txt").write_text(
+              "\n".join(lines) + "\n"
+          )
+          PY
+          for root in pr-cx-base/benchmarks/rr_cx_qft16_paired benchmarks/rr_cx_qft16_paired; do
+            (cd "$root" && cargo codspeed build)
+          done
+      - name: Official source-pinned native CPU Base HEAD comparison
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          simulation-track-subprocess: 'false'
+          run: |
+            set -euo pipefail
+            (cd pr-cx-base/benchmarks/rr_cx_qft16_paired && cargo codspeed run)
+            (cd benchmarks/rr_cx_qft16_paired && cargo codspeed run)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rr-cx-qft16-paired-native-codspeed
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            ${{ runner.temp }}/rr-cx-native-source-hashes.txt
+            pr-cx-base/benchmarks/rr_cx_qft16_paired/Cargo.lock
+            benchmarks/rr_cx_qft16_paired/Cargo.lock

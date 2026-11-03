@@ -31,6 +31,41 @@ They remain available under the original historical target folder.
 These missing source identities are explicitly recorded in
 `source-register.json` and `manifest.json`.
 
+## Random_Rotation negative controls
+
+The matched `Random_Rotation/` folder now contains **37 deterministic
+negative-control QASM** files built from this directory's corresponding
+Level-0 `h,ry,rz,cx/` QASM, rather than the historical Level-3 circuit.
+Each filename matches its positive counterpart.
+
+- Generator: `scripts/generate_mqtbench_qiskit261_random_rotation.py`
+- Rule preserved from historical `scripts/generate_error_circuit.py`:
+  `int(source_gate_count * 0.01) + 1` random one-qubit `RX`, `RY`, or
+  `RZ` insertions; angles uniform from 0 to 2π
+- Independent deterministic seed per file, derived from the original
+  output SHA256, filename and a fixed experiment seed string
+- `random-rotation-manifest.json` records each injection order,
+  final instruction position, gate, qubit, angle, seed, QASM hashes,
+  source gate counts and numerical witnesses
+- Structural verification proves that removing only the recorded
+  injected instructions reproduces the identical original operation list
+- 15 cases up to 8 qubits pass a float64 full-operator non-equivalence
+  diagnostic; the other 22 remain **NOT_FORMALLY_CERTIFIED**, not
+  automatically labeled scientifically proven NEQ
+- Old `benchmarks/MQTBench/Random_Rotation/` and
+  `benchmarks/MQTBench/Random_Pauli/` stay untouched
+
+To regenerate and independently check the injected negative corpus,
+using the **same** pinned Qiskit environment:
+
+```bash
+python -m scripts.generate_mqtbench_qiskit261_random_rotation generate
+python -m scripts.generate_mqtbench_qiskit261_random_rotation verify
+```
+
+Science checks and any timing comparisons must be version-aware;
+performance comparisons use CodSpeed only.
+
 ## Scientific status
 
 A successful transpile and a small numerical difference in an 8-qubit

@@ -53,7 +53,11 @@ def make_archive(root: Path) -> None:
     for version in VERSIONS:
         source = by_version[version]
         for name in ("basis", "seed", "levels", "approximation_degree"):
-            if list(source[name]) != list(settings[name]) if name in ("basis", "levels") else source[name] != settings[name]:
+            if name in ("basis", "levels"):
+                matches = list(source[name]) == list(settings[name])
+            else:
+                matches = source[name] == settings[name]
+            if not matches:
                 raise ValueError("Transpile settings differ: " + name)
 
     inputs = []
@@ -87,6 +91,14 @@ def make_archive(root: Path) -> None:
                 if path.resolve().is_relative_to(root.resolve()) is False:
                     raise ValueError("QASM path escaped the evidence archive")
                 check_sha(path, transpile["qasm2_sha256"])
+                # Verify historical original and paper-transpiled input bytes
+                # against separately committed QASM files, not only JSON metadata.
+                original_path = sample.get("original_file")
+                frozen_path = sample.get("historical_transpiled_file")
+                if not original_path or not frozen_path:
+                    raise ValueError("Missing original/frozen input QASM repository paths")
+                check_sha(ROOT / original_path, sample["original_sha256"])
+                check_sha(ROOT / frozen_path, sample["historic_sha256"])
                 checksums[name] = digest(path)
                 key = case + ":qiskit-" + version + ":opt-" + str(level)
                 if key in ids:
@@ -103,10 +115,11 @@ def make_archive(root: Path) -> None:
                     "case": case,
                     "qubits": sample["qubits"],
                     "original_qasm": {
-                        "path_in_repository": sample.get("original_file"),
+                        "path_in_repository": original_path,
                         "sha256": sample["original_sha256"],
                     },
                     "paper_transpiled_qasm": {
+                        "path_in_repository": frozen_path,
                         "sha256": sample["historic_sha256"],
                         "numeric_check": sample["historical_saved"],
                         "original_compiler_settings": "UNKNOWN",
@@ -125,6 +138,12 @@ def make_archive(root: Path) -> None:
                         "optimization_level": level,
                         "approximation_degree": source["approximation_degree"],
                         "numpy_version": source["numpy_version"],
+                        "python_version": source.get("python_version"),
+                        "runner_platform": source.get("platform"),
+                        "runner_architecture": source.get("runner_architecture"),
+                        "installed_dependencies": source.get("installed_dependencies"),
+                        "github_source_sha": source.get("github_source_sha"),
+                        "github_run_id": source.get("github_run_id"),
                         "source_corpus_commit": source["source_sha"],
                     },
                     "circuit": {

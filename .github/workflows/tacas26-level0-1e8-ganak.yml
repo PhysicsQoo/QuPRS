@@ -2,7 +2,9 @@ name: TACAS26 Level0 GPMC Ganak 1e-8 Science (Python Rust)
 on:
   push:
     branches: [experiment/tacas26-paper-reproduction]
-    paths: ['.github/workflows/tacas26-level0-1e8-ganak.yml']
+    paths:
+      - '.github/workflows/tacas26-level0-1e8-ganak.yml'
+      - 'scripts/tacas26_level0_1e8_ganak.py'
   workflow_dispatch:
 permissions:
   contents: write

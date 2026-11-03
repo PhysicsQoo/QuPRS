@@ -16,6 +16,19 @@ def audit(base: dict, head: dict) -> dict:
     assert base["revision"] == "base" and head["revision"] == "head"
     assert base["tolerances"] == head["tolerances"]
     assert base["sources"] == head["sources"]
+    for report in (base, head):
+        checks = report.get("rr_hybrid_residual_checks", [])
+        assert len(checks) == 6, (report["revision"], checks)
+        assert {(c["case"], c["backend"]) for c in checks} == {
+            (case, backend)
+            for case in ("decimal_exact_eq", "mixed_exact_eq", "vqe4_real_eq")
+            for backend in ("python", "rust")
+        }
+        assert all(
+            c["equal"] is True
+            and c["rr_residual_repr_sha256"] == c["hybrid_residual_repr_sha256"]
+            for c in checks
+        ), (report["revision"], checks)
     rows = [*base["observations"], *head["observations"]]
     grouped = defaultdict(dict)
     for row in rows:
@@ -87,6 +100,10 @@ def audit(base: dict, head: dict) -> dict:
         "full_observations": len(rows),
         "physical_eq_neq_boundary_parity": True,
         "rr_to_hybrid_witnesses": rr_to_hybrid_witnesses,
+        "rr_hybrid_full_residual_identity": {
+            "base": base["rr_hybrid_residual_checks"],
+            "head": head["rr_hybrid_residual_checks"],
+        },
         "cases": observed_equivalence,
         "raw_solver_arithmetic_and_precision": numeric_observations,
         "source_sha256": base["sources"],

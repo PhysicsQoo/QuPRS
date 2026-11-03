@@ -49,8 +49,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --no-deps 'qiskit==2.6.1'
-          python -c 'import qiskit; assert qiskit.__version__=="2.6.1"'
+          python -m pip install --no-deps 'qiskit==2.6.1' 'numpy==2.2.6'
+          python - <<'PY'
+          import qiskit,numpy
+          assert qiskit.__version__=="2.6.1"
+          assert numpy.__version__=="2.2.6"
+          PY
       - name: Probe Python and Rust RR, QASM2/QASM3, parameter, utility APIs
         shell: bash
         run: |

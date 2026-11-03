@@ -43,13 +43,13 @@
         },
         {
           "compiled_in_memory": {
-            "aligned_frobenius": 3.0454551358177988e-15,
-            "metric": 3.0454551358177988e-15,
+            "aligned_frobenius": 3.0405278576575794e-15,
+            "metric": 3.0405278576575794e-15,
             "metric_kind": "float_projective_operator"
           },
           "depth": 101,
           "gates": 160,
-          "global_phase": 4.712388980384683,
+          "global_phase": 4.712388980384681,
           "level": 3,
           "qasm2_file": "generated-qasm/qiskit-1.4.2/grover4-opt3.qasm",
           "qasm2_sha256": "70a291b8b6f197816183dbbb2ffd55019096eadad36f6c5cdb750a763ef2809e",
@@ -351,24 +351,24 @@
         },
         {
           "compiled_in_memory": {
-            "metric": 2.4121098834065653e-15,
+            "metric": 2.5497531409328054e-15,
             "metric_kind": "two_sample_statevector_max_not_projective",
             "samples": [
               {
-                "aligned_l2": 2.4121098834065653e-15,
+                "aligned_l2": 2.5497531409328054e-15,
                 "input": "zero",
                 "overlap_abs": 0.9999999999999661
               },
               {
-                "aligned_l2": 1.3651191435150947e-15,
+                "aligned_l2": 1.2882371850668251e-15,
                 "input": "uniform_plus",
-                "overlap_abs": 0.9999999999999986
+                "overlap_abs": 0.9999999999999998
               }
             ]
           },
           "depth": 114,
           "gates": 543,
-          "global_phase": 4.712388980384631,
+          "global_phase": 4.7123889803845955,
           "level": 3,
           "qasm2_file": "generated-qasm/qiskit-1.4.2/qft16-opt3.qasm",
           "qasm2_sha256": "3147a407416fb573f228e33abb26b4fa183a2c24070e2801466e1ced175f4a9b",
@@ -461,11 +461,11 @@
         },
         {
           "compiled_in_memory": {
-            "metric": 1.06292601596481e-11,
+            "metric": 1.0629260159648101e-11,
             "metric_kind": "two_sample_statevector_max_not_projective",
             "samples": [
               {
-                "aligned_l2": 1.06292601596481e-11,
+                "aligned_l2": 1.0629260159648101e-11,
                 "input": "zero",
                 "overlap_abs": 0.9999999999999969
               },
@@ -571,24 +571,24 @@
         },
         {
           "compiled_in_memory": {
-            "metric": 5.401217173202196e-06,
+            "metric": 5.401217173155408e-06,
             "metric_kind": "two_sample_statevector_max_not_projective",
             "samples": [
               {
-                "aligned_l2": 5.401217173202196e-06,
+                "aligned_l2": 5.401217173155408e-06,
                 "input": "zero",
                 "overlap_abs": 0.9999999999854513
               },
               {
-                "aligned_l2": 1.875792469342245e-15,
+                "aligned_l2": 2.0957864855685056e-15,
                 "input": "uniform_plus",
-                "overlap_abs": 0.9999999999999991
+                "overlap_abs": 0.9999999999999986
               }
             ]
           },
           "depth": 142,
           "gates": 825,
-          "global_phase": 1.5707963267947083,
+          "global_phase": 1.5707963267947012,
           "level": 3,
           "qasm2_file": "generated-qasm/qiskit-1.4.2/qft20-opt3.qasm",
           "qasm2_sha256": "2b36e0db7ab3100c4622ac4622718970fdf3b78586066c584a4fc7af90a0d9ea",
@@ -833,8 +833,8 @@
       ]
     }
   ],
-  "github_run_id": "41556086634",
-  "github_source_sha": "4c1cc5000fb5e53d0235dde52cf75af04a4a0086",
+  "github_run_id": "41559881031",
+  "github_source_sha": "b8101fc409db5993a92cf6b0f451faf9f35353ab",
   "historical_transpile_configuration": "NOT_DOCUMENTED_OR_ASSUMED",
   "installed_dependencies": {
     "numpy": "2.2.6",

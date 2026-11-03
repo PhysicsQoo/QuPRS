@@ -1,0 +1,89 @@
+name: MQTBench Full Qiskit 2.6.1 Level0 Separate QASM Corpus
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/tacas26-mqtbench-qiskit261-full.yml'
+      - 'scripts/generate_mqtbench_qiskit261_level0.py'
+      - 'benchmarks/MQTBench/qiskit-2.6.1-opt0/source-register.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mqtbench-qiskit261-opt0-full-corpus
+  cancel-in-progress: false
+
+jobs:
+  generate-all:
+    name: Generate verify and commit 37 source-pinned target QASM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install exact stable Qiskit 2.6.1 and compatible NumPy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m pip install --disable-pip-version-check 'qiskit==2.6.1' 'numpy==2.2.6'
+          python - <<'PY'
+          import numpy, qiskit
+          assert qiskit.__version__ == "2.6.1"
+          assert numpy.__version__ == "2.2.6"
+          print("QISKIT261_COMPILER_PIN", qiskit.__version__, numpy.__version__)
+          PY
+          python -m compileall -q scripts/generate_mqtbench_qiskit261_level0.py
+      - name: Generate every historically pinned original source (37/37)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.generate_mqtbench_qiskit261_level0 generate
+          python -m scripts.generate_mqtbench_qiskit261_level0 verify
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("benchmarks/MQTBench/qiskit-2.6.1-opt0")
+          m=json.loads((root/"manifest.json").read_text())
+          assert m["source_qasm_count"] == m["generated_qasm_count"] == 37
+          assert len(list((root/"h,ry,rz,cx").glob("*.qasm"))) == 37
+          assert len(m["historical_only_without_source"]) == 8
+          print("MQTBENCH_NEW_CORPUS_PASS: 37/37; legacy-only 8 identified")
+          PY
+          test -z "$(git status --porcelain -- benchmarks/MQTBench/h,ry,rz,cx)"
+          test -z "$(git status --porcelain -- benchmarks/MQTBench/*.qasm)"
+      - name: Commit fully reproducible additional folder only to experiment branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/MQTBench/qiskit-2.6.1-opt0/
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Identical QASM bytes already committed"
+          else
+            git commit -m "research(mqtbench): archive all 37 Qiskit 2.6.1 Level0 QASM targets with SHA256 manifest"
+            git fetch origin experiment/tacas26-paper-reproduction
+            git rebase origin/experiment/tacas26-paper-reproduction
+            git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+          fi
+      - name: Preserve generated QASM and manifest even if Git commit fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mqtbench-qiskit261-level0-all37
+          path: benchmarks/MQTBench/qiskit-2.6.1-opt0/
+          retention-days: 30
+          if-no-files-found: warn

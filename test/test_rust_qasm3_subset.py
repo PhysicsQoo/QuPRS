@@ -77,10 +77,10 @@ def test_native_qasm3_phase_gate_preserves_nonzero_relative_scalar():
 
 @pytest.mark.parametrize("method", ["reduction_rules", "hybrid"])
 def test_native_qasm3_exact_global_phase_classification(method):
-    base = 'OPENQASM 3.0;\\ninclude "stdgates.inc";\\nqubit[1] q;\\n'
-    identity = base + 'x q[0];\\nx q[0];\\n'
-    rotated = base + 'gphase(pi/2);\\nx q[0];\\nx q[0];\\n'
-    equal_source = base + 'gphase(pi/2);\\ngphase(-pi/2);\\n'
+    base = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\n'
+    identity = base + 'x q[0];\nx q[0];\n'
+    rotated = base + 'gphase(pi/2);\nx q[0];\nx q[0];\n'
+    equal_source = base + 'gphase(pi/2);\ngphase(-pi/2);\n'
     def verify(left, right):
         return check_equivalence(
             left, right, backend="rust", method=method,
@@ -93,13 +93,13 @@ def test_native_qasm3_exact_global_phase_classification(method):
     assert inverse.equivalent == "equivalent*", inverse
     cancellation = verify(base, equal_source)
     assert cancellation.equivalent == "equivalent", cancellation
-    modulo = verify(base, base + 'gphase(2*pi);\\n')
+    modulo = verify(base, base + 'gphase(2*pi);\n')
     assert modulo.equivalent == "equivalent", modulo
 
 
 def test_native_qasm3_exact_decimal_global_phase_survives_parser():
-    base = 'OPENQASM 3.0;\\nqubit q;\\n'
-    phase = base + 'gphase(1e-12);\\n'
+    base = 'OPENQASM 3.0;\nqubit q;\n'
+    phase = base + 'gphase(1e-12);\n'
     result = check_equivalence(
         base, phase, backend="rust", method="reduction_rules",
         strategy="Naive", rr_tolerance=0.0, timeout=30,

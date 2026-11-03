@@ -93,6 +93,50 @@ pub fn canonical_science_digest(state: &PathSum) -> String {
     format!("{:x}", hash.finalize())
 }
 
+// The same fixed, exact-source coefficient fixtures are compiled unchanged
+// against the preceding guarded shared-XOR implementation and the new
+// Bra-CX specialization. Their `apply_cx` semantics are compared against
+// the independent general Boolean/P substitution routine.
+#[derive(Clone, Copy, Debug)]
+pub enum CoeffCase { Decimal, Mixed }
+impl CoeffCase {
+    pub const ALL: [CoeffCase; 2] = [CoeffCase::Decimal, CoeffCase::Mixed];
+    pub fn id(self) -> &'static str {
+        match self { Self::Decimal => "decimal", Self::Mixed => "mixed" }
+    }
+}
+
+pub fn bra_cx_fixture(case: CoeffCase) -> PathSum {
+    use pathsum::rational::{Angle, FreeRational, Rational};
+    use pathsum::PhaseCoeff;
+
+    let mut state = PathSum::new(6);
+    let exact_decimal = Angle::from_qasm_str("0.12345678901234567890123456789")
+        .expect("exact source-QASM decimal").to_phase_coeff();
+    let symbolic = PhaseCoeff::new_symbolic(17, FreeRational::new(2, 3));
+    for mask in 0..16usize {
+        let mut mono = vec![0];
+        for bit in 0..4 {
+            if mask & (1 << bit) != 0 { mono.push((bit + 1) as u32); }
+        }
+        let coeff = match case {
+            CoeffCase::Decimal => exact_decimal.clone(),
+            CoeffCase::Mixed => match mask % 5 {
+                0 => PhaseCoeff::HALF,
+                1 => PhaseCoeff::QUARTER,
+                2 => PhaseCoeff::new_constant(Rational::new(1, 8)),
+                3 => exact_decimal.clone(),
+                _ => symbolic.clone(),
+            },
+        };
+        state.p.add_term(mono, coeff);
+    }
+    for mono in [vec![], vec![1], vec![2], vec![1, 2], vec![2, 4]] {
+        state.p.add_term(mono, PhaseCoeff::QUARTER);
+    }
+    state
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,6 +150,31 @@ mod tests {
                 "RR_CX_NATIVE_PAIRED_ORACLE={{\"case\":\"{}\",\"qubits\":{},\"left_gates\":{},\"right_gates\":{},\"sha_left\":\"{}\",\"sha_right\":\"{}\",\"residual_digest\":\"{}\"}}",
                 case.id(), c.n, c.left.len(), c.right.len(),
                 c.qasm_sha256[0], c.qasm_sha256[1], digest
+            );
+        }
+    }
+
+    #[test]
+    fn fixed_decimal_and_mixed_bra_cx_match_generic_and_are_source_exact() {
+        use pathsum::gates::{QuantumGates, Side};
+        use pathsum::pathsum::Monomial;
+        use rustc_hash::FxHashSet;
+        for case in CoeffCase::ALL {
+            let initial = bra_cx_fixture(case);
+            let mut original = initial.clone();
+            let xor: FxHashSet<Monomial> = [vec![0], vec![1]].into_iter().collect();
+            original.f.substitute_var_with_poly(0, &xor);
+            original.p.substitute_var_with_poly(0, &xor);
+            let mut candidate = initial;
+            candidate.apply_cx(1, 0, Side::Bra);
+            assert_eq!(original.p.terms, candidate.p.terms,
+                "Bra-CX exact P mismatch in {:?} case", case);
+            assert_eq!(original.f.functions, candidate.f.functions,
+                "Bra-CX Boolean F mismatch in {:?} case", case);
+            println!(
+                "RR_CX_NATIVE_COEFF_ORACLE={{\"case\":\"{}\",\"digest\":\"{}\",\"terms\":{}}}",
+                case.id(), canonical_science_digest(&candidate),
+                candidate.p.terms.len(),
             );
         }
     }

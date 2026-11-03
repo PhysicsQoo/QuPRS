@@ -1066,5 +1066,80 @@
     },
     "science_conclusion": "6/6 observed solver & verdict; independent source QAOA7/VQE8 full dense operator complex128, QFT16 finite-state strong NEQ witnesses, but not mathematically certified 1e-8 or solver arithmetic. Eligible for bounded P5 repeatability, not every-PR promotion."
   },
-  "current_status_note": "Historical summary/formal_pr represent prior SHA snapshots; use post_merge_six_case_observations and formal_pr_latest_paired_validation for later evidence. No automatic benchmark promotion."
+  "current_status_note": "Historical summary/formal_pr represent prior SHA snapshots; use post_merge_six_case_observations and formal_pr_latest_paired_validation for later evidence. No automatic benchmark promotion.",
+  "qoo165_one_case_same_sha_repeatability": {
+    "schema": "quprs-codspeed-v3-qaoa7-wmconly-repeatability-v1",
+    "workflow_run_id": 41608434240,
+    "workflow_conclusion": "success",
+    "artifact_id": 13218526409,
+    "official_codspeed_run_id": "6ae9a4d265e3e2a58617fac9",
+    "verifier_sha": "a4c7b12652b3c59c086f5d408a95e004df570bad",
+    "harness_sha": "55d1059c0e160ceaa717d8d8095b34674f7aad92",
+    "original_case_id": "q261_gap_qaoa7_neq_wmconly_rust_gpmc",
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
+    "runner_image": "ubuntu24",
+    "macro_runner": false,
+    "original_six_case_pilot_cpu_model": "AMD EPYC 9V45",
+    "same_runner_cohort_as_original_pilot": false,
+    "official_instrument": "CodSpeed WallTime",
+    "instrument_warning": "non-Macro WallTime reliability",
+    "raw_measurement_sha256": "d284fb83ad9674978155cb6609bac88d3e2fafe56472cebadfaf56bcb57cbc12",
+    "rounds": 3,
+    "iter_per_round": 1,
+    "mean_ms": 808.076578,
+    "median_ms": 810.082855,
+    "min_ms": 797.016291,
+    "max_ms": 817.130588,
+    "sample_stdev_ms": 10.206130339242145,
+    "cv_percent": 1.263024527,
+    "observed_science_jsonl_records": 1,
+    "observed_final_invocation": {
+      "status": "COMPLETED",
+      "exit_code": 0,
+      "solver_invoked": true,
+      "verdict": "not_equivalent"
+    },
+    "solver_invocation_for_each_of_three_rounds_explicitly_logged": false,
+    "total_benchmark_time_s": 2.425239781,
+    "github_workflow_elapsed_approx_s": 144,
+    "incremental_cost_if_added_to_existing_paired_job_s": null,
+    "previous_pilot_one_round_ms": 547.914066,
+    "cross_run_percent_delta_reportable": false,
+    "performance_regression_or_speedup_claim": false,
+    "source_science": "QAOA7 source full-operator complex128 residual 1.31256 on independent science CI 41608129315; solver arithmetic not fully certified",
+    "next_action": "Retain opt-in/periodic until same cohort and incremental existing-job CI cost; only future verifier code PR triggers real matched base/HEAD"
+  },
+  "qoo165_candidate_admission_decisions": [
+    {
+      "case_id": "q261_gap_qaoa7_neq_wmconly_rust_gpmc",
+      "cadence": "OPT_IN_SHORTLIST",
+      "reason": "Unique WMC-only Rust NEQ coverage, independent numerical source witness, true solver invoked and one 3-round non-Macro same-SHA CodSpeed sample; existing-job marginal cost and repeated same-runner cohort not measured"
+    },
+    {
+      "case_id": "q261_gap_qaoa7_neq_wmconly_python_gpmc",
+      "cadence": "PERIODIC_OR_OPT_IN",
+      "reason": "Python WMC-only parity, single round and independent QAOA7 source NEQ; preserve as cross-backend control, not every PR"
+    },
+    {
+      "case_id": "q261_gap_qaoa7_neq_hybrid_python_gpmc",
+      "cadence": "OPT_IN",
+      "reason": "Cross-method Python Hybrid NEQ, single round, high overlap with existing Hybrid cells"
+    },
+    {
+      "case_id": "q261_gap_qft16_neq_hybrid_python_gpmc",
+      "cadence": "OPT_IN_STRESS",
+      "reason": "Python QFT16 complex source, independent 16q state NEQ witnesses, high single-run cost and no repeatability"
+    },
+    {
+      "case_id": "q261_gap_vqe8_eq_wmconly_rust_gpmc",
+      "cadence": "PERIODIC",
+      "reason": "Positive true-WMC-only EQ coverage and independent 8q operator source witness; no repeated stability evidence"
+    },
+    {
+      "case_id": "q261_gap_qaoa7_neq_hybrid_rust_ganak",
+      "cadence": "OPT_IN_PRINT_LIMIT",
+      "reason": "Ganak true NEQ far from source boundary but printed resolution ~1.136e-5 exceeds 1e-8 requested distance; conditional timing only"
+    }
+  ],
+  "qoo165_p5_policy": "Observation-only, no fixed performance threshold; cannot compare 797-817ms EPYC7763 run against ~548ms EPYC9V45 prior pilot as an algorithm regression. No new every-PR ID or Workflow expansion based on these runs."
 }

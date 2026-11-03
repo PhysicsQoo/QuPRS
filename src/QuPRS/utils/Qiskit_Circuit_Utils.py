@@ -44,7 +44,9 @@ from qiskit.circuit.library import standard_gates
 # Never use an eager fallback expression: legacy classes may be removed in 2.x.
 def _supported_library_constructor(function_name: str, class_name: str):
     constructor = getattr(circuit_library, function_name, None)
-    if constructor is None:
+    # Qiskit 1.0 exposes a submodule named 'n_local', but not yet the
+    # modern callable constructor. Non-callable modules are not APIs.
+    if not callable(constructor):
         constructor = getattr(circuit_library, class_name)
     return constructor
 

@@ -1,0 +1,102 @@
+name: TACAS26 Level0 Input Byte Archive (No Solver)
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/tacas26-level0-input-permanent.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  archive:
+    name: Preserve normalized original and actual negative-control QASM bytes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/tacas26-paper-reproduction
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retrieve one exact historical CI-prepared input artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          mkdir -p "$RUNNER_TEMP/tacas26-inputs"
+          gh run download 41562334781 --repo "$GITHUB_REPOSITORY" \
+            --name tacas26-level0-inputs \
+            --dir "$RUNNER_TEMP/tacas26-inputs"
+          cd "$RUNNER_TEMP/tacas26-inputs"
+          sha256sum -c SHA256SUMS
+      - name: Validate all 22 case inputs with exact source hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ["GITHUB_WORKSPACE"])
+          archive=root/"docs/development/tacas26-qiskit-version-fidelity"
+          p=Path(os.environ["RUNNER_TEMP"])/"tacas26-inputs"
+          pairs=json.loads((p/"pairs.json").read_text())
+          assert pairs["schema"]=="tacas26-level0-verifier-cross-v1-inputs"
+          assert pairs["source_repository_sha"]=="131c95a659b0b89675bba24d913d6114af96f74f"
+          assert len(pairs["pairs"])==22
+          checks={}
+          for entry in pairs["pairs"]:
+              original=p/entry["source_relative"]
+              counterpart=(p if entry["kind"]!="positive" else archive)/entry["compiled_relative"]
+              for path,want in ((original,entry["source_sha256"]),
+                                (counterpart,entry["compiled_sha256"])):
+                  assert path.is_file(), str(path)
+                  assert hashlib.sha256(path.read_bytes()).hexdigest()==want, str(path)
+              checks[entry["source_relative"]]=entry["source_sha256"]
+              if entry["kind"]!="positive":
+                  checks[entry["compiled_relative"]]=entry["compiled_sha256"]
+          assert len(checks)==13, len(checks)
+          (p/"permanent-manifest.json").write_text(json.dumps({
+              "schema":"tacas26-level0-inputs-permanent-v1",
+              "source_ci_run":41562334781,
+              "source_sha":"131c95a659b0b89675bba24d913d6114af96f74f",
+              "case_pair_count":22,"archived_unique_files":len(checks),
+              "sha256":dict(sorted(checks.items())),
+              "note":"Inputs only, no Solver was run or timing measured"
+          },sort_keys=True,indent=2)+"\n")
+          print("TACAS26_LEVEL0_INPUTS_ARCHIVE_VALID",len(checks))
+          PY
+      - name: Commit byte-identical archive to same experiment branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin experiment/tacas26-paper-reproduction
+          git rebase origin/experiment/tacas26-paper-reproduction
+          dest="docs/development/tacas26-level0-quprs-cross/inputs/41562334781"
+          mkdir -p "$dest"
+          cp -a "$RUNNER_TEMP/tacas26-inputs/." "$dest/"
+          git add "$dest"
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Unmodified byte archive already tracked."
+          else
+            git commit -m "research(tacas): permanently archive Qiskit Level0 canonical and NEQ-control input QASMs"
+            git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tacas26-level0-permanent-input-validation
+          path: ${{ runner.temp }}/tacas26-inputs/permanent-manifest.json
+          retention-days: 30
+          if-no-files-found: warn

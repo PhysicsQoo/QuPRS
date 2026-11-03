@@ -1,0 +1,989 @@
+{
+  "all_claims_science_not_timing": true,
+  "backends": [
+    "python",
+    "rust"
+  ],
+  "digits": 30,
+  "distance": 1e-08,
+  "input_generation_qiskit_version": "2.6.1",
+  "methods": [
+    "hybrid",
+    "wmc_only"
+  ],
+  "missing": [],
+  "native_rust_gpmc_stdout_caveat": "GPMC internal native stdout inaccessible without production instrumentation",
+  "output_sha256": {
+    "classification.csv": "e71aea29740f8ad06869e18f4899f87b58494e9f7f6ee090c85d2d60df079a5d",
+    "observations.jsonl": "3a73471d278eaf28470efcef83171b29b610b9dc7b2ecff559bc04bf563adc39"
+  },
+  "paired_verdicts": [
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_128.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "graphstate_nativegates_ibm_qiskit_opt0_64.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "grover-noancilla_nativegates_ibm_qiskit_opt0_6.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_11.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qaoa_nativegates_ibm_qiskit_opt0_9.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qft_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qft_nativegates_ibm_qiskit_opt0_22.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qft_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_12.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qnn_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_20.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_24.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qpeinexact_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_3.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "vqe_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_16.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "CENSORED",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_32.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "positive"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "hybrid",
+      "variant": "negative"
+    },
+    {
+      "backend_binary_status": "AGREE",
+      "file": "wstate_nativegates_ibm_qiskit_opt0_8.qasm",
+      "method": "wmc_only",
+      "variant": "negative"
+    }
+  ],
+  "phase": 1e-08,
+  "qasm_version": "Qiskit2.6.1_opt0",
+  "rr": 1e-10,
+  "run_id": "41573879894",
+  "runtime_qiskit_version": "1.4.2",
+  "schema": "quprs-mqtbench-qiskit261-opt0-37case-1e8-gpmc-acceptance-v1-aggregate",
+  "solver": "gpmc",
+  "solver_arithmetic_precision_certified": false,
+  "source_registry": {
+    "input_case_count": 37,
+    "negative_manifest_sha256": "1eaaeb0521e20dcbabdb9c601d112a2e4d24968517c606db77ff9b605bcff0c2",
+    "positive_manifest_sha256": "776862c0f62e25c2cbe3a22764dad5c589bee8f7a0091037f0ebfab76eabdf94",
+    "source_registry_sha256": "27ac511a56d24cb1baf309c2a18f2fa0f04d81d95dfa0b68f139b15e9046e616"
+  },
+  "source_sha": "364dbc5ce51a4651aab12f5d99c053a3128fd3ce",
+  "summaries": {
+    "python:hybrid:negative": {
+      "censored": 8,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 29,
+      "planned": 37
+    },
+    "python:hybrid:positive": {
+      "censored": 1,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 36,
+      "planned": 37
+    },
+    "python:wmc_only:negative": {
+      "censored": 10,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 27,
+      "planned": 37
+    },
+    "python:wmc_only:positive": {
+      "censored": 8,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 29,
+      "planned": 37
+    },
+    "rust:hybrid:negative": {
+      "censored": 6,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 31,
+      "planned": 37
+    },
+    "rust:hybrid:positive": {
+      "censored": 1,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 36,
+      "planned": 37
+    },
+    "rust:wmc_only:negative": {
+      "censored": 10,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 27,
+      "planned": 37
+    },
+    "rust:wmc_only:positive": {
+      "censored": 8,
+      "collected": 37,
+      "mismatched": 0,
+      "passed": 29,
+      "planned": 37
+    }
+  },
+  "total_collected": 296,
+  "total_expected": 296,
+  "variants": [
+    "positive",
+    "negative"
+  ]
+}

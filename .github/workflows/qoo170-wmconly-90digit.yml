@@ -1,4 +1,5 @@
-name: QOO170 WMC90 CI syntax preflight
+name: QOO170 90-digit QAOA7 WMC-only science and official CodSpeed (research only)
+
 on:
   push:
     branches:
@@ -6,11 +7,97 @@ on:
     paths:
       - .github/workflows/qoo170-wmconly-90digit.yml
   workflow_dispatch:
+
 permissions:
   contents: read
+  id-token: write
+
+concurrency:
+  group: qoo170-wmconly-90digit-science-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  syntax:
+  one-case-same-verifier:
+    name: Three 90-digit GPMC WMC-only CodSpeed rounds for a source-pinned NEQ
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      QOO170_VERIFIER_SHA: a4c7b12652b3c59c086f5d408a95e004df570bad
+      QOO170_WMC90: "true"
+      BINARY_DIR: src/QuPRS/utils
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/qoo170-wmconly90-codspeed.json
     steps:
-      - name: Preflight YAML
-        run: echo QOO170_WORKFLOW_PARSE_OK
+      - name: Research harness and pinned source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Single exact dev verifier source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.QOO170_VERIFIER_SHA }}
+          submodules: recursive
+          persist-credentials: false
+          path: qoo170-pinned-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.BINARY_DIR }}/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build one exact current-dev verifier and static source guard
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C qoo170-pinned-dev rev-parse HEAD)" = "$QOO170_VERIFIER_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          (cd qoo170-pinned-dev && maturin develop --release -E dev)
+          python -m pytest benchmarks/codspeed/test_qoo170_wmconly_90digit.py -q --collect-only
+      - name: Official CodSpeed 90-digit full verifier and real GPMC subprocess
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: |
+            python -m pytest benchmarks/codspeed/test_qoo170_wmconly_90digit.py -q \
+              --codspeed --codspeed-warmup-time=0 \
+              --codspeed-max-rounds=3 --codspeed-max-time=120
+      - name: Verify real WMC-only numerical provenance and three measured rounds
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          raw=json.loads(Path(os.environ["QUPRS_CODSPEED_EXPORT"]).read_text())
+          assert raw["instrument"]["type"] == "walltime"
+          assert len(raw["benchmarks"]) == 1
+          assert raw["benchmarks"][0]["stats"]["rounds"] == 3
+          evidence=json.loads((Path(os.environ["RUNNER_TEMP"])/"qoo170-wmconly90-science.json").read_text())
+          observed=evidence["observation"]
+          assert evidence["verifier_sha"] == os.environ["QOO170_VERIFIER_SHA"]
+          assert observed["method"] == "wmc_only"
+          assert observed["effective_gpmc_digits"] == 90
+          assert observed["solver_invoked"] is True
+          assert observed["verdict"] == "not_equivalent"
+          print("QOO170_90DIGIT_SOURCE_WMC_ONLY_PASS", raw["benchmarks"][0]["stats"])
+          PY
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$HEAD_SHA" --family candidate-pilot --instrument walltime \
+            --measurement "$QUPRS_CODSPEED_EXPORT" \
+            --output "$RUNNER_TEMP/manifest.json"
+      - name: Save CodSpeed and scientific metadata for future PR admission
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo170-wmconly90-rust-source-verified
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            ${{ runner.temp }}/qoo170-wmconly90-science.json
+            ${{ runner.temp }}/manifest.json
+          if-no-files-found: warn
+          retention-days: 14

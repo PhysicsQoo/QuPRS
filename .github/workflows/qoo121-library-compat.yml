@@ -61,13 +61,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: qoo121-api-candidate-wheel
           path: dist
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - name: Install real package and pinned Qiskit in a fresh environment
         run: |
           set -euo pipefail

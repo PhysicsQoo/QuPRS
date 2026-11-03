@@ -1,0 +1,116 @@
+name: QOO170 real QAOA7 Hybrid and WMC-only per-invocation ABBA (research opt-in)
+
+on:
+  push:
+    branches:
+      - experiment/qoo160-qasm261-codspeed-selection
+    paths:
+      - benchmarks/codspeed/test_qoo170_real_abba.py
+      - scripts/report_qoo170_real_abba.py
+      - .github/workflows/qoo170-real-qaoa7-pedantic-abba.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: qoo170-two-case-real-abba-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-qaoa7-abba:
+    name: Exact source / one real GPMC call per position / 32 official CodSpeed rounds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RESEARCH_SHA: ${{ github.sha }}
+      BASE_SHA: a4c7b12652b3c59c086f5d408a95e004df570bad
+      HEAD_SHA: 3ca0a480ef2e6df955ee9641b26c566037eebdf2
+    steps:
+      - name: Checkout only isolated research harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Checkout dev baseline to dedicated folder
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: abba-dev-base
+          persist-credentials: false
+          submodules: recursive
+      - name: Checkout PR 133 verifier to separate folder
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          path: abba-pr-head
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install only required two verifier environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RESEARCH_SHA"
+          test "$(git -C abba-dev-base rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C abba-pr-head rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for version in base head; do
+            root="$GITHUB_WORKSPACE/abba-pr-head"
+            if [[ "$version" == base ]]; then root="$GITHUB_WORKSPACE/abba-dev-base"; fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$version"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check 'pytest==8.4.2' 'pytest-codspeed==5.0.4' 'maturin>=1.5,<2.0'
+            (cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev)
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/qoo170-real-abba-$version-freeze.txt"
+          done
+          python -m pip install --disable-pip-version-check 'pytest==8.4.2' 'pytest-codspeed==5.0.4'
+          python - <<'PY'
+          from importlib.metadata import version
+          assert version('pytest-codspeed') == '5.0.4'
+          assert version('pytest') == '8.4.2'
+          print('QOO170_PINNED_PLUGIN_SOURCE_GUARD_PASS')
+          PY
+          python -m pytest benchmarks/codspeed/test_qoo170_real_abba.py -q --collect-only
+      - name: CodSpeed WallTime with true one-invocation-per-position ABBA/BAAB
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: |
+            python -m pytest benchmarks/codspeed/test_qoo170_real_abba.py -q \
+              --codspeed --codspeed-mode=walltime --codspeed-warmup-time=0
+      - name: Validate all 32 official single rounds against 32 actual real GPMC calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_qoo170_real_abba.py \
+            --measurements "$RUNNER_TEMP/quprs-paired-walltime-codspeed.json" \
+            --provenance "$RUNNER_TEMP/qoo170-real-abba-science.jsonl" \
+            --prewarm "$RUNNER_TEMP/qoo170-abba-real-prewarm.json" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --output "$RUNNER_TEMP/qoo170-real-abba-report.json"
+          python scripts/write_codspeed_sha_manifest.py \
+            --sha "$RESEARCH_SHA" --family p5-abba --instrument walltime \
+            --measurement "$RUNNER_TEMP/quprs-paired-walltime-codspeed.json" \
+            --output "$RUNNER_TEMP/qoo170-real-abba-manifest.json"
+      - name: Preserve official measurements, evidence and input provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo170-real-qaoa7-abba-32-rounds
+          path: |
+            ${{ runner.temp }}/quprs-paired-walltime-codspeed.json
+            ${{ runner.temp }}/qoo170-real-abba-science.jsonl
+            ${{ runner.temp }}/qoo170-abba-real-prewarm.json
+            ${{ runner.temp }}/qoo170-real-abba-report.json
+            ${{ runner.temp }}/qoo170-real-abba-manifest.json
+            ${{ runner.temp }}/qoo170-real-abba-base-freeze.txt
+            ${{ runner.temp }}/qoo170-real-abba-head-freeze.txt
+          if-no-files-found: warn
+          retention-days: 14

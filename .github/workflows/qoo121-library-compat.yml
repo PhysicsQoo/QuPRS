@@ -1,0 +1,107 @@
+name: Research / Qiskit 1.0 through 2.6 generator semantics
+on:
+  push:
+    branches: [research/qoo121-qiskit-library-compat-20261104]
+    paths:
+      - 'src/QuPRS/utils/Qiskit_Circuit_Utils.py'
+      - 'test/test_qiskit_library_constructor_compat.py'
+      - '.github/workflows/qoo121-library-compat.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo121-qiskit-api
+      - name: Build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+          python -m pip install --upgrade pip 'maturin>=1.5,<2'
+      - name: One source-pinned wheel for the four API versions
+        run: |
+          set -euo pipefail
+          maturin build --release --interpreter python --out dist --compatibility off
+          sha256sum dist/*.whl > dist/wheel-sha256.txt
+          git rev-parse HEAD > dist/source-head.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qoo121-api-candidate-wheel
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+  api:
+    needs: build
+    name: Qiskit ${{ matrix.qiskit }} / actual public generators
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.0.0', '1.4.6', '2.0.0', '2.6.1']
+    env:
+      QISKIT_VERSION: ${{ matrix.qiskit }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo121-api-candidate-wheel
+          path: dist
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install real package and pinned Qiskit in a fresh environment
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          sha256sum -c dist/wheel-sha256.txt
+          python -m pip install --upgrade pip
+          if [[ "$QISKIT_VERSION" == 2.* ]]; then
+            # This is QOO-121 *source API* research. dev metadata still
+            # requires Qiskit <2; QOO-169 separately establishes real 2.x
+            # wheel + sdist clean-resolver install certification.
+            python -m pip install dist/*.whl 'pytest>=8,<9' 2>&1 | tee evidence/install.log
+            python -m pip install --no-deps "qiskit==$QISKIT_VERSION" 2>&1 | tee -a evidence/install.log
+            python -m pip install 'qiskit-qasm3-import==0.6.0' 2>&1 | tee -a evidence/install.log
+          else
+            python -m pip install "qiskit==$QISKIT_VERSION" dist/*.whl 'pytest>=8,<9' 2>&1 | tee evidence/install.log
+          fi
+          python -m pip freeze > evidence/pip-freeze.txt
+          python -m pip check > evidence/pip-check-observation.log 2>&1 || true
+          python - <<'PY'
+          import importlib.metadata as md
+          import os
+          assert md.version('qiskit') == os.environ['QISKIT_VERSION']
+          PY
+      - name: Test actual source-pinned generator and operator parity
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra test/test_qiskit_library_constructor_compat.py \
+            --junitxml=evidence/library-compat.xml \
+            2>&1 | tee evidence/library-compat.log
+      - name: Save provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo121-library-api-qiskit${{ matrix.qiskit }}
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: ignore

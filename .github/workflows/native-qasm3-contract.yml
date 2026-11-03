@@ -1,0 +1,117 @@
+name: Native QASM3 bounded contract
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'rust/pathsum/src/qasm.rs'
+      - 'rust/pathsum/src/ir.rs'
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'test/test_qasm3_python_global_phase.py'
+      - 'test/test_rust_qasm3_subset.py'
+      - 'test/test_rust_qasm_fail_closed.py'
+      - '.github/workflows/native-qasm3-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  build-native:
+    name: Single source-pinned wheel and native parser unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: native-qasm3-contract
+      - name: Install native prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+          python -m pip install --upgrade pip 'maturin>=1.5,<2'
+      - name: Run exact source-native QASM parser unit controls
+        run: |
+          set -euo pipefail
+          mkdir -p evidence dist
+          cargo test --manifest-path rust/Cargo.toml -p pathsum qasm::tests --lib --release -- --nocapture 2>&1 | tee evidence/rust-qasm3.log
+      - name: Build public verifier wheel once
+        run: |
+          set -euo pipefail
+          maturin build --release --interpreter python --out dist --compatibility off
+          sha256sum dist/*.whl > dist/SHA256SUMS
+          git rev-parse HEAD > dist/source-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qasm3-source-wheel
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qasm3-native-unit-evidence
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+  public-parity:
+    name: Public QASM3 Python/Rust / Qiskit ${{ matrix.qiskit }}
+    needs: build-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.0.0', '1.4.6', '2.6.1']
+    env:
+      EXPECTED_QISKIT: ${{ matrix.qiskit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: qasm3-source-wheel
+          path: dist
+      - name: Install actual candidate wheel with full dependency resolver
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          test "$(cat dist/source-sha.txt)" = "$GITHUB_SHA"
+          sha256sum -c dist/SHA256SUMS
+          python -m pip install --upgrade pip
+          python -m pip install "qiskit==$EXPECTED_QISKIT" dist/*.whl 'pytest>=8,<9' 2>&1 | tee evidence/install.log
+          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip freeze > evidence/pip-freeze.txt
+          python - <<'PY'
+          from importlib.metadata import version
+          import os
+          assert version('qiskit') == os.environ['EXPECTED_QISKIT']
+          PY
+      - name: Exact-head public Rust, Python and fail-closed contract
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra test/test_rust_qasm3_subset.py \
+            test/test_qasm3_python_global_phase.py \
+            test/test_rust_qasm_fail_closed.py::test_direct_unsupported_qasm_rejected_before_solver \
+            --junitxml=evidence/qasm3-public-contract.xml \
+            2>&1 | tee evidence/qasm3-public-contract.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qasm3-public-${{ matrix.qiskit }}
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14

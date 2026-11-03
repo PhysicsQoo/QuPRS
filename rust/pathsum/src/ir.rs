@@ -25,6 +25,10 @@ pub enum QuantumOp {
     // Three Qubit Gates
     CCX(usize, usize, usize), // Toffoli: Ctrl1, Ctrl2, Target
 
+    // Circuit-wide scalar phase (radians), not a wire operation.
+    // QASM3 gphase is preserved exactly in Angle and conjugated on the bra.
+    GlobalPhase(Angle),
+
     // Parameterized Gates
     P(usize, Angle), // General phase gate
     RX(usize, Angle),
@@ -67,6 +71,13 @@ impl QuantumOp {
 
             Self::CCX(c1, c2, t) => ps.apply_ccx(*c1, *c2, *t, side),
             
+            Self::GlobalPhase(theta) => {
+                // Angle constant is theta/pi, PathSum phase exponent is
+                // normalized to 2*pi. The scalar contribution is theta/2.
+                let signed = if is_bra { Angle::ZERO - theta.clone() }
+                             else { theta.clone() };
+                ps.p += (signed / 2).to_phase_coeff();
+            },
             Self::P(q, theta) => ps.apply_p(*q, theta.clone(), side),
             Self::RX(q, theta) => ps.apply_rx(*q, theta.clone(), side),
             Self::RY(q, theta) => ps.apply_ry(*q, theta.clone(), side),

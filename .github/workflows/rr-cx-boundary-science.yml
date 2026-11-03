@@ -1,0 +1,113 @@
+name: Experimental Bra-CX exact EQ NEQ and RR to Hybrid science
+
+on:
+  push:
+    branches:
+      - experiment/qoo151-rr-xor-reuse-20261103
+    paths:
+      - 'benchmarks/rr_cx_boundary/**'
+      - '.github/workflows/rr-cx-boundary-science.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rr-cx-boundary-science-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 1ebe7442d5004a522a915f18e163b1c78da648ab
+  APPROVED_NATIVE_SHA: 2c6f68a578bb84dc916a5c871e0bcd9e1f0f6132
+  HEAD_SHA: ${{ github.sha }}
+
+jobs:
+  source-science:
+    name: Prior vs direct Bra-CX exact Python/Rust EQ NEQ and RR Hybrid witness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1ebe7442d5004a522a915f18e163b1c78da648ab
+          path: rr-cx-boundary-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify source identity, QASM fixture and scientific boundary thresholds
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C rr-cx-boundary-base rev-parse HEAD)" = "$BASE_SHA"
+          git diff --exit-code "$APPROVED_NATIVE_SHA" "$HEAD_SHA" -- \
+            rust/pathsum rust/python_ffi src/QuPRS pyproject.toml
+          cmp benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+              rr-cx-boundary-base/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm
+          cmp benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+              rr-cx-boundary-base/benchmarks/MQTBench/h,ry,rz,cx/vqe_nativegates_ibm_qiskit_opt0_4.qasm
+          python -m py_compile benchmarks/rr_cx_boundary/check.py benchmarks/rr_cx_boundary/audit.py
+          python - <<'PY'
+          import math
+          # This is *scientific analysis*, not a performance timer.
+          eps=1e-8
+          assert math.sin(0.000000001/2) < eps/10
+          assert math.sin(0.000001/2) > eps*10
+          assert math.sin(0.125/2) > eps*1_000_000
+          print("RR_CX_EQ_NEQ_DISTANCE_CONSTRUCTION_PASS")
+          PY
+      - name: Build both public Python/Rust backends independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          for side in base head; do
+            root="$GITHUB_WORKSPACE"
+            if [[ "$side" == base ]]; then root="$GITHUB_WORKSPACE/rr-cx-boundary-base"; fi
+            venv="$RUNNER_TEMP/rr-cx-boundary-$side"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev)
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/rr-cx-boundary-$side-freeze.txt"
+          done
+      - name: Check exact EQ NEQ and RR Hybrid WMC using real public APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for side in base head; do
+            "$RUNNER_TEMP/rr-cx-boundary-$side/bin/python" \
+              benchmarks/rr_cx_boundary/check.py \
+              --revision "$side" \
+              --fixture-root "$GITHUB_WORKSPACE" \
+              --output "$RUNNER_TEMP/rr-cx-boundary-$side.json" 2>&1 \
+              | tee "$RUNNER_TEMP/rr-cx-boundary-$side.log"
+          done
+          python benchmarks/rr_cx_boundary/audit.py \
+            --base "$RUNNER_TEMP/rr-cx-boundary-base.json" \
+            --head "$RUNNER_TEMP/rr-cx-boundary-head.json" \
+            --output "$RUNNER_TEMP/rr-cx-boundary-science-report.json"
+      - name: Preserve full solver arithmetic, source and environment evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rr-cx-boundary-eq-neq-science
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/rr-cx-boundary-base.json
+            ${{ runner.temp }}/rr-cx-boundary-head.json
+            ${{ runner.temp }}/rr-cx-boundary-base.log
+            ${{ runner.temp }}/rr-cx-boundary-head.log
+            ${{ runner.temp }}/rr-cx-boundary-science-report.json
+            ${{ runner.temp }}/rr-cx-boundary-base-freeze.txt
+            ${{ runner.temp }}/rr-cx-boundary-head-freeze.txt

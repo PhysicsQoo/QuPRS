@@ -1,0 +1,159 @@
+{
+  "schema": "quprs-mqtbench-qasm-v2-candidate-v1",
+  "status": "CANDIDATE_NOT_RELEASED_NOT_ALL_VERIFIERS_VALIDATED",
+  "source_corpus": "TACAS26 archived MQTBench Table 2 source inputs",
+  "historical_tacas_immutable": true,
+  "qiskit": {
+    "version": "2.6.1",
+    "basis_gates": [
+      "h",
+      "ry",
+      "rz",
+      "cx"
+    ],
+    "optimization_level": 0,
+    "approximation_degree": 1,
+    "seed_transpiler": 42,
+    "serialization": "OPENQASM_2"
+  },
+  "source_evidence": {
+    "qiskit_run": "41556086634",
+    "level0_cross_run": "41562334781",
+    "historical_paper_qasm_preserved": true
+  },
+  "cases": [
+    {
+      "case": "grover4",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/grover4.qasm",
+        "sha256": "c0138cf6fe7c99add7b7ba107841a6ff210c2e8c33a9732ca97e87d58a50a4e8"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/grover4-opt0.qasm",
+        "sha256": "ab338d8c185c841e30a0001293697eeae2f989a10c06effaf09f5584223c5781"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "qnn8",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/qnn8.qasm",
+        "sha256": "455fa76513e8f430770e7d3eb1203544c5034d9e7ccf4ab9d302b53d2f5dda59"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/qnn8-opt0.qasm",
+        "sha256": "c72742fe2c085b24e98d6124df51e46be7d04ca327470e1fcf3abdb5c2cde9c2"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "qpeinexact8",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/qpeinexact8.qasm",
+        "sha256": "c44095e0b30153fb6041c872fc4e49274b3c95016c3c5a7d84af7af43a6ec99d"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/qpeinexact8-opt0.qasm",
+        "sha256": "a5f7e852cf8a2e1db19f55716dab201bc1d95f83ae0ea3ac80b7d80e666f58f8"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "qaoa9",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/qaoa9.qasm",
+        "sha256": "eee2ec2b7b15b6f89bc8170a8686d20e6382ae64a3becf3df155ad10a15433c6"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/qaoa9-opt0.qasm",
+        "sha256": "d4019dee0a0de8f660c5abe253b2356424e7a6a51bb1eea14a7f634f36e30914"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "qft16",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/qft16.qasm",
+        "sha256": "21b3697bf39dca090ad26b8f446c04d832c0873498f57a4777c249b52ca52d0f"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/qft16-opt0.qasm",
+        "sha256": "4d491b99a17106ded6b0f59b12e08be692d9eaf09501cda31955909ad479005b"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "vqe16",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/vqe16.qasm",
+        "sha256": "5c1563c560e1bba1c5611cd82854572280b3d149e102426cc704fe8fb0cf9619"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/vqe16-opt0.qasm",
+        "sha256": "01b74bbfa3d54c7aa39e24192957dcd20a1f798a65a2a52337050fc987ddb510"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "qft20",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/qft20.qasm",
+        "sha256": "5f1bcf9526058a5d0a3c4b13a6aec94fa931de9485d20cbc61d47fd973070d4f"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/qft20-opt0.qasm",
+        "sha256": "a63e27169ad2e042bcf08d3d6c39a9f55e113ff898246bcc99fc019f66610cee"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "qft22",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/qft22.qasm",
+        "sha256": "a601dbbda7951d9e69231fd7afa162b837018295de4232705e4f03f73f2e4414"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/qft22-opt0.qasm",
+        "sha256": "30bde477b2aaf8d797a62adef14a54d1b8017f884fe1fa3aa75bc3aa75a8985e"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    },
+    {
+      "case": "qpeexact20",
+      "source": {
+        "path": "docs/development/tacas26-level0-quprs-cross/inputs/41562334781/canonical-source/qpeexact20.qasm",
+        "sha256": "24b4c505b5f9396664f3f41b574cbe7a9f3f11d807f66493966f3747eb53ad26"
+      },
+      "target": {
+        "path": "docs/development/tacas26-qiskit-version-fidelity/generated-qasm/qiskit-2.6.1/qpeexact20-opt0.qasm",
+        "sha256": "393e48697781c50d90524d8e6d92b0b4c8c2cc4d141d1975204c6f165fc8e6ed"
+      },
+      "expected_binary": "EQ",
+      "certificate": "NOT_CERTIFIED",
+      "source_kind": "QASM2_TERMINAL_MEASUREMENTS_STRIPPED"
+    }
+  ],
+  "limitations": [
+    "Only 9 representative source cases, not the full TACAS Table2 benchmark",
+    "Qiskit simulator sampled statevectors are not exact operator projective-distance certificates",
+    "Distance 1e-8 and Ganak study not yet completed; do not promote to certified corpus",
+    "Do not overwrite historical paper artifact QASM or legacy labels",
+    "Actual QuPRS numerical validation and NEQ controls must be separately versioned"
+  ]
+}

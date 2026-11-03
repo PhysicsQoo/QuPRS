@@ -9,6 +9,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ FILENAME = "qaoa_nativegates_ibm_qiskit_opt0_7.qasm"
 def one_pinned_wmc_request():
     workspace = Path(os.environ["GITHUB_WORKSPACE"])
     verifier = workspace / "qoo170-pinned-dev"
-    python = Path(os.environ["QOO170_VENV"]) / "bin/python"
+    python = Path(sys.executable)
     harness = verifier / "benchmarks/codspeed/solver_case.py"
     expected_sha = os.environ["QOO170_VERIFIER_SHA"]
     if not harness.is_file() or not python.is_file() or len(expected_sha) != 40:

@@ -1,5 +1,7 @@
 # Exact Bra-CX specialization: QFT16 / QPE / Decimal / Mixed evidence
 
+> **Integration status, 2026-11-03:** The exact guarded-XOR / direct Bra-CX verifier changes described below were subsequently merged through [PR #131](https://github.com/PhysicsQoo/QuPRS/pull/131) into `dev@a4c7b12652b3c59c086f5d408a95e004df570bad`. This file remains the **historical source-matched experimental evidence record**. Sentences below saying that the formal PR was Draft/untouched/not yet integrated describe the **then-current experimental gate**, not today's branch status. The Native CPU gains are established for the specified same-source comparison; the recorded solver-inclusive QFT16 WallTime result remains **PERFORMANCE_INCONCLUSIVE** because observed drift exceeds its gain. Future benchmark admission and cross-instrument joins follow the [active v3 plan](https://github.com/PhysicsQoo/QuPRS/blob/experiment/qoo160-qasm261-codspeed-selection/docs/development/codspeed-v3-plan.md).
+
 Date: 2026-11-03 (Asia/Taipei). This document is an **isolated
 experiment record**, not a production merge approval.
 

@@ -129,7 +129,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--sha", required=True)
-    p.add_argument("--family", choices=("simulation-shard", "rust-core", "solver-cpu", "cross-method", "candidate-pilot", "python-core", "stage-repeatability", "p5-abba", "curated-cpu"), required=True)
+    p.add_argument("--family", choices=("simulation-shard", "rust-core", "solver-cpu", "cross-method", "candidate-pilot", "python-core", "stage-repeatability", "p5-abba", "curated-cpu", "rr-cx-solver-abba"), required=True)
     p.add_argument("--instrument", required=True)
     p.add_argument("--shard", type=int)
     p.add_argument("--num-shards", type=int)

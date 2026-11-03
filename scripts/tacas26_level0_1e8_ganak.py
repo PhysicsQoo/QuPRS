@@ -261,6 +261,9 @@ def run_group(args):
                 data.setdefault("method",method)
                 data["worker_stdout_sha256"]=hashlib.sha256(stdout.encode()).hexdigest()
                 data["worker_stderr_sha256"]=hashlib.sha256(stderr.encode()).hexdigest()
+                data["worker_stderr_excerpt"]=stderr[-6000:]
+                if data["status"]!="RETURNED":
+                    data["worker_stdout_excerpt"]=stdout[-3000:]
                 write(output/(name+".stdout"),stdout)
                 write(output/(name+".stderr"),stderr)
                 write(output/(name+".json"),json.dumps(data,indent=2,sort_keys=True)+"\n")

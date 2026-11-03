@@ -270,6 +270,11 @@ def worker(args):
             inv=bool(captured) or getattr(result,"to_DIMACS_time",None) is not None
         verdict=str(result.equivalent)
         record["status"]="RETURNED"
+        record["api_native_timing_diagnostic_only_not_codspeed"]={
+            name:json_safe(getattr(result,name,None))
+            for name in ("verification_time","pathsum_time","to_DIMACS_time",
+                         "tool_time","gpmc_time","wmc_time")
+        }
         record["result"]={
             "verdict":verdict,
             "binary":binary(verdict),
@@ -413,7 +418,7 @@ def aggregate(args):
     sums={}
     for profile in PROFILES:
         for shard in range(9):
-            folder=root/(profile+"-"+str(shard))
+            folder=root/("tacas26-level0-"+profile+"-"+str(shard))
             summary=folder/"summary.json"
             if not summary.is_file():
                 observations.append({

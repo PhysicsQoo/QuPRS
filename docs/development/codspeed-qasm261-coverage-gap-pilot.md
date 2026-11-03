@@ -53,7 +53,7 @@ gh workflow run codspeed.yml \
   --repo PhysicsQoo/QuPRS \
   --ref experiment/qoo160-qasm261-codspeed-selection \
   -f pilot_only=true -f pilot_group=qasm261_gap \
-  -f coverage_gap_verifier_sha=ce51fd6155c381c84d41c1031ccd109982b9ea64
+  -f coverage_gap_verifier_sha=a4c7b12652b3c59c086f5d408a95e004df570bad
 ```
 
 Check one source SHA, all 6 result markers, Solver stage, binary verdict, QASM
@@ -94,3 +94,14 @@ are now archival **workflow_dispatch only**; editing the shared registry,
 new coverage-gap harness or evidence notes no longer automatically repeats
 old studies. The only suggested new work is the six-case **manual**
 `codspeed.yml` `pilot_only` job, using one pinned v0.14 verifier build.
+
+### After PR #131 merged into dev (2026-11-03)
+
+The PR was squash-merged at `dev@a4c7b12652b3c59c086f5d408a95e004df570bad`.
+Git tree `76bff0488472a57270e2c81f7fac56685e3c5ac2` is **identical**
+to the verified pre-merge PR head `ce51fd6155c381c84d41c1031ccd109982b9ea64`.
+The manual pilot command above therefore pins the **retained dev merge commit**
+instead of an eventually deletable PR branch commit, without changing the
+verifier's source, benchmark identities, precision semantics, or CI scope.
+Do not compare the old experimental ABBA (unmatched numerical defaults) to
+this new matched numerical policy as if they were one controlled cohort.

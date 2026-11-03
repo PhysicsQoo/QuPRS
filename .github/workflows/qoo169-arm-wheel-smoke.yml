@@ -1,0 +1,48 @@
+name: Research / manylinux ARM64 native wheel regression
+on:
+  push:
+    branches: [research/qoo169-manylinux-arm-wheel-20261104]
+    paths:
+      - scripts/install_linux_deps.sh
+      - .github/workflows/qoo169-arm-wheel-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  arm-wheel:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build actual CPython 3.12 manylinux ARM64 candidate wheel
+        uses: pypa/cibuildwheel@v3.3.1
+        env:
+          CIBW_ARCHS: aarch64
+          CIBW_BUILD: cp312-manylinux_aarch64
+          CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64:2026.01.04-1
+          CIBW_TEST_COMMAND: >-
+            python -c "import importlib.metadata as md;
+            import QuPRS; import QuPRS._pathsum_rust;
+            from QuPRS import check_equivalence;
+            a='OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nh q[0];\nh q[0];';
+            b='OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];';
+            result=check_equivalence(a,b,backend='rust',method='reduction_rules');
+            assert result.equivalent=='equivalent',result;
+            print('QOO169_ARM_WHEEL_RR_SMOKE_PASS',md.version('QuPRS'))"
+      - name: Publish source-matched ARM wheel and sha256
+        run: |
+          set -euo pipefail
+          sha256sum wheelhouse/*.whl > wheelhouse/SHA256SUMS
+          git rev-parse HEAD > wheelhouse/source-head.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qoo169-research-arm64-wheel
+          path: wheelhouse/
+          retention-days: 14
+          if-no-files-found: error

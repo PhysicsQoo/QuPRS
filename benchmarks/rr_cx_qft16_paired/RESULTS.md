@@ -119,3 +119,91 @@ Source-pinned comparison:
 Deltas are `100*((B1+B2)/(A1+A2)-1)` from official CodSpeed position medians. **Scientific and Solver stage PASS, native CPU gain previously established; complete end-to-end performance remains INCONCLUSIVE.** QFT16's -1.229% median is below measured 2.636% baseline drift, and Python control shows several-percent variation. No statistically certified end-to-end speedup or regression is asserted.
 
 **Decision: retain exact direct Bra-CX on this isolated experiment branch; do not integrate into formal Draft PR #131 yet.** Additional EQ/NEQ boundary, Python/Rust consistency and release review gates remain. The new CI is scoped to its own workflow/test/reporter/manifest; Markdown changes do not retrigger costly measurement. Earlier failed E2E attempts stopped before Solver because of shallow Git checkout; corrected full-history source guard passed in the final run.
+
+## Scientific admission: exact EQ/NEQ, RR residual and Python/Rust
+
+**Date**: 2026-11-03 Asia/Taipei. **All scientific gates passed** on
+the same isolated experiment branch.
+
+- Final [GitHub Actions Run 41581168137](https://github.com/PhysicsQoo/QuPRS/actions/runs/41581168137):
+  **SUCCESS**. Earlier [Run 41580695361](https://github.com/PhysicsQoo/QuPRS/actions/runs/41580695361)
+  also passed the full EQ/NEQ classification; the final run additionally
+  asserts *full returned RR-only vs Hybrid residual PathSum equality*.
+- Baseline: previous guarded XOR `1ebe7442d5004a522a915f18e163b1c78da648ab`;
+  candidate: exact direct Bra-CX source `2c6f68a578bb84dc916a5c871e0bcd9e1f0f6132`.
+  Both built in **independent** Python 3.12/Rust `maturin develop --release`
+  environments; the experimental workflow verifies that verifier source
+  matches the native-certified candidate and does not rebuild/add tolerance
+  rules.
+- Reproducible science source:
+  `benchmarks/rr_cx_boundary/check.py`,
+  `benchmarks/rr_cx_boundary/audit.py`,
+  `.github/workflows/rr-cx-boundary-science.yml`.
+  The CI artifact `rr-cx-boundary-eq-neq-science` (GitHub artifact ID
+  **13205911958**) preserves Base and HEAD full JSON per-result observations,
+  source QASM SHA256, exact input angle strings, precision diagnostics,
+  dependency lists, and cross-revision audit JSON.
+- Fixed independent reference `rr_tolerance=0`, projective
+  `approximate_distance_tolerance=1e-8`, `wmc_phase_tolerance=1e-8`,
+  `GPMC digits=30`, Proportional strategy, public Python and Rust API.
+  This isolates source-exact phase transformations from RR approximation.
+  Earlier default-like `rr=1e-10` source-pinned solver-inclusive CodSpeed
+  already passed its separate stage/verdict audit (above).
+
+### Source-independent physical EQ/NEQ truth
+
+For a right-multiplied single-qubit `RZ(theta)`, the exact projective
+operator distance from identity is `|sin(theta/2)|`, unaffected by
+the shared preceding unitary. An inserted `CX^2` is exactly identity.
+Thus no reference tool's numerical label is used to establish truth.
+
+| Case (each of Decimal and Mixed) | Angle difference | Independent projective-distance range | Expected | Observed Python/Rust Base/HEAD |
+|---|---:|---:|---|---|
+| Exact identity CX pair | 0 | 0 | EQ | PASS |
+| Near EQ | `1e-9` rad | < `1e-9` | EQ | PASS |
+| Near NEQ | `1e-6` rad | > `1e-7` | NEQ | PASS |
+| Obvious NEQ | `0.125` rad | > `1e-2` | NEQ | PASS |
+| VQE4 original/transpiled | existing real pair | real-source equivalence witness | EQ | PASS (`equivalent*`) |
+| VQE4 transpiled + `RZ(0.125)` | 0.125 rad additional | > `1e-2` | NEQ | PASS |
+
+**68 public API calls**, representing **34 distinct case × method × backend
+identities** across **two revisions**, passed source-expected EQ/NEQ,
+Python/Rust parity and source-preserving Base/HEAD physical classification.
+`equivalent` versus `equivalent*` is recorded but deliberately treated
+as the same physical EQ class. Python GPMC printed numerical log witnesses
+for each near-NEQ pair include `log2(WMC)=1.9999999999998153` against
+expected `2.0` in the Hybrid normalization; the WMC-only normalization
+is near `3.9999999999998153` versus expected `4.0`. Both correctly
+classify NEQ. The raw JSON retains every solver numerical field, including
+print-resolution warnings; no secondary magnitude guard overrides distance.
+
+### Direct RR-only residual identity with Hybrid
+
+For **Decimal exact EQ, Mixed exact EQ and real VQE4 EQ**, each backend and
+revision separately compares the **entire returned RR residual PathSum** from
+`reduction_rules` against `hybrid`, not merely the verifier status.
+
+- **12/12 full residual comparisons PASS**, including equal SHA256 of
+  each backend's two representations. These hashes are compared **within
+  the same backend and same revision**; Rust and Python print formats are
+  different and their hash values are not expected to match one another.
+- Real VQE4: RR-only is `unknown`, no Solver; Hybrid on exactly the same
+  residual invokes real GPMC and returns `equivalent*`. Observed for both
+  Python and Rust on both revisions (**4/4 stage transition witnesses**).
+- None of the 68 requests used RR numerical approximation
+  (`rr_approximate=false`). The experiment does not conflate RR-only
+  `unknown` with WMC precision uncertainty.
+- Original exact Decimal source literal
+  `0.12345678901234567890123456789` is preserved in generated QASM and
+  source SHA metadata. Python Qiskit imports decimal literals into floating
+  parameters, whereas Rust source parsing can preserve exact rational
+  radians; tests establish **classification parity at the requested
+  resolution**, not bitwise identity across these internal representations.
+
+**Scientific gate result: PASS.** This is bounded empirical coverage of
+source-accurate QASM pairs, not a mathematical proof of all quantum circuits
+or of GPMC arithmetic error bounds. Ganak and larger negative QFT/QPE
+cases are not included in this focused gate. The preceding
+Solver-inclusive WallTime remains **PERFORMANCE_INCONCLUSIVE**;
+the new scientific tests do not time execution and did not rerun any
+expensive CodSpeed family. Formal PR #131 remains untouched/Draft.

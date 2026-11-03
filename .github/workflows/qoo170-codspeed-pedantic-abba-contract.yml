@@ -23,8 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     env:
-      QUPRS_CONTRACT_TRACE: ${{ runner.temp }}/abba-contract-trace.jsonl
-      CODSPEED_PROFILE_FOLDER: ${{ runner.temp }}/abba-contract-codspeed
+      QUPRS_CONTRACT_TRACE: ${{ github.workspace }}/.qoo170-abba-contract-trace.jsonl
+      CODSPEED_PROFILE_FOLDER: ${{ github.workspace }}/.qoo170-abba-contract-codspeed
     steps:
       - uses: actions/checkout@v4
         with:

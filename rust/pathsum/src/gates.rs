@@ -171,7 +171,12 @@ impl QuantumGates for PathSum {
                 let mut sub_poly = FxHashSet::default();
                 sub_poly.insert(vec![x_t]);
                 sub_poly.insert(vec![x_c]);
-                
+
+                // Opt-in, HH-independent source-QASM CX cost witness.
+                // Default builds contain no scan or diagnostic allocation.
+                #[cfg(feature = "rr-xor-witness")]
+                crate::rr_xor_witness::observe_bra_cx(&self.p, x_t, x_c);
+
                 self.substitute_var_with_poly(x_t, &sub_poly);
             }
         }

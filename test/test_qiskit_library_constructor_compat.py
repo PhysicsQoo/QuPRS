@@ -29,7 +29,7 @@ def test_generator_supported_on_qiskit_1_and_2(name):
     # evaluation catches wire order, gate decomposition, and parameter order
     # defects without claiming rigorous symbolic equivalence.
     values = {name: (i + 1) / 17.0 for i, name in enumerate(
-        sorted({p.name for p in left.parameters | right.parameters})
+        sorted({p.name for p in set(left.parameters) | set(right.parameters)})
     )}
     bound_left = left.assign_parameters(
         {p: values[p.name] for p in left.parameters}

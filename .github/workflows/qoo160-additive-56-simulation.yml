@@ -1,17 +1,8 @@
 name: QOO160 Qiskit261 additive 56 Simulation (experiment only)
 
+# Historical 32+24 experiment preserved for provenance. Do not auto-run five expensive
+# shards on every research code edit after the 12-ID consolidation.
 on:
-  push:
-    branches: ['experiment/qoo160-qasm261-codspeed-selection']
-    paths:
-      - 'benchmarks/codspeed/simulation_addon.py'
-      - 'benchmarks/codspeed/test_mqt_qasm261_simulation.py'
-      - 'scripts/check_codspeed_shards.py'
-      - 'scripts/write_codspeed_sha_manifest.py'
-      - 'scripts/report_codspeed_cross_instrument.py'
-      - 'test/test_codspeed_qasm261_simulation_additive.py'
-      - 'test/test_codspeed_cross_instrument.py'
-      - '.github/workflows/qoo160-additive-56-simulation.yml'
   workflow_dispatch:
 
 permissions:

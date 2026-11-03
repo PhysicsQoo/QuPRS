@@ -1,0 +1,93 @@
+name: MQTBench Qiskit 2.6.1 Level0 Random Rotation Negative Corpus
+
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/tacas26-mqtbench-qiskit261-rotation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mqtbench-qiskit261-level0-random-rotation
+  cancel-in-progress: false
+
+jobs:
+  generate-negatives:
+    name: Generate 37 source-verified random rotation NEQ candidates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Use Qiskit 2.6.1 and NumPy 2.2.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m pip install --disable-pip-version-check 'qiskit==2.6.1' 'numpy==2.2.6'
+          python - <<'PY'
+          import numpy, qiskit
+          assert qiskit.__version__ == "2.6.1"
+          assert numpy.__version__ == "2.2.6"
+          PY
+          python -m compileall -q scripts/generate_mqtbench_qiskit261_random_rotation.py
+      - name: Generate source-pinned random RX RY RZ errors for all 37 cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.generate_mqtbench_qiskit261_random_rotation generate
+          python -m scripts.generate_mqtbench_qiskit261_random_rotation verify
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path("benchmarks/MQTBench/qiskit-2.6.1-opt0")
+          m=json.loads((root/"random-rotation-manifest.json").read_text())
+          assert m["source_count"] == m["target_count"] == 37
+          assert len(list((root/"Random_Rotation").glob("*.qasm"))) == 37
+          assert m["small_full_operator_witnesses"] + m["large_not_formally_certified"] == 37
+          assert all(x["output_instruction_count"]==x["baseline_instruction_count"]+
+                     x["injected_instruction_count"] for x in m["cases"])
+          print("MQTBENCH_RANDOM_ROTATION_GENERATED_PASS",m["target_count"],
+                "small_ne_witnesses",m["small_full_operator_witnesses"])
+          PY
+          test -z "$(git status --porcelain -- benchmarks/MQTBench/h,ry,rz,cx)"
+          test -z "$(git status --porcelain -- benchmarks/MQTBench/Random_Rotation)"
+          test -z "$(git status --porcelain -- benchmarks/MQTBench/Random_Pauli)"
+          test -z "$(git status --porcelain -- benchmarks/MQTBench/qiskit-2.6.1-opt0/h,ry,rz,cx)"
+      - name: Commit exact new QASM and injection ledger only to experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation \
+                  benchmarks/MQTBench/qiskit-2.6.1-opt0/random-rotation-manifest.json
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No changes to fixed negative QASM corpus"
+          else
+            git commit -m "research(mqtbench): archive 37 deterministic Level0 Random_Rotation QASM negatives"
+            git fetch origin experiment/tacas26-paper-reproduction
+            git rebase origin/experiment/tacas26-paper-reproduction
+            git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mqtbench-qiskit261-level0-random-rotation-all37
+          path: |
+            benchmarks/MQTBench/qiskit-2.6.1-opt0/Random_Rotation/
+            benchmarks/MQTBench/qiskit-2.6.1-opt0/random-rotation-manifest.json
+          retention-days: 30
+          if-no-files-found: warn

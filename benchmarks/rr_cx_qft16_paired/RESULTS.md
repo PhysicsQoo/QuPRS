@@ -209,3 +209,40 @@ cases are not included in this focused gate. The preceding
 Solver-inclusive WallTime remains **PERFORMANCE_INCONCLUSIVE**;
 the new scientific tests do not time execution and did not rerun any
 expensive CodSpeed family. Formal PR #131 remains untouched/Draft.
+
+
+## Legacy VQE4/Ganak source-angle cost attribution (2026-11-03 review)
+
+This section audits a **different, older experiment**, not direct Bra-CX
+versus the previous guarded-XOR candidate. Preserve it separately from the
+native results above. The archived [same-VM A–B–B–A trial artifact](https://github.com/PhysicsQoo/QuPRS/actions/runs/40302786247/artifacts/12641716715)
+contains four trial JSON files, five measured repeats per position, ten base
+and ten head samples per workload. Base `54f712d` and head `2564cfc`
+have **different historical source-angle semantics**. The stages below were
+recomputed as the medians of real trial-level `elapsed_seconds`,
+`pathsum_seconds`, and `solver_seconds` (times in ms):
+
+| Workload | Complete Base → Head | PathSum Base → Head | Solver Base → Head |
+|---|---:|---:|---:|
+| VQE4 Rust/Ganak | 113.332 → 144.793 (+27.76%) | 0.855 → 1.602 | 111.773 → 142.077 (+27.11%) |
+| VQE4 Rust/GPMC | 22.094 → 23.381 (+5.82%) | 0.840 → 1.602 | 20.668 → 20.706 (+0.18%) |
+| VQE4 Python/Ganak | 319.642 → 321.243 (+0.50%) | 101 → 103 | 184 → 184 (+0.00%) |
+| QAOA7 Rust/Ganak | 289.382 → 292.407 (+1.05%) | 4.369 → 6.522 | 283.829 → 283.377 (−0.16%) |
+| Grover4 Rust/Ganak | 184.761 → 186.111 (+0.73%) | 1.630 → 2.750 | 182.372 → 182.183 (−0.10%) |
+
+Build/runtime Ganak binary SHA256 matches across the two historical source
+builds: `934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd`.
+The anomalous VQE4 Rust/Ganak slowdown is **Solver-stage-specific** in this
+historical trial; neither the same Rust/GPMC Solver stage nor other Rust/Ganak
+workloads share it. This eliminates a changed solver binary as an explanation,
+**but does not establish a CNF/weight-level cause**: the ZIP has only stage
+and final verdict samples, not original emitted DIMACS, literal maps, weight
+bytes or solver search traces. Set `CNF_INPUT_NOT_CAPTURED` and
+`EXPLAINED_STAGE / INPUT_CAUSE_UNVERIFIED`; do not infer a modern merged-dev
+regression, and do not modify Ganak source.
+
+A **new** current-dev versus future-code-candidate Solver-inclusive regression
+would justify one bounded research-branch CNF/weights/literal-hash diagnostic.
+Replaying this semantically unmatched old ABBA or a broad PhasePolynomial
+container rewrite is **not** justified by these records. Markdown-only edits
+must not trigger an expensive CodSpeed rerun.

@@ -6,9 +6,14 @@ benchmark measurement IDs and history, not the QuPRS public Python/Rust API.
 
 ## Policy and releases
 
-- v0.14.0: maintain the legacy 32/five-shard Simulation suite unchanged.
-  Introduce the curated suite and manifest schema v3 *in parallel*, using
-  separate benchmark URIs and an independently measured CodSpeed baseline.
+- v0.14.0: preserve all 32 historical Simulation URIs, inputs and five shards
+  **without modification**, while running an additive 24-URI Qiskit 2.6.1
+  Level-0 cohort (six MQT circuits, two backends, two Solvers) in the
+  **same five-shard CodSpeed run** after experimental acceptance. Total: 56.
+  New versioned URIs get their own initial measurements; old data is never
+  renamed, substituted or reused as a performance result for new QASM.
+  The larger curated suite and manifest schema v3 remain independent
+  research candidates, not replacements for this additive v0.14 cohort.
 - v0.15.0: curated suite may become the default only after source/oracle,
   instrument and CI cost qualification. The complete legacy suite must remain
   runnable by opt-in and in periodic/release validation.
@@ -35,9 +40,12 @@ Never call carried-forward CodSpeed values measurements at current HEAD.
 
 The frozen legacy simulation SHA-256 is
 `7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed`.
-Legacy five shards, 32 identities and no subprocess tracking remain as-is
-during coexistence. The curated suite is a candidate, **not activated** in
-the regular workflow by merely registering the cases.
+Legacy five shards, 32 identities and no subprocess tracking remain as-is.
+The separate 24-URI Level-0 cohort is additive within these same five shards;
+the expanded five-shard manifest must explicitly declare its suite version
+and 24-URI SHA-256, preventing partial uploads from passing as 32-only runs.
+The curated suite remains a distinct research candidate and is **not**
+activated by merely registering its cases.
 
 The SHA manifest v2 reader remains available; new runs may use v3 with
 `suite_id`, `suite_version`, `suite_spec_sha256`, `measurement_scope`,

@@ -21,6 +21,7 @@ on:
       - '.github/scripts/ci-impact-reuse.cjs'
       - '.github/scripts/test-ci-impact-reuse.cjs'
       - 'scripts/check_codspeed_shards.py'
+      - 'test/test_codspeed_qasm261_simulation_additive.py'
   # Always run BOTH Simulation and paired Solver-inclusive WallTime on PRs.
   # CI job success means evidence was collected, not proof of no regression.
   pull_request:
@@ -171,7 +172,7 @@ jobs:
           exclude-allocations: 'false'
           # Evaluate solver subprocess instrumentation independently.
           simulation-track-subprocess: 'false'
-          run: pytest test/test_Feynman.py test/test_MQT.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }}
+          run: pytest test/test_Feynman.py test/test_MQT.py benchmarks/codspeed/test_mqt_qasm261_simulation.py --codspeed --shard-id ${{ matrix.shard_id }} --num-shards ${{ matrix.num_shards }}
 
       - name: Save original Simulation measurement and SHA
         run: |

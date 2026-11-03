@@ -96,6 +96,52 @@ def test_source_identity_and_missing_case_block_cross_report(tmp_path, monkeypat
         module.produce(tmp_path, SHA, BASE)
 
 
+def test_additive_qasm261_24_uris_coexist_with_legacy_32(tmp_path, monkeypatch):
+    from benchmarks.codspeed.simulation_addon import (
+        QASM261_COUNT, QASM261_SHA256, QASM261_URIS,
+    )
+    fixture_tree(tmp_path, monkeypatch)
+    # Reconstruct a complete expanded suite without overwriting legacy data.
+    for shard in range(5):
+        folder = tmp_path / f"quprs-sha-simulation-{shard}"
+        json_file = folder / f"simulation-{shard}.json"
+        current = json.loads(json_file.read_text())
+        current["benchmarks"].extend(
+            {"uri": uri, "stats": {"cpu_total_ns": 55}}
+            for i, uri in enumerate(QASM261_URIS) if i % 5 == shard
+        )
+        raw = json.dumps(current).encode()
+        json_file.write_bytes(raw)
+        meta_file = folder / "manifest.json"
+        meta = json.loads(meta_file.read_text())
+        meta["measurement_sha256"] = hashlib.sha256(raw).hexdigest()
+        meta["simulation_addon"] = {
+            "suite": "qiskit-2.6.1-opt0-v1",
+            "count": QASM261_COUNT, "identity_sha256": QASM261_SHA256,
+        }
+        meta_file.write_text(json.dumps(meta))
+    output = module.produce(tmp_path, SHA, BASE)
+    assert output["five_shard_canonical_count"] == 32
+    assert output["qasm261_addon_count"] == 24
+    assert output["simulation_total_count"] == 56
+    assert len(output["simulation_uris"]) == 56
+    # Missing even one modern URI fails; archive 32 do not hide incomplete 24.
+    first = tmp_path / "quprs-sha-simulation-0" / "simulation-0.json"
+    contents = json.loads(first.read_text())
+    contents["benchmarks"] = [
+        x for x in contents["benchmarks"]
+        if x["uri"] != QASM261_URIS[0]
+    ]
+    raw = json.dumps(contents).encode()
+    first.write_bytes(raw)
+    metadata = first.parent / "manifest.json"
+    row = json.loads(metadata.read_text())
+    row["measurement_sha256"] = hashlib.sha256(raw).hexdigest()
+    metadata.write_text(json.dumps(row))
+    with pytest.raises(ValueError, match="incomplete QASM261"):
+        module.produce(tmp_path, SHA, BASE)
+
+
 def test_missing_walltime_is_baseline_only(tmp_path, monkeypatch):
     fixture_tree(tmp_path, monkeypatch)
     result = module.produce(tmp_path, SHA, "")

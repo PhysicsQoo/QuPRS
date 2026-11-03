@@ -79,6 +79,8 @@ def run(version, output):
             raise RuntimeError("Non-terminal original measurement not supported")
         baseline=compare(original,historical,np,Operator,Statevector)
         r={"case":short,"qubits":original.num_qubits,
+           "original_file":item["source"]["path"],
+           "historical_transpiled_file":item["transpiled"]["path"],
            "original_sha256":sha(a),"historic_sha256":sha(b),
            "original_gates":original.size(),"historic_gates":historical.size(),
            "historical_saved":baseline,"transpiles":[]}

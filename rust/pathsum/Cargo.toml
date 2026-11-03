@@ -34,3 +34,5 @@ proptest = "1.0"
 [features]
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
+# Opt-in real-RR path evidence only; never used in shipping/default builds.
+rr-xor-witness = []

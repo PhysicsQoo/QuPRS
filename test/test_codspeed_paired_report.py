@@ -44,6 +44,10 @@ def sample():
                 "pair_variant": "random_rotation" if versioned_negative else "transpiled",
                 "qasm_corpus": "qiskit-2.6.1-opt0" if versioned_negative else "historical",
                 "fixture_sha256": ["a" * 64, "b" * 64] if versioned_negative else None,
+                "effective_rr_tolerance": 1e-10,
+                "effective_distance_tolerance": 1e-8,
+                "effective_phase_tolerance": 1e-8,
+                "effective_gpmc_digits": 30,
             })
     return measurement, records
 

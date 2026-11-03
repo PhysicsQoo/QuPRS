@@ -1141,5 +1141,570 @@
       "reason": "Ganak true NEQ far from source boundary but printed resolution ~1.136e-5 exceeds 1e-8 requested distance; conditional timing only"
     }
   ],
-  "qoo165_p5_policy": "Observation-only, no fixed performance threshold; cannot compare 797-817ms EPYC7763 run against ~548ms EPYC9V45 prior pilot as an algorithm regression. No new every-PR ID or Workflow expansion based on these runs."
+  "qoo165_p5_policy": "Observation-only, no fixed performance threshold; cannot compare 797-817ms EPYC7763 run against ~548ms EPYC9V45 prior pilot as an algorithm regression. No new every-PR ID or Workflow expansion based on these runs.",
+  "current_merged_dev_codspeed_simulation": {
+    "schema": "quprs-codspeed-v3-exact-sha-official-displayed-simulation-snapshot-v1",
+    "codspeed_run_id": "6ae9983573a73c5663fc2a15",
+    "run_url": "https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6ae9983573a73c5663fc2a15",
+    "verifier_sha": "a4c7b12652b3c59c086f5d408a95e004df570bad",
+    "instrument": "CodSpeed CPU Simulation",
+    "value_type": "official_displayed_rounded_magnitude",
+    "unit_in_displayed_value": "s / ms / µs",
+    "precision_note": "get_run displays rounded units; not exact unrounded cpuTotalSeconds. Never calculate precise CV or small percent deltas from these displayed numbers.",
+    "verified_benchmark_count": 86,
+    "identity_counts": {
+      "historical32": 32,
+      "qasm26124": 24,
+      "native30": 30
+    },
+    "syscall_dominated_issue_count": 19,
+    "paired_solver_inclusive_in_this_run": false,
+    "source_sha_same_for_all_benchmarks": true,
+    "cpu_hardware_same_for_all_jobs_unverified": true,
+    "benchmark_runner_cpu_class": "UNKNOWN_PER_CASE",
+    "all_values_are_measured_on_this_codspeed_run": true,
+    "explicit_service_numeric_auth": "CodSpeed connected read tool available, not unattended GitHub workflow API credential",
+    "sample_precision_details": [
+      {
+        "uri": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-rust]",
+        "cpu_total_s": 0.05798984348797286,
+        "sys_s_excluded": 3.251683874,
+        "syscalls": 1567,
+        "dominant_syscall_warning": true
+      },
+      {
+        "uri": "benches/shared/qasm261.rs::q261_rr_qft16_positive",
+        "cpu_total_s": 0.04271900769295707,
+        "sys_s_excluded": 0.00001588,
+        "syscalls": 5,
+        "dominant_syscall_warning": false
+      },
+      {
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qaoa7_gpmc_rust]",
+        "cpu_total_s": 0.017168025420679498,
+        "sys_s_excluded": 0.000210316,
+        "syscalls": 25,
+        "dominant_syscall_warning": false
+      }
+    ],
+    "rows": [
+      {
+        "name": "native_rr_tolerance[0.0000000001]",
+        "uri": "benches/core.rs::native_rr_tolerance[0.0000000001]",
+        "displayed_value": "78 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "native_rr_tolerance[0.00000001]",
+        "uri": "benches/core.rs::native_rr_tolerance[0.00000001]",
+        "displayed_value": "77.9 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "native_rr_tolerance[0]",
+        "uri": "benches/core.rs::native_rr_tolerance[0]",
+        "displayed_value": "76.1 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_clifford_add",
+        "uri": "benches/core.rs::phase_clifford_add",
+        "displayed_value": "3.7 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_clifford_sub",
+        "uri": "benches/core.rs::phase_clifford_sub",
+        "displayed_value": "3.7 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_decimal_add",
+        "uri": "benches/core.rs::phase_decimal_add",
+        "displayed_value": "20.3 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_decimal_hash_mixed",
+        "uri": "benches/core.rs::phase_decimal_hash_mixed",
+        "displayed_value": "334.7 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_decimal_hash_repeated",
+        "uri": "benches/core.rs::phase_decimal_hash_repeated",
+        "displayed_value": "360.6 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_decimal_hash_unique",
+        "uri": "benches/core.rs::phase_decimal_hash_unique",
+        "displayed_value": "341.5 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_decimal_scale",
+        "uri": "benches/core.rs::phase_decimal_scale",
+        "displayed_value": "34.4 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_decimal_sub",
+        "uri": "benches/core.rs::phase_decimal_sub",
+        "displayed_value": "5 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "phase_symbolic_add",
+        "uri": "benches/core.rs::phase_symbolic_add",
+        "displayed_value": "7.6 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "q261_rr_ghz32_positive",
+        "uri": "benches/shared/qasm261.rs::q261_rr_ghz32_positive",
+        "displayed_value": "1.1 ms",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "q261_rr_graphstate16_positive",
+        "uri": "benches/shared/qasm261.rs::q261_rr_graphstate16_positive",
+        "displayed_value": "6.6 ms",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "q261_rr_qft16_positive",
+        "uri": "benches/shared/qasm261.rs::q261_rr_qft16_positive",
+        "displayed_value": "42.7 ms",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "q261_rr_qpeexact8_positive",
+        "uri": "benches/shared/qasm261.rs::q261_rr_qpeexact8_positive",
+        "displayed_value": "4.8 ms",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "q261_rr_vqe4_positive",
+        "uri": "benches/shared/qasm261.rs::q261_rr_vqe4_positive",
+        "displayed_value": "6.5 ms",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "rr_elim_direct",
+        "uri": "benches/core.rs::rr_elim_direct",
+        "displayed_value": "5.8 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "rr_hh_direct",
+        "uri": "benches/core.rs::rr_hh_direct",
+        "displayed_value": "26.1 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "rr_hh_pipeline",
+        "uri": "benches/core.rs::rr_hh_pipeline",
+        "displayed_value": "53.2 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "rr_nonclifford_pipeline",
+        "uri": "benches/core.rs::rr_nonclifford_pipeline",
+        "displayed_value": "41.7 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "rr_omega_direct",
+        "uri": "benches/core.rs::rr_omega_direct",
+        "displayed_value": "40.2 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "test_all_benchmarks[adder_8.qasm-proportional-False-python]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[adder_8.qasm-proportional-False-python]",
+        "displayed_value": "6.1 s",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[adder_8.qasm-proportional-False-rust]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[adder_8.qasm-proportional-False-rust]",
+        "displayed_value": "30.5 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[gf2^4_mult.qasm-proportional-False-python]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[gf2^4_mult.qasm-proportional-False-python]",
+        "displayed_value": "277.6 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[gf2^4_mult.qasm-proportional-False-rust]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[gf2^4_mult.qasm-proportional-False-rust]",
+        "displayed_value": "3.8 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-ganak-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-ganak-python]",
+        "displayed_value": "74.2 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-ganak-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-ganak-rust]",
+        "displayed_value": "2.1 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-gpmc-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-gpmc-python]",
+        "displayed_value": "73.9 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-gpmc-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[ghz_nativegates_ibm_qiskit_opt0_32.qasm-straightforward-True-gpmc-rust]",
+        "displayed_value": "2.1 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-ganak-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-ganak-python]",
+        "displayed_value": "474.8 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-ganak-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-ganak-rust]",
+        "displayed_value": "12.4 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-gpmc-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-gpmc-python]",
+        "displayed_value": "471.5 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-gpmc-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[graphstate_nativegates_ibm_qiskit_opt0_16.qasm-naive-False-gpmc-rust]",
+        "displayed_value": "12.8 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-ganak-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-ganak-python]",
+        "displayed_value": "1.2 s",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-ganak-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-ganak-rust]",
+        "displayed_value": "18.6 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-gpmc-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-gpmc-python]",
+        "displayed_value": "1.1 s",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-gpmc-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[grover-noancilla_nativegates_ibm_qiskit_opt0_4.qasm-proportional-True-gpmc-rust]",
+        "displayed_value": "18.6 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-ganak-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-ganak-python]",
+        "displayed_value": "3.6 s",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-ganak-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-ganak-rust]",
+        "displayed_value": "48.8 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-gpmc-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-gpmc-python]",
+        "displayed_value": "3.6 s",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-gpmc-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qaoa_nativegates_ibm_qiskit_opt0_7.qasm-proportional-False-gpmc-rust]",
+        "displayed_value": "54.7 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-ganak-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-ganak-python]",
+        "displayed_value": "6.7 s",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-ganak-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-ganak-rust]",
+        "displayed_value": "51.5 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-python]",
+        "displayed_value": "6.7 s",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[qft_nativegates_ibm_qiskit_opt0_16.qasm-proportional-True-gpmc-rust]",
+        "displayed_value": "58 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[tof_3.qasm-proportional-True-python]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[tof_3.qasm-proportional-True-python]",
+        "displayed_value": "40.1 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[tof_3.qasm-proportional-True-rust]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[tof_3.qasm-proportional-True-rust]",
+        "displayed_value": "1.4 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[vbe_adder_3.qasm-proportional-True-python]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[vbe_adder_3.qasm-proportional-True-python]",
+        "displayed_value": "307 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[vbe_adder_3.qasm-proportional-True-rust]",
+        "uri": "test/test_Feynman.py::test_all_benchmarks[vbe_adder_3.qasm-proportional-True-rust]",
+        "displayed_value": "3.5 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-ganak-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-ganak-python]",
+        "displayed_value": "868.4 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-ganak-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-ganak-rust]",
+        "displayed_value": "17.3 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-gpmc-python]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-gpmc-python]",
+        "displayed_value": "837.5 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-gpmc-rust]",
+        "uri": "test/test_MQT.py::test_all_benchmarks[vqe_nativegates_ibm_qiskit_opt0_4.qasm-proportional-False-gpmc-rust]",
+        "displayed_value": "17.4 ms",
+        "source_cohort": "historical32"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_ghz32_ganak_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_ghz32_ganak_python]",
+        "displayed_value": "76.4 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_ghz32_ganak_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_ghz32_ganak_rust]",
+        "displayed_value": "2.3 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_ghz32_gpmc_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_ghz32_gpmc_python]",
+        "displayed_value": "77.6 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_ghz32_gpmc_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_ghz32_gpmc_rust]",
+        "displayed_value": "2.3 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_graphstate16_ganak_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_graphstate16_ganak_python]",
+        "displayed_value": "442.1 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_graphstate16_ganak_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_graphstate16_ganak_rust]",
+        "displayed_value": "11.3 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_graphstate16_gpmc_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_graphstate16_gpmc_python]",
+        "displayed_value": "442.4 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_graphstate16_gpmc_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_graphstate16_gpmc_rust]",
+        "displayed_value": "11.5 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_grover4_ganak_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_grover4_ganak_python]",
+        "displayed_value": "391 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_grover4_ganak_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_grover4_ganak_rust]",
+        "displayed_value": "9.5 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_grover4_gpmc_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_grover4_gpmc_python]",
+        "displayed_value": "392.3 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_grover4_gpmc_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_grover4_gpmc_rust]",
+        "displayed_value": "9.5 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qaoa7_ganak_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qaoa7_ganak_python]",
+        "displayed_value": "533.7 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qaoa7_ganak_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qaoa7_ganak_rust]",
+        "displayed_value": "17.2 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qaoa7_gpmc_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qaoa7_gpmc_python]",
+        "displayed_value": "533.5 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qaoa7_gpmc_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qaoa7_gpmc_rust]",
+        "displayed_value": "17.2 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qft16_ganak_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qft16_ganak_python]",
+        "displayed_value": "1.3 s",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qft16_ganak_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qft16_ganak_rust]",
+        "displayed_value": "64.7 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qft16_gpmc_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qft16_gpmc_python]",
+        "displayed_value": "1.3 s",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_qft16_gpmc_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_qft16_gpmc_rust]",
+        "displayed_value": "64.6 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_vqe4_ganak_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_vqe4_ganak_python]",
+        "displayed_value": "434.8 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_vqe4_ganak_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_vqe4_ganak_rust]",
+        "displayed_value": "10.1 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_vqe4_gpmc_python]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_vqe4_gpmc_python]",
+        "displayed_value": "435.9 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "test_versioned_mqt_simulation[q261_vqe4_gpmc_rust]",
+        "uri": "benchmarks/codspeed/test_mqt_qasm261_simulation.py::test_versioned_mqt_simulation[q261_vqe4_gpmc_rust]",
+        "displayed_value": "10.1 ms",
+        "source_cohort": "qasm26124"
+      },
+      {
+        "name": "wmc_dimacs_mpfr96_unique",
+        "uri": "benches/core.rs::wmc_dimacs_mpfr96_unique",
+        "displayed_value": "92.7 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "wmc_trace_cnf_unweighted",
+        "uri": "benches/core.rs::wmc_trace_cnf_unweighted",
+        "displayed_value": "47.9 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "wmc_trace_f64_repeated",
+        "uri": "benches/core.rs::wmc_trace_f64_repeated",
+        "displayed_value": "56.8 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "wmc_trace_f64_unique",
+        "uri": "benches/core.rs::wmc_trace_f64_unique",
+        "displayed_value": "56.8 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "wmc_trace_mpfr192_repeated",
+        "uri": "benches/core.rs::wmc_trace_mpfr192_repeated",
+        "displayed_value": "604.2 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "wmc_trace_mpfr192_unique",
+        "uri": "benches/core.rs::wmc_trace_mpfr192_unique",
+        "displayed_value": "607 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "wmc_trace_mpfr96_repeated",
+        "uri": "benches/core.rs::wmc_trace_mpfr96_repeated",
+        "displayed_value": "478 µs",
+        "source_cohort": "native30"
+      },
+      {
+        "name": "wmc_trace_mpfr96_unique",
+        "uri": "benches/core.rs::wmc_trace_mpfr96_unique",
+        "displayed_value": "477.4 µs",
+        "source_cohort": "native30"
+      }
+    ],
+    "interpretation": "Reliable per-run identity inventory and official displayed modeled CPU only. Does not certify external GPMC/Ganak WallTime or any science verdict; 19 syscall-dominated cases understate complete cost, use nine paired WallTime for previous PR source comparison."
+  }
 }

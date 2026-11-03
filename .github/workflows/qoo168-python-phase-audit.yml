@@ -1,0 +1,75 @@
+name: Research / Python QASM3 global-phase semantic audit
+on:
+  push:
+    branches: [research/qoo168-native-qasm3-subset-20261103]
+    paths: ['.github/workflows/qoo168-python-phase-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  python-phase:
+    name: Python QASM3 gphase / Qiskit ${{ matrix.qiskit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.4.6', '2.6.1']
+    env:
+      QISKIT_VERSION: ${{ matrix.qiskit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo169-built-artifacts
+          run-id: 41665710296
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dist
+      - name: Install source-matched Python interface from prebuilt candidate wheel
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          test "$(cat dist/source-sha.txt)" = 'b503021d2269755e04bfc1d1295ed8623538b73a'
+          sha256sum -c dist/SHA256SUMS
+          python -m pip install --upgrade pip
+          python -m pip install "qiskit==$QISKIT_VERSION" dist/*.whl 'qiskit-qasm3-import==0.6.0' 2>&1 | tee evidence/install.log
+          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip freeze > evidence/pip-freeze.txt
+      - name: Independent Qiskit source scalar versus Python PathSum verdict
+        run: |
+          set -euo pipefail
+          python - <<'PY' 2>&1 | tee evidence/python-global-phase-audit.log
+          import json
+          import math
+          from qiskit import qasm3
+          from QuPRS import check_equivalence
+          base = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\n'
+          phase = base + 'gphase(pi/2);\n'
+          parsed = qasm3.loads(phase)
+          seen = float(parsed.global_phase)
+          print(json.dumps({'parsed_global_phase_radians': seen, 'expected': math.pi / 2}))
+          assert abs(seen - math.pi / 2) < 1e-10, "Qiskit importer lost gphase"
+          result = check_equivalence(base, phase, backend='python', method='reduction_rules',
+                                     rr_tolerance=0, phase_tolerance=1e-15, strategy='Naive')
+          print(json.dumps({'method': 'reduction_rules', 'backend': 'python',
+                            'verdict': result.equivalent, 'expectation': 'equivalent*'}))
+          assert result.equivalent == 'equivalent*', (
+              'Source phase silently dropped in the Python PathSum bridge', result)
+          PY
+      - name: Save negative/positive scalar evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo168-python-phase-qiskit${{ matrix.qiskit }}
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,71 @@
+name: Research / Qiskit earliest-minor API boundary
+on:
+  push:
+    branches: [research/qoo169-qiskit-dual-major-installer-20261103]
+    paths: ['.github/workflows/qoo169-qiskit-boundary.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  minor-boundary:
+    name: Python 3.12 Qiskit ${{ matrix.qiskit }} installed API boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.0.0', '2.0.0']
+    env:
+      EXPECTED_QISKIT: ${{ matrix.qiskit }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo169-built-artifacts
+          path: dist
+          run-id: 41665710296
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify prebuilt candidate wheel hashes
+        run: |
+          set -euo pipefail
+          test "$(cat dist/source-sha.txt)" = 'b503021d2269755e04bfc1d1295ed8623538b73a'
+          sha256sum -c dist/SHA256SUMS
+      - name: Test true resolver plus current Qiskit-specific API surface
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python -m pip install --upgrade pip
+          python -m pip install "qiskit==$EXPECTED_QISKIT" dist/*.whl 2>&1 | tee evidence/install.log
+          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip freeze > evidence/pip-freeze.txt
+          python - <<'PY' 2>&1 | tee evidence/api.log
+          import importlib.metadata as md
+          import os
+          from qiskit import QuantumCircuit, qasm2, qasm3
+          from QuPRS import check_equivalence
+          from QuPRS.utils.Qiskit_Circuit_Utils import pqc_generator
+          assert md.version('qiskit') == os.environ['EXPECTED_QISKIT']
+          for kind in ['NLocal', 'ExcitationPreserving', 'RealAmplitudes', 'EfficientSU2', 'PauliTwoDesign']:
+              a, b, name = pqc_generator(qubit_num=2, reps=1, function_name=kind)
+              assert a.num_qubits == b.num_qubits == 2 and name.startswith(kind)
+              print('PQC', kind, a.size(), b.size())
+          h = QuantumCircuit(1); h.h(0); h.h(0)
+          i = QuantumCircuit(1)
+          for backend in ['python', 'rust']:
+              r = check_equivalence(h, i, method='reduction_rules', backend=backend)
+              assert r.equivalent == 'equivalent', (backend, r)
+          PY
+      - name: Preserve exact-boundary results and failure causes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo169-qiskit-minor-boundary-${{ matrix.qiskit }}
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14

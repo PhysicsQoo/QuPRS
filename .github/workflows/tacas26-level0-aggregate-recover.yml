@@ -1,0 +1,74 @@
+name: TACAS26 Level0 132-Call Science Archive Repair (No Solver)
+
+on:
+  push:
+    branches: [experiment/tacas26-paper-reproduction]
+    paths:
+      - '.github/workflows/tacas26-level0-aggregate-recover.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  archive-existing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/tacas26-paper-reproduction
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retrieve existing successful aggregation, no science re-execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          mkdir -p "$RUNNER_TEMP/science"
+          gh run download 41562334781 --repo "$GITHUB_REPOSITORY" \
+            --name tacas26-level0-cross-aggregate --dir "$RUNNER_TEMP/science"
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          src=Path(os.environ["RUNNER_TEMP"])/"science"
+          meta=json.loads((src/"manifest.json").read_text())
+          assert meta["ci_run_id"] == "41562334781"
+          assert meta["expected_total_invocations"]==132
+          assert meta["collected_records"]==132
+          assert meta["modern_quprs_source_sha"]=="131c95a659b0b89675bba24d913d6114af96f74f"
+          for filename, expected in meta["output_hashes"].items():
+              assert hashlib.sha256((src/filename).read_bytes()).hexdigest()==expected, filename
+          rows=[json.loads(s) for s in (src/"observations.jsonl").read_text().splitlines()]
+          assert len(rows)==132
+          profiles={p:sum(r.get("profile")==p for r in rows) for p in ("v091","python","rust")}
+          assert profiles=={"v091":44,"python":44,"rust":44},profiles
+          print("LEVEL0_PERMANENT_RECOVERY_VALID",profiles)
+          PY
+      - name: Commit unmodified byte-preserving science evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin experiment/tacas26-paper-reproduction
+          git rebase origin/experiment/tacas26-paper-reproduction
+          dest=docs/development/tacas26-level0-quprs-cross/runs/41562334781
+          if test -e "$dest/manifest.json"; then
+            echo "Immutable run already committed; refusing to overwrite."
+            exit 0
+          fi
+          mkdir -p "$dest"
+          cp "$RUNNER_TEMP/science/"* "$dest/"
+          cp docs/development/tacas26-level0-quprs-cross/inputs/41562334781/pairs.json "$dest/pairs.json"
+          git add "$dest"
+          # Original CSV uses standard CRLF. Verify without rewriting or
+          # invalidating its SHA256 (Git treats CR as a normal EOL).
+          git -c core.whitespace=cr-at-eol diff --cached --check
+          git commit -m "research(tacas): seal existing 132-call level0 science observations, no Solver rerun"
+          git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction

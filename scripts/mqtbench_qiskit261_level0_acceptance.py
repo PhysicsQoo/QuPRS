@@ -179,7 +179,7 @@ def normalize_original(case, output: Path):
         "canonical_instructions":len(normalized.data),
         "canonical_sha256":digest(dest),
         "normalizer":"Qiskit2.6.1 remove_final_measurements and remove barrier",
-        "normalizer_qiskit":"2.6.1",
+        "normalizer_qiskit":"1.4.2", 
         "canonical_relative_file":dest.name,
     }
 
@@ -328,8 +328,8 @@ def run_case(args):
     case, sources = case_for(args.file)
     try:
         import qiskit
-        if qiskit.__version__!="2.6.1":
-            raise RuntimeError("Acceptance requires qiskit 2.6.1, not "+qiskit.__version__)
+        if qiskit.__version__!="1.4.2":
+            raise RuntimeError("QuPRS v0.14.0 supports Qiskit 1.x; acceptance uses pinned 1.4.2 runtime, not "+qiskit.__version__)
     except ImportError as e:
         raise RuntimeError("Acceptance requires pinned Qiskit") from e
     out=Path(args.output)
@@ -515,6 +515,8 @@ def aggregate(args):
         "run_id":os.getenv("GITHUB_RUN_ID"),
         "source_sha":args.sha,
         "qasm_version":"Qiskit2.6.1_opt0",
+        "runtime_qiskit_version":"1.4.2",
+        "input_generation_qiskit_version":"2.6.1",
         "source_registry":provenance,
         "solver":"gpmc",
         "distance":DISTANCE,

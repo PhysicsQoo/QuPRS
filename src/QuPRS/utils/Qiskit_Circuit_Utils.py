@@ -35,14 +35,29 @@ import random
 import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3, transpile
 from qiskit.circuit import CircuitInstruction
-from qiskit.circuit.library import (
-    efficient_su2,
-    excitation_preserving,
-    n_local,
-    pauli_two_design,
-    real_amplitudes,
-    standard_gates,
+from qiskit.circuit import library as circuit_library
+from qiskit.circuit.library import standard_gates
+
+# Qiskit 1.0 used BlueprintCircuit classes; later 1.x and 2.x expose
+# faster function constructors. Keep the original public generator names
+# while selecting the constructor available in the installed Qiskit version.
+# Never use an eager fallback expression: legacy classes may be removed in 2.x.
+def _supported_library_constructor(function_name: str, class_name: str):
+    constructor = getattr(circuit_library, function_name, None)
+    # Qiskit 1.0 exposes a submodule named 'n_local', but not yet the
+    # modern callable constructor. Non-callable modules are not APIs.
+    if not callable(constructor):
+        constructor = getattr(circuit_library, class_name)
+    return constructor
+
+
+efficient_su2 = _supported_library_constructor("efficient_su2", "EfficientSU2")
+excitation_preserving = _supported_library_constructor(
+    "excitation_preserving", "ExcitationPreserving"
 )
+n_local = _supported_library_constructor("n_local", "NLocal")
+pauli_two_design = _supported_library_constructor("pauli_two_design", "PauliTwoDesign")
+real_amplitudes = _supported_library_constructor("real_amplitudes", "RealAmplitudes")
 from qiskit.circuit.parameter import Parameter
 from qiskit.circuit.parametervector import ParameterVectorElement
 from qiskit.quantum_info.operators.symplectic.clifford_circuits import (
@@ -76,10 +91,19 @@ def pqc_generator(
         tuple: Original circuit, transpiled circuit, and circuit name string.
     """
     if function_name == "NLocal":
-        # cir = library.TwoLocal(qubit_num, ["ry"], "cx", reps=reps)
-        cir = n_local(
-            qubit_num, rotation_blocks=["ry"], entanglement_blocks="cx", reps=reps
-        )
+        # Qiskit 1.0's NLocal BlueprintCircuit requires Gate objects,
+        # while the modern n_local function accepts gate-name strings.
+        if isinstance(n_local, type):
+            cir = n_local(
+                qubit_num,
+                rotation_blocks=[standard_gates.RYGate(Parameter("θ"))],
+                entanglement_blocks=standard_gates.CXGate(),
+                reps=reps,
+            )
+        else:
+            cir = n_local(
+                qubit_num, rotation_blocks=["ry"], entanglement_blocks="cx", reps=reps
+            )
     if function_name == "ExcitationPreserving":
         # cir = library.ExcitationPreserving(qubit_num, reps=reps)
         cir = excitation_preserving(qubit_num, reps=reps)

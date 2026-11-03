@@ -1075,79 +1075,99 @@ jobs:
 
 
   p5-abba:
-    name: P5 same-host three-block CodSpeed ABBA drift screening (opt-in)
+    # Opt-in by PR description edit only. Routine ten-pair CI is unchanged.
     if: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && contains(github.event.pull_request.body, '<!-- quprs-codspeed-v3-abba -->') }}
+    name: P5 two-QAOA7 true one-invocation ABBA diagnostics (opt-in)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      RESEARCH_SHA: ${{ github.event.pull_request.head.sha }}
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/p5-abba-codspeed.json
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout only isolated research harness
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: recursive
           persist-credentials: false
-      - uses: actions/checkout@v4
+          submodules: false
+      - name: Checkout dev baseline to dedicated folder
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: pr-walltime-base
-          submodules: recursive
+          ref: ${{ env.BASE_SHA }}
+          path: abba-dev-base
           persist-credentials: false
+          submodules: recursive
+      - name: Checkout PR 133 verifier to separate folder
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          path: abba-pr-head
+          persist-credentials: false
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Exact source and both independent verifier environments
+      - name: Install only required two verifier environments
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$RESEARCH_SHA"
+          test "$(git -C abba-dev-base rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C abba-pr-head rev-parse HEAD)" = "$HEAD_SHA"
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
-          for variant in base head; do
-            root="$GITHUB_WORKSPACE"
-            if [[ "$variant" == base ]]; then root="$GITHUB_WORKSPACE/pr-walltime-base"; fi
-            venv="$RUNNER_TEMP/quprs-pr-walltime-$variant"
+          for version in base head; do
+            root="$GITHUB_WORKSPACE/abba-pr-head"
+            if [[ "$version" == base ]]; then root="$GITHUB_WORKSPACE/abba-dev-base"; fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$version"
             python -m venv "$venv"
-            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
-            ( cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev )
-            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/p5-abba-$variant-freeze.txt"
+            "$venv/bin/python" -m pip install --disable-pip-version-check 'pytest==8.4.2' 'pytest-codspeed==5.0.4' 'maturin>=1.5,<2.0'
+            (cd "$root" && VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev)
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/qoo170-real-abba-$version-freeze.txt"
           done
-          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.4
-          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pytest \
-            benchmarks/codspeed/test_p5_abba.py --collect-only -q
-      - name: CodSpeed same-runner source-matched A1-B1-B2-A2 for three blocks
+          python -m pip install --disable-pip-version-check 'pytest==8.4.2' 'pytest-codspeed==5.0.4'
+          python - <<'PY'
+          from importlib.metadata import version
+          assert version('pytest-codspeed') == '5.0.4'
+          assert version('pytest') == '8.4.2'
+          print('QOO170_PINNED_PLUGIN_SOURCE_GUARD_PASS')
+          PY
+          python -m pytest benchmarks/codspeed/test_qoo170_real_abba.py -q --collect-only
+      - name: CodSpeed WallTime with true one-invocation-per-position ABBA/BAAB
         uses: CodSpeedHQ/action@v5
         with:
           mode: walltime
-          run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_p5_abba.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=90
-      - name: Validate ABBA block science and baseline drift from CodSpeed
+          run: |
+            python -m pytest benchmarks/codspeed/test_qoo170_real_abba.py -q \
+              --codspeed --codspeed-mode=walltime --codspeed-warmup-time=0
+      - name: Validate all 32 official single rounds against 32 actual real GPMC calls
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/report_codspeed_p5_abba.py \
-            --measurements "$QUPRS_CODSPEED_EXPORT" \
-            --provenance "$RUNNER_TEMP/p5-abba-provenance.jsonl" \
+          python scripts/report_qoo170_real_abba.py \
+            --measurements "$RUNNER_TEMP/quprs-paired-walltime-codspeed.json" \
+            --provenance "$RUNNER_TEMP/qoo170-real-abba-science.jsonl" \
+            --prewarm "$RUNNER_TEMP/qoo170-abba-real-prewarm.json" \
             --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
-            --output "$RUNNER_TEMP/p5-abba-report.json"
+            --output "$RUNNER_TEMP/qoo170-real-abba-report.json"
           python scripts/write_codspeed_sha_manifest.py \
-            --sha "$HEAD_SHA" --family p5-abba --instrument walltime \
-            --measurement "$QUPRS_CODSPEED_EXPORT" \
-            --output "$RUNNER_TEMP/manifest.json"
-      - name: Retain source and CodSpeed official block evidence
-        uses: actions/upload-artifact@v4
+            --sha "$RESEARCH_SHA" --family p5-abba --instrument walltime \
+            --measurement "$RUNNER_TEMP/quprs-paired-walltime-codspeed.json" \
+            --output "$RUNNER_TEMP/qoo170-real-abba-manifest.json"
+      - name: Preserve official measurements, evidence and input provenance
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: quprs-codspeed-v3-p5-abba
+          name: quprs-codspeed-v3-p5-true-abba
           path: |
-            ${{ env.QUPRS_CODSPEED_EXPORT }}
-            ${{ runner.temp }}/p5-abba-provenance.jsonl
-            ${{ runner.temp }}/p5-abba-report.json
-            ${{ runner.temp }}/p5-abba-base-freeze.txt
-            ${{ runner.temp }}/p5-abba-head-freeze.txt
-            ${{ runner.temp }}/manifest.json
+            ${{ runner.temp }}/quprs-paired-walltime-codspeed.json
+            ${{ runner.temp }}/qoo170-real-abba-science.jsonl
+            ${{ runner.temp }}/qoo170-abba-real-prewarm.json
+            ${{ runner.temp }}/qoo170-real-abba-report.json
+            ${{ runner.temp }}/qoo170-real-abba-manifest.json
+            ${{ runner.temp }}/qoo170-real-abba-base-freeze.txt
+            ${{ runner.temp }}/qoo170-real-abba-head-freeze.txt
           if-no-files-found: warn
           retention-days: 14

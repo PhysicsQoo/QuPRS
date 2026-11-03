@@ -1,0 +1,157 @@
+name: MQTBench Qiskit261 Level0 Full 37 EQ NEQ GPMC 1e-8 Acceptance
+on:
+  push:
+    branches:
+      - experiment/tacas26-paper-reproduction
+    paths:
+      - '.github/workflows/mqtbench-qiskit261-level0-acceptance.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: mqtbench261-opt0-37-acceptance-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    name: Verify all original, EQ and NEQ QASM SHA256 and construct 37-shard matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    outputs:
+      matrix: ${{ steps.registry.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Freeze all 37 scientific inputs and verify Python syntax
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m compileall -q scripts/mqtbench_qiskit261_level0_acceptance.py
+          python -m scripts.mqtbench_qiskit261_level0_acceptance preflight
+          echo "matrix=$(python -m scripts.mqtbench_qiskit261_level0_acceptance matrix)" >> "$GITHUB_OUTPUT"
+  science:
+    name: ${{ matrix.key }} / 1e-8 EQ+NEQ Python+Rust
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix: ${{ fromJson(needs.preflight.outputs.matrix) }}
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: src/QuPRS/utils/wmc_tools
+          key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
+      - name: Build modern QuPRS Python/Rust and pinned Qiskit 2.6.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "experiment/tacas26-paper-reproduction"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m venv "$RUNNER_TEMP/quprs-mqt37"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/quprs-mqt37" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/quprs-mqt37/bin" >> "$GITHUB_PATH"
+          source "$RUNNER_TEMP/quprs-mqt37/bin/activate"
+          python -m pip install --disable-pip-version-check maturin 'numpy==2.2.6' 'qiskit==2.6.1'
+          maturin develop --release -E dev
+          python - <<'PY'
+          import qiskit, numpy
+          assert qiskit.__version__ == "2.6.1"
+          assert numpy.__version__ == "2.2.6"
+          print("MQT37_QISKIT_RUNTIME",qiskit.__version__,numpy.__version__)
+          PY
+      - name: Execute 8 independent bounded GPMC verifications for one case
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.mqtbench_qiskit261_level0_acceptance run \
+            --file '${{ matrix.file }}' \
+            --timeout 200 --watchdog 215 \
+            --output "$RUNNER_TEMP/mqt37-${{ matrix.key }}"
+      - name: Always upload results, including partial records and raw solver values
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mqt37-${{ matrix.key }}
+          path: ${{ runner.temp }}/mqt37-${{ matrix.key }}/
+          if-no-files-found: warn
+          retention-days: 30
+  aggregate:
+    name: Verify evidence, archive outcomes and flag incomplete scientific gates
+    if: always()
+    needs: [preflight, science]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mqt37-*
+          path: ${{ runner.temp }}/mqt37-evidence
+          merge-multiple: false
+      - name: Assemble 296-call science-only report with case SHA256 validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m scripts.mqtbench_qiskit261_level0_acceptance aggregate \
+            --input "$RUNNER_TEMP/mqt37-evidence" \
+            --output "$RUNNER_TEMP/mqt37-aggregate" \
+            --sha "$GITHUB_SHA"
+      - name: Permanently archive compact full observations in experiment branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = experiment/tacas26-paper-reproduction
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin experiment/tacas26-paper-reproduction
+          git rebase origin/experiment/tacas26-paper-reproduction
+          dest="docs/development/mqtbench-qiskit261-level0-acceptance/runs/$GITHUB_RUN_ID"
+          if test -e "$dest/manifest.json"; then
+            echo "Immutable result archive already exists"
+            exit 0
+          fi
+          mkdir -p "$dest"
+          cp "$RUNNER_TEMP/mqt37-aggregate/"* "$dest/"
+          git add "$dest"
+          git -c core.whitespace=cr-at-eol diff --cached --check
+          git commit -m "research(mqtbench): archive 37-case opt0 EQ NEQ Python Rust GPMC 1e-8 run $GITHUB_RUN_ID"
+          git push origin HEAD:refs/heads/experiment/tacas26-paper-reproduction
+      - name: Preserve aggregate in workflow artifact even if git push fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mqt37-aggregate
+          path: ${{ runner.temp }}/mqt37-aggregate/
+          retention-days: 30
+          if-no-files-found: warn

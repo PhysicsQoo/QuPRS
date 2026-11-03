@@ -1,0 +1,173 @@
+name: Research / Qiskit 1.x and 2.x clean installer
+on:
+  push:
+    branches: [research/qoo169-qiskit-dual-major-installer-20261103]
+    paths:
+      - 'pyproject.toml'
+      - 'docs/development/qiskit-1x-2x-packaging-candidate.md'
+      - '.github/workflows/qoo169-qiskit-installer.yml'
+  workflow_dispatch:
+    inputs:
+      run_sdist:
+        description: 'Also build and install the native sdist (costly, opt-in)'
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  artifacts:
+    name: Build source-pinned wheel and sdist once
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo169-wheel-build
+      - name: Native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+          python -m pip install --upgrade pip 'maturin>=1.5,<2'
+      - name: Real wheel and sdist from identical HEAD
+        run: |
+          set -euo pipefail
+          maturin build --release --interpreter python --out dist --compatibility off
+          maturin sdist --out dist
+          test "$(find dist -name '*.whl' | wc -l)" -eq 1
+          test "$(find dist -name '*.tar.gz' | wc -l)" -eq 1
+          sha256sum dist/* | tee dist/SHA256SUMS
+          git rev-parse HEAD | tee dist/source-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qoo169-built-artifacts
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+  wheel:
+    name: Wheel / Python ${{ matrix.python }} / Qiskit ${{ matrix.qiskit }}
+    needs: artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+        qiskit: ['1.4.6', '2.6.1']
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo169-built-artifacts
+          path: dist
+      - name: Clean resolver + installed wheel + public API smoke
+        env:
+          EXPECTED_QISKIT: ${{ matrix.qiskit }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          sha256sum -c dist/SHA256SUMS
+          python -m pip install --upgrade pip
+          python -m pip install "qiskit==$EXPECTED_QISKIT" dist/*.whl 2>&1 | tee evidence/install.log
+          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip freeze > evidence/pip-freeze.txt
+          python - <<'PY' 2>&1 | tee evidence/smoke.log
+          import importlib.metadata as md
+          import os
+          from qiskit import QuantumCircuit
+          from QuPRS import check_equivalence
+          assert md.version("qiskit") == os.environ["EXPECTED_QISKIT"]
+          deps = md.requires("QuPRS") or []
+          assert any("qiskit" in x.lower() and "<3.0" in x for x in deps), deps
+          ident = QuantumCircuit(1)
+          hh = QuantumCircuit(1)
+          hh.h(0); hh.h(0)
+          for backend in ("python", "rust"):
+              for method in ("reduction_rules", "hybrid"):
+                  result = check_equivalence(hh, ident, backend=backend, method=method,
+                                             tool_name="gpmc", timeout=30)
+                  assert result.equivalent == "equivalent", (backend, method, result)
+                  print(backend, method, result.equivalent)
+          if os.sys.version_info[:2] == (3, 12):
+              for backend in ("python", "rust"):
+                  result = check_equivalence(ident, ident, backend=backend, method="wmc_only",
+                                             tool_name="gpmc", timeout=30)
+                  assert result.equivalent in ("equivalent", "equivalent*"), (backend, result)
+                  print(backend, "wmc_only", result.equivalent)
+          PY
+      - name: Preserve resolver diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo169-wheel-py${{ matrix.python }}-qiskit${{ matrix.qiskit }}
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+  sdist:
+    name: Optional sdist / Python 3.12 / Qiskit ${{ matrix.qiskit }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_sdist }}
+    needs: artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.4.6', '2.6.1']
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo169-built-artifacts
+          path: dist
+      - name: Install native source build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+      - name: True clean sdist installation and metadata check
+        env:
+          EXPECTED_QISKIT: ${{ matrix.qiskit }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python -m pip install --upgrade pip
+          python -m pip install "qiskit==$EXPECTED_QISKIT" dist/*.tar.gz 2>&1 | tee evidence/install.log
+          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip freeze > evidence/pip-freeze.txt
+          python - <<'PY' 2>&1 | tee evidence/smoke.log
+          import importlib.metadata as md
+          import os
+          from qiskit import QuantumCircuit
+          from QuPRS import check_equivalence
+          assert md.version("qiskit") == os.environ["EXPECTED_QISKIT"]
+          qc = QuantumCircuit(1)
+          qc.h(0); qc.h(0)
+          ident = QuantumCircuit(1)
+          for backend in ("python", "rust"):
+              out = check_equivalence(qc, ident, backend=backend, method="reduction_rules")
+              assert out.equivalent == "equivalent", (backend, out)
+          PY
+      - name: Preserve source-install diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo169-sdist-qiskit${{ matrix.qiskit }}
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 14

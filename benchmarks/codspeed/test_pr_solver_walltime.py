@@ -2,7 +2,8 @@
 
 Base and HEAD have separate built Python/Rust installations but read the
 exact same QASM files from HEAD. The timed unit is a complete verification
-request, including the Solver subprocess when the Hybrid stage reaches WMC.
+request, including actual GPMC/Ganak child work; a separately-versioned WMC-only tenth
+case extends the original nine Hybrid identities without replacing them.
 """
 import hashlib
 import json
@@ -30,14 +31,19 @@ def execute_source_pinned_case(revision: str, case: tuple) -> dict:
     source_root = workspace / "pr-walltime-base" if revision == "base" else workspace
     interpreter = runner_temp / f"quprs-pr-walltime-{revision}" / "bin" / "python"
     harness = workspace / "benchmarks" / "codspeed" / "solver_case.py"
-    _, filename, strategy, solver, reverse, backend = case
+    _, filename, strategy, solver, reverse, backend, *optional_method = case
+    if len(optional_method) > 1:
+        raise ValueError("Unexpected paired benchmark case shape")
+    method = optional_method[0] if optional_method else "hybrid"
+    if method not in {"hybrid", "wmc_only"}:
+        raise ValueError("Unsupported paired method: " + method)
     command = [
         str(interpreter), str(harness), str(workspace),
         filename, strategy, solver, backend, "1" if reverse else "0",
     ]
     case_env = os.environ.copy()
     if case[0] in QASM261_WALLTIME_CASE_IDS:
-        command.extend(("random_rotation", "hybrid", "qiskit-2.6.1-opt0"))
+        command.extend(("random_rotation", method, "qiskit-2.6.1-opt0"))
         # Explicitly pin numerical semantics in BOTH verifier revisions.
         # Do not merely label historical defaults as effective tolerances.
         case_env.update({
@@ -89,7 +95,8 @@ PARAMS = [
 @pytest.mark.parametrize("revision,case", PARAMS)
 def test_pr_solver_inclusive_walltime(benchmark, revision, case):
     measured = benchmark(execute_source_pinned_case, revision, case)
-    case_id, filename, strategy, solver, reverse, backend = case
+    case_id, filename, strategy, solver, reverse, backend, *optional_method = case
+    method = optional_method[0] if optional_method else "hybrid"
     versioned_negative = case_id in QASM261_WALLTIME_CASE_IDS
     fixture_hashes = None
     if versioned_negative:
@@ -104,7 +111,7 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         "revision": revision,
         "revision_sha": os.environ["BASE_SHA" if revision == "base" else "HEAD_SHA"],
         "fixture_revision_sha": os.environ["HEAD_SHA"],
-        "method": "hybrid",
+        "method": method,
         "strategy": strategy,
         "reverse_inputs": str(reverse),
         "backend": backend,
@@ -156,7 +163,7 @@ def test_pr_solver_inclusive_walltime(benchmark, revision, case):
         "revision": revision,
         "sha": os.environ["BASE_SHA" if revision == "base" else "HEAD_SHA"],
         "fixture_sha": os.environ["HEAD_SHA"],
-        "method": "hybrid",
+        "method": method,
         "backend": backend,
         "solver": solver,
         "strategy": strategy,

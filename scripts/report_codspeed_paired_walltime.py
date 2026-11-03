@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmarks.codspeed.case_registry import (
     ALL_WALLTIME_CASE_IDS as EXPECTED,
-    QASM261_WALLTIME_CASE_IDS,
+    QASM261_WALLTIME_CASE_IDS, QASM261_WMC_ONLY_CASE_IDS,
     GANAK_PRECISION_LIMIT_CASES as PRECISION_LIMITED_FIXTURES,
 )
 EQ = {"equivalent", "equivalent*"}
@@ -113,8 +113,9 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
                 errors.append(f"{case}/{revision}: Solver was not actually invoked")
             if record["verdict"] not in EQ | {"not_equivalent"}:
                 errors.append(f"{case}/{revision}: inconclusive verdict {record['verdict']}")
-            if record["method"] != "hybrid":
-                errors.append(f"{case}/{revision}: expected Hybrid")
+            expected_method = "wmc_only" if case in QASM261_WMC_ONLY_CASE_IDS else "hybrid"
+            if record["method"] != expected_method:
+                errors.append(f"{case}/{revision}: expected {expected_method} method")
             versioned_negative = case in QASM261_WALLTIME_CASE_IDS
             if versioned_negative:
                 if (record["verdict"] != "not_equivalent"

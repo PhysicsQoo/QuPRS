@@ -22,10 +22,10 @@ BENCHMARKS = (
 )
 NUM_SHARDS = 5
 CANONICAL_COUNT = 32
-ADDON_COUNT = 24
+ADDON_COUNT = 12
 TOTAL_COUNT = CANONICAL_COUNT + ADDON_COUNT
 ADDON_PREFIX = "benchmarks/codspeed/test_mqt_qasm261_simulation.py::"
-ADDON_SHA256 = "b19b1331f912f7abd976bfa6911d1969c718b4159211f428506f2b8a4ebb49aa"
+ADDON_SHA256 = "59d46eb951ca5280fddd19000ca14bfc45a71ea22717b178e76b76fd715e9a18"
 # Immutable 8 Feynman + 24 MQT exact node IDs; changing any ID requires an
 # explicit benchmark-baseline migration, not merely preserving the count.
 CANONICAL_SHA256 = '7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed'
@@ -83,12 +83,12 @@ def validate() -> None:
             )
         if len(addon) != ADDON_COUNT or digest(addon) != ADDON_SHA256:
             raise SystemExit(
-                "QASM261 additive 24-node identity changed: "
+                "QASM261 additive 12-node identity changed: "
                 f"count={len(addon)}, sha256={digest(addon)}"
             )
         if len(whole) != TOTAL_COUNT:
             raise SystemExit(
-                f"Simulation requires 32 legacy + 24 QASM261 = {TOTAL_COUNT} "
+                f"Simulation requires 32 legacy + 12 QASM261 = {TOTAL_COUNT} "
                 f"unique identities; found {len(whole)}"
             )
         full = set(whole)

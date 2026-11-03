@@ -77,7 +77,7 @@ def test_reports_same_sha_without_certifying_precision_limited(tmp_path, monkeyp
     output = module.produce(tmp_path, SHA, BASE)
     assert output["five_shard_canonical_count"] == 32
     assert output["native_core_expected_count"] == len(NATIVE_IDS)
-    assert output["walltime_paired_cases"] == 9
+    assert output["walltime_paired_cases"] == 10
     assert output["scientific_status"] == "PRECISION_LIMITED"
     assert output["performance_certified"] is False
     assert {row["case"] for row in output["cross_instrument_rows"]} == {
@@ -87,7 +87,7 @@ def test_reports_same_sha_without_certifying_precision_limited(tmp_path, monkeyp
 
 @pytest.mark.parametrize("corruption, expected", [
     ({"bad_sha": True}, "wrong SHA"),
-    ({"omit_case": True}, "incomplete canonical five-shard"),
+    ({"omit_case": True}, "original 32 CodSpeed benchmark identities changed"),
 ])
 def test_source_identity_and_missing_case_block_cross_report(tmp_path, monkeypatch,
                                                               corruption, expected):
@@ -96,7 +96,7 @@ def test_source_identity_and_missing_case_block_cross_report(tmp_path, monkeypat
         module.produce(tmp_path, SHA, BASE)
 
 
-def test_additive_qasm261_24_uris_coexist_with_legacy_32(tmp_path, monkeypatch):
+def test_additive_qasm261_12_uris_coexist_with_legacy_32(tmp_path, monkeypatch):
     from benchmarks.codspeed.simulation_addon import (
         QASM261_COUNT, QASM261_SHA256, QASM261_URIS,
     )
@@ -116,16 +116,16 @@ def test_additive_qasm261_24_uris_coexist_with_legacy_32(tmp_path, monkeypatch):
         meta = json.loads(meta_file.read_text())
         meta["measurement_sha256"] = hashlib.sha256(raw).hexdigest()
         meta["simulation_addon"] = {
-            "suite": "qiskit-2.6.1-opt0-v1",
+            "suite": "qiskit-2.6.1-opt0-v2-cpu",
             "count": QASM261_COUNT, "identity_sha256": QASM261_SHA256,
         }
         meta_file.write_text(json.dumps(meta))
     output = module.produce(tmp_path, SHA, BASE)
     assert output["five_shard_canonical_count"] == 32
-    assert output["qasm261_addon_count"] == 24
-    assert output["simulation_total_count"] == 56
-    assert len(output["simulation_uris"]) == 56
-    # Missing even one modern URI fails; archive 32 do not hide incomplete 24.
+    assert output["qasm261_addon_count"] == 12
+    assert output["simulation_total_count"] == 44
+    assert len(output["simulation_uris"]) == 44
+    # Missing even one modern URI fails; archive 32 do not hide incomplete 12.
     first = tmp_path / "quprs-sha-simulation-0" / "simulation-0.json"
     contents = json.loads(first.read_text())
     contents["benchmarks"] = [

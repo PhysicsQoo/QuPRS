@@ -1,6 +1,10 @@
-"""Original 32 Simulation cases PLUS 24 separately identified Qiskit261 cases.
+"""Original 32 Simulation cases PLUS 12 separately identified Qiskit261 CPU cases.
 
-This module only runs as part of CodSpeed. The original MQTBench input QASM
+This module only runs as part of CodSpeed. The 12 retired Ganak aliases from pre-release dev were not Solver-inclusive CPU
+measurements; remaining cases use GPMC as the deterministic representative.
+Real GPMC versus Ganak Solver costs belong in CodSpeed WallTime.
+
+The original MQTBench input QASM
 remains unchanged; only the corresponding target is re-transpiled with pinned
 Qiskit 2.6.1 Level-0 settings. Ganak near-boundary print limitations are
 tracked separately and NEVER reported as a scientific equivalence PASS.
@@ -14,7 +18,7 @@ import pytest
 from QuPRS import check_equivalence
 
 from benchmarks.codspeed.simulation_addon import (
-    BACKENDS, CORPUS_VERSION, QASM261_CASES, QASM261_COUNT, SOLVERS,
+    BACKENDS, CORPUS_VERSION, QASM261_CASES, QASM261_COUNT, QASM261_SUITE_ID, SOLVERS,
 )
 
 ROOT = Path(__file__).resolve().parents[2] / "benchmarks" / "MQTBench"
@@ -57,7 +61,7 @@ def test_versioned_mqt_simulation(
     )
     verdict = str(result.equivalent)
     metadata = {
-        "benchmark_suite": "qasm261_level0_additive_v1",
+        "benchmark_suite": QASM261_SUITE_ID,
         "source_corpus": CORPUS_VERSION,
         "case_id": case_id, "solver": solver, "backend": backend,
         "method": "hybrid", "strategy": strategy, "reverse": reverse,

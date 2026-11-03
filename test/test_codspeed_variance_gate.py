@@ -1,5 +1,7 @@
 """P5 is a CodSpeed sampling audit, not an automatically tuned GO threshold."""
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 import pytest
 
@@ -33,7 +35,8 @@ def fixture():
                 "case": case, "revision": rev,
                 "sha": "b" * 40 if rev == "base" else "a" * 40,
                 "fixture_sha": "a" * 40,
-                "solver_invoked": True, "method": "hybrid",
+                "solver_invoked": True,
+                "method": "wmc_only" if case == "q261_qaoa7_negative_wmconly" else "hybrid",
                 "verdict": "not_equivalent" if versioned_negative else "equivalent",
                 "verification_status": ("EXPECTED_SOURCE_NEGATIVE"
                                         if versioned_negative else "PASS"),
@@ -51,10 +54,10 @@ def fixture():
     return paired.produce(measurements, records, "b"*40, "a"*40)[0]
 
 
-def test_all_nine_sample_summaries_reported_without_go():
+def test_all_ten_sample_summaries_reported_without_go():
     r = variance.produce(fixture())
     assert r["collection_status"] == "PAIRED_ROUND_SUMMARIES_AVAILABLE"
-    assert r["case_count"] == 9
+    assert r["case_count"] == 10
     assert r["performance_status"] == "NOT_CERTIFIED"
     assert r["default_regression_threshold"] is None
     assert all(x["base_rounds"] == 3 and x["head_rounds"] == 3 for x in r["cases"])
@@ -94,7 +97,7 @@ def test_p5_opt_in_subset_remains_noncertifying():
     assert report['case_count'] == 4
     assert report['performance_status'] == 'NOT_CERTIFIED'
     assert report['default_regression_threshold'] is None
-    with pytest.raises(ValueError, match='expected 9'):
+    with pytest.raises(ValueError, match='expected 10'):
         variance.produce(r)
 
 
@@ -145,3 +148,14 @@ def test_incomparable_source_cannot_be_misread_as_observed_improvement():
     assert observed["observation_status"] == "NOT_COMPARABLE"
     assert observed["exploratory_median_change_percent"] is None
     assert "INCOMPARABLE_VERDICT" in observed["blocking_reasons"]
+
+def test_standalone_variance_report_cli_can_import_registry_from_any_cwd(tmp_path):
+    """Actual GitHub job invokes this as a script, not through pytest import."""
+    script = ROOT / "scripts" / "report_codspeed_variance_gate.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=tmp_path, text=True, capture_output=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--paired-report" in result.stdout
+

@@ -51,8 +51,14 @@ QASM261_WALLTIME_CASES = (
      "proportional", "gpmc", True, "rust"),
     ("q261_qaoa7_negative", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
      "proportional", "gpmc", False, "rust"),
+    # Additive method-axis identity, distinct from the original nine Hybrid
+    # paired cases. Same QASM261 Random_Rotation source and 90-digit GPMC
+    # contract on both base/HEAD; proved with research CodSpeed #41616965305.
+    ("q261_qaoa7_negative_wmconly", "qaoa_nativegates_ibm_qiskit_opt0_7.qasm",
+     "proportional", "gpmc", False, "rust", "wmc_only"),
 )
 QASM261_WALLTIME_CASE_IDS = frozenset(row[0] for row in QASM261_WALLTIME_CASES)
+QASM261_WMC_ONLY_CASE_IDS = frozenset(row[0] for row in QASM261_WALLTIME_CASES if len(row) == 7 and row[6] == "wmc_only")
 ALL_WALLTIME_CASES = WALLTIME_CASES + QASM261_WALLTIME_CASES
 ALL_WALLTIME_CASE_IDS = WALLTIME_CASE_IDS | QASM261_WALLTIME_CASE_IDS
 GANAK_PRECISION_LIMIT_CASES = {

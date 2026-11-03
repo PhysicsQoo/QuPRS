@@ -1,19 +1,25 @@
 # CodSpeed benchmark suite compatibility and retirement policy
 
-Status: phase-1 compatibility scaffolding, not a promotion of the curated suite.
-Initial implementation: v0.14.0 development, PR #131. This document governs
-benchmark measurement IDs and history, not the QuPRS public Python/Rust API.
+Status: updated for v0.14.0 controlled CodSpeed v3 PR #133.
+The original research proposal and its pre-release benchmark migration are
+distinguished from the active suite. This governs CodSpeed measurement
+identities and history, not the public QuPRS Python/Rust API.
 
 ## Policy and releases
 
-- v0.14.0: preserve all 32 historical Simulation URIs, inputs and five shards
-  **without modification**, while running an additive 24-URI Qiskit 2.6.1
-  Level-0 cohort (six MQT circuits, two backends, two Solvers) in the
-  **same five-shard CodSpeed run** after experimental acceptance. Total: 56.
-  New versioned URIs get their own initial measurements; old data is never
-  renamed, substituted or reused as a performance result for new QASM.
-  The larger curated suite and manifest schema v3 remain independent
-  research candidates, not replacements for this additive v0.14 cohort.
+- v0.14.0: retain all **32 main-published Simulation URIs** and original
+  source inputs, distributed across the same five shards. Add **12 QASM261
+  CPU Simulation identities** (six source circuits × Python/Rust), for
+  44 Simulation IDs total. Retain 30 Native Rust/core identities and
+  ten full-Solver paired WallTime cases (nine existing Hybrid + one
+  source-pinned QAOA7 Rust/GPMC WMC-only NEQ).
+  The initial development-only proposal had 24 QASM261 CPU aliases
+  (two Solvers × two backends × six circuits). The 12 Ganak-alias
+  identities were retired *before release* because CPU Simulation
+  does not measure GPMC/Ganak subprocess execution. Historical results
+  remain archived under their original SHA and must not be relabeled
+  as current-suite numbers. The larger curated corpus and v3
+  manifest schema remain separate research candidates.
 - v0.15.0: curated suite may become the default only after source/oracle,
   instrument and CI cost qualification. The complete legacy suite must remain
   runnable by opt-in and in periodic/release validation.
@@ -41,9 +47,13 @@ Never call carried-forward CodSpeed values measurements at current HEAD.
 The frozen legacy simulation SHA-256 is
 `7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed`.
 Legacy five shards, 32 identities and no subprocess tracking remain as-is.
-The separate 24-URI Level-0 cohort is additive within these same five shards;
-the expanded five-shard manifest must explicitly declare its suite version
-and 24-URI SHA-256, preventing partial uploads from passing as 32-only runs.
+The current 12-URI QASM261 CPU cohort is additive inside the same five
+shards. Its suite marker is `qiskit-2.6.1-opt0-v2-cpu` and its
+identity SHA-256 is
+`59d46eb951ca5280fddd19000ca14bfc45a71ea22717b178e76b76fd715e9a18`.
+The manifest declares its suite version, count, and identity digest,
+preventing a partial run from passing as original-32-only or complete-44.
+
 The curated suite remains a distinct research candidate and is **not**
 activated by merely registering its cases.
 
@@ -91,5 +101,8 @@ currently retain only 14 days) is insufficient: archive a privacy-reviewed
 source/manifest/run-URL/hash baseline snapshot in the existing benchmark
 history or release assets, preserving the original service-run links.
 
-Until these gates and the independent CodSpeed failure are resolved, PR #131
-remains Draft and must not be merged to dev.
+PR #131's earlier performance hold was historical development context,
+not a current merge gate on the separate PR #133 benchmark integration.
+The PR #133 five-shard, ten-pair, and opt-in true ABBA contracts were
+verified in Actions #41643926066 and #41645323941. P5 remains
+observation-only; no unqualified percentage performance veto applies.

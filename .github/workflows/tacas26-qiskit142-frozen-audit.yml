@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/tacas26-qiskit142-frozen-audit.yml'
       - 'scripts/tacas26_qiskit_142_audit.py'
+      - 'scripts/tacas26_qiskit_gpmc_matrix.py'
+      - 'docs/development/tacas26-qiskit142-frozen-audit/gpmc30-20-printpoint.csv'
   workflow_dispatch:
 
 permissions:
@@ -43,6 +45,7 @@ jobs:
           python -m compileall -q scripts/tacas26_qiskit_142_audit.py
           python -m scripts.tacas26_qiskit_142_audit \
             --output docs/development/tacas26-qiskit142-frozen-audit/qiskit142-20.json
+          python -m scripts.tacas26_qiskit_gpmc_matrix
           git diff --check
       - name: Save scientific observations permanently on existing experiment branch
         shell: bash

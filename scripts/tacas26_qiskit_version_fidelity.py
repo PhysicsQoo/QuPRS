@@ -5,6 +5,9 @@ import csv
 import hashlib
 import json
 import math
+import os
+import platform
+from importlib.metadata import PackageNotFoundError, version as installed_version
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,9 +118,21 @@ def run(version, output):
               [(x["level"],x.get("serialized",{}).get("metric"))
                for x in r["transpiles"]],flush=True)
     output.parent.mkdir(parents=True,exist_ok=True)
+    dependencies = {}
+    for package in ("qiskit", "numpy", "rustworkx", "scipy", "sympy"):
+        try:
+            dependencies[package] = installed_version(package)
+        except PackageNotFoundError:
+            dependencies[package] = None
     output.write_text(json.dumps({
-        "schema":"tacas26-qiskit-version-fidelity-v1",
+        "schema":"tacas26-qiskit-version-fidelity-v2",
         "qiskit_version":version,"numpy_version":np.__version__,
+        "python_version":platform.python_version(),
+        "platform":platform.platform(),
+        "runner_architecture":platform.machine(),
+        "github_run_id":os.getenv("GITHUB_RUN_ID"),
+        "github_source_sha":os.getenv("GITHUB_SHA"),
+        "installed_dependencies":dependencies,
         "basis":BASIS,"levels":LEVELS,"seed":SEED,
         "approximation_degree":1.0,"source_sha":corpus["reference_git_commit"],
         "historical_transpile_configuration":"NOT_DOCUMENTED_OR_ASSUMED",

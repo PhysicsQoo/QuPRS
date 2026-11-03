@@ -1,11 +1,8 @@
 # QASM261 Solver coverage-gap study — bounded manual CodSpeed admission
 
-**Date:** 2026-11-03. **Status:** candidates and source/fixture contracts staged on the
-experiment branch; **no CodSpeed timings, science verdicts or CI costs have yet
-been observed for these six new method/backend/solver combinations**.
-Read the [prior empirical matrix](codspeed-solver-coverage-matrix.md) first.
+**Date:** 2026-11-03. **Current status:** six-case manual CodSpeed pilot has run successfully and timing/provenance artifact was uploaded; **per-case scientific eligibility still requires raw JSONL review**. See [post-run admission evidence below](#post-run-admission-evidence-and-next-actions-2026-11-03) and the [prior empirical matrix](codspeed-solver-coverage-matrix.md).
 
-The existing 7 legacy + 2 new paired cases remain unchanged in PR #131.
+The existing 7 legacy + 2 new paired cases were retained when PR #131 merged to `dev`. This research pilot does not expand them.
 No ordinary PR job, default five Simulation shards, native Rust job or
 P5 release gate is expanded by this experiment.
 
@@ -25,7 +22,7 @@ and the strict operator-science oracle give context but do not certify these
 new method/backend runs. Ganak's printed-count resolution must be assessed
 separately, even if this case is expected to be truly NEQ.
 
-## CI and measurement budget
+## Original CI and measurement budget (pre-run plan; superseded by observed results below)
 
 - Use the **existing** `.github/workflows/codspeed.yml` only via
   `workflow_dispatch`: `pilot_only=true`, `pilot_group=qasm261_gap`, and an **exact** `coverage_gap_verifier_sha`. The research branch supplies the harness and QASM; one checkout/build of that pinned formal PR **v0.14 verifier** supplies the implementation.
@@ -46,7 +43,7 @@ separately, even if this case is expected to be truly NEQ.
   manual job actually runs**. The existing 459-second 100-round ABBA job
   is not a valid per-case price estimator for this different matrix.
 
-### Manual trigger (when ready)
+### Original manual trigger (already executed; do not rerun for documentation updates)
 
 ```bash
 gh workflow run codspeed.yml \
@@ -62,7 +59,7 @@ genuinely WMC-invoked candidates may be shortlisted for 3-round base/HEAD
 research; **no automatic every-PR promotion**. In particular, Python QFT16
 or Rust WMC-only VQE8 may remain opt-in/censored if expensive.
 
-## Formal PR #131 separate CI failure
+## Historical PR #131 CI failure (resolved before merge)
 
 On formal `542eded`, nine-pair run 41594571639 failed because the old
 `solver_case.py` accepted two rather than three optional CLI args. The

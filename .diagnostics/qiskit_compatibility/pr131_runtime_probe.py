@@ -48,6 +48,19 @@ def test_probe(qiskit_version):
             left, right = qasm2.dumps(a), qasm2.dumps(b)
         else:
             left, right = qasm3.dumps(a), qasm3.dumps(b)
+        # The native Rust parser deliberately accepts only OpenQASM 2.
+        # Rejecting a QASM3 literal is a pre-existing fail-closed contract,
+        # not a version-2 Qiskit compatibility regression.
+        if backend=="rust" and representation=="qasm3":
+            try:
+                check_equivalence(left, right, backend=backend,
+                                  method="reduction_rules",
+                                  strategy="Naive",timeout=30,rr_tolerance=0.0)
+            except ValueError as exc:
+                if "only OPENQASM 2.0 is supported" not in str(exc):
+                    raise
+                return {"qasm3_native_status":"EXPECTED_UNSUPPORTED_FAIL_CLOSED"}
+            raise AssertionError("Rust silently accepted unsupported QASM3 input")
         res = check_equivalence(left, right, backend=backend,
                                 method="reduction_rules",
                                 strategy="Naive",timeout=30,
@@ -173,8 +186,10 @@ def main():
     pip=subprocess.run(["python","-m","pip","check"],
                        capture_output=True,text=True,check=False)
     result={
-        "schema":"quprs-pr131-qiskit2-compat-v1",
+        "schema":"quprs-pr131-qiskit2-compat-v2",
         "qiskit_actual":args.qiskit,
+        "numpy_actual":importlib.metadata.version("numpy"),
+        "expected_numpy":"2.2.6" if args.qiskit=="2.6.1" else "1.26.4",
         "quprs_source_sha":os.getenv("GITHUB_SHA"),
         "ci_run_id":os.getenv("GITHUB_RUN_ID"),
         "quprs_dependency_qiskit":"qiskit>=1.0.0,<2.0",
@@ -188,6 +203,8 @@ def main():
         "solver_tests_executed":False,
         "performance_measured":False,
     }
+    if result["numpy_actual"]!=result["expected_numpy"]:
+        failures.append("numpy_runtime_pin")
     if args.qiskit=="1.4.2" and pip.returncode!=0:
         failures.append("baseline_dependency_installation")
     if args.qiskit=="2.6.1" and pip.returncode==0:

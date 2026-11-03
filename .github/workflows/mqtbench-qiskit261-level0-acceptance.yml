@@ -64,7 +64,7 @@ jobs:
         with:
           path: src/QuPRS/utils/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
-      - name: Build modern QuPRS Python/Rust and pinned Qiskit 2.6.1
+      - name: Build v0.14.0 with supported Qiskit 1.4.2 (inputs remain 2.6.1 QASM)
         shell: bash
         run: |
           set -euo pipefail
@@ -76,13 +76,13 @@ jobs:
           echo "VIRTUAL_ENV=$RUNNER_TEMP/quprs-mqt37" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/quprs-mqt37/bin" >> "$GITHUB_PATH"
           source "$RUNNER_TEMP/quprs-mqt37/bin/activate"
-          python -m pip install --disable-pip-version-check maturin 'numpy==2.2.6' 'qiskit==2.6.1'
+          python -m pip install --disable-pip-version-check maturin 'numpy==1.26.4' 'qiskit==1.4.2'
           maturin develop --release -E dev
           python - <<'PY'
           import qiskit, numpy
-          assert qiskit.__version__ == "2.6.1"
-          assert numpy.__version__ == "2.2.6"
-          print("MQT37_QISKIT_RUNTIME",qiskit.__version__,numpy.__version__)
+          assert qiskit.__version__ == "1.4.2"
+          assert numpy.__version__ == "1.26.4"
+          print("MQT37_QISKIT_RUNTIME",qiskit.__version__,numpy.__version__,"TARGET_GENERATED_USING_QISKIT_2_6_1")
           PY
       - name: Execute 8 independent bounded GPMC verifications for one case
         shell: bash

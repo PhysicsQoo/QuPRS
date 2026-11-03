@@ -81,9 +81,31 @@ def make_archive(root: Path) -> None:
             for level in LEVELS:
                 transpile = next(row for row in sample["transpiles"]
                                  if row["level"] == level)
+                key = case + ":qiskit-" + version + ":opt-" + str(level)
+                if key in ids:
+                    raise ValueError("Duplicate evidence identity")
+                ids.add(key)
+                archive_case_ids.add(case)
+                original_path = sample.get("original_file")
+                frozen_path = sample.get("historical_transpiled_file")
+                if not original_path or not frozen_path:
+                    raise ValueError("Missing original/frozen QASM repository paths")
+                check_sha(ROOT / original_path, sample["original_sha256"])
+                check_sha(ROOT / frozen_path, sample["historic_sha256"])
                 if transpile["status"] != "OK":
-                    raise ValueError("Compiler error requires explicit rerun or failed archive: "
-                                     + case + " " + version)
+                    inputs.append({
+                        "evidence_type": "OBSERVED_QISKIT_TRANSPILATION_FAILURE",
+                        "input_id": key, "case": case, "qubits": sample["qubits"],
+                        "qiskit_version": version, "optimization_level": level,
+                        "original_qasm_path": original_path,
+                        "original_qasm_sha256": sample["original_sha256"],
+                        "historical_qasm_sha256": sample["historic_sha256"],
+                        "status": transpile["status"],
+                        "error_type": transpile.get("error_type"),
+                        "error": transpile.get("error"),
+                        "future_quprs_execution": "NOT_APPLICABLE_NO_TRANSPILED_QASM",
+                    })
+                    continue
                 name = transpile.get("qasm2_file")
                 if not name or not name.endswith(".qasm"):
                     raise ValueError("Actual transpiled QASM bytes were not archived")
@@ -91,20 +113,7 @@ def make_archive(root: Path) -> None:
                 if path.resolve().is_relative_to(root.resolve()) is False:
                     raise ValueError("QASM path escaped the evidence archive")
                 check_sha(path, transpile["qasm2_sha256"])
-                # Verify historical original and paper-transpiled input bytes
-                # against separately committed QASM files, not only JSON metadata.
-                original_path = sample.get("original_file")
-                frozen_path = sample.get("historical_transpiled_file")
-                if not original_path or not frozen_path:
-                    raise ValueError("Missing original/frozen input QASM repository paths")
-                check_sha(ROOT / original_path, sample["original_sha256"])
-                check_sha(ROOT / frozen_path, sample["historic_sha256"])
                 checksums[name] = digest(path)
-                key = case + ":qiskit-" + version + ":opt-" + str(level)
-                if key in ids:
-                    raise ValueError("Duplicate evidence identity")
-                ids.add(key)
-                archive_case_ids.add(case)
                 metric = transpile["serialized"]
                 if metric["metric_kind"] != sample["historical_saved"]["metric_kind"]:
                     raise ValueError("Incompatible metric meaning")
@@ -232,7 +241,11 @@ def make_archive(root: Path) -> None:
                             "codspeed_benchmark_id": None,
                         },
                     })
-    if len(inputs) != 36 or len(plans) != 72 or len(archive_case_ids) != 9:
+    compiled_count = sum(x["evidence_type"] == "OBSERVED_QISKIT_TRANSPILATION"
+                         for x in inputs)
+    failure_count = len(inputs) - compiled_count
+    if (len(inputs) != 36 or len(plans) != 2*compiled_count or
+        len(archive_case_ids) != 9):
         raise ValueError("Unexpected evidence row cardinalities")
     input_name = "transpiled-inputs.jsonl"
     plan_name = "planned-verifier-runs.jsonl"
@@ -252,7 +265,8 @@ def make_archive(root: Path) -> None:
         "source_branch": "experiment/tacas26-paper-reproduction",
         "original_quprs_sha": HISTORICAL_QUPRS_SHA,
         "compiler_versions": list(VERSIONS),
-        "compiler_observed_rows": len(inputs),
+        "compiler_observed_rows": compiled_count,
+        "compiler_failure_rows": failure_count,
         "verifier_planned_not_collected_rows": len(plans),
         "verifier_observed_rows": 0,
         "case_count": len(archive_case_ids),
@@ -282,7 +296,8 @@ def make_archive(root: Path) -> None:
         json.dumps(manifest, indent=2, sort_keys=True)+"\n", encoding="utf8"
     )
     print("TACAS26_EVIDENCE_ARCHIVED",json.dumps({
-        "observed_transpiled_qasm":len(inputs),
+        "observed_transpiled_qasm":compiled_count,
+        "observed_compiler_failures":failure_count,
         "planned_not_executed_verifications":len(plans),
         "full_qasm_files":len(checksums)-6,
         "manifest_sha256":digest(root/"evidence-manifest.json"),

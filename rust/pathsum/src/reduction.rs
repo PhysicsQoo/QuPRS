@@ -273,6 +273,10 @@ impl PathSum {
                 self.p.terms.remove(mono);
             }
 
+            // Observe the real HH-only phase substitution. This is absent
+            // from every default/production build and never records time.
+            #[cfg(feature = "rr-xor-witness")]
+            crate::rr_xor_witness::observe_hh(&self.p, v, &replacement);
             self.substitute_var_with_poly(v, &replacement);
             
             // Step 4: Garbage collection

@@ -63,7 +63,7 @@ fn preencoded_mpfr96() -> &'static WmcManager {
     })
 }
 
-include!("qasm261.rs");
+include!("shared/qasm261.rs");
 
 fn main() {
     // Make decimal source parsing and fixture construction explicitly untimed.

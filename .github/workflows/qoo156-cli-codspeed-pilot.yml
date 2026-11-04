@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - experiment/qoo156-cli-supervisor
+      - experiment/qoo156-cli-io-admission
     paths:
       - '.github/workflows/qoo156-cli-codspeed-pilot.yml'
   workflow_dispatch:

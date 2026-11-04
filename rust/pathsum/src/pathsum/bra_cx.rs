@@ -16,7 +16,19 @@ impl PhasePolynomial {
     /// variables of a valid Bra-CX. F-state must still be substituted by the
     /// caller; this method only rewrites the phase polynomial P.
     pub(crate) fn substitute_bra_cx(&mut self, target: u32, control: u32) {
+        let completed = self.substitute_bra_cx_checked(target, control, None);
+        debug_assert!(completed);
+    }
+
+    /// Keep the specialized, exact Bra-CX algebra and its CodSpeed-tested
+    /// fast path; only add bounded safe points for verification requests.
+    pub(crate) fn substitute_bra_cx_checked(
+        &mut self, target: u32, control: u32,
+        deadline: Option<std::time::Instant>,
+    ) -> bool {
         assert_ne!(target, control, "Bra-CX requires different control/target");
+        let expired = || deadline.is_some_and(|d| std::time::Instant::now() >= d);
+        if expired() { return false; }
 
         // Move PhaseCoeff out of the map rather than clone expensive source
         // BigRationals. Crucially remove *all* sources before reinsertion.
@@ -24,16 +36,18 @@ impl PhasePolynomial {
             .filter(|mono| mono.contains(&target))
             .cloned()
             .collect();
-        if keys.is_empty() { return; }
+        if keys.is_empty() { return !expired(); }
 
         let mut source = Vec::with_capacity(keys.len());
-        for key in keys {
+        for (index, key) in keys.into_iter().enumerate() {
+            if (index & 63) == 0 && expired() { return false; }
             let entry = self.terms.remove_entry(&key)
                 .expect("Bra-CX phase source key must still exist");
             source.push(entry);
         }
 
-        for (term_t, phase) in source {
+        for (index, (term_t, phase)) in source.into_iter().enumerate() {
+            if (index & 63) == 0 && expired() { return false; }
             // Input monomials are canonical sorted sets; add_term preserves
             // this invariant after each insertion, including collisions.
             let contains_control = term_t.contains(&control);
@@ -73,6 +87,7 @@ impl PhasePolynomial {
                 self.add_term(term_t, phase);
             }
         }
+        !expired()
     }
 }
 

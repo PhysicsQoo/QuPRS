@@ -39,7 +39,15 @@ The `--evidence` path must point to the existing `aa.laizf603` evidence folder. 
 
 Look for `evidence_scan.codspeed_environment_write=ERROR_OBSERVED_CAUSE_UNDETERMINED` and the exact warning excerpts. The warning confirms a write failure but does **not** identify the actual directory or errno.
 
-In pytest-codspeed v5.0.3, `InstrumentHooks.write_environment` documents the target as `$CODSPEED_PROFILE_FOLDER/environment-<pid>.json`. The native log instead says `environment.json`; do not assume these messages refer to an identical file without evidence.
+### Source-pinned investigation: the two log messages ARE the same native write path
+
+The `pytest-codspeed v5.0.3` Git tree pins the `instrument-hooks` submodule at **[`b9ddb5bc654b2e6fa13eb18efcd3a45e7ecda0bb`](https://github.com/CodSpeedHQ/instrument-hooks/blob/b9ddb5bc654b2e6fa13eb18efcd3a45e7ecda0bb/src/environment/root.zig)** (verified via the `v5.0.3` Git tree, not an assumption based on current upstream `main`). The pinned `Environment.writeEnvironment(pid)` constructs `$CODSPEED_PROFILE_FOLDER/environment-<pid>.json` in a 512-byte path buffer and then invokes `fs.createFileAbsolute(path)` followed by `file.writeAll(json)`.
+
+**Both** the create and write failure branches emit the same literal message `instrument-hooks: failed to write environment.json`; thus the suffix in the log is a **generic logger message**, not the literal on-disk filename. Path-buffer overflow and serialization failure use **different** messages. The exact logged failure narrows the failure to **file creation or file content write**, but without an OS error/path in the historical log it **cannot select between those two branches or establish why it failed**. This reasoning assumes the installed 5.0.3 native library matches the documented source; the historical binary itself has not been inspected.
+
+CodSpeed CLI [v5.4.2 profile-folder implementation](https://github.com/CodSpeedHQ/codspeed/blob/v5.4.2/src/executor/helpers/profile_folder.rs) creates a temporary directory with `std::fs::create_dir_all`; its injected environment supplies `CODSPEED_PROFILE_FOLDER`. This makes an initially absent folder less likely for a successfully completed local run but does **not** rule out a wrong resolved path, a runtime write/access failure, or later folder lifecycle changes.
+
+The v4 scanner now reports `evidence_scan.native_environment_write_triage.status=NATIVE_CREATE_OR_WRITE_FAILED_STAGE_UNDETERMINED` with source version and explicit uncertainty. No fresh CodSpeed measurement or filesystem write is required to produce this mapping.
 
 **Optional existing profile directory inspection (never creates/writes):**
 
@@ -67,7 +75,7 @@ The v3 `sample_window` adds `min_cpu_idle_pct` and `cpu_idle_below_50_pct_count`
 python3 -m unittest -v test_qoo13_mac_diagnostics.py
 ```
 
-The tests use synthetic log files and mock sampled counters. They do not use the network or launch CodSpeed. The eleven tests have been tested in a Linux container; this **does not** constitute macOS runtime validation.
+The tests use synthetic log files and mock sampled counters. They do not use the network or launch CodSpeed. The thirteen tests have been tested in a Linux container; this **does not** constitute macOS runtime validation.
 
 ## Stop conditions and next scientific step
 

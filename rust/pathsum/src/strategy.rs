@@ -314,3 +314,38 @@ mod cooperative_request_isolation_tests {
         assert_eq!(b.f.functions, legacy.f.functions);
     }
 }
+
+#[cfg(test)]
+mod cooperative_real_circuit_parity_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn ghz_three_qubits_with_non_clifford_phase_preserves_rr_residual() {
+        let circuit = vec![
+            QuantumOp::H(0), QuantumOp::CX(0, 1),
+            QuantumOp::CX(1, 2), QuantumOp::T(2),
+            QuantumOp::H(2), QuantumOp::S(1),
+        ];
+        for strategy in [
+            VerificationStrategy::Naive,
+            VerificationStrategy::Straightforward,
+            VerificationStrategy::Proportional,
+            VerificationStrategy::Difference,
+        ] {
+            let mut source = PathSum::new(3);
+            source.rr_tolerance = 1e-10;
+            source.set_auto_reduce(true);
+            let reference = strategy.run(source.clone(), &circuit, &circuit);
+            let bounded = strategy.run_with_deadline(
+                source, &circuit, &circuit,
+                Some(Instant::now() + Duration::from_secs(30)),
+            );
+            assert!(!bounded.deadline_exceeded, "{strategy:?}");
+            assert_eq!(bounded.p.terms, reference.p.terms, "{strategy:?}");
+            assert_eq!(bounded.f.functions, reference.f.functions, "{strategy:?}");
+            assert_eq!(bounded.v.path_vars, reference.v.path_vars, "{strategy:?}");
+            assert_eq!(bounded.rr_approximate, reference.rr_approximate, "{strategy:?}");
+        }
+    }
+}

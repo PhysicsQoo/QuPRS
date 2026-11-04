@@ -54,6 +54,18 @@ class D4ExactOracleTests(unittest.TestCase):
             parse_d4_count("c s exact arb float 0.0000 + 0.0000i\n"),
             (0, 0),
         )
+        self.assertEqual(
+            parse_d4_count("s UNSATISFIABLE\nc s exact arb int 0\n"), (0, 0)
+        )
+        self.assertEqual(
+            parse_d4_count("c s exact arb int 8\n"), (8, 0)
+        )
+        self.assertEqual(
+            parse_d4_count("c s exact arb float 1.25e-01\n"),
+            (Fraction(1, 8), 0),
+        )
+        with self.assertRaisesRegex(ValueError, "conflicting"):
+            parse_d4_count("c s exact arb int 1\nc s exact arb float 2+0i\n")
         with self.assertRaisesRegex(ValueError, "conflicting"):
             parse_d4_count(
                 "c s exact arb float 1+0i\nc s exact arb float 2+0i\n"

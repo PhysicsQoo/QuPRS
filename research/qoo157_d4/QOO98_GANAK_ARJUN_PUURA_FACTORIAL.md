@@ -10,14 +10,14 @@
 
 Pinned [Ganak v2.8.0 main.cpp](https://github.com/meelgroup/ganak/blob/b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281/src/main.cpp#L465-L504) calls `standalone_minimize_indep` inside `run_arjun`, then conditionally `standalone_elim_to_file` (Puura) only if `do_puura` and the minimized sampling-variable count meets `arjun_further_min_cutoff`. In [main.cpp L789–815](https://github.com/meelgroup/ganak/blob/b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281/src/main.cpp#L789-L815), `--arjun 0` **skips `run_arjun` entirely**, also skipping Puura no matter the textual `--puura` setting. Thus four flag rows are **not four independent algorithm combinations**: `Arjun=0, Puura=1/0` are **a negative control of identical solver path**. The valid algorithm comparison is *Arjun + Puura*, *Arjun but Puura disabled*, and *neither*.
 
-## Official same-run observed WallTime (ms, three rounds per benchmark)
+## Official same-run observed WallTime (ms; at most three effective rounds per benchmark)
 
 | Original weighted CNF | Arjun=1 Puura=1 | Arjun=0 Puura=1 (Puura skipped) | Arjun=1 Puura=0 | Arjun=0 Puura=0 (negative control) |
 | --- | ---: | ---: | ---: | ---: |
-| **QAOA7 genuine NEQ** | **264.648** (259.011–264.790) | **277.337** (276.104–277.855) | **16,076.499** (all three rounds same rounded value) | **281.008** (276.449–281.242) |
+| **QAOA7 genuine NEQ** | **264.648** (259.011–264.790) | **277.337** (276.104–277.855) | **16,076.499** (one effective observation; configured max-time 12s exceeded) | **281.008** (276.449–281.242) |
 | **QFT16 EQ** | **814.810** (807.599–824.772) | **5,377.875** (5,359.399–5,412.064) | **NOT ADMITTED: prior 35 s science timeout; NO CodSpeed** | **5,371.725** (5,365.392–5,376.892) |
 
-- QAOA7 Arjun-on/Puura-off is **60.75× slower** than both on in this same hosted CodSpeed run; however *turning both off* is only **1.06× slower** than both on. **It is invalid to conclude that Puura alone always gives 60× speedup**: the bad arm is *Arjun preprocessing without Puura*. Arjun-on only may change the support/formula unfavorably, then fail to simplify it.
+- QAOA7 Arjun-on/Puura-off produced **one 16.076 s CodSpeed observation**, numerically 60.75× the default 264.648 ms median, but **not an independently replicated three-round result**. Its export says `max_rounds=3`, while `total_time=16.077 s`, `warmup_iters=1` and identical min/median/max show the 12 s per-test budget was exceeded; **do not present 60.75× as a statistically accepted factor**. Turning both off was only **1.06×** the default observed median. The pathological arm is *Arjun without Puura*, not evidence that isolated Puura provides a universal 60× gain.
 - QFT16 turning both off is about **6.59× slower** than both on; Arjun-off/Puura-on negative control is **6.60× slower**. Thus the combined Arjun→Puura pipeline appears substantially useful **for this fixed QFT16 source CNF**. Arjun-on/Puura-off was censored by a **35 s pre-CodSpeed bound**, not assigned a timing.
 - Unlike the original conditional cross-solver run, this is **within-Ganak same Runner/HEAD/binary scientific-gated knob ablation**. Three rounds on GitHub-hosted hardware are **OBSERVATION_ONLY**. No fixed Macro Runner ABBA/BAAB causal timing certification or precise attribution of cost to individual native preprocessing stages. Only official CodSpeed timings appear in the performance table; native science preflight duration and C++ internal `t_total` are never mixed into it.
 

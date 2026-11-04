@@ -8,13 +8,13 @@ import re
 
 from poc_d4 import oracle_count
 
-MARKER = re.compile(r"^D4_RUST_COUNT (\S+\.cnf) (-?\d+(?:/\d+)?) (-?\d+(?:/\d+)?)\s*$")
+MARKER = re.compile(r"D4_RUST_COUNT (\S+\.cnf) (-?\d+(?:/\d+)?) (-?\d+(?:/\d+)?)\b")
 
 
 def evaluate(log: Path, directory: Path, out: Path):
     values = {}
     for line in log.read_text().splitlines():
-        match = MARKER.match(line.strip())
+        match = MARKER.search(line)
         if match:
             name = match.group(1)
             if name in values:

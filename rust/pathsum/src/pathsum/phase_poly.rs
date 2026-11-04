@@ -46,21 +46,37 @@ impl PhasePolynomial {
     ///
     /// Remove every affected term before reinsertion: inserting early can merge
     /// into a term that still needs to be removed, silently losing its phase.
+    /// Legacy public API: an unbounded, source-preserving substitution.
     pub fn substitute_var_with_poly(
         &mut self,
         target_var: u32,
         sub_poly: &FxHashSet<Monomial>,
     ) {
+        let completed = self.substitute_var_with_poly_checked(target_var, sub_poly, None);
+        debug_assert!(completed);
+    }
+
+    /// An interrupted phase polynomial is intentionally not an RR result:
+    /// the parent PathSum discards it on timeout. No coefficient is rounded.
+    pub(crate) fn substitute_var_with_poly_checked(
+        &mut self,
+        target_var: u32,
+        sub_poly: &FxHashSet<Monomial>,
+        deadline: Option<std::time::Instant>,
+    ) -> bool {
+        let expired = || deadline.is_some_and(|d| std::time::Instant::now() >= d);
+        if expired() { return false; }
         // HashMap cannot move out values while iterating borrowed entries.
         // Clone only the keys needed to locate them; move each PhaseCoeff out.
         let keys: Vec<Monomial> = self.terms.keys()
             .filter(|mono| mono.contains(&target_var))
             .cloned()
             .collect();
-        if keys.is_empty() { return; }
+        if keys.is_empty() { return !expired(); }
 
         let mut extracted = Vec::with_capacity(keys.len());
-        for key in keys {
+        for (index, key) in keys.into_iter().enumerate() {
+            if (index & 63) == 0 && expired() { return false; }
             let (mut monomial, coeff) = self.terms.remove_entry(&key)
                 .expect("substituted phase term must still exist");
             monomial.retain(|&x| x != target_var);
@@ -68,17 +84,18 @@ impl PhasePolynomial {
         }
 
         // x <- 0: terms containing x vanish; the other terms stay intact.
-        if sub_poly.is_empty() { return; }
+        if sub_poly.is_empty() { return !expired(); }
 
         // x <- monomial: multiplication is a set-union of Boolean variables.
         // No XOR expansion, temporary hash sets, or PhaseCoeff clones needed.
         if sub_poly.len() == 1 {
             let replacement = sub_poly.iter().next().expect("singleton polynomial");
-            for (mut monomial, coeff) in extracted {
+            for (index, (mut monomial, coeff)) in extracted.into_iter().enumerate() {
+                if (index & 63) == 0 && expired() { return false; }
                 monomial.extend_from_slice(replacement);
                 self.add_term(monomial, coeff);
             }
-            return;
+            return !expired();
         }
 
         // Split the Boolean and phase domains by their true cost:
@@ -98,11 +115,17 @@ impl PhasePolynomial {
         if should_share_xor_expansion(&extracted, sub_poly.len()) {
             let mut expansions: FxHashMap<usize, FxHashMap<Monomial, i64>> =
                 FxHashMap::default();
-            for (rest, phase) in extracted {
+            for (index, (rest, phase)) in extracted.into_iter().enumerate() {
+                if (index & 63) == 0 && expired() { return false; }
                 let max_order = phase_xor_max_order(&phase);
-                let expanded = expansions.entry(max_order)
-                    .or_insert_with(|| expand_xor_to_arithmetic(sub_poly, max_order));
-                for (part, &factor) in expanded.iter() {
+                if !expansions.contains_key(&max_order) {
+                    let Some(result) = expand_xor_to_arithmetic_checked(sub_poly, max_order, deadline)
+                    else { return false; };
+                    expansions.insert(max_order, result);
+                }
+                let expanded = &expansions[&max_order];
+                for (part_index, (part, &factor)) in expanded.iter().enumerate() {
+                    if (part_index & 63) == 0 && expired() { return false; }
                     if factor == 0 { continue; }
                     let mut monomial = rest.clone();
                     monomial.extend_from_slice(part);
@@ -111,17 +134,83 @@ impl PhasePolynomial {
                     self.add_term(monomial, phase.clone() * factor);
                 }
             }
-            return;
+            return !expired();
         }
 
         // Parity-first: materialize only the surviving Boolean monomials
         // before the arithmetic phase expansion. The single-monomial
         // product avoids allocating a one-element temporary polynomial.
-        for (rest, coeff) in extracted {
+        for (index, (rest, coeff)) in extracted.into_iter().enumerate() {
+            if (index & 63) == 0 && expired() { return false; }
             let product = boolean_monomial_xor_product(&rest, sub_poly);
-            *self += (&product, coeff);
+            if product.is_empty() || coeff.is_zero() { continue; }
+            let max_order = phase_xor_max_order(&coeff);
+            let Some(expanded) = expand_xor_to_arithmetic_checked(&product, max_order, deadline)
+            else { return false; };
+            for (term_index, (term, factor)) in expanded.into_iter().enumerate() {
+                if (term_index & 63) == 0 && expired() { return false; }
+                self.add_term(term, coeff.clone() * factor);
+            }
         }
+        !expired()
     }
+}
+
+
+#[inline]
+fn deadline_due(deadline: Option<std::time::Instant>) -> bool {
+    deadline.is_some_and(|d| std::time::Instant::now() >= d)
+}
+
+/// Cancellation-aware variant of the existing arithmetic XOR expansion.
+/// Successful output is bit-for-bit the same coefficient map as the unbounded
+/// routine; on timeout the partial map is never observed by the verifier.
+fn checked_generate_combinations_dfs(
+    repl: &[&Monomial],
+    k: usize,
+    start_idx: usize,
+    current_mono: &Monomial,
+    coeff: i64,
+    out: &mut FxHashMap<Monomial, i64>,
+    deadline: Option<std::time::Instant>,
+    visits: &mut usize,
+) -> bool {
+    *visits = visits.wrapping_add(1);
+    if (*visits & 127) == 0 && deadline_due(deadline) { return false; }
+    if k == 0 {
+        *out.entry(current_mono.clone()).or_insert(0) += coeff;
+        return true;
+    }
+    for i in start_idx..=(repl.len() - k) {
+        if (*visits & 127) == 0 && deadline_due(deadline) { return false; }
+        let next_mono = crate::pathsum::mul_monomials(current_mono, repl[i]);
+        if !checked_generate_combinations_dfs(
+            repl, k - 1, i + 1, &next_mono, coeff, out, deadline, visits,
+        ) { return false; }
+    }
+    true
+}
+
+fn expand_xor_to_arithmetic_checked(
+    xor_terms: &FxHashSet<Monomial>,
+    max_order: usize,
+    deadline: Option<std::time::Instant>,
+) -> Option<FxHashMap<Monomial, i64>> {
+    if deadline_due(deadline) { return None; }
+    let mut result = FxHashMap::default();
+    if xor_terms.is_empty() { return Some(result); }
+    let repl_vec: Vec<&Monomial> = xor_terms.iter().collect();
+    let max_k = std::cmp::min(max_order, repl_vec.len());
+    let mut coeff = 1_i64;
+    let mut visits = 0usize;
+    for k in 1..=max_k {
+        if deadline_due(deadline) { return None; }
+        if !checked_generate_combinations_dfs(
+            &repl_vec, k, 0, &vec![], coeff, &mut result, deadline, &mut visits,
+        ) { return None; }
+        coeff *= -2;
+    }
+    if deadline_due(deadline) { None } else { Some(result) }
 }
 
 // The shared path must be cheap for *every* affected term. Otherwise a

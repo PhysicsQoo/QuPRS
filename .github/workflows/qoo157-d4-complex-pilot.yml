@@ -39,7 +39,7 @@ jobs:
           mkdir -p evidence
           git rev-parse HEAD > evidence/quprs-source-head.txt
           git rev-parse 'HEAD^{tree}' > evidence/quprs-source-tree.txt
-          sha256sum research/qoo157_d4/{poc_d4.py,test_poc_d4.py,README.md} > evidence/source-sha256.txt
+          sha256sum research/qoo157_d4/*.py research/qoo157_d4/README.md > evidence/source-sha256.txt
       - name: Exact fractional oracle tests
         shell: bash
         run: |
@@ -118,7 +118,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python research/qoo157_d4/poc_d4.py             --workdir evidence/quprs-native             --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"             --cnf "evidence/quprs-source-cnf/quprs_identity1.cnf"             --cnf "evidence/quprs-source-cnf/quprs_t1_miter.cnf"             --cnf "evidence/quprs-source-cnf/quprs_bell_t_miter.cnf"             --timeout 30 2>&1 | tee evidence/quprs-native-pilot.log
+          args=(
+            --workdir evidence/quprs-native
+            --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+            --timeout 30
+          )
+          test "$(find evidence/quprs-source-cnf -name '*.cnf' | wc -l)" -eq 6
+          for cnf in evidence/quprs-source-cnf/*.cnf; do
+            args+=(--cnf "$cnf")
+          done
+          python research/qoo157_d4/poc_d4.py "${args[@]}" 2>&1 | tee evidence/quprs-native-pilot.log
+      - name: Observe d4 precision loss on exact tiny complex residuals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/precision_probe.py \
+            --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
+            --workdir evidence/d4-precision \
+            --timeout 30 2>&1 | tee evidence/d4-precision.log
       - name: Preserve results even on native failure
         if: always()
         uses: actions/upload-artifact@v4

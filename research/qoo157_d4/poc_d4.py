@@ -145,10 +145,14 @@ def native_count(binary: Path, cnf: Path, timeout: int):
         raise RuntimeError("D4_POC_TIMEOUT") from exc
     if proc.returncode:
         raise RuntimeError(f"D4_POC_EXIT={proc.returncode}: {stderr[:1024]}")
+    if max(len(stdout), len(stderr)) > 65536:
+        raise RuntimeError("native output exceeds bounded evidence limit")
     return parse_d4_count(stdout), {
         "returncode": proc.returncode,
         "stdout_sha256": sha256(stdout.encode()),
         "stderr_sha256": sha256(stderr.encode()),
+        "stdout_text": stdout,
+        "stderr_text": stderr,
         "command": command,
     }
 
@@ -208,7 +212,7 @@ def run(args):
         p.write_text(content, encoding="utf-8")
         cases.append((name, p))
     for i, path in enumerate(args.cnf):
-        cases.append((f"quprs_{i}", path.resolve()))
+        cases.append((f"quprs_{i}_{path.stem}", path.resolve()))
     binary = args.binary.resolve() if args.binary else None
     if binary and not binary.is_file():
         raise FileNotFoundError(binary)

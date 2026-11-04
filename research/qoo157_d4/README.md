@@ -130,3 +130,24 @@ C: CodSpeed paired evidence and explicit benefit (speed, correctness coverage,
 D: **only after GO** implement a separately selectable opt-in adapter;
    GPMC remains default, no silent fallback. All changes must stay on the
    experiment branch until independently reviewed.
+
+## Research addendum: source-precision vs d4 arithmetic (2026-11-04)
+
+Pinned native CI #41805111794 passed 9/9 hand-computable controls, and
+compiled the actual QuPRS Rust WmcManager emitted identity1, H-T-H, Bell-T
+weighted CNFs. Those three real-CNF experiments disagreed with their exact
+*serialized decimal* Fraction oracles by approximately 5.0e-20, 8.7e-20,
+and 2.7e-19, respectively. This is a measured numeric discrepancy, not a
+CNF/grammar incompatibility. It does **not** prove the source quantum circuits
+are equivalent or give any safe EQ/NEQ tolerance by itself.
+
+The experimental Rust emitter now additionally writes the exact same circuits
+with QuPRS's existing MPFR 256-bit source-phase weight conversion, without
+changing the default solver or WMC code path. The native CI archives all six
+CNF bytes, SHA and per-case oracle comparisons. The precision probe runs
+complex weights (two decimal components) with analytically known residuals
+1e-12..1e-60 and a 10^30+1 vs -10^30 cancellation. It records **exact**
+reported-decimal differences and whether a nonzero residual disappeared;
+**the probe never passes/fails numerical certification based on 1e-15**. All
+native measurements remain tagged NOT_CERTIFIED. A native crash still fails
+its CI step. Do not modify upstream d4 source or the QuPRS tolerance contract.

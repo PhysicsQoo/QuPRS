@@ -33,6 +33,23 @@ fn emit(
     let file = root.join(format!("{name}.cnf"));
     fs::write(&file, weighted_cnf.as_bytes())?;
     println!("QOO157_SOURCE_CNF {name} {}", file.display());
+
+    // Independent source-precision arm: preserve the original Angle through
+    // QuPRS's existing opt-in MPFR weight bridge, then give the SAME output
+    // Boolean CNF to d4. No modifications to upstream d4 or QuPRS defaults.
+    #[cfg(feature = "high-precision-gpmc")]
+    {
+        let mut precise_counter = WmcManager::new(&miter);
+        precise_counter.enable_precise_gpmc_weights(256);
+        precise_counter.encode_trace(&miter)?;
+        let precise_cnf = precise_counter.to_dimacs_string("gpmc");
+        if !precise_cnf.starts_with("p cnf ") || !precise_cnf.contains("c t wmc") {
+            return Err(anyhow!("QuPRS MPFR source emitted an unexpected weighted-CNF header"));
+        }
+        let precise_path = root.join(format!("{name}_mpfr256.cnf"));
+        fs::write(&precise_path, precise_cnf.as_bytes())?;
+        println!("QOO157_SOURCE_CNF {name}_mpfr256 {}", precise_path.display());
+    }
     Ok(())
 }
 

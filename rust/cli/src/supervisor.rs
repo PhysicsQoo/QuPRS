@@ -20,7 +20,7 @@ use std::os::unix::process::CommandExt;
 
 enum WorkerEvent {
     Exited(io::Result<ExitStatus>, Instant),
-    CaptureFinished(&'static str),
+    CaptureFinished(&'static str, Instant),
     CaptureOverflow(&'static str),
     CaptureError(&'static str),
 }
@@ -30,6 +30,13 @@ enum StopReason {
     OutputLimit(&'static str),
     CaptureFailed(&'static str),
     WaitFailed(String),
+}
+
+// An output EOF at (or after) deadline is not a successful completion even
+// when the receiver's channel already has a queued event. This guard is part
+// of the parent process, not native Path-sum or WMC computation.
+fn eof_before_deadline(finished: Instant, deadline: Instant) -> bool {
+    finished < deadline
 }
 
 // Parent-owned bounded spool: the worker cannot write to an unlimited
@@ -55,7 +62,7 @@ fn capture_bounded<R: Read>(
             // A reaped worker may have descendants that keep inherited
             // output pipes open. Report EOF explicitly; never block forever
             // in an unconditional reader join after the worker exits.
-            let _ = events.send(WorkerEvent::CaptureFinished(stream));
+            let _ = events.send(WorkerEvent::CaptureFinished(stream, Instant::now()));
             return Ok(destination);
         }
         if written + count as u64 > OUTPUT_LIMIT {
@@ -222,7 +229,14 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
                 interrupted = Some(StopReason::WaitFailed(error.to_string()));
                 break;
             }
-            Ok(WorkerEvent::CaptureFinished(stream)) => {
+            Ok(WorkerEvent::CaptureFinished(stream, finished)) => {
+                // A ready event queued after the deadline may still be
+                // returned by recv_timeout(Duration::ZERO). Never release
+                // a late successful result merely because both pipes closed.
+                if !eof_before_deadline(finished, deadline) {
+                    interrupted = Some(StopReason::Timeout);
+                    break;
+                }
                 match stream {
                     "stdout" => stdout_finished = true,
                     "stderr" => stderr_finished = true,
@@ -636,6 +650,24 @@ pub fn prepare_worker() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn worker_and_pipe_completion_at_deadline_is_not_success() {
+        let deadline = Instant::now();
+        let earlier = deadline - Duration::from_nanos(1);
+        let later = deadline + Duration::from_nanos(1);
+        assert!(eof_before_deadline(earlier, deadline));
+        assert!(!eof_before_deadline(deadline, deadline));
+        assert!(!eof_before_deadline(later, deadline));
+        // Check the production event payload still carries the timestamp.
+        match WorkerEvent::CaptureFinished("stdout", later) {
+            WorkerEvent::CaptureFinished(stream, finished) => {
+                assert_eq!(stream, "stdout");
+                assert!(!eof_before_deadline(finished, deadline));
+            }
+            _ => panic!("unexpected event"),
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn terminating_shell_also_terminates_background_child() {

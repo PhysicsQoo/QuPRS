@@ -9,6 +9,8 @@ const direct = new Set([
   'test/test_Feynman.py', 'test/test_MQT.py', 'test/conftest.py',
   'test/test_codspeed_qasm261_simulation_additive.py',
   '.github/workflows/codspeed.yml',
+  '.github/scripts/codspeed-pr-impact.cjs',
+  '.github/scripts/codspeed-metadata-only.cjs',
 ]);
 function isPerformanceBearingPath(path) {
   if (typeof path !== 'string' || !path) return false;

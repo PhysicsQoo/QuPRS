@@ -101,3 +101,14 @@ GitHub Actions [#41858819331](https://github.com/PhysicsQoo/QuPRS/actions/runs/4
 
 CodSpeed's [original Macro job #41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remains queued with no runner assignment. Its SHA is old, so even a future completed run would need a *final-source* source-paired ABBA before performance acceptance. Prior hosted observation is about +1.2ms fixed extra CLI cost and has an official unreliable/non-Macro WallTime warning. **P1 remains NOT_MET**, no zero-overhead claim and no `dev` merge.
 
+## 8. Native macOS 14 Apple Silicon final EOF deadline admission — PASS
+
+**Correction of an earlier assumption:** GitHub Actions `runs-on: macos-14` resolved in the actual [#41927422324](https://github.com/PhysicsQoo/QuPRS/actions/runs/41927422324) job to **image `macos-14-arm64` and `Darwin arm64`**, not Intel x86-64. Both Ubuntu 24.04 x86-64 and actual macOS 14 ARM64 jobs finished **SUCCESS** at source `9e2246f8b9f5e1e070a6c6deab0d36b99f24fcf1` after adding `CaptureFinished(stream, Instant)` and strictly rejecting stdout/stderr EOF occurring at or after the monotonic deadline. Exact Rust CLI source blob SHA `96abee52b49c4e06dec572a4fd62c293ceb9fbee`; no native Rust Path-sum change.
+
+| Runner | Unit tests | Integration tests | Release CLI build | Artifact |
+|---|---:|---:|---|---|
+| Ubuntu 24.04, Linux x86-64 | 8/8 | 13/13 | PASS | [#13369943072](https://github.com/PhysicsQoo/QuPRS/actions/runs/41927422324/artifacts/13369943072) |
+| macOS 14, native ARM64 Apple Silicon | 7/7 | 10/10 | PASS | [#13370232551](https://github.com/PhysicsQoo/QuPRS/actions/runs/41927422324/artifacts/13370232551) |
+
+**Admission boundary:** This is native **macOS 14 ARM64** CLI resource/process-isolation correctness on a hosted Apple Silicon runner; it does not certify native macOS 15 (the earlier `macos-15` unassigned jobs were cancelled), Mac mini hardware parity, or OrbStack's *Linux guest* cgroup delegation. The latter remains a distinct environmental proof. The staging candidate [`staging/qoo156-cli-resource-admission`](https://github.com/PhysicsQoo/QuPRS/tree/staging/qoo156-cli-resource-admission) copied the exact tested CLI source blob in commit [`5b5ad61`](https://github.com/PhysicsQoo/QuPRS/commit/5b5ad612e4ca38b157f336c620ea9e659746f5e3). The official CodSpeed Macro performance gate remains **NOT_ADMITTED**; a source-paired hosted non-Macro observation of ~1.2ms additional fixed CLI overhead remains noncertifying.
+

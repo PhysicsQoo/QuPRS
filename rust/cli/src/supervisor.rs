@@ -18,8 +18,65 @@ pub const RESOURCE_EXIT: i32 = 125;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
+// Linux re-parents descendants of a dead worker directly to this CLI
+// supervisor, even when Ganak sets a distinct process group.
+fn enable_child_subreaper() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } != 0 {
+        return Err(io::Error::last_os_error())
+            .context("cannot safely supervise orphaned solver descendants");
+    }
+    Ok(())
+}
+
+// Called only after the direct worker has been reaped. On the fast path,
+// waitpid reports ECHILD, avoiding any /proc scan or polling cost.
+fn cleanup_adopted_children() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut status = 0_i32;
+        let mut pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+        while pid > 0 {
+            pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+        }
+        if pid == -1 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ECHILD) { return Ok(()); }
+            return Err(err).context("inspect adopted solver descendants");
+        }
+
+        // A waitpid return of 0 means an adopted process remains alive,
+        // possibly SIGSTOP'ed. Kill detached process groups and reap.
+        let own_group = unsafe { libc::getpgrp() };
+        for _ in 0..100 {
+            let descendants = descendant_pids(std::process::id());
+            for child_pid in descendants.iter().rev().copied() {
+                let pgid = unsafe { libc::getpgid(child_pid as i32) };
+                if pgid > 0 && pgid != own_group {
+                    unsafe { libc::kill(-pgid, libc::SIGKILL); }
+                }
+                unsafe { libc::kill(child_pid as i32, libc::SIGKILL); }
+            }
+            loop {
+                let reaped = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+                if reaped > 0 { continue; }
+                if reaped == -1 {
+                    let err = io::Error::last_os_error();
+                    if err.raw_os_error() == Some(libc::ECHILD) { return Ok(()); }
+                    return Err(err).context("reap adopted solver");
+                }
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        bail!("ResourceSupervisorError: adopted solver survived SIGKILL");
+    }
+    Ok(())
+}
+
 pub fn supervise(cli: &Cli) -> Result<i32> {
     if cli.timeout == 0 { bail!("--timeout must be positive"); }
+    enable_child_subreaper()?;
     if cli.max_memory_mib == Some(0) || cli.max_address_space_mib == Some(0) {
         bail!("resource limits must be positive MiB values");
     }
@@ -73,6 +130,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
             // The child exited, but the parent cannot certify that it
             // completed before the strict monotonic request deadline.
             let _ = waiter.join();
+            cleanup_adopted_children()?;
             if cli.quiet { println!("Timeout"); }
             else { eprintln!("Timeout: whole CLI invocation exceeded --timeout"); }
             return Ok(TIMEOUT_EXIT);
@@ -86,6 +144,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
                 Err(_) => bail!("ResourceSupervisorError: worker was not reaped after timeout"),
             }
             let _ = waiter.join();
+            cleanup_adopted_children()?;
             if cli.quiet { println!("Timeout"); }
             else { eprintln!("Timeout: whole CLI invocation exceeded --timeout"); }
             return Ok(TIMEOUT_EXIT);
@@ -96,6 +155,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         }
     };
     let _ = waiter.join();
+    cleanup_adopted_children()?;
 
     if cgroup.as_ref().is_some_and(MemoryCgroup::oom_killed) {
         eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
@@ -291,6 +351,18 @@ impl Drop for MemoryCgroup {
 }
 
 pub fn prepare_worker() -> Result<()> {
+    // Only debug builds: reproduce worker exit while an OS-detached helper
+    // remains alive. This does not exist in the release executable.
+    #[cfg(all(debug_assertions, target_os = "linux"))]
+    if let Ok(path) = std::env::var("QUPRS_CLI_TEST_ORPHAN_PIDFILE") {
+        let child = Command::new("setsid").args(["sleep", "30"])
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+            .spawn().context("launch detached orphan control")?;
+        fs::write(path, child.id().to_string())
+            .context("save orphan PID evidence")?;
+        thread::sleep(Duration::from_millis(100));
+        bail!("QOO156_TEST_INTENTIONAL_WORKER_EXIT");
+    }
     // Test-only deterministic scheduling witness. Never compiled in release.
     // This proves the outer deadline starts BEFORE opening QASM files.
     #[cfg(debug_assertions)]

@@ -119,3 +119,30 @@ fn delegated_cgroup_physically_enforces_oom_or_records_not_admitted() {
     assert!(result.stdout.is_empty(), "a killed worker cannot emit partial EQ/NEQ");
     println!("QOO156_MEMORY_POSITIVE_ADMITTED: memory.max and memory.events verified");
 }
+
+
+#[cfg(target_os = "linux")]
+#[test]
+fn worker_exits_but_supervisor_reaps_separate_process_group_solver() {
+    let source = fixture();
+    let pid_file = tempfile::NamedTempFile::new().unwrap();
+    let result = Command::new(cli()).arg(source.path())
+        .args(["--quiet", "--timeout", "5"])
+        .env("QUPRS_CLI_TEST_ORPHAN_PIDFILE", pid_file.path())
+        .output().unwrap();
+    assert!(!result.status.success(), "worker intentionally exits with failure");
+    let pid: u32 = std::fs::read_to_string(pid_file.path())
+        .unwrap().trim().parse().unwrap();
+    for _ in 0..40 {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"));
+        match stat {
+            Err(_) => return,
+            Ok(info) => {
+                let state = info.rsplit_once(") ").unwrap().1.chars().next().unwrap();
+                if state == 'Z' { return; }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("detached solver PID {pid} remained active after supervisor cleanup");
+}

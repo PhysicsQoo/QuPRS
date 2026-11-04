@@ -508,12 +508,12 @@ fn check_equivalence_with_distance_mode(
 
     // 2. Build the Miter Circuit (C1 * C2^\dagger)
     let pathsum_start = Instant::now();
-    let mut ps_miter = strategy.run(ps, gates1, gates2);
+    let mut ps_miter = strategy.run_with_deadline(ps, gates1, gates2, deadline);
     ps_miter.rr_tolerance = rr_tolerance;
     
     // Prepare the initial state |0...0> to form the transition amplitude <0|M|0>
     
-    if reduction_enabled {
+    if reduction_enabled && !ps_miter.deadline_exceeded {
         ps_miter.full_reduce();
     }
 
@@ -522,7 +522,8 @@ fn check_equivalence_with_distance_mode(
     rr_approximate |= rr_view.rr_approximate;
 
     // 3. Reduction Rules Check
-    if method != VerificationMethod::WmcOnly {
+    // Never classify a partial or canceled PathSum as EQ/NEQ.
+    if method != VerificationMethod::WmcOnly && !rr_view.deadline_exceeded {
         if rr_view.is_identity_up_to_phase() {
             if let Some(phase_coeff) = rr_view.get_global_phase() {
                 // The up-to-global-phase relation is established by RR.
@@ -568,7 +569,7 @@ fn check_equivalence_with_distance_mode(
     let ps_time = pathsum_start.elapsed().as_secs_f64();
 
     // A strategy may overrun its budget; it must never launch an unbounded solver.
-    if deadline.is_some_and(|limit| Instant::now() >= limit) {
+    if ps_miter.deadline_exceeded || deadline.is_some_and(|limit| Instant::now() >= limit) {
         status = EquivalenceStatus::Timeout;
     }
 

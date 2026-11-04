@@ -23,7 +23,9 @@ def sample(i, idle=70.0, backup=0.0, process=2.0, thermal=False, swapins=100):
 
 
 def report(samples):
-    return dict(kind=m.SOURCE_KIND, script_version=4, samples=samples)
+    return dict(kind=m.SOURCE_KIND, script_version=4, samples=samples,
+                sample_window=dict(status='MONITOR_ONLY_NOT_PERFORMANCE_CERTIFICATION',
+                                   sample_count=len(samples)))
 
 
 class TestAdmission(unittest.TestCase):
@@ -79,10 +81,69 @@ class TestAdmission(unittest.TestCase):
         samples[0]['cpu_idle_pct'] = True
         self.assertIn('CPU_IDLE_MISSING_OR_INVALID', m.assess(report(samples))['evidence_gaps'])
 
+    def test_nan_inf_and_huge_numbers_never_produce_quiet_candidate(self):
+        import math
+        for corrupt in [float('nan'), float('inf'), -float('inf'), 10**400]:
+            with self.subTest(corrupt=str(corrupt)[:25]):
+                samples = [sample(i) for i in range(7)]
+                samples[1]['backupd_cpu_pct'] = corrupt
+                r = m.assess(report(samples))
+                self.assertEqual(r['verdict'], 'INCOMPLETE')
+                self.assertIn('BACKUPD_CPU_MISSING_OR_INVALID', r['evidence_gaps'])
+                self.assertFalse(r['authorizes_benchmark'])
+        samples = [sample(i) for i in range(7)]
+        samples[1]['monotonic_elapsed_s'] = float('nan')
+        r = m.assess(report(samples))
+        self.assertEqual(r['verdict'], 'INCOMPLETE')
+        self.assertIn('INVALID_MONOTONIC_TIMESTAMPS', r['evidence_gaps'])
+
+    def test_invalid_or_empty_process_list_incomplete(self):
+        samples = [sample(i) for i in range(7)]
+        samples[1]['top_processes'] = []
+        samples[2]['top_processes'][0]['cpu_pct'] = float('nan')
+        samples[3]['command_status'] = {'ps': 'failed'}
+        r = m.assess(report(samples))
+        self.assertEqual(r['verdict'], 'INCOMPLETE')
+        self.assertIn('TOP_PROCESSES_UNAVAILABLE', r['evidence_gaps'])
+        self.assertIn('TOP_PROCESS_CPU_MISSING_OR_INVALID', r['evidence_gaps'])
+        self.assertIn('PS_COMMAND_NOT_OK', r['evidence_gaps'])
+
+    def test_missing_or_inconsistent_monitor_summary_incomplete(self):
+        samples = [sample(i) for i in range(7)]
+        data = report(samples)
+        del data['sample_window']
+        self.assertIn('MONITOR_SUMMARY_MISSING_OR_NOT_OBSERVED',
+                      m.assess(data)['evidence_gaps'])
+        data = report(samples)
+        data['sample_window']['sample_count'] = 6
+        self.assertIn('MONITOR_SAMPLE_COUNT_MISMATCH',
+                      m.assess(data)['evidence_gaps'])
+
+    def test_inconsistent_swap_page_size_incomplete(self):
+        samples = [sample(i) for i in range(7)]
+        samples[-1]['vm_stat']['page_size_bytes'] = 4096
+        r = m.assess(report(samples))
+        self.assertEqual(r['verdict'], 'INCOMPLETE')
+        self.assertIn('SWAP_PAGE_SIZE_MISMATCH', r['evidence_gaps'])
+
+    def test_output_inside_source_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            source = folder / 'p1-monitor.json'
+            source.write_text(json.dumps(report([sample(i) for i in range(7)])))
+            output = folder / 'nested' / 'assessment.json'
+            x = subprocess.run([sys.executable, str(SCRIPT), '--input', str(source),
+                                '--output', str(output)], capture_output=True, text=True)
+            self.assertNotEqual(x.returncode, 0)
+            self.assertIn('outside the source evidence directory', x.stderr)
+            self.assertFalse(output.exists())
+
     def test_cli_does_not_overwrite_input_or_output(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            source = folder/'monitor.json'
+            evidence = folder/'source_evidence'
+            evidence.mkdir()
+            source = evidence/'monitor.json'
             output = folder/'admission.json'
             source.write_text(json.dumps(report([sample(i) for i in range(7)])))
             args = [sys.executable, str(SCRIPT), '--input', str(source), '--output', str(output)]

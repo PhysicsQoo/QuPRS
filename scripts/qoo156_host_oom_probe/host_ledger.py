@@ -70,6 +70,11 @@ def exercise(outdir, cap_mib):
     label = f"{cap_mib}mib"
     journal = outdir / f"{label}.jsonl"
     control = Path(tempfile.mkdtemp(prefix=f"qoo156-host-{label}-", dir=outdir))
+    # A cap-drop=ALL root inside the container cannot traverse the host's
+    # mkdtemp default 0700 directory (no CAP_DAC_READ_SEARCH). The sole
+    # control marker is intentionally world-readable; no write is needed
+    # inside the container. This prevents a false early PermissionError.
+    control.chmod(0o755)
     identifier = None
     try:
         record(journal, "case_started", cap_mib=cap_mib, pressure_mib=PRESSURE_MIB)
@@ -127,6 +132,7 @@ def exercise(outdir, cap_mib):
         except OSError:
             final_events = latest_events
         logs = docker("logs", identifier)
+        (outdir / f"{label}.container.log").write_text(logs + "\\n")
         result = {
             "cap_mib": cap_mib,
             "exit_code": int(final_state["ExitCode"]),

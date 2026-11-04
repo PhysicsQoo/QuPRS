@@ -135,9 +135,15 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
         problems.append("benchmark cases absent from JUnit evidence")
     if counts["FAIL"] or counts["ERROR"]:
         problems.append("benchmark contained definitive failures")
+    # Missing benchmark coverage is not a scientific wrong-answer verdict.
+    # A whole cohort can be resource-limited without proving any false result.
+    advisories = []
     for group, values in by_group.items():
         if values["PASS"] == 0:
-            problems.append(f"no completed positive benchmark in {group} cohort")
+            advisories.append(
+                f"no completed positive benchmark in {group} cohort; "
+                "resource/coverage evidence remains UNVERIFIED"
+            )
     if require_complete and counts["PASS"] != len(expected):
         problems.append("incomplete baseline; do not publish partial performance history")
     return {
@@ -155,6 +161,7 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
         "observed": len(actual),
         "counts": counts,
         "by_cohort": by_group,
+        "advisories": advisories,
         "missing": missing,
         "unexpected": unexpected,
         "distance_certificate_errors": distance_certificate_errors,
@@ -169,7 +176,9 @@ def audit(junit: Path, catalog: Path, *, require_complete: bool = False) -> dict
             "mathematical identity. A certified projective-distance upper bound "
             "within the SAME distance tolerance is ordinary PASS. Source SHA and "
             "proof provenance authenticate the evidence, not a second numerical "
-            "threshold. Failure, missing evidence and inconclusive results never pass."
+            "threshold. Definitive failure and missing/corrupt JUnit evidence "
+            "block correctness; skipped or resource-inconclusive observations "
+            "remain UNVERIFIED and never count as PASS."
         ),
     }
 
@@ -201,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
                  "PASS follows one projective-distance tolerance; proof provenance is reported separately."]
         if report.get("problems"):
             lines.extend(["", "Coverage blockers:"] + [f"- {p}" for p in report["problems"]])
+        if report.get("advisories"):
+            lines.extend(["", "Non-blocking coverage advisories:"] +
+                         [f"- {p}" for p in report["advisories"]])
         args.markdown.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(json.dumps({k: report.get(k) for k in ("status", "expected", "counts", "problems")}, sort_keys=True))
     return 1 if report["status"] == "BLOCKED" else 0

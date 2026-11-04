@@ -84,8 +84,15 @@ def get_one(label):
 reported=get_one("requested-precision-digits")
 actual=get_one("actual-gmp-precision-bits")
 target=math.ceil(d*math.log2(10))
-if reported!=d or actual<target or actual>target+128:
-    raise SystemExit(f"INVALID_GMP_BIT_PROVENANCE digits={d} mpfr={target} actual_gmp={actual}")
+ref_effective=math.floor(target*math.log10(2))
+gmp_effective=math.floor(actual*math.log10(2))
+if (reported!=d or abs(actual-target)>1
+        or ref_effective!=d or gmp_effective!=d):
+    raise SystemExit(
+        f"INVALID_EFFECTIVE_PRECISION_PARITY digits={d} "
+        f"mpfr_bits={target} gmp_bits={actual} "
+        f"mpfr_digits={ref_effective} gmp_digits={gmp_effective}"
+    )
 v={
     "upstream_commit":"be15f91f3e9769e1f5cb175fa27e3eca3a1ea690",
     "source_patch_isolated":True,
@@ -97,6 +104,10 @@ v={
     "output_significant_digits":d,
     "precision_certified":False,
     "same_exact_effective_bits":actual==target,
+    "bit_difference":actual-target,
+    "gpmc_effective_decimal_digits":ref_effective,
+    "d4_effective_decimal_digits":gmp_effective,
+    "effective_decimal_digits_match":(ref_effective==gmp_effective==d),
 }
 (evidence/f"d4-matched-{d}.json").write_text(json.dumps(v,indent=2)+"\n")
 print("QOO157_D4_MATCHED_RUNTIME",json.dumps(v))

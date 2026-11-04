@@ -19,6 +19,9 @@ import pytest
 from qoo98_ganak_native_mode6_admission import OUTPUT, compare
 
 SOURCE_CASES=("qaoa7_neq","qft16_eq")
+# From first pinned science run 41857134111, NOT a measured CodSpeed time.
+# Do not repeat QFT16 Arjun-on/Puura-off's 35-second scientific timeout.
+EXCLUDED={("qft16_eq","arjun1_puura0")}
 KNOBS={
     "arjun1_puura1":("--arjun","1","--puura","1"),
     "arjun0_puura1":("--arjun","0","--puura","1"),
@@ -84,6 +87,14 @@ def preflight(report_path):
     for case in SOURCE_CASES:
         cnf,reference,row=load_fixed_source(case)
         for name,knobs in KNOBS.items():
+            if (case,name) in EXCLUDED:
+                report["cases"].setdefault(case,{})[name]={
+                    "native":{"status":"EXCLUDED_PRIOR_35S_SCIENCE_TIMEOUT"},
+                    "source_run":"41857134111",
+                    "source_artifact":"13337517750",
+                    "knobs":list(knobs),"performance_measurement":False}
+                report_path.write_text(json.dumps(report,indent=2)+"\n")
+                continue
             try:res=run_mode6(binary,cnf,knobs)
             except subprocess.TimeoutExpired:res={"status":"TIMEOUT_BEFORE_CODSPEED"}
             result=compare(res,reference,large=True)
@@ -96,17 +107,18 @@ def preflight(report_path):
                 report["status"]="FAILED_SCIENCE_PREFLIGHT"
                 report_path.write_text(json.dumps(report,indent=2)+"\n")
                 raise RuntimeError(f"{case}/{name}: {result['status']}")
-    report["status"]="8_OF_8_GANAK_MODE6_PRINT_SCREENS_CONCORDANT"
+    report["status"]="7_OF_7_ELIGIBLE_GANAK_MODE6_PRINT_SCREENS_CONCORDANT"
     report_path.write_text(json.dumps(report,indent=2)+"\n")
     return report
 
 @pytest.mark.parametrize("case,knob_name",[
     pytest.param(case,knob_name,id=f"{case}-{knob_name}")
     for case in SOURCE_CASES for knob_name in KNOBS
+    if (case,knob_name) not in EXCLUDED
 ])
 def test_native_ganak_arjun_puura_2x2(benchmark,case,knob_name):
     gate=json.loads(Path(os.environ["QOO98_GANAK_ABLATION_GATE"]).read_text())
-    assert gate["status"]=="8_OF_8_GANAK_MODE6_PRINT_SCREENS_CONCORDANT"
+    assert gate["status"]=="7_OF_7_ELIGIBLE_GANAK_MODE6_PRINT_SCREENS_CONCORDANT"
     binary=binary_pin()
     cnf,reference,row=load_fixed_source(case)
     knobs=KNOBS[knob_name]
@@ -124,6 +136,7 @@ def test_native_ganak_arjun_puura_2x2(benchmark,case,knob_name):
         "conditional_only":True,"no_equal_38digit_ranking":True,
         "walltime_scope":"native_child_subprocess_on_prepared_CNF",
         "official_instrument":"CodSpeed_v5_WallTime",
+        "prior_censored_arm":"qft16_eq-arjun1_puura0_timeout_35s",
         "macro_runner_certified":False
     })
 

@@ -1,0 +1,102 @@
+name: QOO-156 CLI hosted paired ABBA provisional cost gate
+
+# Interim replacement for unavailable CodSpeed Macro. Source scoped, one
+# Ubuntu x86-64 job, not the five-shard native/Solver CI. Docs-only changes
+# do not trigger another expensive build/measurement.
+on:
+  push:
+    branches: [staging/qoo156-cli-resource-admission]
+    paths:
+      - 'rust/cli/**'
+      - 'rust/Cargo.lock'
+      - 'scripts/qoo156_cli_abba.py'
+      - 'benchmarks/qoo156/**'
+      - '.github/workflows/qoo156-cli-hosted-abba.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-hosted-abba-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paired-cli:
+    name: Same-runner source-locked ABBA (hosted, not Macro)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      QOO156_BASE_SHA: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+      QOO156_HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+          path: qoo156-base
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check only scoped source and same native Rust Path-sum
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QOO156_HEAD_SHA"
+          test "$(git -C qoo156-base rev-parse HEAD)" = "$QOO156_BASE_SHA"
+          test "$(git rev-parse HEAD:rust/pathsum)" = \
+               "$(git -C qoo156-base rev-parse HEAD:rust/pathsum)"
+          python3 -m py_compile scripts/qoo156_cli_abba.py
+          python3 scripts/qoo156_cli_abba.py --help >/dev/null
+          mkdir -p evidence
+          {
+            echo "base=$QOO156_BASE_SHA"
+            echo "head=$QOO156_HEAD_SHA"
+            echo "pathsum_tree=$(git rev-parse HEAD:rust/pathsum)"
+            echo "runner=$RUNNER_NAME"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
+            echo "rustc=$(rustc --version)"
+            echo "python=$(python3 --version)"
+          } > evidence/identity.txt
+      - name: Install local native build headers only
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libgmp-dev libmpfr-dev
+      - name: Build identical-native-source BASE and HEAD CLI separately
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p QuPRS_cli \
+            --manifest-path "$GITHUB_WORKSPACE/qoo156-base/rust/Cargo.toml" \
+            --target-dir "$RUNNER_TEMP/qoo156-base-target"
+          cargo build --locked --release -p QuPRS_cli \
+            --manifest-path "$GITHUB_WORKSPACE/rust/Cargo.toml" \
+            --target-dir "$RUNNER_TEMP/qoo156-head-target"
+      - name: Paired same-runner hosted ABBA/BAAB + output conformance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qoo156_cli_abba.py \
+            --base "$RUNNER_TEMP/qoo156-base-target/release/QuPRS_cli" \
+            --head "$RUNNER_TEMP/qoo156-head-target/release/QuPRS_cli" \
+            --workspace "$GITHUB_WORKSPACE" \
+            --base-sha "$QOO156_BASE_SHA" \
+            --head-sha "$QOO156_HEAD_SHA" \
+            --rounds 30 \
+            --budget-ms 3.0 \
+            --jitter-ms 1.5 \
+            --output evidence/paired-cli.json
+      - name: Archive raw timings even on inconclusive/noisy runner
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-hosted-abba-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30

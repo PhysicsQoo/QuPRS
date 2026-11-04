@@ -1,0 +1,89 @@
+name: QOO-157 GMP initialization precision A-B (isolated)
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-mpf-init-ab
+    paths:
+      - 'research/qoo157_d4/*.py'
+      - '.github/workflows/qoo157-mpf-init-ab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo157-gmp-init-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  d4-gmp-init-ab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      UPSTREAM_SHA: be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install standalone d4 build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libgmp-dev zlib1g-dev
+      - name: Preserve commit identity and validate source patch tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/quprs-experiment-head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/quprs-experiment-tree.txt
+          python -m unittest discover -v -s research/qoo157_d4 \
+            -p 'test_d4_mpf_init_ab.py' 2>&1 | tee evidence/patch-test.log
+      - name: Build unmodified pinned d4 native C++ counter
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$RUNNER_TEMP/qoo157-d4"
+          git -C "$RUNNER_TEMP/qoo157-d4" checkout --detach "$UPSTREAM_SHA"
+          test "$(git -C "$RUNNER_TEMP/qoo157-d4" rev-parse HEAD)" = "$UPSTREAM_SHA"
+          (
+            cd "$RUNNER_TEMP/qoo157-d4/c++/counter"
+            ./build.sh -j
+          ) 2>&1 | tee evidence/d4-unmodified-build.log
+          cp "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" "$RUNNER_TEMP/qoo157-original"
+          sha256sum "$RUNNER_TEMP/qoo157-original" > evidence/baseline-binary-sha256.txt
+      - name: Patch only temporary d4 precision initialization; rebuild C++ counter
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/d4_mpf_init_ab.py patch \
+            --root "$RUNNER_TEMP/qoo157-d4" \
+            --file "$RUNNER_TEMP/qoo157-d4/c++/counter/src/Counter.cpp" \
+            --out evidence/gmp-init-ab
+          git -C "$RUNNER_TEMP/qoo157-d4" diff --check
+          git -C "$RUNNER_TEMP/qoo157-d4" diff -- c++/counter/src/Counter.cpp \
+            > evidence/gmp-init-ab/only-source-patch.diff
+          cmake --build "$RUNNER_TEMP/qoo157-d4/c++/counter/build" --parallel 2 \
+            2>&1 | tee evidence/gmp-init-rebuild.log
+          test -x "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+          sha256sum "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
+            > evidence/gmp-init-ab/modified-binary-sha256.txt
+      - name: Compare original with 64 128 256 and 426-bit precision
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/d4_mpf_init_ab.py sweep \
+            --baseline "$RUNNER_TEMP/qoo157-original" \
+            --patched "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
+            --out evidence/gmp-init-ab 2>&1 | tee evidence/gmp-init-ab-result.log
+      - name: Preserve all evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-gmp-init-ab-${{ github.sha }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn

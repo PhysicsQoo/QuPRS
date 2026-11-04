@@ -1,0 +1,101 @@
+name: QOO98 Ganak native debug CNF multiplier negative control science
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - 'research/qoo157_d4/qoo98_ganak_multiplier_control.py'
+      - '.github/workflows/qoo98-ganak-native-multiplier-control-science.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-factor-negative-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile science-only parser and control
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile research/qoo157_d4/qoo98_ganak_multiplier_control.py
+          python -m py_compile research/qoo157_d4/qoo98_ganak_debug_replay.py
+          mkdir -p evidence
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo98-ganak-native-intermediate-6cba8679a461f1d32495461b4fea9d1666949ede
+          run-id: 41861376500
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/intermediate
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo98-ganak-debug-replay-science-7a2b0656f7376c705fde0aec69dd411241684445
+          run-id: 41925430019
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/replay
+      - name: Verify and unpack unchanged official Ganak v2.8.0 binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo98-factor-controls"
+          mkdir -p "$root/expanded"
+          archive="$root/ganak-v2.8.0-linux-amd64.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" \
+            'https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz'
+          archive_sha=$(awk '$1=="linux" && $2=="x86_64" {print $4}' src/QuPRS/utils/ganak-release.txt)
+          exe_sha=$(awk '$1=="linux" && $2=="x86_64" {print $5}' src/QuPRS/utils/ganak-release.txt)
+          test "$(sha256sum "$archive" | cut -d' ' -f1)" = "$archive_sha"
+          tar -xzf "$archive" -C "$root/expanded"
+          exe=$(find "$root/expanded" -type f -name ganak -print -quit)
+          test -n "$exe" && test -f "$exe"
+          chmod +x "$exe"
+          test "$(sha256sum "$exe" | cut -d' ' -f1)" = "$exe_sha"
+          "$exe" --version > evidence/ganak-factor-control-version.txt
+          grep -q 'Ganak SHA1: b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281' evidence/ganak-factor-control-version.txt
+          sha256sum "$exe" > evidence/ganak-factor-control-binary.sha256
+          echo "QOO98_GANAK_BIN=$exe" >> "$GITHUB_ENV"
+      - name: Causally vary multiplier comments ONLY on two fixed native debug CNFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/qoo98_ganak_multiplier_control.py \
+            --binary "$QOO98_GANAK_BIN" \
+            --intermediate-report evidence/intermediate/ganak-intermediate/native-intermediate-audit.json \
+            --prior-replay-report evidence/replay/qoo98-debug-replay-science.json \
+            --debug-dir evidence/intermediate/ganak-intermediate \
+            --out evidence/qoo98-native-factor-control.json
+          python -m json.tool evidence/qoo98-native-factor-control.json >/dev/null
+      - name: Evidence source and scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/qoo98-factor-control-head.txt
+          echo 'No performance timing. Native pinned Ganak auto-multiplier consumption with unit/removed/negative controls; no 38-digit semantic proof, no dev/main CI effect.' > evidence/qoo98-factor-control-scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo98-ganak-factor-negative-controls-${{ github.sha }}
+          path: |
+            evidence/qoo98-native-factor-control.json
+            evidence/qoo98-factor-control-head.txt
+            evidence/qoo98-factor-control-scope.txt
+            evidence/ganak-factor-control-version.txt
+            evidence/ganak-factor-control-binary.sha256
+          retention-days: 30
+          if-no-files-found: warn

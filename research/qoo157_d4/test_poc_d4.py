@@ -18,6 +18,7 @@ class D4ExactOracleTests(unittest.TestCase):
             "negative_complex": (-3, Fraction(1, 2)),
             "cancellation": (0, 0),
             "global_phase": (-1, 0),
+            "nondyadic_decimal": (Fraction(1, 10), Fraction(1, 5)),
             "both_polarities": (1, 0),
             "unweighted_free": (8, 0),
         }

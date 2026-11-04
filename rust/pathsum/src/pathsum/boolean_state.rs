@@ -87,35 +87,54 @@ impl BooleanState {
         used_vars
     }
     pub fn substitute_var_with_poly(
-        &mut self, 
-        target_var: u32, 
-        sub_poly: &FxHashSet<crate::pathsum::Monomial>
+        &mut self,
+        target_var: u32,
+        sub_poly: &FxHashSet<crate::pathsum::Monomial>,
     ) {
+        let completed = self.substitute_var_with_poly_checked(target_var, sub_poly, None);
+        debug_assert!(completed);
+    }
+
+    /// Verification-only bounded substitution. A `false` return means the
+    /// partially transformed BooleanState must be discarded by its caller.
+    /// The deadline is read-only; there is no global state or worker thread.
+    pub(crate) fn substitute_var_with_poly_checked(
+        &mut self,
+        target_var: u32,
+        sub_poly: &FxHashSet<crate::pathsum::Monomial>,
+        deadline: Option<std::time::Instant>,
+    ) -> bool {
+        let expired = || deadline.is_some_and(|d| std::time::Instant::now() >= d);
+        if expired() { return false; }
+
         for poly in &mut self.functions {
+            if expired() { return false; }
             let mut new_poly = FxHashSet::default();
-            for mono in poly.iter() {
+            for (index, mono) in poly.iter().enumerate() {
+                if (index & 63) == 0 && expired() { return false; }
                 if mono.contains(&target_var) {
-                    // Contains target variable: extract remaining variables (rest)
                     let mut rest = mono.clone();
                     rest.retain(|&x| x != target_var);
-                    
-                    let mut rest_poly = FxHashSet::default();
-                    rest_poly.insert(rest);
-                    
-                    // Compute rest * sub_poly in boolean ring (F_2)
-                    let expanded = crate::pathsum::mul_boolean_polys(&rest_poly, sub_poly);
-                    for m in expanded {
-                        if new_poly.contains(&m) { new_poly.remove(&m); }
-                        else { new_poly.insert(m); }
+
+                    // Under a verification deadline, check within the
+                    // Boolean product itself, not just after a whole gate.
+                    // This is the singleton-rest form of mul_boolean_polys.
+                    let mut expanded = FxHashSet::default();
+                    for (part_index, part) in sub_poly.iter().enumerate() {
+                        if (part_index & 63) == 0 && expired() { return false; }
+                        let term = crate::pathsum::mul_monomials(&rest, part);
+                        if !expanded.remove(&term) { expanded.insert(term); }
                     }
-                } else {
-                    // Does not contain target variable: insert directly and handle XOR cancellation
-                    if new_poly.contains(mono) { new_poly.remove(mono); }
-                    else { new_poly.insert(mono.clone()); }
+                    for m in expanded {
+                        if !new_poly.remove(&m) { new_poly.insert(m); }
+                    }
+                } else if !new_poly.remove(mono) {
+                    new_poly.insert(mono.clone());
                 }
             }
-            *poly = new_poly; // Replace with expanded polynomial
+            *poly = new_poly; // Identical completed F_2 substitution.
         }
+        !expired()
     }
      
     /// Format a flat qubit index into its physical register name (e.g., "|ancilla_0>").

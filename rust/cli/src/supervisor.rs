@@ -20,6 +20,7 @@ use std::os::unix::process::CommandExt;
 
 enum WorkerEvent {
     Exited(io::Result<ExitStatus>, Instant),
+    CaptureFinished(&'static str),
     CaptureOverflow(&'static str),
     CaptureError(&'static str),
 }
@@ -51,6 +52,10 @@ fn capture_bounded<R: Read>(
             }
         };
         if count == 0 {
+            // A reaped worker may have descendants that keep inherited
+            // output pipes open. Report EOF explicitly; never block forever
+            // in an unconditional reader join after the worker exits.
+            let _ = events.send(WorkerEvent::CaptureFinished(stream));
             return Ok(destination);
         }
         if written + count as u64 > OUTPUT_LIMIT {
@@ -194,8 +199,14 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     });
     let mut exit = None;
     let mut reaped = false;
+    let mut stdout_finished = false;
+    let mut stderr_finished = false;
     let mut interrupted = None;
     loop {
+        // Worker exit alone is not sufficient: an inherited stdout/stderr
+        // descriptor can remain open in a detached descendant. EOF for both
+        // captures is part of a successful bounded request.
+        if exit.is_some() && stdout_finished && stderr_finished { break; }
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(WorkerEvent::Exited(Ok(status), finished)) => {
                 reaped = true;
@@ -203,13 +214,23 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
                     exit = Some(status);
                 } else {
                     interrupted = Some(StopReason::Timeout);
+                    break;
                 }
-                break;
             }
             Ok(WorkerEvent::Exited(Err(error), _)) => {
                 reaped = true;
                 interrupted = Some(StopReason::WaitFailed(error.to_string()));
                 break;
+            }
+            Ok(WorkerEvent::CaptureFinished(stream)) => {
+                match stream {
+                    "stdout" => stdout_finished = true,
+                    "stderr" => stderr_finished = true,
+                    _ => {
+                        interrupted = Some(StopReason::CaptureFailed(stream));
+                        break;
+                    }
+                }
             }
             Ok(WorkerEvent::CaptureOverflow(stream)) => {
                 interrupted = Some(StopReason::OutputLimit(stream));
@@ -252,12 +273,9 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     let _ = waiter.join();
     cleanup_adopted_children()?;
 
-    // Commit neither scientific stdout nor diagnostic stderr until both
-    // readers are finished and their byte limits have been verified.
-    let stdout_result = stdout_reader.join()
-        .map_err(|_| anyhow::anyhow!("WorkerOutputCaptureError: stdout reader panicked"))?;
-    let stderr_result = stderr_reader.join()
-        .map_err(|_| anyhow::anyhow!("WorkerOutputCaptureError: stderr reader panicked"))?;
+    // On any failure, never join a reader whose pipe may still be held by
+    // an uncontained descendant. The CLI main process exits after this
+    // typed failure; no partial scientific output is committed.
     if let Some(reason) = interrupted {
         match reason {
             StopReason::Timeout => {
@@ -277,6 +295,13 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         }
         return Ok(RESOURCE_EXIT);
     }
+
+    // Both readers signaled EOF while the monotonic deadline was active;
+    // joining now is bounded by in-memory cleanup, not a blocked pipe read.
+    let stdout_result = stdout_reader.join()
+        .map_err(|_| anyhow::anyhow!("WorkerOutputCaptureError: stdout reader panicked"))?;
+    let stderr_result = stderr_reader.join()
+        .map_err(|_| anyhow::anyhow!("WorkerOutputCaptureError: stderr reader panicked"))?;
     let mut output = match stdout_result {
         Ok(file) => file,
         Err(error) => {
@@ -518,6 +543,18 @@ pub fn prepare_worker() -> Result<()> {
             }
         }
         bail!("QOO156_TEST_FLOOD_FINISHED");
+    }
+    // Debug-only pipe inheritance witness. The verification worker itself
+    // completes normally, but a child retains stdout/stderr past the request
+    // deadline. Its process group is canceled before any verdict is released.
+    #[cfg(all(debug_assertions, unix))]
+    if let Ok(secs) = std::env::var("QUPRS_CLI_TEST_INHERIT_OUTPUT_SECS") {
+        let seconds: u64 = secs.parse().context("invalid inherited-pipe duration")?;
+        anyhow::ensure!((1..=20).contains(&seconds), "inherited-pipe test duration out of range");
+        let _child = Command::new("sleep").arg(seconds.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit()).stderr(Stdio::inherit())
+            .spawn().context("spawn inherited-pipe witness")?;
     }
     // Only debug builds: reproduce worker exit while an OS-detached helper
     // remains alive. This does not exist in the release executable.

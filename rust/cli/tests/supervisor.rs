@@ -189,3 +189,23 @@ fn forged_supervisor_pid_without_inherited_pipe_is_refused() {
     assert!(result.stdout.is_empty());
     assert!(String::from_utf8_lossy(&result.stderr).contains("InvalidWorkerLaunch"));
 }
+
+#[cfg(unix)]
+#[test]
+fn inherited_output_pipe_cannot_bypass_request_deadline_or_publish_success() {
+    // The legitimate worker finishes a one-qubit circuit, while a spawned
+    // child retains its output descriptors. Before CaptureFinished events,
+    // the supervisor could block unboundedly when joining its readers.
+    let file = fixture();
+    let started = std::time::Instant::now();
+    let result = Command::new(cli()).arg(file.path())
+        .args(["--quiet", "--timeout", "1"])
+        .env("QUPRS_CLI_TEST_INHERIT_OUTPUT_SECS", "9")
+        .output().expect("bounded child-output-pipe witness");
+    assert_eq!(result.status.code(), Some(124), "unexpected result: {:?}", result);
+    assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), "Timeout",
+        "no partial scientific success may escape");
+    assert!(started.elapsed() < Duration::from_secs(7),
+        "timeout hung while readers waited for an inherited pipe: {:?}",
+        started.elapsed());
+}

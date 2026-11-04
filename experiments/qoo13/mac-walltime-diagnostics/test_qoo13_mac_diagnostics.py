@@ -149,6 +149,23 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(len(r['warnings']), 2)
 
 
+    def test_pinned_native_warning_maps_to_two_stages_not_certain_errno(self):
+        r = m.native_environment_write_triage([
+            {'redacted_excerpt': '[ERROR] instrument-hooks: failed to write environment.json'},
+            {'redacted_excerpt': 'RuntimeWarning: Failed to write environment data'},
+        ])
+        self.assertEqual(r['status'], 'NATIVE_CREATE_OR_WRITE_FAILED_STAGE_UNDETERMINED')
+        self.assertEqual(r['source_commit'], 'b9ddb5bc654b2e6fa13eb18efcd3a45e7ecda0bb')
+        self.assertEqual(r['possible_failure_stages'], ['fs.createFileAbsolute', 'file.writeAll'])
+        self.assertIn('environment-<pid>.json', r['expected_path_pattern'])
+        self.assertTrue(r['root_cause'].startswith('UNVERIFIED'))
+
+    def test_generic_environment_warning_does_not_claim_native_root_cause(self):
+        r = m.native_environment_write_triage([
+            {'redacted_excerpt': 'RuntimeWarning: Failed to write environment data'},
+        ])
+        self.assertEqual(r['status'], 'EXACT_NATIVE_ERROR_NOT_OBSERVED_IN_BOUNDED_SCAN')
+
     def test_precision_contract_not_claimed(self):
         with tempfile.TemporaryDirectory() as folder:
             result = subprocess.run([sys.executable, str(SCRIPT), '--scan-only',

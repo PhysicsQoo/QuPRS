@@ -1,0 +1,126 @@
+name: QOO157 P0 scientific-approved common weighted SCC CNF CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-signed-scc-codspeed.yml'
+      - 'research/qoo157_d4/test_codspeed_signed_scc_intervention.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  p0-signed-scc-intervention:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: research/qoo157_d4
+      QOO157_P0_ORIGINAL: evidence/original/cnfs
+      QOO157_P0_REDUCED: evidence/scc/reduced-cnfs
+      QOO157_P0_MANIFEST: evidence/scc/reduction-manifest.json
+      QOO157_P0_SCREEN: evidence/scc/native-count-screen.json
+      QUPRS_CODSPEED_EXPORT: evidence/p0-scc-codspeed-walltime.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source pin and limited CodSpeed dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/test_codspeed_signed_scc_intervention.py
+          python -m pip install 'pytest-codspeed==5.0.3' pytest
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-signed-scc-science-fb9309fd416e1edec3e28d8dcd0ee27cdb11094c
+          run-id: 41844324296
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/scc
+      - name: Verify prior exact oracle and 16 source/reduced numeric screens, no recalculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib
+          r=json.loads(pathlib.Path('evidence/scc/native-count-screen.json').read_text())
+          m=json.loads(pathlib.Path('evidence/scc/reduction-manifest.json').read_text())
+          assert r['status']=='ORIGINAL_REDUCED_FOUR_CASE_TWO_SOLVER_COUNT_SCREEN_PASS'
+          assert m['oracle']['status']=='EXACT_FRACTION_COMPLEX_ORACLE_PASS'
+          assert m['oracle']['small_exact_oracle_fixtures']==6
+          assert len(r['cases'])==len(m['cases'])==4
+          assert all(all(z['screen_pass'] for z in c['observations'].values())
+                     and len(c['observations'])==4 for c in r['cases'].values())
+          print('P0_16_OF_16_REUSED_SCIENCE_SCREEN_PASS')
+          PY
+      - name: Rebuild identical pinned GPMC binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S GPMC -B "$RUNNER_TEMP/qoo157-gpmc-codspeed" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo157-gpmc-codspeed" --parallel 2
+          echo "QOO157_GPMC=$RUNNER_TEMP/qoo157-gpmc-codspeed/gpmc" >> "$GITHUB_ENV"
+          test "$(sha256sum "$RUNNER_TEMP/qoo157-gpmc-codspeed/gpmc" | cut -d' ' -f1)" = "$(cut -d' ' -f1 evidence/scc/gpmc-binary.sha256)"
+      - name: Rebuild research-only pinned d4 preparse 38d variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo157-d4-scc-codspeed"
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$root"
+          git -C "$root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          mkdir -p evidence
+          python research/qoo157_d4/matched_precision_variant.py --upstream "$root" --evidence evidence --digits 38
+          git -C "$root" diff --check
+          (cd "$root/c++/counter" && ./build.sh -j) > evidence/p0-d4-build.log 2>&1
+          bin="$root/c++/counter/build/counter"
+          test -x "$bin"
+          echo "QOO157_D4=$bin" >> "$GITHUB_ENV"
+          test "$(sha256sum "$bin" | cut -d' ' -f1)" = "$(cut -d' ' -f1 evidence/scc/d4-binary.sha256)"
+          "$bin" -h > evidence/p0-d4-help.log
+          grep -q 'actual-gmp-precision-bits 128' evidence/p0-d4-help.log
+      - name: Official CodSpeed v5 on both original and *same reduced* source CNFs
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_signed_scc_intervention.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=12
+      - name: Record evidence and scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/p0-codspeed-head.txt
+          uname -a > evidence/p0-codspeed-runner.txt
+          echo 'Within-solver original vs identical external SCC reduction; same 38 effective decimals, GPMC 127bits d4 128bits; hosted WallTime observation, no Macro Runner ABBA.' > evidence/p0-scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-p0-signed-scc-codspeed-${{ github.sha }}
+          path: |
+            evidence/p0-scc-codspeed-walltime.json
+            evidence/p0-d4-build.log
+            evidence/p0-d4-help.log
+            evidence/p0-codspeed-head.txt
+            evidence/p0-codspeed-runner.txt
+            evidence/p0-scope.txt
+          retention-days: 30
+          if-no-files-found: warn

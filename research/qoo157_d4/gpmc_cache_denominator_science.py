@@ -156,25 +156,56 @@ def science(original: Path, instrumented: Path, cnfs: Path,
                     raise ValueError(f"{case}/{label}/{name}: WMC mismatch {delta}>{bound}")
             if a["value"] != b["value"]:
                 raise ValueError(f"{case}/{label}: counter patch changed native WMC print")
-            if any(a["counters"][key] != b["counters"][key] for key in REPORTED):
-                raise ValueError(f"{case}/{label}: counter patch altered native search work")
+            counters_equal = all(
+                a["counters"][key] == b["counters"][key] for key in REPORTED
+            )
+            diagnostic = None
+            if not counters_equal:
+                # Do not silently attribute divergence to the added counters:
+                # independently rerun EACH binary, same CNF and flags.
+                a2 = run_native(original, source, td)
+                b2 = run_native(instrumented, source, td)
+                for name, x in (("original_repeat", a2), ("instrumented_repeat", b2)):
+                    ok, delta, bound = close_enough(x["value"], oracle)
+                    if not ok or x["value"] != a["value"]:
+                        raise ValueError(
+                            f"{case}/{label}/{name}: repeated WMC print changed "
+                            f"or science screen failed: {delta}>{bound}")
+                diagnostic = {
+                    "original_repeat_counters": a2["counters"],
+                    "instrumented_repeat_counters": b2["counters"],
+                    "original_repeat_identity": (
+                        a["counters"] == a2["counters"]),
+                    "instrumented_repeat_identity": (
+                        b["counters"] == b2["counters"]),
+                    "original_repeat_stdout_sha256": a2["stdout_sha256"],
+                    "instrumented_repeat_stdout_sha256": b2["stdout_sha256"],
+                    "repeat_cross_binary_identical": all(
+                        a2["counters"][key] == b2["counters"][key]
+                        for key in REPORTED),
+                }
+                print("QOO157_SEARCH_COUNTER_DIVERGENCE",
+                      case, label, json.dumps(diagnostic), flush=True)
             native = b["counters"]
             C = native["Components"]
             H = native["Cache hit"]
             L = native["Cache lookup"]
             A = native.get("Cache all queries")
             E = native.get("Cache empty misses")
-            if A is None or E is None or A <= 0 or C < 1 or L < H:
-                raise ValueError("instrumentation absent or native stats inconsistent")
-            # Independently measured A and E must equal the prior algebraic reconstruction.
-            if A != H + C - 1 or E != A - L or L - H < 0:
-                raise ValueError(f"{case}/{label}: reconstructed cache denominator falsified")
+            formula_ok = (
+                A is not None and E is not None and A > 0
+                and C >= 1 and L >= H and A == H + C - 1
+                and E == A - L
+            )
             data[label] = {
                 "cnf_sha256": h,
                 "original_count_real_imag": [str(z) for z in a["value"]],
                 "original_stdout_sha256": a["stdout_sha256"],
                 "instrumented_stdout_sha256": b["stdout_sha256"],
-                "native_counters_unchanged": True,
+                "native_original_counters": a["counters"],
+                "native_instrumented_counters": b["counters"],
+                "native_counters_unchanged": counters_equal,
+                "native_repeat_controls": diagnostic,
                 "measured_cache_all_queries": A,
                 "measured_empty_bucket_misses": E,
                 "occupied_bucket_lookups": L,
@@ -182,19 +213,41 @@ def science(original: Path, instrumented: Path, cnfs: Path,
                 "successful_cache_hits": H,
                 "misses_from_components": C - 1,
                 "source_derived_query_formula": H + C - 1,
-                "hit_rate_eligible": str(Decimal(H) / Decimal(A)),
+                "hit_rate_eligible": str(Decimal(H) / Decimal(A)) if A else None,
                 "count_screen_status": "COUNT_CONCORDANT_UNCERTIFIED",
-                "science_gate": "PASS",
+                "science_gate": (
+                    "PASS" if formula_ok and counters_equal else
+                    "FORMULA_PASS_SEARCH_DIFFERENT" if formula_ok else
+                    "COUNTER_FORMULA_FALSIFIED"
+                ),
             }
             report["cases"][case] = data
             dest.write_text(json.dumps(report, indent=2) + "\n")
-    report["status"] = "GPMC_CACHE_DENOMINATOR_INDEPENDENT_NATIVE_COUNTER_PASS_8_OF_8"
+            if not formula_ok:
+                report["status"] = "CACHE_DENOMINATOR_FORMULA_FALSIFIED"
+                dest.write_text(json.dumps(report, indent=2) + "\n")
+                raise ValueError(f"{case}/{label}: measured query formula failed")
+    mismatches = [(case, mode) for case, case_data in report["cases"].items()
+                  for mode, row in case_data.items()
+                  if not row["native_counters_unchanged"]]
+    report["status"] = (
+        "GPMC_CACHE_DENOMINATOR_INDEPENDENT_NATIVE_COUNTER_PASS_8_OF_8"
+        if not mismatches else
+        "CACHE_FORMULA_PASS_BUT_CROSS_BINARY_SEARCH_IDENTITY_BLOCKED"
+    )
+    report["cross_binary_search_mismatches"] = mismatches
     dest.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"status": report["status"],
+        "mismatches": mismatches,
         "summary": {k: {td: {"queries": v["measured_cache_all_queries"],
             "empty_miss": v["measured_empty_bucket_misses"],
-            "hit_rate": v["hit_rate_eligible"]} for td, v in d.items()}
-            for k, d in report["cases"].items()}}))
+            "hit_rate": v["hit_rate_eligible"],
+            "same_search": v["native_counters_unchanged"]}
+            for td, v in d.items()} for k, d in report["cases"].items()}}))
+    if mismatches:
+        raise ValueError("Native cache formula validated, but original vs "
+                         "counter-only binary search workload differs: "
+                         f"{mismatches}; see complete archived diagnostics")
 
 
 if __name__ == "__main__":

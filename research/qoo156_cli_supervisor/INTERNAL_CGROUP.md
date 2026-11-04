@@ -54,3 +54,22 @@ Connected official CodSpeed [run 6aeb4b9d](https://app.codspeed.io/PhysicsQoo/Qu
 - A native hosted macOS ARM64 correctness run is **not** equivalent to Mac mini/OrbStack Linux ARM64. Physical Linux cgroup delegation and process-tree containment must be separately verified in that runtime; production hosts without delegation fail closed.
 - Do not integrate the whole experiment branch. Isolate CLI source change + focused tests to a clean `dev`-based PR **only after** remaining safety and actual Macro performance gates are decided. No solver code, numerical tolerances, native RR/CNF loops, or full five-shard CodSpeed retests for documentation changes.
 
+## 6. Follow-up source-pinned real Ganak internal worker-cgroup OOM: PASS
+
+**This new result supersedes only the previously pending *adversarial* Ganak containment verification, not the 64/70MiB natural low-cap PID attribution limits.**
+
+[GitHub Actions #41860226028](https://github.com/PhysicsQoo/QuPRS/actions/runs/41860226028) completed **SUCCESS**, exact tested source `464328ec3f21891841c6dc5d90f67e2c5a58dc31`, [evidence artifact #13340195444](https://github.com/PhysicsQoo/QuPRS/actions/runs/41860226028/artifacts/13340195444). The same native release CLI binary SHA256 `2242188d29056c5cc6db1d91bc6132bee1c91a212cf35fd54dacee6d2f5c3d50` and **unmodified** Ganak 2.8.0 ELF SHA256 `934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd` were used for the high-cap VQE4 science control and controlled OOM.
+
+- **Positive high-cap control**: `--max-memory-mib=256`, exact readback 268435456 bytes, true `/opt/ganak --mode=6` PID witnessed, kernel `oom_kill=0`, CLI exit0 with complete `not_equivalent`, no test pressure.
+- **Adversarial containment**: same requested CLI cap (256MiB) and same QASM, true Ganak PID20 + start time + full solver argv + pinned ELF observed **before** pressure, `SIGSTOP` confirmed. Test-only Python pressure then joined the **same CLI-created `quprs-cli-<PID>` worker cgroup**; the real Ganak was held alive until the kernel group OOM. `memory.oom.group=1`, readback cap268435456 B, actual peak268435456 B, `oom_kill delta=4`, authentic Ganak PID gone, CLI exit125 `MemoryLimitExceeded`, stdout empty. No harness-initiated kill of authentic Ganak. Output `QOO156_INTERNAL_REAL_GANAK_PRESSURE=PASS`.
+- This proves a **real Ganak solver descendant is contained in the nonroot Rust CLI-created cgroup, and a kernel-enforced group OOM returns a typed non-scientific failure with no partial verdict**. The first-party root harness uses controlled pressure and supervisor-only test privileges. **Do not** infer Ganak natural minimum RSS, universal memory limit, lack of CLI fixed subprocess overhead, or ordinary-host delegation from this result.
+- The earlier natural low-cap VQE4 Ganak 64/70MiB tests correctly returned typed125 and kernel events but did not witness PID before OOM; **their solver-specific attribution remains NOT_ADMITTED**. The strong group-containment certificate above is a *different* experiment that does not rewrite historical results.
+- GPMC QFT16 native internal cap complete/positive real solver OOM were separately certified in exact [#41858651234](https://github.com/PhysicsQoo/QuPRS/actions/runs/41858651234). It is now fair to state **both GPMC and Ganak have positive first-party internal CLI child-cgroup real-solver containment/OOM evidence**, each under its precise tested workload/protocol.
+
+### Remaining gates still open
+
+1. `macos-15` Apple Silicon native focused CLI test [#41858819331](https://github.com/PhysicsQoo/QuPRS/actions/runs/41858819331) is queued/unassigned as of this note; Ubuntu24.04 leg PASS. Mac mini/OrbStack **Linux ARM64** parity is a distinct environment and remains NOT_TESTED.
+2. True assigned CodSpeed Macro job [#41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remains queued/unassigned and tests an older source. The hosted ABBA showed a ~1.2ms fixed supervisor cost but has official non-Macro reliability warning. **P1 performance NOT_ADMITTED**, no claim of zero overhead.
+3. A *regular unprivileged production Linux host* with a pre-delegated writable cgroup must still have its environment contract and permission model documented/verified. The protected CLI fails closed outside such an environment.
+4. No `dev`/main merge of the entire experimental tree; no solver modifications, no full five-shard rerun due solely to this Markdown evidence.
+

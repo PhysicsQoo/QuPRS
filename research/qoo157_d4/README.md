@@ -11,6 +11,10 @@ does not change the Python/Rust public API or the GPMC/Ganak defaults.
 - Local QuPRS parent commit: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
 - Main experiment branch: experiment/qoo157-d4-complex-wmc-poc
 
+The upstream README describes an obsolete demo/counter path; the pinned tree
+actually builds the executable in c++/counter/build/counter using c++/counter/build.sh.
+Its build script also compiles the parent library and resolves upstream dependencies.
+
 The source review found that the C++ counter has an MpzComplexSemiring and
 recognizes paired complex CNF weights. The upstream *Rust* shim currently
 rejects D4_WEIGHT_COMPLEX; use the C++ demo executable through a controlled

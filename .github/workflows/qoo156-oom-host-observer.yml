@@ -1,0 +1,56 @@
+name: QOO-156 Host-Side External Docker OOM Witness
+
+# Isolated, low-cost controller readiness: DO NOT call this a solver-specific
+# OOM certificate, and do not run the expensive full QuPRS CI matrix.
+on:
+  push:
+    branches: [experiment/qoo156-oom-host-observer]
+    paths:
+      - '.github/workflows/qoo156-oom-host-observer.yml'
+      - 'scripts/qoo156_host_oom_probe/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-host-oom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-cgroup-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Pin source and Docker runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-host-oom
+          git rev-parse HEAD > evidence/qoo156-host-oom/source-sha.txt
+          sha256sum scripts/qoo156_host_oom_probe/host_ledger.py \
+            > evidence/qoo156-host-oom/script-sha256.txt
+          python3 -m py_compile scripts/qoo156_host_oom_probe/host_ledger.py
+          docker version > evidence/qoo156-host-oom/docker-version.txt
+          docker pull python:3.12-slim
+          docker image inspect python:3.12-slim --format '{{.Id}}' \
+            > evidence/qoo156-host-oom/image-id.txt
+      - name: Bounded host-side kernel OOM witness and high-cap control
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qoo156_host_oom_probe/host_ledger.py \
+            --evidence evidence/qoo156-host-oom
+          grep -Fq QOO156_HOST_EXTERNAL_OOM_WITNESS evidence/qoo156-host-oom/summary.json || true
+      - name: Preserve event journal even if the container driver dies
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-host-oom-${{ github.sha }}
+          path: evidence/qoo156-host-oom/
+          if-no-files-found: warn
+          retention-days: 30

@@ -62,11 +62,15 @@ circuits are separate independent end-to-end and CodSpeed work.
    arithmetic ran at 426 bits; the implementation may use an earlier default.
    Check a high-precision cancellation probe and native GMP precision before
    claiming a numerical advantage over GPMC or Ganak.
-2. **Output dialect differs:** C++ currently prints
-   "c s exact arb float <real><+|-><imag>i", which is NOT the same as Ganak's
-   "arb cpx" or the existing QuPRS parser's other float prefixes. The PoC
-   uses a strict d4-only parser; production integration requires a dedicated
-   adapter with decimal-string preservation and typed failures.
+2. **Output dialect differs:** d4 prints complex results as
+   "c s exact arb float <real><+|-><imag>i", but may emit
+   "c s exact arb int <count>" for unweighted/UNSAT CNFs, and a real float
+   without imaginary suffix for real-only weights. The first native pilot
+   matched 7/9 exact oracles and failed only to recognize the two real-integer
+   output lines; the strict d4-only parser now accepts all three source-
+   grounded dialects and rejects contradictory duplicate count lines.
+   Production integration still needs a dedicated decimal-preserving adapter
+   and typed errors; a parsed count is not a numerical certificate.
 3. **CNF grammar is only source-level plausible:** validate real
    QuPRS-generated paired weights, negative-literal normalization, SAT/UNSAT,
    all-free-variable and cancellation cases on a compiled native binary. The

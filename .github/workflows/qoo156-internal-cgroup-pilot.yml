@@ -8,7 +8,7 @@ on:
     branches: [experiment/qoo156-internal-cgroup-p0]
     paths:
       - '.github/workflows/qoo156-internal-cgroup-pilot.yml'
-      - 'scripts/qoo156_internal_cgroup/**'
+      - 'scripts/qoo156_internal_cgroup/pilot.py'
       - 'rust/cli/src/supervisor.rs'
   workflow_dispatch:
 

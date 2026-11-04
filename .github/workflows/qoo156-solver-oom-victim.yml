@@ -110,7 +110,7 @@ jobs:
                     "solver_pid",val.get("target_solver",{}).get("pid")
                     if val.get("target_solver") else None)
           (root/"manifest.json").write_text(json.dumps(records,indent=2,sort_keys=True)+"\n")
-          if any(v["classification"]!="REAL_SOLVER_KERNEL_OOM_VICTIM_AND_NO_FALSE_VERDICT"
+          if any(v["classification"]!="REAL_SOLVER_EXTERNAL_KERNEL_OOM_NO_FALSE_VERDICT_PASS"
                  for v in records.values()):
               raise SystemExit("QOO156_REAL_SOLVER_OOM_CERTIFICATE=NOT_ADMITTED")
           print("QOO156_REAL_SOLVER_OOM_CERTIFICATE=PASS")

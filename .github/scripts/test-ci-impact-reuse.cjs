@@ -73,10 +73,11 @@ async function execute({files = [{filename: 'docs/development/notes.md'}], prior
   assert.equal(await execute({files: [{filename: '.github/workflows/wmc-conservative-policy.yml'}]}), false, 'unrelated WMC workflow does not force CodSpeed');
   assert.equal(await execute({workflowFile: 'wmc-conservative-policy.yml', files: [{filename: '.github/workflows/wmc-conservative-policy.yml'}]}), true, 'own workflow change forces validation');
   assert.equal(await execute({workflowFile: 'native-cross-platform-pr.yml', files: [{filename: '.github/workflows/pytest.yml'}]}), true, 'called pytest workflow invalidates native evidence');
-  assert.equal(await execute({jobs: [{name:'Native parser and Qiskit 1.4.6 source semantics',status:'completed',conclusion:'success'},
-      {name:'Native parser and Qiskit 2.6.1 source semantics',status:'completed',conclusion:'success'}],
-      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{prefix:'Native parser and Qiskit ',count:2}]}), false, 'two native QASM jobs reused only together');
-  assert.equal(await execute({jobs: [{name:'Native parser and Qiskit 1.4.6 source semantics',status:'completed',conclusion:'success'}],
-      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{prefix:'Native parser and Qiskit ',count:2}]}), true, 'partial native QASM matrix never reused');
-  process.stdout.write('ci-impact-reuse: 17 contract cases passed\\n');
+  assert.equal(await execute({jobs: [{name:'Native parser and QASM source semantics',status:'completed',conclusion:'success'}],
+      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{name:'Native parser and QASM source semantics',count:1}]}), false, 'single current Rust QASM job is reusable');
+  assert.equal(await execute({jobs: [{name:'Native parser and QASM source semantics',status:'completed',conclusion:'skipped'}],
+      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{name:'Native parser and QASM source semantics',count:1}]}), true, 'skipped Rust QASM job cannot be reused');
+  assert.equal(await execute({jobs: [{name:'Native parser and QASM source semantics (old)',status:'completed',conclusion:'success'}],
+      workflowFile:'rust-qasm-source-guard.yml', requiredJobs:[{name:'Native parser and QASM source semantics',count:1}]}), true, 'mismatched Rust QASM job identity cannot be reused');
+  process.stdout.write('ci-impact-reuse: 18 contract cases passed\\n');
 })().catch(error => { console.error(error); process.exitCode = 1; });

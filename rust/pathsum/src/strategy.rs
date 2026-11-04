@@ -279,3 +279,38 @@ mod cooperative_deadline_tests {
         assert!(!ps.poll_verification_deadline());
     }
 }
+
+#[cfg(test)]
+mod cooperative_request_isolation_tests {
+    use super::*;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn concurrent_requests_do_not_share_deadline_or_timeout_state() {
+        let reference = vec![QuantumOp::H(0), QuantumOp::T(0), QuantumOp::H(0)];
+        let expired = Instant::now() - Duration::from_millis(1);
+        let run_a = reference.clone();
+        let run_b = reference.clone();
+        let a = thread::spawn(move || {
+            VerificationStrategy::Straightforward.run_with_deadline(
+                PathSum::new(1), &run_a, &[], Some(expired),
+            )
+        });
+        let b = thread::spawn(move || {
+            VerificationStrategy::Straightforward.run_with_deadline(
+                PathSum::new(1), &run_b, &[], Some(Instant::now() + Duration::from_secs(30)),
+            )
+        });
+        let a = a.join().expect("expired request");
+        let b = b.join().expect("unexpired request");
+        assert!(a.deadline_exceeded);
+        assert!(!b.deadline_exceeded);
+        assert!(a.p.terms.is_empty());
+        let legacy = VerificationStrategy::Straightforward.run(
+            PathSum::new(1), &reference, &[],
+        );
+        assert_eq!(b.p.terms, legacy.p.terms);
+        assert_eq!(b.f.functions, legacy.f.functions);
+    }
+}

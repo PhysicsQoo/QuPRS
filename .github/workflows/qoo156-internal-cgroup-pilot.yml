@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   delegated-nonroot-cli:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +34,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence/qoo156-internal-cgroup
+          test "$(uname -m)" = aarch64
+          uname -sm > evidence/qoo156-internal-cgroup/host-architecture.txt
           git rev-parse HEAD > evidence/qoo156-internal-cgroup/source-sha.txt
           git rev-parse HEAD:rust/pathsum > evidence/qoo156-internal-cgroup/pathsum-tree.txt
           git rev-parse HEAD:GPMC > evidence/qoo156-internal-cgroup/gpmc-tree.txt

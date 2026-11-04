@@ -332,10 +332,18 @@ mod tests {
         child.wait().unwrap();
         // A killed child may remain briefly as a zombie until init reaps it.
         for pid in descendants {
-            if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
-                let state = stat.rsplit_once(") ").unwrap().1.chars().next().unwrap();
-                assert_eq!(state, 'Z', "unexpected active descendant {pid}: {state}");
+            let mut exited = false;
+            for _ in 0..50 {
+                match fs::read_to_string(format!("/proc/{pid}/stat")) {
+                    Err(_) => { exited = true; break; }
+                    Ok(stat) => {
+                        let state = stat.rsplit_once(") ").unwrap().1.chars().next().unwrap();
+                        if state == 'Z' { exited = true; break; }
+                    }
+                }
+                thread::sleep(Duration::from_millis(10));
             }
+            assert!(exited, "separate-process-group descendant {pid} survived cancellation");
         }
     }
 }

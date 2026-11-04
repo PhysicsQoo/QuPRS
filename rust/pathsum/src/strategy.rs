@@ -60,9 +60,9 @@ impl VerificationStrategy {
 /// Applies one gate without changing the existing automatic reduction cadence.
 /// Gate-internal auto-reduction observes the same request deadline.
 fn apply_checked(ps: &mut PathSum, gate: &QuantumOp, bra: bool) -> bool {
-    if !ps.poll_verification_deadline() { return false; }
+    if ps.deadline_exceeded { return false; }
     gate.apply(ps, bra);
-    ps.poll_verification_deadline()
+    ps.poll_gate_deadline()
 }
 
 // Apply all gates2 as Bra, then all gates1 as Ket

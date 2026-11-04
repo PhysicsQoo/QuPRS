@@ -22,7 +22,7 @@ from matched_precision_adapter import matched_adapter, read_pinned_manifest
 
 from codspeed_choice_preflight import PAPER_CANDIDATES
 
-DIGITS = (30, 90)
+DIGITS = (38, 96)
 SCREEN = Fraction(1, 10**12)
 
 
@@ -145,7 +145,7 @@ def main():
     all_pairs = len(PAPER_CANDIDATES) * len(DIGITS)
     data = {
         "complete": True,
-        "title": "QOO-157 nominal-precision-match (not exact bit parity)",
+        "title": "QOO-157 nominal-precision-match (not near-exact bit parity)",
         "gpmc_source_revision": "submodule-pinned",
         "same_CNF_source_required": True,
         "working_precision_difference_is_reported_not_hidden": True,

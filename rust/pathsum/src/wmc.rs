@@ -14,6 +14,15 @@ use anyhow::{Result, Context, anyhow};
 use crate::pathsum::PathSum;
 use crate::pathsum::phase_poly::Monomial;
 
+/// Cooperatively check the same monotonic budget as the Rust RR stage.
+/// SolverProcess remains responsible for bounded external subprocesses.
+fn check_cnf_deadline(deadline: Option<std::time::Instant>) -> Result<()> {
+    if deadline.is_some_and(|limit| std::time::Instant::now() >= limit) {
+        return Err(anyhow!(crate::solver_process::SolverTimeout));
+    }
+    Ok(())
+}
+
 fn solver_arguments(tool_name: &str) -> Result<&'static [&'static str]> {
     Ok(crate::solver_adapter::adapter_for(tool_name)?.arguments())
 }
@@ -103,12 +112,13 @@ impl WmcManager {
         }
     }
 
-    fn encode_phase_polynomial(&mut self, ps: &PathSum) -> Result<()> {
+    fn encode_phase_polynomial(&mut self, ps: &PathSum, deadline: Option<std::time::Instant>) -> Result<()> {
         // Controlled no-cache A/B: large source-exact rational keys are
         // expensive to hash. Generate each CNF literal's MPFR weight directly
         // and retain its original precision/serialized value. This may cost
         // more for repeated angles; CodSpeed decides whether to retain it.
         for (mono, coeff) in &ps.p.terms {
+            check_cnf_deadline(deadline)?;
             // Do not compute an f64 weight at all when the precise GPMC
             // distance-mode input is selected. The separate optional map
             // owns the original source phase's decimal weight.
@@ -204,19 +214,22 @@ impl WmcManager {
                 }
             }
         }
+        check_cnf_deadline(deadline)?;
         Ok(())
     }
 
-    fn encode_anf(&mut self, anf: &[Monomial]) -> i32 {
+    fn encode_anf(&mut self, anf: &[Monomial], deadline: Option<std::time::Instant>) -> Result<i32> {
+        check_cnf_deadline(deadline)?;
         if anf.is_empty() {
             let f_var = self.next_var_id;
             self.next_var_id += 1;
             self.clauses.push(vec![-f_var]); 
-            return f_var;
+            return Ok(f_var);
         }
 
         let mut mono_vars = Vec::new();
         for mono in anf {
+            check_cnf_deadline(deadline)?;
             let dimacs_lits: Vec<i32> = mono.iter().map(|&v| self.get_dimacs_var(v)).collect();
             if dimacs_lits.is_empty() {
                 let t_var = self.next_var_id;
@@ -239,12 +252,13 @@ impl WmcManager {
         }
 
         if mono_vars.len() == 1 {
-            return mono_vars[0];
+            return Ok(mono_vars[0]);
         }
 
         // Xor : c <-> a Xor b
         let mut current_var = mono_vars[0];
         for i in 1..mono_vars.len() {
+            check_cnf_deadline(deadline)?;
             let next_var = mono_vars[i];
             let c = self.next_var_id;
             self.next_var_id += 1;
@@ -257,17 +271,25 @@ impl WmcManager {
             
             current_var = c;
         }
-        current_var
+        Ok(current_var)
     }
 
     pub fn encode_trace(&mut self, ps: &PathSum) -> Result<()> {
-        self.encode_phase_polynomial(ps)?;
+        self.encode_trace_with_deadline(ps, None)
+    }
+
+    pub(crate) fn encode_trace_with_deadline(
+        &mut self, ps: &PathSum, deadline: Option<std::time::Instant>,
+    ) -> Result<()> {
+        check_cnf_deadline(deadline)?;
+        self.encode_phase_polynomial(ps, deadline)?;
 
         for i in 0..ps.v.num_qubits {
+            check_cnf_deadline(deadline)?;
             let a = self.get_dimacs_var(i as u32);
             
             let anf_vec: Vec<Monomial> = ps.f.functions[i].iter().cloned().collect();
-            let b = self.encode_anf(&anf_vec); 
+            let b = self.encode_anf(&anf_vec, deadline)?; 
             
             self.clauses.push(vec![-a, b]); // a -> b
             self.clauses.push(vec![a, -b]); // b -> a
@@ -279,8 +301,12 @@ impl WmcManager {
                 .filter(|v| !self.var_map.contains_key(v))
                 .copied().collect();
             missing.sort_unstable();
-            for path_var in missing { self.get_dimacs_var(path_var); }
+            for path_var in missing {
+                check_cnf_deadline(deadline)?;
+                self.get_dimacs_var(path_var);
+            }
         }
+        check_cnf_deadline(deadline)?;
         Ok(())
     }
 

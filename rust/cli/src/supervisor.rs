@@ -298,6 +298,22 @@ pub fn prepare_worker() -> Result<()> {
         let millis: u64 = ms.parse().context("invalid test-only hold duration")?;
         thread::sleep(Duration::from_millis(millis.min(10_000)));
     }
+    // Debug-only cgroup proof: force physical page commits inside the real
+    // worker, after pre-exec admission but before reading QASM. The released
+    // CLI cannot activate this test harness through environment variables.
+    #[cfg(debug_assertions)]
+    if let Ok(text) = std::env::var("QUPRS_CLI_TEST_ALLOC_MIB") {
+        let mib: usize = text.parse().context("invalid test allocation MiB")?;
+        anyhow::ensure!(mib <= 256, "test allocation exceeds safe pilot bound");
+        let bytes = mib.checked_mul(1024 * 1024)
+            .context("test allocation exceeds address space")?;
+        let mut pages = Vec::<u8>::with_capacity(bytes);
+        unsafe { pages.set_len(bytes); }
+        for index in (0..bytes).step_by(4096) {
+            unsafe { std::ptr::write_volatile(pages.as_mut_ptr().add(index), 1); }
+        }
+        std::hint::black_box(&pages);
+    }
     Ok(())
 }
 

@@ -17,12 +17,33 @@ if ! grep -Fxq 2 "$EVIDENCE/docker-cgroup-version.txt"; then
 fi
 docker pull "$IMAGE" > "$EVIDENCE/image-pull.log"
 docker image inspect "$IMAGE" --format '{{json .RepoDigests}}' > "$EVIDENCE/image-digest.json"
-# bytearray touches every page so Linux RSS accounting is real, not virtual memory reservation.
-# After successful allocation, hold pages for one second.
-PYTHON_CODE='import sys,time; n=160*1024*1024; m=bytearray(n)
-for i in range(0,n,4096): m[i]=1
-print("QOO156_PAGE_TOUCH=160_MIB",flush=True); time.sleep(1)'
-declare -A result
+# Independent in-container parent observes actual kernel cgroup memory.events.
+# A large *child* touches each 4096-byte page; memory pressure is physical,
+# not a virtual-only RLIMIT_AS event. The parent survives to report evidence.
+PYTHON_CODE='
+import pathlib,subprocess,sys
+def memory_events():
+    path=pathlib.Path("/sys/fs/cgroup/memory.events")
+    if not path.exists():
+        print("QOO156_KERNEL_EVENTS=NOT_AVAILABLE",flush=True)
+        sys.exit(4)
+    return {k:int(v) for k,v in (line.split() for line in path.read_text().splitlines())}
+child = """import time
+n=160*1024*1024
+p=bytearray(n)
+for i in range(0,n,4096):
+    p[i] = 1
+print("QOO156_PAGE_TOUCH=160_MIB",flush=True)
+time.sleep(1)
+"""
+before=memory_events()
+p=subprocess.run([sys.executable,"-c",child],capture_output=True,text=True,timeout=20)
+after=memory_events()
+print(f"QOO156_KERNEL_OOM_KILL_DELTA={after.get('oom_kill',0)-before.get('oom_kill',0)}",flush=True)
+print(f"QOO156_CHILD_EXIT={p.returncode}",flush=True)
+print(f"QOO156_CHILD_OUTPUT={p.stdout.strip()}",flush=True)
+print(f"QOO156_KERNEL_OOM_DELTA={after.get('oom',0)-before.get('oom',0)}",flush=True)
+'
 for limit in 64 128 256; do
   name="qoo156-docker-memory-$limit-$$"
   docker run --detach \
@@ -57,15 +78,21 @@ error={{.State.Error}}' > "$EVIDENCE/$limit-inspect.txt"
     echo "QOO156_DOCKER_MEMORY_CERTIFICATE=NOT_ADMITTED: cap not applied ($limit)" | tee "$EVIDENCE/verdict.txt"
     exit 2
   }
+  # Docker State.OOMKilled is logged, but on some hosted runners it stays
+  # false even for exit=137. Only Linux kernel memory.events deltas count.
   if [[ "$limit" -lt 256 ]]; then
-    [[ "$exited" == 137 && "$killed" == true ]] || {
-      echo "QOO156_DOCKER_MEMORY_CERTIFICATE=NOT_ADMITTED: expected kernel OOM at $limit" | tee "$EVIDENCE/verdict.txt"
+    [[ "$exited" == 0 ]] &&
+      grep -Eq '^QOO156_KERNEL_OOM_KILL_DELTA=[1-9][0-9]*$' "$EVIDENCE/$limit-stdout.txt" &&
+      grep -Fxq 'QOO156_CHILD_EXIT=-9' "$EVIDENCE/$limit-stdout.txt" || {
+      echo "QOO156_DOCKER_MEMORY_CERTIFICATE=NOT_ADMITTED: no kernel-confirmed OOM kill at $limit" | tee "$EVIDENCE/verdict.txt"
       exit 2
     }
   else
-    [[ "$exited" == 0 && "$killed" == false ]] &&
-      grep -Fq 'QOO156_PAGE_TOUCH=160_MIB' "$EVIDENCE/$limit-stdout.txt" || {
-      echo "QOO156_DOCKER_MEMORY_CERTIFICATE=NOT_ADMITTED: no positive control" | tee "$EVIDENCE/verdict.txt"
+    [[ "$exited" == 0 ]] &&
+      grep -Fxq 'QOO156_KERNEL_OOM_KILL_DELTA=0' "$EVIDENCE/$limit-stdout.txt" &&
+      grep -Fxq 'QOO156_CHILD_EXIT=0' "$EVIDENCE/$limit-stdout.txt" &&
+      grep -Fq 'QOO156_CHILD_OUTPUT=QOO156_PAGE_TOUCH=160_MIB' "$EVIDENCE/$limit-stdout.txt" || {
+      echo "QOO156_DOCKER_MEMORY_CERTIFICATE=NOT_ADMITTED: no successful high-memory control" | tee "$EVIDENCE/verdict.txt"
       exit 2
     }
   fi

@@ -41,7 +41,7 @@ jobs:
           git rev-parse 'HEAD^{tree}' > evidence/source-tree.txt
           rustc --version > evidence/rustc.txt
           cargo --version > evidence/cargo.txt
-          sha256sum rust/pathsum/src/{pathsum/mod.rs,reduction.rs,strategy.rs,wmc.rs,lib.rs} > evidence/source-sha256.txt
+          sha256sum rust/pathsum/src/{pathsum/mod.rs,pathsum/boolean_state.rs,pathsum/phase_poly.rs,pathsum/bra_cx.rs,gates.rs,ir.rs,reduction.rs,strategy.rs,wmc.rs,lib.rs} > evidence/source-sha256.txt
       - name: Bounded cooperative cancellation unit tests
         shell: bash
         run: |
@@ -61,6 +61,11 @@ jobs:
             cargo test --manifest-path rust/Cargo.toml --locked -p pathsum \
               --lib "$case" -- --nocapture 2>&1 | tee "evidence/${case}.txt"
           done
+      - name: All native pathsum library scientific regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/Cargo.toml --locked -p pathsum             --lib -- --nocapture 2>&1 | tee evidence/all-pathsum-lib-tests.txt
       - name: Preserve branch-specific evidence
         if: always()
         uses: actions/upload-artifact@v4

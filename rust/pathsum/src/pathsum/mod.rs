@@ -194,12 +194,32 @@ impl PathSum {
         }
     }
     pub(crate) fn substitute_var_with_poly(
-        &mut self, 
-        target_var: u32, 
-        sub_poly: &rustc_hash::FxHashSet<crate::pathsum::Monomial>
+        &mut self,
+        target_var: u32,
+        sub_poly: &rustc_hash::FxHashSet<crate::pathsum::Monomial>,
     ) {
-        self.f.substitute_var_with_poly(target_var, sub_poly);
-        self.p.substitute_var_with_poly(target_var, sub_poly);
+        if let Some(deadline) = self.verification_deadline {
+            if !self.poll_verification_deadline() { return; }
+            // A timeout may leave a partial BooleanState/PhasePolynomial;
+            // the verification caller must never classify that residual.
+            if !self.f.substitute_var_with_poly_checked(
+                target_var, sub_poly, Some(deadline),
+            ) {
+                self.deadline_exceeded = true;
+                return;
+            }
+            if !self.p.substitute_var_with_poly_checked(
+                target_var, sub_poly, Some(deadline),
+            ) {
+                self.deadline_exceeded = true;
+                return;
+            }
+            self.poll_verification_deadline();
+        } else {
+            // Leave the existing non-verification API on its original path.
+            self.f.substitute_var_with_poly(target_var, sub_poly);
+            self.p.substitute_var_with_poly(target_var, sub_poly);
+        }
     }
 
     pub(crate) fn substitute_var(&mut self, old_var: u32, new_var: u32) {

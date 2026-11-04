@@ -11,6 +11,8 @@ pub mod stats;
 pub mod wmc;
 pub mod precision_count;
 mod solver_adapter;
+#[cfg(feature = "experimental-d4")]
+mod d4_experimental;
 mod wmc_problem;
 #[cfg(feature="high-precision-gpmc")]
 mod precise_weight;

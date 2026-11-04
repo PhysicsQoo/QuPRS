@@ -10,13 +10,13 @@ printf 'QOO156_DOCKER_MEMORY_CERTIFICATE=NOT_ADMITTED\n' > "$EVIDENCE/verdict.tx
 printf 'QOO156_CLI_INTERNAL_MEMORY_CERTIFICATE=NOT_TESTED\n' > "$EVIDENCE/cli-internal-verdict.txt"
 git -C "$ROOT" rev-parse HEAD > "$EVIDENCE/source-sha.txt"
 docker --version > "$EVIDENCE/docker-version.txt"
-docker info --format '${.CgroupVersion}' > "$EVIDENCE/docker-cgroup-version.txt"
+docker info --format '{{.CgroupVersion}}' > "$EVIDENCE/docker-cgroup-version.txt"
 if ! grep -Fxq 2 "$EVIDENCE/docker-cgroup-version.txt"; then
   echo 'QOO156_DOCKER_MEMORY_CERTIFICATE=NOT_ADMITTED: requires cgroup v2' | tee "$EVIDENCE/verdict.txt"
   exit 2
 fi
 docker pull "$IMAGE" > "$EVIDENCE/image-pull.log"
-docker image inspect "$IMAGE" --format '${json .RepoDigests}' > "$EVIDENCE/image-digest.json"
+docker image inspect "$IMAGE" --format '{{json .RepoDigests}}' > "$EVIDENCE/image-digest.json"
 # bytearray touches every page so Linux RSS accounting is real, not virtual memory reservation.
 # After successful allocation, hold pages for one second.
 PYTHON_CODE='import sys,time; n=160*1024*1024; m=bytearray(n)
@@ -38,11 +38,11 @@ for limit in 64 128 256; do
   wait_code=$?
   set -e
   docker inspect "$name" --format \
-    'limit_bytes=${.HostConfig.Memory}
-exit_code=${.State.ExitCode}
-oom_killed=${.State.OOMKilled}
-status=${.State.Status}
-error=${.State.Error}' > "$EVIDENCE/$limit-inspect.txt"
+    'limit_bytes={{.HostConfig.Memory}}
+exit_code={{.State.ExitCode}}
+oom_killed={{.State.OOMKilled}}
+status={{.State.Status}}
+error={{.State.Error}}' > "$EVIDENCE/$limit-inspect.txt"
   docker logs "$name" > "$EVIDENCE/$limit-stdout.txt" 2> "$EVIDENCE/$limit-stderr.txt" || true
   docker rm -f "$name" > /dev/null || true
   if [[ "$wait_code" -ne 0 ]]; then

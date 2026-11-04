@@ -1,0 +1,71 @@
+name: QOO-156 Isolated Cooperative Cancellation Pilot
+
+on:
+  push:
+    branches:
+      - experiment/qoo156-rust-cooperative-cancellation
+    paths:
+      - 'rust/pathsum/src/**'
+      - '.github/workflows/qoo156-cancellation-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-experiment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-cancellation-scoped:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo156-cancellation-pilot-v1
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Capture source and toolchain
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/source-tree.txt
+          rustc --version > evidence/rustc.txt
+          cargo --version > evidence/cargo.txt
+          sha256sum rust/pathsum/src/{pathsum/mod.rs,reduction.rs,strategy.rs,wmc.rs,lib.rs} > evidence/source-sha256.txt
+      - name: Bounded cooperative cancellation unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/Cargo.toml --locked -p pathsum \
+            --lib cooperative_ -- --nocapture 2>&1 | tee evidence/cooperative-tests.txt
+      - name: Existing exact reduction control tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for case in \
+            test_elim_rule_dead_variable \
+            test_hh_rule_h_h_identity \
+            test_omega_rule_h_s_h \
+            hybrid_fallback_wmc_consumes_final_tolerant_rr_residual
+          do
+            cargo test --manifest-path rust/Cargo.toml --locked -p pathsum \
+              --lib "$case" -- --nocapture 2>&1 | tee "evidence/${case}.txt"
+          done
+      - name: Preserve branch-specific evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-cancellation-${{ github.sha }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn

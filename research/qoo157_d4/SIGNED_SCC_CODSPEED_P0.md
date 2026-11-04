@@ -48,3 +48,29 @@ the same exact binary for each original/reduced pair. This intentionally
 spends a small bounded solver requalification to avoid silently assuming
 bitwise reproducibility under changing runner build paths. The first failed
 run has **no performance data** and must not be ranked.
+
+
+## Completed P0 official CodSpeed observations — original versus shared signed-SCC quotient
+
+**SUCCESS**: [GitHub Actions #41846122379](https://github.com/PhysicsQoo/QuPRS/actions/runs/41846122379) on measured HEAD `f40b45448863c4505eeed265c8570087d5bd6b18`. [Immutable native-count screen, current-binary SHA and official CodSpeed export artifact #13331297625](https://github.com/PhysicsQoo/QuPRS/actions/runs/41846122379/artifacts/13331297625). **16/16** CodSpeed v5 tests PASS and **16/16** freshly compiled current-GPMC/d4-binary original/reduced complex count screens PASS prior to timing. Both measured binaries' SHA256 are stored in the same artifact and each timed test asserts them against the newly requalified science report. Source and reduced CNF SHA verified, original 38-significant-digit source weights pinned. GPMC 127 MPFR bits vs d4 actual 128 GMP bits (same nominal 38 effective decimals, not same bit precision).
+
+Official CodSpeed WallTime `3` rounds, `max-time=12`, **medians in ms**; one CI run, same hosted runner/HEAD, subprocess-inclusive **but only prepared CNF** (does **not** include generating the reduced CNF with Python/Fraction):
+
+| Circuit | Solver | Original prepared CNF (ms) | Identical externally reduced CNF (ms) | Reduced/original walltime | Saved percent |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Grover4 EQ | **GPMC** | 50.268 | 51.124 | 1.0170 | **−1.70%** (slower) |
+| Grover4 EQ | **d4** | 222.167 | 192.690 | 0.8673 | **13.27%** |
+| QAOA7 genuine NEQ | **GPMC** | 28.300 | 25.944 | 0.9168 | **8.32%** |
+| QAOA7 genuine NEQ | **d4** | 137.648 | 127.768 | 0.9282 | **7.18%** |
+| QPE exact8 EQ | **GPMC** | 52.048 | 52.011 | 0.9993 | **0.07% (near-noise)** |
+| QPE exact8 EQ | **d4** | 163.097 | 140.633 | 0.8623 | **13.77%** |
+| QFT16 EQ | **GPMC** | 1124.023 | 1126.787 | 1.0025 | **−0.25% (near-noise)** |
+| QFT16 EQ | **d4** | 1760.231 | 1653.470 | 0.9393 | **6.07%** |
+
+Within the same CI run (descriptive only; **not** a formal between-solver equal-bit performance claim), `d4/GPMC` median elapsed ratios for original→common-reduced inputs: Grover4 **4.42→3.77×**, QAOA7 **4.86→4.92×**, QPEexact8 **3.13→2.70×**, QFT16 **1.57→1.47×**. The ratio slightly worsens on QAOA7 because GPMC itself also benefits from reducing the input; the absolute gap nevertheless narrows.
+
+**Scientific interpretation:** Giving d4 a precomputed *exactly weighted* binary-equivalence quotient consistently reduced its **prepared-CNF subprocess time by ~6.1%–13.8% in these four circuits**; d4 remains substantially slower than GPMC even after both receive the same quotient. This **supports** missing input structure as one contributor but **rules out the external SCC quotient as a complete explanation** for GPMC's observed advantage on these cases. It does NOT isolate the individual contributions of the 7/16 protected **weighted-weighted** merges, ordinary unweighted merges, BiPe startup/processing, branch choice, component/cache, or complex arithmetic. Timing of external quotient preparation is excluded; there is **no production-end-to-end speedup claim**.
+
+**Limits and next gate**: Hosted CodSpeed has only 3 timed rounds per benchmark, not the fixed Macro Runner ABBA/BAAB confirmation; GPMC QFT16 ±~0.25% and QPE ~0.07% are effectively neutral versus observed per-round variations. To turn d4 optimization into a recommendation, add cost of any external reducer, peak RSS, timeout, full QuPRS WMC-only/Hybrid path, and more numerical near-cancellation oracles. Start **P1 pinned BiPe stats + canonical-residual identity** with science-only `verbosity>=3`; stage reports may print `t_total`, but only official CodSpeed can be used to compare performance. No d4/default/CI change is justified by this hosted pilot.
+
+**Rejected run**: [Actions #41845296994](https://github.com/PhysicsQoo/QuPRS/actions/runs/41845296994) failed pre-benchmark on cross-run binary SHA equality; contains **no timing data**. It was correctly replaced with current-run binary SHA plus 16-case requalification, not hidden or counted as a trial.

@@ -402,9 +402,11 @@ impl WmcManager {
         digits: u32, prepared_cnf: &str,
     ) -> Result<crate::precision_count::PrintedCount> {
         let adapter = crate::solver_adapter::distance_adapter_for(tool_name, digits)?;
-        self.run_solver_with_parser(
-            adapter, deadline, crate::precision_count::parse_stdout_optional, Some(prepared_cnf),
-        )
+        #[cfg(feature = "experimental-d4")]
+        let parse = |stdout: &str| adapter.parse_printed_count(stdout);
+        #[cfg(not(feature = "experimental-d4"))]
+        let parse = crate::precision_count::parse_stdout_optional;
+        self.run_solver_with_parser(adapter, deadline, parse, Some(prepared_cnf))
     }
 
     /// Number of phase-weight literals used in a conditional f64 input budget.
@@ -415,7 +417,11 @@ impl WmcManager {
         adapter: &dyn crate::solver_adapter::SolverAdapter,
         deadline: Option<std::time::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
-        self.run_solver_with_parser(adapter, deadline, crate::precision_count::parse_stdout_optional, None)
+        #[cfg(feature = "experimental-d4")]
+        let parse = |stdout: &str| adapter.parse_printed_count(stdout);
+        #[cfg(not(feature = "experimental-d4"))]
+        let parse = crate::precision_count::parse_stdout_optional;
+        self.run_solver_with_parser(adapter, deadline, parse, None)
     }
 
     pub(crate) fn solve_with_adapter(

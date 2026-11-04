@@ -178,7 +178,7 @@ impl QuantumGates for PathSum {
                 if x_t == x_c {
                     self.substitute_var_with_poly(x_t, &sub_poly);
                 } else if let Some(deadline) = self.verification_deadline {
-                    if self.small_exact_substitution(sub_poly.len()) {
+                    if self.small_exact_substitution(&sub_poly) {
                         // Retain exact Bra-CX for deterministically bounded
                         // work; the outer gate scheduler samples the clock.
                         if !self.poll_gate_deadline() { return; }

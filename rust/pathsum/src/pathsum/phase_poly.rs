@@ -553,6 +553,16 @@ mod cooperative_phase_substitution_tests {
             &terms, usize::MAX, Some(expired),
         ).is_none());
 
+        // Force the deadline to expire *inside* the recursive traversal.
+        // Its first check occurs at the 128th visited node, not at entry.
+        let refs: Vec<&Monomial> = terms.iter().collect();
+        let mut visited = 0usize;
+        let mut partial = FxHashMap::default();
+        assert!(!checked_generate_combinations_dfs(
+            &refs, 10, 0, &vec![], 1, &mut partial, Some(expired), &mut visited,
+        ));
+        assert!(visited >= 128 && visited < 256, "visited={visited}");
+
         let small: FxHashSet<Monomial> =
             [vec![1], vec![2], vec![1, 2]].into_iter().collect();
         let reference = expand_xor_to_arithmetic(&small, usize::MAX);

@@ -1,0 +1,89 @@
+# This one-shot research workflow requests an actual CodSpeed Macro Runner.
+# Do not infer entitlement from a queued job; compare metrics only after run
+# details identify a Macro environment (no hosted WallTime reliability warning).
+# Both frozen dev and experimental HEAD build on the SAME ARM64 runner.
+name: QOO-156 CLI CodSpeed Macro Runner admission pilot
+
+# Isolated one-shot source-paired experiment. Never run the full project
+# matrix when only CLI supervision is under investigation.
+on:
+  push:
+    branches:
+      - experiment/qoo156-cli-supervisor
+    paths:
+      - '.github/workflows/qoo156-cli-macro-admission.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  cli-walltime:
+    name: Base/HEAD/direct-worker true CodSpeed Macro WallTime
+    runs-on: codspeed-macro
+    timeout-minutes: 30
+    env:
+      QOO156_BASE_SHA: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+      QOO156_HEAD_SHA: ${{ github.sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/qoo156-cli-walltime.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+          submodules: recursive
+          persist-credentials: false
+          path: qoo156-base
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned native headers and CodSpeed test driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libmpfr-dev libgmp-dev pkg-config
+          python -m pip install --disable-pip-version-check pytest-codspeed==5.0.4
+      - name: Build source-pinned base and HEAD without touching native core
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QOO156_HEAD_SHA"
+          test "$(git -C qoo156-base rev-parse HEAD)" = "$QOO156_BASE_SHA"
+          test "$(git rev-parse HEAD:rust/pathsum)" = "$(git -C qoo156-base rev-parse HEAD:rust/pathsum)"
+          mkdir -p evidence
+          for variant in base head; do
+            if [[ "$variant" == base ]]; then source="$GITHUB_WORKSPACE/qoo156-base"; else source="$GITHUB_WORKSPACE"; fi
+            cargo build --manifest-path "$source/rust/Cargo.toml" --locked -p QuPRS_cli --release \
+              --target-dir "$RUNNER_TEMP/qoo156-$variant-target"
+          done
+          echo "QOO156_BASE_CLI=$RUNNER_TEMP/qoo156-base-target/release/QuPRS_cli" >> "$GITHUB_ENV"
+          echo "QOO156_HEAD_CLI=$RUNNER_TEMP/qoo156-head-target/release/QuPRS_cli" >> "$GITHUB_ENV"
+          {
+            echo "base=$QOO156_BASE_SHA"
+            echo "head=$QOO156_HEAD_SHA"
+            echo "native_pathsum_tree=$(git rev-parse HEAD:rust/pathsum)"
+            echo "runner=$RUNNER_NAME"
+          } > evidence/paired-source-provenance.txt
+          python -m pytest benchmarks/codspeed/test_qoo156_cli_supervisor.py -q --collect-only
+      - name: Paired CLI end-to-end CodSpeed WallTime (event-driven supervisor, ABBA)
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest benchmarks/codspeed/test_qoo156_cli_supervisor.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=3 --codspeed-max-time=5
+      - name: Preserve source-paired observation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-cli-macro-walltime-${{ github.sha }}
+          path: |
+            evidence/
+            qoo156-cli-walltime.json
+          if-no-files-found: warn
+          retention-days: 30

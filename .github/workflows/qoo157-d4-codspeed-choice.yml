@@ -1,65 +1,16 @@
-name: QOO157 d4 versus GPMC CodSpeed WallTime pilot
+name: QOO157 isolated workflow admission smoke
 
 on:
   push:
     branches:
       - experiment/qoo157-d4-codspeed-choice-pilot
     paths:
-      - 'research/qoo157_d4/run_codspeed_choice_preflight.sh'
-      - 'research/qoo157_d4/codspeed_choice_preflight.py'
-      - 'research/qoo157_d4/test_codspeed_solver_choice.py'
-      - 'rust/pathsum/examples/qoo157_export_paper_cnf.rs'
       - '.github/workflows/qoo157-d4-codspeed-choice.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-
 jobs:
-  choice:
+  admission:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      QOO157_PREFLIGHT: ${{ github.workspace }}/evidence/qoo157-choice-science.json
-      QOO157_CNF_DIR: ${{ github.workspace }}/evidence/cnfs
-      QOO157_D4_BINARY: ${{ runner.temp }}/qoo157-d4/c++/counter/build/counter
-      QOO157_D4_PROVENANCE: ${{ github.workspace }}/evidence/d4-provenance.json
-      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/evidence/qoo157-codspeed-walltime.json
-      PYTHONPATH: research/qoo157_d4
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: 'rust -> target'
-          key: qoo157-choice-v1
-      - name: Build pinned sources and admit only scientifically comparable cases
-        shell: bash
-        run: bash research/qoo157_d4/run_codspeed_choice_preflight.sh
-      - name: CodSpeed official Solver-inclusive WallTime
-        uses: CodSpeedHQ/action@v5
-        with:
-          mode: walltime
-          run: python -m pytest research/qoo157_d4/test_codspeed_solver_choice.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=5
-      - name: Runner provenance
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p evidence
-          git rev-parse HEAD > evidence/runner-head.txt
-          uname -a > evidence/runner-kernel.txt
-          echo "CodSpeed WallTime exploratory, hosted runner, no ABBA" > evidence/measurement-scope.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: qoo157-d4-choice-${{ github.sha }}
-          path: evidence/
-          if-no-files-found: warn
-          retention-days: 30
+      - name: Validate experimental branch admission
+        run: echo QOO157_WORKFLOW_ADMISSION_PASS

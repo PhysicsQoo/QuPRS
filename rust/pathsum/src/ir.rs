@@ -65,7 +65,9 @@ impl QuantumOp {
             Self::CZ(c, t) => ps.apply_cz(*c, *t, side),
             Self::SWAP(q1, q2) => {
                 ps.apply_cx(*q1, *q2, side);
+                if !ps.poll_verification_deadline() { return; }
                 ps.apply_cx(*q2, *q1, side);
+                if !ps.poll_verification_deadline() { return; }
                 ps.apply_cx(*q1, *q2, side);
             },
 

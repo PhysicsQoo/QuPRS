@@ -29,4 +29,21 @@ All verdicts retain `PERFORMANCE_UNQUALIFIED / PRECISION_UNVERIFIED`, `authorize
 
 The standalone assessment uses only Python's standard library and a bounded input (maximum 8 MiB) and records its SHA-256. It requires an existing regular file, refuses symlink input, and uses exclusive-file creation for a new output path. It reads the JSON report but does not copy sensitive process or host details into the classification output. The threshold is a temporary heuristic based on previous QOO-13 stop rules; refine it only after evidence from a controlled design, not to force an A/A to pass. Do not use its output as a CodSpeed benchmark metric.
 
-Offline synthetic tests cover the prior `backupd` and 3/7 low-idle conditions, other high-CPU processes, incomplete data, counter resets, quiet-but-unqualified candidates, invalid sources, and output protection. Linux-container test PASS is not macOS host validation.
+Offline synthetic tests (13 cases after hardening) cover the prior `backupd` and 3/7 low-idle conditions, other high-CPU processes, incomplete data, counter resets, quiet-but-unqualified candidates, invalid sources, and output protection. Linux-container test PASS is not macOS host validation.
+
+## P1 classifier hardening (13 synthetic tests)
+
+The admission evaluator now also rejects non-finite/overflow telemetry (including
+JSON `NaN`/`Infinity`), an absent or inconsistent `sample_window` summary,
+invalid or empty process data, failed `ps` status where reported, and mismatched
+swap page sizes. The input `sample_window.status` must be
+`MONITOR_ONLY_NOT_PERFORMANCE_CERTIFICATION`, and its sample count must match
+the saved samples; this is the output contract of the v2–v4 Mac monitor for
+actual sampling (it is not used for `--scan-only`). These checks do not add
+measured performance thresholds.
+
+For input `p1-monitor.json`, write the derived assessment **outside the entire
+input file's parent evidence directory**, not merely to a different filename.
+Source files are never modified, and reruns cannot overwrite existing reports.
+P0's original v4 diagnostic program remains unchanged. The standalone P1 test
+suite now contains **13** tests (combined P0 + P1: **26** offline tests).

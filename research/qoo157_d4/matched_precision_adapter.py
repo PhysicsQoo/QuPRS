@@ -52,8 +52,13 @@ def read_pinned_manifest(binary: Path, manifest: Path, digits: int) -> dict:
     actual = meta.get("gmp_actual_bits")
     if type(bits) is not int or type(actual) is not int:
         raise ValueError("d4 variant missing requested or actual GMP bit count")
-    if actual < bits or actual > bits + 128:
-        raise ValueError("d4 observed GMP precision incompatible with requested bits")
+    if actual < bits or actual - bits > 1:
+        raise ValueError("d4 actual GMP bit count differs from GPMC by >1 bit")
+    if meta.get("effective_decimal_digits_match") is not True:
+        raise ValueError("MPFR/GMP effective decimal digit counts are not equal")
+    if (meta.get("gpmc_effective_decimal_digits") != digits
+            or meta.get("d4_effective_decimal_digits") != digits):
+        raise ValueError("incorrect native effective digit metadata")
     return meta
 
 

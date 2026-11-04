@@ -38,6 +38,54 @@ def fixture(name,n,clauses,weights):
     lines += [f"c p weight {l} {fmt(w[0])} {fmt(w[1])} 0" for l,w in sorted(weights.items())]
     lines += [" ".join(map(str,c))+" 0" for c in clauses]
     return name,("\n".join(lines)+"\n").encode(),count_small(n,clauses,weights)
+
+def to_ganak_weight_grammar(raw):
+    """Translate GPMC paired real/imag weight tokens to Ganak signed-complex-i.
+
+    The original Boolean clauses, variable and clause IDs, and all literal
+    weights are unchanged. This is the same dialect as QuPRS GanakAdapter.
+    """
+    out=[];unchanged=[];weight_semantics=[];seen=set()
+    for line in raw.decode("utf-8").splitlines():
+        parts=line.split()
+        if parts[:3]==["c","p","weight"]:
+            if len(parts)!=7 or parts[-1]!="0":
+                raise ValueError("unsupported GPMC weight record")
+            lit=int(parts[3])
+            real=Decimal(parts[4]);imag=Decimal(parts[5])
+            if not real.is_finite() or not imag.is_finite() or lit==0 or lit in seen:
+                raise ValueError("nonfinite, invalid or duplicate weight")
+            seen.add(lit)
+            sign="-" if imag<0 else "+"
+            imag_abs=str(abs(imag))
+            replacement=f"c p weight {lit} {parts[4]} {sign} {imag_abs}i 0"
+            # Independently check new serialized tokens recover exact
+            # original finite-decimal rational components.
+            converted=replacement.split()
+            assert converted[:4]==parts[:4] and converted[-1]=="0"
+            assert Fraction(Decimal(converted[4]))==Fraction(real)
+            assert Fraction(Decimal(converted[6][:-1]))*(1 if converted[5]=="+" else -1)==Fraction(imag)
+            out.append(replacement)
+            weight_semantics.append((lit,str(Fraction(real)),str(Fraction(imag))))
+        elif parts[:2]==["p","cnf"] or parts==["c","t","wmc"] or (
+            parts and parts[0] not in ("c","p")
+        ):
+            out.append(line)
+            unchanged.append(line)
+        else:
+            raise ValueError("unsupported source CNF metadata: "+line[:100])
+    if not any(x.startswith("p cnf ") for x in unchanged):
+        raise ValueError("missing source CNF header")
+    result=("\n".join(out)+"\n").encode()
+    return result,{
+        "original_sha256":sha256(raw).hexdigest(),
+        "ganak_dialect_sha256":sha256(result).hexdigest(),
+        "unchanged_nonweight_lines_sha256":sha256(("\n".join(unchanged)+"\n").encode()).hexdigest(),
+        "exact_literal_weight_values_sha256":sha256(json.dumps(sorted(weight_semantics)).encode()).hexdigest(),
+        "literal_weight_entries":len(weight_semantics),
+        "translation":"QuPRS GanakAdapter signed a +/- bi tokens, exact decimals; Boolean CNF unchanged"
+    }
+
 def fixtures():
     f=lambda x,y:(Fraction(x),Fraction(y))
     return [
@@ -100,9 +148,11 @@ def audit(binary,manifest,archive,cnfdir,science,fixturesdir,out):
       "fixtures":{},"source_cases":{}}
     fixturesdir.mkdir(parents=True,exist_ok=True)
     for name,data,expected in fixtures():
-        p=fixturesdir/(name+".cnf");p.write_bytes(data)
+        p=fixturesdir/(name+".cnf")
+        translated,serialization=to_ganak_weight_grammar(data)
+        p.write_bytes(translated)
         obs={str(bits):compare(native(binary,p,bits),expected) for bits in (127,256)}
-        result["fixtures"][name]={"sha256":sha256(data).hexdigest(),"exact_WMC":[str(x) for x in expected],"native":obs}
+        result["fixtures"][name]={"source_sha256":sha256(data).hexdigest(),"serialization":serialization,"exact_WMC":[str(x) for x in expected],"native":obs}
         out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(result,indent=2)+"\n")
     for case in CASES:
         p=cnfdir/(case+".cnf");digest=sha256(p.read_bytes()).hexdigest()
@@ -112,8 +162,11 @@ def audit(binary,manifest,archive,cnfdir,science,fixturesdir,out):
         with localcontext() as c:
             c.prec=100
             expected=tuple(fmt(Fraction(anchor[k])) for k in ("real","imag"))
-        result["source_cases"][case]={"sha256":digest,"reference_is_exact":False,
-           "native":compare(native(binary,p,127),expected,True)}
+        native_file=fixturesdir/("original_"+case+".cnf")
+        translated,serialization=to_ganak_weight_grammar(p.read_bytes())
+        native_file.write_bytes(translated)
+        result["source_cases"][case]={"source_sha256":digest,"serialization":serialization,"reference_is_exact":False,
+           "native":compare(native(binary,native_file,127),expected,True)}
         out.write_text(json.dumps(result,indent=2)+"\n")
     failed=[k+"/"+bits for k,v in result["fixtures"].items() for bits,d in v["native"].items() if d["status"]!="PRINT_CONCORDANT_UNCERTIFIED"]
     failed += [k for k,v in result["source_cases"].items() if v["native"]["status"]!="PRINT_CONCORDANT_UNCERTIFIED"]

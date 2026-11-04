@@ -315,4 +315,27 @@ mod tests {
         terminate_tree(child.id(), None);
         assert!(child.wait().is_ok());
     }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn timeout_kills_solver_like_separate_process_group() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "setsid sleep 30 & wait"]).process_group(0);
+        let mut child = cmd.spawn().unwrap();
+        thread::sleep(Duration::from_millis(150));
+        let descendants = descendant_pids(child.id());
+        assert!(!descendants.is_empty(), "must observe subprocess before kill");
+        assert!(descendants.iter().any(|pid| unsafe {
+            libc::getpgid(*pid as i32) != child.id() as i32
+        }), "test must include a descendant outside the worker process group");
+        terminate_tree(child.id(), None);
+        child.wait().unwrap();
+        // A killed child may remain briefly as a zombie until init reaps it.
+        for pid in descendants {
+            if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
+                let state = stat.rsplit_once(") ").unwrap().1.chars().next().unwrap();
+                assert_eq!(state, 'Z', "unexpected active descendant {pid}: {state}");
+            }
+        }
+    }
 }

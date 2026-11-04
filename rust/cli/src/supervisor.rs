@@ -20,7 +20,7 @@ use std::os::unix::process::CommandExt;
 
 enum WorkerEvent {
     Exited(io::Result<ExitStatus>, Instant),
-    CaptureFinished(&'static str),
+    CaptureFinished(&'static str, Instant),
     CaptureOverflow(&'static str),
     CaptureError(&'static str),
 }
@@ -55,7 +55,7 @@ fn capture_bounded<R: Read>(
             // A reaped worker may have descendants that keep inherited
             // output pipes open. Report EOF explicitly; never block forever
             // in an unconditional reader join after the worker exits.
-            let _ = events.send(WorkerEvent::CaptureFinished(stream));
+            let _ = events.send(WorkerEvent::CaptureFinished(stream, Instant::now()));
             return Ok(destination);
         }
         if written + count as u64 > OUTPUT_LIMIT {
@@ -222,7 +222,14 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
                 interrupted = Some(StopReason::WaitFailed(error.to_string()));
                 break;
             }
-            Ok(WorkerEvent::CaptureFinished(stream)) => {
+            Ok(WorkerEvent::CaptureFinished(stream, finished)) => {
+                // A ready event queued after the deadline may still be
+                // returned by recv_timeout(Duration::ZERO). Never release
+                // a late successful result merely because both pipes closed.
+                if finished >= deadline {
+                    interrupted = Some(StopReason::Timeout);
+                    break;
+                }
                 match stream {
                     "stdout" => stdout_finished = true,
                     "stderr" => stderr_finished = true,
@@ -636,6 +643,22 @@ pub fn prepare_worker() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn worker_and_pipe_completion_at_deadline_is_not_success() {
+        let deadline = Instant::now();
+        // Both the worker exit and each stream EOF must be observed before
+        // deadline, not just be available in the event receiver's queue.
+        let after_deadline = deadline + Duration::from_millis(1);
+        let eof = WorkerEvent::CaptureFinished("stdout", after_deadline);
+        match eof {
+            WorkerEvent::CaptureFinished(stream, finished) => {
+                assert_eq!(stream, "stdout");
+                assert!(finished >= deadline, "late EOF must be rejected");
+            }
+            _ => panic!("unexpected event"),
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn terminating_shell_also_terminates_background_child() {

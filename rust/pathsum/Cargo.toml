@@ -34,3 +34,5 @@ proptest = "1.0"
 [features]
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
+# Research-only: opt-in external d4 executable; disabled in all release builds.
+experimental-d4 = []

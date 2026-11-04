@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   cli-walltime:
-    name: Base/HEAD/direct-worker same-runner CLI WallTime
+    name: Base/HEAD same-runner CLI WallTime
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:

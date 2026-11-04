@@ -10,6 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const OUTPUT_LIMIT: u64 = 16 * 1024 * 1024;
+const WORKER_LAUNCH_WITNESS: &[u8] = b"QuPRS-supervisor-inherited-stdin-v1\n";
 pub const TIMEOUT_EXIT: i32 = 124;
 pub const RESOURCE_EXIT: i32 = 125;
 
@@ -141,7 +142,8 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     let mut command = Command::new(std::env::current_exe()?);
     command.args(std::env::args_os().skip(1))
         .arg("--__quprs-worker")
-        .stdin(Stdio::null())
+        .env("QUPRS_CLI_SUPERVISOR_PID", std::process::id().to_string())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -163,6 +165,16 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     #[cfg(target_os = "linux")]
     drop(join_file);
     let pid = child.id();
+    // The non-public worker mode must prove it has an inherited control pipe
+    // and the expected live parent before it starts QASM parsing. This is
+    // misuse resistance, not an adversarial same-user security boundary.
+    let mut admission = child.stdin.take().context("worker admission pipe unavailable")?;
+    if let Err(error) = admission.write_all(WORKER_LAUNCH_WITNESS) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error).context("write worker admission witness");
+    }
+    drop(admission);
     let stdout = child.stdout.take().context("worker stdout pipe unavailable")?;
     let stderr = child.stderr.take().context("worker stderr pipe unavailable")?;
 
@@ -468,6 +480,27 @@ impl Drop for MemoryCgroup {
         let _ = self.kill_all();
         let _ = fs::remove_dir(&self.path);
     }
+}
+
+
+pub fn authorize_worker_launch() -> Result<()> {
+    // A hidden Clap option by itself must not bypass the outer timeout.
+    // The parent provides a one-shot anonymous pipe and expected parent PID.
+    let supervisor_pid: u32 = std::env::var("QUPRS_CLI_SUPERVISOR_PID")
+        .context("InvalidWorkerLaunch: missing supervisor context")?
+        .parse()
+        .context("InvalidWorkerLaunch: malformed supervisor context")?;
+    #[cfg(unix)]
+    if unsafe { libc::getppid() } as u32 != supervisor_pid {
+        bail!("InvalidWorkerLaunch: supervisor process is not the parent");
+    }
+    let mut witness = vec![0_u8; WORKER_LAUNCH_WITNESS.len()];
+    io::stdin().read_exact(&mut witness)
+        .context("InvalidWorkerLaunch: missing inherited supervisor pipe")?;
+    if witness != WORKER_LAUNCH_WITNESS {
+        bail!("InvalidWorkerLaunch: inherited supervisor pipe did not match");
+    }
+    Ok(())
 }
 
 pub fn prepare_worker() -> Result<()> {

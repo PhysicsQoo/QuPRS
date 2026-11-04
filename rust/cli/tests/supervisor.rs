@@ -163,3 +163,29 @@ fn stdout_or_stderr_flood_never_publishes_scientific_output() {
             "bounded failure must be explicit for {stream}: {:?}", result);
     }
 }
+
+#[test]
+fn direct_internal_worker_flag_is_refused_without_supervisor_context() {
+    let file = fixture();
+    let result = Command::new(cli()).arg(file.path())
+        .args(["--__quprs-worker", "--quiet", "--timeout", "1"])
+        .env_remove("QUPRS_CLI_SUPERVISOR_PID")
+        .output().unwrap();
+    assert!(!result.status.success(), "public bypass unexpectedly succeeded");
+    assert!(result.stdout.is_empty(), "worker bypass leaked science output");
+    assert!(String::from_utf8_lossy(&result.stderr).contains("InvalidWorkerLaunch"));
+}
+
+#[cfg(unix)]
+#[test]
+fn forged_supervisor_pid_without_inherited_pipe_is_refused() {
+    let file = fixture();
+    // A forged environment variable alone is not a valid launch witness.
+    let result = Command::new(cli()).arg(file.path())
+        .args(["--__quprs-worker", "--quiet"])
+        .env("QUPRS_CLI_SUPERVISOR_PID", std::process::id().to_string())
+        .output().unwrap();
+    assert!(!result.status.success(), "worker accepted no control pipe");
+    assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("InvalidWorkerLaunch"));
+}

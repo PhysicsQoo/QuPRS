@@ -16,6 +16,7 @@ use crate::args::Cli;
 fn main() -> Result<()> {
     let cli = Cli::parse();
     if cli.internal_worker {
+        supervisor::authorize_worker_launch()?;
         supervisor::prepare_worker()?;
     } else {
         // The caller only observes committed output from a successful worker.

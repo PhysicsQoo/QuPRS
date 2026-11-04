@@ -1,7 +1,8 @@
 """Source-pinned CLI-process overhead, measured ONLY by CodSpeed WallTime.
 
 Comparisons are paired in one GitHub job with identical QASM and toolchain.
-The same source code in rust/pathsum is used in base and HEAD. These are
+The same source code in rust/pathsum is used in base and HEAD. The internal
+worker bypass is intentionally excluded from the release benchmark. These
 CLI end-to-end observations, NOT Rust algorithmic CPU-cycle benchmarks.
 """
 import os
@@ -33,12 +34,6 @@ def run_case(revision: str, case: str) -> str:
     ]
     if case != "single_h":
         command.extend(["--method", "reduction-rules", "--strategy", "straightforward"])
-    if revision == "direct_head":
-        command.append("--__quprs-worker")
-    if revision == "direct_head":
-        binary = Path(os.environ["QOO156_HEAD_CLI"])
-        command[0] = str(binary)
-
     process = subprocess.Popen(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, start_new_session=True,
@@ -62,7 +57,7 @@ def run_case(revision: str, case: str) -> str:
     [
         pytest.param(revision, case, id=f"{case}-{order}-{revision}")
         for case in ("single_h", "dual_ghz32", "dual_qpe8")
-        for order, revision in enumerate(("base", "head", "head", "base", "direct_head"))
+        for order, revision in enumerate(("base", "head", "head", "base"))
     ],
 )
 def test_qoo156_cli_walltime(benchmark, revision: str, case: str):

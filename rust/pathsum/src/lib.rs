@@ -1178,3 +1178,25 @@ mod rr_integer_compact_candidate_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod qoo156_deadline_result_tests {
+    use super::*;
+    use crate::ir::QuantumOp;
+
+    #[test]
+    fn returned_final_pathsum_never_retains_request_deadline() {
+        let options = VerificationOptions {
+            method: VerificationMethod::ReductionRules,
+            strategy: VerificationStrategy::Straightforward,
+            timeout_secs: 15,
+            ..VerificationOptions::default()
+        };
+        let result = check_equivalence_with_options(
+            1, &[QuantumOp::H(0)], &[QuantumOp::H(0)], &options
+        ).unwrap();
+        assert_ne!(result.status, EquivalenceStatus::Timeout);
+        assert!(result.final_ps.verification_deadline.is_none());
+        assert!(!result.final_ps.deadline_exceeded);
+    }
+}

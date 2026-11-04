@@ -36,7 +36,7 @@ and compiler dependency versions. If the binary is available:
 
     python3 research/qoo157_d4/poc_d4.py \
       --workdir /tmp/qoo157-d4-evidence \
-      --binary /tmp/qoo157-d4-upstream/demo/counter/build/counter \
+      --binary /tmp/qoo157-d4-upstream/c++/counter/build/counter \
       --cnf /path/to/a/real/quprs-emitted-small.cnf \
       --timeout 30
 

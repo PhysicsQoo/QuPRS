@@ -184,3 +184,41 @@ mod tests {
         assert_eq!(actual.f.functions, expected.f.functions);
     }
 }
+
+#[cfg(test)]
+mod cooperative_bra_cx_deadline_tests {
+    use super::*;
+    use crate::rational::{Angle, Rational};
+    use std::time::{Duration, Instant};
+
+    fn fixture() -> PhasePolynomial {
+        let mut poly = PhasePolynomial::new();
+        poly.add_term(vec![0, 1], PhaseCoeff::HALF);
+        poly.add_term(vec![0, 2], PhaseCoeff::new_constant(Rational::new(1, 8)));
+        poly.add_term(vec![0, 1, 2],
+            Angle::from_qasm_str("0.12345678901234567890123456789")
+                .expect("source decimal").to_phase_coeff());
+        poly
+    }
+
+    #[test]
+    fn native_exact_bra_cx_is_identical_with_active_budget() {
+        let mut expected = fixture();
+        let mut actual = expected.clone();
+        expected.substitute_bra_cx(0, 1);
+        assert!(actual.substitute_bra_cx_checked(
+            0, 1, Some(Instant::now() + Duration::from_secs(30)),
+        ));
+        assert_eq!(actual.terms, expected.terms);
+    }
+
+    #[test]
+    fn native_exact_bra_cx_rejects_expired_budget_before_mutation() {
+        let mut poly = fixture();
+        let unchanged = poly.clone();
+        assert!(!poly.substitute_bra_cx_checked(
+            0, 1, Some(Instant::now() - Duration::from_millis(1)),
+        ));
+        assert_eq!(poly.terms, unchanged.terms);
+    }
+}

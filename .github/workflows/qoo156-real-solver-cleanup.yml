@@ -6,6 +6,7 @@ on:
       - experiment/qoo156-cli-supervisor
     paths:
       - 'scripts/qoo156_cli_real_solver_cleanup.py'
+      - 'scripts/qoo156_real_ganak_pause.c'
       - '.github/workflows/qoo156-real-solver-cleanup.yml'
   workflow_dispatch:
 
@@ -43,6 +44,13 @@ jobs:
           cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
           mkdir -p evidence/qoo156-real-solver
           git rev-parse HEAD > evidence/qoo156-real-solver/source-sha.txt
+      - name: Build test-only Ganak ELF mode-6 pause shim
+        shell: bash
+        run: |
+          set -euo pipefail
+          cc -std=c11 -Wall -Wextra -Werror -shared -fPIC -O2             scripts/qoo156_real_ganak_pause.c -o "$RUNNER_TEMP/qoo156_real_ganak_pause.so"
+          echo "QOO156_GANAK_PAUSE_SO=$RUNNER_TEMP/qoo156_real_ganak_pause.so" >> "$GITHUB_ENV"
+          sha256sum "$RUNNER_TEMP/qoo156_real_ganak_pause.so"             > evidence/qoo156-real-solver/pause-sha256.txt
       - name: Observe and terminate actual GPMC/Ganak processes
         shell: bash
         run: |

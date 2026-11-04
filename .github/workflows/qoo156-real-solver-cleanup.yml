@@ -1,0 +1,61 @@
+name: QOO-156 Real Solver Cancellation Certificate
+
+on:
+  push:
+    branches:
+      - experiment/qoo156-cli-supervisor
+    paths:
+      - 'scripts/qoo156_cli_real_solver_cleanup.py'
+      - '.github/workflows/qoo156-real-solver-cleanup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-real-solver-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-real-solver-cleanup:
+    name: Real GPMC and pinned Ganak timeout cleanup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare pinned solvers and native CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check 'maturin>=1.5,<2' psutil
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          mkdir -p evidence/qoo156-real-solver
+          git rev-parse HEAD > evidence/qoo156-real-solver/source-sha.txt
+      - name: Observe and terminate actual GPMC/Ganak processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/qoo156_cli_real_solver_cleanup.py \
+            --cli rust/target/release/QuPRS_cli \
+            --evidence evidence/qoo156-real-solver \
+            2>&1 | tee evidence/qoo156-real-solver/solver-cleanup.log
+      - name: Preserve source-pinned cleanup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-real-solvers-${{ github.sha }}
+          path: evidence/qoo156-real-solver/
+          if-no-files-found: warn
+          retention-days: 30

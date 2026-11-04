@@ -1,0 +1,106 @@
+name: QOO-156 Host Witness for Authentic Solver OOM (bounded pilot)
+
+# One release CLI build. Preserve all Linux kernel/OOM records even if the
+# container harness dies. Experimental branch ONLY, no dev matrix duplication.
+on:
+  push:
+    branches: [experiment/qoo156-oom-host-observer]
+    paths:
+      - '.github/workflows/qoo156-host-real-solver-oom.yml'
+      - 'scripts/qoo156_host_oom_probe/real_solver_host_ledger.py'
+      - 'scripts/qoo156_solver_oom_victim/driver.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-host-real-solver-oom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-pinned-host-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build one release CLI, pin real solvers, and image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-host-real-oom
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          test -x rust/target/release/QuPRS_cli
+          git rev-parse HEAD > evidence/qoo156-host-real-oom/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-host-real-oom/pathsum-tree.txt
+          git rev-parse HEAD:GPMC > evidence/qoo156-host-real-oom/gpmc-tree.txt
+          sha256sum rust/target/release/QuPRS_cli \
+            src/QuPRS/utils/wmc_tools/gpmc \
+            src/QuPRS/utils/wmc_tools/ganak \
+            scripts/qoo156_host_oom_probe/host_ledger.py \
+            scripts/qoo156_host_oom_probe/real_solver_host_ledger.py \
+            scripts/qoo156_solver_oom_victim/driver.py \
+            benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+            > evidence/qoo156-host-real-oom/sha256.txt
+          grep -Fq 934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd \
+            evidence/qoo156-host-real-oom/sha256.txt
+          python3 -m py_compile \
+            scripts/qoo156_host_oom_probe/host_ledger.py \
+            scripts/qoo156_host_oom_probe/real_solver_host_ledger.py \
+            scripts/qoo156_solver_oom_victim/driver.py
+          docker build -q -t qoo156-wmc:host-real-oom scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-host-real-oom/image-id.txt
+          docker image inspect qoo156-wmc:host-real-oom --format '{{.Id}}' \
+            > evidence/qoo156-host-real-oom/image-sha.txt
+      - name: High-cap authentic GPMC/Ganak scientific controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          for solver in gpmc ganak; do
+            docker run --rm --network=none --read-only --cap-drop=ALL \
+              --security-opt no-new-privileges --pids-limit=64 \
+              --memory=1024m --memory-swap=1024m \
+              --user 65534:65534 --tmpfs /tmp:rw,nosuid,size=64m \
+              --entrypoint python3 \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/release/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc,target=/opt/gpmc,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak,target=/opt/ganak,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm,target=/opt/vqe4.qasm,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_docker_wmc_envelope/solver_driver.py,target=/opt/control.py,readonly" \
+              -e "QOO156_SOLVER=$solver" -e QOO156_LIMIT_MIB=1024 \
+              qoo156-wmc:host-real-oom /opt/control.py \
+              | tee "evidence/qoo156-host-real-oom/$solver-high-control.log"
+            grep -Fq "QOO156_REAL_WMC_DOCKER_${solver}_1024=REAL_WMC_COMPLETE_PASS" \
+              "evidence/qoo156-host-real-oom/$solver-high-control.log"
+            python3 - "$solver" <<'PY'
+          import json,sys,pathlib
+          s=sys.argv[1]
+          text=pathlib.Path("evidence/qoo156-host-real-oom",s+"-high-control.log").read_text()
+          item=next(json.loads(line.split("QOO156_REAL_WMC_DOCKER_JSON=",1)[1])
+                    for line in text.splitlines() if "QOO156_REAL_WMC_DOCKER_JSON=" in line)
+          assert item["complete_science_verdict"] == "not_equivalent", item
+          assert item["kernel_oom_kill_delta"] == 0, item
+          print("QOO156_REAL_SOLVER_HIGH_CAP_CONTROL=PASS",s)
+          PY
+          done
+      - name: Outer host OOM ledger around authentic low-cap solver pressure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qoo156_host_oom_probe/real_solver_host_ledger.py \
+            --workspace "$GITHUB_WORKSPACE" --evidence evidence/qoo156-host-real-oom
+      - name: Preserve all source-pinned evidence on PASS and NOT_ADMITTED
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-host-real-oom-${{ github.sha }}
+          path: evidence/qoo156-host-real-oom/
+          if-no-files-found: warn
+          retention-days: 30

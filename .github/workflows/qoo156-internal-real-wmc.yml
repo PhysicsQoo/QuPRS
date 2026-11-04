@@ -1,0 +1,89 @@
+name: QOO-156 Real GPMC Ganak Under CLI Internal memory.max
+
+# Source-locked authentic release WMC. The privileged Docker wrapper creates
+# cgroup delegation on an ephemeral GitHub host; the CLI itself executes UID
+# 65534. No benchmark timings; NOT CodSpeed; no upstream Solver modifications.
+on:
+  push:
+    branches: [experiment/qoo156-internal-cgroup-p0]
+    paths:
+      - '.github/workflows/qoo156-internal-real-wmc.yml'
+      - 'scripts/qoo156_internal_cgroup/release_solver.py'
+      - 'rust/cli/src/supervisor.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-internal-real-wmc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-internal-wmc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build one frozen release CLI and pin actual GPMC/Ganak
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-internal-real-wmc
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python3 -m py_compile \
+            scripts/qoo156_internal_cgroup/pilot.py \
+            scripts/qoo156_internal_cgroup/release_solver.py
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          test -x rust/target/release/QuPRS_cli
+          git rev-parse HEAD > evidence/qoo156-internal-real-wmc/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-internal-real-wmc/pathsum-tree.txt
+          git rev-parse HEAD:GPMC > evidence/qoo156-internal-real-wmc/gpmc-tree.txt
+          sha256sum rust/target/release/QuPRS_cli \
+            src/QuPRS/utils/wmc_tools/gpmc src/QuPRS/utils/wmc_tools/ganak \
+            scripts/qoo156_internal_cgroup/pilot.py \
+            scripts/qoo156_internal_cgroup/release_solver.py \
+            benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm \
+            benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+            > evidence/qoo156-internal-real-wmc/source-sha256.txt
+          grep -Fq 934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd \
+            evidence/qoo156-internal-real-wmc/source-sha256.txt
+          grep -Fq 507919b9af456645b55dc73e7d4db4a56b9293a0fa3ba99f5f8a0986826ef4b1 \
+            evidence/qoo156-internal-real-wmc/source-sha256.txt
+          docker build -q -t qoo156:internal-real-wmc scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-internal-real-wmc/image-build.txt
+          docker image inspect qoo156:internal-real-wmc --format '{{.Id}}' \
+            > evidence/qoo156-internal-real-wmc/image-id.txt
+      - name: Authenticate nested cgroup resource and true WMC paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout -k 4s 105s docker run --rm --privileged --cgroupns=private \
+            --memory=512m --memory-swap=512m --pids-limit=64 \
+            --network=none --read-only --user 0:0 --tmpfs /tmp:rw,nosuid,size=64m \
+            --entrypoint python3 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/release/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc,target=/opt/gpmc,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak,target=/opt/ganak,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm,target=/opt/qft16.qasm,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm,target=/opt/vqe4.qasm,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/pilot.py,target=/opt/pilot.py,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/release_solver.py,target=/opt/release_solver.py,readonly" \
+            qoo156:internal-real-wmc -u /opt/release_solver.py \
+            | tee evidence/qoo156-internal-real-wmc/run.txt
+          grep -Fq QOO156_INTERNAL_REAL_WMC=PASS \
+            evidence/qoo156-internal-real-wmc/run.txt
+      - name: Persist PASS or NOT_ADMITTED details
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-internal-real-wmc-${{ github.sha }}
+          path: evidence/qoo156-internal-real-wmc/
+          if-no-files-found: warn
+          retention-days: 30

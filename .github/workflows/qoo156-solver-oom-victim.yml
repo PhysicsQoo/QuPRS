@@ -1,0 +1,124 @@
+name: QOO-156 Real Solver OOM Victim Under External Docker Cap
+
+# Test-only adversarial memory pressure; no modifications to solver binaries.
+# Distinct from QuPRS internal --max-memory-mib and from CodSpeed.
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths:
+      - '.github/workflows/qoo156-solver-oom-victim.yml'
+      - 'scripts/qoo156_solver_oom_victim/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-solver-oom-victim-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinned-solver-oom:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: One pinned Rust release CLI build and runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-solver-oom
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          test -x rust/target/release/QuPRS_cli
+          git rev-parse HEAD > evidence/qoo156-solver-oom/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-solver-oom/pathsum-tree.txt
+          git rev-parse HEAD:GPMC > evidence/qoo156-solver-oom/gpmc-tree.txt
+          sha256sum rust/target/release/QuPRS_cli \
+            src/QuPRS/utils/wmc_tools/gpmc src/QuPRS/utils/wmc_tools/ganak \
+            scripts/qoo156_solver_oom_victim/driver.py \
+            benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+            > evidence/qoo156-solver-oom/source-sha256.txt
+          grep -Fq '934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd ' \
+            evidence/qoo156-solver-oom/source-sha256.txt
+          docker build -q -t qoo156-wmc:solver-oom scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-solver-oom/image-id.txt
+          docker image inspect qoo156-wmc:solver-oom --format '{{.Id}}' \
+            > evidence/qoo156-solver-oom/image-sha.txt
+      - name: Observe pinned real GPMC/Ganak OOM victim in bounded container
+        shell: bash
+        run: |
+          set -euo pipefail
+          for solver in gpmc ganak; do
+            name="qoo156-solver-oom-$solver-$GITHUB_RUN_ID"
+            docker run -d --name "$name" \
+              --entrypoint python3 \
+              --memory=256m --memory-swap=256m \
+              --pids-limit=64 --network=none --read-only \
+              --cap-drop=ALL --security-opt no-new-privileges \
+              --user 65534:65534 --tmpfs /tmp:rw,nosuid,size=64m \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/release/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc,target=/opt/gpmc,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak,target=/opt/ganak,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm,target=/opt/vqe4.qasm,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_solver_oom_victim/driver.py,target=/opt/driver.py,readonly" \
+              -e "QOO156_SOLVER=$solver" \
+              qoo156-wmc:solver-oom /opt/driver.py \
+              > "evidence/qoo156-solver-oom/$solver-id.txt"
+            set +e
+            timeout -k 3s 35s docker wait "$name" \
+              > "evidence/qoo156-solver-oom/$solver-docker-wait.txt" 2>&1
+            outer_rc=$?
+            set -e
+            docker inspect "$name" --format '{{.State.ExitCode}}' \
+              > "evidence/qoo156-solver-oom/$solver-exit.txt"
+            docker inspect "$name" --format '{{.State.OOMKilled}}' \
+              > "evidence/qoo156-solver-oom/$solver-docker-oom.txt"
+            docker inspect "$name" --format '{{.HostConfig.Memory}}' \
+              > "evidence/qoo156-solver-oom/$solver-limit.txt"
+            docker logs "$name" > "evidence/qoo156-solver-oom/$solver-log.txt" 2>&1 || true
+            docker rm -f "$name" > /dev/null || true
+            printf 'outer_rc=%s\n' "$outer_rc" > "evidence/qoo156-solver-oom/$solver-outer.txt"
+            cat "evidence/qoo156-solver-oom/$solver-log.txt"
+            test "$(cat "evidence/qoo156-solver-oom/$solver-limit.txt")" = 268435456
+          done
+      - name: Strict positive solver PID death + memory.events + CLI integrity gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("evidence/qoo156-solver-oom")
+          records={}
+          for solver in ("gpmc","ganak"):
+              log=(root/f"{solver}-log.txt").read_text()
+              data=[l.split("QOO156_SOLVER_OOM_VICTIM_JSON=",1)[1]
+                    for l in log.splitlines() if "QOO156_SOLVER_OOM_VICTIM_JSON=" in l]
+              val=json.loads(data[-1]) if data else {"classification":"NOT_ADMITTED_NO_RECORD"}
+              val["container_exit"]=(root/f"{solver}-exit.txt").read_text().strip()
+              val["docker_oom_flag"]=(root/f"{solver}-docker-oom.txt").read_text().strip()
+              records[solver]=val
+              print("QOO156_SOLVER_OOM_CERTIFICATE",solver,val["classification"],
+                    "kernel_oom_kill",val.get("kernel_oom_kill_delta"),
+                    "solver_pid",val.get("target_solver",{}).get("pid")
+                    if val.get("target_solver") else None)
+          (root/"manifest.json").write_text(json.dumps(records,indent=2,sort_keys=True)+"\n")
+          if any(v["classification"]!="REAL_SOLVER_KERNEL_OOM_VICTIM_AND_NO_FALSE_VERDICT"
+                 for v in records.values()):
+              raise SystemExit("QOO156_REAL_SOLVER_OOM_CERTIFICATE=NOT_ADMITTED")
+          print("QOO156_REAL_SOLVER_OOM_CERTIFICATE=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo156-real-solver-oom-${{ github.sha }}
+          path: evidence/qoo156-solver-oom/
+          if-no-files-found: warn
+          retention-days: 30

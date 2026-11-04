@@ -33,9 +33,21 @@ The Rust algorithm implementation `rust/pathsum` is intentionally identical to `
 - [Real solver attempt #41822744791](https://github.com/PhysicsQoo/QuPRS/actions/runs/41822744791) and [debugging run #41823482984](https://github.com/PhysicsQoo/QuPRS/actions/runs/41823482984): both **NOT_ADMITTED**. GPMC wrapper launched a child but SIGSTOP arrived **before exec**, when `/proc/<pid>/exe` still resolved to `/usr/bin/dash`; CLI did return Timeout without observed live orphan, but this does not certify a real GPMC executable was canceled. Ganak ran its actual pinned binary and returned a verdict, yet its mode-6 counting process had already exited before a controlled freeze was observed. Both remain open. The current pilot requires actual GPMC ELF `/proc/<pid>/exe` before pausing and never credits Ganak preflight in place of mode-6 counting.
 - No source or release changes were merged to `dev`/`main`. No strict memory guarantee on macOS or nondelegated Linux is claimed.
 
+## P0 solver orphan reproduced and remediation (2026-11-04)
+
+- [Pre-fix real Ganak certificate #41828065057](https://github.com/PhysicsQoo/QuPRS/actions/runs/41828065057), source `920285eef...`, archived JSON artifact `13320770780`: pinned, **unmodified, statically linked Ganak** (`sha256=934a79a3...`) was observed as genuine `--mode=6` executable, with ancestry to the CLI and source-pinned MQTBench circuit, then SIGSTOP'ed. Four trials (VQE4, QAOA7, Graphstate16, QFT16) all returned CLI `Timeout`, exit 124, **while the original stopped Ganak PID remained alive after CLI exited**. The test harness killed the remaining processes separately. This is an actual leak, not merely lack of test coverage. No solver sources or flags were modified.
+- Root-cause candidate: if the worker is reaped at deadline, the parent sometimes returns without a descendant sweep; detached Ganak may already be reparented away from the original worker, so tree enumeration rooted at worker PID misses it. A simple process-group kill is insufficient because Ganak uses its own group. Causal mechanism is being validated by fix and replay.
+- [Experimental Linux subreaper fix `fe912f3`](https://github.com/PhysicsQoo/QuPRS/commit/fe912f3be7300eac4552372089dad39fe7295e08): parent calls `prctl(PR_SET_CHILD_SUBREAPER)` before worker spawn. Once the worker is reaped, Linux adopts any surviving descendants. `waitpid(-1,WNOHANG)` is the fast clean-path; only when live adopted descendants are present does the parent scan /proc, SIGKILL their groups and reap them. Does not modify `rust/pathsum`, Ganak or GPMC, and does not poll during native computation.
+- [Scoped science CI #41829351680](https://github.com/PhysicsQoo/QuPRS/actions/runs/41829351680) **PASS**: Linux unit 7/7 and integration 9/9, macOS unit 6/6 and integration 6/6, both release build PASS. New debug-only test reproduces worker exit with a separate-process-group orphan.
+- [Actual Ganak recheck #41829837553](https://github.com/PhysicsQoo/QuPRS/actions/runs/41829837553) requires a second real `--mode=6` SIGSTOP/timeout/no-survivor result **before admission**. If it fails, retain the branch as experimental and diagnose from source-pinned JSON; a successful simulated test is not sufficient.
+
+## Static Ganak ELF provenance
+
+- [Read-only pinned Ganak ELF audit #41827070084](https://github.com/PhysicsQoo/QuPRS/actions/runs/41827070084): 2.8.0 Linux x86-64 binary `sha256=934a79a3...` **statically linked, without PT_INTERP or DT_NEEDED**. Consequently `LD_PRELOAD` constructors cannot instrument this binary. All earlier LD_PRELOAD tests were NOT_ADMITTED and are not proof of cancellation behavior.
+
 ## Remaining acceptance
 
 1. Confirm event-driven CodSpeed CLI overhead across short and realistic workloads; hosted WallTime is non-Macro observational until fixed runner acceptance.
-2. Validate GPMC/Ganak nested process groups, forced timeout cleanup and no child-process leak (including Linux/macOS distinctions).
+2. Certify the Linux subreaper change with real Ganak mode-6 after reproducing 4/4 pre-fix leaks; GPMC real cancellation already passed; separately assess macOS process-tree containment.
 3. Positive physical-memory enforcement test on a delegated Linux cgroup, forced OOM, cgroup event provenance, and process-start containment confirmation. Pre-exec placement is now implemented but lacks a delegated-runner positive gate.
 4. Repeat science and performance gates on final source SHA. Do not merge or release from this experimental branch until admitted.

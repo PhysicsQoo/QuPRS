@@ -1,0 +1,98 @@
+name: QOO98 pinned Ganak 2.8.0 Mode6 native output scientific gate
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo98-ganak-pinned-mode6-native.yml'
+      - 'research/qoo157_d4/qoo98_ganak_native_mode6_admission.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-print-resolution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Guard source and official pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile research/qoo157_d4/qoo98_ganak_native_mode6_admission.py
+          grep -q 'release/v2.8.0' src/QuPRS/utils/ganak-release.txt
+          mkdir -p evidence
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Download pinned official Linux archive and verify archive/executable hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo98-ganak-native"
+          mkdir -p "$root/expanded"
+          archive="$root/ganak-v2.8.0-linux-amd64.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" \
+            'https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz'
+          expected_archive=$(awk '$1=="linux" && $2=="x86_64" {print $4}' src/QuPRS/utils/ganak-release.txt)
+          expected_bin=$(awk '$1=="linux" && $2=="x86_64" {print $5}' src/QuPRS/utils/ganak-release.txt)
+          test -n "$expected_archive" && test -n "$expected_bin"
+          test "$(sha256sum "$archive" | cut -d' ' -f1)" = "$expected_archive"
+          tar -xzf "$archive" -C "$root/expanded"
+          binary=$(find "$root/expanded" -type f -name ganak -print -quit)
+          test -n "$binary" && test -f "$binary"
+          chmod +x "$binary"
+          test "$(sha256sum "$binary" | cut -d' ' -f1)" = "$expected_bin"
+          "$binary" --version > evidence/ganak-version.txt
+          grep -q 'Ganak SHA1: b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281' evidence/ganak-version.txt
+          sha256sum "$archive" > evidence/ganak-official-archive.sha256
+          sha256sum "$binary" > evidence/ganak-official-binary.sha256
+          echo "QOO98_GANAK_BINARY=$binary" >> "$GITHUB_ENV"
+          echo "QOO98_GANAK_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      - name: 127 and 256-bit native Mode6 fixed-9-digit scientific print screens
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/qoo98_ganak_native_mode6_admission.py \
+            --binary "$QOO98_GANAK_BINARY" \
+            --manifest src/QuPRS/utils/ganak-release.txt \
+            --archive "$QOO98_GANAK_ARCHIVE" \
+            --original-dir evidence/original/cnfs \
+            --source-science evidence/original/matched-science-report.json \
+            --fixtures-dir evidence/small-exact-fixtures \
+            --out evidence/ganak-native-mode6-report.json
+      - name: Record scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/runner-head.txt
+          echo 'Ganak 2.8.0 native science-only: output half-ulp is NOT internal MPFR error certificate; NOT comparable for 38d printed results; no CodSpeed.' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo98-ganak-mode6-native-${{ github.sha }}
+          path: |
+            evidence/ganak-native-mode6-report.json
+            evidence/small-exact-fixtures/
+            evidence/ganak-version.txt
+            evidence/ganak-official-archive.sha256
+            evidence/ganak-official-binary.sha256
+            evidence/runner-head.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

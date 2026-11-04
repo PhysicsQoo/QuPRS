@@ -28,8 +28,8 @@ Cargo.toml, wheels or Docker images):
 
     git clone https://github.com/jm62300/d4.git /tmp/qoo157-d4-upstream
     git -C /tmp/qoo157-d4-upstream checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
-    cd /tmp/qoo157-d4-upstream/demo/counter
-    ./build.sh
+    cd /tmp/qoo157-d4-upstream/c++/counter
+    ./build.sh -j
 
 Do not consider native runnable until checking the actual build output path
 and compiler dependency versions. If the binary is available:

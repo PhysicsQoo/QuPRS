@@ -47,7 +47,7 @@ class D4ResearchAdapter(SolverAdapter):
             raise SolverExecutionError("d4 research binary not found")
         if not SHA256.fullmatch(self.expected_binary_sha256):
             raise SolverExecutionError("d4 research binary SHA is missing or malformed")
-        if self.upstream_commit != UPSTREAM or self.preparse_gmp_bits < 128:
+        if self.upstream_commit != UPSTREAM or self.preparse_gmp_bits < 256:
             raise SolverExecutionError("d4 research GMP initialization provenance insufficient")
         got = hashlib.sha256(path.read_bytes()).hexdigest()
         if got != self.expected_binary_sha256:
@@ -88,7 +88,7 @@ def external_research_adapter(binary: Path, provenance_file: Path) -> D4Research
     bits = meta.get("gmp_preparse_bits")
     if not isinstance(sha, str) or not SHA256.fullmatch(sha):
         raise SolverExecutionError("d4 manifest lacks a valid binary SHA256")
-    if revision != UPSTREAM or type(bits) is not int or bits < 128 or bits > 2048:
+    if revision != UPSTREAM or type(bits) is not int or bits < 256 or bits > 2048:
         raise SolverExecutionError("d4 manifest lacks a supported preparse-GMP mode")
     if meta.get("source_patch_approved_for_research") is not True:
         raise SolverExecutionError("d4 manifest missing explicit research-only source patch")

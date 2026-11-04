@@ -73,8 +73,9 @@ def test_pinned_binary_mismatch_and_insufficient_precision_fail(tmp_path):
     fake.write_bytes(b"binary tampered")
     with pytest.raises(SolverExecutionError, match="SHA mismatch"):
         adapter.verify_binary(fake, 5)
-    with pytest.raises(SolverExecutionError, match="preparse"):
-        make_poc(tmp_path, bits=64)
+    for insufficient_bits in (64, 128):
+        with pytest.raises(SolverExecutionError, match="preparse"):
+            make_poc(tmp_path, bits=insufficient_bits)
     with pytest.raises(SolverExecutionError, match="source patch"):
         make_poc(tmp_path, source_approved=False)
 

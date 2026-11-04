@@ -62,3 +62,7 @@ packaging metadata or solver submodule changed relative to
   conclusion can be taken from the scoped correctness CI.
 
 No dev PR, no release support decision.
+
+## P0 admission floor
+
+Pinned d4 A/B recovered all 16/16 nonzero-residual fixtures at 256-bit, but 128-bit still lost the 1e-60 residual. Python/Rust opt-in research admission therefore both require preparse GMP >=256 bits; this is not an arbitrary-circuit error certificate.

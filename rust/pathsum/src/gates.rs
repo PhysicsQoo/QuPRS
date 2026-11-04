@@ -178,8 +178,17 @@ impl QuantumGates for PathSum {
                 if x_t == x_c {
                     self.substitute_var_with_poly(x_t, &sub_poly);
                 } else if let Some(deadline) = self.verification_deadline {
-                    // The exact Bra-CX fast path bypasses generic PathSum
-                    // substitution, so it must honor the same deadline.
+                    if self.small_exact_substitution(sub_poly.len()) {
+                        // Retain exact Bra-CX for deterministically bounded
+                        // work; the outer gate scheduler samples the clock.
+                        if !self.poll_gate_deadline() { return; }
+                        self.f.substitute_var_with_poly(x_t, &sub_poly);
+                        self.p.substitute_bra_cx(x_t, x_c);
+                        self.poll_gate_deadline();
+                        return;
+                    }
+                    // Large/non-Clifford Bra-CX keeps cancellation inside
+                    // the operation, never classifies a partial residual.
                     if !self.poll_verification_deadline() { return; }
                     if !self.f.substitute_var_with_poly_checked(
                         x_t, &sub_poly, Some(deadline),

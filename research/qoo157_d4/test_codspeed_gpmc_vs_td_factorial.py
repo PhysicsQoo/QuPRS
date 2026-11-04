@@ -32,7 +32,7 @@ def test_qoo157_vs_td_factorial_walltime(benchmark, case, variant):
         "gpmc_binary_sha256": report["binary_sha256"],
         "original_cnf_sha256": entry["cnf_sha256"],
         "working_effective_decimal_digits": 38,
-        "uses_td": variant.endswith("_td"),
+        "uses_td": not variant.endswith("_no_td"),
         "branch_heuristic": 0 if variant.startswith("vs0_") else 1,
         "flowcutter_executed": expected["flowcutter_executed"],
         "science_status": "COUNT_CONCORDANT_UNCERTIFIED",

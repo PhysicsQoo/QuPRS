@@ -50,9 +50,9 @@ def run_one(binary: str, cnf: Path, variant: str, *, timeout: float = 25) -> dic
     td_running = "FlowCutter is running..." in log
     td_skipped = "skip td" in log
     td_ignored = "ignore td" in log
-    if variant.endswith("no_td") and td_running:
+    if variant.endswith("_no_td") and td_running:
         raise ValueError("TD disabled but FlowCutter unexpectedly executed")
-    if variant.endswith("_td") and (not td_running or td_skipped or td_ignored):
+    if not variant.endswith("_no_td") and (not td_running or td_skipped or td_ignored):
         raise ValueError(f"TD enabled but no accepted decomposition: {variant}")
     metrics = {}
     for metric in ("conflicts", "decisions", "propagations", "SAT calls", "backjumps"):

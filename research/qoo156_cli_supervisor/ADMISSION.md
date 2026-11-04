@@ -99,6 +99,25 @@ The first attempt [#41841384189](https://github.com/PhysicsQoo/QuPRS/actions/run
 
 This is a scientific/resource correctness control, **not** CodSpeed performance evidence. Final adoption requires an operational packaging/interface decision, source-image identity and architecture parity.
 
+## Memory footprint sweep: real GPMC/Ganak vs circuit family (2026-11-04)
+
+Source-locked [GitHub Actions #41845129593](https://github.com/PhysicsQoo/QuPRS/actions/runs/41845129593), [artifact #13331805422](https://github.com/PhysicsQoo/QuPRS/actions/runs/41845129593/artifacts/13331805422), `experiment/qoo156-cli-supervisor@4e852d8e27d69bae282b2e57303cb3957fe0bd17`: one release CLI build, immutable solver SHA, true solver PID/ELF/argv with SIGSTOP→SIGCONT, no solver source modifications. WMC-only, proportional strategy, source-backed MQTBench original circuit vs the same QASM with one additional X gate, exact complete `not_equivalent` verdict on all admitted cases.
+
+| Case | Solver | Docker limit | cgroup v2 `memory.peak` | Kernel `oom_kill` delta | Verdict |
+|---|---|---:|---:|---:|---|
+| VQE4 | GPMC | 64 MiB | 18.836 MiB | 0 | `not_equivalent`, PASS |
+| VQE4 | GPMC | 128 MiB | 18.844 MiB | 0 | `not_equivalent`, PASS |
+| Graphstate16 | GPMC | 256 MiB | 19.797 MiB | 0 | `not_equivalent`, PASS |
+| QFT16 | GPMC | 512 MiB | 42.000 MiB | 0 | `not_equivalent`, PASS |
+| VQE4 | Ganak | 64 MiB | **unavailable** | **unavailable** | Container exit 137, Docker `OOMKilled=true`; **NOT_ADMITTED** (driver killed, no solver witness) |
+| VQE4 | Ganak | 128 MiB | 80.668 MiB | 0 | `not_equivalent`, PASS |
+| Graphstate16 | Ganak | 256 MiB | 80.738 MiB | 0 | `not_equivalent`, PASS |
+| QFT16 | Ganak | 512 MiB | 81.328 MiB | 0 | `not_equivalent`, PASS |
+
+**Interpretation:** `memory.peak` is the *entire container cgroup*, accounting for CLI, solver, Python test harness, kernel file page cache and any tmpfs pages, **not an isolated solver RSS**. Under this one exact workload, Ganak has a much larger observed full-container footprint than GPMC; the 64 MiB Ganak container suffered an OOM, while GPMC VQE4 survived at 64 MiB. Do not infer that the Ganak solver PID (rather than its parent/harness) was itself the OOM-selected victim: the 64 MiB container produced no in-container JSON witness. It only proves this container/job configuration is unsafe at 64 MiB. **Do not generalize memory minima to every circuit or architecture**, and never treat the scientific-control test's elapsed time as CodSpeed performance evidence.
+
+Next bounded experiment: concentrate the threshold between 64 and 128 MiB (Ganak) and a lower QFT16/GPMC limit, with a success control and explicit unobserved-OOM state. Independent Mac mini/OrbStack ARM64 proof remains NOT_TESTED.
+
 ## Real 64 MiB cgroup OOM certificate
 
 Use a dedicated, trusted ephemeral Linux VM/runner with unified cgroup v2,

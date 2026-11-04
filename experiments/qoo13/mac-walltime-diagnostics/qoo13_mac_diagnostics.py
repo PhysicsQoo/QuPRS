@@ -201,6 +201,35 @@ def snapshot() -> dict:
     }
 
 
+def native_environment_write_triage(warnings: list[dict]) -> dict:
+    """Source-level meaning of pytest-codspeed 5.0.3's native error.
+
+    This does not diagnose the historical OS errno or identify the stage that
+    failed. The pinned Zig library logs the same text for two distinct errors.
+    """
+    exact = 'instrument-hooks: failed to write environment.json'
+    observed = any(exact in entry.get('redacted_excerpt', '') for entry in warnings)
+    if not observed:
+        return {'status': 'EXACT_NATIVE_ERROR_NOT_OBSERVED_IN_BOUNDED_SCAN',
+                'root_cause': 'UNVERIFIED'}
+    return {
+        'status': 'NATIVE_CREATE_OR_WRITE_FAILED_STAGE_UNDETERMINED',
+        'root_cause': 'UNVERIFIED_NO_ERRNO_OR_RESOLVED_PATH',
+        'expected_path_pattern': '$CODSPEED_PROFILE_FOLDER/environment-<pid>.json',
+        'possible_failure_stages': ['fs.createFileAbsolute', 'file.writeAll'],
+        'excluded_diagnostic_messages': [
+            'instrument-hooks: profile folder path too long',
+            'instrument-hooks: failed to serialize environment JSON',
+        ],
+        'source': 'CodSpeedHQ/instrument-hooks/src/environment/root.zig',
+        'source_commit': 'b9ddb5bc654b2e6fa13eb18efcd3a45e7ecda0bb',
+        'pinned_by': 'pytest-codspeed v5.0.3 Git submodule',
+        'scope_note': ('Static mapping of the exact upstream logger text; the '
+                       'installed native binary and the historical errno are '
+                       'not independently inspected.'),
+    }
+
+
 def warning_type(line: str) -> str:
     if METADATA_RE.search(line):
         return 'metadata_or_environment'
@@ -280,6 +309,7 @@ def scan_evidence(folder: Path) -> dict:
         except (OSError, UnicodeError):
             continue
     report['status'] = 'WARNINGS_FOUND' if report['warnings'] else 'NO_MATCHES_WITHIN_SCAN_LIMITS'
+    report['native_environment_write_triage'] = native_environment_write_triage(report['warnings'])
     report['codspeed_environment_write'] = (
         'ERROR_OBSERVED_CAUSE_UNDETERMINED'
         if any(re.search(r'failed to write environment(?:[-.]| data|\b)',
@@ -364,7 +394,7 @@ def main() -> None:
 
     report: dict = {
         'kind': 'QOO13_READ_ONLY_DIAGNOSTICS_NOT_A_BENCHMARK',
-        'script_version': 3,
+        'script_version': 4,
         'evidence_scan': scan_evidence(args.evidence),
         'codspeed_profile_folder': inspect_profile_folder(args.profile_folder),
         'samples': [],

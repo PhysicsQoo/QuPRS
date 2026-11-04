@@ -961,3 +961,43 @@ mod exact_unweighted_count_tests {
         assert!(!manager.has_exact_unweighted_tautology(2));
     }
 }
+
+#[cfg(all(test, feature = "experimental-d4"))]
+mod d4_native_integration_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use num_traits::Zero;
+
+    #[test]
+    fn native_d4_via_existing_solver_supervisor_on_six_pinned_quprs_cnfs() {
+        // This test is explicitly invoked only in the native branch CI job,
+        // which supplies a SHA-pinned external 426-bit GMP d4 executable.
+        let source_dir = std::path::PathBuf::from(
+            std::env::var("QUPRS_D4_PINNED_CNF_DIR")
+                .expect("native d4 fixture dir not supplied"),
+        );
+        for name in [
+            "quprs_bell_t_miter.cnf",
+            "quprs_bell_t_miter_mpfr256.cnf",
+            "quprs_identity1.cnf",
+            "quprs_identity1_mpfr256.cnf",
+            "quprs_t1_miter.cnf",
+            "quprs_t1_miter_mpfr256.cnf",
+        ] {
+            let bytes = std::fs::read_to_string(source_dir.join(name))
+                .expect("pinned QuPRS source CNF missing");
+            let manager = WmcManager::new(&PathSum::new(0));
+            let count = manager.solve_with_deadline_distance_printed_precision_prepared(
+                "d4-poc",
+                Some(Instant::now() + Duration::from_secs(30)),
+                30, &bytes,
+            ).expect("pinned external d4 native solve failed");
+            assert_eq!(count.format_name, "c s exact arb float");
+            assert!(!count.real.is_zero() || !count.imag.is_zero(),
+                    "pinned QuPRS source count must be nonzero");
+            // Print only the observed rational decimal; independent Python
+            // Fraction oracle checks this transcript after the Rust test.
+            println!("D4_RUST_COUNT {} {} {}", name, count.real, count.imag);
+        }
+    }
+}

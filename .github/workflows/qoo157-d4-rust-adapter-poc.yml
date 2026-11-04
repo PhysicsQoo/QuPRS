@@ -7,11 +7,14 @@ on:
       - 'rust/pathsum/src/solver_adapter.rs'
       - 'rust/pathsum/src/wmc.rs'
       - 'rust/pathsum/Cargo.toml'
+      - 'research/qoo157_d4/crosscheck_rust_native.py'
+      - 'research/qoo157_d4/source-cnf-manifest.sha256'
       - '.github/workflows/qoo157-d4-rust-adapter-poc.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: qoo157-rust-d4-${{ github.ref }}
@@ -54,6 +57,54 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
             --lib solver_adapter::tests -- --nocapture \
             2>&1 | tee evidence/default-adapter-regression.log
+      - name: Build external pinned d4 with early GMP precision
+        shell: bash
+        run: |
+          set -euo pipefail
+          export UPSTREAM_SHA=be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$RUNNER_TEMP/qoo157-d4"
+          git -C "$RUNNER_TEMP/qoo157-d4" checkout --detach "$UPSTREAM_SHA"
+          test "$(git -C "$RUNNER_TEMP/qoo157-d4" rev-parse HEAD)" = "$UPSTREAM_SHA"
+          mkdir -p evidence/d4-variant
+          python3 research/qoo157_d4/precision_variant.py \
+            --upstream "$RUNNER_TEMP/qoo157-d4" --evidence evidence/d4-variant
+          git -C "$RUNNER_TEMP/qoo157-d4" diff --check
+          git -C "$RUNNER_TEMP/qoo157-d4" diff -- c++/counter/src/Main.cpp \
+            > evidence/d4-variant/only-source-change.diff
+          (
+            cd "$RUNNER_TEMP/qoo157-d4/c++/counter"
+            ./build.sh -j
+          ) 2>&1 | tee evidence/d4-variant/build.log
+          test -x "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+          sha256sum "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
+            > evidence/d4-variant/binary-sha256.txt
+      - name: Native Rust d4-poc Adapter through existing process supervisor
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/frozen-quprs
+          gh run download 41807195090 --repo PhysicsQoo/QuPRS \
+            --name qoo157-d4-native-5b7b6027c90438a2c1b9cdbbfe35d4b80fafed95 \
+            --dir evidence/frozen-quprs
+          (
+            cd evidence/frozen-quprs
+            sha256sum -c "$GITHUB_WORKSPACE/research/qoo157_d4/source-cnf-manifest.sha256"
+          )
+          export QUPRS_D4_PATH="$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+          export QUPRS_D4_BINARY_SHA256="$(sha256sum "$QUPRS_D4_PATH" | cut -d' ' -f1)"
+          export QUPRS_D4_UPSTREAM_SHA=be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          export QUPRS_D4_GMP_PREPARSE_BITS=426
+          export QUPRS_D4_PINNED_CNF_DIR=evidence/frozen-quprs/quprs-source-cnf
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            --features experimental-d4 --lib d4_native_integration_tests \
+            -- --nocapture 2>&1 | tee evidence/rust-d4-native.log
+          PYTHONPATH=research/qoo157_d4 python3 \
+            research/qoo157_d4/crosscheck_rust_native.py \
+            --log evidence/rust-d4-native.log \
+            --cnf-dir "$QUPRS_D4_PINNED_CNF_DIR" \
+            --out evidence/rust-d4-native-oracle.json
       - name: Keep every Rust source and test log
         if: always()
         uses: actions/upload-artifact@v4

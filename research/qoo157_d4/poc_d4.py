@@ -21,7 +21,7 @@ UPSTREAM_REPO = "https://github.com/jm62300/d4"
 UPSTREAM_SHA = "be15f91f3e9769e1f5cb175fa27e3eca3a1ea690"
 MAX_ORACLE_VARIABLES = 16
 D4_RESULT = re.compile(
-    r"^c s exact arb float\s+(.+?)\s*$", re.MULTILINE
+    r"^c s exact arb (float|int)\s+(.+?)\s*$", re.MULTILINE
 )
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 COMPLEX = re.compile(rf"^({NUMBER})((?:\+|-)(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)i$")
@@ -106,12 +106,20 @@ def parse_d4_count(stdout: str):
     if not matches:
         raise ValueError("d4 output lacks complex weighted count")
     results = []
-    for token in matches:
-        token = re.sub(r"\s+", "", token)
-        pair = COMPLEX.fullmatch(token)
-        if not pair:
-            raise ValueError(f"invalid d4 complex count: {token!r}")
-        results.append((decimal_fraction(pair.group(1)), decimal_fraction(pair.group(2))))
+    for kind, raw in matches:
+        token = re.sub(r"\s+", "", raw)
+        if kind == "int":
+            if not re.fullmatch(r"[+-]?\d+", token):
+                raise ValueError(f"invalid d4 integer count: {token!r}")
+            results.append((Fraction(int(token)), Fraction(0)))
+        elif token.endswith("i"):
+            pair = COMPLEX.fullmatch(token)
+            if not pair:
+                raise ValueError(f"invalid d4 complex count: {token!r}")
+            results.append((decimal_fraction(pair.group(1)), decimal_fraction(pair.group(2))))
+        else:
+            # The upstream counter selects a real-float output for real-only weights.
+            results.append((decimal_fraction(token), Fraction(0)))
     if any(x != results[0] for x in results[1:]):
         raise ValueError("conflicting d4 count lines")
     return results[0]

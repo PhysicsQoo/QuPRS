@@ -64,3 +64,15 @@ The Rust algorithm implementation `rust/pathsum` is intentionally identical to `
 2. Both real GPMC and static Ganak timed cleanup are certified for their exercised source-backed cases. Decide whether to retain Linux subreaper hardening for **worker-crash orphan protection**, not as a claimed Ganak fix. Preserve its synthetic positive test; separately evaluate macOS containment.
 3. Positive cgroup-v2 physical-memory OOM enforcement and `memory.events` evidence on a genuinely delegated Linux host (GitHub-hosted standard and privileged Docker cannot supply it here).
 4. Repeat final focused science and performance gates on the final code SHA; do not merge or release this experimental branch until the remaining admission conditions are resolved.
+
+## QOO-156 CLI I/O guard research continuation (2026-11-04)
+
+A **separate** `experiment/qoo156-cli-io-admission` branch now fixes two audited CLI-only hazards without changing the Rust Path-sum core:
+
+- [Bounded stream capture `c8492fe`](https://github.com/PhysicsQoo/QuPRS/commit/c8492feefef2c2d41050f2e27a803875eca1bab2): 16 MiB each on stdout/stderr while running, overflow triggers worker cleanup and never publishes partial EQ/NEQ.
+- [Worker launch guard `92bbe5c`](https://github.com/PhysicsQoo/QuPRS/commit/92bbe5c68017bc68e4b7abac3c32753d2ed7d01a): parent PID plus anonymous stdin pipe witness required for the internal worker option, with direct-bypass negative tests. This rejects casual bypass, but cannot protect against deliberate same-user protocol imitation; OS memory isolation remains the hard safety boundary.
+- [Focused Linux/macOS CI #41849527251](https://github.com/PhysicsQoo/QuPRS/actions/runs/41849527251) and [#41850230345](https://github.com/PhysicsQoo/QuPRS/actions/runs/41850230345) both **SUCCESS** including release builds. Original OOM research branch, third-party solvers and `dev` remain untouched.
+- CodSpeed now keeps source-paired base/HEAD **ABBA** and drops `direct_head` that intentionally bypassed the supervisor; true Macro performance is **NOT_ADMITTED** because [Macro Runner #41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remains queued/unassigned.
+- Internal delegated cgroup memory OOM and Mac/OrbStack ARM64 remain unadmitted. External Docker cap is independently proven, not equivalent to internal `--max-memory-mib`.
+
+See [ADMISSION.md](ADMISSION.md) for precise proof boundaries and remaining gates.

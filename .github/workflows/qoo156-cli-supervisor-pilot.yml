@@ -32,6 +32,17 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install native GPMC precision library headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+          else
+            brew install pkg-config gmp mpfr
+            echo "PKG_CONFIG_PATH=$(brew --prefix mpfr)/lib/pkgconfig:$(brew --prefix gmp)/lib/pkgconfig" >> "$GITHUB_ENV"
+          fi
       - name: Source provenance
         shell: bash
         run: |

@@ -1,0 +1,107 @@
+name: QOO-156 Real Ganak Pre/Post Subreaper A-B
+
+# Single controlled correctness-only test. NO CodSpeed performance inference.
+# Both CLI variants share pinned Ganak and the corrected PID classifier.
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths: ['.github/workflows/qoo156-ganak-subreaper-ab.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-ganak-ab:
+    name: Source-matched real Ganak cancellation before and after subreaper
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PRE_SUBREAPER_SHA: 920285eefdee8df30cee7e3d79d472dc7d7dc111
+      HEAD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          ref: 920285eefdee8df30cee7e3d79d472dc7d7dc111
+          path: qoo156-pre-subreaper
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Pin same solver/circuit provenance and build both CLI binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C qoo156-pre-subreaper rev-parse HEAD)" = "$PRE_SUBREAPER_SHA"
+          test "$(git rev-parse HEAD:rust/pathsum)" = \
+            "$(git -C qoo156-pre-subreaper rev-parse HEAD:rust/pathsum)"
+          test "$(git rev-parse HEAD:GPMC)" = \
+            "$(git -C qoo156-pre-subreaper rev-parse HEAD:GPMC)"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check 'maturin>=1.5,<2' psutil
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+          TARGET="$RUNNER_TEMP/qoo156-ab-cargo"
+          cargo build --manifest-path qoo156-pre-subreaper/rust/Cargo.toml \
+            --locked -p QuPRS_cli --release --target-dir "$TARGET"
+          cp "$TARGET/release/QuPRS_cli" "$RUNNER_TEMP/qoo156-pre-cli"
+          cargo build --manifest-path rust/Cargo.toml \
+            --locked -p QuPRS_cli --release --target-dir "$TARGET"
+          cp "$TARGET/release/QuPRS_cli" "$RUNNER_TEMP/qoo156-head-cli"
+          mkdir -p evidence/qoo156-ganak-ab
+          printf 'pre=%s\nhead=%s\npathsum_tree=%s\n' \
+            "$PRE_SUBREAPER_SHA" "$HEAD_SHA" "$(git rev-parse HEAD:rust/pathsum)" \
+            > evidence/qoo156-ganak-ab/revisions.txt
+          sha256sum "$RUNNER_TEMP/qoo156-pre-cli" "$RUNNER_TEMP/qoo156-head-cli" \
+            scripts/qoo156_ganak_live_cancel.py \
+            > evidence/qoo156-ganak-ab/source-sha256.txt
+      - name: A - Original process supervisor without Linux subreaper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/qoo156_ganak_live_cancel.py \
+            --cli "$RUNNER_TEMP/qoo156-pre-cli" --timeout 10 --max-cases 1 \
+            --evidence evidence/qoo156-ganak-ab/pre \
+            2>&1 | tee evidence/qoo156-ganak-ab/pre.log
+      - name: B - Linux process supervisor with child-subreaper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/qoo156_ganak_live_cancel.py \
+            --cli "$RUNNER_TEMP/qoo156-head-cli" --timeout 10 --max-cases 1 \
+            --evidence evidence/qoo156-ganak-ab/head \
+            2>&1 | tee evidence/qoo156-ganak-ab/head.log
+      - name: Certify both genuine native Ganak runs
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("evidence/qoo156-ganak-ab")
+          for variant in ("pre", "head"):
+              obj = json.loads((p/variant/"ganak-mode6-live-cancel.json").read_text())
+              assert obj["classification"] == "PASS", (variant, obj)
+              a = obj["attempts"][0]
+              assert a["mode6_stopped"] and a["timeout_exit_124"]
+              assert not a["live_orphan_after_cli"]
+              assert a["solver_sha256"] == "934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd"
+              print(f"QOO156_REAL_GANAK_{variant.upper()}=PASS")
+          PY
+      - name: Preserve source-pinned A/B science evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-ganak-ab-${{ github.sha }}
+          path: evidence/qoo156-ganak-ab/
+          if-no-files-found: warn
+          retention-days: 30

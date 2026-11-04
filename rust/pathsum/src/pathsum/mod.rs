@@ -219,9 +219,13 @@ impl PathSum {
     /// High-degree, phase-symbolic, exact-radian and high-term workloads stay
     /// on the cooperative checked implementation.
     #[inline]
-    pub(crate) fn small_exact_substitution(&self, replacement_terms: usize) -> bool {
-        if replacement_terms > 2 || self.f.functions.len() > 64
-            || self.p.terms.len() > 64 { return false; }
+    pub(crate) fn small_exact_substitution(
+        &self, replacement: &rustc_hash::FxHashSet<Monomial>,
+    ) -> bool {
+        if replacement.len() > 2 || self.f.functions.len() > 64
+            || self.p.terms.len() > 64
+            || replacement.iter().any(|monomial| monomial.len() > 64)
+        { return false; }
         let mut f_terms = 0usize;
         let mut total_width = 0usize;
         for poly in &self.f.functions {
@@ -248,7 +252,7 @@ impl PathSum {
         sub_poly: &rustc_hash::FxHashSet<crate::pathsum::Monomial>,
     ) {
         if let Some(deadline) = self.verification_deadline {
-            if self.small_exact_substitution(sub_poly.len()) {
+            if self.small_exact_substitution(sub_poly) {
                 // Bounded source-size exact arithmetic. The outer gate/RR
                 // scheduler still checks the same request deadline.
                 if !self.poll_gate_deadline() { return; }

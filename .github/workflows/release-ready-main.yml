@@ -16,6 +16,9 @@ jobs:
   source-correctness:
     name: Source correctness
     uses: ./.github/workflows/pytest.yml
+    with:
+      # Scientific SKIP/INCONCLUSIVE is not a verified release source result.
+      require_complete_benchmarks: true
 
   installed-artifacts:
     name: Installed artifacts

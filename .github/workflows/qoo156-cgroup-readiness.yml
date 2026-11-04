@@ -1,0 +1,60 @@
+name: QOO-156 Linux cgroup Readiness and Fail-Closed Gate
+
+# Fast, non-invasive gate: validates shell syntax and truthful NOT_ADMITTED.
+# Positive OOM verification is intentionally manual on an isolated delegated
+# runner, not GitHub-hosted CI or privileged Docker.
+on:
+  push:
+    branches:
+      - experiment/qoo156-cli-supervisor
+    paths:
+      - 'scripts/qoo156_positive_cgroup_oom_gate.sh'
+      - '.github/workflows/qoo156-cgroup-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    name: Lightweight cgroup-v2 readiness, no native solver builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Syntax and truthful readiness/NOT_ADMITTED guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/qoo156_positive_cgroup_oom_gate.sh
+          mkdir -p evidence/qoo156-oom-readiness
+          git rev-parse HEAD > evidence/qoo156-oom-readiness/source-sha.txt
+          set +e
+          QOO156_PREFLIGHT_ONLY=1 \
+            QOO156_OOM_EVIDENCE="$GITHUB_WORKSPACE/evidence/qoo156-oom-readiness" \
+            bash scripts/qoo156_positive_cgroup_oom_gate.sh \
+            > evidence/qoo156-oom-readiness/preflight.log 2>&1
+          result=$?
+          set -e
+          cat evidence/qoo156-oom-readiness/preflight.log
+          cat evidence/qoo156-oom-readiness/verdict.txt
+          if grep -Fxq 'QOO156_CGROUP_OOM_CERTIFICATE=PASS' evidence/qoo156-oom-readiness/verdict.txt; then
+            echo 'Preflight incorrectly claimed positive OOM enforcement!' >&2
+            exit 1
+          fi
+          if grep -Fq 'QOO156_CGROUP_READINESS=PASS' evidence/qoo156-oom-readiness/readiness.txt; then
+            test "$result" -eq 0
+          else
+            test "$result" -eq 2
+          fi
+          echo 'QOO156_FAIL_CLOSED_PREFLIGHT=PASS'
+      - name: Archive cgroup eligibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-cgroup-readiness-${{ github.sha }}
+          path: evidence/qoo156-oom-readiness/
+          if-no-files-found: warn
+          retention-days: 20

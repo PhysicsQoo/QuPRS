@@ -216,11 +216,17 @@ time.sleep(2)
     accepted = (
         target is not None and stopped and score_adjustment == 1000
         and delta >= 1 and gone and not harness_killed_solver
-        and observed_cli_exit == 125 and out == ""
-        and ("WorkerFailed" in err or "Core verification engine failed" in err)
+        # With an EXTERNAL Docker memory cap, QuPRS does not own the cgroup
+        # and cannot truthfully classify the kernel's OOM reason. Its worker
+        # exits 1 after receiving a real Solver SIGKILL; the outer supervisor
+        # preserves that nonzero exit. Only this Docker test harness can
+        # attribute the SIGKILL to memory.events oom_kill.
+        and observed_cli_exit is not None and observed_cli_exit != 0 and out == ""
+        and f"{SOLVER} failed: status=signal: 9 (SIGKILL)" in err
+        and "WorkerFailed" in err
     )
     data = {
-        "classification": "REAL_SOLVER_KERNEL_OOM_VICTIM_AND_NO_FALSE_VERDICT" if accepted
+        "classification": "REAL_SOLVER_EXTERNAL_KERNEL_OOM_NO_FALSE_VERDICT_PASS" if accepted
                           else "NOT_ADMITTED",
         "solver": SOLVER, "solver_elf_sha256": fingerprint,
         "qasm_source_sha256": sha(QASM),
@@ -238,6 +244,8 @@ time.sleep(2)
         "elapsed_observational_seconds": round(time.monotonic() - t0, 3),
         "scope": "Adversarial pressure victim-selection test: NOT natural Solver RSS or general case-memory requirement",
         "internal_cli_max_memory_mib": "NOT_TESTED",
+        "cli_failure_semantics": "Externally enforced Docker OOM: generic WorkerFailed nonzero; kernel memory.events evidence is external. No claim of typed CLI MemoryLimitExceeded/125.",
+        "worker_reports_authentic_solver_sigkill": f"{SOLVER} failed: status=signal: 9 (SIGKILL)" in err,
     }
     print("QOO156_SOLVER_OOM_VICTIM_JSON=" + json.dumps(data,sort_keys=True), flush=True)
     print(f"QOO156_SOLVER_OOM_VICTIM_{SOLVER}={data['classification']}", flush=True)

@@ -1,0 +1,81 @@
+name: QOO-156 Genuine Ganak PID Under Internal CLI Cgroup OOM
+
+# One-shot adversarial pressure after real Ganak PID+ELF evidence.
+# Does NOT infer natural memory demand or CodSpeed performance.
+on:
+  push:
+    branches: [experiment/qoo156-internal-cgroup-p0]
+    paths:
+      - '.github/workflows/qoo156-internal-ganak-pressure.yml'
+      - 'scripts/qoo156_internal_cgroup/adversarial_ganak.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-real-ganak-internal-pressure-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ganak-internal-pressure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile real release CLI and pin Ganak ELF plus fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-internal-ganak
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python3 -m py_compile \
+            scripts/qoo156_internal_cgroup/pilot.py \
+            scripts/qoo156_internal_cgroup/release_solver.py \
+            scripts/qoo156_internal_cgroup/adversarial_ganak.py
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          test -x rust/target/release/QuPRS_cli
+          git rev-parse HEAD > evidence/qoo156-internal-ganak/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-internal-ganak/pathsum-tree.txt
+          sha256sum rust/target/release/QuPRS_cli \
+            src/QuPRS/utils/wmc_tools/ganak \
+            scripts/qoo156_internal_cgroup/adversarial_ganak.py \
+            benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+            > evidence/qoo156-internal-ganak/source-sha256.txt
+          grep -Fq 934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd \
+            evidence/qoo156-internal-ganak/source-sha256.txt
+          docker build -q -t qoo156:internal-ganak scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-internal-ganak/image-build.txt
+          docker image inspect qoo156:internal-ganak --format '{{.Id}}' \
+            > evidence/qoo156-internal-ganak/image-id.txt
+      - name: High-cap science control then genuine Ganak under group OOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout -k 4s 100s docker run --rm --privileged --cgroupns=private \
+            --memory=512m --memory-swap=512m --pids-limit=64 \
+            --network=none --read-only --user 0:0 --tmpfs /tmp:rw,nosuid,size=64m \
+            --entrypoint python3 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/release/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak,target=/opt/ganak,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm,target=/opt/vqe4.qasm,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/pilot.py,target=/opt/pilot.py,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/release_solver.py,target=/opt/release_solver.py,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/adversarial_ganak.py,target=/opt/adversarial_ganak.py,readonly" \
+            qoo156:internal-ganak -u /opt/adversarial_ganak.py \
+            | tee evidence/qoo156-internal-ganak/run.txt
+          grep -Fq QOO156_INTERNAL_REAL_GANAK_PRESSURE=PASS \
+            evidence/qoo156-internal-ganak/run.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo156-internal-ganak-${{ github.sha }}
+          path: evidence/qoo156-internal-ganak/
+          if-no-files-found: warn
+          retention-days: 30

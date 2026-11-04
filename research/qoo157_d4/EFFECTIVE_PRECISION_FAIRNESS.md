@@ -76,3 +76,60 @@ Science parity and timeout are gated before measuring.
 - GPMC remains dev/main default. d4 remains research-only due precision
   provenance, C++ GPL-3+ source file licensing, Windows `get_d()` truncation,
   portability and distribution questions.
+
+## Stage 2 completed: same effective decimal digits and 1-bit gap
+
+The stronger comparison ran successfully on the *pre-documentation* pinned
+code SHA `efab7ccd132214758d4209d0b5c4f6488f30695e`:
+[Actions #41822549728](https://github.com/PhysicsQoo/QuPRS/actions/runs/41822549728),
+[official CodSpeed 6aeb1b9fefdbc51abcbc4108](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb1b9fefdbc51abcbc4108);
+[source-CNF, patched C++, actual GMP bits, numerical counts and 16 WallTime
+ measurements](https://github.com/PhysicsQoo/QuPRS/actions/runs/41822549728/artifacts/13317939531).
+
+The scratch d4 native binaries **actually reported** 128-bit GMP at requested
+127 bits, and 320-bit GMP at requested 319 bits. In both comparisons
+`floor(actual_bits*log10(2))` matches MPFR's 38 or 96 effective
+decimal digits; the bit gap is exactly 1. d4 output formatting is changed
+to 38 / 96 significant digits, matching GPMC `-prec=38/96`. There is no
+precision mismatch hidden in the metadata.
+
+All **8/8** source-identical CNF solver pairs passed
+`COUNT_CONCORDANT_UNCERTIFIED` (the conservative 1e-12 *count* numerical
+screen), with no source/solver/timeout censoring. This is empirical
+agreement between two approximate counters, **not proof of an original
+quantum equivalence verdict or internal error certification**.
+
+Original first-party CodSpeed v5 WallTime instrument, three-round
+**medians** in milliseconds (not unrelated run comparisons):
+
+| Same actual effective digits | Circuit | GPMC | d4 | d4/GPMC |
+| --- | --- | ---: | ---: | ---: |
+| 38 | Grover4 EQ | 61.148 | 222.231 | 3.63x |
+| 38 | QAOA7 true NEQ | 41.134 | 161.813 | 3.93x |
+| 38 | QPEexact8 EQ | 61.162 | 182.051 | 2.98x |
+| 38 | QFT16 EQ | 1127.108 | 1750.719 | 1.55x |
+| 96 | Grover4 EQ | 61.206 | 222.243 | 3.63x |
+| 96 | QAOA7 true NEQ | 41.029 | 141.906 | 3.46x |
+| 96 | QPEexact8 EQ | 61.100 | 182.056 | 2.98x |
+| 96 | QFT16 EQ | 1248.176 | 1852.095 | 1.48x |
+
+**Decision under nearly-bit-identical precision:** every observed
+same-CNF, solver-inclusive pair favors GPMC. The initial 426-bit
+comparison's unbalanced arithmetic cannot explain this entire difference,
+although the ratios and cross-host values must **never be pooled**
+or mistaken for a Macro Runner-certified significance test.
+
+The first-party CodSpeed service warns **Walltime results may be unreliable
+outside Macro Runners**; specifically the QAOA7/38-digit d4 series had
+an observed median around 161.8 ms but a minimum around 141.9 ms.
+This is a qualitative **OBSERVATION_ONLY** outcome, not a reliable
+regression threshold or a general proof that d4 is inferior on any
+possible CNF or reuse workload. The measurement excludes QASM parsing,
+CNF generation, RR and whole Hybrid verification.
+
+Do not change GPMC defaults/recommendations based on d4's source-only
+capabilities. Retain d4 as research-only optional third Solver and only
+revisit a *specific* advantage if source-scoped d-DNNF reuse or
+GPMC-hard CNFs produce a scientifically sound, bounded and CodSpeed
+reproducible benefit. Patched upstream binaries are NOT licensed or
+approved for QuPRS wheels.

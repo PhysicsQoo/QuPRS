@@ -1,0 +1,98 @@
+name: QOO157 GPMC VS x TD 2x2 factorial CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-gpmc-vs-td-factorial.yml'
+      - 'research/qoo157_d4/gpmc_vs_td_factorial.py'
+      - 'research/qoo157_d4/test_codspeed_gpmc_vs_td_factorial.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  gpmc-factorial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      QOO157_FACTORIAL_CNF_DIR: evidence/original/cnfs
+      QOO157_FACTORIAL_PREFLIGHT: evidence/gpmc-vs-td-preflight.json
+      QUPRS_CODSPEED_EXPORT: evidence/gpmc-vs-td-codspeed-walltime.json
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python and source guard (no dev/main solver changes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/gpmc_vs_td_factorial.py research/qoo157_d4/test_codspeed_gpmc_vs_td_factorial.py
+          python -m pip install 'pytest-codspeed==5.0.3' 'pytest'
+      - name: Download identical archived prepared CNF and science provenance
+        uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Build only pinned native GPMC
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          cmake -S GPMC -B "$RUNNER_TEMP/gpmc-qoo157-vs-td" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/gpmc-qoo157-vs-td" --parallel 2
+          echo "QOO157_GPMC_BINARY=$RUNNER_TEMP/gpmc-qoo157-vs-td/gpmc" >> "$GITHUB_ENV"
+          mkdir -p evidence
+          sha256sum "$RUNNER_TEMP/gpmc-qoo157-vs-td/gpmc" > evidence/gpmc-vs-td-binary.sha256
+          git rev-parse HEAD:GPMC > evidence/gpmc-source-gitlink.txt
+      - name: Science-first all 8 identical-CNF count admission and native mechanism trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/gpmc_vs_td_factorial.py \
+            --binary "$QOO157_GPMC_BINARY" \
+            --cnf-dir "$QOO157_FACTORIAL_CNF_DIR" \
+            --science-report evidence/original/matched-science-report.json \
+            --out "$QOO157_FACTORIAL_PREFLIGHT"
+          python -c 'import json; assert json.load(open("evidence/gpmc-vs-td-preflight.json"))["status"] == "COMPLETED_COUNT_CONCORDANCE_UNCERTIFIED"'
+      - name: Official CodSpeed v5 WallTime only (8 source-paired factorial benchmarks)
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_gpmc_vs_td_factorial.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=5
+      - name: Record exact runner and instrument scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/runner-head.txt
+          uname -a > evidence/runner-kernel.txt
+          echo '2 original CNFs x 4 VS/TD GPMC38; official CodSpeed-only timing; hosted observation not Macro Runner/ABBA' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-gpmc-vs-td-${{ github.sha }}
+          path: |
+            evidence/gpmc-vs-td-preflight.json
+            evidence/gpmc-vs-td-binary.sha256
+            evidence/gpmc-source-gitlink.txt
+            evidence/gpmc-vs-td-codspeed-walltime.json
+            evidence/runner-head.txt
+            evidence/runner-kernel.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

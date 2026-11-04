@@ -34,15 +34,21 @@ pub(crate) trait SolverAdapter: Sync {
 }
 pub(crate) struct GpmcAdapter;
 pub(crate) struct GanakAdapter;
+#[cfg(feature = "experimental-d4")]
+pub(crate) struct D4ResearchAdapter;
 /// Optional 90-digit GPMC arithmetic; default complex GPMC uses 30 digits.
 pub(crate) struct GpmcDistanceHighPrecisionAdapter;
 static GPMC: GpmcAdapter = GpmcAdapter;
 static GANAK: GanakAdapter = GanakAdapter;
+#[cfg(feature = "experimental-d4")]
+static D4_RESEARCH: D4ResearchAdapter = D4ResearchAdapter;
 static GPMC_DISTANCE_HIGH: GpmcDistanceHighPrecisionAdapter = GpmcDistanceHighPrecisionAdapter;
 pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
     match id {
         "gpmc" => Ok(&GPMC),
         "ganak" => Ok(&GANAK),
+        #[cfg(feature = "experimental-d4")]
+        "d4-poc" => Ok(&D4_RESEARCH),
         _ => Err(anyhow!(crate::solver_result::SolverFailure::new(
             crate::solver_result::SolverFailureKind::Unsupported,
             id,
@@ -115,6 +121,195 @@ impl SolverAdapter for GanakAdapter {
          format!("c p weight -{} 1.0 + 0.0i 0\n", var))
     }
 }
+
+#[cfg(feature = "experimental-d4")]
+pub(crate) fn parse_d4_printed_optional(
+    stdout: &str,
+) -> Result<Option<crate::precision_count::PrintedCount>> {
+    let mut found: Option<crate::precision_count::PrintedCount> = None;
+    let mut saw_sat = false;
+    let mut saw_unsat = false;
+    for line in stdout.lines() {
+        match line.trim() {
+            "s SATISFIABLE" => saw_sat = true,
+            "s UNSATISFIABLE" => saw_unsat = true,
+            _ => {}
+        }
+        let (dialect, raw, int_mode) =
+            if let Some(raw) = line.strip_prefix("c s exact arb float ") {
+                ("c s exact arb float", raw, false)
+            } else if let Some(raw) = line.strip_prefix("c s exact arb int ") {
+                ("c s exact arb int", raw, true)
+            } else {
+                continue;
+            };
+        let value = raw.trim();
+        if value.len() > 8192 || value.is_empty() {
+            return Err(anyhow!("d4 printed count outside bounded token range"));
+        }
+        let shadow = if int_mode {
+            let body = if value.starts_with('+') || value.starts_with('-') {
+                &value[1..]
+            } else { value };
+            if body.is_empty() || !body.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(anyhow!("invalid d4 exact-integer format"));
+            }
+            // Existing Fraction transport yields zero printed rounding-unit.
+            format!("c s exact arb frac {value}/1")
+        } else {
+            // Preserve original decimal digits under an existing *formatting*
+            // interval parser. This is NOT a GMP arithmetic-error certificate.
+            format!("c s exact octuple float {value}")
+        };
+        let mut parsed = crate::precision_count::parse_line(&shadow)?
+            .ok_or_else(|| anyhow!("d4 count parser rejected its normalized count"))?;
+        parsed.format_name = dialect.to_string();
+        if let Some(ref mut previous) = found {
+            if previous.real != parsed.real || previous.imag != parsed.imag {
+                return Err(anyhow!("d4 output contains conflicting weighted counts"));
+            }
+            if parsed.real_half_unit > previous.real_half_unit {
+                previous.real_half_unit = parsed.real_half_unit;
+            }
+            if parsed.imag_half_unit > previous.imag_half_unit {
+                previous.imag_half_unit = parsed.imag_half_unit;
+            }
+        } else {
+            found = Some(parsed);
+        }
+    }
+    if saw_sat && saw_unsat {
+        return Err(anyhow!("d4 output contains conflicting SAT status lines"));
+    }
+    if saw_unsat && found.as_ref().is_some_and(|count| {
+        use num_traits::Zero;
+        !count.real.is_zero() || !count.imag.is_zero()
+    }) {
+        return Err(anyhow!("d4 UNSAT status contradicts nonzero count"));
+    }
+    Ok(found)
+}
+
+#[cfg(feature = "experimental-d4")]
+impl SolverAdapter for D4ResearchAdapter {
+    fn id(&self) -> &'static str { "d4-poc" }
+    fn arguments(&self) -> &'static [&'static str] { &["-i"] }
+    fn capabilities(&self) -> SolverCapabilities {
+        SolverCapabilities {
+            complex_weights: true,
+            exact_count_certificate: false,
+            grammar: WeightGrammar::Pair,
+        }
+    }
+    fn executable_path(&self) -> String {
+        // No executable discovery or packaged-binary fallback in research mode.
+        std::env::var("QUPRS_D4_PATH").unwrap_or_default()
+    }
+    fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String) {
+        GpmcAdapter.weight_lines(var, weight)
+    }
+    fn preflight(&self, path: &str, deadline: Option<Instant>) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        if path.is_empty() || !Path::new(path).is_file() {
+            return Err(anyhow!("d4-poc requires an explicit external binary"));
+        }
+        if std::env::var("QUPRS_D4_UPSTREAM_SHA").as_deref()
+            != Ok("be15f91f3e9769e1f5cb175fa27e3eca3a1ea690") {
+            return Err(anyhow!("d4-poc upstream source provenance missing"));
+        }
+        let bits: u32 = std::env::var("QUPRS_D4_GMP_PREPARSE_BITS")
+            .map_err(|_| anyhow!("d4-poc preparse GMP bits missing"))?
+            .parse()?;
+        if !(256..=2048).contains(&bits) {
+            return Err(anyhow!("d4-poc requires >=256-bit preparse GMP research mode"));
+        }
+        let expected = std::env::var("QUPRS_D4_BINARY_SHA256")
+            .map_err(|_| anyhow!("d4-poc external binary SHA256 missing"))?;
+        if expected.len() != 64 || !expected.bytes().all(|ch| ch.is_ascii_hexdigit()) {
+            return Err(anyhow!("d4-poc binary SHA256 is malformed"));
+        }
+        let mut file = std::fs::File::open(path)?;
+        if file.metadata()?.len() > 256 * 1024 * 1024 {
+            return Err(anyhow!("d4-poc binary exceeds bounded provenance limit"));
+        }
+        let mut digest = Sha256::new();
+        let mut buffer = [0u8; 16 * 1024];
+        loop {
+            if deadline.is_some_and(|end| Instant::now() >= end) {
+                return Err(anyhow!(crate::solver_process::SolverTimeout));
+            }
+            let n = file.read(&mut buffer)?;
+            if n == 0 { break; }
+            digest.update(&buffer[..n]);
+        }
+        let actual: String = digest.finalize().iter()
+            .map(|byte| format!("{byte:02x}")).collect();
+        if !actual.eq_ignore_ascii_case(&expected) {
+            return Err(anyhow!("d4-poc external binary SHA256 mismatch"));
+        }
+        Ok(())
+    }
+    fn parse_count(&self, stdout: &str) -> Result<Option<Complex<f64>>> {
+        use num_traits::ToPrimitive;
+        let Some(count) = parse_d4_printed_optional(stdout)? else { return Ok(None); };
+        let re = count.real.to_f64().ok_or_else(|| anyhow!("d4 count outside f64"))?;
+        let im = count.imag.to_f64().ok_or_else(|| anyhow!("d4 count outside f64"))?;
+        if !re.is_finite() || !im.is_finite() {
+            return Err(anyhow!("non-finite d4 count"));
+        }
+        Ok(Some(Complex::new(re, im)))
+    }
+}
+
+#[cfg(all(test, feature = "experimental-d4"))]
+mod d4_poc_tests {
+    use super::*;
+    use num_traits::ToPrimitive;
+
+    #[test]
+    fn d4_poc_is_explicit_and_preserves_incumbent_contract() {
+        let selected = adapter_for("d4-poc").unwrap();
+        assert_eq!(selected.id(), "d4-poc");
+        assert_eq!(selected.arguments(), &["-i"]);
+        assert_eq!(selected.capabilities().grammar, WeightGrammar::Pair);
+        assert!(!selected.capabilities().exact_count_certificate);
+        assert_eq!(selected.weight_lines(1, Complex::new(0.5,-0.125)),
+                   GpmcAdapter.weight_lines(1,Complex::new(0.5,-0.125)));
+        assert_eq!(adapter_for("gpmc").unwrap().arguments(), &["-mode=1"]);
+        assert_eq!(adapter_for("ganak").unwrap().arguments(), &["--mode=6"]);
+    }
+
+    #[test]
+    fn d4_poc_retains_tiny_decimal_before_f64_and_detects_bad_output() {
+        let printed = parse_d4_printed_optional(
+            "s SATISFIABLE\nc s exact arb float 1.000000000000000000e-40-2.000e-50i\n"
+        ).unwrap().unwrap();
+        assert_eq!(printed.format_name, "c s exact arb float");
+        assert!(printed.real.to_f64().unwrap() > 0.0);
+        assert!(printed.imag.to_f64().unwrap() < 0.0);
+        assert!(printed.real_half_unit.to_f64().unwrap() > 0.0);
+        let numeric = adapter_for("d4-poc").unwrap().parse_count(
+            "c s exact arb float 1e-40-2e-50i\n"
+        ).unwrap().unwrap();
+        assert!((numeric.re - 1e-40).abs() < 1e-54);
+        for stdout in [
+            "c s exact arb float nan+0i",
+            "c s exact arb float 1+0i\nc s exact arb float 2+0i",
+            "s UNSATISFIABLE\nc s exact arb int 1",
+            "s SATISFIABLE\ns UNSATISFIABLE\nc s exact arb int 0",
+        ] {
+            assert!(parse_d4_printed_optional(stdout).is_err(), "{stdout}");
+        }
+        let int_count = parse_d4_printed_optional(
+            "s UNSATISFIABLE\nc s exact arb int 0\n"
+        ).unwrap().unwrap();
+        assert_eq!(int_count.format_name, "c s exact arb int");
+        assert_eq!(int_count.real.to_f64().unwrap(), 0.0);
+        assert_eq!(int_count.real_half_unit.to_f64().unwrap(), 0.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

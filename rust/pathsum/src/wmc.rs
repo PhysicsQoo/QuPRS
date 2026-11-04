@@ -18,6 +18,20 @@ fn solver_arguments(tool_name: &str) -> Result<&'static [&'static str]> {
     Ok(crate::solver_adapter::adapter_for(tool_name)?.arguments())
 }
 
+/// Only experimental-d4 changes the printed solver parser dispatch. The
+/// default GPMC/Ganak compiled path retains its original parser and no
+/// additional RR/CNF inner-loop cost.
+fn parse_printed_with_adapter(
+    adapter: &dyn crate::solver_adapter::SolverAdapter, stdout: &str,
+) -> Result<Option<crate::precision_count::PrintedCount>> {
+    #[cfg(feature = "experimental-d4")]
+    if adapter.id() == "d4-poc" {
+        return crate::solver_adapter::parse_d4_printed_optional(stdout);
+    }
+    let _ = adapter;
+    crate::precision_count::parse_stdout_optional(stdout)
+}
+
 // BigRational conversion handles ratios whose individual components exceed f64.
 fn parse_real_count(value: &str) -> Result<f64> {
     let result = if value.contains('/') {
@@ -325,7 +339,9 @@ impl WmcManager {
             self.next_var_id - 1, &self.clauses, &self.weights
         );
         #[cfg(feature="high-precision-gpmc")]
-        if adapter.id()=="gpmc" {
+        if adapter.id()=="gpmc"
+            || (cfg!(feature = "experimental-d4") && adapter.id()=="d4-poc")
+        {
             if let Some(ref precise)=self.precise_weights {
                 return problem.serialize_precise_gpmc(precise);
             }
@@ -403,7 +419,7 @@ impl WmcManager {
     ) -> Result<crate::precision_count::PrintedCount> {
         let adapter = crate::solver_adapter::distance_adapter_for(tool_name, digits)?;
         self.run_solver_with_parser(
-            adapter, deadline, crate::precision_count::parse_stdout_optional, Some(prepared_cnf),
+            adapter, deadline, |stdout| parse_printed_with_adapter(adapter, stdout), Some(prepared_cnf),
         )
     }
 
@@ -415,7 +431,7 @@ impl WmcManager {
         adapter: &dyn crate::solver_adapter::SolverAdapter,
         deadline: Option<std::time::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
-        self.run_solver_with_parser(adapter, deadline, crate::precision_count::parse_stdout_optional, None)
+        self.run_solver_with_parser(adapter, deadline, |stdout| parse_printed_with_adapter(adapter, stdout), None)
     }
 
     pub(crate) fn solve_with_adapter(

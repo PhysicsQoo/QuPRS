@@ -34,3 +34,5 @@ proptest = "1.0"
 [features]
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
+# Research-only d4 adapter: no default build, binary or packaging changes.
+experimental-d4 = []

@@ -1,0 +1,64 @@
+name: QOO-157 Rust Feature-Gated d4 Adapter PoC
+
+on:
+  push:
+    branches: [experiment/qoo157-d4-rust-adapter-poc]
+    paths:
+      - 'rust/pathsum/src/solver_adapter.rs'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'rust/pathsum/Cargo.toml'
+      - '.github/workflows/qoo157-d4-rust-adapter-poc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo157-rust-d4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-adapter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo157-d4-rust-adapter-v1
+      - name: Native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Compile and test research-only third solver
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            --features experimental-d4 --lib d4_poc_tests -- --nocapture \
+            2>&1 | tee evidence/d4-rust-unit.log
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            --features experimental-d4 --lib solver_adapter::tests -- --nocapture \
+            2>&1 | tee evidence/native-adapter-regression.log
+      - name: Guarantee default feature build remains unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum \
+            --lib solver_adapter::tests -- --nocapture \
+            2>&1 | tee evidence/default-adapter-regression.log
+      - name: Keep every Rust source and test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-rust-adapter-${{ github.sha }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn

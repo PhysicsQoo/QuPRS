@@ -19,7 +19,7 @@ from pilot import delegated_parent, move_and_drop_to_unprivileged, read_events_f
 
 TESTS = (
     ("gpmc", "qft16", 256, 32, "-mode=1"),
-    ("ganak", "vqe4", 256, 64, "--mode=6"),
+    ("ganak", "vqe4", 256, 70, "--mode=6"),
 )
 BINARY_SHA = {
     "gpmc": "507919b9af456645b55dc73e7d4db4a56b9293a0fa3ba99f5f8a0986826ef4b1",

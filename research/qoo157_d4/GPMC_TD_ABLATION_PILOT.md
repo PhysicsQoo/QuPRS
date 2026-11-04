@@ -20,7 +20,7 @@
 
 **Do not combine medians with the CodSpeed official min headline.** Both come from this *same* experiment artifact but describe different statistics. For the official **minimum** comparison, no-TD/TD ratios are QAOA7 **1.80623×** and QFT16 **1.13565×**, preserving the observed advantage direction.
 
-Scientific admission: both cases `COUNT_CONCORDANT_UNCERTIFIED` under the original 1e-12 scaled count screen. Maximum component differences between TD/no-TD printed complex counts are `2e-15` (QAOA7) and `2.6469779601697e-23` (QFT16). Supplementary exact decimal-text comparison against the original 38-digit archived GPMC science report found the **TD-enabled** native output exactly the same for both cases; TD-disabled differs only in the tiny components noted above. Solver internal error remains **NOT_CERTIFIED**.
+Scientific admission: both cases `COUNT_CONCORDANT_UNCERTIFIED` under the original 1e-12 scaled count screen. Maximum component differences between TD/no-TD printed complex counts are `2e-15` (QAOA7) and `2.6469779601697e-23` (QFT16). Supplementary exact **printed-value rational** comparison against the original 38-digit archived GPMC science report found the **TD-enabled** values exactly equal for both cases (not a bytewise stdout/text comparison); TD-disabled differs only in the tiny components noted above. Solver internal error remains **NOT_CERTIFIED**.
 
 ## Source-backed runtime mechanism
 

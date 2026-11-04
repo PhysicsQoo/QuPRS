@@ -14,13 +14,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: qoo156-cli-${ github.ref }}
+  group: qoo156-cli-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   scoped-cli-science:
-    name: CLI isolation and resource contract (${ matrix.os }})
-    runs-on: ${ matrix.os }}
+    name: CLI isolation and resource contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +56,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qoo156-cli-${ matrix.os }}-${ github.sha }}
+          name: qoo156-cli-${{ matrix.os }}-${{ github.sha }}
           path: evidence/
           if-no-files-found: warn
           retention-days: 20

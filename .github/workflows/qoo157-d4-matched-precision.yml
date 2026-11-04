@@ -1,0 +1,70 @@
+name: QOO157 d4 GPMC matched decimal precision CodSpeed research
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-matched-precision
+    paths:
+      - '.github/workflows/qoo157-d4-matched-precision.yml'
+      - 'research/qoo157_d4/matched_precision_variant.py'
+      - 'research/qoo157_d4/matched_precision_adapter.py'
+      - 'research/qoo157_d4/matched_precision_preflight.py'
+      - 'research/qoo157_d4/run_matched_precision_pilot.sh'
+      - 'research/qoo157_d4/test_codspeed_matched_decimal.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  matched-digits:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      QOO157_EVIDENCE_DIR: evidence
+      QOO157_CNF_DIR: evidence/cnfs
+      QOO157_MATCHED_REPORT: evidence/matched-science-report.json
+      QUPRS_CODSPEED_EXPORT: evidence/matched-digits-codspeed-walltime.json
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo157-matched-digits-v1
+      - name: Allocate scratch-only binary storage after runner allocation
+        shell: bash
+        run: echo "QOO157_BIN_DIR=$RUNNER_TEMP/qoo157-matched-binaries" >> "$GITHUB_ENV"
+      - name: Source-pinned dual GMP builds and matched-decimal scientific admission
+        shell: bash
+        run: bash research/qoo157_d4/run_matched_precision_pilot.sh
+      - name: Official CodSpeed v5 matched-decimal solver-inclusive WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_matched_decimal.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=5
+      - name: Preserve exact run and science-vs-performance scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/final-head.txt
+          uname -a > evidence/runner-kernel.txt
+          echo 'GPMC30/90 MPFR bits vs d4 30/90 nominal digits; actual GMP bits logged separately' > evidence/precision-comparison-scope.txt
+          echo 'CodSpeed hosted VM, non-ABBA, prepared-CNF process-inclusive, NOT production default' >> evidence/precision-comparison-scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-d4-matched-decimal-${{ github.sha }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn

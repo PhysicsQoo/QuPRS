@@ -61,7 +61,7 @@ if [[ -z "$probe" ]]; then
   echo 'QOO156_CGROUP_READINESS=NOT_ADMITTED: no EMPTY writable memory-enabled ancestor' | tee "$EVIDENCE/readiness.txt"
   exit 2
 fi
-printf 'own_cgroup=%s\\nselected_delegated_ancestor=%s\\nprobe=%s\\n' \
+printf 'own_cgroup=%s\nselected_delegated_ancestor=%s\nprobe=%s\n' \
   "$relative" "$selected" "$probe" > "$EVIDENCE/selected-cgroup.txt"
 if ! (printf '%s' 67108864 > "$probe/memory.max") 2>"$EVIDENCE/memory-max.err"; then
   echo 'QOO156_CGROUP_READINESS=NOT_ADMITTED: memory controller not delegated' | tee "$EVIDENCE/readiness.txt"

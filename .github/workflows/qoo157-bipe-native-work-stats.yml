@@ -1,0 +1,92 @@
+name: QOO157 P1 pinned BiPe native work stats science no timing
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-bipe-native-work-stats.yml'
+      - 'research/qoo157_d4/bipe_native_work_stats.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  bipe-work-stats:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Guard source inputs and native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile research/qoo157_d4/bipe_native_work_stats.py
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Compile pinned d4 and verify actual BiPe v1.0.0 commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo157-bipe-native-stats"
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$root"
+          git -C "$root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          mkdir -p evidence
+          python research/qoo157_d4/matched_precision_variant.py --upstream "$root" --evidence evidence --digits 38
+          git -C "$root" diff --check
+          (cd "$root/c++/counter" && ./build.sh -j) > evidence/p1-bipe-build.log 2>&1
+          bin="$root/c++/counter/build/counter"
+          test -x "$bin"
+          test "$(git -C "$root/3rdParty/bipe-src" rev-parse HEAD)" = 219cc2a5f15a563e1965e5a5137f0fbadf0d166f
+          git -C "$root/3rdParty/bipe-src" rev-parse HEAD > evidence/pinned-bipe-head.txt
+          echo "QOO157_BIPE_BINARY=$bin" >> "$GITHUB_ENV"
+          sha256sum "$bin" > evidence/p1-bipe-binary.sha256
+          "$bin" -h > evidence/p1-bipe-help.log
+          grep -q 'actual-gmp-precision-bits 128' evidence/p1-bipe-help.log
+      - name: Upstream native PreprocStats and exact original WMC count gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/bipe_native_work_stats.py \
+            --binary "$QOO157_BIPE_BINARY" \
+            --cnf-dir evidence/original/cnfs \
+            --original-science evidence/original/matched-science-report.json \
+            --out evidence/native-bipe-work-stats.json
+      - name: No timing and source provenance
+        if: always()
+        shell: bash
+        run: |
+          git rev-parse HEAD > evidence/p1-head.txt
+          echo 'BiPe --preproc.verbosity=3 adds TW diagnostics. Do not compare its walltime or native t_total as performance; CodSpeed remains sole performance evidence.' > evidence/p1-scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-p1-bipe-native-work-${{ github.sha }}
+          path: |
+            evidence/native-bipe-work-stats.json
+            evidence/p1-bipe-build.log
+            evidence/p1-bipe-help.log
+            evidence/p1-bipe-binary.sha256
+            evidence/pinned-bipe-head.txt
+            evidence/p1-head.txt
+            evidence/p1-scope.txt
+          if-no-files-found: warn
+          retention-days: 30

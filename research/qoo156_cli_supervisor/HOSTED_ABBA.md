@@ -25,3 +25,17 @@ If the hosted runner is noisy or source identity differs, report **NOT_ADMITTED*
 This workflow is a **temporary QOO-156-specific alternative**, not an automatic general project policy change. With the P0 cancellation/cgroup/science proof and a valid hosted ABBA **bounded-overhead** result, the feature can proceed to review, with documented fixed CLI startup cost. The final choice of a 3 ms release threshold remains subject to maintainer agreement. Native Rust algorithm performance still follows the established official CodSpeed provenance.
 
 Mac mini/OrbStack guest cgroup controller delegation is an independent deployment qualification, not something this elapsed-time benchmark can prove. CodSpeed Macro may be reintroduced when the runner is actually provisioned without invalidating the provisional evidence.
+
+## First source-pinned execution — 2026-11-05
+
+[GitHub Actions #41930775591](https://github.com/PhysicsQoo/QuPRS/actions/runs/41930775591) **SUCCESS**, tested exact source commit [a2b997c](https://github.com/PhysicsQoo/QuPRS/commit/a2b997c156aa9bebc08db485768e03fbab0d3d28), with [raw per-invocation JSON and report artifact #13372131499](https://github.com/PhysicsQoo/QuPRS/actions/runs/41930775591/artifacts/13372131499). Both binaries were built as Release from the same Rust native pathsum tree on the same Ubuntu 24.04 x86-64 runner.
+
+| RR / CLI case | Paired median additive HEAD overhead | 95% bootstrap interval | Same-variant pair jitter median | Budget classification |
+|---|---:|---:|---:|---|
+| Single H, single-circuit | +1.331 ms | +1.311 to +1.387 ms | 0.039 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+| GHZ32, EQ dual | +1.297 ms | +1.289 to +1.335 ms | 0.032 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+| QPE-exact8, EQ dual | +1.596 ms | +1.309 to +1.683 ms | 0.069 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+
+All three completed 30 alternating ABBA/BAAB blocks each and matched full scientific stdout hashes. The predeclared provisional ceiling of **+3.0 ms additive overhead** was met for these cases. **This is not evidence of zero performance regression**, nor is it a verified threshold for solver-intensive workloads or a hardware-independent confidence interval. The bounded absolute latency may represent a very large *relative* overhead on sub-2ms CLI tasks. A maintainer must still decide whether this safety wrapper tradeoff is acceptable for release.
+
+The original [Macro job #41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remains unassigned, and an unrelated [official CodSpeed hosted run](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb4b9d09f1ddb2bf501af8) is observational only. **No Macro result is necessary for this temporary, explicitly scoped CLI-cost evidence**; normal CodSpeed requirements for core Rust algorithmic changes are not changed.

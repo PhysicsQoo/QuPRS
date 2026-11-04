@@ -133,3 +133,43 @@ revisit a *specific* advantage if source-scoped d-DNNF reuse or
 GPMC-hard CNFs produce a scientifically sound, bounded and CodSpeed
 reproducible benefit. Patched upstream binaries are NOT licensed or
 approved for QuPRS wheels.
+
+## CodSpeed API headline minimum versus raw three-round median
+
+The official CodSpeed `get_run` page displays **minimum** observed WallTime,
+while the source-pinned artifact table above displays the **median** of three
+rounds. Both derive from the *same first-party CodSpeed measurement*; they
+must be labeled distinctly and not silently substituted. The extra
+QAOA7/38 d4 warm/slow sample explains why the minimum differs markedly
+from the median in that one case.
+
+The CodSpeed **headline minimum** values are (milliseconds):
+
+| Circuit | GPMC38 | d4-38 | d4/GPMC38 | GPMC96 | d4-96 | d4/GPMC96 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Grover4 | 61.135 | 222.079 | 3.63x | 61.145 | 222.166 | 3.63x |
+| QAOA7 | 41.047 | 141.886 | 3.46x | 40.981 | 141.760 | 3.46x |
+| QPEexact8 | 61.145 | 181.899 | 2.97x | 61.066 | 181.915 | 2.98x |
+| QFT16 | 1127.102 | 1750.702 | 1.55x | 1247.903 | 1851.630 | 1.48x |
+
+Source: [first-party CodSpeed run](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb1b9fefdbc51abcbc4108);
+original three-round JSON export `matched-digits-codspeed-walltime.json`
+inside [artifact 13317939531](https://github.com/PhysicsQoo/QuPRS/actions/runs/41822549728/artifacts/13317939531).
+Both minimum and median preserve all **8/8 d4 slower** directions.
+
+### Numeric precision limits beyond matching bit counts
+
+The 1e-12 count-scale concordance screen used the largest count component
+to set the absolute threshold. This does not establish 38/96 correct digits
+for **each** real and imaginary component when the other component has
+a much larger magnitude. At 38 target digits, the observed GPMC-versus-d4
+relative count discrepancies for some *smaller* components reach order
+1e-24 despite 38 printed digits; at 96 digits they can reach ~1e-82.
+These are inter-solver discrepancies, not certified error bounds.
+Further per-component and near-cancellation oracle work is required before
+claiming d4 arithmetic equivalence at the full requested precision.
+
+The input CNF SHA-256 for **all four cases is identical** between the
+30/90 and 38/96 research runs, confirming that the precision comparison
+did not alter circuit sources or generated weighted-CNF input. External
+binary SHA/source provenance is recorded separately for every precision.

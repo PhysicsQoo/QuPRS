@@ -8,6 +8,10 @@ on:
       - '.github/workflows/qoo157-d4-codspeed-choice.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   choice:
     runs-on: ubuntu-24.04

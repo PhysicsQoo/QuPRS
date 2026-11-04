@@ -22,6 +22,46 @@ same as a positive physical-memory or CodSpeed performance certificate.
   failed to obtain writable memory.max (NOT_ADMITTED). Lightweight syntax
   and truthful fail-closed preflight succeeded at Actions 41836128779.
 
+## Docker-daemon externally enforced memory cap (2026-11-04)
+
+A cheaper **alternative to child-cgroup delegation** is to have Docker
+itself apply `--memory` and `--memory-swap` before launching an isolated
+QuPRS CLI container. The cap applies to the entire container; the unprivileged
+CLI inside does **not** need to create its own cgroup. This is a different
+resource contract from `QuPRS_cli --max-memory-mib` and must not be counted
+as internal CLI memory-cap certification.
+
+[Real kernel memory.events probe #41838137145](https://github.com/PhysicsQoo/QuPRS/actions/runs/41838137145)
+**PASS**, isolated Ubuntu 24.04 Docker cgroup v2, source-pinned image
+digest + SHA. It allocated/touched 160 MiB physical memory inside a
+child process under Docker memory caps:
+
+| Docker cap | Recorded HostConfig.Memory | memory.events oom_kill delta | Child exit | Result |
+|---|---:|---:|---:|---|
+| 64 MiB | 67,108,864 bytes | +1 | SIGKILL (-9) | PASS |
+| 128 MiB | 134,217,728 bytes | +1 | SIGKILL (-9) | PASS |
+| 256 MiB | 268,435,456 bytes | 0 | 0, page touch complete | PASS |
+
+This confirms actual physical enforcement by the kernel without
+writable `memory.max` inside Docker. **Docker `State.OOMKilled`
+alone is insufficient**: the first attempt observed exit=137 with
+`OOMKilled=false`, even though the configured cap was present.
+The final certificate uses per-container kernel `memory.events`
+deltas and a successful high-memory control.
+
+An additional experiment runs the **actual Rust debug CLI worker** under
+a Docker 128 MiB cap with a 192 MiB page-touch hook and a 384 MiB
+positive control; see workflow
+`.github/workflows/qoo156-real-cli-docker-memory.yml`.
+It must check no false scientific verdict on OOM. As of this update,
+the real CLI job is still running; no CLI-specific claim until its JSON
+and CI verdict are inspected.
+
+This can support an operational Docker/OrbStack resource envelope,
+but cannot replace a positive `--max-memory-mib` child-cgroup
+`memory.events` / exit=125 proof unless the CLI contract is explicitly
+changed and independently tested.
+
 ## Real 64 MiB cgroup OOM certificate
 
 Use a dedicated, trusted ephemeral Linux VM/runner with unified cgroup v2,

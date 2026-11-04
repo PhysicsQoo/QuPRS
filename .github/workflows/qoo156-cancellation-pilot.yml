@@ -6,6 +6,7 @@ on:
       - experiment/qoo156-rust-cooperative-cancellation
     paths:
       - 'rust/pathsum/src/**'
+      - 'rust/pathsum/tests/qoo156_midflight.rs'
       - '.github/workflows/qoo156-cancellation-pilot.yml'
   workflow_dispatch:
 
@@ -66,6 +67,11 @@ jobs:
         run: |
           set -euo pipefail
           cargo test --manifest-path rust/Cargo.toml --locked -p pathsum             --lib -- --nocapture 2>&1 | tee evidence/all-pathsum-lib-tests.txt
+      - name: Real-QASM midflight cancellation scientific gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 60s             cargo test --manifest-path rust/Cargo.toml --locked -p pathsum               --test qoo156_midflight -- --nocapture 2>&1 | tee evidence/midflight-qft-qpe.txt
       - name: Preserve branch-specific evidence
         if: always()
         uses: actions/upload-artifact@v4

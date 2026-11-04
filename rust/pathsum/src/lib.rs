@@ -741,6 +741,11 @@ fn check_equivalence_with_distance_mode(
         && !solver_invoked
         && method != VerificationMethod::WmcOnly;
 
+    // A returned PathSum may be inspected or reused after this request.
+    // Do not leave an elapsed request-local clock attached to public evidence.
+    // A canceled partial residual remains identifiable by deadline_exceeded.
+    ps_miter.verification_deadline = None;
+
     Ok(EquivalenceCheckResult {
         qubit_num: num_qubits,
         gate_num1: gates1.len(),

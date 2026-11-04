@@ -82,7 +82,6 @@ class TestAdmission(unittest.TestCase):
         self.assertIn('CPU_IDLE_MISSING_OR_INVALID', m.assess(report(samples))['evidence_gaps'])
 
     def test_nan_inf_and_huge_numbers_never_produce_quiet_candidate(self):
-        import math
         for corrupt in [float('nan'), float('inf'), -float('inf'), 10**400]:
             with self.subTest(corrupt=str(corrupt)[:25]):
                 samples = [sample(i) for i in range(7)]
@@ -125,6 +124,13 @@ class TestAdmission(unittest.TestCase):
         r = m.assess(report(samples))
         self.assertEqual(r['verdict'], 'INCOMPLETE')
         self.assertIn('SWAP_PAGE_SIZE_MISMATCH', r['evidence_gaps'])
+
+    def test_missing_initial_page_size_incomplete(self):
+        samples = [sample(i) for i in range(7)]
+        samples[0]['vm_stat']['page_size_bytes'] = None
+        r = m.assess(report(samples))
+        self.assertEqual(r['verdict'], 'INCOMPLETE')
+        self.assertIn('SWAP_PAGE_SIZE_MISSING', r['evidence_gaps'])
 
     def test_output_inside_source_directory_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

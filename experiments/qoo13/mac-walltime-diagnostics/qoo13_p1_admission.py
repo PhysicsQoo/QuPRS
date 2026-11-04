@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 
 SOURCE_KIND = 'QOO13_READ_ONLY_DIAGNOSTICS_NOT_A_BENCHMARK'
@@ -20,8 +21,14 @@ MAX_JSON_BYTES = 8 * 1024 * 1024
 
 
 def number(value):
-    # bool is a subclass of int; it is not a legitimate measurement.
-    return float(value) if type(value) in (int, float) else None
+    """Finite numeric telemetry only: reject booleans, NaN, infinity, huge ints."""
+    if type(value) not in (int, float):
+        return None
+    try:
+        result = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
 
 
 def assess(report: dict) -> dict:
@@ -51,9 +58,14 @@ def assess(report: dict) -> dict:
         return out
     if len(samples) < MIN_SAMPLES:
         gaps.append('TOO_FEW_SAMPLES')
+    summary = report.get('sample_window')
+    if not isinstance(summary, dict) or summary.get('status') != 'MONITOR_ONLY_NOT_PERFORMANCE_CERTIFICATION':
+        gaps.append('MONITOR_SUMMARY_MISSING_OR_NOT_OBSERVED')
+    elif summary.get('sample_count') != len(samples):
+        gaps.append('MONITOR_SAMPLE_COUNT_MISMATCH')
 
     monotonic = [number(s.get('monotonic_elapsed_s')) for s in samples]
-    if any(v is None for v in monotonic) or any(b <= a for a, b in zip(monotonic, monotonic[1:])):
+    if any(v is None or v < 0 for v in monotonic) or any(b <= a for a, b in zip(monotonic, monotonic[1:])):
         gaps.append('INVALID_MONOTONIC_TIMESTAMPS')
         span = None
     else:
@@ -80,14 +92,21 @@ def assess(report: dict) -> dict:
     other_busy = False
     for s in samples:
         procs = s.get('top_processes')
-        if not isinstance(procs, list):
+        command_status = s.get('command_status')
+        if isinstance(command_status, dict) and command_status.get('ps') != 'ok':
+            gaps.append('PS_COMMAND_NOT_OK')
+        if not isinstance(procs, list) or not procs:
             gaps.append('TOP_PROCESSES_UNAVAILABLE')
             continue
         for p in procs:
-            if isinstance(p, dict) and p.get('command_name') != 'backupd':
-                cpu = number(p.get('cpu_pct'))
-                if cpu is not None and cpu > PROCESS_CPU_CEILING:
-                    other_busy = True
+            if not isinstance(p, dict) or not isinstance(p.get('command_name'), str):
+                gaps.append('TOP_PROCESS_ENTRY_INVALID')
+                continue
+            cpu = number(p.get('cpu_pct'))
+            if cpu is None or cpu < 0:
+                gaps.append('TOP_PROCESS_CPU_MISSING_OR_INVALID')
+            elif p['command_name'] != 'backupd' and cpu > PROCESS_CPU_CEILING:
+                other_busy = True
     if other_busy:
         stop.append('OTHER_SINGLE_PROCESS_OVER_100_PCT')
 
@@ -102,8 +121,13 @@ def assess(report: dict) -> dict:
         gaps.append('SWAP_COUNTERS_MISSING')
     else:
         page_size = number(b.get('page_size_bytes')) or number(a.get('page_size_bytes'))
+        start_page_size = number(a.get('page_size_bytes'))
+        end_page_size = number(b.get('page_size_bytes'))
         if page_size is None or page_size <= 0:
             gaps.append('SWAP_PAGE_SIZE_MISSING')
+        if (start_page_size is not None and end_page_size is not None
+                and start_page_size != end_page_size):
+            gaps.append('SWAP_PAGE_SIZE_MISMATCH')
         for field in ('swapins_pages', 'swapouts_pages'):
             left, right = number(a.get(field)), number(b.get(field))
             if left is None or right is None or left < 0 or right < left:
@@ -142,6 +166,9 @@ def main() -> None:
         parser.error('Input exceeds 8 MiB safety limit')
     if args.output is not None and args.output.resolve() == source.resolve():
         parser.error('Refusing to overwrite the source evidence')
+    if (args.output is not None
+            and args.output.resolve().is_relative_to(source.parent.resolve())):
+        parser.error('Output must be outside the source evidence directory')
     if args.output is not None and args.output.exists():
         parser.error('Output exists; refusing to overwrite')
     payload = source.read_bytes()
@@ -151,7 +178,7 @@ def main() -> None:
         parser.error('Input is not valid JSON')
     result = assess(data)
     result['input_sha256'] = hashlib.sha256(payload).hexdigest()
-    rendered = json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True) + '\n'
+    rendered = json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True, allow_nan=False) + '\n'
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open('x', encoding='utf-8') as file:

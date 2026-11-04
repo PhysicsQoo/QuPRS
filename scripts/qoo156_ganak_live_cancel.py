@@ -99,6 +99,7 @@ def bounded_run(cli_binary: Path, binary: Path, name: str, source: Path, workspa
     cli_proc = psutil.Process(process.pid)
     found = None
     found_args = None
+    ancestor_snapshot = None
     pid = None
     creation = None
     observed_stopped = False
@@ -129,6 +130,16 @@ def bounded_run(cli_binary: Path, binary: Path, name: str, source: Path, workspa
                             time.sleep(0.001)
                     if observed_stopped:
                         found, found_args = pid, args
+                        try:
+                            ancestor_snapshot = {
+                                "ppid": candidate.ppid(),
+                                "pgid": os.getpgid(pid),
+                                "sid": os.getsid(pid),
+                                "state": candidate.status(),
+                                "ancestor_chain": [p.pid for p in candidate.parents()],
+                            }
+                        except (psutil.Error, ProcessLookupError):
+                            ancestor_snapshot = {"error": "process vanished after SIGSTOP"}
                         break
                 except (psutil.Error, ProcessLookupError, PermissionError):
                     pass
@@ -145,11 +156,26 @@ def bounded_run(cli_binary: Path, binary: Path, name: str, source: Path, workspa
             os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=5)
 
+    def snapshot() -> dict:
+        if found is None:
+            return {"reason": "no real solver PID captured"}
+        try:
+            p = psutil.Process(found)
+            return {
+                "pid": found, "ppid": p.ppid(), "pgid": os.getpgid(found),
+                "sid": os.getsid(found), "state": p.status(),
+                "exe": p.exe(), "start_time": p.create_time(),
+            }
+        except (psutil.Error, ProcessLookupError) as exc:
+            return {"error": repr(exc)}
+
+    immediate_post_cli = snapshot()
     if found is not None and creation is not None:
         for _ in range(150):
             if not still_active(found, creation):
                 break
             time.sleep(0.02)
+    post_grace = snapshot()
     leaked = found is not None and creation is not None and still_active(found, creation)
     if leaked and found is not None:
         # Never leave a stopped Ganak process behind even when the program
@@ -172,6 +198,9 @@ def bounded_run(cli_binary: Path, binary: Path, name: str, source: Path, workspa
         "solver_pid": found,
         "solver_start_time": creation if found is not None else None,
         "observed_args": found_args,
+        "pre_stop_ancestry": ancestor_snapshot,
+        "immediate_post_cli": immediate_post_cli,
+        "post_3_second_grace": post_grace,
         "mode6_stopped": observed_stopped,
         "timeout_exit_124": timeout,
         "cli_returncode": process.returncode,
@@ -188,9 +217,12 @@ def main() -> int:
     p.add_argument("--cli", type=Path, required=True)
     p.add_argument("--evidence", type=Path, required=True)
     p.add_argument("--timeout", type=int, default=10)
+    p.add_argument("--max-cases", type=int, default=1)
     args = p.parse_args()
     if not (2 <= args.timeout <= 20):
         p.error("timeout must stay bounded between 2 and 20 seconds")
+    if not (1 <= args.max_cases <= len(CASES)):
+        p.error("max-cases must be between 1 and 4")
     cli = args.cli.resolve(strict=True)
     args.evidence.mkdir(parents=True, exist_ok=True)
     with ExitStack() as stack, tempfile.TemporaryDirectory(prefix="qoo156-ganak-mode6-") as temp:
@@ -199,7 +231,7 @@ def main() -> int:
         if fingerprint != PINNED_GANAK_SHA256:
             raise RuntimeError("Ganak ELF hash differs from pinned Linux x86_64 distribution")
         attempts = []
-        for case, filename in CASES:
+        for case, filename in CASES[:args.max_cases]:
             fixture = ROOT / "benchmarks/MQTBench" / filename
             if not fixture.is_file():
                 raise FileNotFoundError(fixture)

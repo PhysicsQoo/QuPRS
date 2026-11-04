@@ -60,7 +60,9 @@ def inspect(binary,source,td,tdfile):
     ignored="ignore td" in cp.stdout
     if not td and flowed:
         raise ValueError("TD off but FlowCutter ran")
-    if tdfile.exists():
+    # The paired TD-off run reuses the TD-on file path as a locator.
+    # Never mistake that retained TD-on native artifact for a TD-off result.
+    if td and tdfile.exists():
         header=TD_HEADER.findall(tdfile.read_text())
         if len(header)!=1:raise ValueError("TD file without correct width header")
         bags,max_bag,nvars=map(int,header[0])

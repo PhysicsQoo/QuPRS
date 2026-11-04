@@ -53,6 +53,22 @@ jobs:
             > evidence/qoo156-wmc-container/image-id.txt
           docker image inspect qoo156-wmc-mem:pilot --format '{{.Id}}' \
             > evidence/qoo156-wmc-container/image-sha.txt
+      - name: Verify real solver ELF runtime dependencies inside the container
+        shell: bash
+        run: |
+          set -euo pipefail
+          for solver in gpmc ganak; do
+            docker run --rm --network=none \
+              --entrypoint /bin/sh \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/$solver,target=/opt/$solver,readonly" \
+              qoo156-wmc-mem:pilot -c "ldd /opt/$solver || true" \
+              > "evidence/qoo156-wmc-container/$solver-ldd.txt" 2>&1
+            cat "evidence/qoo156-wmc-container/$solver-ldd.txt"
+            if grep -Fq 'not found' "evidence/qoo156-wmc-container/$solver-ldd.txt"; then
+              echo "Unresolved runtime dynamic dependency for $solver" >&2
+              exit 2
+            fi
+          done
       - name: Bounded source-backed real WMC within external memory envelope
         shell: bash
         run: |
@@ -90,9 +106,9 @@ jobs:
               test "$wait_rc" -eq 0
               test "$(cat "evidence/qoo156-wmc-container/$tag-cap-bytes.txt")" = "$((mem*1024*1024))"
               test "$(cat "evidence/qoo156-wmc-container/$tag-exit.txt")" = 0
-              grep -Fq "QOO156_REAL_WMC_DOCKER_$solver${mem}=" \
+              grep -Fq "QOO156_REAL_WMC_DOCKER_${solver}_${mem}=" \
                 "evidence/qoo156-wmc-container/$tag-log.txt"
-              grep -Eq "QOO156_REAL_WMC_DOCKER_$solver${mem}=(REAL_WMC_COMPLETE_PASS|REAL_WMC_EXTERNAL_OOM_SAFE)" \
+              grep -Eq "QOO156_REAL_WMC_DOCKER_${solver}_${mem}=(REAL_WMC_COMPLETE_PASS|REAL_WMC_EXTERNAL_OOM_SAFE)" \
                 "evidence/qoo156-wmc-container/$tag-log.txt"
             done
           done

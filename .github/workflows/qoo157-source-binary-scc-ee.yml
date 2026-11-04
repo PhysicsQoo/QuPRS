@@ -1,0 +1,67 @@
+name: QOO157 source binary SCC versus native GPMC EE zero-build science
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-source-binary-scc-ee.yml'
+      - 'research/qoo157_d4/source_binary_scc_ee.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-scc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source syntax
+        run: python -m py_compile research/qoo157_d4/source_binary_scc_ee.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-gpmc-native-stages-2e79057abcf6777750ffaac5a17e9c5275b6d62e
+          run-id: 41839854976
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/gpmc-native
+      - name: Independent native-to-static equivalence hypothesis check
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/source_binary_scc_ee.py \
+            --cnf-dir evidence/original/cnfs \
+            --original-science evidence/original/matched-science-report.json \
+            --gpmc-native evidence/gpmc-native/gpmc-stage-trace.json \
+            --out evidence/source-binary-scc-ee.json
+      - name: Record provenance and no performance measurement
+        if: always()
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-head.txt
+          echo 'Original binary-implication SCC source analysis only; NOT an executable performance, SAT or WMC arithmetic certificate' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-source-scc-ee-${{ github.sha }}
+          path: |
+            evidence/source-binary-scc-ee.json
+            evidence/source-head.txt
+            evidence/scope.txt
+          if-no-files-found: warn
+          retention-days: 30

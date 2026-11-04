@@ -39,10 +39,12 @@ time.sleep(1)
 before=memory_events()
 p=subprocess.run([sys.executable,"-c",child],capture_output=True,text=True,timeout=20)
 after=memory_events()
-print(f"QOO156_KERNEL_OOM_KILL_DELTA={after.get('oom_kill',0)-before.get('oom_kill',0)}",flush=True)
+oom_kill_delta=after.get("oom_kill",0)-before.get("oom_kill",0)
+oom_delta=after.get("oom",0)-before.get("oom",0)
+print(f"QOO156_KERNEL_OOM_KILL_DELTA={oom_kill_delta}",flush=True)
 print(f"QOO156_CHILD_EXIT={p.returncode}",flush=True)
 print(f"QOO156_CHILD_OUTPUT={p.stdout.strip()}",flush=True)
-print(f"QOO156_KERNEL_OOM_DELTA={after.get('oom',0)-before.get('oom',0)}",flush=True)
+print(f"QOO156_KERNEL_OOM_DELTA={oom_delta}",flush=True)
 '
 for limit in 64 128 256; do
   name="qoo156-docker-memory-$limit-$$"

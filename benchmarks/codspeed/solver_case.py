@@ -58,7 +58,41 @@ def _compatible_solver_kwargs(optional: dict) -> tuple[dict, str]:
     return clean, "legacy_90_digit_distance_source_checked" if legacy else "public_per_call_pinned"
 
 
+CAPABILITY_PREFIX = "QUPRS_CAPABILITY_RESULT "
+LEGACY_GPMC_90_UNPROVEN = "Legacy dev GPMC distance precision not proven to be 90"
+
+
+def probe_qasm261_contract() -> None:
+    """Use the *installed revision* to check the pinned numeric contract.
+
+    This preflight performs no verification and produces no timings. Only the
+    specific source-proven absence of legacy 90-digit distance support can
+    become NOT_COMPARABLE_LEGACY_BASE; all other failures remain hard errors.
+    """
+    required = {
+        "rr_tolerance": 1e-10,
+        "approximate_distance_tolerance": 1e-8,
+        "wmc_phase_tolerance": 1e-8,
+        "gpmc_precision_digits": 90,
+    }
+    try:
+        _, precision_contract = _compatible_solver_kwargs(required)
+    except RuntimeError as exc:
+        if str(exc) != LEGACY_GPMC_90_UNPROVEN:
+            raise
+        record = {
+            "status": "NOT_COMPARABLE_LEGACY_BASE",
+            "reason": LEGACY_GPMC_90_UNPROVEN,
+        }
+    else:
+        record = {"status": "SUPPORTED", "precision_contract": precision_contract}
+    print(CAPABILITY_PREFIX + json.dumps(record, sort_keys=True))
+
+
 def main() -> None:
+    if sys.argv[1:] == ["--probe-qasm261-contract"]:
+        probe_qasm261_contract()
+        return
     if len(sys.argv) not in (7, 8, 9, 10):
         raise SystemExit(
             "usage: solver_case.py FIXTURE_ROOT FILENAME STRATEGY SOLVER "

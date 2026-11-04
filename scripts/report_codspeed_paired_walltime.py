@@ -93,10 +93,19 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
             raise ValueError(f"Duplicated semantic record: {key}")
         provenance[key] = record
     keys = {(case, rev) for case in expected for rev in ("base", "head")}
-    if set(times) != keys or set(provenance) != keys:
+    legacy_incomparable = {
+        key for key, record in provenance.items()
+        if record.get("verification_status") == "NOT_COMPARABLE_LEGACY_BASE"
+    }
+    eligible = {(case, "base") for case in QASM261_WALLTIME_CASE_IDS & expected}
+    if not legacy_incomparable.issubset(eligible):
+        raise ValueError("NOT_COMPARABLE_LEGACY_BASE only allowed on QASM261 base")
+    measured_keys = keys - legacy_incomparable
+    if set(times) != measured_keys or set(provenance) != keys:
         raise ValueError(
-            f"Incomplete/extra paired coverage: missing_times={keys - set(times)} "
-            f"extra_times={set(times) - keys}; missing_provenance={keys - set(provenance)} "
+            f"Incomplete/extra paired coverage: missing_times={measured_keys - set(times)} "
+            f"extra_times={set(times) - measured_keys}; "
+            f"missing_provenance={keys - set(provenance)} "
             f"extra_provenance={set(provenance) - keys}"
         )
 
@@ -105,10 +114,13 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
     precision_incomparable = []
     for case in sorted(expected):
         b, h = provenance[case, "base"], provenance[case, "head"]
-        bt, ht = times[case, "base"], times[case, "head"]
+        bt, ht = times.get((case, "base")), times[case, "head"]
+        missing_base = (case, "base") in legacy_incomparable
         for revision, record, sha in (("base", b, base_sha), ("head", h, head_sha)):
             if record["sha"] != sha or record["fixture_sha"] != head_sha:
                 errors.append(f"{case}/{revision}: incorrect source/fixture SHA")
+            if missing_base and revision == "base":
+                continue
             if not record["solver_invoked"]:
                 errors.append(f"{case}/{revision}: Solver was not actually invoked")
             if record["verdict"] not in EQ | {"not_equivalent"}:
@@ -134,6 +146,47 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
             elif (record["verdict"] == "not_equivalent"
                   and record["verification_status"] != "EXTERNAL_GANAK_PRINT_LIMITATION"):
                 errors.append(f"{case}/{revision}: negative without known Solver limitation")
+
+        if missing_base:
+            expected_contract = {
+                "rr_tolerance": 1e-10, "approximate_distance_tolerance": 1e-8,
+                "wmc_phase_tolerance": 1e-8, "gpmc_precision_digits": 90,
+            }
+            if (b.get("capability_reason") !=
+                    "Legacy dev GPMC distance precision not proven to be 90"
+                    or b.get("requested_contract") != expected_contract
+                    or b.get("verdict") is not None
+                    or b.get("solver_invoked") is not None
+                    or b.get("method") != ("wmc_only" if case in QASM261_WMC_ONLY_CASE_IDS else "hybrid")
+                    or b.get("solver") != "gpmc"
+                    or b.get("backend") != "rust"
+                    or any(b.get(field) != h.get(field) for field in (
+                        "method", "backend", "solver", "strategy", "reverse",
+                        "fixture_sha", "pair_variant", "qasm_corpus", "fixture_sha256"
+                    ))):
+                errors.append(f"{case}/base: invalid source-capability evidence")
+            outcome.append({
+                "case": case,
+                "base_min_ms": None, "head_min_ms": ht["min_ns"] / 1e6,
+                "base_mean_ms": None, "head_mean_ms": ht["mean_ns"] / 1e6,
+                "base_std_ms": None, "head_std_ms": ht["stdev_ns"] / 1e6,
+                "base_cv": None, "head_cv": ht["stdev_ns"] / ht["mean_ns"],
+                "base_rounds": None, "head_rounds": ht["rounds"],
+                "median_change_percent": None, "change_percent": None,
+                "sampling_scope": "head-only CodSpeed WallTime; base source lacks pinned 90-digit contract",
+                "performance_comparable": False, "verdict_comparable": False,
+                "performance_comparison_tier": "NOT_COMPARABLE_LEGACY_BASE",
+                "numeric_tolerance_evidence": None,
+                "base_median_ms": None, "head_median_ms": ht["median_ns"] / 1e6,
+                "verdict_base": None, "verdict_head": h["verdict"],
+                "solver_invoked_base": None, "solver_invoked_head": h["solver_invoked"],
+                "capability_reason": b.get("capability_reason"),
+                "warning": [
+                    "NOT_COMPARABLE_LEGACY_BASE: no 90-digit distance provenance "
+                    "for base; head-only observation, no pairwise delta"
+                ],
+            })
+            continue
 
         for field in ("method", "backend", "solver", "strategy", "reverse", "fixture_sha",
                       "pair_variant", "qasm_corpus", "fixture_sha256",
@@ -295,14 +348,19 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
     ]
     for x in outcome:
         notes = "; ".join(x["warning"]) or "solver invoked in both"
+        base_ms = (f"{x['base_min_ms']:.2f}"
+                   if x["base_min_ms"] is not None else "N/A")
         header.append(
-            f"| {x['case']} | {x['base_min_ms']:.2f} | {x['head_min_ms']:.2f} "
-            f"| {format_change(x['change_percent'])} | "
+            f"| {x['case']} | {base_ms} | {x['head_min_ms']:.2f} "
+            f"| {format_change(x['change_percent']) if x['base_min_ms'] is not None else 'N/A (legacy capability)'} | "
             f"{x['verdict_base']} -> {x['verdict_head']} | {notes} |"
         )
-    evidence_status = ("FAIL" if errors else "PRECISION_LIMITED"
+    evidence_status = ("FAIL" if errors else "BASE_CAPABILITY_LIMITED"
+                       if legacy_incomparable else "PRECISION_LIMITED"
                        if precision_incomparable else "PASS")
-    header += ["", f"Coverage: {len(outcome)} exact case pairs, {len(times)} instrumented samples.",
+    header += ["", f"Coverage: {len(expected) - len(legacy_incomparable)} exact case pairs, "
+               f"{len(legacy_incomparable)} head-only legacy capability gaps, "
+               f"{len(times)} instrumented samples.",
                "**Semantic/stage evidence:** " + evidence_status,
                f"Precision-limited verdict-mismatch pairs with conditional timing: {len(precision_incomparable)}.",
                "PRECISION_LIMITED is not a scientific equivalence PASS.", ""]
@@ -311,6 +369,9 @@ def produce(measurements: dict, records: list[dict], base_sha: str,
     return {"base_sha": base_sha, "head_sha": head_sha, "cases": outcome,
             "errors": errors, "precision_incomparable": precision_incomparable,
             "conditional_timing_cases": list(precision_incomparable),
+            "legacy_base_incomparable": sorted(case for case, _ in legacy_incomparable),
+            "paired_measured_cases": len(expected) - len(legacy_incomparable),
+            "head_only_cases": len(legacy_incomparable),
             "status": evidence_status}, "\n".join(header) + "\n"
 
 

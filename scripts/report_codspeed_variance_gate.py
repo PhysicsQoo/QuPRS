@@ -15,7 +15,7 @@ import sys
 # Direct `python scripts/report_codspeed_variance_gate.py` sets sys.path[0]
 # to scripts/, so make the repo-root registry import explicit and source-pinned.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmarks.codspeed.case_registry import ALL_WALLTIME_CASE_IDS
+from benchmarks.codspeed.case_registry import ALL_WALLTIME_CASE_IDS, QASM261_WALLTIME_CASE_IDS
 
 DEFAULT_PAIRED_COUNT = len(ALL_WALLTIME_CASE_IDS)
 
@@ -35,6 +35,38 @@ def produce(report: dict, *, expected_count=DEFAULT_PAIRED_COUNT) -> dict:
     checked = []
     for row in cases:
         key = row["case"]
+        if row.get("performance_comparison_tier") == "NOT_COMPARABLE_LEGACY_BASE":
+            if (key not in QASM261_WALLTIME_CASE_IDS
+                    or row.get("base_rounds") is not None
+                    or row.get("base_cv") is not None
+                    or row.get("base_median_ms") is not None
+                    or row.get("change_percent") is not None
+                    or row.get("solver_invoked_base") is not None
+                    or row.get("solver_invoked_head") is not True
+                    or row.get("performance_comparable") is not False):
+                raise ValueError(f"{key}: invalid legacy-base no-measurement contract")
+            n, cv, median = (row.get("head_rounds"), row.get("head_cv"),
+                             row.get("head_median_ms"))
+            if (not isinstance(n, int) or n < 2
+                    or not isinstance(cv, (float, int)) or not math.isfinite(cv) or cv < 0
+                    or not isinstance(median, (float, int)) or not math.isfinite(median)
+                    or median <= 0):
+                raise ValueError(f"{key}: invalid HEAD-only CodSpeed sample metadata")
+            checked.append({
+                "case": key, "verdict_base": None, "verdict_head": row.get("verdict_head"),
+                "verdict_comparable": False, "conditional_timing_comparable": False,
+                "performance_comparison_tier": "NOT_COMPARABLE_LEGACY_BASE",
+                "category": "LEGACY_BASE_CAPABILITY",
+                "base_rounds": None, "head_rounds": n,
+                "base_cv": None, "head_cv": cv,
+                "exploratory_median_change_percent": None,
+                "unpaired_relative_se_percent_diagnostic_only": None,
+                "blocking_reasons": ["LEGACY_BASE_UNSUPPORTED"],
+                "nonblocking_interpretation_caveats": ["UNKNOWN_RUNNER_STABILITY"],
+                "observation_status": "NOT_COMPARABLE_LEGACY_BASE",
+                "release_gate_effect": "NONE", "performance_decision": "NOT_CERTIFIED",
+            })
+            continue
         reasons = []
         caveats = []
         changed_verdict = row.get("verdict_base") != row.get("verdict_head")
@@ -125,9 +157,14 @@ def produce(report: dict, *, expected_count=DEFAULT_PAIRED_COUNT) -> dict:
         "base_sha": report["base_sha"], "head_sha": report["head_sha"],
         "input_science_status": report.get("status"),
         "case_count": len(checked), "cases": checked,
-        "collection_status": "PAIRED_ROUND_SUMMARIES_AVAILABLE" if all(
-            "MISSING_ROUND_DISTRIBUTION" not in row["blocking_reasons"]
-            for row in checked) else "INCOMPLETE_SAMPLE_SUMMARIES",
+        "collection_status": (
+            "PARTIAL_LEGACY_BASE_CAPABILITY"
+            if any(row["observation_status"] == "NOT_COMPARABLE_LEGACY_BASE"
+                   for row in checked)
+            else "PAIRED_ROUND_SUMMARIES_AVAILABLE" if all(
+                "MISSING_ROUND_DISTRIBUTION" not in row["blocking_reasons"]
+                for row in checked) else "INCOMPLETE_SAMPLE_SUMMARIES"
+        ),
         "scientific_status": report.get("status", "UNKNOWN"),
         "performance_status": "NOT_CERTIFIED",
         "observation_policy": "OBSERVATION_ONLY_NO_FIXED_THRESHOLD",
@@ -162,7 +199,8 @@ def main():
     a.output.write_text(json.dumps(report, indent=2, sort_keys=True)+"\n", encoding="utf-8")
     rows = [
         "## P5 CodSpeed WallTime observations (no automatic performance gate)",
-        f"Source: same runner, {a.expected_count} source-pinned base/HEAD Solver-inclusive WallTime pairs (seven original Hybrid + two QASM261 Hybrid negative + one QASM261 Rust WMC-only negative).",
+        f"Source: same runner, {a.expected_count} registered source-pinned WallTime cases; "
+        "unavailable legacy BASE cases are HEAD-only and must never count as pairs.",
         "Median changes show observed direction, not statistical significance; "
         "runner noise is a nonblocking caveat.",
         "Ganak near-equal source cases may retain CONDITIONAL timing deltas "

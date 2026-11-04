@@ -1,0 +1,75 @@
+name: QOO157 GPMC native EE/VE stage trace no performance timing
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-gpmc-native-stage-trace.yml'
+      - 'research/qoo157_d4/gpmc_native_stage_trace.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      QOO157_NATIVE_CNF_DIR: evidence/original/cnfs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source and syntax guard
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/gpmc_native_stage_trace.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Compile pinned original GPMC only
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          cmake -S GPMC -B "$RUNNER_TEMP/qoo157-gpmc-verbose" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo157-gpmc-verbose" --parallel 2
+          mkdir -p evidence
+          sha256sum "$RUNNER_TEMP/qoo157-gpmc-verbose/gpmc" > evidence/native-binary.sha256
+      - name: Verify archived original CNF and WMC and record actual EE/VE stage transitions
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/gpmc_native_stage_trace.py \
+            --binary "$RUNNER_TEMP/qoo157-gpmc-verbose/gpmc" \
+            --cnf-dir "$QOO157_NATIVE_CNF_DIR" \
+            --science-report evidence/original/matched-science-report.json \
+            --out evidence/gpmc-stage-trace.json
+      - name: Audit SHA and explicitly label non-timing scope
+        if: always()
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/experiment-head.txt
+          echo 'Scientific and structural trace only; NO performance measurements; only CodSpeed ranks speed' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-gpmc-native-stages-${{ github.sha }}
+          path: |
+            evidence/gpmc-stage-trace.json
+            evidence/native-binary.sha256
+            evidence/experiment-head.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

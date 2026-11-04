@@ -160,6 +160,7 @@ FIXTURES = {
         "c p weight 1 0 1 0\nc p weight -1 0 -1 0\n"
     ),
     "global_phase": "p cnf 1 1\nc t wmc\nc p weight 1 -1 0 0\n1 0\n",
+    "nondyadic_decimal": "p cnf 1 1\nc t wmc\nc p weight 1 0.1 0.2 0\n1 0\n",
     "both_polarities": (
         "p cnf 1 0\nc t wmc\n"
         "c p weight 1 1.5 -0.25 0\nc p weight -1 -0.5 0.25 0\n"

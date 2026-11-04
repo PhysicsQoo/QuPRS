@@ -16,8 +16,63 @@ impl PhasePolynomial {
     /// variables of a valid Bra-CX. F-state must still be substituted by the
     /// caller; this method only rewrites the phase polynomial P.
     pub(crate) fn substitute_bra_cx(&mut self, target: u32, control: u32) {
-        let completed = self.substitute_bra_cx_checked(target, control, None);
-        debug_assert!(completed);
+        assert_ne!(target, control, "Bra-CX requires different control/target");
+
+        // Move PhaseCoeff out of the map rather than clone expensive source
+        // BigRationals. Crucially remove *all* sources before reinsertion.
+        let keys: Vec<Monomial> = self.terms.keys()
+            .filter(|mono| mono.contains(&target))
+            .cloned()
+            .collect();
+        if keys.is_empty() { return; }
+
+        let mut source = Vec::with_capacity(keys.len());
+        for key in keys {
+            let entry = self.terms.remove_entry(&key)
+                .expect("Bra-CX phase source key must still exist");
+            source.push(entry);
+        }
+
+        for (term_t, phase) in source {
+            // Input monomials are canonical sorted sets; add_term preserves
+            // this invariant after each insertion, including collisions.
+            let contains_control = term_t.contains(&control);
+            let mut rest = term_t.clone();
+            rest.retain(|&v| v != target);
+
+            if contains_control {
+                // R contains x_c: R*x_t XOR R*x_c = R*x_t XOR R.
+                // As a phase: +phase*R - phase*R*x_t (mod 1).
+                let negative = if phase.is_pure_half() {
+                    // -1/2 == +1/2 (mod 1); no coefficient arithmetic.
+                    phase.clone()
+                } else {
+                    phase.clone() * -1
+                };
+                self.add_term(rest, phase);
+                self.add_term(term_t, negative);
+                continue;
+            }
+
+            // R lacks x_c: use the fixed two-term XOR expansion with no DFS,
+            // no temporary XOR HashMap, and no repeated Boolean sort/copy.
+            // R*x_c and R*x_t*x_c are both Boolean-set unions.
+            let mut term_c = rest;
+            term_c.push(control);
+            let mut term_tc = term_t.clone();
+            term_tc.push(control);
+
+            if phase.is_pure_half() {
+                // -2 * (1/2) == 0 mod 1 exactly. No third term needed.
+                self.add_term(term_c, phase.clone());
+                self.add_term(term_t, phase);
+            } else {
+                let negative_double = phase.clone() * -2;
+                self.add_term(term_tc, negative_double);
+                self.add_term(term_c, phase.clone());
+                self.add_term(term_t, phase);
+            }
+        }
     }
 
     /// Keep the specialized, exact Bra-CX algebra and its CodSpeed-tested

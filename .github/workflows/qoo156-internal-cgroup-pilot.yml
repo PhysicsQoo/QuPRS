@@ -1,0 +1,93 @@
+name: QOO-156 Internal CLI Delegated Memory cgroup-v2 Admission
+
+# Standalone bounded research job. NOT a production privilege model; host
+# GitHub Actions runner does not grant ordinary users cgroup delegation.
+# No native algorithm, solver, or release artifacts are changed here.
+on:
+  push:
+    branches: [experiment/qoo156-internal-cgroup-p0]
+    paths:
+      - '.github/workflows/qoo156-internal-cgroup-pilot.yml'
+      - 'scripts/qoo156_internal_cgroup/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-internal-controller-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  delegated-nonroot-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Source and container preflight (no native compilation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-internal-cgroup
+          git rev-parse HEAD > evidence/qoo156-internal-cgroup/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-internal-cgroup/pathsum-tree.txt
+          git rev-parse HEAD:GPMC > evidence/qoo156-internal-cgroup/gpmc-tree.txt
+          sha256sum scripts/qoo156_internal_cgroup/pilot.py \
+            > evidence/qoo156-internal-cgroup/pilot-sha256.txt
+          python3 -m py_compile scripts/qoo156_internal_cgroup/pilot.py
+          docker version > evidence/qoo156-internal-cgroup/docker-version.txt
+          docker build -q -t qoo156:internal-cgroup-pilot scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-internal-cgroup/image-build.txt
+          docker image inspect qoo156:internal-cgroup-pilot --format '{{.Id}}' \
+            > evidence/qoo156-internal-cgroup/image-id.txt
+          # Cgroup v2 must be writable INSIDE the test-only private namespace.
+          # This deliberately does not assert a production unprivileged host.
+          docker run --rm --privileged --cgroupns=private \
+            --memory=512m --memory-swap=512m --pids-limit=64 \
+            --network=none --read-only --user 0:0 --tmpfs /tmp:rw,nosuid,size=16m \
+            --entrypoint python3 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/pilot.py,target=/opt/pilot.py,readonly" \
+            qoo156:internal-cgroup-pilot \
+            -c "import runpy; d=runpy.run_path('/opt/pilot.py'); p=d['delegated_parent'](); print('QOO156_DELEGATION_PREFLIGHT=PASS',p,flush=True); p.rmdir()" \
+            | tee evidence/qoo156-internal-cgroup/delegation-preflight.txt
+          grep -Fq QOO156_DELEGATION_PREFLIGHT=PASS \
+            evidence/qoo156-internal-cgroup/delegation-preflight.txt
+      - name: Build exact debug CLI for test-only deterministic physical pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo build --manifest-path rust/Cargo.toml --locked -p QuPRS_cli
+          test -x rust/target/debug/QuPRS_cli
+          sha256sum rust/target/debug/QuPRS_cli \
+            benchmarks/qoo156/single_h.qasm \
+            > evidence/qoo156-internal-cgroup/executable-sha256.txt
+      - name: Positive internal child memory OOM and high-cap valid science
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout -k 5s 90s docker run --rm --privileged --cgroupns=private \
+            --memory=512m --memory-swap=512m --pids-limit=64 \
+            --network=none --read-only --user 0:0 --tmpfs /tmp:rw,nosuid,size=16m \
+            --entrypoint python3 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/debug/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/qoo156/single_h.qasm,target=/opt/single_h.qasm,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/pilot.py,target=/opt/pilot.py,readonly" \
+            qoo156:internal-cgroup-pilot /opt/pilot.py \
+            | tee evidence/qoo156-internal-cgroup/internal-cgroup-run.txt
+          grep -Fq QOO156_INTERNAL_CGROUP_UNPRIVILEGED_CLI=PASS \
+            evidence/qoo156-internal-cgroup/internal-cgroup-run.txt
+      - name: Preserve positive or negative evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-internal-cgroup-${{ github.sha }}
+          path: evidence/qoo156-internal-cgroup/
+          if-no-files-found: warn
+          retention-days: 30

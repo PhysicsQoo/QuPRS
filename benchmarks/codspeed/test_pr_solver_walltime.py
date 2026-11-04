@@ -10,6 +10,7 @@ import json
 import os
 import signal
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -84,6 +85,57 @@ def execute_source_pinned_case(revision: str, case: tuple) -> dict:
     return json.loads(markers[0])
 
 
+CAPABILITY_PREFIX = "QUPRS_CAPABILITY_RESULT "
+LEGACY_REASON = "Legacy dev GPMC distance precision not proven to be 90"
+
+
+@lru_cache(maxsize=1)
+def probe_base_qasm261_contract() -> dict:
+    """Probe the built BASE verifier without timing or invoking the Solver."""
+    workspace = Path(os.environ["GITHUB_WORKSPACE"])
+    runner_temp = Path(os.environ["RUNNER_TEMP"])
+    command = [
+        str(runner_temp / "quprs-pr-walltime-base" / "bin" / "python"),
+        str(workspace / "benchmarks" / "codspeed" / "solver_case.py"),
+        "--probe-qasm261-contract",
+    ]
+    completed = subprocess.run(
+        command, cwd=workspace / "pr-walltime-base",
+        capture_output=True, text=True, timeout=40, check=False,
+    )
+    if completed.returncode:
+        raise RuntimeError(
+            f"BASE numeric capability probe failed closed: exit={completed.returncode}; "
+            f"stdout={completed.stdout[-1500:]}; stderr={completed.stderr[-1500:]}"
+        )
+    matches = [
+        line[len(CAPABILITY_PREFIX):] for line in completed.stdout.splitlines()
+        if line.startswith(CAPABILITY_PREFIX)
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("Missing/duplicate BASE numeric capability marker")
+    record = json.loads(matches[0])
+    if record.get("status") == "SUPPORTED":
+        if record.get("precision_contract") not in {
+            "public_per_call_pinned", "legacy_90_digit_distance_source_checked"
+        }:
+            raise RuntimeError("Unrecognized supported BASE precision provenance")
+    elif record.get("status") == "NOT_COMPARABLE_LEGACY_BASE":
+        if record.get("reason") != LEGACY_REASON:
+            raise RuntimeError("Unrecognized legacy precision limitation")
+    else:
+        raise RuntimeError("Unrecognized BASE numeric capability status")
+    return record
+
+
+def hash_versioned_fixture(filename: str) -> list[str]:
+    folder = Path(os.environ["GITHUB_WORKSPACE"]) / "benchmarks" / "MQTBench"
+    return [hashlib.sha256(path.read_bytes()).hexdigest() for path in (
+        folder / filename,
+        folder / "qiskit-2.6.1-opt0" / "Random_Rotation" / filename,
+    )]
+
+
 # Interleave base and head for each case to reduce runner drift.
 PARAMS = [
     pytest.param(revision, case, id=f"{case[0]}-{revision}")
@@ -94,17 +146,42 @@ PARAMS = [
 
 @pytest.mark.parametrize("revision,case", PARAMS)
 def test_pr_solver_inclusive_walltime(benchmark, revision, case):
-    measured = benchmark(execute_source_pinned_case, revision, case)
     case_id, filename, strategy, solver, reverse, backend, *optional_method = case
     method = optional_method[0] if optional_method else "hybrid"
     versioned_negative = case_id in QASM261_WALLTIME_CASE_IDS
-    fixture_hashes = None
-    if versioned_negative:
-        folder = Path(os.environ["GITHUB_WORKSPACE"]) / "benchmarks" / "MQTBench"
-        fixture_hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (
-            folder / filename,
-            folder / "qiskit-2.6.1-opt0" / "Random_Rotation" / filename,
-        )]
+    hashes = hash_versioned_fixture(filename) if versioned_negative else None
+    if versioned_negative and revision == "base":
+        capability = probe_base_qasm261_contract()
+        if capability["status"] == "NOT_COMPARABLE_LEGACY_BASE":
+            # Record a source-specific absence, not an imaginary measured zero.
+            # No measurement URI can exist for this pytest.skip.
+            evidence = {
+                "case": case_id, "revision": revision,
+                "sha": os.environ["BASE_SHA"],
+                "fixture_sha": os.environ["HEAD_SHA"],
+                "fixture_sha256": hashes,
+                "method": method, "backend": backend, "solver": solver,
+                "strategy": strategy, "reverse": reverse,
+                "pair_variant": "random_rotation",
+                "qasm_corpus": "qiskit-2.6.1-opt0",
+                "verification_status": "NOT_COMPARABLE_LEGACY_BASE",
+                "capability_reason": capability["reason"],
+                "requested_contract": {
+                    "rr_tolerance": 1e-10,
+                    "approximate_distance_tolerance": 1e-8,
+                    "wmc_phase_tolerance": 1e-8,
+                    "gpmc_precision_digits": 90,
+                },
+                "verdict": None, "solver_invoked": None,
+            }
+            output = (Path(os.environ["RUNNER_TEMP"]) /
+                      "quprs-paired-walltime-provenance.jsonl")
+            with output.open("a", encoding="utf-8") as log:
+                log.write(json.dumps(evidence, sort_keys=True) + "\n")
+            pytest.skip("NOT_COMPARABLE_LEGACY_BASE: " + capability["reason"])
+
+    measured = benchmark(execute_source_pinned_case, revision, case)
+    fixture_hashes = hashes
     benchmark.extra_info.update({
         "measurement": "solver_inclusive_end_to_end_walltime",
         "case": case_id,

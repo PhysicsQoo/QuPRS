@@ -159,3 +159,33 @@ def test_standalone_variance_report_cli_can_import_registry_from_any_cwd(tmp_pat
     assert result.returncode == 0, result.stderr
     assert "--paired-report" in result.stdout
 
+
+
+def test_p5_explicit_legacy_base_is_not_a_measured_regression():
+    report = fixture()
+    case = next(row for row in report["cases"]
+                if row["case"] == "q261_qft16_negative")
+    case.update(
+        performance_comparison_tier="NOT_COMPARABLE_LEGACY_BASE",
+        performance_comparable=False,
+        base_rounds=None, base_cv=None, base_median_ms=None,
+        solver_invoked_base=None, solver_invoked_head=True,
+        change_percent=None, verdict_base=None,
+    )
+    observed = variance.produce(report)
+    row = next(x for x in observed["cases"] if x["case"] == case["case"])
+    assert observed["collection_status"] == "PARTIAL_LEGACY_BASE_CAPABILITY"
+    assert row["observation_status"] == "NOT_COMPARABLE_LEGACY_BASE"
+    assert row["exploratory_median_change_percent"] is None
+    assert row["blocking_reasons"] == ["LEGACY_BASE_UNSUPPORTED"]
+    assert observed["release_gate_enabled"] is False
+    assert all(x["exploratory_median_change_percent"] is not None
+               for x in observed["cases"] if x["case"] != case["case"])
+
+
+def test_p5_legacy_source_absence_rejects_fabricated_base_data():
+    report = fixture()
+    row = next(x for x in report["cases"] if x["case"] == "q261_qft16_negative")
+    row["performance_comparison_tier"] = "NOT_COMPARABLE_LEGACY_BASE"
+    with pytest.raises(ValueError, match="invalid legacy-base no-measurement"):
+        variance.produce(report)

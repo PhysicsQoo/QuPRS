@@ -45,7 +45,7 @@ jobs:
           git rev-parse HEAD > evidence/qoo156-ganak-live/source-sha.txt
           sha256sum rust/target/release/QuPRS_cli scripts/qoo156_ganak_live_cancel.py \
             > evidence/qoo156-ganak-live/input-sha256.txt
-      - name: Bounded real-Ganak WMC-only cancellation (max 4 cases x 10 sec)
+      - name: Reverify real Ganak WMC-only orphan cleanup after subreaper fix
         shell: bash
         run: |
           set -euo pipefail

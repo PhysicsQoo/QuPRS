@@ -1,0 +1,31 @@
+# QOO-98: Ganak v2.8.0 source-pinned Arjun/Puura hierarchical ablation
+
+## Provenance and science gate
+
+- Baseline matched-internal-requested-bits original-source run: [official CodSpeed #41855074902](https://github.com/PhysicsQoo/QuPRS/actions/runs/41855074902), HEAD `1f520105e6ba903672ce4e34543e11427acf071e`, artifact `13337246601`: GPMC MPFR127 vs pinned Ganak v2.8.0 MPFR127, **8/8 prepared-CNF subprocess benchmarks PASS**. On **QFT16**, Ganak median **669.436 ms** vs GPMC **974.784 ms** (Ganak ~1.46× faster) in the same hosted CI run. On Grover4, QAOA7 and QPE exact8, GPMC is faster. **Only same requested *internal bits***, not equal output precision.
+- First factorial [CI #41857134111](https://github.com/PhysicsQoo/QuPRS/actions/runs/41857134111) (HEAD `0c7c3955d30cffe022584481190e16a8157104d9`, artifact `13337517750`) **stopped before CodSpeed**. Four QAOA7 printed WMC screens and QFT16 default plus Arjun-off/Puura-on screens were within component-wise Ganak print half-unit plus prior source-count observation budget. **QFT16 Arjun-on/Puura-off reached the bounded 35 s preflight timeout**. The timeout is not a performance sample, not a numerical disagreement, and must not be imputed as 35 s measured runtime.
+- Follow-up [official CodSpeed CI #41857811857](https://github.com/PhysicsQoo/QuPRS/actions/runs/41857811857) **SUCCESS**, HEAD `016007e5ec64bcc3a3fcde9f567b8d012b07603a`, [artifact #13339335451](https://github.com/PhysicsQoo/QuPRS/actions/runs/41857811857/artifacts/13339335451). The single timed job checked official release **binary SHA**, embedded upstream SHA, source-locked original QAOA7/QFT16 Boolean CNF SHA, exact complex literal weights after lossless native Ganak serialization, then **7/7 eligible original-source WMC print-count science screens PASS**, then **7/7 CodSpeed v5 WallTime benchmark paths PASS**. The timed input is native prepared CNF, without any upstream solver modifications. `--mode=6 --mpfrprec=127 --threads=1` is the common contract.
+
+## Native mechanism: nested rather than independent 2×2
+
+Pinned [Ganak v2.8.0 main.cpp](https://github.com/meelgroup/ganak/blob/b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281/src/main.cpp#L465-L504) calls `standalone_minimize_indep` inside `run_arjun`, then conditionally `standalone_elim_to_file` (Puura) only if `do_puura` and the minimized sampling-variable count meets `arjun_further_min_cutoff`. In [main.cpp L789–815](https://github.com/meelgroup/ganak/blob/b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281/src/main.cpp#L789-L815), `--arjun 0` **skips `run_arjun` entirely**, also skipping Puura no matter the textual `--puura` setting. Thus four flag rows are **not four independent algorithm combinations**: `Arjun=0, Puura=1/0` are **a negative control of identical solver path**. The valid algorithm comparison is *Arjun + Puura*, *Arjun but Puura disabled*, and *neither*.
+
+## Official same-run observed WallTime (ms, three rounds per benchmark)
+
+| Original weighted CNF | Arjun=1 Puura=1 | Arjun=0 Puura=1 (Puura skipped) | Arjun=1 Puura=0 | Arjun=0 Puura=0 (negative control) |
+| --- | ---: | ---: | ---: | ---: |
+| **QAOA7 genuine NEQ** | **264.648** (259.011–264.790) | **277.337** (276.104–277.855) | **16,076.499** (all three rounds same rounded value) | **281.008** (276.449–281.242) |
+| **QFT16 EQ** | **814.810** (807.599–824.772) | **5,377.875** (5,359.399–5,412.064) | **NOT ADMITTED: prior 35 s science timeout; NO CodSpeed** | **5,371.725** (5,365.392–5,376.892) |
+
+- QAOA7 Arjun-on/Puura-off is **60.75× slower** than both on in this same hosted CodSpeed run; however *turning both off* is only **1.06× slower** than both on. **It is invalid to conclude that Puura alone always gives 60× speedup**: the bad arm is *Arjun preprocessing without Puura*. Arjun-on only may change the support/formula unfavorably, then fail to simplify it.
+- QFT16 turning both off is about **6.59× slower** than both on; Arjun-off/Puura-on negative control is **6.60× slower**. Thus the combined Arjun→Puura pipeline appears substantially useful **for this fixed QFT16 source CNF**. Arjun-on/Puura-off was censored by a **35 s pre-CodSpeed bound**, not assigned a timing.
+- Unlike the original conditional cross-solver run, this is **within-Ganak same Runner/HEAD/binary scientific-gated knob ablation**. Three rounds on GitHub-hosted hardware are **OBSERVATION_ONLY**. No fixed Macro Runner ABBA/BAAB causal timing certification or precise attribution of cost to individual native preprocessing stages. Only official CodSpeed timings appear in the performance table; native science preflight duration and C++ internal `t_total` are never mixed into it.
+
+## Required follow-up before solver selection
+
+1. Untimed **native Arjun/Puura residual-statistics audit** on the **same original QFT16/QAOA7 source CNFs**, pin all source and binary SHAs. Log projected independent support and before/after variable, clause, literal, structural width, component counts, and which Puura gate ran; avoid patching upstream solver or inferring individual stage CPU durations from console print. If feasible via existing `--arjundebugcnf`, treat this as science telemetry only.
+2. Only if the intermediate CNFs can be independently preserved with equal complex literal weights should alternative GPMC and Ganak run on exactly corresponding residual formula as a second *scientific intervention*. Otherwise maintain non-comparable intermediate states.
+3. Any claim of a reproducible algorithmic performance benefit requires fixed Macro Runner **ABBA/BAAB**, same SHA/binary and a longer, diversified circuit set; include RSS, timeouts and numerical precision.
+4. Ganak pinned Mode6 prints only **~9 significant decimal digits** via `%.8Re`, even with 127 bits requested. These count screens are `PRINT_CONCORDANT_UNCERTIFIED`, not a numerical error envelope. **`NOT_COMPARABLE_FOR_38D_OUTPUT` is unchanged.** Do not replace GPMC default nor frame these numbers as a legitimate full-38-digit Ganak/d4/GPMC ranking.
+
+See [source-only and native Ganak numeric admission](GANAK_MODE6_PINNED_PRECISION_SCOPE.md) and [GPMC/d4 signed SCC P0 CodSpeed](SIGNED_SCC_CODSPEED_P0.md). This research remains isolated on `experiment/qoo157-d4-effective-digit-parity`; no routine dev/main CI or production settings changed.

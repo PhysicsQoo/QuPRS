@@ -144,7 +144,7 @@ impl PhasePolynomial {
 
         let mut extracted = Vec::with_capacity(keys.len());
         for (index, key) in keys.into_iter().enumerate() {
-            if (index & 63) == 0 && expired() { return false; }
+            if index != 0 && (index & 63) == 0 && expired() { return false; }
             let (mut monomial, coeff) = self.terms.remove_entry(&key)
                 .expect("substituted phase term must still exist");
             monomial.retain(|&x| x != target_var);
@@ -159,7 +159,7 @@ impl PhasePolynomial {
         if sub_poly.len() == 1 {
             let replacement = sub_poly.iter().next().expect("singleton polynomial");
             for (index, (mut monomial, coeff)) in extracted.into_iter().enumerate() {
-                if (index & 63) == 0 && expired() { return false; }
+                if index != 0 && (index & 63) == 0 && expired() { return false; }
                 monomial.extend_from_slice(replacement);
                 self.add_term(monomial, coeff);
             }
@@ -184,7 +184,7 @@ impl PhasePolynomial {
             let mut expansions: FxHashMap<usize, FxHashMap<Monomial, i64>> =
                 FxHashMap::default();
             for (index, (rest, phase)) in extracted.into_iter().enumerate() {
-                if (index & 63) == 0 && expired() { return false; }
+                if index != 0 && (index & 63) == 0 && expired() { return false; }
                 let max_order = phase_xor_max_order(&phase);
                 if !expansions.contains_key(&max_order) {
                     let Some(result) = expand_xor_to_arithmetic_checked(sub_poly, max_order, deadline)
@@ -193,7 +193,7 @@ impl PhasePolynomial {
                 }
                 let expanded = &expansions[&max_order];
                 for (part_index, (part, &factor)) in expanded.iter().enumerate() {
-                    if (part_index & 63) == 0 && expired() { return false; }
+                    if part_index != 0 && (part_index & 63) == 0 && expired() { return false; }
                     if factor == 0 { continue; }
                     let mut monomial = rest.clone();
                     monomial.extend_from_slice(part);
@@ -209,14 +209,14 @@ impl PhasePolynomial {
         // before the arithmetic phase expansion. The single-monomial
         // product avoids allocating a one-element temporary polynomial.
         for (index, (rest, coeff)) in extracted.into_iter().enumerate() {
-            if (index & 63) == 0 && expired() { return false; }
+            if index != 0 && (index & 63) == 0 && expired() { return false; }
             let product = boolean_monomial_xor_product(&rest, sub_poly);
             if product.is_empty() || coeff.is_zero() { continue; }
             let max_order = phase_xor_max_order(&coeff);
             let Some(expanded) = expand_xor_to_arithmetic_checked(&product, max_order, deadline)
             else { return false; };
             for (term_index, (term, factor)) in expanded.into_iter().enumerate() {
-                if (term_index & 63) == 0 && expired() { return false; }
+                if term_index != 0 && (term_index & 63) == 0 && expired() { return false; }
                 self.add_term(term, coeff.clone() * factor);
             }
         }

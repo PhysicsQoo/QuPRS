@@ -1,0 +1,70 @@
+name: QOO98 pinned Ganak 2.8.0 native Mode6 printed resolution science
+
+on:
+  push:
+    branches:
+      - experiment/qoo98-ganak-mode6-print-science
+    paths:
+      - '.github/workflows/qoo98-ganak-mode6-print-science.yml'
+      - 'research/qoo98_ganak_mode6/native_print_admission.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-native-mode6-printed-resolution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native probe syntax
+        run: python -m py_compile research/qoo98_ganak_mode6/native_print_admission.py
+      - name: Download exact upstream pinned release binary, verify archive and executable hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/release
+          curl -fL --retry 2 --max-time 120 -o evidence/ganak-v2.8.0-linux-amd64.tar.gz \
+            https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz
+          echo 'bea7150787a1e8f2b1bd658cb5a3c227d631d25054f5ff77ce23422e1c8b040c  evidence/ganak-v2.8.0-linux-amd64.tar.gz' | sha256sum --check
+          tar -xzf evidence/ganak-v2.8.0-linux-amd64.tar.gz -C evidence/release
+          mapfile -t candidates < <(find evidence/release -type f -name ganak)
+          test "${#candidates[@]}" -eq 1
+          binary="${candidates[0]}"
+          chmod +x "$binary"
+          echo '934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd' > evidence/pinned-executable-sha.txt
+          test "$(sha256sum "$binary" | cut -d' ' -f1)" = "$(cat evidence/pinned-executable-sha.txt)"
+          echo "QOO98_PINNED_GANAK=$PWD/$binary" >> "$GITHUB_ENV"
+      - name: Bounded 5 complex fixtures x 127 and 256 bits plus expected 512 reject
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo98_ganak_mode6/native_print_admission.py \
+            --binary "$QOO98_PINNED_GANAK" \
+            --fixtures-dir evidence/fixtures \
+            --out evidence/native-mode6-print-science.json
+      - name: Evidence scope, no performance
+        if: always()
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          echo 'Pinned native Ganak 2.8.0 only, 5 exact small complex WMC reference fixtures, 127/256 requested bits, nine-digit output and unsupported 512bits; NO CodSpeed / no solver timing / no internal arithmetic error certificate.' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo98-ganak-native-mode6-print-${{ github.sha }}
+          path: |
+            evidence/native-mode6-print-science.json
+            evidence/fixtures/
+            evidence/pinned-executable-sha.txt
+            evidence/head.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

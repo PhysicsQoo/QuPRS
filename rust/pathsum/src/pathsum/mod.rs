@@ -94,8 +94,10 @@ impl PathSum {
     pub(crate) fn poll_gate_deadline(&mut self) -> bool {
         if self.deadline_exceeded { return false; }
         if self.verification_deadline.is_none() { return true; }
-        self.deadline_gate_ticks = self.deadline_gate_ticks.wrapping_add(1);
-        if (self.deadline_gate_ticks & 31) == 0 {
+        let tick = self.deadline_gate_ticks;
+        self.deadline_gate_ticks = tick.wrapping_add(1);
+        // Poll strictly on first use and then once per 32 cheap events.
+        if (tick & 31) == 0 {
             return self.poll_verification_deadline();
         }
         true

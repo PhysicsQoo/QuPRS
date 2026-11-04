@@ -33,3 +33,32 @@ variance evidence. The ablation isolates *per-call binary hashing overhead*
 and does not measure complete QASM parsing, RR, CNF build or full verification.
 
 No modifications to QuPRS dev/main or default GPMC/Ganak behavior.
+
+## Completed first-party CodSpeed results
+
+Same-run GitHub Actions
+[#41818147183](https://github.com/PhysicsQoo/QuPRS/actions/runs/41818147183),
+official [CodSpeed run 6aeb12490d3ce3c3cf708acb](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb12490d3ce3c3cf708acb),
+code SHA `784e8c316b59ebd04ccaa8a880ed4976d9bb865b`. All 12
+measurements completed, science preflight admitted all 4 paper-family CNFs.
+Medians from the archived official CodSpeed WallTime export, 3 rounds each:
+
+| Case | GPMC30 ms | d4 SHA every call ms | d4 SHA once ms | prechecked d4 / GPMC30 |
+| --- | ---: | ---: | ---: | ---: |
+| Grover4 EQ | 61.344 | 229.003 | 222.413 | 3.63x |
+| QAOA7 true NEQ | 41.205 | 148.439 | 141.821 | 3.44x |
+| QPEexact8 EQ | 61.307 | 188.695 | 182.007 | 2.97x |
+| QFT16 EQ | 1107.968 | 1939.083 | 1912.063 | 1.73x |
+
+The preverification method reduces observed d4 WallTime by around 6.6 ms
+on the three smaller cases, but does **not** reverse the ranking on any
+tested workload. The larger QFT16 observed difference is ~27 ms; do not
+ascribe that whole difference to SHA alone without a controlled Macro Runner,
+given variability and 3 rounds. No source, Solver, or tolerance changes.
+
+**Decision:** per-call SHA overhead is a real research adapter artifact but
+is **not sufficient to explain away the 4/4 GPMC advantage**. Do not
+recommend d4 instead of GPMC in the general QuPRS documentation or switch
+the default. Keep this as a source-pinned research-only negative result.
+CodSpeed warns of WallTime outside Macro Runner; the figures are
+observations, **not a certified performance threshold**.

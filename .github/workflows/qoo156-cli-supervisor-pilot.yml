@@ -5,6 +5,7 @@ on:
     branches:
       - experiment/qoo156-cli-supervisor
       - experiment/qoo156-cli-io-admission
+      - experiment/qoo156-internal-cgroup-p0
     paths:
       - 'rust/cli/**'
       - 'rust/Cargo.lock'

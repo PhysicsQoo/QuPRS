@@ -68,7 +68,7 @@ jobs:
             echo "runner=$RUNNER_NAME"
           } > evidence/paired-source-provenance.txt
           python -m pytest benchmarks/codspeed/test_qoo156_cli_supervisor.py -q --collect-only
-      - name: Paired CLI end-to-end CodSpeed WallTime (ABBA + direct head)
+      - name: Paired CLI end-to-end CodSpeed WallTime (event-driven supervisor, ABBA)
         uses: CodSpeedHQ/action@v5
         with:
           mode: walltime

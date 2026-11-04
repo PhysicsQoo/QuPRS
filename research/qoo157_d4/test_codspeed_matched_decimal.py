@@ -1,6 +1,6 @@
 """Official CodSpeed WallTime for same-target-decimal d4/GPMC on same CNF.
 
-Four source-pinned circuit families × two decimal budgets × two solvers.
+Four source-pinned circuit families × two *effective digit* targets × two solvers.
 Each timed operation calls a supervised external native solver on identical
 prepared CNF, includes startup/IO/parse and avoids source generator/RR cost.
 D4 source binary SHA is verified once before timed calls, not each time.
@@ -68,6 +68,10 @@ def test_qoo157_matched_decimal_solver_walltime(benchmark, case, digits, solver)
         "matched_output_digits": digits,
         "working_bits_identical": (
             entry["requested_mpfr_bits"] == entry["actual_d4_gmp_bits"]
+        ),
+        "effective_decimal_digits_identical": True,
+        "actual_precision_bit_gap": (
+            entry["actual_d4_gmp_bits"] - entry["requested_mpfr_bits"]
         ),
         "numerical_screen_only": "COUNT_CONCORDANT_UNCERTIFIED",
         "includes_external_solver": True,

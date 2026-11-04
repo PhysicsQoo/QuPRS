@@ -377,3 +377,57 @@ impl PathSum {
         out
     }
 }
+#[cfg(test)]
+mod cooperative_small_exact_fastpath_tests {
+    use super::*;
+    use crate::rational::Angle;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn small_exact_substitution_matches_original_and_aborts_expired_budget() {
+        let replacement: FxHashSet<Monomial> =
+            [vec![1], vec![2]].into_iter().collect();
+        let mut initial = PathSum::new(3);
+        initial.p.add_term(vec![0, 1], PhaseCoeff::HALF);
+        assert!(initial.small_exact_substitution(&replacement));
+
+        let mut original = initial.clone();
+        original.f.substitute_var_with_poly(0, &replacement);
+        original.p.substitute_var_with_poly(0, &replacement);
+
+        let mut checked = initial.clone();
+        checked.set_verification_deadline(Some(Instant::now() + Duration::from_secs(30)));
+        checked.substitute_var_with_poly(0, &replacement);
+        assert!(!checked.deadline_exceeded);
+        assert_eq!(checked.p.terms, original.p.terms);
+        assert_eq!(checked.f.functions, original.f.functions);
+
+        let mut expired = initial.clone();
+        expired.set_verification_deadline(Some(Instant::now() - Duration::from_millis(1)));
+        expired.substitute_var_with_poly(0, &replacement);
+        assert!(expired.deadline_exceeded);
+        assert_eq!(expired.p.terms, initial.p.terms);
+        assert_eq!(expired.f.functions, initial.f.functions);
+    }
+
+    #[test]
+    fn arbitrary_radian_and_large_sources_never_bypass_deep_checks() {
+        let replacement: FxHashSet<Monomial> =
+            [vec![1], vec![2]].into_iter().collect();
+        let mut ps = PathSum::new(3);
+        ps.p.add_term(vec![0], Angle::from_qasm_str(
+            "0.12345678901234567890123456789"
+        ).expect("source literal").to_phase_coeff());
+        assert!(!ps.small_exact_substitution(&replacement));
+
+        let mut large_replacement = FxHashSet::default();
+        large_replacement.insert((0..65).collect());
+        assert!(!PathSum::new(2).small_exact_substitution(&large_replacement));
+
+        let mut many_terms = PathSum::new(3);
+        for i in 0..65 {
+            many_terms.p.add_term(vec![i], PhaseCoeff::HALF);
+        }
+        assert!(!many_terms.small_exact_substitution(&replacement));
+    }
+}

@@ -7,7 +7,7 @@ imply the others have passed.
 | --- | --- | --- | --- |
 | Development correctness | `dev-fast.yml` and relevant native PR CI | Code- or solver-sensitive changes to `dev` | Rust/Python semantics, GPMC/Ganak execution and benchmark verdict integrity on tested runners |
 | Pre-packaging source compatibility | `release-ready-main.yml` → `source-correctness` (`pytest.yml`) | Release candidate PR from `dev` to `main`; manual release readiness | Supported OS/architecture × Python source/native build and correctness, **before** creating release archives |
-| Built-artifact acceptance | `release-ready-main.yml` → `installed-artifacts` (`release-artifact-ci.yml`) | After the source matrix passes, before merging to `main` | Candidate wheel/sdist creation, wheel tag/deployment consistency, clean installation and native-solver smoke |
+| Built-artifact acceptance | `release-ready-main.yml` → `installed-artifacts` (`release-artifact-ci.yml`) | Runs alongside source correctness on the `dev → main` release PR; the final Required aggregator waits for both | Candidate wheel/sdist creation, wheel tag/deployment consistency, clean installation and native-solver smoke |
 
 ## Development: do not duplicate release matrices
 
@@ -30,9 +30,13 @@ images or binary compatibility across older distributions.
 On a release candidate to `main`, the existing `source-correctness`
 reusable workflow validates **four platform/architecture groups × Python
 3.11/3.12/3.13**. It includes real solver dependencies and the original
-32-case benchmark verdict audit. The artifact stage now depends on completion
-of this gate rather than executing concurrently. Failed or missing source
-coverage must block release-artifact work, not be silently treated as a pass.
+32-case benchmark verdict audit. The artifact matrix runs **independently
+and concurrently**; the final `Release-Ready / Required` aggregator depends
+on **both complete matrices** and fails closed when source correctness
+is missing or unsuccessful. A benchmark resource timeout is an
+`INCONCLUSIVE_RESOURCE` observation, not a demonstrated wrong scientific
+verdict, and never counts as a PASS. Performance completeness is separate
+from the Required correctness policy.
 
 A change in supported Python/OS/architecture, solver packaging, GMP/MPFR
 dependencies or deployment policy must be validated with an explicit source

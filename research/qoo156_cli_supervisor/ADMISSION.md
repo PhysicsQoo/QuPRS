@@ -71,6 +71,34 @@ but cannot replace a positive `--max-memory-mib` child-cgroup
 `memory.events` / exit=125 proof unless the CLI contract is explicitly
 changed and independently tested.
 
+## Source-backed real GPMC/Ganak WMC under Docker memory cap (2026-11-04)
+
+[One-build controlled solver study #41842070834](https://github.com/PhysicsQoo/QuPRS/actions/runs/41842070834) **PASS**, [artifact #13329986800](https://github.com/PhysicsQoo/QuPRS/actions/runs/41842070834/artifacts/13329986800). Source `experiment/qoo156-cli-supervisor@b05e8d3d10ce8c3903b78f64754bf096de344451`. In a single Ubuntu 24.04 Docker runtime with unprivileged UID, network disabled, read-only root, bounded temporary storage, and no Linux capabilities:
+
+- The same **release** Rust CLI (SHA-256 `8319636e21d88a4b559a054fb0f4ffafd642158fe728ed93f2336eab78e67f0d`) received the MQTBench VQE4 QASM with an additional X gate on the second circuit. All attempts used `--method wmc-only --strategy proportional --quiet`.
+- The harness observed the **real solver PID, executable identity and arguments** before SIGSTOP→SIGCONT (no solver binary modifications). GPMC SHA-256 `507919b9af456645b55dc73e7d4db4a56b9293a0fa3ba99f5f8a0986826ef4b1`, `-mode=1`; Ganak 2.8.0 SHA-256 `934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd`, `--mode=6`.
+- Docker installed exact `memory.max` in the container's kernel cgroup. No OOM event was observed in these four complete science runs:
+
+| Real solver | External memory.max | Kernel oom_kill delta | Complete CLI verdict | Admission |
+|---|---:|---:|---|---|
+| GPMC | 256 MiB | 0 | `not_equivalent` | PASS |
+| GPMC | 1024 MiB | 0 | `not_equivalent` | PASS |
+| Ganak 2.8.0 | 256 MiB | 0 | `not_equivalent` | PASS |
+| Ganak 2.8.0 | 1024 MiB | 0 | `not_equivalent` | PASS |
+
+**Interpretation:** For this real VQE4 fixture, GPMC and Ganak can execute entirely inside a 256 MiB container and return identical verdicts. This **does not** establish that 256 MiB is adequate for larger QFT/QAOA/VQE cases or that numerical WMC values are identical. The driver checks the verdict and solver identity, not full WMC numerical parity.
+
+The first attempt [#41841384189](https://github.com/PhysicsQoo/QuPRS/actions/runs/41841384189) found a **packaging/runtime prerequisite**: GPMC failed to start because Ubuntu runtime lacked `libgmpxx.so.4` (exit 127). The subsequent image includes `libgmpxx4ldbl` and explicitly verifies runtime dynamic linkage with `ldd` before the solver experiments. Never confuse a missing shared library with a solver or memory-cap failure.
+
+**Separate certificates:**
+- Kernel Docker memory cap + actual worker injected OOM: PASS ([#41838137145](https://github.com/PhysicsQoo/QuPRS/actions/runs/41838137145), [#41839492389](https://github.com/PhysicsQoo/QuPRS/actions/runs/41839492389)).
+- Real solver inside Docker at 256/1024 MiB with consistent non-equivalence: PASS for exercised VQE4 fixture (above).
+- Forced **actual WMC solver memory exhaustion** inside a container: NOT_TESTED. No solver OOM occurred in the four runs.
+- `QuPRS_cli --max-memory-mib` own delegated child-cgroup contract: NOT_ADMITTED. Do not conflate these.
+- Linux ARM64 under Mac mini/OrbStack: NOT_TESTED. Do not infer ARM64 from hosted x86_64.
+
+This is a scientific/resource correctness control, **not** CodSpeed performance evidence. Final adoption requires an operational packaging/interface decision, source-image identity and architecture parity.
+
 ## Real 64 MiB cgroup OOM certificate
 
 Use a dedicated, trusted ephemeral Linux VM/runner with unified cgroup v2,

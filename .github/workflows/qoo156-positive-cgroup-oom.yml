@@ -1,0 +1,36 @@
+name: QOO-156 Positive Linux cgroup OOM Admission (delegated runner only)
+
+# Manual-only: deliberately avoid reserving nonexistent self-hosted runners
+# for ordinary PR/push CI. Must run in an ephemeral, trusted Linux VM whose
+# actions runner is installed within a writable, delegated cgroup-v2 subtree.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  positive-cgroup-oom:
+    name: Actual 64MiB memory.max, 192MiB worker page pressure and typed exit
+    runs-on: [self-hosted, linux, qoo156-cgroup-v2]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Inspect source and run bounded positive OOM gate
+        shell: bash
+        env:
+          QOO156_OOM_EVIDENCE: ${{ github.workspace }}/evidence/qoo156-oom-positive
+        run: |
+          set -euo pipefail
+          bash scripts/qoo156_positive_cgroup_oom_gate.sh
+      - name: Upload admitted/not-admitted evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-positive-cgroup-oom-${{ github.sha }}
+          path: evidence/qoo156-oom-positive/
+          if-no-files-found: warn
+          retention-days: 30

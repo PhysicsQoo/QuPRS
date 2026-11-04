@@ -1,0 +1,143 @@
+name: QOO-156 Real Ganak/GPMC Docker Memory Boundary
+
+# One build, seven bounded authentic WMC cases. Only kernel cgroup metrics
+# and scientific verdicts; NOT CodSpeed, NOT solver-only RSS.
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths:
+      - '.github/workflows/qoo156-wmc-memory-boundary.yml'
+      - 'scripts/qoo156_wmc_memory_boundary/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-wmc-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  memory-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile one native CLI and record solver + fixture provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-wmc-boundary
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          test -x rust/target/release/QuPRS_cli
+          git rev-parse HEAD > evidence/qoo156-wmc-boundary/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-wmc-boundary/pathsum-tree.txt
+          git rev-parse HEAD:GPMC > evidence/qoo156-wmc-boundary/gpmc-tree.txt
+          sha256sum rust/target/release/QuPRS_cli \
+            src/QuPRS/utils/wmc_tools/gpmc src/QuPRS/utils/wmc_tools/ganak \
+            scripts/qoo156_wmc_memory_boundary/driver.py \
+            benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+            benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm \
+            > evidence/qoo156-wmc-boundary/source-sha256.txt
+          grep -Fq '934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd ' \
+            evidence/qoo156-wmc-boundary/source-sha256.txt
+          docker build -q -t qoo156-wmc:boundary scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-wmc-boundary/image-id.txt
+          docker image inspect qoo156-wmc:boundary --format '{{.Id}}' \
+            > evidence/qoo156-wmc-boundary/image-sha.txt
+      - name: Bounded complete/memory-OOM edge cases, record kernel and Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in ganak:vqe4:72 ganak:vqe4:80 ganak:vqe4:88 \
+                      ganak:vqe4:96 ganak:vqe4:128 \
+                      gpmc:qft16:48 gpmc:qft16:64; do
+            IFS=: read -r solver case_name mem <<< "$spec"
+            case "$case_name" in
+              vqe4) file=vqe_nativegates_ibm_qiskit_opt0_4.qasm;;
+              qft16) file=qft_nativegates_ibm_qiskit_opt0_16.qasm;;
+              *) exit 2;;
+            esac
+            tag="$solver-$case_name-$mem"
+            name="qoo156-boundary-$tag-$GITHUB_RUN_ID"
+            docker run -d --name "$name" \
+              --entrypoint python3 \
+              --memory="${mem}m" --memory-swap="${mem}m" \
+              --pids-limit=64 --network=none --read-only \
+              --cap-drop=ALL --security-opt no-new-privileges \
+              --user 65534:65534 --tmpfs /tmp:rw,nosuid,size=64m \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/release/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc,target=/opt/gpmc,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak,target=/opt/ganak,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/$file,target=/opt/case.qasm,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_wmc_memory_boundary/driver.py,target=/opt/peak_driver.py,readonly" \
+              -e "QOO156_SOLVER=$solver" -e "QOO156_CASE=$case_name" -e "QOO156_LIMIT_MIB=$mem" \
+              qoo156-wmc:boundary /opt/peak_driver.py \
+              > "evidence/qoo156-wmc-boundary/$tag-id.txt"
+            set +e
+            timeout -k 4s 30s docker wait "$name" \
+              > "evidence/qoo156-wmc-boundary/$tag-docker-wait.txt" 2>&1
+            wait_code=$?
+            set -e
+            docker inspect "$name" --format '{{.State.ExitCode}}' \
+              > "evidence/qoo156-wmc-boundary/$tag-container-exit.txt"
+            docker inspect "$name" --format '{{.State.OOMKilled}}' \
+              > "evidence/qoo156-wmc-boundary/$tag-docker-oom-flag.txt"
+            docker inspect "$name" --format '{{.HostConfig.Memory}}' \
+              > "evidence/qoo156-wmc-boundary/$tag-limit-bytes.txt"
+            docker logs "$name" > "evidence/qoo156-wmc-boundary/$tag-log.txt" 2>&1 || true
+            docker rm -f "$name" >/dev/null || true
+            printf 'outer_wait=%s\n' "$wait_code" > "evidence/qoo156-wmc-boundary/$tag-outer-wait.txt"
+            cat "evidence/qoo156-wmc-boundary/$tag-log.txt"
+            test "$(cat "evidence/qoo156-wmc-boundary/$tag-limit-bytes.txt")" = "$((mem*1048576))"
+          done
+      - name: Reconcile partial OOM evidence and safe high-cap controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          folder=Path("evidence/qoo156-wmc-boundary")
+          specs=[("ganak","vqe4",i) for i in (72,80,88,96,128)]+[("gpmc","qft16",i) for i in (48,64)]
+          rows=[]
+          for solver,case,cap in specs:
+              name=f"{solver}-{case}-{cap}"
+              text=(folder/f"{name}-log.txt").read_text()
+              lines=[x.partition("QOO156_WMC_PEAK_JSON=")[2] for x in text.splitlines()
+                     if "QOO156_WMC_PEAK_JSON=" in x]
+              result=json.loads(lines[-1]) if lines else {}
+              exit_code=int((folder/f"{name}-container-exit.txt").read_text().strip())
+              docker_oom=(folder/f"{name}-docker-oom-flag.txt").read_text().strip()=="true"
+              if not lines:
+                  classification=("CONTAINER_OOM_NO_SOLVER_PID_ATTRIBUTION"
+                                  if exit_code==137 and docker_oom else "NOT_ADMITTED_NO_RECORD")
+              else:
+                  classification=result["classification"]
+              result.update(tag=name,classification=classification,
+                            docker_exit=exit_code,docker_oom_flag=docker_oom)
+              rows.append(result)
+              print("QOO156_WMC_BOUNDARY",name,classification,
+                    "peak",result.get("memory_peak_mib"),
+                    "prework",result.get("prework_memory_peak_mib"))
+          (folder/"manifest.json").write_text(json.dumps(rows,indent=2,sort_keys=True)+"\n")
+          for tag in ("ganak-vqe4-128","gpmc-qft16-64"):
+              item=next(r for r in rows if r["tag"]==tag)
+              if item["classification"]!="COMPLETE_WITHIN_CAP":
+                  raise SystemExit(f"QOO156_BOUNDARY_CONTROL_NOT_ADMITTED={tag}")
+          print("QOO156_BOUNDARY_HIGH_CAP_CONTROLS=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo156-wmc-boundary-${{ github.sha }}
+          path: evidence/qoo156-wmc-boundary/
+          if-no-files-found: warn
+          retention-days: 30

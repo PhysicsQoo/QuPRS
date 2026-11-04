@@ -38,6 +38,8 @@ jobs:
           cargo --version > evidence/cargo.txt
           lscpu > evidence/lscpu.txt
           sha256sum rust/pathsum/src/{pathsum/mod.rs,pathsum/boolean_state.rs,pathsum/phase_poly.rs,pathsum/bra_cx.rs,gates.rs,ir.rs,reduction.rs,strategy.rs,wmc.rs,lib.rs} > evidence/source-sha256.txt
+          sha256sum rust/pathsum/tests/qoo156_midflight.rs >> evidence/source-sha256.txt
+          printf '%s\n' 'QOO156_SCIENCE_GATE=https://github.com/PhysicsQoo/QuPRS/actions/runs/41809734886' > evidence/prior-science-gate.txt
       - name: Prepare source-pinned native CodSpeed benchmark
         shell: bash
         run: |

@@ -26,6 +26,13 @@ The Rust algorithm implementation `rust/pathsum` is intentionally identical to `
 
 [First source-paired CodSpeed WallTime #41815845054](https://github.com/PhysicsQoo/QuPRS/actions/runs/41815845054) measured unchanged dev CLI (1.4–3.1ms) vs initial 20ms-polled supervisor (22.0–22.2ms) vs direct HEAD worker (1.4–3.1ms), source pinned same runner, hosted WallTime **observation only**. This confirmed the fixed 20ms polling tail, not a Rust computational regression. The parent has since moved to event-driven worker wait; new paired CodSpeed data is required. External Macro Runner admission remains open.
 
+## Evidence update (2026-11-04)
+
+- [Linux/macOS scoped CI #41822076967](https://github.com/PhysicsQoo/QuPRS/actions/runs/41822076967) PASS: runtime and unit/integration tests. The **new positive OOM test** prints `QOO156_MEMORY_POSITIVE_NOT_ADMITTED` on hosted Ubuntu 24.04, where writable delegated cgroup v2 is absent. This is a *correct fail-closed result*, not proof of memory.max enforcement.
+- [CodSpeed same-runner observational WallTime #41817512390](https://github.com/PhysicsQoo/QuPRS/actions/runs/41817512390): event-driven supervisor adds approximately **1.5–2.7 ms** over the unchanged dev CLI. Direct HEAD worker matches the dev native algorithm behavior. The new process isolation has a significant relative cost for 1–3 ms jobs; a near-constant few milliseconds can be relatively small for long requests. CodSpeed explicitly warns this hosted run is not a Macro Runner, so no performance admission is claimed.
+- [Real solver attempt #41822744791](https://github.com/PhysicsQoo/QuPRS/actions/runs/41822744791) and [debugging run #41823482984](https://github.com/PhysicsQoo/QuPRS/actions/runs/41823482984): both **NOT_ADMITTED**. GPMC wrapper launched a child but SIGSTOP arrived **before exec**, when `/proc/<pid>/exe` still resolved to `/usr/bin/dash`; CLI did return Timeout without observed live orphan, but this does not certify a real GPMC executable was canceled. Ganak ran its actual pinned binary and returned a verdict, yet its mode-6 counting process had already exited before a controlled freeze was observed. Both remain open. The current pilot requires actual GPMC ELF `/proc/<pid>/exe` before pausing and never credits Ganak preflight in place of mode-6 counting.
+- No source or release changes were merged to `dev`/`main`. No strict memory guarantee on macOS or nondelegated Linux is claimed.
+
 ## Remaining acceptance
 
 1. Confirm event-driven CodSpeed CLI overhead across short and realistic workloads; hosted WallTime is non-Macro observational until fixed runner acceptance.

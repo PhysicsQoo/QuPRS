@@ -733,6 +733,13 @@ fn check_equivalence_with_distance_mode(
         } // end fully encoded, uncancelled CNF classification
     }
 
+    // Gate/RR/CNF/solver checkpoints cannot guarantee that a terminal
+    // distance or exact-identity classification finishes before expiration.
+    // The deadline always wins; a late EQ/NEQ is not a valid final verdict.
+    if deadline.is_some_and(|limit| Instant::now() >= limit) {
+        status = EquivalenceStatus::Timeout;
+    }
+
     let total_time = global_start.elapsed().as_secs_f64();
     // Python's public flag indicates an accepted approximate RR verdict;
     // intermediate approximation provenance remains on the residual PathSum.

@@ -1,0 +1,40 @@
+name: QOO-156 Docker External Memory Limits 64/128/256 MiB
+
+# One controlled, low-cost memory experiment. Docker daemon sets
+# cgroup memory.max. Do NOT conflate this with QuPRS --max-memory-mib.
+on:
+  push:
+    branches:
+      - experiment/qoo156-cli-supervisor
+    paths:
+      - '.github/workflows/qoo156-docker-external-memory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-mem:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Docker memory limit vs real physical page commitment
+        shell: bash
+        env:
+          QOO156_DOCKER_MEM_EVIDENCE: ${{ github.workspace }}/evidence/qoo156-docker-memory
+        run: |
+          set -euo pipefail
+          bash -n scripts/qoo156_docker_memory_cap_probe.sh
+          timeout --signal=TERM --kill-after=5s 180s \
+            bash scripts/qoo156_docker_memory_cap_probe.sh
+      - name: Preserve OOMKilled, cap bytes, source and image SHA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-external-docker-memory-${{ github.sha }}
+          path: evidence/qoo156-docker-memory/
+          if-no-files-found: warn
+          retention-days: 30

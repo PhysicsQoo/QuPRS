@@ -503,3 +503,62 @@ mod substitution_tests {
         assert!(poly.terms.is_empty());
     }
 }
+
+#[cfg(test)]
+mod cooperative_phase_substitution_tests {
+    use super::*;
+    use crate::rational::{Angle, Rational};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn bounded_exact_decimal_and_clifford_xor_match_original() {
+        let replacement: FxHashSet<Monomial> = [
+            vec![], vec![1], vec![2], vec![1, 2],
+        ].into_iter().collect();
+        let mut original = PhasePolynomial::new();
+        original.add_term(vec![0, 1], PhaseCoeff::HALF);
+        original.add_term(vec![0, 2], PhaseCoeff::new_constant(Rational::new(1, 8)));
+        original.add_term(vec![0, 3],
+            Angle::from_qasm_str("0.12345678901234567890123456789")
+                .expect("source decimal").to_phase_coeff());
+        let mut checked = original.clone();
+        original.substitute_var_with_poly(0, &replacement);
+        assert!(checked.substitute_var_with_poly_checked(
+            0, &replacement, Some(Instant::now() + Duration::from_secs(30)),
+        ));
+        assert_eq!(checked.terms, original.terms);
+    }
+
+    #[test]
+    fn expired_phase_expansion_fails_closed() {
+        let mut poly = PhasePolynomial::new();
+        poly.add_term(vec![0], PhaseCoeff::HALF);
+        let original = poly.clone();
+        let replacement: FxHashSet<Monomial> =
+            [vec![1], vec![2]].into_iter().collect();
+        assert!(!poly.substitute_var_with_poly_checked(
+            0, &replacement, Some(Instant::now() - Duration::from_millis(1)),
+        ));
+        assert_eq!(poly.terms, original.terms);
+    }
+
+    #[test]
+    fn recursive_xor_expansion_observes_budget() {
+        let terms: FxHashSet<Monomial> =
+            (1..=20).map(|v| vec![v]).collect();
+        // With twenty independent Boolean terms, a full expansion has
+        // 2^20-1 subsets. An expired budget must never return a partial map.
+        let expired = Instant::now() - Duration::from_millis(1);
+        assert!(expand_xor_to_arithmetic_checked(
+            &terms, usize::MAX, Some(expired),
+        ).is_none());
+
+        let small: FxHashSet<Monomial> =
+            [vec![1], vec![2], vec![1, 2]].into_iter().collect();
+        let reference = expand_xor_to_arithmetic(&small, usize::MAX);
+        let candidate = expand_xor_to_arithmetic_checked(
+            &small, usize::MAX, Some(Instant::now() + Duration::from_secs(30)),
+        ).expect("unexpired exact expansion");
+        assert_eq!(candidate, reference);
+    }
+}

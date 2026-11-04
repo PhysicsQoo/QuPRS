@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# QOO-157: isolated same-decimal precision GPMC-vs-d4 CodSpeed admission.
+# QOO-157: isolated near-bit parity, same effective decimal precision GPMC-vs-d4 CodSpeed admission.
 # Leaves dev/main and the upstream d4 source permanently unchanged.
 set -euo pipefail
 mkdir -p "$QOO157_EVIDENCE_DIR" "$QOO157_CNF_DIR"
@@ -48,7 +48,7 @@ git clone --filter=blob:none https://github.com/jm62300/d4.git "$source_root"
 git -C "$source_root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
 test "$(git -C "$source_root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
 
-for d in 30 90; do
+for d in 38 96; do
   worktree="$RUNNER_TEMP/qoo157-matched-$d-source"
   git -C "$source_root" worktree add --detach "$worktree" \
     be15f91f3e9769e1f5cb175fa27e3eca3a1ea690

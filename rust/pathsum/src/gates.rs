@@ -177,6 +177,23 @@ impl QuantumGates for PathSum {
                 // target variables retain the legacy generic behavior.
                 if x_t == x_c {
                     self.substitute_var_with_poly(x_t, &sub_poly);
+                } else if let Some(deadline) = self.verification_deadline {
+                    // The exact Bra-CX fast path bypasses generic PathSum
+                    // substitution, so it must honor the same deadline.
+                    if !self.poll_verification_deadline() { return; }
+                    if !self.f.substitute_var_with_poly_checked(
+                        x_t, &sub_poly, Some(deadline),
+                    ) {
+                        self.deadline_exceeded = true;
+                        return;
+                    }
+                    if !self.p.substitute_bra_cx_checked(
+                        x_t, x_c, Some(deadline),
+                    ) {
+                        self.deadline_exceeded = true;
+                        return;
+                    }
+                    self.poll_verification_deadline();
                 } else {
                     self.f.substitute_var_with_poly(x_t, &sub_poly);
                     self.p.substitute_bra_cx(x_t, x_c);

@@ -1,0 +1,112 @@
+name: QOO157 d4 BiPe option-level scoped CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-d4-bipe-options.yml'
+      - 'research/qoo157_d4/qoo157_bipe_options.py'
+      - 'research/qoo157_d4/test_codspeed_bipe_options.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  d4-bipe-options:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      QOO157_BIPE_CNF_DIR: evidence/original/cnfs
+      QOO157_BIPE_REPORT: evidence/bipe-option-science.json
+      QUPRS_CODSPEED_EXPORT: evidence/bipe-option-codspeed-walltime.json
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Preflight Python source and build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/qoo157_bipe_options.py research/qoo157_d4/test_codspeed_bipe_options.py
+          python -m pip install 'pytest-codspeed==5.0.3' 'pytest'
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Reuse archived original exact weighted CNF and source oracle
+        uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Pinned d4 38 effective digits with common output-only native BiPe stage counters
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo157-d4-bipe-options"
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$root"
+          git -C "$root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          mkdir -p evidence
+          python research/qoo157_d4/matched_precision_variant.py --upstream "$root" --evidence evidence --digits 38
+          python research/qoo157_d4/d4_bipe_instrument.py --source "$root" --evidence evidence
+          git -C "$root" diff --check
+          git -C "$root" diff -- c++/counter/src/Main.cpp c++/counter/src/Counter.cpp > evidence/d4-bipe-option-scratch.patch
+          (cd "$root/c++/counter" && ./build.sh -j) > evidence/d4-bipe-option-build.log 2>&1
+          binary="$root/c++/counter/build/counter"
+          test -x "$binary"
+          echo "QOO157_BIPE_BINARY=$binary" >> "$GITHUB_ENV"
+          sha256sum "$binary" > evidence/d4-bipe-option-binary.sha256
+          "$binary" -h > evidence/d4-bipe-option-help.log
+          for key in 'auto-config' 'preproc-method' 'equiv-subst' 'oracle-vivif' 'probing'; do
+            grep -q "$key" evidence/d4-bipe-option-help.log
+          done
+          grep -q 'actual-gmp-precision-bits 128' evidence/d4-bipe-option-help.log
+      - name: Science admission first — all variants source SHA and complex WMC concordance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/qoo157_bipe_options.py \
+            --binary "$QOO157_BIPE_BINARY" \
+            --cnf-dir "$QOO157_BIPE_CNF_DIR" \
+            --science-report evidence/original/matched-science-report.json \
+            --out "$QOO157_BIPE_REPORT"
+      - name: CodSpeed v5 within-d4-only full subprocess WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_bipe_options.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=5
+      - name: Preserve exact SHA and sampling limitations
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/runner-head.txt
+          uname -a > evidence/runner-kernel.txt
+          echo 'Same d4 scratch executable, 38-effective digits, common diagnostics, per-option paired comparisons only; hosted CodSpeed observational' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-d4-bipe-options-${{ github.sha }}
+          path: |
+            evidence/bipe-option-science.json
+            evidence/bipe-option-codspeed-walltime.json
+            evidence/d4-bipe-option-binary.sha256
+            evidence/d4-bipe-option-scratch.patch
+            evidence/d4-bipe-option-help.log
+            evidence/d4-bipe-option-build.log
+            evidence/runner-head.txt
+            evidence/runner-kernel.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

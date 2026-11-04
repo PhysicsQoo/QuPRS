@@ -1,0 +1,94 @@
+name: QOO-156 Actual Rust CLI Under Docker Memory Limit
+
+# One controlled real-CLI pilot, NOT a substitute for the internal
+# --max-memory-mib delegated cgroup proof. No CodSpeed timing claims.
+on:
+  push:
+    branches:
+      - experiment/qoo156-cli-supervisor
+    paths:
+      - '.github/workflows/qoo156-real-cli-docker-memory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cli-external-memory:
+    name: Real QuPRS worker, Docker 384 MiB success / 128 MiB OOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build debug CLI with existing test-only page-touch hook
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-real-cli-docker
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo build --manifest-path rust/Cargo.toml --locked -p QuPRS_cli
+          test -x rust/target/debug/QuPRS_cli
+          sha256sum rust/target/debug/QuPRS_cli \
+            benchmarks/qoo156/single_h.qasm \
+            scripts/qoo156_docker_cli_probe/{Dockerfile,driver.py} \
+            > evidence/qoo156-real-cli-docker/source-sha256.txt
+          git rev-parse HEAD > evidence/qoo156-real-cli-docker/source-sha.txt
+          docker build -q -t qoo156-cli-mem:pilot \
+            scripts/qoo156_docker_cli_probe \
+            > evidence/qoo156-real-cli-docker/image-id.txt
+          docker image inspect qoo156-cli-mem:pilot \
+            --format '{{.Id}}' > evidence/qoo156-real-cli-docker/image-sha.txt
+      - name: Container cgroup 384MiB positive control and 128MiB real CLI OOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mem in 384 128; do
+            name="qoo156-real-cli-$mem-$GITHUB_RUN_ID"
+            docker run --detach --name "$name" \
+              --memory="${mem}m" --memory-swap="${mem}m" \
+              --pids-limit=48 --network=none --read-only \
+              --cap-drop=ALL --security-opt no-new-privileges \
+              --user 65534:65534 \
+              --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/debug/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/qoo156/single_h.qasm,target=/opt/single_h.qasm,readonly" \
+              --env "QOO156_CONTAINER_MEM_MIB=$mem" \
+              qoo156-cli-mem:pilot \
+              > "evidence/qoo156-real-cli-docker/$mem-container-id.txt"
+            set +e
+            timeout --signal=TERM --kill-after=3s 40s \
+              docker wait "$name" > "evidence/qoo156-real-cli-docker/$mem-wait.txt" 2>&1
+            wait_status=$?
+            set -e
+            docker inspect "$name" --format \
+              'memory_max_bytes={{.HostConfig.Memory}}
+exit_code={{.State.ExitCode}}
+oom_killed={{.State.OOMKilled}}' \
+              > "evidence/qoo156-real-cli-docker/$mem-inspect.txt"
+            docker logs "$name" > "evidence/qoo156-real-cli-docker/$mem-log.txt" 2>&1 || true
+            docker rm -f "$name" >/dev/null || true
+            cat "evidence/qoo156-real-cli-docker/$mem-log.txt"
+            test "$wait_status" -eq 0
+            test "$(sed -n 's/^memory_max_bytes=//p' "evidence/qoo156-real-cli-docker/$mem-inspect.txt")" = "$((mem * 1024 * 1024))"
+            test "$(sed -n 's/^exit_code=//p' "evidence/qoo156-real-cli-docker/$mem-inspect.txt")" = 0
+            grep -Fq "QOO156_EXTERNAL_CLI_MEMORY_${mem}_MIB=EXTERNAL_DOCKER_CLI_MEMORY_PASS" \
+              "evidence/qoo156-real-cli-docker/$mem-log.txt"
+          done
+          echo 'QOO156_REAL_CLI_EXTERNAL_DOCKER_MEMORY=PASS' \
+            | tee evidence/qoo156-real-cli-docker/verdict.txt
+          echo 'QOO156_CLI_INTERNAL_MEMORY_CERTIFICATE=NOT_TESTED' \
+            | tee evidence/qoo156-real-cli-docker/internal-verdict.txt
+      - name: Archive source-pinned real CLI memory witness
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-real-cli-external-memory-${{ github.sha }}
+          path: evidence/qoo156-real-cli-docker/
+          if-no-files-found: warn
+          retention-days: 30

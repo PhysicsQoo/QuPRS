@@ -118,6 +118,9 @@ impl PathSum {
     }
 
     pub fn full_reduce(&mut self) {
+        // The public reduction signature stays unchanged; native verification
+        // observes deadline_exceeded and discards the partial residual.
+        if !self.poll_verification_deadline() { return; }
         let _timed_reduction = crate::diagnostics::span("reduction");
         // Skip if stats disabled
         if !self.stats.is_enabled() {
@@ -128,11 +131,13 @@ impl PathSum {
         let mut iterations = 0;
 
         while reduced {
+            if !self.poll_verification_deadline() { return; }
             reduced = false;
 
             // Normalize first: an almost-zero y term may unlock Elim,
             // Omega or HH.  Do not normalize the scalar global phase.
             self.normalize_rr_non_global();
+            if !self.poll_verification_deadline() { return; }
 
             let reducible_vars = self.get_reducible_vars();
 
@@ -140,11 +145,15 @@ impl PathSum {
                 break;
             }
 
+            if !self.poll_verification_deadline() { return; }
             // Match the Python Path-sum reduction priority: Elim -> Omega -> HH.
             // Restart after each success, so higher-priority rules see the new state.
             if self.try_reduce_elim(&reducible_vars) { reduced = true; iterations += 1; continue; }
+            if !self.poll_verification_deadline() { return; }
             if self.try_reduce_omega(&reducible_vars) { reduced = true; iterations += 1; continue; }
+            if !self.poll_verification_deadline() { return; }
             if self.try_reduce_hh(&reducible_vars) { reduced = true; iterations += 1; continue; }
+            if !self.poll_verification_deadline() { return; }
 
             if iterations > 0 {
                 trace!(">> [Full Reduce] System converged after {} reduction steps.", iterations);
@@ -171,6 +180,7 @@ impl PathSum {
         // Build the used-variable set once per Elim attempt, not once per variable.
         let used_vars = self.p.get_used_vars();
         for &var in reducible_vars {
+            if !self.poll_verification_deadline() { return false; }
             if !used_vars.contains(&var) {
                 vars_to_remove.push(var);
             }
@@ -198,6 +208,7 @@ impl PathSum {
         let mut timer = crate::diagnostics::time_rule("hh", reducible_vars.len());
 
         for &var in reducible_vars {
+            if !self.poll_verification_deadline() { return false; }
             // Step 1: Extract Phi polynomial and verify coefficients
             let mut phi: FxHashSet<Monomial> = FxHashSet::default();
             let mut is_valid_hh = true;
@@ -317,6 +328,7 @@ impl PathSum {
         let mut target_y = None;
         
         for &var in reducible_vars {
+            if !self.poll_verification_deadline() { return false; }
             if self.check_omega_conditions(var) {
                 target_y = Some(var);
                 break;

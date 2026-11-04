@@ -39,7 +39,8 @@ jobs:
           lscpu > evidence/lscpu.txt
           sha256sum rust/pathsum/src/{pathsum/mod.rs,pathsum/boolean_state.rs,pathsum/phase_poly.rs,pathsum/bra_cx.rs,gates.rs,ir.rs,reduction.rs,strategy.rs,wmc.rs,lib.rs} > evidence/source-sha256.txt
           sha256sum rust/pathsum/tests/qoo156_midflight.rs >> evidence/source-sha256.txt
-          printf '%s\n' 'QOO156_SCIENCE_GATE=https://github.com/PhysicsQoo/QuPRS/actions/runs/41809734886' > evidence/prior-science-gate.txt
+          printf '%s\n' 'QOO156_RR_POLLING_SOURCE=a39759bb98070f03c02bbb828ff72cf27fbbb5c9' > evidence/rr-polling-source.txt
+          printf '%s\n' 'QOO156_SCIENCE_GATE=https://github.com/PhysicsQoo/QuPRS/actions/runs/41811183921' > evidence/prior-science-gate.txt
       - name: Prepare source-pinned native CodSpeed benchmark
         shell: bash
         run: |

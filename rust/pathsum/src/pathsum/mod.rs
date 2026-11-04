@@ -48,6 +48,10 @@ pub struct PathSum {
     pub rr_tolerance: f64,
     /// Whether a reduction rule used approximate coefficient matching.
     pub rr_approximate: bool,
+    /// Internal, request-scoped cooperative deadline. Never changes source semantics.
+    pub(crate) verification_deadline: Option<std::time::Instant>,
+    /// Set when a reduction observes expiration. A partial PathSum is not a verdict.
+    pub(crate) deadline_exceeded: bool,
 }
 
 impl PathSum {
@@ -59,8 +63,26 @@ impl PathSum {
             stats: StatisticsManager::new(),
             rr_tolerance: 0.0,
             rr_approximate: false,
+            verification_deadline: None,
+            deadline_exceeded: false,
         }
     }
+    /// Enable cancellation for the lifetime of one verification request.
+    pub(crate) fn set_verification_deadline(&mut self, deadline: Option<std::time::Instant>) {
+        self.verification_deadline = deadline;
+        self.deadline_exceeded = false;
+    }
+
+    /// Called at safe points, including inside automatic gate reductions.
+    /// Cancellation is sticky until the caller discards the partial state.
+    pub(crate) fn poll_verification_deadline(&mut self) -> bool {
+        if self.deadline_exceeded || self.verification_deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            self.deadline_exceeded = true;
+            return false;
+        }
+        true
+    }
+
     pub fn set_auto_reduce(&mut self, enable: bool) {
         self.stats.set_enabled(enable);
     }
@@ -78,6 +100,8 @@ impl PathSum {
             stats: StatisticsManager::new(),
             rr_tolerance: 0.0,
             rr_approximate: false,
+            verification_deadline: None,
+            deadline_exceeded: false,
         };
 
         if let Some(state) = initial_state {

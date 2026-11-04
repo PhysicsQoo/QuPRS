@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Docker memory limit vs real physical page commitment
+      - name: Docker memory.max with real kernel memory.events OOM delta
         shell: bash
         env:
           QOO156_DOCKER_MEM_EVIDENCE: ${{ github.workspace }}/evidence/qoo156-docker-memory

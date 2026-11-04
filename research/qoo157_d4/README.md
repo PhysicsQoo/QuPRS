@@ -237,3 +237,23 @@ and retains both `1e-40` and `1e-60` as printed decimal values.
 This local stand-alone control is **not** a measured proof of corrected
 upstream d4; the native pinned-counter A/B is separately executed by
 CI [#41808891018](https://github.com/PhysicsQoo/QuPRS/actions/runs/41808891018).
+
+## Native 426-bit causal A/B result — 2026-11-04
+
+[CI #41808891018](https://github.com/PhysicsQoo/QuPRS/actions/runs/41808891018)
+SUCCESS. With identical QuPRS CNF, same runner and upstream source,
+the unmodified counter gave only 4/16 exact printed-decimal residual
+counts and lost three nonzero residuals. A one-line, **research-only**
+Main.cpp patch moving mpf_set_default_prec(426) *before* all counting
+yielded 16/16 printed equal and no lost residuals. QuPRS source-CNF
+strict 1e-25 screening improved 1/6 -> 6/6; the maximum component
+discrepancy improved about 2.70e-19 -> 4.81e-50. Source f64 errors
+remain distinct from solver errors.
+
+[Original and modified binary and source SHA, CNF and raw outputs](https://github.com/PhysicsQoo/QuPRS/actions/runs/41808891018/artifacts/13310694389).
+The original binary sha256 was d4a8a83610e49d42c5ce0b71cc269fe5cfadbcfa1daafc26656e2fdf163f7de0;
+the modified binary was 03693164e7b86bae2b73f2deb0092fe98bfae845c7d6fcad6c25e2287c028bd2.
+This is strong causal evidence for the tested C++ counter path, **not**
+an arbitrary-circuit numerical error certificate. Publication/packaging
+remains NO-GO pending upstream maintainer fix, provenance/license review,
+broader GPMC/Ganak conformance, and same-runner CodSpeed benchmarks.

@@ -1,0 +1,73 @@
+name: QOO98 Ganak no-Arjun debug Decimal rounding science
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - 'research/qoo157_d4/qoo98_ganak_debug_rounding_audit.py'
+      - '.github/workflows/qoo98-ganak-debug-rounding-science.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-exact-weights:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile research/qoo157_d4/qoo98_ganak_debug_rounding_audit.py
+          mkdir -p evidence
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo98-ganak-native-intermediate-6cba8679a461f1d32495461b4fea9d1666949ede
+          run-id: 41861376500
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/intermediate
+      - name: Source-exact canonical clauses and complex weight rounding
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/qoo98_ganak_debug_rounding_audit.py \
+            --source-dir evidence/original/cnfs \
+            --debug-dir evidence/intermediate/ganak-intermediate \
+            --source-manifest evidence/original/matched-science-report.json \
+            --native-audit evidence/intermediate/ganak-intermediate/native-intermediate-audit.json \
+            --out evidence/qoo98-debug-rounding-science.json
+      - name: Record scope
+        if: always()
+        shell: bash
+        run: |
+          git rev-parse HEAD > evidence/qoo98-rounding-source-head.txt
+          echo 'No native solver invocation or benchmarking. Structural/decimal provenance only. Does not certify WMC arithmetic or 38 digits.' > evidence/qoo98-rounding-scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo98-ganak-debug-rounding-science-${{ github.sha }}
+          path: |
+            evidence/qoo98-debug-rounding-science.json
+            evidence/qoo98-rounding-source-head.txt
+            evidence/qoo98-rounding-scope.txt
+          retention-days: 30
+          if-no-files-found: warn

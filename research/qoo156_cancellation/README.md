@@ -18,14 +18,46 @@ Scope: Rust verification request, not a new hard-process wall-clock guarantee.
 - CNF phase/ANF/trace encoding polls the same deadline and returns the existing
   typed SolverTimeout. The high-level request classifies that as Timeout,
   avoids launching the solver and never classifies an incomplete CNF.
+
+### Second-cycle deep cancellation (2026-11-04)
+
+- The verification-only `BooleanState` substitution and `PhasePolynomial`
+  substitution now poll within monomial products, arithmetic XOR subset DFS
+  and phase reinsertion. They retain exact source angles and F2/XOR parity.
+  Returning false marks the parent `PathSum` as canceled; its incomplete
+  state is never classified as EQ or NEQ.
+- The separately optimized **Bra-CX** path now polls during its exact
+  monomial rewrite, instead of bypassing the request budget; its original
+  fast exact algebra is preserved.
+- The U-gate Bra substitution stops after cancellation; the SWAP 3×CX
+  decomposition polls between sub-gates. Normalization, HH and Omega scans
+  include conservative safe points.
+- After RR, CNF, external solver, and numerical classification, the
+  verifier rechecks the monotonic deadline before returning a verdict.
+- Fresh controls cover exact fractional/radian phase preservation,
+  synthetic exponential XOR cancellation, multi-qubit GHZ+T RR parity,
+  independent concurrent requests, Bra-CX exact fast-path parity, and
+  matched CNF bytes.
+
+Source at the second-cycle scientific gate: `f4da97e5b9fb5d1d1e06b29a2ffffe26d644c30b`.
+[Branch-only CI #41806670133](https://github.com/PhysicsQoo/QuPRS/actions/runs/41806670133)
+passed **15/15 new cooperative + 4/4 existing RR/Hybrid controls**.
+The follow-up workflow-only SHA `26b5bbda420a47de4e80e267ebd6217de68bc68d`
+adds a full `cargo test -p pathsum --lib` suite and complete modified-source
+hash ledger; its result must be checked independently, not inferred from
+the narrower earlier run.
 - Existing GPMC/Ganak subprocess supervision from QOO-6 is reused; no
   replacement supervisor or new automatic solver fallback is introduced.
 
 ## Known limitations (must remain explicit)
 
-- This is **cooperative**, not a provable hard wall-clock bound. One long
-  QuantumOp.apply, polynomial substitution, a single high-precision phase
-  conversion, or Myers diff computation can still occupy time between polls.
+- This is **cooperative**, not a provable hard wall-clock bound.
+  The remaining non-interruptible internals include single large
+  `mul_boolean_polys` / ket-gate updates, general `PhasePolynomial AddAssign`,
+  expensive phase coefficient arithmetic, QASM parse before entry, and Myers
+  diff computation. Deep substitutions are now checked, but can still overrun
+  between safe points. Do not treat a successful timeout status as a maximum
+  real-time bound.
 - No asynchronous Rust-thread termination is attempted. Hard whole-request
   termination would require a separately owned worker PROCESS and supervisor.
 - A deadline that expires after all source work but before solver launch

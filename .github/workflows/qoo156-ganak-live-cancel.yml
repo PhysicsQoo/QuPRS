@@ -45,7 +45,27 @@ jobs:
           git rev-parse HEAD > evidence/qoo156-ganak-live/source-sha.txt
           sha256sum rust/target/release/QuPRS_cli scripts/qoo156_ganak_live_cancel.py \
             > evidence/qoo156-ganak-live/input-sha256.txt
-      - name: Reverify real Ganak WMC-only orphan cleanup after subreaper fix
+      - name: Test process disappearance classifier independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.util
+          import os
+          import psutil
+          from pathlib import Path
+          file = Path('scripts/qoo156_ganak_live_cancel.py')
+          spec = importlib.util.spec_from_file_location('qoo156_ganak_live_cancel', file)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          current = psutil.Process(os.getpid())
+          assert module.still_active(current.pid, current.create_time())
+          assert not module.still_active(2_147_483_647, 0.0), (
+              'NoSuchProcess must mean NOT ACTIVE, never an orphan'
+          )
+          print('QOO156_PID_CLASSIFIER=PASS')
+          PY
+      - name: Reverify pinned Ganak mode-6 cleanup using corrected PID classifier
         shell: bash
         run: |
           set -euo pipefail

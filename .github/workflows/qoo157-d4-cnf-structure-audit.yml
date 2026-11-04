@@ -1,0 +1,79 @@
+name: QOO157 fixed-source CNF structural audit (no solver build)
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-d4-cnf-structure-audit.yml'
+      - 'research/qoo157_d4/cnf_structure_audit.py'
+      - 'research/qoo157_d4/test_cnf_structure_audit.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  archived-cnf-structure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline input grammar and fail-closed unit contracts
+        run: python -m unittest discover -s research/qoo157_d4 -p 'test_cnf_structure_audit.py' -v
+      - name: Retrieve original exact-SHA matched-precision experiment artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/qoo157-original
+      - name: Independently audit archived CNFs without rerunning any solver
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/cnf_structure_audit.py \
+            --cnf-dir evidence/qoo157-original/cnfs \
+            --science-report evidence/qoo157-original/matched-science-report.json \
+            --out evidence/structural-audit.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('evidence/structural-audit.json').read_text())
+          expected = {
+            'grover4_eq': (372, 256, 536, [371, 1]),
+            'qaoa7_neq': (470, 319, 650, [261, 208, 1]),
+            'qpeexact8_eq': (250, 178, 370, [249, 1]),
+            'qft16_eq': (486, 400, 830, [485, 1]),
+          }
+          assert set(data['cases']) == set(expected)
+          for name, (v, w, b, components) in expected.items():
+              result = data['cases'][name]
+              assert (result['variables'], result['weighted_variables'],
+                      result['clause_lengths']['2'],
+                      result['original_primal_graph_components']) == (v, w, b, components)
+              assert result['d4_string_protected_variables'] == w
+              assert result['max_weighted_literals_per_clause'] == 1
+              assert result['binary_type_counts'].get('WW', 0) == 0
+          print('QOO157_SOURCE_CNF_STRUCTURE_AUDIT_PASS: 4/4 original SHAs verified')
+          PY
+          git rev-parse HEAD > evidence/auditor-head.txt
+          sha256sum evidence/structural-audit.json > evidence/structural-audit.sha256
+      - name: Persist bounded structural report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-cnf-structure-${{ github.sha }}
+          path: |
+            evidence/structural-audit.json
+            evidence/structural-audit.sha256
+            evidence/auditor-head.txt
+          retention-days: 30
+          if-no-files-found: warn

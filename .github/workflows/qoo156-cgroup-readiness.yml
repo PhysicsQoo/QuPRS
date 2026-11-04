@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - experiment/qoo156-cli-supervisor
+      - experiment/qoo156-internal-cgroup-p0
     paths:
       - 'scripts/qoo156_positive_cgroup_oom_gate.sh'
       - '.github/workflows/qoo156-cgroup-readiness.yml'

@@ -201,3 +201,44 @@ True Macro Runner CLI performance: NOT_ADMITTED.
 Linux subreaper real-Ganak incremental benefit: NOT_DEMONSTRATED.
 No dev merge until the outstanding safety and performance gates are
 explicitly addressed on a consistent source SHA.
+
+## 2026-11-04 follow-up: 72–128 MiB real WMC boundary and CLI safety source audit
+
+### Source-paired container boundary (not CodSpeed)
+
+[Actions #41846141175](https://github.com/PhysicsQoo/QuPRS/actions/runs/41846141175) completed SUCCESS, workflow source
+`793f69c3ca1d42733144c3e715cdaa1f2c204f77`, one pinned release Rust CLI SHA256
+`8319636e21d88a4b559a054fb0f4ffafd642158fe728ed93f2336eab78e67f0d`.
+Ganak 2.8.0 `--mode=6` SHA256 `934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd`;
+GPMC `-mode=1` SHA256 `507919b9af456645b55dc73e7d4db4a56b9293a0fa3ba99f5f8a0986826ef4b1`.
+All completed cases genuinely witnessed the solver PID, argv, STOP/CONT and complete `not_equivalent` output. Docker installed the physical cap; internal `--max-memory-mib` was NOT exercised.
+
+| Authentic solver / circuit | Docker memory.max | Container memory.peak | Classification |
+|---|---:|---:|---|
+| Ganak / VQE4 | 72 MiB | unavailable | container exit137 / Docker OOM flag, no in-container record; NO PID victim attribution |
+| Ganak / VQE4 | 80 MiB | unavailable | container exit137 / Docker OOM flag, no in-container record; NO PID victim attribution |
+| Ganak / VQE4 | 88 MiB | 80.773 MiB | COMPLETE_WITHIN_CAP, kernel oom_kill delta0 |
+| Ganak / VQE4 | 96 MiB | 80.754 MiB | COMPLETE_WITHIN_CAP, kernel oom_kill delta0 |
+| Ganak / VQE4 | 128 MiB | 81.012 MiB | COMPLETE_WITHIN_CAP, kernel oom_kill delta0 |
+| GPMC / QFT16 | 48 MiB | 42.168 MiB | COMPLETE_WITHIN_CAP, kernel oom_kill delta0 |
+| GPMC / QFT16 | 64 MiB | 42.066 MiB | COMPLETE_WITHIN_CAP, kernel oom_kill delta0 |
+
+These values include the CLI, Python driver, solver, kernel page cache and tmpfs; they are **NOT solver RSS** and are not universal minimum recommended memory limits. Ganak VQE4 in this *one source-pinned container* failed at 80 MiB and completed at 88 MiB. The Docker OOM flag is outer evidence; absence of a surviving driver record means the OOM victim and event delta were not individually certified in the 72/80 MiB cases. Do not use wall-clock durations from this experiment for performance comparison.
+
+### New code-audit findings: resource-contract gaps (NOT yet runtime-fixed)
+
+Source inspected on `experiment/qoo156-cli-supervisor` at the above boundary run, files `rust/cli/src/{supervisor,args,main}.rs`:
+
+1. **Output bytes are not actively capped.** Supervisor redirects stdout/stderr into parent-owned `tempfile::tempfile()`; `OUTPUT_LIMIT=16 MiB` for stdout is checked only **after successful child exit**. Failure stderr is truncated on *reading back*, not on writing to its temporary file. A noisy worker can exhaust temporary storage *before* the eventual output cap check. Classify this as a **source-proven safety gap, not a demonstrated actual disk exhaustion**. Required fix: truly bounded streaming/spooling of both streams; abort/reap full worker tree on overflow; preserve atomic scientific output. Test stdout + stderr flood and temporary filesystem boundedness on Linux/macOS, including if the child exits immediately after overflowing.
+
+2. **Hidden worker flag has no parent-origin admission check.** `--__quprs-worker` is parsed as a hidden boolean; `main.rs` directly executes `prepare_worker()` and the verifier when it is present. Hiding an option in Clap help is not an authorization check; direct invocation bypasses the new outer supervisor's timeout and resource-limit enforcement. This is **source-proven reachability, not a runtime exploit test**. Required fix: a verified parent-to-worker launch channel/inherited handle rather than merely a user-settable environment variable; reject unauthorised direct worker invocation without scientific output; keep the `direct_head` CodSpeed baseline through a controlled benchmark-only entrypoint, not a public release bypass.
+
+3. **Exact timeout semantics:** `recv_timeout` covers child execution, but reaping and cleanup (and eventual buffered output publication) may run *after* deadline. Describe the contract as monotonic execution deadline + bounded cleanup latency; do not claim that the outer CLI process always exits at exactly `timeout` seconds. Assess cleanup when a worker/subprocess ignores TERM or exits while OOM occurs.
+
+None of these findings changes established GPMC/Ganak cleanup evidence, the unchanged Rust Path-sum core, or the positive external Docker cap. There is **no positive internal child-cgroup admission**, no macOS/OrbStack ARM64 memory proof, and no assigned Macro CodSpeed runner (Actions #41825389124 still queued as inspected).
+
+### Next scoped work, in order
+
+1. Isolate the output-limit and hidden-worker launch fixes on this experiment branch, add **small, deterministic** Rust CLI tests for overflow, direct bypass and atomic output, and preserve source identities. Avoid modifying `rust/pathsum` or QOO-6 solver lifecycle; no numerical/tolerance changes.
+2. Only the scoped Linux/macOS CLI CI on code changes; no full five-shard CodSpeed rerun for Markdown or unrelated changes. Explicitly compare full process overhead through properly paired **CodSpeed Macro** once a runner is truly assigned; no merge before admission.
+3. Keep internal delegated cgroup/OOM certification separate from external Docker caps, and investigate native Mac/OrbStack ARM64 separately. Do not infer typed `MemoryLimitExceeded` from Docker exit137 alone.

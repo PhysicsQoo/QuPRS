@@ -62,14 +62,21 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     let received = rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
     let exit = match received {
         Ok(Ok(status)) if Instant::now() < deadline => status,
-        Ok(Ok(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {
+        Ok(Ok(_)) => {
+            // The child exited, but the parent cannot certify that it
+            // completed before the strict monotonic request deadline.
+            let _ = waiter.join();
+            if cli.quiet { println!("Timeout"); }
+            else { eprintln!("Timeout: whole CLI invocation exceeded --timeout"); }
+            return Ok(TIMEOUT_EXIT);
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
             terminate_tree(pid, cgroup.as_ref());
-            // If the worker already exited, the result was consumed above.
-            // Otherwise the waiter must reap it; never misstate a leaked
-            // worker as a successfully canceled request.
-            if let Err(mpsc::RecvTimeoutError::Timeout) =
-                rx.recv_timeout(Duration::from_secs(2)) {
-                bail!("ResourceSupervisorError: worker was not reaped after timeout");
+            // Do not claim safety until the wait thread reaps the child.
+            match rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(Ok(_)) => (),
+                Ok(Err(error)) => return Err(error).context("reap canceled worker"),
+                Err(_) => bail!("ResourceSupervisorError: worker was not reaped after timeout"),
             }
             let _ = waiter.join();
             if cli.quiet { println!("Timeout"); }

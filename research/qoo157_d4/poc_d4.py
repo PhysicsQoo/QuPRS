@@ -181,6 +181,24 @@ def as_pair(value):
     return [str(value[0]), str(value[1])]
 
 
+def classify_pilot_delta(observed, expected):
+    """Screen grammar/large count errors; never certify native arithmetic.
+
+    Tight band is the original numerical pilot target. Exploratory band is a
+    deliberately weak compatibility screen for finite-precision upstream
+    arithmetic, not suitable for QuPRS EQ/NEQ decisions.
+    """
+    difference = tuple(abs(o - e) for o, e in zip(observed, expected))
+    scale = max(Fraction(1), *(abs(x) for x in expected))
+    if all(d <= scale * Fraction(1, 10**25) for d in difference):
+        status = "PILOT_TIGHT"
+    elif all(d <= scale * Fraction(1, 10**15) for d in difference):
+        status = "PILOT_NEAR_UNCERTIFIED"
+    else:
+        status = "PILOT_MISMATCH"
+    return status, difference, scale
+
+
 def run(args):
     workdir = args.workdir.resolve()
     workdir.mkdir(parents=True, exist_ok=True)
@@ -209,23 +227,28 @@ def run(args):
                 # crashes or fails to parse its own input/output format.
                 record.update(native_status="NATIVE_ERROR", native_error=str(exc)[:1024])
             else:
-                difference = (abs(observed[0] - expected[0]), abs(observed[1] - expected[1]))
-                # Pilot sanity band; NOT a solver arithmetic certificate.
-                scale = max(Fraction(1), abs(expected[0]), abs(expected[1]))
-                within = all(d <= Fraction(1, 10**25) * scale for d in difference)
-                record.update(native_status="PILOT_MATCH" if within else "PILOT_MISMATCH",
-                              observed=as_pair(observed), absolute_error=as_pair(difference),
-                              pilot_band="1e-25 * max(1, abs(oracle components))", **meta)
+                status, difference, scale = classify_pilot_delta(observed, expected)
+                record.update(
+                    native_status=status, observed=as_pair(observed),
+                    absolute_error=as_pair(difference), error_scale=str(scale),
+                    strict_pilot_band="1e-25 * max(1, abs(oracle components))",
+                    exploratory_compatibility_band="1e-15 * max(1, abs(oracle components))",
+                    solver_arithmetic_certified=False, **meta,
+                )
         records.append(record)
     report = {"upstream_repo": UPSTREAM_REPO, "upstream_commit": UPSTREAM_SHA,
               "upstream_binary_sha256": sha256(binary.read_bytes()) if binary else None,
               "scope": "research-only; no QuPRS adapter or release claim",
+              "precision_gate": "NOT_CERTIFIED",
+              "pilot_status_counts": {status: sum(c["native_status"] == status for c in records)
+                  for status in sorted({c["native_status"] for c in records})},
               "cases": records}
     output = workdir / "report.json"
     output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps({"report": str(output), "cases": len(records),
                       "native_runs": len(records) if binary else 0}, ensure_ascii=False))
-    if binary and any(r["native_status"] != "PILOT_MATCH" for r in records):
+    if binary and any(r["native_status"] not in
+                      ("PILOT_TIGHT", "PILOT_NEAR_UNCERTIFIED") for r in records):
         raise SystemExit(2)
 
 

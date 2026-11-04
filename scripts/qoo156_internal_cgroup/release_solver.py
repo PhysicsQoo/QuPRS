@@ -136,7 +136,7 @@ def run_case(delegated, solver, circuit, limit, mode, high_cap):
             exact_solver_elf_sha256=expected_sha, cli_sha256=sha("/opt/QuPRS_cli"),
             cap_mib=limit, readback_max_bytes=max_bytes,
             cgroup_oom_kill=last_events.get("oom_kill"), peak_bytes=peak_bytes,
-            solver=witness, solver_pid_gone=gone, cli_uid=UID,
+            solver_process=witness, solver_pid_gone=gone, cli_uid=UID,
             cli_exit_code=child.returncode, stdout=stdout[-250:],
             stderr=stderr[-800:], harness_killed_cli=False,
         )

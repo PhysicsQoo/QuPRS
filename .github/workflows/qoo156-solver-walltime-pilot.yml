@@ -1,0 +1,129 @@
+name: QOO-156 Paired Solver-inclusive CodSpeed WallTime Pilot
+
+# Branch-scoped, opt-in QOO-156 observation. Reuses the existing ten-case
+# base/HEAD harness, the original solver process supervisor, and CodSpeed v5.
+# Does not trigger regular five-shard Simulation or packaging/release jobs.
+on:
+  push:
+    branches:
+      - experiment/qoo156-rust-cooperative-cancellation
+    paths:
+      - '.github/workflows/qoo156-solver-walltime-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-solver:
+    name: Paired real-solver CodSpeed WallTime (observational)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      BASE_SHA: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+      HEAD_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout QOO-156 experiment with benchmark harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Checkout untouched dev base on the SAME runner
+        uses: actions/checkout@v4
+        with:
+          ref: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+          submodules: recursive
+          persist-credentials: false
+          path: pr-walltime-base
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install original native verifier build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile independent base and HEAD source-pinned verifier environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C pr-walltime-base rev-parse HEAD)" = "$BASE_SHA"
+          for variant in base head; do
+            if [[ "$variant" == base ]]; then
+              source_root="$GITHUB_WORKSPACE/pr-walltime-base"
+            else
+              source_root="$GITHUB_WORKSPACE"
+            fi
+            venv="$RUNNER_TEMP/quprs-pr-walltime-$variant"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check maturin
+            (
+              cd "$source_root"
+              VIRTUAL_ENV="$venv" "$venv/bin/maturin" develop --release -E dev
+            )
+            "$venv/bin/python" -m pip freeze > "$RUNNER_TEMP/pr-walltime-$variant-freeze.txt"
+          done
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.3
+          {
+            echo "### QOO-156 CodSpeed same-host scientific pilot"
+            echo "- Base SHA: $BASE_SHA"
+            echo "- Head SHA: $HEAD_SHA"
+            echo "- Base GPMC: $(git -C pr-walltime-base rev-parse HEAD:GPMC)"
+            echo "- Head GPMC: $(git rev-parse HEAD:GPMC)"
+            echo "- Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+            echo "- Native Rust performance science: https://github.com/PhysicsQoo/QuPRS/actions/runs/41812412871"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Assert complete Solver-inclusive benchmark inventory
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" -m pytest benchmarks/codspeed/test_pr_solver_walltime.py --collect-only -q
+      - name: CodSpeed paired actual GPMC/Ganak WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=10
+      - name: Independent numerical verdict source oracle
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/quprs-pr-walltime-head/bin/python" \
+            scripts/check_codspeed_source_oracle.py \
+            --fixture-root "$GITHUB_WORKSPACE" --head-sha "$HEAD_SHA" \
+            --output "$RUNNER_TEMP/quprs-source-oracle.json"
+      - name: Pair genuine CodSpeed measurements and verify full Solver semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/report_codspeed_paired_walltime.py \
+            --measurements "$RUNNER_TEMP/quprs-paired-walltime-codspeed.json" \
+            --provenance "$RUNNER_TEMP/quprs-paired-walltime-provenance.jsonl" \
+            --source-oracle "$RUNNER_TEMP/quprs-source-oracle.json" \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --markdown paired-walltime-report.md \
+            --json paired-walltime-report.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Observational variance audit (not automatic PASS of speed)
+        shell: bash
+        run: |
+          python scripts/report_codspeed_variance_gate.py \
+            --paired-report paired-walltime-report.json \
+            --output paired-walltime-sampling.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Preserve paired timing and scientific provenance even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-paired-solver-walltime-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/pr-walltime-base-freeze.txt
+            ${{ runner.temp }}/pr-walltime-head-freeze.txt
+            ${{ runner.temp }}/quprs-paired-walltime-codspeed.json
+            ${{ runner.temp }}/quprs-paired-walltime-provenance.jsonl
+            ${{ runner.temp }}/quprs-source-oracle.json
+            paired-walltime-report.md
+            paired-walltime-report.json
+            paired-walltime-sampling.json
+          if-no-files-found: ignore
+          retention-days: 30

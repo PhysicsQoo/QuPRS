@@ -52,6 +52,10 @@ fi
 echo 'QOO156_CGROUP_READINESS=PASS' | tee "$EVIDENCE/readiness.txt"
 cleanup
 trap - EXIT
+if [[ "${QOO156_PREFLIGHT_ONLY:-0}" == "1" ]]; then
+  echo 'QOO156_CGROUP_OOM_CERTIFICATE=NOT_ADMITTED (preflight only)' | tee "$EVIDENCE/verdict.txt"
+  exit 0
+fi
 
 # Compile only this package/test, on the admitted delegated runner.
 cargo --version > "$EVIDENCE/cargo.txt"

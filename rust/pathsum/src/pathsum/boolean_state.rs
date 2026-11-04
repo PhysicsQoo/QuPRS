@@ -148,3 +148,37 @@ impl BooleanState {
         format!("|q_{}>", flat_index) // Fallback for out-of-bounds mapping
     }
 }
+#[cfg(test)]
+mod cooperative_boolean_substitution_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn bounded_xor_substitution_matches_unbounded_with_collisions() {
+        let mut reference = BooleanState::new(3);
+        reference.functions[0].insert(vec![0, 1]);
+        reference.functions[0].insert(vec![0, 2]);
+        reference.functions[1].insert(vec![0, 1, 2]);
+        let replacement: FxHashSet<Monomial> = [
+            vec![], vec![1], vec![2], vec![1, 2],
+        ].into_iter().collect();
+        let mut checked = reference.clone();
+        reference.substitute_var_with_poly(0, &replacement);
+        assert!(checked.substitute_var_with_poly_checked(
+            0, &replacement, Some(Instant::now() + Duration::from_secs(30)),
+        ));
+        assert_eq!(checked.functions, reference.functions);
+    }
+
+    #[test]
+    fn expired_boolean_expansion_fails_closed() {
+        let original = BooleanState::new(3);
+        let replacement: FxHashSet<Monomial> =
+            [vec![1], vec![2], vec![1, 2]].into_iter().collect();
+        let mut candidate = original.clone();
+        assert!(!candidate.substitute_var_with_poly_checked(
+            0, &replacement, Some(Instant::now() - Duration::from_millis(1)),
+        ));
+        assert_eq!(candidate.functions, original.functions);
+    }
+}

@@ -29,3 +29,19 @@ Pinned [Ganak v2.8.0 main.cpp](https://github.com/meelgroup/ganak/blob/b4ca02f78
 4. Ganak pinned Mode6 prints only **~9 significant decimal digits** via `%.8Re`, even with 127 bits requested. These count screens are `PRINT_CONCORDANT_UNCERTIFIED`, not a numerical error envelope. **`NOT_COMPARABLE_FOR_38D_OUTPUT` is unchanged.** Do not replace GPMC default nor frame these numbers as a legitimate full-38-digit Ganak/d4/GPMC ranking.
 
 See [source-only and native Ganak numeric admission](GANAK_MODE6_PINNED_PRECISION_SCOPE.md) and [GPMC/d4 signed SCC P0 CodSpeed](SIGNED_SCC_CODSPEED_P0.md). This research remains isolated on `experiment/qoo157-d4-effective-digit-parity`; no routine dev/main CI or production settings changed.
+
+
+## Independent QAOA7 Arjun-only three-round requalification
+
+**Official controlled resample SUCCESS**: [GitHub Actions #41859346095](https://github.com/PhysicsQoo/QuPRS/actions/runs/41859346095), HEAD `329a3454510acf25cf0ce8fcca6a1877edb6aecd`, [artifact #13338298797](https://github.com/PhysicsQoo/QuPRS/actions/runs/41859346095/artifacts/13338298797), unchanged official Ganak binary SHA. Fixed original QAOA7 signed complex weighted CNF, `--mode=6 --mpfrprec=127 --threads=1`, and same-run two-arm scientific printed-count preflight **2/2 `PRINT_CONCORDANT_UNCERTIFIED`** before timing. CodSpeed v5 `walltime`, `--codspeed-max-rounds=3 --codspeed-max-time=75`.
+
+| Ganak 127-bit QAOA7 | 3 measured rounds median (ms) | min–max (ms) | actual `total_time` |
+| --- | ---: | ---: | ---: |
+| Arjun=1,Puura=1 | **262.856138** | 262.077556–262.882878 | 0.789035933 s |
+| Arjun=1,Puura=0 | **16,363.866973** | 16,307.210318–16,367.000788 | **49.039437832 s** |
+
+The **actual total measured time** now confirms three distinct subprocess timing iterations: ~0.789s baseline and ~49.039s Arjun-only. The **within-this-run QAOA7 Arjun-only slowdown is 62.2541×**. That supersedes the previously preliminary ~60.75× **single observed iteration** from `max-time=12s`. Do not call the older `stats.rounds=3` three independent rounds: its `stats.total_time` was only 16.077s, not ~48s.
+
+This establishes a strong *within-pinned-solver, within-source, officially measured* adverse interaction between Arjun-only preprocessing and QAOA7 search. It **does not** isolate whether the cost resides within Arjun preprocessing or in the changed residual formula and subsequent Ganak counter; that requires an untimed source/intermediate structure audit, then controlled stage-specific interventions if exact weighted semantics can be verified. No single-stage time inferred.
+
+**Scope remains strictly conditional**: unchanged Ganak Mode6 output `%.8Re` (~9 significant digits) and no certified full internal arithmetic error envelope; not an equal-38-digit-output solver comparison, no change to QuPRS default or production CI. Three rounds on a hosted runner are not a fixed Macro Runner ABBA/BAAB acceptance.

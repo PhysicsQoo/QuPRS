@@ -2,10 +2,8 @@
 //! bounded diagnostics, optional resource limits. No Rust pathsum hot-path changes.
 use crate::args::Cli;
 use anyhow::{bail, Context, Result};
-use std::fs;
-#[cfg(target_os = "linux")]
-use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::fs::{self, File};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -17,6 +15,54 @@ pub const RESOURCE_EXIT: i32 = 125;
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+
+
+enum WorkerEvent {
+    Exited(io::Result<ExitStatus>, Instant),
+    CaptureOverflow(&'static str),
+    CaptureError(&'static str),
+}
+
+enum StopReason {
+    Timeout,
+    OutputLimit(&'static str),
+    CaptureFailed(&'static str),
+    WaitFailed(String),
+}
+
+// Parent-owned bounded spool: the worker cannot write to an unlimited
+// tempfile. Each reader checks the byte count *before* committing chunks.
+// Both pipes are drained concurrently to prevent stdout/stderr deadlock.
+fn capture_bounded<R: Read>(
+    mut source: R,
+    mut destination: File,
+    stream: &'static str,
+    events: mpsc::Sender<WorkerEvent>,
+) -> Result<File> {
+    let mut written = 0_u64;
+    let mut block = [0_u8; 8192];
+    loop {
+        let count = match source.read(&mut block) {
+            Ok(count) => count,
+            Err(error) => {
+                let _ = events.send(WorkerEvent::CaptureError(stream));
+                return Err(error).context(format!("read worker {stream}"));
+            }
+        };
+        if count == 0 {
+            return Ok(destination);
+        }
+        if written + count as u64 > OUTPUT_LIMIT {
+            let _ = events.send(WorkerEvent::CaptureOverflow(stream));
+            bail!("WorkerOutputLimitExceeded: {stream} exceeds {OUTPUT_LIMIT} bytes");
+        }
+        if let Err(error) = destination.write_all(&block[..count]) {
+            let _ = events.send(WorkerEvent::CaptureError(stream));
+            return Err(error).context(format!("spool worker {stream}"));
+        }
+        written += count as u64;
+    }
+}
 
 // Linux re-parents descendants of a dead worker directly to this CLI
 // supervisor, even when Ganak sets a distinct process group.
@@ -89,14 +135,15 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         Some(mib) => Some(MemoryCgroup::new(mib)?),
         None => None,
     };
-    let mut output = tempfile::tempfile().context("create private worker stdout")?;
-    let mut diagnostics = tempfile::tempfile().context("create private worker stderr")?;
+
+    let output = tempfile::tempfile().context("create private worker stdout")?;
+    let diagnostics = tempfile::tempfile().context("create private worker stderr")?;
     let mut command = Command::new(std::env::current_exe()?);
     command.args(std::env::args_os().skip(1))
         .arg("--__quprs-worker")
         .stdin(Stdio::null())
-        .stdout(Stdio::from(output.try_clone()?))
-        .stderr(Stdio::from(diagnostics.try_clone()?));
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     #[cfg(unix)]
     command.process_group(0);
@@ -108,9 +155,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     if let Some(mib) = cli.max_address_space_mib {
         install_address_space_limit(&mut command, mib)?;
     }
-    // Join the bounded cgroup BEFORE exec, including dynamic-loader/startup
-    // allocations. The cgroup.procs descriptor lives across Command::spawn
-    // so its pre-exec async-signal-safe write cannot use a closed fd.
+    // Join the cgroup before exec, so the loader/QASM are also bounded.
     #[cfg(target_os = "linux")]
     let join_file = cgroup.as_ref()
         .map(|group| group.install_pre_exec(&mut command)).transpose()?;
@@ -118,54 +163,129 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     #[cfg(target_os = "linux")]
     drop(join_file);
     let pid = child.id();
-    // Wait for the real OS process-exit event. A dedicated parent-side thread
-    // blocks in wait(), so there is no 20ms polling tail for millisecond jobs.
-    // Only the CLI parent pays this fixed overhead, never rust/pathsum.
-    let (tx, rx) = mpsc::sync_channel::<io::Result<ExitStatus>>(1);
-    let waiter = thread::spawn(move || { let _ = tx.send(child.wait()); });
-    let received = rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
-    let exit = match received {
-        Ok(Ok(status)) if Instant::now() < deadline => status,
-        Ok(Ok(_)) => {
-            // The child exited, but the parent cannot certify that it
-            // completed before the strict monotonic request deadline.
-            let _ = waiter.join();
-            cleanup_adopted_children()?;
-            if cli.quiet { println!("Timeout"); }
-            else { eprintln!("Timeout: whole CLI invocation exceeded --timeout"); }
-            return Ok(TIMEOUT_EXIT);
-        }
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            terminate_tree(pid, cgroup.as_ref());
-            // Do not claim safety until the wait thread reaps the child.
-            match rx.recv_timeout(Duration::from_secs(2)) {
-                Ok(Ok(_)) => (),
-                Ok(Err(error)) => return Err(error).context("reap canceled worker"),
-                Err(_) => bail!("ResourceSupervisorError: worker was not reaped after timeout"),
+    let stdout = child.stdout.take().context("worker stdout pipe unavailable")?;
+    let stderr = child.stderr.take().context("worker stderr pipe unavailable")?;
+
+    let (tx, rx) = mpsc::channel::<WorkerEvent>();
+    let stdout_tx = tx.clone();
+    let stdout_reader = thread::spawn(move || capture_bounded(
+        stdout, output, "stdout", stdout_tx,
+    ));
+    let stderr_tx = tx.clone();
+    let stderr_reader = thread::spawn(move || capture_bounded(
+        stderr, diagnostics, "stderr", stderr_tx,
+    ));
+    // Event-driven process wait: do not introduce a periodic polling tail.
+    let waiter = thread::spawn(move || {
+        let status = child.wait();
+        let _ = tx.send(WorkerEvent::Exited(status, Instant::now()));
+    });
+    let mut exit = None;
+    let mut reaped = false;
+    let mut interrupted = None;
+    loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(WorkerEvent::Exited(Ok(status), finished)) => {
+                reaped = true;
+                if finished < deadline {
+                    exit = Some(status);
+                } else {
+                    interrupted = Some(StopReason::Timeout);
+                }
+                break;
             }
-            let _ = waiter.join();
-            cleanup_adopted_children()?;
-            if cli.quiet { println!("Timeout"); }
-            else { eprintln!("Timeout: whole CLI invocation exceeded --timeout"); }
-            return Ok(TIMEOUT_EXIT);
+            Ok(WorkerEvent::Exited(Err(error), _)) => {
+                reaped = true;
+                interrupted = Some(StopReason::WaitFailed(error.to_string()));
+                break;
+            }
+            Ok(WorkerEvent::CaptureOverflow(stream)) => {
+                interrupted = Some(StopReason::OutputLimit(stream));
+                break;
+            }
+            Ok(WorkerEvent::CaptureError(stream)) => {
+                interrupted = Some(StopReason::CaptureFailed(stream));
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                interrupted = Some(StopReason::Timeout);
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                interrupted = Some(StopReason::WaitFailed(
+                    "worker event channel disconnected".to_owned()
+                ));
+                break;
+            }
         }
-        Ok(Err(error)) => return Err(error).context("wait for CLI worker"),
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            bail!("ResourceSupervisorError: worker waiter disconnected")
+    }
+    if interrupted.is_some() {
+        terminate_tree(pid, cgroup.as_ref());
+        if !reaped {
+            // Capture events may arrive before the waiter event. Never mistake
+            // them for successful reaping or abandon a live worker.
+            let reap_deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                match rx.recv_timeout(reap_deadline.saturating_duration_since(Instant::now())) {
+                    Ok(WorkerEvent::Exited(Ok(_), _)) => break,
+                    Ok(WorkerEvent::Exited(Err(error), _)) => {
+                        return Err(error).context("reap canceled worker");
+                    }
+                    Ok(_) => continue,
+                    Err(_) => bail!("ResourceSupervisorError: worker was not reaped after cancellation"),
+                }
+            }
         }
-    };
+    }
     let _ = waiter.join();
     cleanup_adopted_children()?;
+
+    // Commit neither scientific stdout nor diagnostic stderr until both
+    // readers are finished and their byte limits have been verified.
+    let stdout_result = stdout_reader.join()
+        .map_err(|_| anyhow::anyhow!("WorkerOutputCaptureError: stdout reader panicked"))?;
+    let stderr_result = stderr_reader.join()
+        .map_err(|_| anyhow::anyhow!("WorkerOutputCaptureError: stderr reader panicked"))?;
+    if let Some(reason) = interrupted {
+        match reason {
+            StopReason::Timeout => {
+                if cli.quiet { println!("Timeout"); }
+                else { eprintln!("Timeout: whole CLI invocation exceeded --timeout"); }
+                return Ok(TIMEOUT_EXIT);
+            }
+            StopReason::OutputLimit(stream) => {
+                eprintln!("WorkerOutputLimitExceeded: {stream} exceeds {OUTPUT_LIMIT} bytes");
+            }
+            StopReason::CaptureFailed(stream) => {
+                eprintln!("WorkerOutputCaptureError: unable to capture {stream}");
+            }
+            StopReason::WaitFailed(message) => {
+                eprintln!("ResourceSupervisorError: {message}");
+            }
+        }
+        return Ok(RESOURCE_EXIT);
+    }
+    let mut output = match stdout_result {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!("WorkerOutputCaptureError: {error:#}");
+            return Ok(RESOURCE_EXIT);
+        }
+    };
+    let mut diagnostics = match stderr_result {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!("WorkerOutputCaptureError: {error:#}");
+            return Ok(RESOURCE_EXIT);
+        }
+    };
 
     if cgroup.as_ref().is_some_and(MemoryCgroup::oom_killed) {
         eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
         return Ok(RESOURCE_EXIT);
     }
+    let exit = exit.context("worker exit status missing after successful event wait")?;
     if exit.success() {
-        if output.metadata()?.len() > OUTPUT_LIMIT {
-            eprintln!("WorkerOutputLimitExceeded: stdout exceeds 16 MiB");
-            return Ok(RESOURCE_EXIT);
-        }
         output.seek(SeekFrom::Start(0))?;
         io::copy(&mut output, &mut io::stdout().lock())?;
         diagnostics.seek(SeekFrom::Start(0))?;
@@ -351,6 +471,21 @@ impl Drop for MemoryCgroup {
 }
 
 pub fn prepare_worker() -> Result<()> {
+
+    // Debug-only bounded I/O pressure. Large writes reach the parent capture
+    // threads before any QASM parsing; never compiled into release binaries.
+    #[cfg(debug_assertions)]
+    if let Ok(stream) = std::env::var("QUPRS_CLI_TEST_FLOOD_STREAM") {
+        let bytes = [b'X'; 8192];
+        for _ in 0..(OUTPUT_LIMIT / 8192 + 2) {
+            match stream.as_str() {
+                "stdout" => io::stdout().write_all(&bytes)?,
+                "stderr" => io::stderr().write_all(&bytes)?,
+                _ => bail!("invalid debug-only flood stream"),
+            }
+        }
+        bail!("QOO156_TEST_FLOOD_FINISHED");
+    }
     // Only debug builds: reproduce worker exit while an OS-detached helper
     // remains alive. This does not exist in the release executable.
     #[cfg(all(debug_assertions, target_os = "linux"))]

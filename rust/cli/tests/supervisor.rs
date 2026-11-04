@@ -146,3 +146,20 @@ fn worker_exits_but_supervisor_reaps_separate_process_group_solver() {
     }
     panic!("detached solver PID {pid} remained active after supervisor cleanup");
 }
+
+#[test]
+fn stdout_or_stderr_flood_never_publishes_scientific_output() {
+    for stream in ["stdout", "stderr"] {
+        let file = fixture();
+        let result = Command::new(cli()).arg(file.path())
+            .args(["--quiet", "--timeout", "10"])
+            .env("QUPRS_CLI_TEST_FLOOD_STREAM", stream)
+            .output().unwrap();
+        assert_eq!(result.status.code(), Some(125),
+            "expected a bounded output failure for {stream}: {:?}", result);
+        assert!(result.stdout.is_empty(),
+            "uncommitted worker output escaped on {stream}: {:?}", result);
+        assert!(String::from_utf8_lossy(&result.stderr).contains("WorkerOutputLimitExceeded"),
+            "bounded failure must be explicit for {stream}: {:?}", result);
+    }
+}

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experiment/qoo156-cli-supervisor
+      - experiment/qoo156-cli-io-admission
     paths:
       - 'rust/cli/**'
       - 'rust/Cargo.lock'

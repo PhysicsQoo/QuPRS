@@ -66,17 +66,18 @@ jobs:
               docker wait "$name" > "evidence/qoo156-real-cli-docker/$mem-wait.txt" 2>&1
             wait_status=$?
             set -e
-            docker inspect "$name" --format \
-              'memory_max_bytes={{.HostConfig.Memory}}
-exit_code={{.State.ExitCode}}
-oom_killed={{.State.OOMKilled}}' \
-              > "evidence/qoo156-real-cli-docker/$mem-inspect.txt"
+            docker inspect "$name" --format '{{.HostConfig.Memory}}' \
+              > "evidence/qoo156-real-cli-docker/$mem-limit-bytes.txt"
+            docker inspect "$name" --format '{{.State.ExitCode}}' \
+              > "evidence/qoo156-real-cli-docker/$mem-exit.txt"
+            docker inspect "$name" --format '{{.State.OOMKilled}}' \
+              > "evidence/qoo156-real-cli-docker/$mem-oom-flag.txt"
             docker logs "$name" > "evidence/qoo156-real-cli-docker/$mem-log.txt" 2>&1 || true
             docker rm -f "$name" >/dev/null || true
             cat "evidence/qoo156-real-cli-docker/$mem-log.txt"
             test "$wait_status" -eq 0
-            test "$(sed -n 's/^memory_max_bytes=//p' "evidence/qoo156-real-cli-docker/$mem-inspect.txt")" = "$((mem * 1024 * 1024))"
-            test "$(sed -n 's/^exit_code=//p' "evidence/qoo156-real-cli-docker/$mem-inspect.txt")" = 0
+            test "$(cat "evidence/qoo156-real-cli-docker/$mem-limit-bytes.txt")" = "$((mem * 1024 * 1024))"
+            test "$(cat "evidence/qoo156-real-cli-docker/$mem-exit.txt")" = 0
             grep -Fq "QOO156_EXTERNAL_CLI_MEMORY_${mem}_MIB=EXTERNAL_DOCKER_CLI_MEMORY_PASS" \
               "evidence/qoo156-real-cli-docker/$mem-log.txt"
           done

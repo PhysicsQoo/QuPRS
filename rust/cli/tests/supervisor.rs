@@ -1,0 +1,90 @@
+//! Scope and semantics of the experimental CLI outer supervisor.
+//! The test-only hold runs only in debug builds and strictly before QASM I/O.
+use std::{fs, process::Command, time::Duration};
+
+fn cli() -> &'static str { env!("CARGO_BIN_EXE_QuPRS_cli") }
+
+fn fixture() -> tempfile::NamedTempFile {
+    use std::io::Write;
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    writeln!(file, "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nh q[0];").unwrap();
+    file
+}
+#[test]
+fn dual_circuit_worker_returns_only_complete_equivalence() {
+    let file = fixture();
+    let result = Command::new(cli())
+        .arg(file.path()).arg(file.path())
+        .args(["--method", "reduction-rules", "--quiet", "--timeout", "20"])
+        .output().unwrap();
+    assert!(result.status.success(), "{:?}", result);
+    assert!(String::from_utf8_lossy(&result.stdout).trim().contains("equivalent"),
+        "{:?}", result);
+}
+
+#[test]
+fn single_circuit_has_a_supervised_success_path() {
+    let file = fixture();
+    let result = Command::new(cli()).arg(file.path())
+        .args(["--timeout", "20", "--quiet"]).output().unwrap();
+    assert!(result.status.success(), "{:?}", result);
+    assert!(String::from_utf8_lossy(&result.stdout).contains("Reduced PathSum State"));
+}
+
+#[test]
+fn failed_worker_cannot_emit_a_partial_success_verdict() {
+    let result = Command::new(cli()).arg("/path/not-found/qoo156.qasm")
+        .args(["--quiet", "--timeout", "10"]).output().unwrap();
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty(), "partial output leaked: {:?}", result);
+    assert!(String::from_utf8_lossy(&result.stderr).contains("WorkerFailed"));
+}
+
+#[test]
+fn supervisor_timeout_includes_qasm_read_and_both_cli_modes() {
+    for dual in [false, true] {
+        let file = fixture();
+        let mut cmd = Command::new(cli());
+        cmd.arg(file.path());
+        if dual { cmd.arg(file.path()); }
+        let result = cmd.args(["--quiet", "--timeout", "1"])
+            .env("QUPRS_CLI_TEST_HOLD_MS", "1800")
+            .output().unwrap();
+        assert_eq!(result.status.code(), Some(124), "{:?}", result);
+        assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), "Timeout");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_address_space_cap_does_not_fail_open() {
+    let file = fixture();
+    let result = Command::new(cli()).arg(file.path())
+        .args(["--max-address-space-mib", "1", "--quiet", "--timeout", "10"])
+        .output().unwrap();
+    assert!(!result.status.success(), "worker ignored 1 MiB RLIMIT_AS");
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("EQUIVALENT"));
+}
+
+#[test]
+fn resource_limits_reject_zero() {
+    let file = fixture();
+    for flag in ["--max-address-space-mib", "--max-memory-mib"] {
+        let result = Command::new(cli()).arg(file.path())
+            .args([flag, "0", "--quiet"]).output().unwrap();
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn physical_memory_cap_never_silently_falls_back_to_unlimited() {
+    let file = fixture();
+    let result = Command::new(cli()).arg(file.path())
+        .args(["--max-memory-mib", "1", "--quiet", "--timeout", "10"])
+        .output().unwrap();
+    assert!(!result.status.success(),
+        "1 MiB memory.max cannot complete a full Rust worker safely");
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("equivalent"));
+}

@@ -1,0 +1,104 @@
+name: QOO157 P1 d4 BiPe native PreprocStats and identical residual science no timing
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-bipe-native-stats-science.yml'
+      - 'research/qoo157_d4/qoo157_bipe_native_stats.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  bipe-native-stats:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    env:
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source-pinned no-benchmark setup
+        run: |
+          set -euo pipefail
+          python -m py_compile research/qoo157_d4/qoo157_bipe_native_stats.py
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-residual-identity-05773452004962834f45c8084f5bfd915f82b1a3
+          run-id: 41841100007
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/prior-residual
+      - name: Pinned d4 and exact BiPe v1.0.0 scratch output-only instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo157-d4-bipe-stats"
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$root"
+          git -C "$root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          mkdir -p evidence
+          python research/qoo157_d4/matched_precision_variant.py --upstream "$root" --evidence evidence --digits 38
+          python research/qoo157_d4/d4_bipe_instrument.py --source "$root" --evidence evidence
+          python research/qoo157_d4/d4_residual_dump_patch.py --source "$root" --evidence evidence
+          git -C "$root" diff --check
+          git -C "$root" diff -- c++/counter/src/Main.cpp c++/counter/src/Counter.cpp > evidence/d4-stats-scratch.patch
+          (cd "$root/c++/counter" && ./build.sh -j) > evidence/d4-stats-build.log 2>&1
+          bin="$root/c++/counter/build/counter"
+          test -x "$bin"
+          bipe="$root/3rdParty/bipe-src"
+          test "$(git -C "$bipe" rev-parse HEAD)" = 219cc2a5f15a563e1965e5a5137f0fbadf0d166f
+          echo "QOO157_STATS_D4=$bin" >> "$GITHUB_ENV"
+          sha256sum "$bin" > evidence/d4-stats-binary.sha256
+          "$bin" -h > evidence/d4-stats-help.log
+          grep -q 'actual-gmp-precision-bits 128' evidence/d4-stats-help.log
+          grep -q 'verbosity' evidence/d4-stats-help.log
+      - name: Untimed original-CNF native statistics + provenance-locked raw residual
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/qoo157_bipe_native_stats.py \
+            --binary "$QOO157_STATS_D4" \
+            --cnf-dir evidence/original/cnfs \
+            --source-science evidence/original/matched-science-report.json \
+            --canonical-reference evidence/prior-residual/d4-residual-identity.json \
+            --dump-dir evidence/native-stats-residual \
+            --out evidence/bipe-native-stats.json
+      - name: Explicit scope - do not treat native stage t_total as CodSpeed
+        if: always()
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          echo 'BiPe v1.0.0 verbosity3 native stats only; no CodSpeed, no speed comparison; t_total deliberately dropped because verbosity3 adds degeneracy work.' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-p1-bipe-stats-${{ github.sha }}
+          path: |
+            evidence/bipe-native-stats.json
+            evidence/native-stats-residual/
+            evidence/d4-stats-binary.sha256
+            evidence/d4-stats-scratch.patch
+            evidence/d4-stats-build.log
+            evidence/head.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

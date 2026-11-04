@@ -238,7 +238,15 @@ impl Drop for MemoryCgroup {
 }
 
 pub fn prepare_worker() -> Result<()> {
-    MemoryCgroup::enter_worker()
+    MemoryCgroup::enter_worker()?;
+    // Test-only deterministic scheduling witness. Never compiled in release.
+    // This proves the outer deadline starts BEFORE opening QASM files.
+    #[cfg(debug_assertions)]
+    if let Ok(ms) = std::env::var("QUPRS_CLI_TEST_HOLD_MS") {
+        let millis: u64 = ms.parse().context("invalid test-only hold duration")?;
+        thread::sleep(Duration::from_millis(millis.min(10_000)));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

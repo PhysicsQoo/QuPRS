@@ -1,0 +1,125 @@
+name: QOO-156 Isolated Docker cgroup-v2 OOM Admission
+
+# Experimental-only, capacity-gated. Do not run this Docker-privileged
+# experiment in the default dev/release matrix.
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths: ['.github/workflows/qoo156-docker-cgroup-admission.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-cgroup:
+    name: Isolated Linux container memory.max OOM certificate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Record source and cgroup environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-cgroup-docker
+          git rev-parse HEAD > evidence/qoo156-cgroup-docker/source-sha.txt
+          docker --version > evidence/qoo156-cgroup-docker/docker.txt
+          cat /proc/self/cgroup > evidence/qoo156-cgroup-docker/host-cgroup.txt
+          mount | grep ' on /sys/fs/cgroup ' > evidence/qoo156-cgroup-docker/host-cgroup-mount.txt || true
+      - name: Probe delegated writable cgroup v2 inside throwaway Docker namespace
+        id: capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --privileged --cgroupns=private ubuntu:24.04 bash -ec '
+            set -euo pipefail
+            test -f /sys/fs/cgroup/cgroup.controllers
+            test -w /sys/fs/cgroup/cgroup.subtree_control
+            mkdir /sys/fs/cgroup/qoo156-probe
+            echo 67108864 > /sys/fs/cgroup/qoo156-probe/memory.max
+            test "$(cat /sys/fs/cgroup/qoo156-probe/memory.max)" = 67108864
+            rmdir /sys/fs/cgroup/qoo156-probe
+            echo QOO156_DOCKER_CGROUP_DELEGATED=YES
+          ' > evidence/qoo156-cgroup-docker/capability.log 2>&1
+          code=$?
+          set -e
+          echo "docker_probe_exit=$code" >> evidence/qoo156-cgroup-docker/capability.log
+          cat evidence/qoo156-cgroup-docker/capability.log
+          if test "$code" -eq 0 &&
+            grep -q 'QOO156_DOCKER_CGROUP_DELEGATED=YES' evidence/qoo156-cgroup-docker/capability.log; then
+            echo "delegated=true" >> "$GITHUB_OUTPUT"
+            echo "QOO156_DOCKER_CGROUP_CAPABILITY=PASS"
+          else
+            echo "delegated=false" >> "$GITHUB_OUTPUT"
+            echo "QOO156_DOCKER_CGROUP_CAPABILITY=NOT_ADMITTED"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.capacity.outputs.delegated == 'true'
+      - name: Build debug CLI with bounded page-pressure test hook
+        if: steps.capacity.outputs.delegated == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev pkg-config
+          cargo build --manifest-path rust/Cargo.toml --locked -p QuPRS_cli
+          sha256sum rust/target/debug/QuPRS_cli benchmarks/qoo156/single_h.qasm \
+            > evidence/qoo156-cgroup-docker/input-sha256.txt
+      - name: Require true worker OOM and typed resource exit 125
+        if: steps.capacity.outputs.delegated == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --privileged --cgroupns=private \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/quprs,readonly" \
+            ubuntu:24.04 bash -ec '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends libgmp10 libmpfr6 >/dev/null
+              set +e
+              QUPRS_CLI_TEST_ALLOC_MIB=192 /quprs/rust/target/debug/QuPRS_cli \
+                /quprs/benchmarks/qoo156/single_h.qasm \
+                --max-memory-mib 64 --timeout 15 --quiet \
+                > /tmp/qoo156-cli.stdout 2> /tmp/qoo156-cli.stderr
+              cli_rc=$?
+              set -e
+              cat /tmp/qoo156-cli.stderr
+              echo "QOO156_WORKER_EXIT=$cli_rc"
+              if test "$cli_rc" -eq 125 &&
+                 grep -q "MemoryLimitExceeded: cgroup memory.max was reached" \
+                   /tmp/qoo156-cli.stderr &&
+                 test ! -s /tmp/qoo156-cli.stdout; then
+                echo QOO156_REAL_DOCKER_CGROUP_OOM=PASS
+              else
+                echo QOO156_REAL_DOCKER_CGROUP_OOM=FAIL
+                exit 2
+              fi
+            ' > evidence/qoo156-cgroup-docker/oom.log 2>&1
+          docker_rc=$?
+          set -e
+          cat evidence/qoo156-cgroup-docker/oom.log
+          if test "$docker_rc" -ne 0; then
+            echo 'QOO156_CGROUP_OOM_CERTIFICATE=FAIL' | tee evidence/qoo156-cgroup-docker/verdict.txt
+            exit 2
+          fi
+          echo 'QOO156_CGROUP_OOM_CERTIFICATE=PASS' | tee evidence/qoo156-cgroup-docker/verdict.txt
+      - name: Preserve negative evidence explicitly when delegation unavailable
+        if: steps.capacity.outputs.delegated != 'true'
+        shell: bash
+        run: |
+          echo 'QOO156_CGROUP_OOM_CERTIFICATE=NOT_ADMITTED' |
+            tee evidence/qoo156-cgroup-docker/verdict.txt
+      - name: Archive source-pinned OOM capability and outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-docker-cgroup-${{ github.sha }}
+          path: evidence/qoo156-cgroup-docker/
+          if-no-files-found: warn
+          retention-days: 30

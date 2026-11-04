@@ -142,14 +142,23 @@ def main():
             # The higher solver oom_score_adj forces an adversarial victim
             # preference. Do not equate this with actual WMC memory demand.
             # Bound all allocations and make one child touch actual pages.
-            pressure_mib = 230 if SOLVER == "ganak" else 252
-            pressure_code = (
-                "import sys,time; n=int(sys.argv[1])*1048576; p=bytearray(n);"
-                "[p.__setitem__(i,1) for i in range(0,n,4096)];"
-                "print('PRESSURE_COMMITTED',flush=True);time.sleep(2)"
-            )
+            # Gradual, bounded 1-MiB page-committed chunks let the parent
+            # stop test pressure on the FIRST kernel OOM event instead of
+            # allowing a burst of kills that can destroy its witness.
+            pressure_code = """
+import time
+blocks=[]
+for j in range(320):
+    block=bytearray(1048576)
+    for i in range(0,1048576,4096):
+        block[i]=1
+    blocks.append(block)
+    time.sleep(.010)
+print('PRESSURE_FINISHED',flush=True)
+time.sleep(2)
+"""
             pressure = subprocess.Popen(
-                [sys.executable, "-c", pressure_code, str(pressure_mib)],
+                [sys.executable, "-c", pressure_code],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 start_new_session=True,
             )
@@ -157,10 +166,15 @@ def main():
             while time.monotonic() < end:
                 now = memory_events()
                 if now.get("oom_kill", 0) > before.get("oom_kill", 0):
+                    # Immediately release all stress-child allocations.
+                    # The observed kernel OOM victim must still be checked
+                    # independently; killing the pressure process is not proof.
+                    if pressure.poll() is None:
+                        pressure.kill()
                     break
-                if pressure.poll() is not None and running(target["pid"], target["birth"]) is False:
+                if pressure.poll() is not None:
                     break
-                time.sleep(.005)
+                time.sleep(.001)
             try:
                 pressure.communicate(timeout=3)
             except subprocess.TimeoutExpired:

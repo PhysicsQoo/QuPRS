@@ -66,6 +66,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo157-source-cnf-export-v1
       - name: Build prerequisites (no QuPRS production dependencies)
         run: |
           sudo apt-get update
@@ -86,6 +91,12 @@ jobs:
           ) 2>&1 | tee evidence/d4-build.log
           test -x "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
           sha256sum "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" > evidence/d4-binary-sha256.txt
+      - name: Emit real QuPRS Rust weighted-CNF fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --manifest-path rust/Cargo.toml --locked -p pathsum             --example qoo157_emit_complex_cnf --             "$RUNNER_TEMP/qoo157-source-cnf" 2>&1 | tee evidence/quprs-cnf-export.log
+          sha256sum "$RUNNER_TEMP"/qoo157-source-cnf/*.cnf > evidence/quprs-source-cnf-sha256.txt
       - name: Execute native complex arithmetic controls
         shell: bash
         run: |
@@ -94,6 +105,11 @@ jobs:
             --workdir evidence/d4-native \
             --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
             --timeout 30 2>&1 | tee evidence/d4-pilot.log
+      - name: Cross-check actual QuPRS-emitted CNF with exact oracle and d4
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/poc_d4.py             --workdir evidence/quprs-native             --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"             --cnf "$RUNNER_TEMP/qoo157-source-cnf/quprs_identity1.cnf"             --cnf "$RUNNER_TEMP/qoo157-source-cnf/quprs_t1_miter.cnf"             --cnf "$RUNNER_TEMP/qoo157-source-cnf/quprs_bell_t_miter.cnf"             --timeout 30 2>&1 | tee evidence/quprs-native-pilot.log
       - name: Preserve results even on native failure
         if: always()
         uses: actions/upload-artifact@v4

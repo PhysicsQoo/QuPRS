@@ -106,6 +106,8 @@ def test_register_partition_operator_oracle(
         )
         assert result.wmc_solver_invoked is False
     else:
-        assert (result.equivalent in ("equivalent", "equivalent*")) is expected, (
+        # An unknown, Timeout or solver error is not a negative proof.
+        accepted = {"equivalent", "equivalent*"} if expected else {"not_equivalent"}
+        assert result.equivalent in accepted, (
             index, backend, method, expected, result.equivalent
         )

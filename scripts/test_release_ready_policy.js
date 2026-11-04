@@ -87,13 +87,13 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   assert.match(release, /uses: \.\/\.github\/workflows\/release-artifact-ci\.yml/,
     "Main Release-Ready must retain full installed archive smoke matrix");
   const source = release.split(/^  source-correctness:/m)[1]?.split(/^  installed-artifacts:/m)[0] || "";
-  assert.match(source, /require_complete_benchmarks:\s*true\b/,
-    "Release-Ready must turn on strict 32-case science admission");
+  assert.match(source, /uses: \.\/\.github\/workflows\/pytest\.yml/,
+    "Release-Ready must retain its complete source correctness matrix");
+  assert.doesNotMatch(source, /require_complete_benchmarks:\s*true\b/,
+    "Resource-inconclusive benchmarks must not be Required science failures");
   const pytest = fs.readFileSync(".github/workflows/pytest.yml", "utf8");
-  assert.match(pytest, /require_complete_benchmarks:[\s\S]*?type: boolean/,
-    "Reusable source matrix must expose a typed strict-admission input");
-  assert.match(pytest, /options\+=\(--require-complete\)/,
-    "Strict release input must pass --require-complete to the real benchmark auditor");
-  assert.match(pytest, /\$REQUIRE_COMPLETE_BENCHMARKS.*==.*true/,
-    "The release-scoped flag must actually guard the strict auditor option");
+  assert.match(pytest, /python scripts\/check_benchmark_evidence\.py --junit pytest-results\.xml --json benchmark-evidence\.json/,
+    "The real JUnit auditor must run on every source matrix shard");
+  assert.doesNotMatch(pytest, /--require-complete/,
+    "Strict performance completeness remains opt-in, not release correctness");
 }

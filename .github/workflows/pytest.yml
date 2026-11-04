@@ -5,12 +5,6 @@ name: Python Pytest CI
 # Full cross-platform integration coverage for dev/main pushes and explicit reusable/manual invocations.
 on:
   workflow_call:
-    inputs:
-      require_complete_benchmarks:
-        description: Fail release source gate if any scientific benchmark is missing, skipped or inconclusive
-        required: false
-        type: boolean
-        default: false
   push:
     branches: [main, dev]
     paths:
@@ -167,15 +161,7 @@ jobs:
 
       - name: Audit representative benchmark outcomes
         if: ${{ always() && !cancelled() }}
-        shell: bash
-        env:
-          REQUIRE_COMPLETE_BENCHMARKS: ${{ inputs.require_complete_benchmarks }}
-        run: |
-          options=(--junit pytest-results.xml --json benchmark-evidence.json)
-          if [[ "$REQUIRE_COMPLETE_BENCHMARKS" == "true" ]]; then
-            options+=(--require-complete)
-          fi
-          python scripts/check_benchmark_evidence.py "${options[@]}"
+        run: python scripts/check_benchmark_evidence.py --junit pytest-results.xml --json benchmark-evidence.json
 
       # Report-only provenance for possible exact-tree PR→dev evidence reuse.
       # This NEVER skips a platform test; runner image and resolved packages

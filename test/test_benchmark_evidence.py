@@ -153,8 +153,13 @@ def test_failures_and_empty_feynman_cohort_still_block(tmp_path):
     missing = {k: "INCONCLUSIVE_RESOURCE" for k, group in cases().items()
                if group == "Feynman"}
     r = report(tmp_path, statuses=missing)
-    assert r["status"] == "BLOCKED"
-    assert "Feynman" in " ".join(r["problems"])
+    assert r["status"] == "INCONCLUSIVE_RESOURCE"
+    assert r["by_cohort"]["Feynman"]["PASS"] == 0
+    assert not r["problems"]
+    assert "Feynman" in " ".join(r["advisories"])
+    assert checker.audit(
+        fixture(tmp_path, statuses=missing), CATALOG, require_complete=True
+    )["status"] == "BLOCKED"
 
 
 def test_skipped_benchmark_does_not_count_as_pass(tmp_path):

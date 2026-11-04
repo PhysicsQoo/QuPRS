@@ -123,7 +123,8 @@ def assess(report: dict) -> dict:
         page_size = number(b.get('page_size_bytes')) or number(a.get('page_size_bytes'))
         start_page_size = number(a.get('page_size_bytes'))
         end_page_size = number(b.get('page_size_bytes'))
-        if page_size is None or page_size <= 0:
+        if (page_size is None or page_size <= 0
+                or start_page_size is None or end_page_size is None):
             gaps.append('SWAP_PAGE_SIZE_MISSING')
         if (start_page_size is not None and end_page_size is not None
                 and start_page_size != end_page_size):

@@ -1,0 +1,112 @@
+name: QOO98 Ganak Arjun x Puura 2x2 conditional CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo98-ganak-arjun-puura-factorial-codspeed.yml'
+      - 'research/qoo157_d4/qoo98_ganak_arjun_puura.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  bounded-ganak-factorial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: research/qoo157_d4
+      QOO98_SOURCE_SCIENCE: evidence/original/matched-science-report.json
+      QOO98_SOURCE_CNF_DIR: evidence/original/cnfs
+      QOO98_GANAK_NATIVE_REPORT: evidence/ganak/ganak-native-mode6-report.json
+      QOO98_GANAK_CNF_DIR: evidence/ganak/small-exact-fixtures
+      QOO98_GANAK_ABLATION_GATE: evidence/ganak-arjun-puura-science-preflight.json
+      QUPRS_CODSPEED_EXPORT: evidence/ganak-arjun-puura-2x2-codspeed-walltime.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax and limited pinned CodSpeed dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile research/qoo157_d4/qoo98_ganak_native_mode6_admission.py research/qoo157_d4/qoo98_ganak_arjun_puura.py
+          python -m pip install pytest 'pytest-codspeed==5.0.3'
+          mkdir -p evidence
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo98-ganak-mode6-native-a144555269a03ed5333350faf236256d7f97dc09
+          run-id: 41854306330
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/ganak
+      - name: Verify unchanged official Ganak release and runtime SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo98-ganak-ablation"
+          mkdir -p "$root/expanded"
+          archive="$root/ganak-v2.8.0-linux-amd64.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" \
+            'https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz'
+          expected_archive=$(awk '$1=="linux" && $2=="x86_64" {print $4}' src/QuPRS/utils/ganak-release.txt)
+          expected_bin=$(awk '$1=="linux" && $2=="x86_64" {print $5}' src/QuPRS/utils/ganak-release.txt)
+          test "$(sha256sum "$archive" | cut -d' ' -f1)" = "$expected_archive"
+          tar -xzf "$archive" -C "$root/expanded"
+          bin=$(find "$root/expanded" -type f -name ganak -print -quit)
+          test -n "$bin" && test -f "$bin"
+          chmod +x "$bin"
+          test "$(sha256sum "$bin" | cut -d' ' -f1)" = "$expected_bin"
+          "$bin" --version > evidence/ganak-factorial-version.txt
+          grep -q 'Ganak SHA1: b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281' evidence/ganak-factorial-version.txt
+          echo "QOO98_GANAK_BIN=$bin" >> "$GITHUB_ENV"
+          sha256sum "$bin" > evidence/ganak-factorial-binary.sha256
+      - name: Mandatory all eight printed WMC science screens before any timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/qoo98_ganak_arjun_puura.py \
+            --science-preflight "$QOO98_GANAK_ABLATION_GATE"
+          python -m json.tool "$QOO98_GANAK_ABLATION_GATE" > /dev/null
+      - name: Official CodSpeed v5 native subprocess factorial only
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/qoo98_ganak_arjun_puura.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=12
+      - name: Provenance and scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/ganak-factorial-head.txt
+          uname -a > evidence/ganak-factorial-runner.txt
+          echo 'Source-verified official Ganak 2.8.0 MPFR127 Arjun(0/1)xPuura(0/1); source QAOA7/QFT16; --threads=1. 9-digit print and no independent internal numerical error bound. Hosted CodSpeed observation ONLY.' > evidence/ganak-factorial-scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo98-ganak-arjun-puura-factorial-${{ github.sha }}
+          path: |
+            evidence/ganak-arjun-puura-science-preflight.json
+            evidence/ganak-arjun-puura-2x2-codspeed-walltime.json
+            evidence/ganak-factorial-binary.sha256
+            evidence/ganak-factorial-version.txt
+            evidence/ganak-factorial-head.txt
+            evidence/ganak-factorial-runner.txt
+            evidence/ganak-factorial-scope.txt
+          retention-days: 30
+          if-no-files-found: warn

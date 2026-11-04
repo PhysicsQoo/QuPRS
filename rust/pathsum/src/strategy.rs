@@ -27,10 +27,24 @@ impl VerificationStrategy {
     /// * `gates2` - Circuit 2 operations (verification/Bra, treated as Inverse)
     pub fn run(
         &self,
-        ps: PathSum, 
+        ps: PathSum,
         gates1: &[QuantumOp],
         gates2: &[QuantumOp],
     ) -> PathSum {
+        self.run_with_deadline(ps, gates1, gates2, None)
+    }
+
+    /// Cooperatively abort the request at gate/reduction safe points.
+    /// The returned PathSum is partial whenever deadline_exceeded is true.
+    pub(crate) fn run_with_deadline(
+        &self,
+        mut ps: PathSum,
+        gates1: &[QuantumOp],
+        gates2: &[QuantumOp],
+        deadline: Option<std::time::Instant>,
+    ) -> PathSum {
+        ps.set_verification_deadline(deadline);
+        if !ps.poll_verification_deadline() { return ps; }
         if gates2.is_empty() {
             return run_straightforward(ps, gates1, gates2);
         }
@@ -43,13 +57,21 @@ impl VerificationStrategy {
     }
 }
 
+/// Applies one gate without changing the existing automatic reduction cadence.
+/// Gate-internal auto-reduction observes the same request deadline.
+fn apply_checked(ps: &mut PathSum, gate: &QuantumOp, bra: bool) -> bool {
+    if !ps.poll_verification_deadline() { return false; }
+    gate.apply(ps, bra);
+    ps.poll_verification_deadline()
+}
+
 // Apply all gates2 as Bra, then all gates1 as Ket
 fn run_straightforward(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
     for gate in gates2 {
-        gate.apply(&mut ps, true);
+        if !apply_checked(&mut ps, &gate, true) { return ps; }
     }
     for gate in gates1 {
-        gate.apply(&mut ps, false);
+        if !apply_checked(&mut ps, &gate, false) { return ps; }
     }
     if ps.is_auto_reduce() {
         ps.full_reduce();
@@ -62,17 +84,17 @@ fn run_naive(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> Pat
     let min_len = cmp::min(gates1.len(), gates2.len());
     
     for i in 0..min_len {
-        gates1[i].apply(&mut ps, false);
-        gates2[i].apply(&mut ps, true);
+        if !apply_checked(&mut ps, &gates1[i], false) { return ps; }
+        if !apply_checked(&mut ps, &gates2[i], true) { return ps; }
     }
     
     if gates1.len() > gates2.len() {
         for i in min_len..gates1.len() {
-            gates1[i].apply(&mut ps, false);
+            if !apply_checked(&mut ps, &gates1[i], false) { return ps; }
         }
     } else if gates2.len() > gates1.len() {
         for i in min_len..gates2.len() {
-            gates2[i].apply(&mut ps, true);
+            if !apply_checked(&mut ps, &gates2[i], true) { return ps; }
         }
     }
 
@@ -96,17 +118,17 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
 
     if r == 1 {
         for i in 0..min_len {
-            gates1[i].apply(&mut ps, false);
-            gates2[i].apply(&mut ps, true);
+            if !apply_checked(&mut ps, &gates1[i], false) { return ps; }
+            if !apply_checked(&mut ps, &gates2[i], true) { return ps; }
         }
         
         if diff > 0 {
             for i in 0..(diff as usize) {
-                gates1[min_len + i].apply(&mut ps, false);
+                if !apply_checked(&mut ps, &gates1[min_len + i], false) { return ps; }
             }
         } else if diff < 0 {
             for i in 0..(diff.abs() as usize) {
-                gates2[min_len + i].apply(&mut ps, true);
+                if !apply_checked(&mut ps, &gates2[min_len + i], true) { return ps; }
             }
         }
     } else if diff > 0 {
@@ -115,10 +137,10 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
             for j in 0..r {
                 let idx = i * r + j;
                 if idx < l1 { 
-                    gates1[idx].apply(&mut ps, false); 
+                    if !apply_checked(&mut ps, &gates1[idx], false) { return ps; } 
                 }
             }
-            gates2[i].apply(&mut ps, true);
+            if !apply_checked(&mut ps, &gates2[i], true) { return ps; }
         }
         
         let d2 = l1 - r * l2;
@@ -126,7 +148,7 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
             let start_idx = l2 * r;
             for i in 0..d2 {
                 if start_idx + i < l1 {
-                    gates1[start_idx + i].apply(&mut ps, false);
+                    if !apply_checked(&mut ps, &gates1[start_idx + i], false) { return ps; }
                 }
             }
         }
@@ -136,10 +158,10 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
             for j in 0..r {
                 let idx = i * r + j;
                 if idx < l2 { 
-                    gates2[idx].apply(&mut ps, true); 
+                    if !apply_checked(&mut ps, &gates2[idx], true) { return ps; } 
                 }
             }
-            gates1[i].apply(&mut ps, false);
+            if !apply_checked(&mut ps, &gates1[i], false) { return ps; }
         }
         
         let d2 = l2 - r * l1;
@@ -147,7 +169,7 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
             let start_idx = l1 * r;
             for i in 0..d2 {
                 if start_idx + i < l2 {
-                    gates2[start_idx + i].apply(&mut ps, true);
+                    if !apply_checked(&mut ps, &gates2[start_idx + i], true) { return ps; }
                 }
             }
         }
@@ -161,32 +183,36 @@ fn run_proportional(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp])
 
 // Use diff algorithm to identify and process only differing parts
 fn run_difference(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -> PathSum {
+    // Myers is a non-interruptible library call; poll before/after and do not
+    // claim a hard wall-clock bound for large diffs.
+    if !ps.poll_verification_deadline() { return ps; }
     let diff_ops = similar::capture_diff_slices(Algorithm::Myers, gates1, gates2);
+    if !ps.poll_verification_deadline() { return ps; }
 
     for op in diff_ops {
         match op {
             DiffOp::Equal { old_index, new_index, len } => {
                 for i in 0..len {
-                    gates1[old_index + i].apply(&mut ps, false);
-                    gates2[new_index + i].apply(&mut ps, true);
+                    if !apply_checked(&mut ps, &gates1[old_index + i], false) { return ps; }
+                    if !apply_checked(&mut ps, &gates2[new_index + i], true) { return ps; }
                 }
             },
             DiffOp::Delete { old_index, old_len, .. } => {
                 for i in 0..old_len {
-                    gates1[old_index + i].apply(&mut ps, false);
+                    if !apply_checked(&mut ps, &gates1[old_index + i], false) { return ps; }
                 }
             },
             DiffOp::Insert { new_index, new_len, .. } => {
                 for i in 0..new_len {
-                    gates2[new_index + i].apply(&mut ps, true);
+                    if !apply_checked(&mut ps, &gates2[new_index + i], true) { return ps; }
                 }
             },
             DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                 for i in 0..old_len {
-                    gates1[old_index + i].apply(&mut ps, false);
+                    if !apply_checked(&mut ps, &gates1[old_index + i], false) { return ps; }
                 }
                 for i in 0..new_len {
-                    gates2[new_index + i].apply(&mut ps, true);
+                    if !apply_checked(&mut ps, &gates2[new_index + i], true) { return ps; }
                 }
             },
         }

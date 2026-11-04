@@ -13,11 +13,12 @@ import numpy as np
 import qiskit
 import symengine as se
 import sympy as sp
+from sympy.logic.boolalg import to_anf
 from qiskit import QuantumCircuit, qasm2, qasm3
 from QuPRS import _pathsum_rust, check_equivalence
 
 
-QASM2 = "OPENQASM 2.0;\\ninclude \\"qelib1.inc\\";\\nqreg q[1];\\n"
+QASM2 = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\n"
 # A post-parse scientific verdict near a deliberately relaxed projective
 # distance boundary; neither category tests bit-for-bit real-number equality.
 CASES = (
@@ -38,13 +39,13 @@ def run():
     # Test real SymEngine symbolic operations, not only import/wheel metadata.
     x, y = se.symbols("x y")
     assert se.expand((x + y)**2 - x*x - 2*x*y - y*y) == 0
-    assert sp.to_anf(sp.Xor(sp.Symbol("x"), sp.Symbol("y"))) == sp.Xor(
+    assert to_anf(sp.Xor(sp.Symbol("x"), sp.Symbol("y"))) == sp.Xor(
         sp.Symbol("x"), sp.Symbol("y")
     )
 
-    c2 = qasm2.loads(QASM2 + "h q[0];\\nh q[0];\\n")
+    c2 = qasm2.loads(QASM2 + "h q[0];\nh q[0];\n")
     assert isinstance(c2, QuantumCircuit)
-    c3 = qasm3.loads('OPENQASM 3.0;\\ninclude "stdgates.inc";\\nqubit q;\\nh q;\\nh q;\\n')
+    c3 = qasm3.loads('OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit q;\nh q;\nh q;\n')
     assert isinstance(c3, QuantumCircuit)
     checks = []
     identity = QuantumCircuit(1)
@@ -59,7 +60,7 @@ def run():
         checks.append(dict(backend=backend, method="reduction_rules",
                            expected="equivalent", observed=v.equivalent))
         for solver, method, theta, expected in CASES:
-            v = check_equivalence(QASM2, QASM2 + f"rz({theta}) q[0];\\n",
+            v = check_equivalence(QASM2, QASM2 + f"rz({theta}) q[0];\n",
                                   backend=backend, method=method,
                                   strategy="Naive", tool_name=solver,
                                   approximate_distance_tolerance=2e-4,
@@ -86,7 +87,7 @@ def run():
                     checks=checks, status="PASS")
     Path("evidence").mkdir(exist_ok=True)
     Path("evidence/probe.json").write_text(
-        json.dumps(evidence, indent=2, ensure_ascii=False) + "\\n",
+        json.dumps(evidence, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     print(json.dumps(evidence, indent=2, ensure_ascii=False))

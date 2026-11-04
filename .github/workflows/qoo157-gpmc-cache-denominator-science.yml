@@ -1,0 +1,93 @@
+name: QOO157 P3 GPMC cache-denominator independent native science
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-gpmc-cache-denominator-science.yml'
+      - 'research/qoo157_d4/gpmc_cache_denominator_science.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  cache-denominator-science:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned submodule and script guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          test "$(git -C GPMC rev-parse HEAD)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/gpmc_cache_denominator_science.py
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Build unmodified pinned original binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S GPMC -B "$RUNNER_TEMP/qoo157-gpmc-original" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo157-gpmc-original" --parallel 2
+          mkdir -p evidence
+          sha256sum "$RUNNER_TEMP/qoo157-gpmc-original/gpmc" > evidence/original-binary.sha256
+      - name: Clone to isolated temporary source and add only opt-in scientific counters
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a GPMC "$RUNNER_TEMP/qoo157-gpmc-scratch-source"
+          python research/qoo157_d4/gpmc_cache_denominator_science.py patch \
+            --scratch "$RUNNER_TEMP/qoo157-gpmc-scratch-source" \
+            --provenance evidence/counter-only-source-patch.json
+          cmake -S "$RUNNER_TEMP/qoo157-gpmc-scratch-source" -B "$RUNNER_TEMP/qoo157-gpmc-instrumented" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo157-gpmc-instrumented" --parallel 2
+          sha256sum "$RUNNER_TEMP/qoo157-gpmc-instrumented/gpmc" > evidence/instrumented-binary.sha256
+          test -z "$(git -C GPMC status --porcelain)"
+      - name: Compare original and instrumented native 38-digit WMC and cache counter identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/gpmc_cache_denominator_science.py audit \
+            --original "$RUNNER_TEMP/qoo157-gpmc-original/gpmc" \
+            --instrumented "$RUNNER_TEMP/qoo157-gpmc-instrumented/gpmc" \
+            --cnfs evidence/original/cnfs \
+            --archived evidence/original/matched-science-report.json \
+            --out evidence/gpmc-cache-denominator-science.json
+      - name: Evidence scope (no timing)
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/experiment-head.txt
+          echo 'P3 native counter identity and complex WMC only: NO WallTime, NO CodSpeed, NO solver release change' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-gpmc-cache-denominator-${{ github.sha }}
+          path: |
+            evidence/gpmc-cache-denominator-science.json
+            evidence/counter-only-source-patch.json
+            evidence/original-binary.sha256
+            evidence/instrumented-binary.sha256
+            evidence/experiment-head.txt
+            evidence/scope.txt
+          if-no-files-found: warn
+          retention-days: 30

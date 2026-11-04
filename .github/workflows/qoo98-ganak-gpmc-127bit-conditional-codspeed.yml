@@ -1,0 +1,150 @@
+name: QOO98 conditional same-requested-127-bit GPMC and Ganak CodSpeed
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo98-ganak-gpmc-127bit-conditional-codspeed.yml'
+      - 'research/qoo157_d4/test_codspeed_ganak_127bit_conditional.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  conditional-127bit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: research/qoo157_d4
+      QOO98_SOURCE_SCIENCE: evidence/original/matched-science-report.json
+      QOO98_SOURCE_CNF_DIR: evidence/original/cnfs
+      QOO98_NATIVE_REPORT: evidence/ganak/ganak-native-mode6-report.json
+      QOO98_GANAK_CNF_DIR: evidence/ganak/small-exact-fixtures
+      QUPRS_CODSPEED_EXPORT: evidence/ganak-gpmc-conditional-codspeed.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify source pin and install only necessary benchmark dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/test_codspeed_ganak_127bit_conditional.py
+          python -m pip install 'pytest-codspeed==5.0.3' pytest
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo98-ganak-mode6-native-a144555269a03ed5333350faf236256d7f97dc09
+          run-id: 41854306330
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/ganak
+      - name: Pinned GPMC original native binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S GPMC -B "$RUNNER_TEMP/qoo98-gpmc127" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo98-gpmc127" --parallel 2
+          echo "QOO98_GPMC_BIN=$RUNNER_TEMP/qoo98-gpmc127/gpmc" >> "$GITHUB_ENV"
+          mkdir -p evidence
+          sha256sum "$RUNNER_TEMP/qoo98-gpmc127/gpmc" > evidence/gpmc127-binary.sha256
+      - name: Download source-pinned official Ganak 2.8.0 unchanged binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo98-ganak127"
+          mkdir -p "$root/expanded"
+          archive="$root/ganak-v2.8.0-linux-amd64.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" \
+            'https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz'
+          expected_archive=$(awk '$1=="linux" && $2=="x86_64" {print $4}' src/QuPRS/utils/ganak-release.txt)
+          expected_bin=$(awk '$1=="linux" && $2=="x86_64" {print $5}' src/QuPRS/utils/ganak-release.txt)
+          test "$(sha256sum "$archive" | cut -d' ' -f1)" = "$expected_archive"
+          tar -xzf "$archive" -C "$root/expanded"
+          bin=$(find "$root/expanded" -type f -name ganak -print -quit)
+          test -n "$bin" && test -f "$bin"
+          chmod +x "$bin"
+          test "$(sha256sum "$bin" | cut -d' ' -f1)" = "$expected_bin"
+          "$bin" --version > evidence/ganak127-version.txt
+          grep -q 'Ganak SHA1: b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281' evidence/ganak127-version.txt
+          echo "QOO98_GANAK_BIN=$bin" >> "$GITHUB_ENV"
+          sha256sum "$bin" > evidence/ganak127-binary.sha256
+      - name: Mandatory fresh per-run 8-count scientific preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          from decimal import Decimal, localcontext
+          from fractions import Fraction
+          import json, os
+          from qoo98_ganak_native_mode6_admission import native, compare
+          from signed_scc_reduction_count_gate import native_count
+          from gpmc_vs_td_factorial import close_enough
+          report=json.loads(Path(os.environ["QOO98_NATIVE_REPORT"]).read_text())
+          original=json.loads(Path(os.environ["QOO98_SOURCE_SCIENCE"]).read_text())
+          assert report["status"]=="NATIVE_PRINT_SCREEN_PASS_PRECISION_LIMITED"
+          assert report["fair_38d_output_ranking"]=="NOT_COMPARABLE_FOR_38D_OUTPUT"
+          for case,row in report["source_cases"].items():
+              src=Path(os.environ["QOO98_SOURCE_CNF_DIR"])/(case+".cnf")
+              adapted=Path(os.environ["QOO98_GANAK_CNF_DIR"])/("original_"+case+".cnf")
+              assert sha256(src.read_bytes()).hexdigest()==row["source_sha256"]
+              assert sha256(adapted.read_bytes()).hexdigest()==row["serialization"]["ganak_dialect_sha256"]
+              assert row["native"]["status"]=="PRINT_CONCORDANT_UNCERTIFIED"
+              got=native(os.environ["QOO98_GANAK_BIN"],adapted,127)
+              expected=(Decimal(row["native"]["real"]),Decimal(row["native"]["imag"]))
+              assert compare(got,expected,large=True)["status"]=="PRINT_CONCORDANT_UNCERTIFIED"
+              count=native_count("gpmc",os.environ["QOO98_GPMC_BIN"],src)
+              obs=original["cases"][case]["precision_pairs"]["38"]["observations"]["gpmc-38"]
+              with localcontext() as ctx:
+                  ctx.prec=100
+                  anchor=tuple(Decimal(Fraction(obs[k]).numerator)/Decimal(Fraction(obs[k]).denominator)
+                               for k in ("real","imag"))
+              assert close_enough(count,anchor)[0]
+          print("CONDITIONAL_127BIT_SAME_SOURCE_FOUR_CASE_EIGHT_COUNT_PREFLIGHT_PASS")
+          PY
+      - name: Official CodSpeed v5 conditional native subprocess WallTime only
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_ganak_127bit_conditional.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=12
+      - name: Save source and scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/conditional-head.txt
+          uname -a > evidence/conditional-runner.txt
+          echo 'CONDITIONAL same requested MPFR127 bits only. Ganak printed 9 digits; GPMC printed 38 digits. Not a fair equal output precision ranking. Hosted observed only.' > evidence/conditional-scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo98-ganak-gpmc-127bit-conditional-${{ github.sha }}
+          path: |
+            evidence/ganak-gpmc-conditional-codspeed.json
+            evidence/gpmc127-binary.sha256
+            evidence/ganak127-binary.sha256
+            evidence/ganak127-version.txt
+            evidence/conditional-head.txt
+            evidence/conditional-runner.txt
+            evidence/conditional-scope.txt
+          retention-days: 30
+          if-no-files-found: warn

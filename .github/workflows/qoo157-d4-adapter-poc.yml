@@ -1,0 +1,94 @@
+name: QOO-157 d4 opt-in SolverAdapter PoC
+
+on:
+  push:
+    branches: [experiment/qoo157-d4-adapter-poc]
+    paths:
+      - 'research/qoo157_d4/d4_transport.py'
+      - 'research/qoo157_d4/d4_solver_adapter_poc.py'
+      - 'research/qoo157_d4/test_d4_transport.py'
+      - 'research/qoo157_d4/test_d4_solver_adapter_poc.py'
+      - '.github/workflows/qoo157-d4-adapter-poc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo157-adapter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Standalone parser and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          python -m unittest discover -v -s research/qoo157_d4 \
+            -p test_d4_transport.py 2>&1 | tee evidence/transport.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-adapter-parser-${{ github.sha }}
+          path: evidence/
+          retention-days: 30
+  adapter:
+    needs: transport
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo157-adapter-poc-v1
+      - name: Install dependencies and existing QuPRS dev package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Scoped third-solver and incumbent adapter tests
+        shell: bash
+        env:
+          PYTHONPATH: research/qoo157_d4
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          python -m pytest -q -ra \
+            research/qoo157_d4/test_d4_solver_adapter_poc.py \
+            test/test_solver_adapter_contract.py \
+            --junitxml=evidence/scoped.xml \
+            2>&1 | tee evidence/scoped.log
+          git diff --name-only 79e975b0b21c0c650db7a76fe6e35b926c67c2c8..HEAD \
+            > evidence/changed-files.txt
+          if grep -E '^(src/|rust/pathsum/src/|pyproject.toml$|GPMC$)' evidence/changed-files.txt; then
+            exit 2
+          fi
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-adapter-poc-${{ github.sha }}
+          path: evidence/
+          retention-days: 30

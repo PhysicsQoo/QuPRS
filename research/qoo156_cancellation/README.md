@@ -86,7 +86,9 @@ the narrower earlier run.
   was measured at workflow-only descendant `6e141f721e733204d98736af22a735e42d0efe5d`
   (science source files are unchanged).
   [Versus earlier experiment](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/compare/6aeafb44b17acbcfee4bc870..6aeb0024c22d5157fd9363d2):
-  176 unchanged native IDs, no detected regression.
+  all **30 actually measured native Rust benchmark IDs** have no detected
+  significant regression (CodSpeed reports 176 unchanged across its full
+  comparison, including benchmarks inherited rather than remeasured).
   [Versus prior dev run](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/compare/6aeab8af6d5d29bda7e2622b..6aeb0024c22d5157fd9363d2):
   GHZ32 apparent -11.87% on nonidentical AMD EPYC CPUs. **INCONCLUSIVE**.
 - The independent base-reference branch

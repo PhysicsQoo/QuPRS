@@ -73,3 +73,20 @@ Connected official CodSpeed [run 6aeb4b9d](https://app.codspeed.io/PhysicsQoo/Qu
 3. A *regular unprivileged production Linux host* with a pre-delegated writable cgroup must still have its environment contract and permission model documented/verified. The protected CLI fails closed outside such an environment.
 4. No `dev`/main merge of the entire experimental tree; no solver modifications, no full five-shard rerun due solely to this Markdown evidence.
 
+## 7. Linux ARM64 internal cgroup admission
+
+[GitHub Actions #41861084404](https://github.com/PhysicsQoo/QuPRS/actions/runs/41861084404) **SUCCESS**, exact native `ubuntu-24.04-arm` source `f0185b3f21547fc77e7ec80dc13f365d06b58fa0`; [artifact #13339483687](https://github.com/PhysicsQoo/QuPRS/actions/runs/41861084404/artifacts/13339483687). The dedicated source-locked workflow enforced `uname -m=aarch64`, cgroup-v2 delegated empty parent preflight, nonroot CLI UID65534, and ran the same tested Rust cgroup code with no WMC/solver source changes.
+
+| Native ARM64 CLI case | memory.max readback | memory.peak | kernel oom_kill | Exit, scientific output | Result |
+|---|---:|---:|---:|---|---|
+| Synthetic 192MiB pages; cap64MiB | 67,108,864 B | 67,108,864 B | 2 | 125; `MemoryLimitExceeded`, stdout empty | **PASS** |
+| Valid one-qubit circuit + bounded debug allocation; cap256MiB | 268,435,456 B | 34,336,768 B | 0 | 0; complete Reduced PathSum State | **PASS** |
+
+**Conclusion within scope**: Native Linux x86-64 and Linux AArch64 both have positive *internal* cgroup-v2 controller certificates for physical OOM and successful QASM science. The ARM64 run did **not** execute true GPMC/Ganak solver binaries. Linux ARM64 GitHub Actions is NOT the same Macro Runner nor the same Mac mini/OrbStack Linux VM image, and does NOT satisfy their environmental parity gate.
+
+### Native macOS ARM64 and Macro blockers
+
+GitHub Actions [#41858819331](https://github.com/PhysicsQoo/QuPRS/actions/runs/41858819331) on `macos-15` requires M1/ARM64 (`uname -m=arm64`). The Ubuntu24.04 source-scoped leg completed **SUCCESS**, but the macOS15 job was **CANCELLED BEFORE ASSIGNMENT** in attempt1 with no functional tests executed (do not label this a CLI failure). A single job-only retry was requested via GitHub Actions; attempt2 is queued. This is **NOT_ADMITTED** until actual ARM64 tests run and finish. The separate Mac mini/OrbStack Linux ARM64 physical-memory policy remains untested.
+
+CodSpeed's [original Macro job #41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remains queued with no runner assignment. Its SHA is old, so even a future completed run would need a *final-source* source-paired ABBA before performance acceptance. Prior hosted observation is about +1.2ms fixed extra CLI cost and has an official unreliable/non-Macro WallTime warning. **P1 remains NOT_MET**, no zero-overhead claim and no `dev` merge.
+

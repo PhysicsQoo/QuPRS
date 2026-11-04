@@ -1,0 +1,104 @@
+name: QOO-157 Isolated d4 Complex-WMC Pilot
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-complex-wmc-poc
+    paths:
+      - 'research/qoo157_d4/**'
+      - '.github/workflows/qoo157-d4-complex-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo157-d4-experiment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oracle:
+    name: Standalone exact-CNF oracle (no native claims)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Preserve provenance
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/quprs-source-head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/quprs-source-tree.txt
+          sha256sum research/qoo157_d4/{poc_d4.py,test_poc_d4.py,README.md} > evidence/source-sha256.txt
+      - name: Exact fractional oracle tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -v -s research/qoo157_d4 -p 'test_*.py' \
+            2>&1 | tee evidence/oracle-tests.log
+      - name: Generate independent input and oracle report
+        run: |
+          python research/qoo157_d4/poc_d4.py --workdir evidence/oracle-only
+      - name: Save standalone evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-oracle-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  native-cpp:
+    name: d4 C++ counter pinned native complex pilot
+    needs: oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      UPSTREAM_SHA: be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build prerequisites (no QuPRS production dependencies)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libgmp-dev zlib1g-dev
+      - name: Pin upstream source and build external C++ counter
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/quprs-source-head.txt
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$RUNNER_TEMP/qoo157-d4"
+          git -C "$RUNNER_TEMP/qoo157-d4" checkout --detach "$UPSTREAM_SHA"
+          test "$(git -C "$RUNNER_TEMP/qoo157-d4" rev-parse HEAD)" = "$UPSTREAM_SHA"
+          git -C "$RUNNER_TEMP/qoo157-d4" rev-parse HEAD > evidence/d4-source-head.txt
+          (
+            cd "$RUNNER_TEMP/qoo157-d4/c++/counter"
+            ./build.sh -j
+          ) 2>&1 | tee evidence/d4-build.log
+          test -x "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+          sha256sum "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" > evidence/d4-binary-sha256.txt
+      - name: Execute native complex arithmetic controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/poc_d4.py \
+            --workdir evidence/d4-native \
+            --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
+            --timeout 30 2>&1 | tee evidence/d4-pilot.log
+      - name: Preserve results even on native failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-d4-native-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30

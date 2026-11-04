@@ -89,12 +89,18 @@ impl PathSum {
     /// phase is kept exact, and dropping a nonzero coefficient is recorded.
     fn normalize_rr_non_global(&mut self) {
         if self.rr_tolerance == 0.0 { return; }
-        let removable: Vec<Monomial> = self.p.terms.iter()
-            .filter(|(monomial, coeff)| {
-                !monomial.is_empty() && self.rr_matches(coeff, Rational::ZERO)
-            })
-            .map(|(monomial, _)| monomial.clone())
-            .collect();
+        let mut removable: Vec<Monomial> = Vec::new();
+        for (index, (monomial, coeff)) in self.p.terms.iter().enumerate() {
+            if (index & 63) == 0 && self.verification_deadline.is_some_and(
+                |deadline| std::time::Instant::now() >= deadline
+            ) {
+                self.deadline_exceeded = true;
+                return;
+            }
+            if !monomial.is_empty() && self.rr_matches(coeff, Rational::ZERO) {
+                removable.push(monomial.clone());
+            }
+        }
         if !removable.is_empty() {
             self.rr_approximate = true;
             for monomial in removable { self.p.terms.remove(&monomial); }
@@ -215,7 +221,13 @@ impl PathSum {
             let mut y_terms_to_remove = Vec::new();
             let mut approximate_match = false;
 
-            for (mono, coeff) in &self.p.terms {
+            for (index, (mono, coeff)) in self.p.terms.iter().enumerate() {
+                if (index & 63) == 0 && self.verification_deadline.is_some_and(
+                    |deadline| std::time::Instant::now() >= deadline
+                ) {
+                    self.deadline_exceeded = true;
+                    return false;
+                }
                 if mono.contains(&var) {
                     if !self.rr_matches(coeff, Rational::HALF) {
                         is_valid_hh = false;
@@ -285,7 +297,8 @@ impl PathSum {
             }
 
             self.substitute_var_with_poly(v, &replacement);
-            
+            if self.deadline_exceeded { return false; }
+
             // Step 4: Garbage collection
             self.v.path_vars.remove(&var);
             
@@ -346,7 +359,13 @@ impl PathSum {
         let mut y_terms_to_remove = Vec::new();
         let mut approximate_match = false;
 
-        for (mono, coeff) in &self.p.terms {
+        for (index, (mono, coeff)) in self.p.terms.iter().enumerate() {
+            if (index & 63) == 0 && self.verification_deadline.is_some_and(
+                |deadline| std::time::Instant::now() >= deadline
+            ) {
+                self.deadline_exceeded = true;
+                return false;
+            }
             if mono.contains(&y) {
                 y_terms_to_remove.push(mono.clone());
                 if mono.len() == 1 {

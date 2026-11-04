@@ -52,8 +52,76 @@ impl PhasePolynomial {
         target_var: u32,
         sub_poly: &FxHashSet<Monomial>,
     ) {
-        let completed = self.substitute_var_with_poly_checked(target_var, sub_poly, None);
-        debug_assert!(completed);
+        // HashMap cannot move out values while iterating borrowed entries.
+        // Clone only the keys needed to locate them; move each PhaseCoeff out.
+        let keys: Vec<Monomial> = self.terms.keys()
+            .filter(|mono| mono.contains(&target_var))
+            .cloned()
+            .collect();
+        if keys.is_empty() { return; }
+
+        let mut extracted = Vec::with_capacity(keys.len());
+        for key in keys {
+            let (mut monomial, coeff) = self.terms.remove_entry(&key)
+                .expect("substituted phase term must still exist");
+            monomial.retain(|&x| x != target_var);
+            extracted.push((monomial, coeff));
+        }
+
+        // x <- 0: terms containing x vanish; the other terms stay intact.
+        if sub_poly.is_empty() { return; }
+
+        // x <- monomial: multiplication is a set-union of Boolean variables.
+        // No XOR expansion, temporary hash sets, or PhaseCoeff clones needed.
+        if sub_poly.len() == 1 {
+            let replacement = sub_poly.iter().next().expect("singleton polynomial");
+            for (mut monomial, coeff) in extracted {
+                monomial.extend_from_slice(replacement);
+                self.add_term(monomial, coeff);
+            }
+            return;
+        }
+
+        // Split the Boolean and phase domains by their true cost:
+        // - Clifford/symbolic-only coefficients can profit from reusing one
+        //   bounded integer XOR expansion across affected source terms.
+        // - An exact-radian coefficient owns a potentially large BigRational.
+        //   First multiply AND/XOR over F_2 so duplicate Boolean monomials
+        //   cancel BEFORE cloning/scaling any expensive source phase.
+        //
+        // Mixing exact radians with cheap coefficients is deliberately kept
+        // in the parity-first path as a whole. The native CodSpeed Decimal5
+        // and Mixed5 witnesses showed substantial regressions when eagerly
+        // expanding before these Boolean cancellations.
+        //
+        // The legacy 12-term bound is a defensive combinatorial cap; never
+        // truncate arbitrary-angle terms or change source precision.
+        if should_share_xor_expansion(&extracted, sub_poly.len()) {
+            let mut expansions: FxHashMap<usize, FxHashMap<Monomial, i64>> =
+                FxHashMap::default();
+            for (rest, phase) in extracted {
+                let max_order = phase_xor_max_order(&phase);
+                let expanded = expansions.entry(max_order)
+                    .or_insert_with(|| expand_xor_to_arithmetic(sub_poly, max_order));
+                for (part, &factor) in expanded.iter() {
+                    if factor == 0 { continue; }
+                    let mut monomial = rest.clone();
+                    monomial.extend_from_slice(part);
+                    // add_term canonicalizes the Boolean product and merges
+                    // collisions, preserving the exact modulo-one phase.
+                    self.add_term(monomial, phase.clone() * factor);
+                }
+            }
+            return;
+        }
+
+        // Parity-first: materialize only the surviving Boolean monomials
+        // before the arithmetic phase expansion. The single-monomial
+        // product avoids allocating a one-element temporary polynomial.
+        for (rest, coeff) in extracted {
+            let product = boolean_monomial_xor_product(&rest, sub_poly);
+            *self += (&product, coeff);
+        }
     }
 
     /// An interrupted phase polynomial is intentionally not an RR result:

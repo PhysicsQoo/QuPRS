@@ -8,7 +8,14 @@
 #include <iostream>
 #include <string>
 
-int main() {
+int main(int argc, char** argv) {
+    // Compare both arms with the exact same GMP binary and constructor.
+    if (argc == 2 && std::string(argv[1]) == "--426") {
+        mpf_set_default_prec(426);
+    } else if (argc != 1) {
+        std::cerr << "Usage: gmp-default-probe [--426]\n";
+        return 2;
+    }
     std::cout << "GMP_VERSION=" << gmp_version
               << " DEFAULT_PREC_BITS=" << mpf_get_default_prec() << '\n';
     for (int k : {16, 19, 20, 24, 28, 32, 40, 60}) {

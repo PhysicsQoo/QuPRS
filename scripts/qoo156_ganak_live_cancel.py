@@ -47,8 +47,11 @@ def still_active(pid: int, start_time: float) -> bool:
         if abs(p.create_time() - start_time) > 0.1:
             return False
         return p.status() != psutil.STATUS_ZOMBIE
-    except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
-        # AccessDenied is NOT proof that the process has terminated.
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        # The original PID no longer exists, or is already a dead zombie.
+        return False
+    except psutil.AccessDenied:
+        # Insufficient permission is NOT evidence of successful termination.
         return True
 
 

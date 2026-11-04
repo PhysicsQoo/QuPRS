@@ -73,3 +73,17 @@ async function main() {
   console.log("Release policy 13 positive/negative scenarios passed");
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
+
+// Prevent independent wheel/sdist acceptance on dev-to-main PRs.
+// The reusable release-artifact-ci.yml matrix remains required from Release-Ready Main.
+{
+  const publish = fs.readFileSync(".github/workflows/python-publish.yml", "utf8");
+  const release = fs.readFileSync(".github/workflows/release-ready-main.yml", "utf8");
+  const prClause = publish.split(/^  pull_request:/m)[1]?.split(/^\S/m)[0] || "";
+  assert.match(prClause, /\n    branches: \[dev\]/,
+    "Packaging PR CI must be scoped to dev, not main release PRs");
+  assert.match(publish, /\n  push:\n    tags:\n      - 'v\*'/,
+    "Tagged publishing trigger must be preserved");
+  assert.match(release, /uses: \.\/\.github\/workflows\/release-artifact-ci\.yml/,
+    "Main Release-Ready must retain full installed archive smoke matrix");
+}

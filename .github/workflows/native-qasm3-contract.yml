@@ -1,15 +1,20 @@
-name: Native QASM3 bounded contract
+name: Native QASM3 and Rust source scientific contracts
 on:
   pull_request:
     branches: [dev]
     paths:
       - 'rust/pathsum/src/qasm.rs'
       - 'rust/pathsum/src/ir.rs'
+      - 'rust/pathsum/src/rational.rs'
+      - 'rust/pathsum/src/gates.rs'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'test/test_qasm3_python_global_phase.py'
       - 'test/test_rust_qasm3_subset.py'
       - 'test/test_rust_qasm_fail_closed.py'
+      - 'test/test_rust_p_phase_semantics.py'
+      - 'test/test_graphstate16_qiskit_provenance.py'
       - '.github/workflows/native-qasm3-contract.yml'
+      - '.github/scripts/test-native-qasm-gate-unification.cjs'
   workflow_dispatch:
 permissions:
   contents: read
@@ -39,11 +44,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
           python -m pip install --upgrade pip 'maturin>=1.5,<2'
+      - name: Guard consolidated QASM scientific coverage and manual fallback
+        run: node .github/scripts/test-native-qasm-gate-unification.cjs
       - name: Run exact source-native QASM parser unit controls
         run: |
           set -euo pipefail
           mkdir -p evidence dist
           cargo test --manifest-path rust/Cargo.toml -p pathsum qasm::tests --lib --release -- --nocapture 2>&1 | tee evidence/rust-qasm3.log
+      - name: Preserve native P and U1 phase-normalization unit proofs
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/Cargo.toml -p pathsum gates::tests::test_apply_p --lib --release -- --nocapture 2>&1 | tee evidence/rust-p-phase.log
+          cargo test --manifest-path rust/Cargo.toml -p pathsum gates::tests::test_p_u1_relative_phase_unit_contract --lib --release -- --nocapture 2>&1 | tee evidence/rust-p-u1.log
       - name: Build public verifier wheel once
         run: |
           set -euo pipefail
@@ -72,6 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -102,6 +116,23 @@ jobs:
             test/test_rust_qasm_fail_closed.py::test_direct_unsupported_qasm_rejected_before_solver \
             --junitxml=evidence/qasm3-public-contract.xml \
             2>&1 | tee evidence/qasm3-public-contract.log
+      - name: Independent public Rust source-rejection and P/U1 phase regressions
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_rust_qasm_fail_closed.py \
+            test/test_rust_p_phase_semantics.py \
+            --junitxml=evidence/rust-qasm-source-safety.xml \
+            2>&1 | tee evidence/rust-qasm-source-safety.log
+      - name: Graphstate16 independent full-state Qiskit source oracle
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_graphstate16_qiskit_provenance.py \
+            --junitxml=evidence/graphstate-source-oracle.xml \
+            2>&1 | tee evidence/graphstate-source-oracle.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

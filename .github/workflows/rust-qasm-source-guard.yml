@@ -1,18 +1,9 @@
 name: Opt-in Rust QASM Strict Source Guard
 
+# Keep an independently executable historical/research guard, but on
+# dev PRs the same exact tests now consume the source-pinned QASM3 wheel once.
+# Automatic overlap has been moved to native-qasm3-contract.yml.
 on:
-  pull_request:
-    branches: [dev]
-    paths:
-      - 'rust/pathsum/src/qasm.rs'
-      - 'rust/pathsum/src/rational.rs'
-      - 'rust/pathsum/src/gates.rs'
-      - 'test/test_rust_qasm_fail_closed.py'
-      - 'test/test_rust_p_phase_semantics.py'
-      - 'test/test_graphstate16_qiskit_provenance.py'
-      - '.github/workflows/rust-qasm-source-guard.yml'
-      - '.github/scripts/ci-impact-reuse.cjs'
-      - '.github/scripts/test-ci-impact-reuse.cjs'
   push:
     branches:
       - fix/rust-qasm-fail-closed-20261023

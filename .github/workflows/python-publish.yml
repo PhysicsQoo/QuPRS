@@ -15,7 +15,10 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+  # dev PRs get packaging preflight; main PRs use Release-Ready Main's
+  # reusable artifact matrix exactly once. Tag publication is unchanged.
   pull_request:
+    branches: [dev]
     paths:
       - '.github/workflows/python-publish.yml'
       - 'scripts/release_artifact_smoke.py'

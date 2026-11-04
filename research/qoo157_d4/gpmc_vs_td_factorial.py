@@ -5,7 +5,8 @@ can still consume TD exscore: the design measures their interaction, not
 independent TD usage or phase-level causal fractions.
 """
 from __future__ import annotations
-from decimal import Decimal
+from decimal import Decimal, localcontext
+from fractions import Fraction
 from hashlib import sha256
 import argparse
 import json
@@ -105,7 +106,15 @@ def preflight(binary: str, cnf_dir: Path, source_report: Path, output: Path) -> 
         anchor = expected["precision_pairs"]["38"]["observations"]["gpmc-38"]
         if anchor["status"] != "COMPLETED":
             raise ValueError("original GPMC38 count not admissible")
-        reference = (Decimal(anchor["real"]), Decimal(anchor["imag"]))
+        # Original QuPRS SolverAdapter records exact printed-value rationals.
+        # Never pass a "numerator/denominator" string directly to Decimal.
+        with localcontext() as ctx:
+            ctx.prec = 100
+            reference = tuple(
+                Decimal(Fraction(anchor[component]).numerator)
+                / Decimal(Fraction(anchor[component]).denominator)
+                for component in ("real", "imag")
+            )
         for variant in VARIANTS:
             obs = run_one(binary, source, variant)
             reference_check = close_enough(

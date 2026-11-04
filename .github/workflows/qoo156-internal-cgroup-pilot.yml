@@ -9,6 +9,7 @@ on:
     paths:
       - '.github/workflows/qoo156-internal-cgroup-pilot.yml'
       - 'scripts/qoo156_internal_cgroup/**'
+      - 'rust/cli/src/supervisor.rs'
   workflow_dispatch:
 
 permissions:
@@ -52,7 +53,7 @@ jobs:
             --entrypoint python3 \
             --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_internal_cgroup/pilot.py,target=/opt/pilot.py,readonly" \
             qoo156:internal-cgroup-pilot \
-            -c "import runpy; d=runpy.run_path('/opt/pilot.py'); p=d['delegated_parent'](); print('QOO156_DELEGATION_PREFLIGHT=PASS',p,flush=True); p.rmdir()" \
+            -c "import runpy; d=runpy.run_path('/opt/pilot.py'); p=d['delegated_parent'](); print('QOO156_DELEGATION_PREFLIGHT=PASS',p,flush=True); (p/'supervisor').rmdir(); p.rmdir()" \
             | tee evidence/qoo156-internal-cgroup/delegation-preflight.txt
           grep -Fq QOO156_DELEGATION_PREFLIGHT=PASS \
             evidence/qoo156-internal-cgroup/delegation-preflight.txt

@@ -1,18 +1,18 @@
 {
   "schema": 1,
-  "source_sha": "9937736da184cc2600368198c43ee07236a5f47f",
-  "checkout_sha": "9937736da184cc2600368198c43ee07236a5f47f",
+  "source_sha": "01318e636d5d39473b8263622e052297e7feb30d",
+  "checkout_sha": "01318e636d5d39473b8263622e052297e7feb30d",
   "ref": "refs/heads/main",
   "python_version": "3.12.15",
   "python_implementation": "CPython",
-  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.43",
   "machine": "x86_64",
-  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "cpu_model": "AMD EPYC 7763 64-Core Processor",
   "cpu_count": 4,
   "runner_os": "Linux",
   "runner_arch": "X64",
-  "runner_image": "ubuntu24",
-  "runner_image_version": "20261012.334.1",
+  "runner_image": "ubuntu26",
+  "runner_image_version": "20261026.180.1",
   "gpmc_submodule_sha": "a1bda3489e959d3695b6798d327c5a1fc1bed305",
   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
   "solver_binaries": {
@@ -21,10 +21,10 @@
       "version_output": "c o Ganak SHA1: b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281\nc o Arjun SHA1: 3485f8d3c448b05baa6ce4eda4f0ecafee3dd9f8\nc o SBVA SHA1: bf157b1fea71c155251d2991b5fe0de37c57efba\nc o CMS SHA1: 03954f7f7815ea3984774c95a66e7c224cd25952\nc o CaDiCaL SHA1: 818c9562f114b315a9246ced943b66b60b38e8fb\nc o CadiBack SHA1: 445ddc2f2b5e54421af64e0652c2eb8444175322\nc o ApproxMC SHA1: ccbadb1cc2a365d98b6844dcbb1c00efa2f81470\nc o TreeDecomp SHA1: 0495b40c220b0b97a0d7c8e8d86480b4060476a8\nc o Using ideas by JM Lagniez, and Pierre Marquis\nc o     from paper: Improving Model Counting [..] IJCAI 2016\nc o Using VMTF, picosat"
     },
     "gpmc": {
-      "sha256": "507919b9af456645b55dc73e7d4db4a56b9293a0fa3ba99f5f8a0986826ef4b1",
+      "sha256": "6b39a67fcad783adeca57bc5a7cb0b0a9da681acb930d56f50f875280c7cb6b2",
       "version_output": "c o WARNING: for repeatability, setting FPU to use double precision"
     }
   },
   "ganak_release_manifest_sha256": "ab9216a5357a752d8f6e721a446c665823c09c3eec16903a252e050729b317c2",
-  "ganak_build_script_sha256": "d29a05dd1f4d53f9290b1499329bf8bd555968d30a1358395227f37f4d9cdf39"
+  "ganak_build_script_sha256": "04c01a3e9e3414c44c9fc6e4e28fc5cacfbfa290757c2fa2f741e92c4bcec93b"
 }

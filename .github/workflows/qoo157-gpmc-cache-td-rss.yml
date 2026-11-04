@@ -1,0 +1,92 @@
+name: QOO157 P2 pinned GPMC native cache TD and RSS science
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-gpmc-cache-td-rss.yml'
+      - 'research/qoo157_d4/gpmc_cache_td_rss.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gpmc-native-search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fixed GPMC pin and no-timing prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/gpmc_cache_td_rss.py
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev time
+          test -x /usr/bin/time
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-signed-scc-science-fb9309fd416e1edec3e28d8dcd0ee27cdb11094c
+          run-id: 41844324296
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/scc
+      - name: Compile exact pinned GPMC and record binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S GPMC -B "$RUNNER_TEMP/qoo157-gpmc-native-search" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo157-gpmc-native-search" --parallel 2
+          mkdir -p evidence
+          echo "QOO157_GPMC=$RUNNER_TEMP/qoo157-gpmc-native-search/gpmc" >> "$GITHUB_ENV"
+          sha256sum "$RUNNER_TEMP/qoo157-gpmc-native-search/gpmc" > evidence/gpmc-native-binary.sha256
+      - name: Original and same reduced CNF cache, decomposition and peak RSS with count gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/gpmc_cache_td_rss.py \
+            --binary "$QOO157_GPMC" \
+            --original evidence/original/cnfs \
+            --reduced evidence/scc/reduced-cnfs \
+            --original-science evidence/original/matched-science-report.json \
+            --manifest evidence/scc/reduction-manifest.json \
+            --td-dir evidence/native-td-files \
+            --out evidence/gpmc-native-cache-td-rss.json
+      - name: Record provenance, no timing
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/experiment-head.txt
+          echo 'Use only original official CodSpeed #41846122379 for time; GNU time reports Max RSS ONLY. This CI records native source stats/TD dimension, not speed.' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-gpmc-native-cache-td-rss-${{ github.sha }}
+          path: |
+            evidence/gpmc-native-cache-td-rss.json
+            evidence/gpmc-native-binary.sha256
+            evidence/native-td-files/
+            evidence/experiment-head.txt
+            evidence/scope.txt
+          if-no-files-found: warn
+          retention-days: 30

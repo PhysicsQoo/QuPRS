@@ -1,0 +1,81 @@
+name: QOO98 source-semantic QuPRS CNF Ganak 127bit complex printed gate no timing
+
+on:
+  push:
+    branches:
+      - experiment/qoo98-ganak-mode6-print-science
+    paths:
+      - '.github/workflows/qoo98-ganak-original-cnf-screen.yml'
+      - 'research/qoo98_ganak_mode6/original_semantic_cnf_screen.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  original-semantic-printed-screen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact original source and parser syntax
+        run: |
+          set -euo pipefail
+          python -m py_compile research/qoo98_ganak_mode6/original_semantic_cnf_screen.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Download pinned Ganak v2.8.0 release and exact SHA checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/release
+          curl -fL --retry 2 --max-time 120 -o evidence/ganak-release.tgz \
+            https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz
+          echo 'bea7150787a1e8f2b1bd658cb5a3c227d631d25054f5ff77ce23422e1c8b040c  evidence/ganak-release.tgz' | sha256sum --check
+          tar -xzf evidence/ganak-release.tgz -C evidence/release
+          mapfile -t binaries < <(find evidence/release -type f -name ganak)
+          test "${#binaries[@]}" -eq 1
+          bin="${binaries[0]}"
+          chmod +x "$bin"
+          test "$(sha256sum "$bin" | cut -d' ' -f1)" = 934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd
+          echo "QOO98_PINNED_GANAK=$PWD/$bin" >> "$GITHUB_ENV"
+      - name: Two original source QAOA7/QFT16 CNFs, exact signed complex weight semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=research/qoo98_ganak_mode6 python research/qoo98_ganak_mode6/original_semantic_cnf_screen.py \
+            --binary "$QOO98_PINNED_GANAK" \
+            --original-cnfs evidence/original/cnfs \
+            --source-report evidence/original/matched-science-report.json \
+            --ganak-cnfs evidence/native-ganak-cnfs \
+            --out evidence/ganak-original-semantic-count-screen.json
+      - name: Prove scope not performance measurement
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          echo 'Source SHA/Boolean clauses/Decimal weights are identical as mathematical inputs, solver-native text grammar differs; 9 printed significant digits only; no CodSpeed/no timing/none of internal numerical error certified' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo98-ganak-original-semantic-screen-${{ github.sha }}
+          path: |
+            evidence/ganak-original-semantic-count-screen.json
+            evidence/native-ganak-cnfs/
+            evidence/head.txt
+            evidence/scope.txt
+          if-no-files-found: warn
+          retention-days: 30

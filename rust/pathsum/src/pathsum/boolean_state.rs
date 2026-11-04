@@ -130,11 +130,11 @@ impl BooleanState {
         let expired = || deadline.is_some_and(|d| std::time::Instant::now() >= d);
         if expired() { return false; }
 
-        for poly in &mut self.functions {
-            if expired() { return false; }
+        for (poly_index, poly) in self.functions.iter_mut().enumerate() {
+            if poly_index != 0 && (poly_index & 63) == 0 && expired() { return false; }
             let mut new_poly = FxHashSet::default();
             for (index, mono) in poly.iter().enumerate() {
-                if (index & 63) == 0 && expired() { return false; }
+                if index != 0 && (index & 63) == 0 && expired() { return false; }
                 if mono.contains(&target_var) {
                     let mut rest = mono.clone();
                     rest.retain(|&x| x != target_var);
@@ -144,7 +144,7 @@ impl BooleanState {
                     // This is the singleton-rest form of mul_boolean_polys.
                     let mut expanded = FxHashSet::default();
                     for (part_index, part) in sub_poly.iter().enumerate() {
-                        if (part_index & 63) == 0 && expired() { return false; }
+                        if part_index != 0 && (part_index & 63) == 0 && expired() { return false; }
                         let term = crate::pathsum::mul_monomials(&rest, part);
                         if !expanded.remove(&term) { expanded.insert(term); }
                     }

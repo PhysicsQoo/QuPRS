@@ -52,6 +52,8 @@ pub struct PathSum {
     pub(crate) verification_deadline: Option<std::time::Instant>,
     /// Set when a reduction observes expiration. A partial PathSum is not a verdict.
     pub(crate) deadline_exceeded: bool,
+    /// Amortized gate-boundary clock sampling, scoped to one request.
+    deadline_gate_ticks: u32,
 }
 
 impl PathSum {
@@ -65,12 +67,14 @@ impl PathSum {
             rr_approximate: false,
             verification_deadline: None,
             deadline_exceeded: false,
+            deadline_gate_ticks: 0,
         }
     }
     /// Enable cancellation for the lifetime of one verification request.
     pub(crate) fn set_verification_deadline(&mut self, deadline: Option<std::time::Instant>) {
         self.verification_deadline = deadline;
         self.deadline_exceeded = false;
+        self.deadline_gate_ticks = 0;
     }
 
     /// Called at safe points, including inside automatic gate reductions.
@@ -79,6 +83,20 @@ impl PathSum {
         if self.deadline_exceeded || self.verification_deadline.is_some_and(|d| std::time::Instant::now() >= d) {
             self.deadline_exceeded = true;
             return false;
+        }
+        true
+    }
+
+    /// Sample cheap gate boundaries once every 32 gates. A request still
+    /// polls at entry, expensive reductions/substitutions and at exit; this
+    /// only avoids redundant clocks between inexpensive gate operations.
+    #[inline]
+    pub(crate) fn poll_gate_deadline(&mut self) -> bool {
+        if self.deadline_exceeded { return false; }
+        if self.verification_deadline.is_none() { return true; }
+        self.deadline_gate_ticks = self.deadline_gate_ticks.wrapping_add(1);
+        if (self.deadline_gate_ticks & 31) == 0 {
+            return self.poll_verification_deadline();
         }
         true
     }
@@ -102,6 +120,7 @@ impl PathSum {
             rr_approximate: false,
             verification_deadline: None,
             deadline_exceeded: false,
+            deadline_gate_ticks: 0,
         };
 
         if let Some(state) = initial_state {

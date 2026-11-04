@@ -59,9 +59,9 @@ def patch(d4_root: Path, digits: int, evidence: Path) -> dict:
         "int main(int argc, char** argv) {\n"
         f"  {MARKER}\n"
         f"  mpf_set_default_prec({bits});\n"
-        f"  std::cout << \"c o requested-precision-digits {digits}\\\\n\";\n"
+        f"  std::cout << \"c o requested-precision-digits {digits}\\n\";\n"
         "  std::cout << \"c o actual-gmp-precision-bits \""
-        " << mpf_get_default_prec() << \"\\\\n\";\n"
+        " << mpf_get_default_prec() << \"\\n\";\n"
         "  auto start = std::chrono::system_clock::now();"
     )
     # Change the old post-count precision setting too so no late stage can

@@ -399,6 +399,7 @@ impl QuantumGates for PathSum {
 
                 // Substitute x_i -> v1
                 self.substitute_var(x_i_idx, v1);
+                if self.deadline_exceeded { return; }
 
                 // Add phase terms
                 self.p += (&x_i_poly, phi_coeff);

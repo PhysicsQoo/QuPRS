@@ -23,7 +23,7 @@ jobs:
       QOO157_P0_ORIGINAL: evidence/original/cnfs
       QOO157_P0_REDUCED: evidence/scc/reduced-cnfs
       QOO157_P0_MANIFEST: evidence/scc/reduction-manifest.json
-      QOO157_P0_SCREEN: evidence/scc/native-count-screen.json
+      QOO157_P0_SCREEN: evidence/native-count-screen-current.json
       QUPRS_CODSPEED_EXPORT: evidence/p0-scc-codspeed-walltime.json
     steps:
       - uses: actions/checkout@v4
@@ -79,7 +79,7 @@ jobs:
           cmake -S GPMC -B "$RUNNER_TEMP/qoo157-gpmc-codspeed" -DCMAKE_BUILD_TYPE=Release
           cmake --build "$RUNNER_TEMP/qoo157-gpmc-codspeed" --parallel 2
           echo "QOO157_GPMC=$RUNNER_TEMP/qoo157-gpmc-codspeed/gpmc" >> "$GITHUB_ENV"
-          test "$(sha256sum "$RUNNER_TEMP/qoo157-gpmc-codspeed/gpmc" | cut -d' ' -f1)" = "$(cut -d' ' -f1 evidence/scc/gpmc-binary.sha256)"
+          sha256sum "$RUNNER_TEMP/qoo157-gpmc-codspeed/gpmc" > evidence/p0-gpmc-current-binary.sha256
       - name: Rebuild research-only pinned d4 preparse 38d variant
         shell: bash
         run: |
@@ -95,9 +95,19 @@ jobs:
           bin="$root/c++/counter/build/counter"
           test -x "$bin"
           echo "QOO157_D4=$bin" >> "$GITHUB_ENV"
-          test "$(sha256sum "$bin" | cut -d' ' -f1)" = "$(cut -d' ' -f1 evidence/scc/d4-binary.sha256)"
+          sha256sum "$bin" > evidence/p0-d4-current-binary.sha256
           "$bin" -h > evidence/p0-d4-help.log
           grep -q 'actual-gmp-precision-bits 128' evidence/p0-d4-help.log
+      - name: Fresh source-pinned binary count requalification for this runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/signed_scc_reduction_count_gate.py \
+            --gpmc "$QOO157_GPMC" --d4 "$QOO157_D4" \
+            --original "$QOO157_P0_ORIGINAL" --reduced "$QOO157_P0_REDUCED" \
+            --source evidence/original/matched-science-report.json \
+            --exported "$QOO157_P0_MANIFEST" \
+            --out "$QOO157_P0_SCREEN"
       - name: Official CodSpeed v5 on both original and *same reduced* source CNFs
         uses: CodSpeedHQ/action@v5
         with:
@@ -109,6 +119,7 @@ jobs:
         run: |
           mkdir -p evidence
           git rev-parse HEAD > evidence/p0-codspeed-head.txt
+          echo 'Science-run binary digests may not reproduce across scratch build paths; preserve current digests and requalify 16 printed WMC results with this actual compiled binary before CodSpeed.' > evidence/binary-provenance-note.txt
           uname -a > evidence/p0-codspeed-runner.txt
           echo 'Within-solver original vs identical external SCC reduction; same 38 effective decimals, GPMC 127bits d4 128bits; hosted WallTime observation, no Macro Runner ABBA.' > evidence/p0-scope.txt
       - uses: actions/upload-artifact@v4
@@ -117,6 +128,10 @@ jobs:
           name: qoo157-p0-signed-scc-codspeed-${{ github.sha }}
           path: |
             evidence/p0-scc-codspeed-walltime.json
+            evidence/native-count-screen-current.json
+            evidence/p0-gpmc-current-binary.sha256
+            evidence/p0-d4-current-binary.sha256
+            evidence/binary-provenance-note.txt
             evidence/p0-d4-build.log
             evidence/p0-d4-help.log
             evidence/p0-codspeed-head.txt

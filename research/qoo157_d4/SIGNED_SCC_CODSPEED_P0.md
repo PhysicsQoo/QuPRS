@@ -35,3 +35,16 @@ or censored case before making a speed claim.
 **No QuPRS dev/main or solver upstream changes; no default change.** Even
 if d4 improves, this is an external *science-first research intervention*,
 not approval to add a production preprocessing adapter.
+
+## Binary reproducibility gate refinement
+
+Initial P0 CodSpeed [run #41845296994](https://github.com/PhysicsQoo/QuPRS/actions/runs/41845296994) stopped **before any measurement** at the cross-run bit-for-bit `d4-binary.sha256` gate. The 38d research build was compiled in a different scratch path. This proves **nonidentical binary digests across those runs**, not a solver count or numerical regression.
+
+The revised workflow retains original science artifact and exact source/weight
+SHA; it records the *actual* current GPMC/d4 executable SHA and performs
+all **16 native complex count screens on current binaries before CodSpeed**.
+The timed tests are pinned to the new science report's actual SHA and require
+the same exact binary for each original/reduced pair. This intentionally
+spends a small bounded solver requalification to avoid silently assuming
+bitwise reproducibility under changing runner build paths. The first failed
+run has **no performance data** and must not be ranked.

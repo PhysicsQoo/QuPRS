@@ -43,6 +43,9 @@ def test_p0_causal_quotient_solver_inclusive(benchmark,case,solver,mode):
     binary=os.environ["QOO157_GPMC" if solver=="gpmc" else "QOO157_D4"]
     expected_bin=gate["gpmc_binary_sha256" if solver=="gpmc"
                       else "d4_scratch_binary_sha256"]
+    # The actual current binary was requalified on all 16 source/count
+    # science controls in THIS runner, not assumed bytewise reproducible
+    # across distinct CMake scratch build paths in two Actions runs.
     assert sha256(Path(binary).read_bytes()).hexdigest()==expected_bin
     observed=benchmark(native_count,solver,binary,cnf)
     ok,delta,bound=close_enough(

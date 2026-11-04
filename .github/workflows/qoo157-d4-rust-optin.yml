@@ -1,0 +1,117 @@
+name: QOO-157 Experimental Rust d4 Adapter & Native Verdict Pilot
+
+on:
+  push:
+    branches: [experiment/qoo157-d4-rust-optin-poc]
+    paths:
+      - 'rust/pathsum/src/d4_experimental.rs'
+      - 'rust/pathsum/src/solver_adapter.rs'
+      - 'rust/pathsum/src/lib.rs'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'rust/pathsum/Cargo.toml'
+      - 'rust/pathsum/examples/qoo157_d4_native_probe.rs'
+      - '.github/workflows/qoo157-d4-rust-optin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo157-rust-d4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-optin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo157-rust-d4-optin-v1
+      - name: Native prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Record exact Rust and source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/rust-experiment-head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/rust-experiment-tree.txt
+          rustc --version > evidence/rust-toolchain.txt
+          sha256sum rust/pathsum/src/{d4_experimental.rs,solver_adapter.rs,lib.rs,wmc.rs} \
+            > evidence/rust-sources-sha256.txt
+      - name: Rust opt-in grammar/count/format and incumbent adapter tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/Cargo.toml --locked -p pathsum \
+            --features experimental-d4 --lib d4_experimental -- --nocapture \
+            2>&1 | tee evidence/d4-rust-feature-tests.log
+          cargo test --manifest-path rust/Cargo.toml --locked -p pathsum \
+            --features experimental-d4 --lib solver_adapter::tests -- --nocapture \
+            2>&1 | tee evidence/rust-incumbent-adapter-tests.log
+          cargo check --manifest-path rust/Cargo.toml --locked -p pathsum \
+            2>&1 | tee evidence/rust-default-build.log
+      - name: Build isolated, pinned native d4 with pre-parser GMP precision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$RUNNER_TEMP/qoo157-d4"
+          git -C "$RUNNER_TEMP/qoo157-d4" checkout --detach \
+            be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$RUNNER_TEMP/qoo157-d4" rev-parse HEAD)" = \
+            be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          python research/qoo157_d4/precision_variant.py \
+            --upstream "$RUNNER_TEMP/qoo157-d4" --evidence evidence
+          git -C "$RUNNER_TEMP/qoo157-d4" diff --check
+          git -C "$RUNNER_TEMP/qoo157-d4" diff -- c++/counter/src/Main.cpp \
+            > evidence/d4-pinned-precision.patch
+          (
+            cd "$RUNNER_TEMP/qoo157-d4/c++/counter"
+            ./build.sh -j
+          ) 2>&1 | tee evidence/d4-native-build.log
+          test -x "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+          sha256sum "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
+            > evidence/d4-native-binary.sha256
+      - name: Verify Rust WMC-only source-to-verdict on actual d4 external subprocess
+        shell: bash
+        env:
+          QUPRS_D4_UPSTREAM_SHA: be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          QUPRS_D4_SOURCE_PATCH_ACK: '1'
+          QUPRS_D4_PREPARSE_BITS: '426'
+        run: |
+          set -euo pipefail
+          export QUPRS_D4_PATH="$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+          export QUPRS_D4_SHA256="$(sha256sum "$QUPRS_D4_PATH" | cut -d ' ' -f1)"
+          cargo run --manifest-path rust/Cargo.toml --locked -p pathsum \
+            --features experimental-d4 --example qoo157_d4_native_probe \
+            2>&1 | tee evidence/rust-native-wmc-only-verdicts.log
+      - name: Reject unintentional changes to product defaults and packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only 79e975b0b21c0c650db7a76fe6e35b926c67c2c8..HEAD \
+            > evidence/changed-files.txt
+          if grep -E '^(src/|pyproject.toml$|GPMC$|MANIFEST.in$)' evidence/changed-files.txt; then
+            echo 'QOO157_D4_RUST_UNEXPECTED_RELEASE_CHANGE' >&2
+            exit 2
+          fi
+          git grep -n -E 'default =.*experimental-d4' -- rust/pathsum/Cargo.toml \
+            && exit 2 || true
+      - name: Preserve all scoped evidence, including failed native experiments
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo157-rust-d4-optin-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30

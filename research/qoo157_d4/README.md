@@ -192,3 +192,23 @@ high-precision counter patch; demonstrate source MPFR256 -> d4 output
 accuracy against the independent decimal Fraction oracle before any
 production opt-in. The upstream licensing review and same-SHA CodSpeed
 solver-inclusive comparisons remain mandatory.
+
+## Controlled causal A/B variant (research-only)
+
+The scoped workflow now first measures pinned, **unmodified** d4 and then
+uses `precision_variant.py` to make exactly one anchored edit to the
+throwaway `jm62300/d4@be15f91` checkout: add
+`mpf_set_default_prec(426)` at the very beginning of `Main.cpp::main()`,
+**before** parser/counter construction. It incrementally rebuilds the
+same C++ target with the same compiler/run environment and reruns the
+**same archived six QuPRS source CNFs** and the complex near-cancellation
+sweep. Original and modified binary checksums, exact source patch hashes,
+the pinned revision, and raw stdout/stderr stay separate in the run artifact.
+
+The modified binary is an ephemeral research control: **NEVER** commit to
+the upstream fork, attach it to wheels, or interpret CI correctness as
+a production-grade certified precision interval. This experiment isolates
+the source precision setup placement, not arbitrary algorithmic error.
+The variant CI strictly requires `PILOT_TIGHT` for every original exact
+decimal-CNF oracle case; this check is distinct from the intentionally
+weak baseline `PILOT_NEAR_UNCERTIFIED` compatibility screen.

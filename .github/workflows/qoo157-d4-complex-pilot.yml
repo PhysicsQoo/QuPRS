@@ -136,6 +136,37 @@ jobs:
             --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
             --workdir evidence/d4-precision \
             --timeout 30 2>&1 | tee evidence/d4-precision.log
+      - name: Controlled d4 426-bit initialization before counting (research-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$RUNNER_TEMP/qoo157-d4"
+          binary="$upstream/c++/counter/build/counter"
+          python research/qoo157_d4/precision_variant.py \
+            --upstream "$upstream" \
+            --evidence evidence/d4-precision-variant
+          cmake --build "$upstream/c++/counter/build" --parallel 2 --target counter \
+            2>&1 | tee evidence/d4-precision-variant/rebuild.log
+          sha256sum "$binary" > evidence/d4-precision-variant/binary-sha256.txt
+          python research/qoo157_d4/precision_probe.py \
+            --binary "$binary" \
+            --workdir evidence/d4-precision-variant/sweep \
+            --timeout 30 2>&1 | tee evidence/d4-precision-variant/sweep.log
+          args=(--workdir evidence/d4-precision-variant/quprs-native --binary "$binary" --timeout 30)
+          for cnf in evidence/quprs-source-cnf/*.cnf; do
+            args+=(--cnf "$cnf")
+          done
+          python research/qoo157_d4/poc_d4.py "${args[@]}" \
+            2>&1 | tee evidence/d4-precision-variant/quprs-native.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("evidence/d4-precision-variant/quprs-native/report.json")
+          cases=json.loads(p.read_text())["cases"]
+          failed=[(x["case"], x["native_status"]) for x in cases if x["native_status"] != "PILOT_TIGHT"]
+          print("QOO157_VARIANT_STRICT_CASES",len(cases),"TIGHT",len(cases)-len(failed),"FAILED",failed)
+          if failed: raise SystemExit(2)
+          PY
       - name: Preserve results even on native failure
         if: always()
         uses: actions/upload-artifact@v4

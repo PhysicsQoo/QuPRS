@@ -87,12 +87,35 @@ impl BooleanState {
         used_vars
     }
     pub fn substitute_var_with_poly(
-        &mut self,
-        target_var: u32,
-        sub_poly: &FxHashSet<crate::pathsum::Monomial>,
+        &mut self, 
+        target_var: u32, 
+        sub_poly: &FxHashSet<crate::pathsum::Monomial>
     ) {
-        let completed = self.substitute_var_with_poly_checked(target_var, sub_poly, None);
-        debug_assert!(completed);
+        for poly in &mut self.functions {
+            let mut new_poly = FxHashSet::default();
+            for mono in poly.iter() {
+                if mono.contains(&target_var) {
+                    // Contains target variable: extract remaining variables (rest)
+                    let mut rest = mono.clone();
+                    rest.retain(|&x| x != target_var);
+                    
+                    let mut rest_poly = FxHashSet::default();
+                    rest_poly.insert(rest);
+                    
+                    // Compute rest * sub_poly in boolean ring (F_2)
+                    let expanded = crate::pathsum::mul_boolean_polys(&rest_poly, sub_poly);
+                    for m in expanded {
+                        if new_poly.contains(&m) { new_poly.remove(&m); }
+                        else { new_poly.insert(m); }
+                    }
+                } else {
+                    // Does not contain target variable: insert directly and handle XOR cancellation
+                    if new_poly.contains(mono) { new_poly.remove(mono); }
+                    else { new_poly.insert(mono.clone()); }
+                }
+            }
+            *poly = new_poly; // Replace with expanded polynomial
+        }
     }
 
     /// Verification-only bounded substitution. A `false` return means the

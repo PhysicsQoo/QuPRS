@@ -433,21 +433,61 @@ impl MemoryCgroup {
         let relative = current.lines().find_map(|x| x.strip_prefix("0::"))
             .context("cgroup v2 is unavailable")?
             .trim_start_matches('/');
-        let parent = std::path::Path::new("/sys/fs/cgroup").join(relative);
-        let path = parent.join(format!("quprs-cli-{}", std::process::id()));
-        fs::create_dir(&path).context("no delegated writable memory cgroup; refused to run unbounded")?;
-        let configured = (|| -> Result<()> {
-            fs::write(path.join("memory.max"), bytes.to_string())
-                .context("configure physical-memory limit")?;
-            fs::write(path.join("memory.oom.group"), "1")
-                .context("configure group OOM handling")?;
-            Ok(())
-        })();
-        if let Err(err) = configured {
-            let _ = fs::remove_dir(&path);
-            return Err(err);
+        let root = std::path::Path::new("/sys/fs/cgroup");
+        let parent = root.join(relative).canonicalize()
+            .context("resolve own cgroup-v2 path")?;
+        anyhow::ensure!(parent.starts_with(root), "cgroup path escaped controller root");
+
+        // cgroup-v2 domain controllers have a no-internal-process rule.
+        // An ordinary CLI supervisor must run in a *leaf*, while its bounded
+        // worker lives in a sibling under an EMPTY memory-delegated parent.
+        // Searching ancestors is paid only when --max-memory-mib is requested.
+        // Never silently interpret RLIMIT_AS as a physical-memory cap.
+        let mut search = Some(parent.as_path());
+        while let Some(candidate) = search {
+            if !candidate.starts_with(root) { break; }
+            let enabled = fs::read_to_string(candidate.join("cgroup.subtree_control"))
+                .unwrap_or_default();
+            let members = fs::read_to_string(candidate.join("cgroup.procs"))
+                .unwrap_or_default();
+            if enabled.split_whitespace().any(|x| x == "memory")
+                && members.trim().is_empty()
+            {
+                let path = candidate.join(format!("quprs-cli-{}", std::process::id()));
+                match fs::create_dir(&path) {
+                    Ok(()) => {
+                        let configured = (|| -> Result<()> {
+                            fs::write(path.join("memory.max"), bytes.to_string())
+                                .context("configure physical-memory limit")?;
+                            fs::write(path.join("memory.oom.group"), "1")
+                                .context("configure group OOM handling")?;
+                            let readback = fs::read_to_string(path.join("memory.max"))
+                                .context("read back physical-memory cap")?;
+                            anyhow::ensure!(
+                                readback.trim() == bytes.to_string(),
+                                "memory.max readback did not equal requested cap"
+                            );
+                            Ok(())
+                        })();
+                        if let Err(error) = configured {
+                            let _ = fs::remove_dir(&path);
+                            return Err(error);
+                        }
+                        return Ok(Self { path });
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                        // This ancestor is not delegated to the current user.
+                        // Keep looking only at actual cgroup ancestors.
+                    }
+                    Err(error) => {
+                        return Err(error).context("create physical-memory worker cgroup");
+                    }
+                }
+            }
+            if candidate == root { break; }
+            search = candidate.parent();
         }
-        Ok(Self { path })
+        bail!("no delegated writable memory cgroup with memory controller active; refused to run unbounded")
     }
     #[cfg(not(target_os = "linux"))]
     fn new(_: u64) -> Result<Self> {

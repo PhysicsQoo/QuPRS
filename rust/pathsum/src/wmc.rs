@@ -971,3 +971,33 @@ mod exact_unweighted_count_tests {
         assert!(!manager.has_exact_unweighted_tautology(2));
     }
 }
+
+#[cfg(test)]
+mod cooperative_cnf_deadline_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn expired_cnf_budget_is_typed_timeout() {
+        let ps = PathSum::new(1);
+        let mut manager = WmcManager::new(&ps);
+        let expired = Instant::now() - Duration::from_millis(1);
+        let err = manager.encode_trace_with_deadline(&ps, Some(expired)).unwrap_err();
+        assert!(err.downcast_ref::<crate::solver_process::SolverTimeout>().is_some());
+    }
+
+    #[test]
+    fn unexpired_cnf_encoding_matches_legacy_bytes() {
+        let ps = PathSum::new(2);
+        let mut historical = WmcManager::new(&ps);
+        let mut checked = WmcManager::new(&ps);
+        historical.encode_trace(&ps).unwrap();
+        checked.encode_trace_with_deadline(
+            &ps, Some(Instant::now() + Duration::from_secs(30))
+        ).unwrap();
+        assert_eq!(
+            historical.to_dimacs_string("gpmc"),
+            checked.to_dimacs_string("gpmc"),
+        );
+    }
+}

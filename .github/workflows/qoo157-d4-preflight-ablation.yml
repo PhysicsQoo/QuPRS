@@ -1,0 +1,67 @@
+name: QOO157 d4 hash overhead CodSpeed ablation
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-preflight-ablation
+    paths:
+      - '.github/workflows/qoo157-d4-preflight-ablation.yml'
+      - 'research/qoo157_d4/run_codspeed_choice_preflight.sh'
+      - 'research/qoo157_d4/codspeed_choice_preflight.py'
+      - 'research/qoo157_d4/test_codspeed_d4_preflight_ablation.py'
+      - 'rust/pathsum/examples/qoo157_export_paper_cnf.rs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  choice:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      QOO157_PREFLIGHT: evidence/qoo157-choice-science.json
+      QOO157_CNF_DIR: evidence/cnfs
+      QOO157_D4_PROVENANCE: evidence/d4-provenance.json
+      QUPRS_CODSPEED_EXPORT: evidence/qoo157-codspeed-walltime.json
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo157-hash-ablation-v1
+      - name: Set d4 executable path after runner is allocated
+        shell: bash
+        run: echo "QOO157_D4_BINARY=$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" >> "$GITHUB_ENV"
+      - name: Build pinned solvers and science-admit identical QuPRS CNFs
+        shell: bash
+        run: bash research/qoo157_d4/run_codspeed_choice_preflight.sh
+      - name: CodSpeed v5 d4 SHA per-call vs preverified WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_d4_preflight_ablation.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=5
+      - name: Preserve source, runner and instrument provenance
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/runner-head.txt
+          uname -a > evidence/runner-kernel.txt
+          echo 'CodSpeed WallTime hosted VM, non-ABBA, observation only' > evidence/sampling-policy.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-d4-hash-ablation-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30

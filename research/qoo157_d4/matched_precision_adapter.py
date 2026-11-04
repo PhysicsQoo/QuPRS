@@ -1,4 +1,4 @@
-"""Research-only dual d4-30/d4-90 SolverAdapter with one untimed SHA check.
+"""Research-only dual d4-38/d4-96 SolverAdapter with one untimed SHA check.
 
 The d4 binary and source SHA are fixed and verified before CodSpeed; this
 bypasses *only* per-invocation hashing of an immutable CI scratch binary.
@@ -14,7 +14,7 @@ from pathlib import Path
 from QuPRS.utils.solver_adapter import SolverCapabilities, SolverExecutionError
 from d4_solver_adapter_poc import D4ResearchAdapter, UPSTREAM
 
-ALLOWED = (30, 90)
+ALLOWED = (38, 96)
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class MatchedD4ResearchAdapter(D4ResearchAdapter):
 
 def read_pinned_manifest(binary: Path, manifest: Path, digits: int) -> dict:
     if digits not in ALLOWED:
-        raise ValueError("supported decimal budgets are 30 and 90")
+        raise ValueError("supported effective-decimal budgets are 38 and 96")
     path = binary.resolve(strict=True)
     meta = json.loads(manifest.read_text())
     digest = hashlib.sha256(path.read_bytes()).hexdigest()

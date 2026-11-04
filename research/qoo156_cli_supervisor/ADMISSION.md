@@ -118,6 +118,24 @@ Source-locked [GitHub Actions #41845129593](https://github.com/PhysicsQoo/QuPRS/
 
 Next bounded experiment: concentrate the threshold between 64 and 128 MiB (Ganak) and a lower QFT16/GPMC limit, with a success control and explicit unobserved-OOM state. Independent Mac mini/OrbStack ARM64 proof remains NOT_TESTED.
 
+## Targeted GPMC/Ganak tight-memory boundary (2026-11-04)
+
+[Seven-case bounded boundary experiment #41846141175](https://github.com/PhysicsQoo/QuPRS/actions/runs/41846141175), [source-pinned artifact #13331781669](https://github.com/PhysicsQoo/QuPRS/actions/runs/41846141175/artifacts/13331781669), SHA `experiment/qoo156-cli-supervisor@793f69c3ca1d42733144c3e715cdaa1f2c204f77`. Real unmodified pinned ELF, WMC-only source-locked original VQE4+X or QFT16+X, same Ubuntu Docker image, one release CLI build. No walltime-based performance claims.
+
+| Solver / source case | Docker physical cap | Actual container `memory.peak` | Docker exit / OOM | Scientific result |
+|---|---:|---:|---|---|
+| Ganak VQE4 NEQ | 72 MiB | unavailable | 137 / OOMKilled=true | **NOT_ADMITTED**, parent driver killed; no Solver-specific death witness |
+| Ganak VQE4 NEQ | 80 MiB | unavailable | 137 / OOMKilled=true | **NOT_ADMITTED**, parent driver killed; no Solver-specific death witness |
+| Ganak VQE4 NEQ | 88 MiB | 80.773 MiB | 0 / false | full `not_equivalent` PASS |
+| Ganak VQE4 NEQ | 96 MiB | 80.754 MiB | 0 / false | full `not_equivalent` PASS |
+| Ganak VQE4 NEQ | 128 MiB | 81.012 MiB | 0 / false | full `not_equivalent` PASS |
+| GPMC QFT16 NEQ | 48 MiB | 42.168 MiB | 0 / false | full `not_equivalent` PASS |
+| GPMC QFT16 NEQ | 64 MiB | 42.066 MiB | 0 / false | full `not_equivalent` PASS |
+
+Pre-worker container `memory.peak` was ~10.9 MiB for Ganak tests and ~9.6–9.9 MiB for GPMC. These are **whole-cgroup** metrics and include the Python observer, dynamic loader, page cache and tmpfs; subtracting them does not yield isolated Solver RSS. The natural memory boundary for this one Ganak VQE4 NEQ/container combination was bracketed between failure at 80 MiB and success at 88 MiB; successful GPMC QFT16 cap of 48 MiB has only ~5.8 MiB space above observed peak and should **not** be promoted as a production default. Repeats and equivalent (EQ) / difficult-case fixtures are needed for robust operational headroom.
+
+**Actual Solver PID OOM remains unproven by these low-cap results:** the Ganak72/80 containers were completely killed (exit137, Docker OOM flag true) before an in-container JSON witness could be preserved. A separate bounded adversarial kernel OOM experiment targeting a paused authentic Solver PID is in progress; it must differentiate a controlled victim-selection stress test from ordinary Solver memory demand. The internal CLI `--max-memory-mib` remains NOT_ADMITTED due absent delegated cgroups. CodSpeed remains the sole formal performance basis.
+
 ## Real 64 MiB cgroup OOM certificate
 
 Use a dedicated, trusted ephemeral Linux VM/runner with unified cgroup v2,

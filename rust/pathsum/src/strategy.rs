@@ -223,3 +223,59 @@ fn run_difference(mut ps: PathSum, gates1: &[QuantumOp], gates2: &[QuantumOp]) -
     }
     ps
 }
+#[cfg(test)]
+mod cooperative_deadline_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn expired_before_first_gate_never_applies_a_partial_circuit() {
+        let expired = Instant::now() - Duration::from_millis(1);
+        for strategy in [
+            VerificationStrategy::Naive,
+            VerificationStrategy::Straightforward,
+            VerificationStrategy::Proportional,
+            VerificationStrategy::Difference,
+        ] {
+            let before = PathSum::new(1);
+            let result = strategy.run_with_deadline(
+                before.clone(), &[QuantumOp::H(0)], &[QuantumOp::H(0)],
+                Some(expired),
+            );
+            assert!(result.deadline_exceeded, "{strategy:?}");
+            assert_eq!(result.p.terms, before.p.terms, "{strategy:?}");
+            assert_eq!(result.f.functions, before.f.functions, "{strategy:?}");
+        }
+    }
+
+    #[test]
+    fn unbounded_checked_run_preserves_legacy_gate_order_and_rr() {
+        let reference = [QuantumOp::H(0), QuantumOp::X(0), QuantumOp::H(0)];
+        let verification = [QuantumOp::X(0)];
+        for strategy in [
+            VerificationStrategy::Naive,
+            VerificationStrategy::Straightforward,
+            VerificationStrategy::Proportional,
+            VerificationStrategy::Difference,
+        ] {
+            let base = PathSum::new(1);
+            let legacy = strategy.run(base.clone(), &reference, &verification);
+            let checked = strategy.run_with_deadline(
+                base, &reference, &verification, Some(Instant::now() + Duration::from_secs(30)),
+            );
+            assert!(!checked.deadline_exceeded);
+            assert_eq!(checked.p.terms, legacy.p.terms);
+            assert_eq!(checked.f.functions, legacy.f.functions);
+            assert_eq!(checked.v.path_vars, legacy.v.path_vars);
+        }
+    }
+
+    #[test]
+    fn reduction_does_not_continue_after_expiration() {
+        let mut ps = PathSum::new(1);
+        ps.set_verification_deadline(Some(Instant::now() - Duration::from_millis(1)));
+        ps.full_reduce();
+        assert!(ps.deadline_exceeded);
+        assert!(!ps.poll_verification_deadline());
+    }
+}

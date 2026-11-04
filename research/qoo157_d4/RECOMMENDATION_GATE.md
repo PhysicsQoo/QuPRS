@@ -1,3 +1,38 @@
+## PRECISION-FAIR SCIENTIFIC AND PERFORMANCE VERDICT — 2026-11-04
+
+The earlier fixed d4 **426-bit / 50-printed-digit** vs GPMC30/90
+comparison was **not equal effective arithmetic precision** and
+must not be used as a matched-precision conclusion.
+The [completed 30/90 requested-digit experiment](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb18beefdbc51abcbc403f)
+has the same nominal requested and output digits, but GMP actually
+allocated **128/320 bits** versus MPFR **100/299 bits**.
+
+The principal completed [equal-effective-digit CodSpeed run](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb1b9fefdbc51abcbc4108)
+and [source-pinned CI #41822549728](https://github.com/PhysicsQoo/QuPRS/actions/runs/41822549728)
+enforced **GPMC 127 bits vs d4 128 bits = 38 effective decimal digits**
+and **GPMC 319 bits vs d4 320 bits = 96 effective decimal digits**.
+Each solver prints the same number of significant digits and uses the
+same QuPRS source-weighted CNF. Eight of eight prepared CNF count
+pairs passed the empirical scientific-concordance gate. In official
+CodSpeed WallTime 3-round medians the d4/GPMC ratio was:
+Grover4 3.63× / 3.63× (38/96 digits);
+QAOA7 true NEQ 3.93× / 3.46×;
+QPEexact8 2.98× / 2.98×;
+QFT16 1.55× / 1.48×.
+All eight observed same-run directions favored GPMC.
+
+**Decision** remains GPMC recommended/default, d4 opt-in research only.
+These are CodSpeed hosted-runner **OBSERVATIONS** and carry the
+WallTime-not-on-Macro-Runner warning. No statistical speedup/regression
+certificate or whole-Hybrid benchmark is claimed. Internal arithmetic
+error bounds are not certified by same printed digit counts.
+
+Full raw artifacts and source, actual bit, and provenance audit are
+recorded in [EFFECTIVE_PRECISION_FAIRNESS.md](EFFECTIVE_PRECISION_FAIRNESS.md).
+**Do not reuse the 426-bit data as equal-precision evidence.**
+
+---
+
 # QOO-157 — should d4 replace GPMC as QuPRS' recommended solver?
 
 Status (2026-11-04): **NO-GO for replacing GPMC as recommended first choice or default**.

@@ -8,11 +8,14 @@ on:
       - 'research/qoo157_d4/d4_solver_adapter_poc.py'
       - 'research/qoo157_d4/test_d4_transport.py'
       - 'research/qoo157_d4/test_d4_solver_adapter_poc.py'
+      - 'research/qoo157_d4/run_native_adapter_poc.py'
+      - 'research/qoo157_d4/source-cnf-manifest.sha256'
       - '.github/workflows/qoo157-d4-adapter-poc.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: qoo157-adapter-${{ github.ref }}
@@ -86,6 +89,66 @@ jobs:
           if grep -E '^(src/|rust/pathsum/src/|pyproject.toml$|GPMC$)' evidence/changed-files.txt; then
             exit 2
           fi
+      - name: Compile pinned external 426-bit d4 research variant, no distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          export UPSTREAM_SHA=be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$RUNNER_TEMP/qoo157-d4"
+          git -C "$RUNNER_TEMP/qoo157-d4" checkout --detach "$UPSTREAM_SHA"
+          test "$(git -C "$RUNNER_TEMP/qoo157-d4" rev-parse HEAD)" = "$UPSTREAM_SHA"
+          mkdir -p evidence/d4-variant
+          python research/qoo157_d4/precision_variant.py \
+            --upstream "$RUNNER_TEMP/qoo157-d4" --evidence evidence/d4-variant
+          git -C "$RUNNER_TEMP/qoo157-d4" diff --check
+          git -C "$RUNNER_TEMP/qoo157-d4" diff -- c++/counter/src/Main.cpp \
+            > evidence/d4-variant/only-source-change.diff
+          (
+            cd "$RUNNER_TEMP/qoo157-d4/c++/counter"
+            ./build.sh -j
+          ) 2>&1 | tee evidence/d4-variant/build.log
+          binary="$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+          test -x "$binary"
+          sha256sum "$binary" > evidence/d4-variant/binary-sha256.txt
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          executable = pathlib.Path(os.environ["RUNNER_TEMP"]) / "qoo157-d4/c++/counter/build/counter"
+          digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+          pathlib.Path("evidence/d4-variant/provenance-for-adapter.json").write_text(
+              json.dumps({
+                  "binary_sha256": digest,
+                  "d4_upstream_commit": "be15f91f3e9769e1f5cb175fa27e3eca3a1ea690",
+                  "gmp_preparse_bits": 426,
+                  "source_patch_approved_for_research": True,
+                  "scope": "ephemeral external CI build only",
+              }, indent=2) + "\n"
+          )
+          PY
+      - name: Real native d4 through installed Python WMC facade on six pinned QuPRS CNFs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: research/qoo157_d4
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/frozen-cnf
+          gh run download 41807195090 --repo PhysicsQoo/QuPRS \
+            --name qoo157-d4-native-5b7b6027c90438a2c1b9cdbbfe35d4b80fafed95 \
+            --dir evidence/frozen-cnf
+          (
+            cd evidence/frozen-cnf
+            sha256sum -c "$GITHUB_WORKSPACE/research/qoo157_d4/source-cnf-manifest.sha256"
+          )
+          args=(
+            --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
+            --provenance evidence/d4-variant/provenance-for-adapter.json
+            --out evidence/native-python-adapter.json
+          )
+          for cnf in evidence/frozen-cnf/quprs-source-cnf/*.cnf; do
+            args+=(--cnf "$cnf")
+          done
+          python research/qoo157_d4/run_native_adapter_poc.py "${args[@]}" \
+            2>&1 | tee evidence/native-python-adapter.log
       - if: always()
         uses: actions/upload-artifact@v4
         with:

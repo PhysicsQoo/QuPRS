@@ -32,6 +32,13 @@ enum StopReason {
     WaitFailed(String),
 }
 
+// An output EOF at (or after) deadline is not a successful completion even
+// when the receiver's channel already has a queued event. This guard is part
+// of the parent process, not native Path-sum or WMC computation.
+fn eof_before_deadline(finished: Instant, deadline: Instant) -> bool {
+    finished < deadline
+}
+
 // Parent-owned bounded spool: the worker cannot write to an unlimited
 // tempfile. Each reader checks the byte count *before* committing chunks.
 // Both pipes are drained concurrently to prevent stdout/stderr deadlock.
@@ -226,7 +233,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
                 // A ready event queued after the deadline may still be
                 // returned by recv_timeout(Duration::ZERO). Never release
                 // a late successful result merely because both pipes closed.
-                if finished >= deadline {
+                if !eof_before_deadline(finished, deadline) {
                     interrupted = Some(StopReason::Timeout);
                     break;
                 }
@@ -646,14 +653,16 @@ mod tests {
     #[test]
     fn worker_and_pipe_completion_at_deadline_is_not_success() {
         let deadline = Instant::now();
-        // Both the worker exit and each stream EOF must be observed before
-        // deadline, not just be available in the event receiver's queue.
-        let after_deadline = deadline + Duration::from_millis(1);
-        let eof = WorkerEvent::CaptureFinished("stdout", after_deadline);
-        match eof {
+        let earlier = deadline - Duration::from_nanos(1);
+        let later = deadline + Duration::from_nanos(1);
+        assert!(eof_before_deadline(earlier, deadline));
+        assert!(!eof_before_deadline(deadline, deadline));
+        assert!(!eof_before_deadline(later, deadline));
+        // Check the production event payload still carries the timestamp.
+        match WorkerEvent::CaptureFinished("stdout", later) {
             WorkerEvent::CaptureFinished(stream, finished) => {
                 assert_eq!(stream, "stdout");
-                assert!(finished >= deadline, "late EOF must be rejected");
+                assert!(!eof_before_deadline(finished, deadline));
             }
             _ => panic!("unexpected event"),
         }

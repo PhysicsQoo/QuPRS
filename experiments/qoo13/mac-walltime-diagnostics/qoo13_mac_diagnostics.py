@@ -101,6 +101,71 @@ def command(*argv: str, timeout: int = 9) -> dict:
             'error': scrub(r.stderr)}
 
 
+def parse_thermal_metrics(raw: str, command_status: str = 'ok') -> dict:
+    """A successful pmset exit or 'no warnings recorded' is NOT a thermal metric.
+
+    CPU limit fields may indicate an explicit cap, but cannot by themselves
+    certify that thermal throttling is absent. Never infer a clock frequency.
+    """
+    if command_status != 'ok':
+        return {'status': 'COMMAND_UNAVAILABLE', 'metrics': {}}
+    observed = {}
+    pattern = re.compile(
+        r'^\s*(CPU_(?:Speed_Limit|Scheduler_Limit|Available_CPUs))\s*[=:]\s*'
+        r'(\d+(?:\.\d+)?)\s*%?\s*$', re.I | re.M,
+    )
+    for match in pattern.finditer(raw):
+        observed[match.group(1)] = float(match.group(2))
+    if not observed:
+        return {'status': 'NO_NUMERIC_THERMAL_OR_POWER_LIMIT_DATA', 'metrics': {}}
+    return {'status': 'CPU_LIMITS_OBSERVED_NOT_THERMAL_CERTIFICATION', 'metrics': observed}
+
+
+def inspect_profile_folder(path: Path | None) -> dict:
+    """Inspect an existing CodSpeed profile directory without creating or writing files.
+
+    No preserved folder means the original write errno cannot be inferred.
+    We do not read environment file contents beyond JSON keys.
+    """
+    if path is None:
+        return {'status': 'NOT_PROVIDED', 'root_cause': 'UNVERIFIED'}
+    if path.is_symlink():
+        return {'status': 'SYMLINK_REFUSED', 'root_cause': 'UNVERIFIED'}
+    if not path.is_dir():
+        return {'status': 'NOT_A_PRESERVED_DIRECTORY', 'root_cause': 'UNVERIFIED'}
+    result = {'status': 'INSPECTED_READ_ONLY', 'root_cause': 'UNVERIFIED',
+              'directory': scrub(str(path)), 'environment_files': []}
+    try:
+        # Hook documentation uses environment-<pid>.json; native code may also
+        # refer to environment.json. Never assume they are the same write.
+        files = sorted((item for item in path.iterdir()
+                        if item.name == 'environment.json' or
+                        re.fullmatch(r'environment-\d+\.json', item.name)),
+                       key=lambda x: x.name)
+        for item in files[:40]:
+            record = {'name': item.name}
+            if item.is_symlink() or not item.is_file():
+                record['status'] = 'SYMLINK_OR_NONFILE_NOT_READ'
+            else:
+                st = item.stat()
+                record['bytes'] = st.st_size
+                if st.st_size > 1024 * 1024:
+                    record['status'] = 'LARGE_FILE_NOT_READ'
+                else:
+                    try:
+                        parsed = json.loads(item.read_text(encoding='utf-8'))
+                        record['status'] = 'JSON_PARSED'
+                        record['top_level_keys'] = sorted(parsed) if isinstance(parsed, dict) else ['[not-object]']
+                    except (UnicodeError, ValueError, OSError):
+                        record['status'] = 'UNREADABLE_OR_BAD_JSON'
+            result['environment_files'].append(record)
+        result['file_list_truncated'] = len(files) > 40
+    except OSError as exc:
+        result['status'] = 'LIST_FAILED'
+        result['error_kind'] = type(exc).__name__
+    return result
+
+
 def snapshot() -> dict:
     now = dt.datetime.now(dt.timezone.utc)
     vm = command('vm_stat')
@@ -110,6 +175,7 @@ def snapshot() -> dict:
     pressure = command('memory_pressure', '-Q')
     thermal = command('pmset', '-g', 'therm')
     parsed = parse_processes(ps.get('output', ''))
+    thermal_data = parse_thermal_metrics(thermal.get('output', ''), thermal['status'])
     return {
         'timestamp_utc': now.isoformat(),
         'monotonic_elapsed_s': time.monotonic(),
@@ -126,7 +192,9 @@ def snapshot() -> dict:
                            if pressure['status'] == 'ok' else None,
         'thermal_signal': scrub(thermal.get('output', '').strip(), 650)
                           if thermal['status'] == 'ok' else None,
-        'thermal_signal_available': thermal['status'] == 'ok' and bool(thermal.get('output', '').strip()),
+        'thermal_signal_available': bool(thermal_data['metrics']),
+        'thermal_evidence_status': thermal_data['status'],
+        'thermal_cpu_limit_fields': thermal_data['metrics'],
         'command_status': {k: v['status'] for k, v in [
             ('vm_stat', vm), ('ps', ps), ('top', top),
             ('swap_usage', swap), ('memory_pressure', pressure), ('thermal', thermal)]},
@@ -212,6 +280,12 @@ def scan_evidence(folder: Path) -> dict:
         except (OSError, UnicodeError):
             continue
     report['status'] = 'WARNINGS_FOUND' if report['warnings'] else 'NO_MATCHES_WITHIN_SCAN_LIMITS'
+    report['codspeed_environment_write'] = (
+        'ERROR_OBSERVED_CAUSE_UNDETERMINED'
+        if any(re.search(r'failed to write environment(?:[-.]| data|\b)',
+                         w['redacted_excerpt'], re.I) for w in report['warnings'])
+        else 'NOT_OBSERVED_IN_BOUNDED_SCAN'
+    )
     report['scope_note'] = ('Only warnings visible in bounded windows are reported. '
                             'This is not a proof that metadata warnings are absent.')
     return report
@@ -225,10 +299,17 @@ def summarize_window(samples: list[dict]) -> dict:
         'sample_count': len(samples),
         'max_backupd_cpu_pct': max(s['backupd_cpu_pct'] for s in samples),
         'max_cpu_load_1m': max(s['load_average_1_5_15'][0] for s in samples),
-        'thermal_unavailable': any(not s['thermal_signal_available'] for s in samples),
+        'thermal_unavailable': any(not s.get('thermal_signal_available', False) for s in samples),
+        'min_cpu_idle_pct': min((s['cpu_idle_pct'] for s in samples
+                                 if isinstance(s.get('cpu_idle_pct'), (int, float))), default=None),
+        'cpu_idle_below_50_pct_count': sum(isinstance(s.get('cpu_idle_pct'), (int, float))
+                                            and s['cpu_idle_pct'] < 50 for s in samples),
         'contention_preflight': ('ABSTAIN_BACKUPD_OVER_100_PCT'
                                  if any(s['backupd_cpu_pct'] > 100 for s in samples)
-                                 else 'NO_BACKUPD_LIMIT_EXCEEDED_NOT_AN_ADMISSION_PASS'),
+                                 else 'ABSTAIN_CPU_IDLE_BELOW_50_PCT'
+                                 if any(isinstance(s.get('cpu_idle_pct'), (int, float))
+                                        and s['cpu_idle_pct'] < 50 for s in samples)
+                                 else 'NO_OBSERVED_STOP_RULE_NOT_AN_ADMISSION_PASS'),
     }
     if len(samples) < 2:
         result['swap_delta_status'] = 'INSUFFICIENT_SAMPLES'
@@ -263,6 +344,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--evidence', type=Path, required=True,
                    help='Existing A/A evidence directory to scan (read-only)')
+    p.add_argument('--profile-folder', type=Path, default=None,
+                   help='Optional preserved CODSPEED_PROFILE_FOLDER, inspected read-only')
     p.add_argument('--scan-only', action='store_true',
                    help='Scan existing logs without any host measurements or subprocess calls')
     p.add_argument('--duration', type=int, default=20,
@@ -281,8 +364,9 @@ def main() -> None:
 
     report: dict = {
         'kind': 'QOO13_READ_ONLY_DIAGNOSTICS_NOT_A_BENCHMARK',
-        'script_version': 2,
+        'script_version': 3,
         'evidence_scan': scan_evidence(args.evidence),
+        'codspeed_profile_folder': inspect_profile_folder(args.profile_folder),
         'samples': [],
         'sample_window': {'status': 'NOT_SAMPLED'},
         'interpretation': {
@@ -290,7 +374,7 @@ def main() -> None:
             'official_a1_rounds': 1,
             'official_flamegraph_issue': 'CallgraphGenerationFailure (info)',
             'official_measurement_present': True,
-            'local_metadata_warning_root_cause': 'UNVERIFIED_UNTIL_LOG_REVIEW',
+            'local_metadata_warning_root_cause': 'UNVERIFIED_NO_PATH_OR_ERRNO',
             'local_gpmc_arithmetic_precision': 'PRECISION_UNVERIFIED',
             'performance': 'PERFORMANCE_UNQUALIFIED',
             'privacy': 'Redaction is best effort; review report before sharing.',

@@ -77,6 +77,29 @@ python3 -m unittest -v test_qoo13_mac_diagnostics.py
 
 The tests use synthetic log files and mock sampled counters. They do not use the network or launch CodSpeed. The thirteen tests have been tested in a Linux container; this **does not** constitute macOS runtime validation.
 
+## P1: offline screening of an EXISTING Mac observation report
+
+P0 historical environment-write diagnostics have concluded:
+`ROOT_CAUSE_NOT_RECOVERABLE_FROM_EXISTING_LOGS`. No more P0 probing or
+CodSpeed runs are authorized merely to obtain a clearer error message.
+
+For P1, use [P1_ADMISSION.md](P1_ADMISSION.md) and the standalone
+`qoo13_p1_admission.py`. It reads an **existing** `p1-monitor.json`,
+does not gather new samples, and never launches CodSpeed or a solver.
+The synthetic offline tests are in `test_qoo13_p1_admission.py`.
+
+```bash
+python3 -m unittest -v test_qoo13_mac_diagnostics.py test_qoo13_p1_admission.py
+python3 qoo13_p1_admission.py --input '/existing/p1-monitor.json' \
+  --output '/separate/directory/qoo13-p1-assessment.json'
+```
+
+The previously reported 7-sample Mac pilot (3 CPU idle samples below 50%)
+must classify `ABSTAIN`, even though `backupd` was idle. A passing
+observation window is at most a `QUIET_CANDIDATE_ONLY_NOT_CERTIFIED`, **not**
+permission to run A/A or ABBA. Thermal absence is never a certificate of
+normal operation. Preserve `PERFORMANCE_UNQUALIFIED / PRECISION_UNVERIFIED`.
+
 ## Stop conditions and next scientific step
 
 Do not rerun the old A1, or perform ABBA, to patch missing A2–A4. Only after reviewing the actual metadata warning and observing a naturally quiet host should a **new independent** A/A session be considered, using the exact same source, QASM, solver, precision, extension and instrument, with a maximum of four separate CodSpeed samples and no existing-sample reuse. Keep `PERFORMANCE_UNQUALIFIED` until sufficiently stable independent data exist.

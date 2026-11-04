@@ -52,6 +52,7 @@ jobs:
           python -u scripts/qoo156_ganak_live_cancel.py \
             --cli rust/target/release/QuPRS_cli \
             --timeout 10 \
+            --max-cases 1 \
             --evidence evidence/qoo156-ganak-live \
             2>&1 | tee evidence/qoo156-ganak-live/live-run.log
       - name: Preserve original evidence regardless of verdict

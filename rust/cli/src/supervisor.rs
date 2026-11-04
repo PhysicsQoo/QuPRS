@@ -3,6 +3,8 @@
 use crate::args::Cli;
 use anyhow::{bail, Context, Result};
 use std::fs;
+#[cfg(target_os = "linux")]
+use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
@@ -49,10 +51,15 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     if let Some(mib) = cli.max_address_space_mib {
         install_address_space_limit(&mut command, mib)?;
     }
-    if let Some(group) = &cgroup {
-        command.env("QUPRS_CLI_WORKER_CGROUP", &group.path);
-    }
+    // Join the bounded cgroup BEFORE exec, including dynamic-loader/startup
+    // allocations. The cgroup.procs descriptor lives across Command::spawn
+    // so its pre-exec async-signal-safe write cannot use a closed fd.
+    #[cfg(target_os = "linux")]
+    let join_file = cgroup.as_ref()
+        .map(|group| group.install_pre_exec(&mut command)).transpose()?;
     let mut child = command.spawn().context("spawn isolated QuPRS CLI worker")?;
+    #[cfg(target_os = "linux")]
+    drop(join_file);
     let pid = child.id();
     // Wait for the real OS process-exit event. A dedicated parent-side thread
     // blocks in wait(), so there is no 20ms polling tail for millisecond jobs.
@@ -230,19 +237,37 @@ impl MemoryCgroup {
         bail!("--max-memory-mib requires a delegated Linux cgroup v2")
     }
 
-    fn enter_worker() -> Result<()> {
-        if let Some(path) = std::env::var_os("QUPRS_CLI_WORKER_CGROUP") {
-            #[cfg(target_os = "linux")]
-            {
-                fs::write(std::path::PathBuf::from(path).join("cgroup.procs"),
-                    std::process::id().to_string())
-                    .context("worker must enter memory cgroup before parsing QASM")?;
-            }
-            #[cfg(not(target_os = "linux"))]
-            { let _ = path; bail!("worker memory cgroup requires Linux"); }
+    #[cfg(target_os = "linux")]
+    fn install_pre_exec(&self, command: &mut Command) -> Result<File> {
+        use std::os::fd::AsRawFd;
+        let writer = fs::OpenOptions::new().write(true)
+            .open(self.path.join("cgroup.procs"))
+            .context("open cgroup.procs for pre-exec worker admission")?;
+        let fd = writer.as_raw_fd();
+        // libc::getpid and libc::write are async-signal-safe. Do not allocate,
+        // lock, format, spawn, or use Rust filesystem APIs in pre_exec.
+        unsafe {
+            command.pre_exec(move || {
+                let mut buf = [0u8; 16];
+                let mut value = libc::getpid() as u32;
+                let mut first = buf.len();
+                loop {
+                    first -= 1;
+                    buf[first] = b'0' + (value % 10) as u8;
+                    value /= 10;
+                    if value == 0 { break; }
+                }
+                let width = buf.len() - first;
+                let count = libc::write(fd, buf[first..].as_ptr().cast(), width);
+                if count != width as isize {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
         }
-        Ok(())
+        Ok(writer)
     }
+
     fn kill_all(&self) -> Result<()> {
         #[cfg(target_os = "linux")]
         fs::write(self.path.join("cgroup.kill"), "1")
@@ -266,7 +291,6 @@ impl Drop for MemoryCgroup {
 }
 
 pub fn prepare_worker() -> Result<()> {
-    MemoryCgroup::enter_worker()?;
     // Test-only deterministic scheduling witness. Never compiled in release.
     // This proves the outer deadline starts BEFORE opening QASM files.
     #[cfg(debug_assertions)]

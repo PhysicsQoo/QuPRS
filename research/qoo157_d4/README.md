@@ -151,3 +151,44 @@ reported-decimal differences and whether a nonzero residual disappeared;
 **the probe never passes/fails numerical certification based on 1e-15**. All
 native measurements remain tagged NOT_CERTIFIED. A native crash still fails
 its CI step. Do not modify upstream d4 source or the QuPRS tolerance contract.
+
+## GMP 64-bit default-precision reproduction (2026-11-04)
+
+Source-grounded evidence: pinned upstream `jm62300/d4`
+`c++/counter/src/Counter.cpp` calls `mpf_set_default_prec(426)` **after**
+`counter->run()`. The complex semiring constructs `mpf_class` weights
+before that call. A standalone C++/GMP reproduction is preserved at
+`research/qoo157_d4/gmp_default_probe.cpp`, and can be run without
+building d4:
+
+    c++ -std=c++17 -O2 research/qoo157_d4/gmp_default_probe.cpp -lgmpxx -lgmp -o /tmp/qoo157-gmp-probe
+    /tmp/qoo157-gmp-probe
+
+On the local Linux/GMP 6.3.0 host, the default `mpf_class` precision was
+64 bits (confirmed via `mpf_get_default_prec` and
+`mpf_class::get_prec`). The native GMP reproduction reports:
+
+| Exact input residual | Printed GMP sum |
+| --- | --- |
+| `1e-19` | `9.9999999999999999999e-20` |
+| `1e-20` | `9.99999999999999999814e-21` |
+| `1e-32` | `9.99999803337037211182e-33` |
+| `1e-40` | `0` |
+| `1e-60` | `0` |
+
+This matches the native d4 simple complex free-variable precision-sweep
+result at these decimal resolutions. In particular, GMP's `mpf_class`
+arithmetic behavior is not interchangeable with an arbitrary 64-bit
+`mpmath` model: guard limbs and decimal parsing matter. The comparison
+is **strong evidence**, not a formal proof for every d4 algorithm path,
+that the pinned CLI counter is running this simple semiring case at
+the GMP 64-bit default rather than the advertised 426-bit work precision.
+
+The reproduction deliberately does **not** change upstream d4 or
+QuPRS solver/tolerance semantics. Next gate: on the same native runner,
+record per-operand `get_prec()` on both sides of the actual d4
+`counter->run()` for a controlled fork, or use a separate version-pinned
+high-precision counter patch; demonstrate source MPFR256 -> d4 output
+accuracy against the independent decimal Fraction oracle before any
+production opt-in. The upstream licensing review and same-SHA CodSpeed
+solver-inclusive comparisons remain mandatory.

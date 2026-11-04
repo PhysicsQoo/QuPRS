@@ -1,0 +1,129 @@
+name: Python 3.14 lightweight compatibility (research)
+
+# Opt-in research branch only; intentionally excluded from dev/main release gates.
+on:
+  push:
+    branches:
+      - experiment/python314-lightweight-v0140
+    paths:
+      - '.github/workflows/python314-lightweight-research.yml'
+      - '.diagnostics/python314_lightweight/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python314-research-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  abi3-source-wheel:
+    name: Build exactly one Python 3.12 abi3 wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - id: py312
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: python314-lightweight-abi3
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev libatomic1 zlib1g-dev
+          python -m pip install --upgrade pip 'maturin>=1.5,<2'
+      - name: Build and fingerprint abi3 wheel from exact source
+        env:
+          PY312: ${{ steps.py312.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          maturin build --release --interpreter "$PY312" --out dist --compatibility off
+          test "$(find dist -name '*.whl' | wc -l)" -eq 1
+          sha256sum dist/*.whl > dist/SHA256SUMS
+          git rev-parse HEAD > dist/source-head.txt
+          cat dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python314-research-source-wheel
+          path: dist/
+          retention-days: 30
+          if-no-files-found: error
+
+  python314-resolver-and-function:
+    needs: abi3-source-wheel
+    name: CPython 3.14 / Qiskit ${{ matrix.qiskit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ['1.4.6', '2.6.1']
+    env:
+      EXPECTED_QISKIT: ${{ matrix.qiskit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - uses: actions/download-artifact@v4
+        with:
+          name: python314-research-source-wheel
+          path: dist
+      - name: Install native runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp10 libmpfr6 zlib1g
+      - name: Clean Python 3.14 wheel install, true resolver, pip check
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python -VV | tee evidence/interpreter.txt
+          test "$(cat dist/source-head.txt)" = "$GITHUB_SHA"
+          sha256sum -c dist/SHA256SUMS | tee evidence/wheel-hash.txt
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: "qiskit==$EXPECTED_QISKIT" 'pytest>=8,<9' dist/*.whl 2>&1 | tee evidence/install.log
+          python -m pip check 2>&1 | tee evidence/pip-check.log
+          python -m pip freeze > evidence/pip-freeze.txt
+          python - <<'PY'
+          import importlib.metadata as m
+          import os, sys
+          assert sys.version_info[:2] == (3,14), sys.version
+          assert m.version('qiskit') == os.environ['EXPECTED_QISKIT']
+          print('RESOLVER_PASS',m.version('qiskit'),m.version('QuPRS'))
+          PY
+      - name: Source-matched smoke of Qiskit, FFI, symbolic path, real WMC, multiprocessing
+        run: |
+          set -euo pipefail
+          python .diagnostics/python314_lightweight/probe.py 2>&1 | tee evidence/probe.log
+      - name: Existing representative Python/Rust and QASM contracts
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_RR.py \
+            test/test_qiskit_library_constructor_compat.py \
+            test/test_rr_backend_tolerance_parity.py::test_rr_tolerance_parity_for_exact_qasm_decimals \
+            test/test_rust_qasm3_subset.py::test_qasm3_bell_matches_qasm2_without_serialization_bridge \
+            test/test_rust_qasm3_subset.py::test_native_qasm3_exact_decimal_not_forced_to_zero_by_parser \
+            test/test_qasm3_python_global_phase.py::test_qasm3_numeric_global_phase_survives_python_miter \
+            test/test_ganak_distribution.py::test_packaged_binary_provenance \
+            test/test_solver_process_lifecycle.py::test_python_solver_success_drains_both_streams \
+            --junitxml=evidence/pytest.xml 2>&1 | tee evidence/pytest.log
+      - name: Preserve exact-dependency and solver evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python314-lightweight-qiskit-${{ matrix.qiskit }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: ignore

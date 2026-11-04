@@ -139,6 +139,17 @@ def main():
             time.sleep(.001)
 
         if target and stopped and score_adjustment == 1000:
+            # Host-side observer must receive a flushed identity witness
+            # BEFORE the pressure child can OOM-kill this entire driver.
+            # Losing the final in-container JSON must not erase provenance.
+            print("QOO156_SOLVER_PREPRESSURE_JSON=" + json.dumps({
+                "solver": SOLVER, "target": target,
+                "oom_score_adj": score_adjustment,
+                "solver_elf_sha256": fingerprint,
+                "cli_sha256": sha(CLI),
+                "qasm_source_sha256": sha(QASM),
+                "kernel_oom_before": before.get("oom_kill", 0),
+            }, sort_keys=True), flush=True)
             # The higher solver oom_score_adj forces an adversarial victim
             # preference. Do not equate this with actual WMC memory demand.
             # Bound all allocations and make one child touch actual pages.

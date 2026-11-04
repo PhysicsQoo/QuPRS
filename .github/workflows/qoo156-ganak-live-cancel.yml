@@ -1,0 +1,64 @@
+name: QOO-156 Static Ganak Real WMC Cancellation Pilot
+
+# Separate bounded experiment; never run the complete solver/CI matrix.
+on:
+  push:
+    branches:
+      - experiment/qoo156-cli-supervisor
+    paths:
+      - '.github/workflows/qoo156-ganak-live-cancel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-ganak-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ganak-real-mode6:
+    name: Observe real pinned static Ganak --mode=6, SIGSTOP and reap
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install fixed native toolchain and build QuPRS
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check 'maturin>=1.5,<2' psutil
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+          cargo build --manifest-path rust/Cargo.toml --locked -p QuPRS_cli --release
+          mkdir -p evidence/qoo156-ganak-live
+          git rev-parse HEAD > evidence/qoo156-ganak-live/source-sha.txt
+          sha256sum rust/target/release/QuPRS_cli scripts/qoo156_ganak_live_cancel.py \
+            > evidence/qoo156-ganak-live/input-sha256.txt
+      - name: Bounded real-Ganak WMC-only cancellation (max 4 cases x 10 sec)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/qoo156_ganak_live_cancel.py \
+            --cli rust/target/release/QuPRS_cli \
+            --timeout 10 \
+            --evidence evidence/qoo156-ganak-live \
+            2>&1 | tee evidence/qoo156-ganak-live/live-run.log
+      - name: Preserve original evidence regardless of verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-ganak-live-${{ github.sha }}
+          path: evidence/qoo156-ganak-live/
+          if-no-files-found: warn
+          retention-days: 30

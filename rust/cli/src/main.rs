@@ -3,6 +3,7 @@
 mod args;
 mod display;
 mod runner;
+mod supervisor;
 
 use clap::Parser;
 use anyhow::Result;
@@ -14,6 +15,14 @@ use crate::args::Cli;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if cli.internal_worker {
+        supervisor::authorize_worker_launch()?;
+        supervisor::prepare_worker()?;
+    } else {
+        // The caller only observes committed output from a successful worker.
+        // The full timeout begins before reading either QASM file.
+        std::process::exit(supervisor::supervise(&cli)?);
+    }
 
     // 1. Initialize Logger
     let log_level = if cli.quiet {

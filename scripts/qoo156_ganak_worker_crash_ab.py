@@ -180,17 +180,20 @@ def main() -> int:
                 "worker_killed": r["worker_was_sigkilled"],
                 "elapsed_s": r["elapsed_s"],
             }, sort_keys=True), flush=True)
-        summary = {"runs": results, "classification":
-            "HEAD_HARDENING_CONFIRMED" if
-            results[0]["ganak_was_stopped"]
-            and results[0]["worker_was_sigkilled"]
-            and results[1]["classification"] == "CRASH_CLEANUP_PASS"
-            else "NOT_ADMITTED"}
+        pre_ok = results[0]["classification"] == "CRASH_CLEANUP_PASS"
+        head_ok = results[1]["classification"] == "CRASH_CLEANUP_PASS"
+        if pre_ok and head_ok:
+            classification = "BOTH_PASS_NO_INCREMENTAL_BENEFIT_OBSERVED"
+        elif not pre_ok and head_ok and results[0]["ganak_was_stopped"] and results[0]["worker_was_sigkilled"]:
+            classification = "HEAD_ONLY_PASS_POTENTIAL_HARDENING_BENEFIT"
+        else:
+            classification = "NOT_ADMITTED"
+        summary = {"runs": results, "classification": classification}
         (args.evidence / "ganak-worker-crash-ab.json").write_text(
             json.dumps(summary, indent=2, sort_keys=True) + "\n"
         )
         print("QOO156_WORKER_CRASH_AB=" + summary["classification"], flush=True)
-        return 0 if summary["classification"] == "HEAD_HARDENING_CONFIRMED" else 2
+        return 0 if classification != "NOT_ADMITTED" else 2
 
 
 if __name__ == "__main__":

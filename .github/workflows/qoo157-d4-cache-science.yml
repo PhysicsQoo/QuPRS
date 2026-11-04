@@ -1,0 +1,95 @@
+name: QOO157 d4 cache on-off BiPe-stratified native SCIENCE
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-d4-cache-science.yml'
+      - 'research/qoo157_d4/d4_cache_bipe_science.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-d4-cache:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned source and no-timing prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/d4_cache_bipe_science.py
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Build pinned d4 38-digit with established output-only BiPe trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo157-d4-cache-p5"
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$root"
+          git -C "$root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          mkdir -p evidence
+          python research/qoo157_d4/matched_precision_variant.py --upstream "$root" --evidence evidence --digits 38
+          python research/qoo157_d4/d4_bipe_instrument.py --source "$root" --evidence evidence
+          git -C "$root" diff --check
+          git -C "$root" diff -- c++/counter/src/Main.cpp c++/counter/src/Counter.cpp > evidence/d4-cache-scratch.patch
+          (cd "$root/c++/counter" && ./build.sh -j) > evidence/d4-cache-build.log 2>&1
+          binary="$root/c++/counter/build/counter"
+          test -x "$binary"
+          echo "QOO157_D4_CACHE_BINARY=$binary" >> "$GITHUB_ENV"
+          sha256sum "$binary" > evidence/d4-cache-binary.sha256
+          "$binary" -h > evidence/d4-cache-native-help.log
+          grep -q 'cache.isActivated' evidence/d4-cache-native-help.log
+          grep -q 'actual-gmp-precision-bits 128' evidence/d4-cache-native-help.log
+      - name: Native 38-digit WMC cache-on-off x BiPe control no timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/d4_cache_bipe_science.py \
+            --binary "$QOO157_D4_CACHE_BINARY" \
+            --cnfs evidence/original/cnfs \
+            --archive evidence/original/matched-science-report.json \
+            --out evidence/d4-cache-bipe-native-science.json
+      - name: Source and evidence scope
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/experiment-head.txt
+          echo 'Untimed science only; real native d4 cache on/off by isActivated flag; preserves original solver and original CNF' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-d4-cache-science-${{ github.sha }}
+          path: |
+            evidence/d4-cache-bipe-native-science.json
+            evidence/d4-cache-scratch.patch
+            evidence/d4-cache-build.log
+            evidence/d4-cache-binary.sha256
+            evidence/d4-cache-native-help.log
+            evidence/experiment-head.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

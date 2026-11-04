@@ -32,6 +32,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install pinned CodSpeed pytest integration
+        shell: bash
+        run: python -m pip install 'pytest-codspeed==5.0.3' 'pytest'
       - name: Verify pinned GPMC and bounded experiment source
         shell: bash
         run: |

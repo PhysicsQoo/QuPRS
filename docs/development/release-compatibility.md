@@ -6,7 +6,7 @@ imply the others have passed.
 | Stage | Source of truth | When it runs | What it establishes |
 | --- | --- | --- | --- |
 | Development correctness | `dev-fast.yml` and relevant native PR CI | Code- or solver-sensitive changes to `dev` | Rust/Python semantics, GPMC/Ganak execution and benchmark verdict integrity on tested runners |
-| Pre-packaging source compatibility | `release-ready-main.yml` → `source-correctness` (`pytest.yml`) | Release candidate PR from `dev` to `main`; manual release readiness | Supported OS/architecture × Python source/native build and correctness, **before** creating release archives |
+| Release source compatibility | `release-ready-main.yml` → `source-correctness` (`pytest.yml`) | Release candidate PR from `dev` to `main`; manual release readiness | Supported OS/architecture × Python source/native build and correctness, independently of archive building |
 | Built-artifact acceptance | `release-ready-main.yml` → `installed-artifacts` (`release-artifact-ci.yml`) | Runs alongside source correctness on the `dev → main` release PR; the final Required aggregator waits for both | Candidate wheel/sdist creation, wheel tag/deployment consistency, clean installation and native-solver smoke |
 
 ## Development: do not duplicate release matrices
@@ -25,7 +25,7 @@ passed original Rust/Python tests and the 32 representative benchmarks.
 It did not certify Python 3.11/3.13, built wheels, source archives, Docker
 images or binary compatibility across older distributions.
 
-## Pre-packaging: source support
+## Release candidate: independent source support
 
 On a release candidate to `main`, the existing `source-correctness`
 reusable workflow validates **four platform/architecture groups × Python

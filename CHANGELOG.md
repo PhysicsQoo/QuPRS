@@ -69,7 +69,7 @@
   An RR-only `unknown` is permitted; a Hybrid/WMC negative outcome
   must explicitly be `not_equivalent`, not Timeout or unknown.
 - Consolidate CodSpeed into the five-shard design with the retained
-  32 legacy Simulation identities and additional QASM 2.6.1 cases,
+  32 legacy Simulation identities and additional Qiskit 2.6.1-generated QASM cases,
   native CPU measurements, and 10 paired Solver-inclusive WallTime
   cases. Performance is observational, **not a fixed-percentage CI
   release gate**. Historical benchmark identities are preserved.

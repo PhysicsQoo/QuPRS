@@ -24,13 +24,13 @@ CASES=("qaoa7_neq","qft16_eq")
 VARIANTS=("auto_default","manual_sharp","auto_no_vivif","auto_no_probing")
 STATUS="P1_BIPE_V1_PINNED_STATS_AND_RESIDUAL_SCIENCE_PASS"
 STAT=re.compile(
-    r"^c \\[STATS\\] method=(\\S+) "
-    r"vars=(\\d+)->(\\d+) cls=(\\d+)->(\\d+) "
-    r"lits=(\\d+)->(\\d+) proj=(\\d+)->(\\d+) "
-    r"tw=(-?\\d+)->(-?\\d+) "
-    r"gates=(-?\\d+)/(-?\\d+)/(-?\\d+) "
-    r"elim=(-?\\d+)g/(-?\\d+)r "
-    r"bip_input=(-?\\d+) bva=(-?\\d+)/(-?\\d+) "
+    r"^c \[STATS\] method=(\S+) "
+    r"vars=(\d+)->(\d+) cls=(\d+)->(\d+) "
+    r"lits=(\d+)->(\d+) proj=(\d+)->(\d+) "
+    r"tw=(-?\d+)->(-?\d+) "
+    r"gates=(-?\d+)/(-?\d+)/(-?\d+) "
+    r"elim=(-?\d+)g/(-?\d+)r "
+    r"bip_input=(-?\d+) bva=(-?\d+)/(-?\d+) "
     r"t_total=([0-9.+eE-]+)$",
     re.MULTILINE
 )
@@ -120,14 +120,14 @@ def audit(binary:Path,cnfdir:Path,archive:Path,canonical:Path,output:Path,dumps:
                 "stdout_sha256":sha256(cp.stdout.encode()).hexdigest()
             }
             output.parent.mkdir(parents=True,exist_ok=True)
-            output.write_text(json.dumps(report,indent=2)+"\\n")
+            output.write_text(json.dumps(report,indent=2)+"\n")
         canonical_hashes={x["canonical_combined_sha256"] for x in row["variants"].values()}
         raw_hashes={x["residual_sha256"] for x in row["variants"].values()}
         if len(canonical_hashes)!=1 or len(raw_hashes)!=1:
             raise ValueError(case+": supposedly identical source formula variants actually differ")
         row["canonical_and_byte_identical_in_four_options"]=True
     report["status"]=STATUS
-    output.write_text(json.dumps(report,indent=2)+"\\n")
+    output.write_text(json.dumps(report,indent=2)+"\n")
     return report
 
 

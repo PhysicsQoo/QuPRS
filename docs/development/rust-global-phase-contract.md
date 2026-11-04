@@ -1,3 +1,17 @@
+> **Historical contract notice (v0.14.0 integration, 2026-11-04).**
+> The following describes the original first-stage Python-to-Rust QASM2
+> fail-closed research, **not** the complete current cross-backend behavior.
+> PR #134 delivered `qiskit>=1.0.0,<3.0`; PR #135 delivered Python
+> `QuantumCircuit.global_phase` transport on its own verification path
+> and native Rust QASM3 `gphase(theta)` in a bounded unitary subset.
+> The existing Qiskit-object-to-Rust **QASM2** bridge continues to reject
+> unequal explicit phases it cannot transport. See
+> [bounded QASM3](rust-qasm3-supported-subset.md),
+> [Qiskit dual-major admission](qiskit-1x-2x-admission.md) and
+> [v0.14.0 migration](v0140-migration.md). Retain the dated design
+> below for historical provenance; do not use its `qiskit<2`
+> statement or its early first-stage TODO as current implementation facts.
+
 # Explicit QuantumCircuit global-phase provenance across QASM2 Rust transport
 
 The current Python→Rust bridge serializes Qiskit `QuantumCircuit`

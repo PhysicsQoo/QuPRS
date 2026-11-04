@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.14.0 — Per-call reduction tolerance and projective-distance WMC
+## v0.14.0 — Per-call reduction tolerance and projective-distance WMC (release candidate)
 
 ### Numerical verification
 
@@ -13,9 +13,9 @@
   projective-distance threshold. The obsolete
   `check_equivalence_with_tolerances` native Rust entry point and the
   magnitude-classifier branch are removed. This is an API-breaking change.
-- Keep `wmc_phase_tolerance` / `phase_tolerance` independent for
-  global-phase labels. `rr_tolerance` independently governs Python
-  reduction matching, with per-verification contexts and cache isolation.
+- Keep `phase_tolerance` (`wmc_phase_tolerance` remains an alias) independent
+  of the local `rr_tolerance` and WMC projective-distance threshold.
+  Per-verification Python reduction contexts and caches are isolated.
 - Preserve numerical count provenance via `wmc_numerical_verdict`,
   `wmc_printed_verdict`, `wmc_precision_reason` and
   `wmc_solver_invoked`. A finite Solver count is **not** an
@@ -42,25 +42,71 @@
   Approximation provenance is informational, and only one Solver
   invocation is permitted on WMC fallback.
 
-### Testing and packaging
+### Compatibility and source semantics
 
-- Validate exact source-angle transport, independent near-boundary rotation
-  oracles and public Python/Rust × Ganak/GPMC conformance.
-- Retain CodSpeed v5 Simulation for in-process CPU work, WallTime for
-  external Solver latency, and 5-shard performance coverage.
+- Support Qiskit **1.x and 2.x** with `qiskit>=1.0.0,<3.0` metadata, on
+  the existing Python **3.11–3.13** and Linux x86_64/ARM64 and
+  macOS 15+ Intel/Apple Silicon targets. The `pqc_generator`
+  compatibility layer handles Qiskit constructor API differences.
+  Qiskit 3.x, Python 3.14/3.14t and macOS 14 prebuilt wheels
+  are not claimed as supported by this release.
+- Add native Rust support for a **bounded OpenQASM 3.0 unitary subset**
+  (including `stdgates.inc`, qubit declarations, supported gate angles
+  and standalone `gphase(theta)`) without converting through QASM2.
+  Measurement, reset, classical control, custom gate definitions and
+  general OpenQASM 3 are explicitly rejected rather than ignored.
+- Preserve Qiskit `QuantumCircuit.global_phase` through the Python
+  source-miter path; the Python-to-Rust QASM2 bridge continues to reject
+  unequal explicit phases it cannot faithfully transport. The
+  Qiskit-object phase representation is floating-point, unlike native
+  Rust source-literal angles.
+
+### Testing, CI and packaging
+
+- Validate independent near-boundary source oracles, final Hybrid RR
+  residuals, Python/Rust × Ganak/GPMC conformance and a 20-circuit,
+  two-backend register-partition Operator oracle regression matrix.
+  An RR-only `unknown` is permitted; a Hybrid/WMC negative outcome
+  must explicitly be `not_equivalent`, not Timeout or unknown.
+- Consolidate CodSpeed into the five-shard design with the retained
+  32 legacy Simulation identities and additional Qiskit 2.6.1-generated QASM cases,
+  native CPU measurements, and 10 paired Solver-inclusive WallTime
+  cases. Performance is observational, **not a fixed-percentage CI
+  release gate**. Historical benchmark identities are preserved.
+- Make source-aware CI routing avoid unrelated repeat builds and
+  expensive measurements. Ordinary PRs are not an occasion to run
+  every Qiskit 1.x/2.x installer matrix or the entire release
+  wheel/sdist admission. Required `dev → main` Release-Ready
+  continues to require complete cross-platform source and installed
+  archive matrices, version checks and fail-closed policy tests.
+- Report `INCONCLUSIVE_RESOURCE` or planned benchmark SKIP as
+  **unverified coverage**, neither PASS nor a demonstrated wrong
+  scientific verdict. Definite incorrect results, solver errors,
+  missing case identities and invalid pinned source evidence still
+  fail. An optional complete performance cohort must be requested
+  separately.
 - Correct Docker wheel builder to install `patchelf`; macOS repaired
   wheel runs with bundled GMP/MPFR dependencies.
-- **Release note:** the new default is much stricter than the prior
-  magnitude-based numerical acceptance. Existing pipelines may receive
-  determinate yet explicitly uncertified numerical verdicts when
-  printed precision is inadequate; diagnostics must remain visible.
-  Do not interpret a numerical result as source-exact proof.
+- **Migration note:** removed `wmc_magnitude_tolerance`,
+  `wmc_policy`, mutable `config.TOLERANCE` and deprecated Rust
+  `check_equivalence_with_tolerances` entry points must be replaced
+  by the documented per-call options. The old magnitude-defect and
+  new distance thresholds are **not numerically interchangeable**;
+  see [v0.14.0 migration](docs/development/v0140-migration.md).
+  Printed Solver precision can yield a determinate numerical point
+  estimate with a separate `unknown` printed-interval diagnostic.
+  Do not call this a source-exact proof or claim complete Ganak
+  internal-arithmetic certification.
+
+**Release status:** this 0.14.0 section describes the integrated
+release candidate, not a published package. Publication is conditional
+on final `dev → main` source, wheel/sdist and tag-time acceptance.
 
 Significant user-facing changes to QuPRS are summarized here. See
 [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases)
 for published packages and release dates.
 
-## 0.13.4 (unreleased)
+## 0.13.4 (2026-10-27)
 
 ### Scientific semantics and correctness
 - Preserve supported OpenQASM 2 literal decimal-radian angles separately from symbolic multiples of pi in Rust PathSum/phase operations; prevent lossy rational-pi substitution of exact source values. Unsupported input remains fail-closed. Distinguish source-literal semantics from floating-point Qiskit parameters.
@@ -82,7 +128,7 @@ for published packages and release dates.
 - Legacy finite-tolerance WMC may accept near-identity but strictly inequivalent circuits. For proof-sensitive numerical WMC paths, request `wmc_policy="conservative"` and treat `unknown` as inconclusive. No general certified error enclosure for arbitrary external solver outputs is claimed.
 - Some historical transpiled-QASM benchmark pairs, including Graphstate16, are extremely close in numerical projective distance yet not strictly equal as source-decimal operators. Strict and approximate outcomes must not be conflated.
 
-**Release status:** RC preparation only. This section does not indicate that the final cross-platform source, installed wheel/sdist, Docker or publish gates have run on the release candidate.
+**Release status:** v0.13.4 was published on 2026-10-27; the historical RC preparation notes above refer to the prepublication source tree, not to v0.14.0 acceptance.
 
 ## 0.13.3
 

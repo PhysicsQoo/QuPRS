@@ -47,6 +47,19 @@ In quantum computing, verifying whether an optimized or compiled quantum circuit
 
 ## Installation
 
+For v0.14.0, the declared Python support remains **3.11, 3.12 and 3.13**
+with `qiskit>=1.0.0,<3.0` (Qiskit **1.x and 2.x**). Qiskit 3.x and
+Python 3.14/3.14t are **not** part of the v0.14.0 release support claim.
+The Python package uses a native Rust extension and bundled GPMC/Ganak
+solver integration; the standard installation requires a supported
+platform wheel, or a separately prepared source-build environment.
+
+The release-candidate sources identify themselves as `0.14.0`.
+Until the v0.14.0 tag and package are actually published, the default
+`pip install QuPRS` command continues to install the latest published
+release. Follow the [v0.14.0 migration guide](docs/development/v0140-migration.md)
+before updating existing pipelines.
+
 It is recommended to install `QuPRS` in a virtual environment.
 
 1.  Create and activate a Conda virtual environment:
@@ -82,6 +95,31 @@ python -m pip install --no-binary=quprs 'QuPRS==0.13.2'
 
 For the **supported prebuilt-wheel installation path**, use macOS 15 or later.
 
+
+### v0.14.0 input and migration notes
+
+The Rust verifier accepts a **restricted unitary OpenQASM 3.0 subset**
+directly as text or a file, including supported qubit declarations,
+`stdgates.inc`, gate angles and standalone `gphase(theta)`. It is
+**not** a complete OpenQASM 3 interpreter: classical registers,
+measurement, reset, dynamic control flow, custom gates and unsupported
+expressions fail explicitly. See the
+[native QASM3 contract](docs/development/rust-qasm3-supported-subset.md).
+The Python verifier accepts supported Qiskit `QuantumCircuit` input,
+including its numeric `global_phase`, but the Python-to-Rust QASM2
+bridge still rejects relative explicit source phases it cannot
+preserve. Exact source-literal phase representation is different from
+Qiskit's floating-point operator semantics.
+
+**Breaking numerical/API migration:** `wmc_magnitude_tolerance` and
+`wmc_policy` were removed, along with mutable
+`config.TOLERANCE`/`set_tolerance()`/`get_tolerance()` and
+the old native `check_equivalence_with_tolerances` entry point.
+Use per-call `rr_tolerance`, `phase_tolerance` (or the legacy
+`wmc_phase_tolerance` alias) and `approximate_distance_tolerance`.
+For the full mapping, independent units, solver resolution warnings
+and error/Timeout semantics, see
+[v0.14.0 API migration](docs/development/v0140-migration.md).
 
 ## Using QuPRS
 

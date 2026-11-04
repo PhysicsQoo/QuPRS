@@ -74,7 +74,7 @@ jobs:
       - name: Build prerequisites (no QuPRS production dependencies)
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ libgmp-dev zlib1g-dev
+          sudo apt-get install -y cmake g++ libgmp-dev libmpfr-dev zlib1g-dev
       - name: Pin upstream source and build external C++ counter
         shell: bash
         run: |

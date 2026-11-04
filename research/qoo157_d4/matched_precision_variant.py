@@ -1,11 +1,11 @@
-"""Research-only d4 nominal decimal-precision parity with GPMC -prec.
+"""Research-only d4 nearly-identical effective-decimal-precision parity with GPMC -prec.
 
 Pinned jm62300/d4 fork only; patches its C++ counter in a *scratch checkout*.
 GPMC sets MPFR's bits=ceil(digits*log2(10)). GMP mpf rounds requested bits
 up to implementation limbs: the *actual* GMP bit count MUST be read from
 the native runtime and reported, not falsely declared equal to MPFR bits.
 
-Both d4 model counting *and* output formatting use the requested 30 or 90
+Both d4 model counting *and* output formatting use the requested 38 or 96
 decimal digits. Not an error bound or an upstream production patch.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 import subprocess
 
 UPSTREAM = "be15f91f3e9769e1f5cb175fa27e3eca3a1ea690"
-ALLOWED_DIGITS = (30, 90)
+ALLOWED_DIGITS = (38, 96)
 MARKER = "// QOO-157 research-only GPMC decimal precision matched d4 variant"
 MAIN_OLD = "int main(int argc, char** argv) {\n  auto start = std::chrono::system_clock::now();"
 OUTPUT_OLD = "  os.precision(50);"

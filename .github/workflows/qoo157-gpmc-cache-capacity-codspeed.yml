@@ -1,0 +1,94 @@
+name: QOO157 P4 science-gated GPMC cache cap 16v64 CodSpeed pilot
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-gpmc-cache-capacity-codspeed.yml'
+      - 'research/qoo157_d4/test_codspeed_gpmc_cache_capacity.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  cache-cap-16v64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    env:
+      PYTHONPATH: research/qoo157_d4
+      QOO157_CAP_CNF_DIR: evidence/original/cnfs
+      QOO157_CAP_PREFLIGHT: evidence/gpmc-cache-cap-current-science.json
+      QOO157_SOURCE_REPORT: evidence/original/matched-science-report.json
+      QUPRS_CODSPEED_EXPORT: evidence/gpmc-cache-cap-16v64-codspeed-walltime.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Locked source and official CodSpeed v5 prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/gpmc_cache_capacity_science.py research/qoo157_d4/test_codspeed_gpmc_cache_capacity.py
+          python -m pip install 'pytest-codspeed==5.0.3' pytest
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Compile original source-pinned GPMC for this exact runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S GPMC -B "$RUNNER_TEMP/qoo157-gpmc-cap-codspeed" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo157-gpmc-cap-codspeed" --parallel 2
+          mkdir -p evidence
+          echo "QOO157_GPMC_CAP_BINARY=$RUNNER_TEMP/qoo157-gpmc-cap-codspeed/gpmc" >> "$GITHUB_ENV"
+          sha256sum "$RUNNER_TEMP/qoo157-gpmc-cap-codspeed/gpmc" > evidence/gpmc-cap-current-binary.sha256
+      - name: Same-run 12/12 native 38-digit WMC and cache-behaviour requalification BEFORE CodSpeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/gpmc_cache_capacity_science.py \
+            --binary "$QOO157_GPMC_CAP_BINARY" \
+            --cnfs "$QOO157_CAP_CNF_DIR" \
+            --archived "$QOO157_SOURCE_REPORT" \
+            --out "$QOO157_CAP_PREFLIGHT"
+      - name: Official CodSpeed v5 WallTime only — eight bounded 16 vs 64 MB paired IDs
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_gpmc_cache_capacity.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=12
+      - name: Evidence and limitations
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/experiment-head.txt
+          uname -a > evidence/kernel.txt
+          echo 'Only official CodSpeed v5 is a time measurement; same-run source-paired hosted pilot, NOT fixed Macro Runner ABBA; excludes CNF construction, RR and QASM.' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-gpmc-cache-cap-codspeed-${{ github.sha }}
+          path: |
+            evidence/gpmc-cache-cap-current-science.json
+            evidence/gpmc-cache-cap-16v64-codspeed-walltime.json
+            evidence/gpmc-cap-current-binary.sha256
+            evidence/experiment-head.txt
+            evidence/kernel.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

@@ -100,12 +100,15 @@ def pair(value):
     return [str(value[0]), str(value[1])]
 
 
-def sweep(baseline: Path, changed: Path, out: Path) -> None:
+def sweep(baseline: Path, changed: Path, out: Path, extra_cnfs: list[Path]) -> None:
     out.mkdir(parents=True, exist_ok=True)
     if sha256(baseline.read_bytes()) == sha256(changed.read_bytes()):
         raise ValueError("identical experimental and baseline binaries")
     records = []
-    for name, source in cases().items():
+    experimental_inputs = list(cases().items())
+    for path in extra_cnfs:
+        experimental_inputs.append(("quprs_" + path.stem, path.read_text()))
+    for name, source in experimental_inputs:
         inp = out / (name + ".cnf")
         inp.write_text(source)
         expected = oracle_count(source)
@@ -115,7 +118,10 @@ def sweep(baseline: Path, changed: Path, out: Path) -> None:
             arm = "original" if bits is None else "bits_" + str(bits)
             measured = native(baseline if bits is None else changed, inp,
                               bits, out / "raw" / (name + "_" + arm))
-            difference = (abs(a-b) for a,b in zip(measured, expected))
+            difference = tuple(abs(a-b) for a,b in zip(measured, expected))
+            scale = max(Fraction(1), abs(expected[0]), abs(expected[1]))
+            strict_count_screen = all(d <= scale * Fraction(1, 10**25)
+                                      for d in difference)
             # A small count needs relative accuracy; 0 must not pass as 1e-40.
             relative_ok = all(
                 (a == b) if b == 0
@@ -125,6 +131,7 @@ def sweep(baseline: Path, changed: Path, out: Path) -> None:
             record["arms"][arm] = {
                 "measured": pair(measured),
                 "absolute_error": [str(v) for v in difference],
+                "strict_1e25_count_screen": strict_count_screen,
                 "nonzero_relative_1e-10": relative_ok,
             }
         records.append(record)
@@ -135,11 +142,20 @@ def sweep(baseline: Path, changed: Path, out: Path) -> None:
                         for r in records)
     fixed = all(r["arms"]["bits_426"]["nonzero_relative_1e-10"]
                 for r in records)
+    source_rows = [r for r in records if r["name"].startswith("quprs_")]
+    source_gate = (
+        (not extra_cnfs)
+        or (len(source_rows) == len(extra_cnfs)
+            and all(r["arms"]["bits_426"]["strict_1e25_count_screen"]
+                    for r in source_rows))
+    )
     report = {
         "complete": True, "upstream_sha": UPSTREAM_SHA,
         "baseline_binary_sha256": sha256(baseline.read_bytes()),
         "experimental_binary_sha256": sha256(changed.read_bytes()),
-        "ab_gate": "PASS" if fixed and baseline_lost else "FAIL",
+        "ab_gate": "PASS" if fixed and baseline_lost and source_gate else "FAIL",
+        "quprs_source_cnf_gate": "PASS" if source_gate else "FAIL",
+        "quprs_source_cnf_count": len(source_rows),
         "arithmetic_precision_certified": False,
         "warning": "finite GMP mpf and 50-digit stdout are not an error certificate",
         "records": records,
@@ -163,11 +179,12 @@ def main() -> None:
     p.add_argument("--baseline", type=Path, required=True)
     p.add_argument("--patched", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--cnf", type=Path, action="append", default=[])
     args = parser.parse_args()
     if args.action == "patch":
         patch(args.root, args.file, args.out)
     else:
-        sweep(args.baseline, args.patched, args.out)
+        sweep(args.baseline, args.patched, args.out, args.cnf)
 
 
 if __name__ == "__main__":

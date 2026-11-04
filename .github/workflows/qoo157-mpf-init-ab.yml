@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: qoo157-gmp-init-${{ github.ref }}
@@ -71,14 +72,32 @@ jobs:
           test -x "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"
           sha256sum "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
             > evidence/gmp-init-ab/modified-binary-sha256.txt
+      - name: Recover and verify six source-pinned QuPRS weighted CNFs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/frozen-quprs
+          gh run download 41807195090 --repo PhysicsQoo/QuPRS \
+            --name qoo157-d4-native-5b7b6027c90438a2c1b9cdbbfe35d4b80fafed95 \
+            --dir evidence/frozen-quprs
+          (
+            cd evidence/frozen-quprs
+            sha256sum -c "$GITHUB_WORKSPACE/research/qoo157_d4/source-cnf-manifest.sha256"
+          )
       - name: Compare original with 64 128 256 and 426-bit precision
         shell: bash
         run: |
           set -euo pipefail
-          python research/qoo157_d4/d4_mpf_init_ab.py sweep \
-            --baseline "$RUNNER_TEMP/qoo157-original" \
+          set -- --baseline "$RUNNER_TEMP/qoo157-original" \
             --patched "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter" \
-            --out evidence/gmp-init-ab 2>&1 | tee evidence/gmp-init-ab-result.log
+            --out evidence/gmp-init-ab
+          for input in evidence/frozen-quprs/quprs-source-cnf/*.cnf; do
+            set -- "$@" --cnf "$input"
+          done
+          python research/qoo157_d4/d4_mpf_init_ab.py sweep "$@" \
+            2>&1 | tee evidence/gmp-init-ab-result.log
       - name: Preserve all evidence, including failures
         if: always()
         uses: actions/upload-artifact@v4

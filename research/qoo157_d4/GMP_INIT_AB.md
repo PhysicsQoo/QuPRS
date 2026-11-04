@@ -26,3 +26,13 @@ Scoped workflow: .github/workflows/qoo157-mpf-init-ab.yml
 
 Before any product integration: real QuPRS f64/MPFR256 source-CNF parity,
 EQ/NEQ near-boundary cases, license, platform packaging and paired CodSpeed.
+
+## Pinned real-QuPRS CNF A/B extension
+
+The six original QuPRS-emitted weighted CNFs (f64 and MPFR256 arms) are
+read from CI #41807195090, native artifact ID 13310272992. All six input
+SHA256 digests are pinned in source-cnf-manifest.sha256 and verified before
+use. The new A/B experiment compares the unmodified native binary with
+same-input experimental precision bits; a 1e-25 count screen is distinct
+from true solver arithmetic certification and cannot change QuPRS distance
+tolerance. This workflow is scoped to its independent subbranch.

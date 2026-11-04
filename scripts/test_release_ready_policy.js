@@ -87,13 +87,13 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   assert.match(release, /uses: \.\/\.github\/workflows\/release-artifact-ci\.yml/,
     "Main Release-Ready must retain full installed archive smoke matrix");
   const source = release.split(/^  source-correctness:/m)[1]?.split(/^  installed-artifacts:/m)[0] || "";
-  assert.match(source, /require_complete_benchmarks:\\s*true\\b/,
+  assert.match(source, /require_complete_benchmarks:\s*true\b/,
     "Release-Ready must turn on strict 32-case science admission");
   const pytest = fs.readFileSync(".github/workflows/pytest.yml", "utf8");
-  assert.match(pytest, /require_complete_benchmarks:[\\s\\S]*?type: boolean/,
+  assert.match(pytest, /require_complete_benchmarks:[\s\S]*?type: boolean/,
     "Reusable source matrix must expose a typed strict-admission input");
-  assert.match(pytest, /options\\+=\\(--require-complete\\)/,
+  assert.match(pytest, /options\+=\(--require-complete\)/,
     "Strict release input must pass --require-complete to the real benchmark auditor");
-  assert.match(pytest, /\\$REQUIRE_COMPLETE_BENCHMARKS.*==.*true/,
+  assert.match(pytest, /\$REQUIRE_COMPLETE_BENCHMARKS.*==.*true/,
     "The release-scoped flag must actually guard the strict auditor option");
 }

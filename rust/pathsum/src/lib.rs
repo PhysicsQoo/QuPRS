@@ -740,12 +740,6 @@ fn check_equivalence_with_distance_mode(
         status = EquivalenceStatus::Timeout;
     }
 
-    // The request budget covers RR, CNF serialization and numeric
-    // classification, not just the external solver. A late EQ/NEQ result
-    // must never escape if the monotonic deadline elapsed first.
-    if deadline.is_some_and(|limit| Instant::now() >= limit) {
-        status = EquivalenceStatus::Timeout;
-    }
     let total_time = global_start.elapsed().as_secs_f64();
     // Python's public flag indicates an accepted approximate RR verdict;
     // intermediate approximation provenance remains on the residual PathSum.

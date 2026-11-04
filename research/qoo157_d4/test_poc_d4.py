@@ -6,7 +6,7 @@ import json
 import tempfile
 import unittest
 
-from poc_d4 import FIXTURES, oracle_count, parse_cnf, parse_d4_count, run
+from poc_d4 import FIXTURES, classify_pilot_delta, oracle_count, parse_cnf, parse_d4_count, run
 
 
 class D4ExactOracleTests(unittest.TestCase):
@@ -72,6 +72,27 @@ class D4ExactOracleTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "lacks"):
             parse_d4_count("c s exact arb cpx 1 + 0i\n")
+
+    def test_pilot_numeric_tiers_preserve_uncertainty(self):
+        # First historical strict target remains visible rather than silently
+        # relaxed, while near finite-precision observations stay distinct.
+        reference = (Fraction(4), Fraction(0))
+        self.assertEqual(
+            classify_pilot_delta(reference, reference)[0], "PILOT_TIGHT"
+        )
+        self.assertEqual(
+            classify_pilot_delta((Fraction(4) + Fraction(1, 10**20), 0),
+                                 reference)[0], "PILOT_NEAR_UNCERTIFIED"
+        )
+        self.assertEqual(
+            classify_pilot_delta((Fraction(4) + Fraction(1, 10**10), 0),
+                                 reference)[0], "PILOT_MISMATCH"
+        )
+        # Tighter representation is allowed but remains only a pilot label.
+        self.assertEqual(
+            classify_pilot_delta((Fraction(4) + Fraction(1, 10**27), 0),
+                                 reference)[0], "PILOT_TIGHT"
+        )
 
     def test_oracle_only_mode_preserves_fixtures_and_evidence(self):
         with tempfile.TemporaryDirectory(prefix="qoo157-d4-") as temp:

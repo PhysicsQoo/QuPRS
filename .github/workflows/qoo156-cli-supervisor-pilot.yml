@@ -1,0 +1,62 @@
+name: QOO-156 CLI isolated resource supervisor pilot
+
+on:
+  push:
+    branches:
+      - experiment/qoo156-cli-supervisor
+    paths:
+      - 'rust/cli/**'
+      - 'rust/Cargo.lock'
+      - '.github/workflows/qoo156-cli-supervisor-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-cli-${ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scoped-cli-science:
+    name: CLI isolation and resource contract (${ matrix.os }})
+    runs-on: ${ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Source provenance
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD | tee evidence/head-sha.txt
+          rustc --version | tee evidence/rustc.txt
+          cargo --version | tee evidence/cargo.txt
+          shasum -a 256 rust/cli/src/{main.rs,args.rs,supervisor.rs,runner.rs} > evidence/source-sha256.txt
+      - name: Test full CLI package and integration contracts only
+        shell: bash
+        run: |
+          set -eo pipefail
+          cargo test --manifest-path rust/Cargo.toml --locked -p QuPRS_cli -- --nocapture \
+            2>&1 | tee evidence/cli-tests.log
+      - name: Release CLI compile
+        shell: bash
+        run: |
+          set -eo pipefail
+          cargo build --manifest-path rust/Cargo.toml --locked -p QuPRS_cli --release \
+            2>&1 | tee evidence/release-build.log
+      - name: Preserve scoped evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-cli-${ matrix.os }}-${ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 20

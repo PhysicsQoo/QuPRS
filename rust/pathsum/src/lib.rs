@@ -1180,7 +1180,7 @@ mod rr_integer_compact_candidate_tests {
 }
 
 #[cfg(test)]
-mod qoo156_deadline_result_tests {
+mod qoo156_cooperative_result_tests {
     use super::*;
     use crate::ir::QuantumOp;
 

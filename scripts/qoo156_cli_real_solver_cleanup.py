@@ -179,10 +179,23 @@ def main() -> int:
             '"$QOO156_REAL_GPMC" "$@" &\n'
             "child=$!\n"
             'echo "child=$child" >> "$QOO156_WRAPPER_LOG"\n'
-            'if kill -STOP "$child" 2>/dev/null; then\n'
-            '  echo "$child" > "$QOO156_PID_FILE"\n'
-            '  echo stopped >> "$QOO156_WRAPPER_LOG"\n'
-            "fi\n"
+            # Command::spawn can return before the shell-background child
+            # execs its real ELF. Wait for /proc/<pid>/exe to match the
+            # verified actual solver, rather than SIGSTOP'ing /usr/bin/dash.
+            'i=0\n'
+            'while [ "$i" -lt 1000 ]; do\n'
+            '  exe=$(readlink "/proc/$child/exe" 2>/dev/null || true)\n'
+            '  if [ "$exe" = "$QOO156_REAL_GPMC" ]; then\n'
+            '    if kill -STOP "$child" 2>/dev/null; then\n'
+            '      echo "$child" > "$QOO156_PID_FILE"\n'
+            '      echo "real_elf_stopped=$exe" >> "$QOO156_WRAPPER_LOG"\n'
+            '    fi\n'
+            '    break\n'
+            '  fi\n'
+            '  kill -0 "$child" 2>/dev/null || break\n'
+            '  i=$((i + 1))\n'
+            '  sleep 0.001\n'
+            'done\n'
             'wait "$child"\n'
         )
         wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR)

@@ -1,0 +1,143 @@
+name: QOO-156 Bounded Real WMC Memory Peak and Tight-Cap Study
+
+# One native build; 8 x <=10-second genuine WMC cases; not CodSpeed.
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths:
+      - '.github/workflows/qoo156-wmc-memory-sweep.yml'
+      - 'scripts/qoo156_wmc_memory_sweep/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-wmc-sweep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measured-rss:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: One source-pinned native CLI build plus runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/qoo156-wmc-sweep
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          test -x rust/target/release/QuPRS_cli
+          test -x src/QuPRS/utils/wmc_tools/ganak
+          test -x src/QuPRS/utils/wmc_tools/gpmc
+          git rev-parse HEAD > evidence/qoo156-wmc-sweep/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-wmc-sweep/pathsum-tree.txt
+          git rev-parse HEAD:GPMC > evidence/qoo156-wmc-sweep/gpmc-tree.txt
+          sha256sum rust/target/release/QuPRS_cli \
+            src/QuPRS/utils/wmc_tools/gpmc src/QuPRS/utils/wmc_tools/ganak \
+            scripts/qoo156_wmc_memory_sweep/driver.py \
+            benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+            benchmarks/MQTBench/graphstate_nativegates_ibm_qiskit_opt0_16.qasm \
+            benchmarks/MQTBench/qft_nativegates_ibm_qiskit_opt0_16.qasm \
+            > evidence/qoo156-wmc-sweep/input-sha256.txt
+          grep -q '^934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd ' \
+            evidence/qoo156-wmc-sweep/input-sha256.txt
+          docker build -q -t qoo156-wmc:peak scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-wmc-sweep/image-id.txt
+          docker image inspect qoo156-wmc:peak --format '{{.Id}}' \
+            > evidence/qoo156-wmc-sweep/image-sha.txt
+      - name: Record bounded 64/128/256/512 MiB real solver memory.peak and OOM events
+        shell: bash
+        run: |
+          set -euo pipefail
+          for solver in gpmc ganak; do
+            for candidate in vqe4:64 vqe4:128 graphstate16:256 qft16:512; do
+              case_name="${candidate%%:*}"
+              mem="${candidate##*:}"
+              case "$case_name" in
+                vqe4) file=vqe_nativegates_ibm_qiskit_opt0_4.qasm;;
+                graphstate16) file=graphstate_nativegates_ibm_qiskit_opt0_16.qasm;;
+                qft16) file=qft_nativegates_ibm_qiskit_opt0_16.qasm;;
+                *) exit 2;;
+              esac
+              tag="${solver}-${case_name}-${mem}"
+              name="qoo156-peak-${tag}-${GITHUB_RUN_ID}"
+              echo "QOO156_PEAK_CASE_START=$tag"
+              docker run -d --name "$name" \
+                --entrypoint python3 \
+                --memory="${mem}m" --memory-swap="${mem}m" \
+                --pids-limit=64 --network=none --read-only \
+                --cap-drop=ALL --security-opt no-new-privileges \
+                --user 65534:65534 --tmpfs /tmp:rw,nosuid,size=64m \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/release/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc,target=/opt/gpmc,readonly" \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak,target=/opt/ganak,readonly" \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/$file,target=/opt/case.qasm,readonly" \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_wmc_memory_sweep/driver.py,target=/opt/peak_driver.py,readonly" \
+                -e "QOO156_SOLVER=$solver" -e "QOO156_CASE=$case_name" -e "QOO156_LIMIT_MIB=$mem" \
+                qoo156-wmc:peak /opt/peak_driver.py \
+                > "evidence/qoo156-wmc-sweep/${tag}-container-id.txt"
+              set +e
+              timeout -k 4s 30s docker wait "$name" \
+                > "evidence/qoo156-wmc-sweep/${tag}-docker-wait.txt" 2>&1
+              wait_code=$?
+              set -e
+              docker inspect "$name" --format '{{.State.ExitCode}}' \
+                > "evidence/qoo156-wmc-sweep/${tag}-container-exit.txt"
+              docker inspect "$name" --format '{{.State.OOMKilled}}' \
+                > "evidence/qoo156-wmc-sweep/${tag}-docker-oom-flag.txt"
+              docker inspect "$name" --format '{{.HostConfig.Memory}}' \
+                > "evidence/qoo156-wmc-sweep/${tag}-memory-limit.txt"
+              docker logs "$name" > "evidence/qoo156-wmc-sweep/${tag}-log.txt" 2>&1 || true
+              docker rm -f "$name" > /dev/null || true
+              printf 'outer_wait_code=%s\n' "$wait_code" \
+                > "evidence/qoo156-wmc-sweep/${tag}-outer-wait.txt"
+              cat "evidence/qoo156-wmc-sweep/${tag}-log.txt"
+              test "$(cat "evidence/qoo156-wmc-sweep/${tag}-memory-limit.txt")" = \
+                "$((mem*1048576))"
+            done
+          done
+      - name: Classify each observed case; require genuine 128 MiB baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("evidence/qoo156-wmc-sweep")
+          records = []
+          for solver in ("gpmc", "ganak"):
+              for case, limit in (("vqe4",64),("vqe4",128),("graphstate16",256),("qft16",512)):
+                  tag = f"{solver}-{case}-{limit}"
+                  data = (root/f"{tag}-log.txt").read_text()
+                  lines = [x.split("QOO156_WMC_PEAK_JSON=",1)[1] for x in data.splitlines()
+                           if "QOO156_WMC_PEAK_JSON=" in x]
+                  item = json.loads(lines[-1]) if lines else {"classification":"NOT_ADMITTED_NO_DRIVER_RECORD"}
+                  item.update(tag=tag, docker_exit=(root/f"{tag}-container-exit.txt").read_text().strip(),
+                              docker_oom_flag=(root/f"{tag}-docker-oom-flag.txt").read_text().strip())
+                  records.append(item)
+                  print("QOO156_SWEEP_OBSERVATION",tag,item["classification"],
+                        item.get("memory_peak_mib"),item.get("kernel_oom_kill_delta"))
+          (root/"manifest.json").write_text(json.dumps(records,indent=2,sort_keys=True)+"\n")
+          for solver in ("gpmc","ganak"):
+              baseline=next(x for x in records if x["tag"]==f"{solver}-vqe4-128")
+              if baseline["classification"]!="COMPLETE_WITHIN_CAP":
+                  print(f"QOO156_WMC_SWEEP_BASELINE_{solver}=NOT_ADMITTED")
+                  raise SystemExit(2)
+          print("QOO156_WMC_SWEEP_BASELINE=PASS; other cases observational")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo156-wmc-memory-peak-${{ github.sha }}
+          path: evidence/qoo156-wmc-sweep/
+          if-no-files-found: warn
+          retention-days: 30

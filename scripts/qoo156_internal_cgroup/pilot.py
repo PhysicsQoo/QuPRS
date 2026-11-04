@@ -56,16 +56,33 @@ def delegated_parent():
         fail("memory controller missing from cgroup.controllers")
     active = (current / "cgroup.subtree_control").read_text().split()
     if "memory" not in active:
+        # Docker's cgroup namespace root is usually NOT the kernel cgroup
+        # root. Turning on a domain controller with a process in the parent
+        # violates the cgroup-v2 no-internal-process rule (EBUSY).
+        own = os.getpid()
+        members = [int(x) for x in (current / "cgroup.procs").read_text().split()]
+        if sorted(members) != [own]:
+            fail(f"cannot relocate unknown parent cgroup tasks: {members}")
+        bootstrap = current / f"qoo156-bootstrap-{own}"
+        bootstrap.mkdir()
+        (bootstrap / "cgroup.procs").write_text(str(own))
+        if str(own) not in (bootstrap / "cgroup.procs").read_text().split():
+            fail("bootstrap did not move itself into a leaf")
         try:
             (current / "cgroup.subtree_control").write_text("+memory")
         except OSError as exc:
-            fail(f"cannot enable parent memory delegation: {exc}")
+            fail(f"cannot enable empty parent memory delegation: {exc}")
     sub = current / f"qoo156-delegated-{os.getpid()}"
     sub.mkdir(mode=0o755)
     try:
         (sub / "cgroup.subtree_control").write_text("+memory")
     except OSError as exc:
-        fail(f"cannot enable delegated subtree memory controller: {exc}")
+        fail(f"cannot enable empty delegated subtree memory controller: {exc}")
+    # Correct topology: delegated D is empty with +memory. The CLI parent
+    # runs in D/supervisor leaf and can create a sibling D/quprs-cli-<pid>
+    # without violating the no-internal-process rule.
+    supervisor_leaf = sub / "supervisor"
+    supervisor_leaf.mkdir()
     for p in [sub, sub / "cgroup.procs", sub / "cgroup.subtree_control"]:
         os.chown(p, UID, UID)
     os.chmod(sub, 0o755)
@@ -75,7 +92,7 @@ def delegated_parent():
 def move_and_drop_to_unprivileged(subtree):
     # This function runs in a single-threaded subprocess preexec context.
     # Attach the CLI to an empty delegated cgroup BEFORE dropping privileges.
-    target = os.open(str(subtree / "cgroup.procs"), os.O_WRONLY)
+    target = os.open(str(subtree / "supervisor" / "cgroup.procs"), os.O_WRONLY)
     try:
         data = str(os.getpid()).encode("ascii")
         if os.write(target, data) != len(data):
@@ -191,6 +208,7 @@ def main():
         # A dead CLI should have removed all child cgroups. Report the precise
         # subtree if its cleanup remains incomplete instead of concealing it.
         try:
+            (subtree / "supervisor").rmdir()
             subtree.rmdir()
         except OSError as exc:
             print(f"QOO156_DELEGATE_CLEANUP_PENDING={exc}", file=sys.stderr)

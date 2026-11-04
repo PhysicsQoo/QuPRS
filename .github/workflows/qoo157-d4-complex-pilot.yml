@@ -97,7 +97,9 @@ jobs:
         run: |
           set -euo pipefail
           cargo run --manifest-path rust/Cargo.toml --locked -p pathsum             --example qoo157_emit_complex_cnf --             "$RUNNER_TEMP/qoo157-source-cnf" 2>&1 | tee evidence/quprs-cnf-export.log
-          sha256sum "$RUNNER_TEMP"/qoo157-source-cnf/*.cnf > evidence/quprs-source-cnf-sha256.txt
+          mkdir -p evidence/quprs-source-cnf
+          cp -a "$RUNNER_TEMP/qoo157-source-cnf/." evidence/quprs-source-cnf/
+          sha256sum evidence/quprs-source-cnf/*.cnf > evidence/quprs-source-cnf-sha256.txt
       - name: Execute native complex arithmetic controls
         shell: bash
         run: |
@@ -110,7 +112,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python research/qoo157_d4/poc_d4.py             --workdir evidence/quprs-native             --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"             --cnf "$RUNNER_TEMP/qoo157-source-cnf/quprs_identity1.cnf"             --cnf "$RUNNER_TEMP/qoo157-source-cnf/quprs_t1_miter.cnf"             --cnf "$RUNNER_TEMP/qoo157-source-cnf/quprs_bell_t_miter.cnf"             --timeout 30 2>&1 | tee evidence/quprs-native-pilot.log
+          python research/qoo157_d4/poc_d4.py             --workdir evidence/quprs-native             --binary "$RUNNER_TEMP/qoo157-d4/c++/counter/build/counter"             --cnf "evidence/quprs-source-cnf/quprs_identity1.cnf"             --cnf "evidence/quprs-source-cnf/quprs_t1_miter.cnf"             --cnf "evidence/quprs-source-cnf/quprs_bell_t_miter.cnf"             --timeout 30 2>&1 | tee evidence/quprs-native-pilot.log
       - name: Preserve results even on native failure
         if: always()
         uses: actions/upload-artifact@v4

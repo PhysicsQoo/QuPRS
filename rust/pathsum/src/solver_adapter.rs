@@ -19,6 +19,10 @@ pub(crate) trait SolverAdapter: Sync {
     fn executable_path(&self) -> String;
     fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String);
     fn preflight(&self, _path: &str, _deadline: Option<Instant>) -> Result<()> { Ok(()) }
+    #[cfg(feature = "experimental-d4")]
+    fn parse_printed_count(&self, stdout: &str) -> Result<Option<crate::precision_count::PrintedCount>> {
+        crate::precision_count::parse_stdout_optional(stdout)
+    }
     fn parse_count(&self, stdout: &str) -> Result<Option<Complex<f64>>> {
         let mut count = None;
         for line in stdout.lines() {
@@ -43,6 +47,8 @@ pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
     match id {
         "gpmc" => Ok(&GPMC),
         "ganak" => Ok(&GANAK),
+        #[cfg(feature = "experimental-d4")]
+        "d4" => Ok(&crate::d4_experimental::D4),
         _ => Err(anyhow!(crate::solver_result::SolverFailure::new(
             crate::solver_result::SolverFailureKind::Unsupported,
             id,

@@ -214,12 +214,49 @@ impl PathSum {
             self.p.add_term(mono, coeff); 
         }
     }
+    /// A deterministic work bound for the original exact, allocation-light
+    /// substitution. The small path has no inner timestamp/syscall overhead.
+    /// High-degree, phase-symbolic, exact-radian and high-term workloads stay
+    /// on the cooperative checked implementation.
+    #[inline]
+    pub(crate) fn small_exact_substitution(&self, replacement_terms: usize) -> bool {
+        if replacement_terms > 2 || self.f.functions.len() > 64
+            || self.p.terms.len() > 64 { return false; }
+        let mut f_terms = 0usize;
+        let mut total_width = 0usize;
+        for poly in &self.f.functions {
+            f_terms += poly.len();
+            if f_terms > 128 { return false; }
+            for monomial in poly {
+                total_width += monomial.len();
+                if total_width > 1024 { return false; }
+            }
+        }
+        for (monomial, phase) in &self.p.terms {
+            if phase.radians.is_some() || !phase.symbols.is_empty() {
+                return false;
+            }
+            total_width += monomial.len();
+            if total_width > 1024 { return false; }
+        }
+        true
+    }
+
     pub(crate) fn substitute_var_with_poly(
         &mut self,
         target_var: u32,
         sub_poly: &rustc_hash::FxHashSet<crate::pathsum::Monomial>,
     ) {
         if let Some(deadline) = self.verification_deadline {
+            if self.small_exact_substitution(sub_poly.len()) {
+                // Bounded source-size exact arithmetic. The outer gate/RR
+                // scheduler still checks the same request deadline.
+                if !self.poll_gate_deadline() { return; }
+                self.f.substitute_var_with_poly(target_var, sub_poly);
+                self.p.substitute_var_with_poly(target_var, sub_poly);
+                self.poll_gate_deadline();
+                return;
+            }
             if !self.poll_verification_deadline() { return; }
             // A timeout may leave a partial BooleanState/PhasePolynomial;
             // the verification caller must never classify that residual.

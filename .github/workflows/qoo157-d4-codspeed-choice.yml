@@ -8,21 +8,10 @@ on:
       - '.github/workflows/qoo157-d4-codspeed-choice.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-
 jobs:
   choice:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      QOO157_PREFLIGHT: ${{ github.workspace }}/evidence/qoo157-choice-science.json
-      QOO157_CNF_DIR: ${{ github.workspace }}/evidence/cnfs
-      QOO157_D4_BINARY: ${{ runner.temp }}/qoo157-d4/c++/counter/build/counter
-      QOO157_D4_PROVENANCE: ${{ github.workspace }}/evidence/d4-provenance.json
-      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/evidence/qoo157-codspeed-walltime.json
-      PYTHONPATH: research/qoo157_d4
     steps:
       - name: Check env and permissions
         run: echo QOO157_ENV_ADMISSION_PASS

@@ -51,6 +51,15 @@ def structural_fingerprint(path:Path):
             unusual.append(s[:100]);continue
         clauses.append(signed)
         used.update(abs(v) for v in signed if v)
+    # Arjun's debug file is not an ordinary standalone WMC instance.
+    # In particular, the original count may require an extra multiplicative
+    # factor, and red clauses are serialized as comments. Preserve the raw
+    # provenance; do not silently replay this file with another solver.
+    weights=[l for l in lines if l.startswith("c p weight ")]
+    multiplier=[l for l in lines if l.startswith("c MUST MULTIPLY BY ")]
+    redundant=[l for l in lines if l.startswith("c red ")]
+    projections=[l for l in lines if l.startswith(
+        ("c p show ","c p optshow ","c p exist "))]
     res.update({
         "header_vars":n,"header_clauses":c,"observed_clauses":len(clauses),
         "active_clause_variables":len(used),
@@ -58,10 +67,17 @@ def structural_fingerprint(path:Path):
         "units":sum(len(x)==1 for x in clauses),
         "binary":sum(len(x)==2 for x in clauses),
         "empty_clauses":sum(not x for x in clauses),
-        "native_weight_comment_lines":sum(l.startswith("c p weight ")
-                                          for l in lines),
+        "native_weight_comment_lines":len(weights),
+        "weight_lines_sha256":digest(("\n".join(weights)+"\n").encode()),
+        "multiplier_comment_count":len(multiplier),
+        "multiplier_comment_examples":multiplier[:2],
+        "multiplier_lines_sha256":digest(("\n".join(multiplier)+"\n").encode()),
+        "redundant_clause_comment_count":len(redundant),
+        "projection_lines_sha256":digest(("\n".join(projections)+"\n").encode()),
         "projection_comment_lines":[l[:200] for l in lines
-                 if l.startswith("c ind ") or l.startswith("c p show ")][:15],
+                 if l.startswith(("c ind ","c p show ","c p optshow ","c p exist "))][:15],
+        "debug_dump_stage":"GANAK_POST_REMOVE_EQUIV_WEIGHTS",
+        "debug_dump_is_not_replay_certified":True,
         "other_comment_examples":[l[:200] for l in lines if l.startswith("c ")][:15],
         "unexpected_clause_lines":unusual[:8],
         "parse":"HEADER_AND_CLAUSE_SYNTAX_ONLY"
@@ -92,7 +108,7 @@ def run(binary,case,variant,arjun,puura,adapted,expected,root):
     stderr_file=output/(variant+".stderr.log")
     cmd=[str(binary),"--mode=6","--mpfrprec=127","--threads=1",
          "--arjun",str(arjun),"--puura",str(puura),
-         "--arjundebugcnf",str(debug),str(adapted)]
+         "--verb","1","--arjundebugcnf",str(debug),str(adapted)]
     rec={"case":case,"variant":variant,"arjun":arjun,"puura":puura,
          "requested_mpfr_bits":127,"threads":1,
          "binary_sha256":digest(binary.read_bytes()),

@@ -409,6 +409,16 @@ impl WmcManager {
         self.run_solver_with_parser(adapter, deadline, parse, Some(prepared_cnf))
     }
 
+    /// Feature-only research probe: same prepared CNF through Rust supervisor.
+    #[cfg(feature = "experimental-d4")]
+    pub fn experimental_d4_count_prepared_cnf(
+        &self, prepared_cnf: &str, deadline: Option<std::time::Instant>,
+    ) -> Result<crate::precision_count::PrintedCount> {
+        let adapter = crate::solver_adapter::adapter_for("d4")?;
+        self.run_solver_with_parser(adapter, deadline,
+            |stdout| adapter.parse_printed_count(stdout), Some(prepared_cnf))
+    }
+
     /// Number of phase-weight literals used in a conditional f64 input budget.
     pub fn numerical_weight_count(&self) -> usize { self.weights.len() }
 

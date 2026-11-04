@@ -134,8 +134,11 @@ def adversarial_case(delegate):
                         preexec_fn=lambda: join_worker_group_and_drop(worker_group),
                     )
                     pressured = True
-                    os.kill(solver["pid"], signal.SIGCONT)
-                    resumed = True
+                    # Keep the authentic Ganak PID alive in SIGSTOP until
+                    # the kernel OOMs this entire cgroup. Resuming it now
+                    # would let fast VQE4 finish before bounded pressure
+                    # reaches memory.max, invalidating victim attribution.
+                    # A NOT_ADMITTED cleanup still sends SIGCONT in finally.
             if cli.poll() is not None:
                 break
             time.sleep(.001)
@@ -166,7 +169,7 @@ def adversarial_case(delegate):
             cli_stderr_tail=err[-500:], cli_uid=UID,
         )
         positive = (
-            solver is not None and stopped and resumed and pressured
+            solver is not None and stopped and pressured
             and readback == CAP * MIB and oom_group == "1"
             and result["kernel_oom_kill_delta"] is not None
             and result["kernel_oom_kill_delta"] >= 1

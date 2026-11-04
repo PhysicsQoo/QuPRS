@@ -5,7 +5,13 @@ on:
     branches:
       - experiment/qoo157-d4-complex-wmc-poc
     paths:
-      - 'research/qoo157_d4/**'
+      # Only source/validation changes trigger the expensive native build.
+      # Markdown-only research updates reuse the last scientific evidence.
+      - 'research/qoo157_d4/*.py'
+      - 'rust/pathsum/examples/qoo157_emit_complex_cnf.rs'
+      - 'rust/pathsum/src/wmc.rs'
+      - 'rust/pathsum/src/wmc_problem.rs'
+      - 'GPMC'
       - '.github/workflows/qoo157-d4-complex-pilot.yml'
   workflow_dispatch:
 

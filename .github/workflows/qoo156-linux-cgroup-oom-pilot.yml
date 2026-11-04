@@ -1,0 +1,73 @@
+name: QOO-156 Delegated Linux cgroup OOM Pilot
+
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths: ['.github/workflows/qoo156-linux-cgroup-oom-pilot.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  delegated-cgroup:
+    name: Real memory.max OOM (delegated systemd scope)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+      - name: Compile source-pinned CLI OOM test only
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path rust/Cargo.toml --locked -p QuPRS_cli \
+            --test supervisor --no-run
+          mkdir -p evidence/qoo156-cgroup
+          git rev-parse HEAD > evidence/qoo156-cgroup/source-sha.txt
+          mount | grep -E 'on /sys/fs/cgroup type cgroup2' \
+            > evidence/qoo156-cgroup/mount.txt || true
+      - name: Run real page-pressure test in delegated scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="$(find rust/target/debug/deps -maxdepth 1 -type f \
+             -name 'supervisor-*' -perm -u+x | head -1)"
+          test -x "$BIN"
+          BIN="$(realpath "$BIN")"
+          if command -v systemd-run >/dev/null; then
+            set +e
+            sudo systemd-run --scope --quiet --collect \
+              --property=Delegate=yes \
+              --property=MemoryAccounting=yes \
+              --unit="qoo156-memory-admission-$RANDOM" \
+              "$BIN" delegated_cgroup_physically_enforces_oom_or_records_not_admitted \
+              --nocapture > evidence/qoo156-cgroup/positive-attempt.log 2>&1
+            CODE=$?
+            set -e
+            echo "systemd_run_exit=$CODE" >> evidence/qoo156-cgroup/positive-attempt.log
+          else
+            echo "systemd-run unavailable" > evidence/qoo156-cgroup/positive-attempt.log
+          fi
+          cat evidence/qoo156-cgroup/positive-attempt.log
+          if grep -q 'QOO156_MEMORY_POSITIVE_ADMITTED' \
+            evidence/qoo156-cgroup/positive-attempt.log; then
+            echo "QOO156_CGROUP_OOM_CERTIFICATE=PASS" | tee evidence/qoo156-cgroup/verdict.txt
+          else
+            echo "QOO156_CGROUP_OOM_CERTIFICATE=NOT_ADMITTED" | tee evidence/qoo156-cgroup/verdict.txt
+            echo "No delegated hard RSS claim permitted." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Archive source and observation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-delegated-cgroup-${{ github.sha }}
+          path: evidence/qoo156-cgroup/
+          if-no-files-found: warn
+          retention-days: 20

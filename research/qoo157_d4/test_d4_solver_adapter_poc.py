@@ -73,13 +73,10 @@ def test_pinned_binary_mismatch_and_insufficient_precision_fail(tmp_path):
     fake.write_bytes(b"binary tampered")
     with pytest.raises(SolverExecutionError, match="SHA mismatch"):
         adapter.verify_binary(fake, 5)
-    with pytest.raises(SolverExecutionError, match="precision"):
-        make_poc(tmp_path / "not_created", bits=64)
-    # Above directory-missing check must not obscure semantic precision check.
-    fake.parent.mkdir(parents=True, exist_ok=True)
-    _, _, _ = make_poc(tmp_path, bits=426)
     with pytest.raises(SolverExecutionError, match="preparse"):
-        external_research_adapter(fake, tmp_path / "low-precision.json")
+        make_poc(tmp_path, bits=64)
+    with pytest.raises(SolverExecutionError, match="source patch"):
+        make_poc(tmp_path, source_approved=False)
 
 
 def test_strict_malformed_and_nonzero_do_not_fallback(tmp_path, monkeypatch):

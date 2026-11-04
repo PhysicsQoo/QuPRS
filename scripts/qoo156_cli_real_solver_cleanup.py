@@ -58,6 +58,12 @@ def run_probe(cli: Path, name: str, real: Path, fixture: Path, folder: Path) -> 
         env["QOO156_REAL_GPMC"] = str(real)
         env["QOO156_PID_FILE"] = str(pid_file)
         env["QOO156_WRAPPER_LOG"] = str(wrapper_log)
+    if name == "ganak" and os.getenv("QOO156_GANAK_PAUSE_SO"):
+        # A test-only constructor sees --mode=6 after exec of the real
+        # signed/pinned Ganak ELF. Its --version preflight stays untouched.
+        library = str(Path(os.environ["QOO156_GANAK_PAUSE_SO"]).resolve())
+        env["LD_PRELOAD"] = library + (":" + env["LD_PRELOAD"] if env.get("LD_PRELOAD") else "")
+        env["QOO156_PAUSE_REAL_GANAK"] = "1"
     # Both files are intentionally nonidentical; WMC-only must reach the
     # concrete solver rather than a trivial identical-circuit shortcut.
     right = folder / "other.qasm"

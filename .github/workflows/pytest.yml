@@ -163,6 +163,17 @@ jobs:
         if: ${{ always() && !cancelled() }}
         run: python scripts/check_benchmark_evidence.py --junit pytest-results.xml --json benchmark-evidence.json
 
+      # Report-only provenance for possible exact-tree PR→dev evidence reuse.
+      # This NEVER skips a platform test; runner image and resolved packages
+      # may drift even when the Git tree and test commands are unchanged.
+      - name: Seal native matrix source and environment witness
+        if: always()
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MATRIX_PYTHON: ${{ matrix.python-version }}
+          TEST_STEP_STATUS: ${{ job.status }}
+        run: python scripts/ci_native_matrix_fingerprint.py --output native-matrix-evidence.json
+
       # ==========================================
       # Artifact Uploads
       # ==========================================
@@ -181,6 +192,7 @@ jobs:
           path: |
             pytest-results.xml
             benchmark-evidence.json
+            native-matrix-evidence.json
           
       - name: Upload coverage XML report  
         if: always()

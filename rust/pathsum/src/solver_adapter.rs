@@ -34,8 +34,11 @@ pub(crate) trait SolverAdapter: Sync {
 }
 pub(crate) struct GpmcAdapter;
 pub(crate) struct GanakAdapter;
+/// Optional 90-digit GPMC arithmetic; default complex GPMC uses 30 digits.
+pub(crate) struct GpmcDistanceHighPrecisionAdapter;
 static GPMC: GpmcAdapter = GpmcAdapter;
 static GANAK: GanakAdapter = GanakAdapter;
+static GPMC_DISTANCE_HIGH: GpmcDistanceHighPrecisionAdapter = GpmcDistanceHighPrecisionAdapter;
 pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
     match id {
         "gpmc" => Ok(&GPMC),
@@ -45,6 +48,25 @@ pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
             id,
             format!("Unsupported tool name: {}", id),
         ))),
+    }
+}
+/// GPMC works at its effective 30-digit default unless 90 is requested.
+pub(crate) fn distance_adapter_for(id: &str, digits: u32) -> Result<&'static dyn SolverAdapter> {
+    match (id, digits) {
+        ("gpmc", 30) => Ok(&GPMC),
+        ("gpmc", 90) => Ok(&GPMC_DISTANCE_HIGH),
+        ("gpmc", _) => Err(anyhow!("gpmc_precision_digits must be 30 or 90")),
+        (_, 30) => adapter_for(id),
+        _ => Err(anyhow!("gpmc_precision_digits=90 only applies to GPMC")),
+    }
+}
+impl SolverAdapter for GpmcDistanceHighPrecisionAdapter {
+    fn id(&self) -> &'static str { "gpmc" }
+    fn arguments(&self) -> &'static [&'static str] { &["-mode=1", "-prec=90"] }
+    fn capabilities(&self) -> SolverCapabilities { GpmcAdapter.capabilities() }
+    fn executable_path(&self) -> String { GpmcAdapter.executable_path() }
+    fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String) {
+        GpmcAdapter.weight_lines(var, weight)
     }
 }
 impl SolverAdapter for GpmcAdapter {
@@ -105,6 +127,11 @@ mod tests {
         let b = adapter_for("ganak").unwrap();
         assert_eq!(a.arguments(), &["-mode=1"]);
         assert_eq!(b.arguments(), &["--mode=6"]);
+        assert_eq!(distance_adapter_for("gpmc", 30).unwrap().arguments(), &["-mode=1"]);
+        assert_eq!(distance_adapter_for("gpmc", 90).unwrap().arguments(), &["-mode=1", "-prec=90"]);
+        assert_eq!(distance_adapter_for("ganak", 30).unwrap().arguments(), &["--mode=6"]);
+        assert!(distance_adapter_for("gpmc", 60).is_err());
+        assert!(distance_adapter_for("ganak", 90).is_err());
         assert_eq!(a.capabilities().grammar, WeightGrammar::Pair);
         assert_eq!(b.capabilities().grammar, WeightGrammar::ComplexI);
         assert!(a.capabilities().complex_weights && b.capabilities().complex_weights);
@@ -153,5 +180,10 @@ mod tests {
             &MockAdapter, Some(Instant::now() + Duration::from_secs(15)),
         ).unwrap();
         assert_eq!(got, Complex::new(3.0, 4.0));
+        let precise = manager.solve_with_adapter_printed(
+            &MockAdapter, Some(Instant::now() + Duration::from_secs(15)),
+        ).unwrap();
+        assert_eq!(precise.real.to_string(), "3");
+        assert_eq!(precise.imag.to_string(), "4");
     }
 }

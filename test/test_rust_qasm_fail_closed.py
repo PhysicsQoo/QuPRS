@@ -40,7 +40,7 @@ def _gate(name):
 
 
 @pytest.mark.parametrize("qasm,expected", [
-    ('OPENQASM 3.0;\nqubit[1] q;\nx q[0];', "Unsupported QASM header"),
+    ('OPENQASM 3.0;\nqubit[1] q;\ngphase(theta);\nx q[0];', "Invalid QASM3 gphase"),
     ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncsx q[0],q[1];', "Unsupported QASM gate"),
     ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nrz(0.1,0.2) q[0];', "Invalid QASM arity"),
     ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nx q[5];', "out of bounds"),
@@ -109,23 +109,43 @@ def test_nonzero_tiny_qasm_rotation_preserves_source_through_public_rust_api(
 ):
     """Accepted exact source literals must not be rounded into an identity.
 
-    The conservative policy does not promote a floating weighted count to a
-    strict equivalence proof. Reduction Rules can reject the exact source
-    without invoking the solver.
+    A floating WMC near-identity verdict is only numerical evidence.
+    Reduction Rules can reject the exact source without invoking the solver.
     """
     identity = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     rotated = identity + f"rz({angle}) q[0];\n"
     result = check_equivalence(
         identity, rotated, backend="rust", method=method, strategy="Naive",
         tool_name="gpmc", timeout=30,
-        **({"wmc_policy": "conservative"} if method == "wmc_only" else {}),
     )
     assert result.gate_num2 == 1
     if method == "wmc_only":
-        # A numerical trace near unity is not a strict identity certificate.
-        assert result.equivalent == "unknown"
-        assert result.wmc_policy == "conservative"
+        # The original nonzero source phase is preserved, while the solver
+        # may numerically report equivalence below its observable resolution.
+        assert result.equivalent in {"equivalent", "equivalent*"}
+        assert result.wmc_numerical_verdict == result.equivalent
+        assert result.tool_time is not None
     else:
-        # The exact nonzero RZ source is a definitive RR counterexample.
-        assert result.equivalent == "not_equivalent"
+        # RR-only and Hybrid must honor the public per-call RR tolerance.
+        # These source phases are far below the default 1e-10 cycles, and
+        # are not arbitrarily rejected just because they are nonzero.
+        assert result.equivalent in {"equivalent", "equivalent*"}
+        assert result.rr_approximate is True
         assert result.tool_time is None
+
+
+@pytest.mark.parametrize("angle,strict_tol", [
+    ("1e-12", 1e-14),
+    ("-1e-12", 1e-14),
+    ("1e-100", 1e-110),
+])
+def test_tiny_qasm_source_is_not_lost_when_rr_tolerance_is_tight(angle, strict_tol):
+    identity = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+    rotated = identity + f"rz({angle}) q[0];\n"
+    out = check_equivalence(
+        identity, rotated, backend="rust", method="reduction_rules",
+        strategy="Naive", rr_tolerance=strict_tol,
+    )
+    assert out.equivalent == "not_equivalent"
+    assert out.rr_approximate is False
+    assert out.wmc_solver_invoked is False

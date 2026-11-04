@@ -16,12 +16,53 @@ on:
       - 'scripts/install_linux_deps.sh'
       - '.github/workflows/pytest.yml'
       - '.github/workflows/native-cross-platform-pr.yml'
+      - '.github/scripts/ci-impact-reuse.cjs'
+      - '.github/scripts/test-ci-impact-reuse.cjs'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Supersede only stale runs of this workflow for this PR.
+# Jobs within a run still execute independently and concurrently.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  ci-impact:
+    name: Incremental CI impact / native-cross-platform-pr.yml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_heavy: ${{ steps.resolve.outputs.run_heavy }}
+      reused_run_id: ${{ steps.resolve.outputs.reused_run_id }}
+      measured_head_sha: ${{ steps.resolve.outputs.measured_head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify incremental routing and fail-closed native matrix reuse policy
+        run: |
+          node .github/scripts/test-ci-impact-reuse.cjs
+          node .github/scripts/test-native-matrix-reuse-admission.cjs
+      - id: resolve
+        name: Validate source and successful previous CI evidence
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const resolve = require('./.github/scripts/ci-impact-reuse.cjs');
+            await resolve({
+              github, context, core,
+              workflowFile: 'native-cross-platform-pr.yml',
+              requiredJobs: [{"prefix":"Native source correctness matrix / build (","count":12}]
+            });
+
   native-source-matrix:
+    needs: [ci-impact]
+    if: ${{ needs.ci-impact.outputs.run_heavy == 'true' }}
     name: Native source correctness matrix
     uses: ./.github/workflows/pytest.yml

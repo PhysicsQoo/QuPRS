@@ -1,16 +1,9 @@
 name: Opt-in Rust QASM Strict Source Guard
 
+# Keep an independently executable historical/research guard, but on
+# dev PRs the same exact tests now consume the source-pinned QASM3 wheel once.
+# Automatic overlap has been moved to native-qasm3-contract.yml.
 on:
-  pull_request:
-    branches: [dev]
-    paths:
-      - 'rust/pathsum/src/qasm.rs'
-      - 'rust/pathsum/src/rational.rs'
-      - 'rust/pathsum/src/gates.rs'
-      - 'test/test_rust_qasm_fail_closed.py'
-      - 'test/test_rust_p_phase_semantics.py'
-      - 'test/test_graphstate16_qiskit_provenance.py'
-      - '.github/workflows/rust-qasm-source-guard.yml'
   push:
     branches:
       - fix/rust-qasm-fail-closed-20261023
@@ -21,23 +14,58 @@ on:
       - 'test/test_rust_p_phase_semantics.py'
       - 'test/test_graphstate16_qiskit_provenance.py'
       - '.github/workflows/rust-qasm-source-guard.yml'
+      - '.github/scripts/ci-impact-reuse.cjs'
+      - '.github/scripts/test-ci-impact-reuse.cjs'
       - 'docs/development/rust-qasm-source-safety.md'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Supersede only stale runs of this workflow for this PR.
+# Jobs within a run still execute independently and concurrently.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  ci-impact:
+    name: Incremental CI impact / rust-qasm-source-guard.yml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_heavy: ${{ steps.resolve.outputs.run_heavy }}
+      reused_run_id: ${{ steps.resolve.outputs.reused_run_id }}
+      measured_head_sha: ${{ steps.resolve.outputs.measured_head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Validate incremental routing contract tests
+        run: node .github/scripts/test-ci-impact-reuse.cjs
+      - name: Validate previous successful results for unchanged source
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const resolve = require('./.github/scripts/ci-impact-reuse.cjs');
+            await resolve({
+              github, context, core,
+              workflowFile: 'rust-qasm-source-guard.yml',
+              requiredJobs: [{"name":"Native parser and QASM source semantics","count":1}]
+            });
+
+  # Existing Rust/QASM source-level safety tests on one resolved Qiskit environment.
   qasm-guard:
-    name: Native parser and Qiskit ${{ matrix.qiskit }} source semantics
-    strategy:
-      fail-fast: false
-      matrix:
-        qiskit: ["1.4.6", "2.6.1"]
+    needs: [ci-impact]
+    if: ${{ needs.ci-impact.outputs.run_heavy == 'true' }}
+    name: Native parser and QASM source semantics
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      QISKIT_VERSION: "${{ matrix.qiskit }}"
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
       PYTHONHASHSEED: '0'
@@ -51,7 +79,7 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install native requirements and pinned QuPRS
+      - name: Install native requirements and QuPRS with resolved dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -60,12 +88,10 @@ jobs:
           python -m pip install 'maturin>=1.5,<2'
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
           maturin develop --release -E dev
-          python -m pip install --no-deps "qiskit==$QISKIT_VERSION"
-          python -m pip install "qiskit-qasm3-import==0.6.0"
+          python -m pip check
           python - <<'PY'
-          import importlib.metadata
-          import os
-          assert importlib.metadata.version("qiskit")==os.environ["QISKIT_VERSION"]
+          from importlib.metadata import version
+          print("RESOLVED_QISKIT_VERSION", version("qiskit"))
           PY
       - name: Capture environment and metadata compatibility
         shell: bash
@@ -77,13 +103,7 @@ jobs:
           python -m pip freeze > evidence/pip-freeze.txt
           python --version > evidence/python-version.txt 2>&1
           rustc --version > evidence/rustc-version.txt 2>&1
-          set +e
-          python -m pip check > evidence/pip-check.txt 2>&1
-          echo $? > evidence/pip-check-status.txt
-          set -e
-          if [ "$QISKIT_VERSION" = "1.4.6" ]; then
-            test "$(cat evidence/pip-check-status.txt)" -eq 0
-          fi
+          python -m pip check 2>&1 | tee evidence/pip-check.txt
       - name: Run genuine Rust parse fail-closed unit regression
         shell: bash
         run: |
@@ -141,7 +161,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rust-qasm-source-guard-${{ matrix.qiskit }}
+          name: rust-qasm-source-guard-resolved
           path: evidence/
           retention-days: 30
           if-no-files-found: error

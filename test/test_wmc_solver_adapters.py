@@ -64,3 +64,27 @@ def test_solver_runs_independently(monkeypatch, solver):
     monkeypatch.setattr(process, 'run', run)
     assert run_wmc('test.cnf', solver) == (1.5, .25)
     assert calls == [['/solvers/' + solver, *SOLVER_ARGUMENTS[solver], 'test.cnf']]
+
+@pytest.mark.parametrize("precision_label", [
+    "half", "single", "double", "quadruple", "octuple",
+])
+def test_ganak_precision_labels(precision_label):
+    line = (
+        f"c s exact {precision_label} float "
+        "1.00000000e+00 - 2.50000000e-21i"
+    )
+    assert parse_count_line(line) == complex(1.0, -2.5e-21)
+
+
+def test_ganak_octuple_label_requires_token_boundary():
+    assert parse_count_line("c s exact octuple floating 1") is None
+
+
+def test_legacy_float_count_is_not_high_precision_evidence():
+    from decimal import Decimal
+    exact = Decimal("0.99999999999999994746875")
+    observed = parse_count_line(
+        "c s exact octuple float 0.99999999999999994746875 + 0.00000000e+00i"
+    )
+    assert observed == complex(1.0, 0.0)
+    assert exact < Decimal(str(observed.real))

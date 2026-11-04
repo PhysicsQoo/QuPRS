@@ -1,107 +1,165 @@
-# Weighted-model-counting numerical tolerances
+# WMC projective-distance tolerance (v0.14.0)
 
-QuPRS distinguishes the **symbolic reduction** tolerance from two WMC
-floating-point classification thresholds. These are numerical decision
-policies; they do not change PathSum reductions, CNF encoding, Ganak or GPMC.
+QuPRS exposes **one** WMC numerical acceptance metric in its Python,
+PyO3 and native Rust verification APIs:
 
-## User API
+\[
+D_{\mathrm{proj}}(U,V)
+ = \sqrt{1 - |\operatorname{Tr}(U^\dagger V)|^2/4^n}.
+\]
 
-~~~python
+The default is `approximate_distance_tolerance=1e-8`; `None`
+also selects this default. An explicit finite number in (0, 1) changes
+the threshold for one verification. The old
+`wmc_magnitude_tolerance` parameter and normalized-magnitude
+classifier have been removed rather than retained as a conflicting policy.
+
+```python
 from QuPRS import check_equivalence
 
 result = check_equivalence(
     original, optimized,
-    method="wmc_only", backend="rust", tool_name="ganak",
-    wmc_magnitude_tolerance=1e-8,
-    wmc_phase_tolerance=1e-8,
+    method="hybrid", backend="rust", tool_name="gpmc",
+    approximate_distance_tolerance=1e-8,  # public default
+    phase_tolerance=1e-8,                 # independent global-phase labeling
+    rr_tolerance=1e-10,                   # independent Python RR matching
 )
-print(result.equivalent, result.wmc_magnitude_tolerance)
-~~~
+print(result.equivalent, result.approximate_distance_tolerance)
+```
 
-Both fields are optional, evaluated per call and separately recorded in
-the returned result. When omitted, the public API reads defaults from
-config.WMC_MAGNITUDE_TOLERANCE and config.WMC_PHASE_TOLERANCE. Explicit values must be finite numbers
-strictly between 0 and 1. Invalid values fail before native execution.
-config.set_tolerance() governs Python symbolic reduction only; changing
-it is **not** a way to tune the WMC numeric classifier.
+## Meaning and numerical transport
 
-The current **public Python API** defaults are magnitude 1e-8 and
-phase 1e-8. These are numerical heuristics, not exact certificates. The historical values were 1e-6 each. Direct callers of the
-legacy Rust-core function retain its historical defaults; the Python API
-passes its validated current per-call settings to the Rust FFI explicitly.
-Both backend paths must agree on selected settings and outcomes.
+The source-angle representation is preserved where supported; in the
+native GPMC distance path, tolerance-adaptive MPFR evaluates complex
+source-phase weights. The working precision is selected per verification:
+`ceil_to_32(-2*log2(epsilon) + ceil(log2(max(1, phase_terms))) + 32)`
+bits, with a 96-bit minimum and a 1024-bit supported maximum. At the
+public default `epsilon=1e-8`, a small residual uses 96 bits rather
+than always using 192. Output decimal digits scale with the working bits
+so the formatted MPFR value round-trips. Extremely tight tolerances whose
+computed bit requirement exceeds the supported maximum fail explicitly,
+not with an unannounced precision cap. The 32 guard bits and phase-term
+allowance are an engineering precision budget, not a certified solver or
+cancellation error bound. GPMC reads the resulting weights without a
+solver-source patch. Python can emit supported
+SymEngine 113-bit weights without an intermediate binary64 conversion.
 
-The magnitude classifier compares the normalized weighted trace with unit
-magnitude; the phase tolerance distinguishes equality from equality
-**up to global phase** once the magnitude condition passes. These are not
-independent theorems about exact equivalence. Smaller thresholds can
-increase false negatives when weighted counts are imprecise. Larger ones
-can increase false positives.
+For a reported normalized trace magnitude `m`, the stable magnitude
+defect corresponding to projective `epsilon` is
 
-## Reference cases and competing tools
+\[
+1 - \sqrt{1 - \epsilon^2}
+  = \frac{\epsilon^2}{1 + \sqrt{1 - \epsilon^2}}.
+\]
 
-For identity vs RZ(0.001),
+At `epsilon=1e-8`, the defect is approximately `5e-17`,
+not `1e-8`. Binary64 normalized magnitudes cannot reliably resolve
+that threshold, which is why the API uses the originally **printed**
+complex WMC count and rational interval comparisons, rather than a
+binary64 normalized `m` or a fixed empirical guard.
 
-~~~text
-|Tr(RZ(0.001))|/2 = cos(0.0005)
-                       ≈ 0.9999998750000026
-1 - |Tr|/2              ≈ 1.249999974e-7
-~~~
+GPMC uses 30 significant decimal working/output digits by default,
+with an explicit 90-digit option, in **one** solver invocation.
+Ganak 2.8.0 mode 6 prints each MPFR complex-count component using a fixed
+`%.8Re` scientific format (approximately nine significant decimal digits).
+The `--mpfrprec` option changes internal arithmetic precision but does **not**
+change this fixed output format. At the default projective distance `1e-8`,
+the corresponding magnitude defect is approximately `5e-17`, below what
+Ganak's printed output can generally resolve. Its `equivalent` or
+`not_equivalent` verdict is therefore an operational point estimate, not a
+certified decision at finer distance resolution; inspect the existing
+`wmc_print_resolution_distance` warning. This output limitation is not a
+proof of solver internal arithmetic error. QuPRS does not patch or rerun
+Ganak automatically.
 
-Consequently a magnitude threshold of 1e-6 considers this close enough
-in the historical heuristic, whereas 1e-8 distinguishes it. This is
-*not* proof that 1e-8 is sound for all circuits or solver output modes.
+Ganak retains mode-6 output precision. For finite counts, **both**
+Solvers classify the central printed count against the same projective-
+distance threshold. Printed rounding intervals and normalized magnitude
+overshoots remain **diagnostics**: an independently inconclusive printed
+interval does not override a determinate operational distance verdict.
+Malformed/nonfinite counts and actual solver failures remain errors.
 
-MQT QCEC reports separate numerical DD tolerance (2e-13 in its
-configuration reference), approximate process distance threshold
-(default 1e-8), and trace thresholds. Their meanings are different.
-Quokka-Sharp documents an FPE: 1e-12 tool configuration field plus an
-equivalence API epsilon=0 setting. None of these values should be
-copied to QuPRS without comparing the normalized trace metric, backend
-arithmetic and actual solver precision.
+**Ganak warning:** the parser extracts the rounding half-units for
+the actual printed real and imaginary count. It computes the span
+of possible squared magnitudes and normalizes by the trace square,
+`2**normalization_twice_log2`. Its square root is the observed
+projective-distance *printing granularity*. If this exceeds the
+requested `approximate_distance_tolerance`, Python emits
+`RuntimeWarning`, Rust CLI emits a warning on **stderr** (also in
+`--quiet` mode), and result metadata records
+`wmc_print_resolution_distance` with
+`wmc_precision_reason="ganak_point_estimate_resolution_limited"`.
+The printed rounding interval can still report `wmc_printed_verdict=
+"unknown"` even when the operational numeric verdict is
+`equivalent` or `not_equivalent`. This deliberately distinguishes
+the center-point estimate from the unresolved output precision.
+No fixed `1e-4` threshold or extra solver execution is used. The
+warning is **not** a bound on Ganak's internal arithmetic error.
 
-References:
-- https://mqt.readthedocs.io/projects/qcec/en/v3.4.0/api/mqt/qcec/pyqcec/index.html
-- https://mqt.readthedocs.io/projects/qcec/en/latest/approximate_equivalence_checking.html
-- https://github.com/System-Verification-Lab/Quokka-Sharp
+## Exact unweighted CNF cases
 
-## Numerical status versus proof provenance
+A structurally unweighted CNF whose every clause is tautological has
+**exactly** `2**variables` satisfying assignments, regardless of how many
+digits an external solver can print. QuPRS verifies this against the
+expected trace normalization exponent and directly returns `equivalent`
+when they match. This is a restricted, exact WMC counting proof, not an
+RR fallback, approximate magnitude threshold, general SAT simplifier or
+unchecked identity assumption. It also applies when `method="wmc_only"`.
 
-~~~python
-result = check_equivalence(
-    original, optimized, method="wmc_only",
-    wmc_policy="conservative",
-    wmc_magnitude_tolerance=1e-8,
-)
-# Uncertified solver floating-point observations remain "unknown";
-# result.wmc_numerical_verdict retains the threshold-based diagnostic.
-~~~
+For example, comparing a one-qubit identity against itself is a
+definitive `equivalent` for Python, PyO3/native Rust, GPMC and Ganak.
+The exact counting shortcut records
+`wmc_precision_reason="analytic_unweighted_tautology"`,
+`wmc_solver_invoked=False`, and no printed solver verdict/time.
+CNFs with nontrivial weighted phases, any nontautological clause, or a
+normalization mismatch **must** continue through the requested solver
+and normal finite-precision classification. Identity versus X or Z
+must never be classified positive by this shortcut.
 
-Use wmc_policy="conservative" when an uncertified numeric WMC result
-must not be exposed as a strict mathematical verdict. For controlled
-legacy comparisons, specify the tolerance and record it with the solver,
-backend, raw count, and source commit. Strict interval bounds from the
-bounded diagonal-family reference are a separate research artifact.
+## Separate knobs and no solver retry
 
-Acceptance requires:
-1. Same result across Python/Rust and GPMC/Ganak for true identity and
-   I vs RZ(0.001) at both legacy and candidate thresholds.
-2. The source-scope regression suite and cross-platform native gates pass.
-3. The candidate 1e-8 does not convert bona fide equivalent benchmark
-   instances to spurious negative verdicts; otherwise retain 1e-6 by
-   default and permit explicit per-call strict policy.
-4. No change to the TACAS Reduction-first Hybrid or solver selection.
+- `phase_tolerance` / `wmc_phase_tolerance`: labels a proven
+  up-to-global-phase relation as `equivalent` or `equivalent*`.
+- `rr_tolerance`: per-verification RR coefficient tolerance in
+  Python and native Rust. Native RR-only also uses a conservative
+  aggregate bound for nonzero diagonal residual phase in cycles;
+  it does not enforce a separate exact-nonzero rejection rule.
+  Hybrid applies that same RR criterion, without consulting WMC's
+  projective-distance tolerance during the RR stage. Neither mode
+  rewrites the original source phase.
+- `approximate_distance_tolerance`: numerical projective-distance
+  acceptance, now the sole WMC metric.
 
-## Candidate-selection evidence
+Hybrid retains reduction-first operation and calls WMC only if RR is
+inconclusive. An approximate RR success satisfies the configured RR
+acceptance criterion, **not** an independent guarantee of
+`approximate_distance_tolerance`. This avoids treating the two tolerances
+as interchangeable. There is no second solver invocation for higher
+precision, no implicit solver fallback, and no modification of
+Ganak/GPMC source.
 
-The initial 1e-10 public default candidate failed the native historical
-policy gate: explicitly historical RZ(0.0026) controls naturally changed
-classification, and a genuine identity versus 60 H gates was falsely
-reported as inequivalent by a finite-precision Ganak 2.8.0 mode-6 count.
-That proves 1e-10 was too strict for the supported default environment.
-The currently integrated public default is 1e-8, while historical boundary
-fixtures now explicitly request 1e-6 to continue testing the historical
-policy. The large-normalization identity control still uses the new default
-and must remain correct; do not adjust that oracle or silently skip the case.
+The classifier's printed-output interval is a **conditional numerical
+observation**, not a certified bound on solver arithmetic, CNF
+preprocessing, input conversion, or the symbolic reduction engine.
+A definitive WMC numerical verdict must not be advertised as an
+unconditional source-exact equivalence certificate. A stricter threshold
+may increase uncertainty in the **printed-output evidence**. For
+Ganak, a midpoint-based operational verdict remains explicitly
+uncertified when that evidence is unresolved, and users receive the
+dynamic resolution warning. Release acceptance must include
+source-pinned physical oracles and CodSpeed regression checks
+on both native and Python execution paths.
 
-Source: https://github.com/PhysicsQoo/QuPRS/actions/runs/40149062476
+## Breaking API migration
+
+Replace historical magnitude-threshold calls with a *physical*
+projective-distance target. There is no general equality mapping from
+the old tolerance to the new metric for all numerical/error states.
+For an ideal normalized trace value and a chosen defect `t`, the
+algebraic distance threshold is `sqrt(2*t - t*t)`. Treat this as a
+metric conversion, **not** as an error guarantee.
+
+The legacy public keyword `wmc_magnitude_tolerance` raises
+`TypeError` in Python/PyO3; typed native Rust options no longer
+contain that field. Existing callers must choose a distance threshold
+or use the new default. The old `wmc_policy` API is also absent.

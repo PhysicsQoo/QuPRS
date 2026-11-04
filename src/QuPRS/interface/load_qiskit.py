@@ -9,6 +9,11 @@ import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3
 
 from QuPRS import config
+from QuPRS.utils.verification_tolerances import (
+    DEFAULT_RR_TOLERANCE, validate_rr_tolerance, scoped_rr_tolerance,
+    begin_rr_approximation_tracking, finish_rr_approximation_tracking,
+    rr_approximation_used,
+)
 from QuPRS.interface.gate_library import gate_map, support_gate_set
 from QuPRS.pathsum import PathSum, Register
 from QuPRS.pathsum.statistics import StatisticsManager
@@ -17,9 +22,87 @@ from QuPRS.utils.solver_process import SolverTimeout
 from QuPRS.utils.util import set_safe_memory_limit
 
 
+
+def _warn_ganak_print_resolution(
+    solver: str, observed_resolution: float | None, requested: float,
+) -> None:
+    """Report observed *output* granularity, without changing the verdict."""
+    if solver != "ganak" or observed_resolution is None:
+        return
+    import warnings
+    warnings.warn(
+        "Ganak printed-count rounding resolution at this normalized count "
+        f"(estimated projective-distance scale {observed_resolution:.6g}) "
+        f"is coarser than requested approximate_distance_tolerance={requested:.6g}. "
+        "The WMC verdict is a solver-dependent numerical observation, "
+        "not a guaranteed decision at the requested resolution.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
+def _warn_hybrid_approximate_rr_wmc(method, wmc_entered, approximated):
+    """Warn without changing the one-distance numerical verdict.
+
+    RR may legitimately discard a tiny non-global source phase. The WMC
+    result then classifies that reduced residual, rather than certifying
+    the original source's exact projective-distance threshold.
+    """
+    if method != "hybrid" or not wmc_entered or not approximated:
+        return
+    import warnings
+    warnings.warn(
+        "Hybrid WMC received an RR-approximated residual PathSum; "
+        "its projective-distance verdict can differ from the original "
+        "source circuit near approximate_distance_tolerance. "
+        "Use rr_tolerance=0 or method='wmc_only' for a source-distance "
+        "check. The WMC distance verdict is unchanged.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def timeout_handler(signum, frame):
     raise VerificationTimeout("Operation timed out")
 
+
+
+def _qiskit_global_phase_cycles(circuit: QuantumCircuit):
+    """Qiskit numeric global phase in PathSum's 2*pi-cycle convention.
+
+    Qiskit may already have converted source QASM3 expressions into a float.
+    This preserves the numeric scalar that Qiskit represents; it is not a
+    certificate of source-literal exact angle fidelity. An unbound or
+    non-finite global phase must fail closed rather than disappear.
+    """
+    import symengine as se
+    import sympy as sp
+
+    try:
+        phase = float(circuit.global_phase)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "Python backend requires a bound numeric QuantumCircuit.global_phase"
+        ) from exc
+    if not math.isfinite(phase):
+        raise ValueError("Python backend requires a finite QuantumCircuit.global_phase")
+    if phase == 0.0:
+        return se.S.Zero
+    # Rationalize the *already represented* binary64 value, without another
+    # fixed decimal truncation or using the RR tolerance as a parser policy.
+    return se.sympify(sp.Rational(phase / math.tau))
+
+
+def _add_global_phase_cycles(pathsum_circuit: PathSum, cycles):
+    """Attach scalar phase without modifying gates, RR, or solver policy."""
+    if cycles == 0:
+        return pathsum_circuit
+    from QuPRS.utils.util import reduce_expression
+    new_phase = reduce_expression(pathsum_circuit.P + cycles, drop_small=False)
+    return PathSum(
+        new_phase, pathsum_circuit.f, pathsum_circuit.pathvar,
+        pathsum_circuit._stats,
+    )
 
 
 def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
@@ -35,7 +118,9 @@ def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = 
             gate[2],
         )
 
-    return pathsum_circuit
+    return _add_global_phase_cycles(
+        pathsum_circuit, _qiskit_global_phase_cycles(circuit)
+    )
 
 
 def initialize(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
@@ -65,6 +150,15 @@ def get_gate(circuit: QuantumCircuit, gate):
 def get_gates(circuit: QuantumCircuit):
     gates = []
     for gate in circuit.data:
+        # The public API proves unitary circuit equivalence, not instrument
+        # or classical-outcome equivalence. Measurement/reset cannot be
+        # interpreted as a unitary identity, even if the QASM importer
+        # successfully parses them.
+        if gate.operation.name in ("measure", "reset"):
+            raise ValueError(
+                "Non-unitary Qiskit instruction "
+                f"'{gate.operation.name}' is unsupported for equivalence"
+            )
         gates.append(get_gate(circuit, gate))
     return gates
 
@@ -170,9 +264,11 @@ def check_equivalence(
     timeout: int = 600,
     safe_mode: bool = False,
     backend: str = "python",
-    wmc_policy: str = "legacy",
-    wmc_magnitude_tolerance: float | None = None,
     wmc_phase_tolerance: float | None = None,
+    approximate_distance_tolerance: float | None = 1e-8,
+    rr_tolerance: float | None = None,
+    phase_tolerance: float | None = None,
+    gpmc_precision_digits: int = 30,
 ):
     """
     Check whether two quantum circuits are equivalent using different verification
@@ -188,8 +284,11 @@ def check_equivalence(
               (WMC). This is the recommended mode.
             - 'reduction_rules': Uses only Reduction Rules. If reduction is
               incomplete, returns 'unknown'.
-            - 'wmc_only': Uses only Weighted Model Counting (WMC), without any
-              reduction.
+            - 'wmc_only': Uses Weighted Model Counting (WMC), without
+              reduction-rule matching. Python still normalizes phase
+              coefficients while building the PathSum, but preserves
+              small nonzero input phases rather than removing them
+              using the local reduction tolerance.
         strategy (str, optional): Internal strategy for handling quantum gates.
             Default is "Difference".
             - 'Difference': Uses a difference-based strategy.
@@ -206,36 +305,52 @@ def check_equivalence(
             and timeout limits" for supported-platform and cleanup guarantees.
         safe_mode (bool, optional): If True, enables safe mode with memory limits by
             using multiple processes. Default is False.
-        wmc_policy (str, optional): "legacy" preserves the heuristic verdict
-            policy; "conservative" returns "unknown" for uncertified numeric
-            WMC outcomes while retaining result.wmc_numerical_verdict.
-        wmc_magnitude_tolerance (float | None): Normalized WMC trace magnitude
-            acceptance threshold. None uses config.WMC_MAGNITUDE_TOLERANCE.
-            Independent of reduction tolerance and not a formal proof bound.
+        rr_tolerance (float | None): Per-call RR numerical coefficient matching.
+            Defaults to 1e-10. Preserves small source phase terms.
+        phase_tolerance (float | None): Phase zero classification in radians
+            for RR and WMC; conflicts with a different wmc_phase_tolerance.
         wmc_phase_tolerance (float | None): WMC phase threshold separating
             "equivalent" and "equivalent*" for near-unit magnitudes.
             None uses config.WMC_PHASE_TOLERANCE.
+        approximate_distance_tolerance (float | None): Projective Hilbert-Schmidt
+            distance threshold in (0, 1), default 1e-8. None means the
+            same default, not the removed magnitude classifier. Finite
+            counts use one central printed-count distance verdict;
+            raw printed uncertainty remains separately diagnostic.
+        gpmc_precision_digits (int): GPMC complex MPFR output/working digits:
+            30 by default or explicitly 90. Independent from distance tolerance.
 
     Returns:
         EquivalenceCheckResult: An object containing the result dictionary and the
             final PathSum circuit object.
     """
+    rr_tolerance = validate_rr_tolerance(
+        DEFAULT_RR_TOLERANCE if rr_tolerance is None else rr_tolerance
+    )
+    if phase_tolerance is not None:
+        if wmc_phase_tolerance is not None and wmc_phase_tolerance != phase_tolerance:
+            raise ValueError("phase_tolerance conflicts with wmc_phase_tolerance")
+        wmc_phase_tolerance = phase_tolerance
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         raise ValueError("timeout must be a positive integer number of seconds")
-    if wmc_policy not in ("legacy", "conservative"):
-        raise ValueError("wmc_policy must be 'legacy' or 'conservative'")
-    if wmc_magnitude_tolerance is None:
-        wmc_magnitude_tolerance = config.WMC_MAGNITUDE_TOLERANCE
+    # One public WMC metric: projective distance, default 1e-8.
+    if approximate_distance_tolerance is None:
+        approximate_distance_tolerance = 1e-8
+    eps = approximate_distance_tolerance
+    if (isinstance(eps, bool) or not isinstance(eps, (int, float))
+        or not math.isfinite(eps) or not 0 < eps < 1):
+        raise ValueError("approximate_distance_tolerance must be finite and in (0, 1)")
     if wmc_phase_tolerance is None:
         wmc_phase_tolerance = config.WMC_PHASE_TOLERANCE
-    for name, threshold in (
-        ("wmc_magnitude_tolerance", wmc_magnitude_tolerance),
-        ("wmc_phase_tolerance", wmc_phase_tolerance),
-    ):
-        if (isinstance(threshold, bool)
-            or not isinstance(threshold, (int, float))
-            or not math.isfinite(threshold) or not 0 < threshold < 1):
-            raise ValueError(f"{name} must be finite and in (0, 1)")
+    if (isinstance(wmc_phase_tolerance, bool)
+        or not isinstance(wmc_phase_tolerance, (int, float))
+        or not math.isfinite(wmc_phase_tolerance)
+        or not 0 < wmc_phase_tolerance < 1):
+        raise ValueError("wmc_phase_tolerance must be finite and in (0, 1)")
+    if type(gpmc_precision_digits) is not int or gpmc_precision_digits not in (30, 90):
+        raise ValueError("gpmc_precision_digits must be 30 or 90")
+    if tool_name != "gpmc" and gpmc_precision_digits != 30:
+        raise ValueError("gpmc_precision_digits=90 only applies to GPMC")
     # Validate method argument
     if method not in ["hybrid", "reduction_rules", "wmc_only"]:
         raise ValueError(
@@ -307,8 +422,11 @@ def check_equivalence(
                                     tool_name=tool_name,
                                     timeout=remaining,
                                     safe_mode=safe_mode,
-                                    wmc_magnitude_tolerance=wmc_magnitude_tolerance,
                                     wmc_phase_tolerance=wmc_phase_tolerance,
+                                    approximate_distance_tolerance=approximate_distance_tolerance,
+                                    rr_tolerance=rr_tolerance,
+                                    phase_tolerance=wmc_phase_tolerance,
+                                    gpmc_precision_digits=gpmc_precision_digits,
                                 )
                         finally:
                             if previous_path is None:
@@ -332,17 +450,23 @@ def check_equivalence(
         elif rust_res.get("status") == "Unknown":
             mapped_equiv = "unknown"
             
-        rust_wmc_numerical_verdict = None
-        if (
-            wmc_policy == "conservative"
-            and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent")
-            and (method == "wmc_only" or rust_res.get("wmc_solver_time_sec") is not None)
-        ):
-            # The Rust status is a solver-derived numeric classification, not
-            # a certified enclosure. Preserve it as an observation only.
-            rust_wmc_numerical_verdict = mapped_equiv
-            mapped_equiv = "unknown"
+        # WMC classification is numerical evidence, not an exact proof.
+        rust_wmc_numerical_verdict = (
+            rust_res.get("wmc_numerical_verdict")
+            if rust_res.get("wmc_solver_time_sec") is not None
+            and mapped_equiv in ("equivalent", "equivalent*", "not_equivalent", "unknown")
+            else None
+        )
 
+        _warn_hybrid_approximate_rr_wmc(
+            method,
+            rust_res.get("wmc_time_sec") is not None,
+            bool(rust_res.get("rr_residual_approximate", False)),
+        )
+        _warn_ganak_print_resolution(
+            tool_name, rust_res.get("wmc_print_resolution_distance"),
+            approximate_distance_tolerance,
+        )
         return EquivalenceCheckResult(
             qubit_num=rust_res.get("qubits", 0),
             gate_num=rust_res.get("gates1", 0),
@@ -362,10 +486,14 @@ def check_equivalence(
             CNF=None,
             expect=None,
             log_wmc=None,
-            wmc_policy=wmc_policy,
             wmc_numerical_verdict=rust_wmc_numerical_verdict,
-            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
+            approximate_distance_tolerance=approximate_distance_tolerance,
+            wmc_printed_verdict=rust_res.get("wmc_printed_verdict"),
+            wmc_precision_reason=rust_res.get("wmc_precision_reason"),
+            wmc_print_resolution_distance=rust_res.get("wmc_print_resolution_distance"),
+            wmc_solver_invoked=rust_res.get("wmc_solver_invoked"),
+            rr_approximate=rust_res.get("rr_approximate", False),
         )
     try:
         from QuPRS.utils.strategy import Strategy
@@ -374,7 +502,6 @@ def check_equivalence(
     except ValueError as e:
         raise e
 
-    tolerance = config.TOLERANCE
 
     start_time = time.time()
     deadline = time.monotonic() + timeout
@@ -391,9 +518,9 @@ def check_equivalence(
             method=method,
             strategy=strategy,
             equivalent="not_equivalent",
-            wmc_policy=wmc_policy,
-            wmc_magnitude_tolerance=wmc_magnitude_tolerance,
             wmc_phase_tolerance=wmc_phase_tolerance,
+            approximate_distance_tolerance=approximate_distance_tolerance,
+            wmc_solver_invoked=False,
             verification_time=0.0,
             pathsum_time=0.0,
             final_pathsum="N/A",
@@ -437,6 +564,7 @@ def check_equivalence(
         previous_alarm_handler = signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(timeout)
 
+    rr_evidence_token = begin_rr_approximation_tracking()
     try:
         to_DIMACS_time = None
         tool_time = None
@@ -445,45 +573,96 @@ def check_equivalence(
         log_wmc = None
         expect = None
         wmc_numerical_verdict = None
+        wmc_solver_invoked = False
+        wmc_precision_reason = None
+        wmc_printed_verdict = None
+        wmc_print_resolution_distance = None
+        wmc_numeric_model_bound = None
 
         # Run the selected strategy to build the PathSum circuit
         pathsum_time = f">{timeout}"
-        if safe_mode:
-            elapsed_so_far = time.time() - start_time
-            remaining_time = max(1, int(timeout - elapsed_so_far))
-            pathsum_circuit = strategy_obj.safe_run(
-                pathsum_circuit, gates1, gates2, timeout=remaining_time
-            )
-        else:
-            pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
+        # Hybrid and RR-only run the identical tolerance-aware reduction
+        # during gate processing, not an extra reduction on the final state.
+        with scoped_rr_tolerance(rr_tolerance):
+            if safe_mode:
+                elapsed_so_far = time.time() - start_time
+                remaining_time = max(1, int(timeout - elapsed_so_far))
+                pathsum_circuit = strategy_obj.safe_run(
+                    pathsum_circuit, gates1, gates2, timeout=remaining_time
+                )
+            else:
+                pathsum_circuit = strategy_obj.run(pathsum_circuit, gates1, gates2)
+        # The public check_equivalence path builds the two-circuit miter
+        # directly, without calling build_circuit. Inject the Qiskit numeric
+        # scalar exactly once: ket(source1) - bra(source2), after the gate
+        # strategy and before RR *or* WMC inspect the same residual PathSum.
+        relative_cycles = (
+            _qiskit_global_phase_cycles(qiskit_circuit1)
+            - _qiskit_global_phase_cycles(qiskit_circuit2)
+        )
+        pathsum_circuit = _add_global_phase_cycles(pathsum_circuit, relative_cycles)
         pathsum_time = round(time.time() - start_time, 3)
         progress = f"{strategy_obj.count}/{l1 + l2}"
 
+        # RR-only and Hybrid share this complete, tolerance-reduced PathSum.
+        # If RR cannot decide, Hybrid passes this same residual to WMC.
+        rr_view = pathsum_circuit
         # Reduction rules check (if enabled)
         if method != "wmc_only":
-            if pathsum_circuit.f == initial_state.f:
-                if pathsum_circuit.P == initial_state.P:
+            if rr_view.f == initial_state.f:
+                if rr_view.P == initial_state.P:
                     equivalent = "equivalent"
-                P_free_symbols = pathsum_circuit.P.free_symbols
+                P_free_symbols = rr_view.P.free_symbols
                 # check_P_symbol = tuple(
-                #     filter(lambda x: x.name in pathsum_circuit.f.bits, P_free_symbols)
+                #     filter(lambda x: x.name in rr_view.f.bits, P_free_symbols)
                 # )
                 if len(P_free_symbols) == 0:
-                    if pathsum_circuit.P < tolerance:
-                        equivalent = "equivalent"
-                    else:
-                        equivalent = "equivalent*"
+                    # Phase coefficients are in cycles; compare wrapped radians.
+                    cycles = float(rr_view.P.evalf()) % 1.0
+                    phase = (cycles * math.tau) % math.tau
+                    phase_is_within_tolerance = (
+                        min(phase, math.tau - phase) < wmc_phase_tolerance
+                    )
+                    equivalent = (
+                        "equivalent" if phase_is_within_tolerance
+                        else "equivalent*"
+                    )
                 else:
-                    equivalent = "unknown"
-            elif len(pathsum_circuit.pathvar) == 0:
-                equivalent = "not_equivalent"
+                    # A fully reduced, path-variable-free diagonal with a
+                    # nonzero controlled phase is a RR-only counterexample
+                    # *after* configured local RR tolerance has been applied.
+                    # Hybrid still retains its independent distance criterion.
+                    equivalent = (
+                        "not_equivalent"
+                        if method == "reduction_rules"
+                        and len(rr_view.pathvar) == 0
+                        else "unknown"
+                    )
+            elif len(rr_view.pathvar) == 0:
+                # Strict non-equality alone does not establish D > epsilon.
+                equivalent = ("not_equivalent" if method == "reduction_rules"
+                              else "unknown")
             else:
                 equivalent = "unknown"
 
-        # If reduction is incomplete or WMC-only, run weighted model counting
-        if method == "wmc_only" or (method == "hybrid" and equivalent == "unknown"):
+        # No strict replay or replacement residual: WMC consumes precisely
+        # the PathSum left by the configured RR rules. Numerical warnings
+        # report approximation provenance without changing the verdict.
+        pathsum_time = round(time.time() - start_time, 3)
+
+        # Preserve the published hybrid algorithm: WMC consumes the final
+        # RR residual only when reduction itself remains inconclusive.
+        # Diagnostic tolerance events do not override RR's verdict.
+        if method == "wmc_only" or (
+            method == "hybrid" and equivalent == "unknown"
+        ):
+            _warn_hybrid_approximate_rr_wmc(
+                method, True,
+                rr_approximation_used() or bool(getattr(
+                    pathsum_circuit._stats, "rr_approximation_used", False
+                )),
+            )
             from QuPRS.interface.ps2wmc import run_wmc, to_DIMACS
-            from QuPRS.utils.wmc_solvers import classify_weighted_count
 
             current_elapsed = time.time() - start_time
             if current_elapsed >= timeout:
@@ -508,25 +687,62 @@ def check_equivalence(
                     CNF = to_DIMACS(pathsum_circuit, temp_name, tool_name=tool_name)
                 to_DIMACS_time = round(time.time() - to_DIMACS_start_time, 3)
 
-                # Run weighted model counting (WMC)
-                tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
-                tool_start_time = time.time()
-                complex_number = run_wmc(
-                    temp_name, tool_name, timeout=max(0.0, deadline - time.monotonic())
+                # An unweighted CNF composed entirely of tautologies has
+                # exactly 2**(CNF variables) models. When this equals the
+                # trace normalization, no floating solver can improve the
+                # already exact count. This is a CNF proof, not an RR fallback.
+                from QuPRS.utils.precision_count import (
+                    classify_observed_distance, approximate_printed_log2,
+                    exactly_count_unweighted_tautology,
                 )
-                tool_time = round(time.time() - tool_start_time, 3)
-                equivalent, log_wmc = classify_weighted_count(
-                    complex_number[0], complex_number[1], expect,
-                    magnitude_tolerance=wmc_magnitude_tolerance,
-                    phase_tolerance=wmc_phase_tolerance,
-                )
-                if wmc_policy == "conservative":
-                    # The external count does not carry a rigorous error bound.
-                    # Retain the unmodified heuristic output for diagnostics,
-                    # but do not assert either mathematical verdict from it.
+                twice = int(round(2 * expect))
+                if exactly_count_unweighted_tautology(CNF, twice):
+                    equivalent = "equivalent"
+                    wmc_precision_reason = "analytic_unweighted_tautology"
+                    wmc_solver_invoked = False
+                    wmc_printed_verdict = None
+                    wmc_numerical_verdict = None
+                    log_wmc = expect
+                    tool_time = None
+                    wmc_time = to_DIMACS_time
+                else:
+                    tool_time = f">{timeout - pathsum_time - to_DIMACS_time}"
+                    tool_start_time = time.time()
+                    wmc_solver_invoked = True
+                    counted = run_wmc(
+                        temp_name, tool_name,
+                        timeout=max(0.0, deadline - time.monotonic()),
+                        preserve_count=True,
+                        precision_digits=(90 if gpmc_precision_digits == 90 else None)
+                        if tool_name == "gpmc" else None,
+                    )
+                    equivalent, evidence = classify_observed_distance(
+                        counted, twice, approximate_distance_tolerance,
+                        wmc_phase_tolerance,
+                        ganak_point_estimate=(tool_name == "ganak"),
+                    )
+                    wmc_printed_verdict = evidence.status
+                    if tool_name == "ganak":
+                        from QuPRS.utils.precision_count import ganak_print_resolution_distance
+                        wmc_print_resolution_distance = ganak_print_resolution_distance(
+                            counted, twice, approximate_distance_tolerance,
+                        )
+                        _warn_ganak_print_resolution(
+                            tool_name, wmc_print_resolution_distance,
+                            approximate_distance_tolerance,
+                        )
+                    wmc_precision_reason = (
+                        "ganak_point_estimate_resolution_limited"
+                        if tool_name == "ganak"
+                        and evidence.reason == "insufficient_printed_resolution"
+                        else tool_name + "_printed_uncertified_" + evidence.reason
+                    )
+                    log_wmc = approximate_printed_log2(counted)
+                    tool_time = round(time.time() - tool_start_time, 3)
+                    # Preserve the numeric verdict as an observation. It is not
+                    # an independent proof of source-exact equivalence.
                     wmc_numerical_verdict = equivalent
-                    equivalent = "unknown"
-                wmc_time = tool_time + to_DIMACS_time
+                    wmc_time = tool_time + to_DIMACS_time
             finally:
                 # Always clean up the CNF even on solver timeout/error or
                 # malformed output. Full CNF retention is not the default.
@@ -555,6 +771,7 @@ def check_equivalence(
             signal.alarm(0)
         raise e
     finally:
+        rr_approximation_evidence = finish_rr_approximation_tracking(rr_evidence_token)
         if use_alarm:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, previous_alarm_handler)
@@ -583,9 +800,20 @@ def check_equivalence(
         CNF=CNF,
         expect=expect,
         log_wmc=log_wmc,
-        wmc_policy=wmc_policy,
         wmc_numerical_verdict=wmc_numerical_verdict,
-        wmc_magnitude_tolerance=wmc_magnitude_tolerance,
+        wmc_solver_invoked=wmc_solver_invoked,
+        wmc_precision_reason=wmc_precision_reason,
+        wmc_printed_verdict=wmc_printed_verdict,
+        wmc_print_resolution_distance=wmc_print_resolution_distance,
+        wmc_numeric_model_bound=wmc_numeric_model_bound,
+        rr_approximate=(
+            (rr_approximation_evidence
+             or bool(getattr(pathsum_circuit._stats, "rr_approximation_used", False)))
+            and equivalent in ("equivalent", "equivalent*")
+            and not wmc_solver_invoked
+            and method != "wmc_only"
+        ),
+        approximate_distance_tolerance=approximate_distance_tolerance,
         wmc_phase_tolerance=wmc_phase_tolerance,
     )
     return Result
@@ -637,11 +865,22 @@ class EquivalenceCheckResult:
     CNF: Optional[str] = None
     expect: Optional[float] = None
     log_wmc: Optional[float] = None
-    # Legacy numeric verdict remains observable even when policy is conservative.
+    # Numerical solver verdict is diagnostic, not an exact-equivalence proof.
     wmc_numerical_verdict: Optional[str] = None
-    wmc_policy: str = "legacy"
+    # Numerical GPMC error-model diagnostics; NOT a formal proof certificate.
+    wmc_precision_reason: Optional[str] = None
+    wmc_printed_verdict: Optional[str] = None
+    # Ganak's observed normalized printed-output granularity, if coarser
+    # than the requested projective-distance tolerance; not a solver bound.
+    wmc_print_resolution_distance: Optional[float] = None
+    wmc_numeric_model_bound: Optional[str] = None
+    approximate_distance_tolerance: Optional[float] = None
+    # For Rust WMC: distinguish an actual solver process from an analytic shortcut.
+    wmc_solver_invoked: Optional[bool] = None
+    # True when an accepted RR verdict relied on a tolerance-dependent
+    # phase reduction or native conservative residual-phase bound.
+    rr_approximate: bool = False
     # Effective thresholds recorded for reproducible numerical verdicts.
-    wmc_magnitude_tolerance: float | None = None
     wmc_phase_tolerance: float | None = None
 
     @staticmethod

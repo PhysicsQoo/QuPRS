@@ -1,7 +1,7 @@
 //! End-to-end native regressions for exact source-decimal angle identities.
 //! These are production QASM -> IR -> gate -> PhasePolynomial -> reduction,
 //! not a standalone reference-model implementation.
-use pathsum::{check_equivalence, EquivalenceStatus, VerificationMethod};
+use pathsum::{check_equivalence, check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
 use pathsum::qasm::parse_qasm_str;
 use pathsum::rational::Angle;
 use pathsum::strategy::VerificationStrategy;
@@ -51,15 +51,52 @@ fn decimal_rational_has_exact_source_provenance() {
 }
 
 #[test]
-fn tiny_nonzero_exact_radians_are_not_identity() {
-    assert_eq!(
-        check("", "rz(0.0000000001) q[0];"),
-        EquivalenceStatus::NotEquivalent,
-    );
-    assert_eq!(
-        check("", "rz(0.001) q[0];"),
-        EquivalenceStatus::NotEquivalent,
-    );
+fn tiny_nonzero_exact_radians_respect_rr_tolerance() {
+    // RR-only uses per-call tolerance, not a second strict-identity rule.
+    let (ops1, n) = parse_qasm_str(&qasm("")).unwrap();
+    let (ops2, _) = parse_qasm_str(&qasm("rz(0.0000000001) q[0];")).unwrap();
+    let mut options = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        strategy: VerificationStrategy::Naive,
+        ..VerificationOptions::default()
+    };
+    let approximate = check_equivalence_with_options(n, &ops1, &ops2, &options).unwrap();
+    assert_eq!(approximate.status, EquivalenceStatus::Equivalent);
+    assert!(approximate.rr_approximate);
+    assert!(!approximate.solver_invoked);
+    options.rr_tolerance = 1e-12;
+    let strict = check_equivalence_with_options(n, &ops1, &ops2, &options).unwrap();
+    assert_eq!(strict.status, EquivalenceStatus::NotEquivalent);
+    assert!(!strict.rr_approximate);
+    assert!(!strict.solver_invoked);
+    assert_eq!(check("", "rz(0.001) q[0];"), EquivalenceStatus::NotEquivalent);
+}
+
+#[test]
+fn hybrid_rr_acceptance_is_independent_of_wmc_distance_tolerance() {
+    // With no path variables, a tiny nonzero diagonal phase is accepted
+    // by RR tolerance before any solver can be involved. The WMC-only
+    // projective-distance threshold must not override this RR decision.
+    let (ops1, n) = parse_qasm_str(&qasm("")).unwrap();
+    let (ops2, _) = parse_qasm_str(&qasm("rz(0.000000001) q[0];")).unwrap();
+    for method in [VerificationMethod::ReductionRules, VerificationMethod::Hybrid] {
+        for distance in [1e-6, 1e-12] {
+            let opts = VerificationOptions {
+                method,
+                strategy: VerificationStrategy::Naive,
+                rr_tolerance: 1e-8,
+                approximate_distance_tolerance: Some(distance),
+                ..VerificationOptions::default()
+            };
+            let result = check_equivalence_with_options(n, &ops1, &ops2, &opts).unwrap();
+            assert_eq!(result.status, EquivalenceStatus::Equivalent,
+                "method={method:?}, distance={distance}");
+            assert!(result.rr_approximate);
+            assert!(!result.solver_invoked);
+            assert!(result.tool_time.is_none());
+            assert!(result.wmc_time.is_none());
+        }
+    }
 }
 
 #[test]
@@ -100,14 +137,23 @@ fn graphstate_rounded_complements_are_not_symbolic_pi_identities() {
     let second_sum = second_a.radians.unwrap() + second_b.radians.unwrap();
     assert_ne!(first_sum, second_sum);
     assert!(symbolic.radians.is_none());
-    assert_eq!(
-        check(first, symbolic_pi),
-        EquivalenceStatus::NotEquivalent,
-    );
-    assert_eq!(
-        check(second, symbolic_pi),
-        EquivalenceStatus::NotEquivalent,
-    );
+    // These residuals are tiny; default RR may accept them within
+    // tolerance. Use an explicit tighter per-call tolerance to establish
+    // their source-distinctness without inventing an exact-only RR rule.
+    let options = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        strategy: VerificationStrategy::Naive,
+        rr_tolerance: 1e-18,
+        ..VerificationOptions::default()
+    };
+    for input in [first, second] {
+        let (ops1, n) = parse_qasm_str(&qasm(input)).unwrap();
+        let (ops2, _) = parse_qasm_str(&qasm(symbolic_pi)).unwrap();
+        assert_eq!(
+            check_equivalence_with_options(n, &ops1, &ops2, &options).unwrap().status,
+            EquivalenceStatus::NotEquivalent,
+        );
+    }
 }
 
 #[test]
@@ -126,22 +172,54 @@ fn near_cancelled_decimal_source_retains_one_nanosecond_radian_residual() {
     assert_eq!(check("rz(0.0002) q[0];\nrz(-0.000199999) q[0];",
                      "rz(0.000000001) q[0];"),
                EquivalenceStatus::Equivalent);
+    // 1e-9 rad exceeds default RR tolerance, but a looser per-call
+    // threshold is allowed to classify it approximately equivalent.
     assert_eq!(check("", "rz(0.000000001) q[0];"),
                EquivalenceStatus::NotEquivalent);
 }
 
 #[test]
 fn symbolic_pi_remains_distinct_from_finite_decimal_approximation() {
-    assert_eq!(check("rz(pi/8) q[0];",
-                     "rz(0.39269908169872414) q[0];"),
+    let (ops1, n) = parse_qasm_str(&qasm("rz(pi/8) q[0];")).unwrap();
+    let (ops2, _) = parse_qasm_str(&qasm("rz(0.39269908169872414) q[0];")).unwrap();
+    let opts = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        strategy: VerificationStrategy::Naive,
+        rr_tolerance: 1e-20,
+        ..VerificationOptions::default()
+    };
+    assert_eq!(check_equivalence_with_options(n, &ops1, &ops2, &opts).unwrap().status,
                EquivalenceStatus::NotEquivalent);
 }
 
 #[test]
-fn small_rz_and_p_rotation_differ_only_by_nonzero_global_phase() {
-    assert_eq!(check("rz(0.000000001) q[0];",
-                     "p(0.000000001) q[0];"),
-               EquivalenceStatus::EquivalentUpToGlobalPhase);
+fn small_rz_and_p_rotation_phase_label_is_controlled_by_tolerance() {
+    let lhs = "rz(0.000000001) q[0];";
+    let rhs = "p(0.000000001) q[0];";
+
+    // These are up to global phase, but their residual phase (5e-10
+    // radians) is smaller than the default 1e-8 phase tolerance.
+    assert_eq!(check(lhs, rhs), EquivalenceStatus::Equivalent);
+    let (ops1, n1) = parse_qasm_str(&qasm(lhs)).unwrap();
+    let (ops2, n2) = parse_qasm_str(&qasm(rhs)).unwrap();
+    assert_eq!(n1, n2);
+
+    for (eps, expected) in [
+        (1e-8, EquivalenceStatus::Equivalent),
+        (1e-12, EquivalenceStatus::EquivalentUpToGlobalPhase),
+    ] {
+        let options = VerificationOptions {
+            method: VerificationMethod::ReductionRules,
+            strategy: VerificationStrategy::Naive,
+            phase_tolerance: eps,
+            ..VerificationOptions::default()
+        };
+        let result = check_equivalence_with_options(n1, &ops1, &ops2, &options).unwrap();
+        assert_eq!(result.status, expected);
+        assert!(result.wmc_time.is_none());
+        assert!(!result.final_ps.get_global_phase().unwrap().is_zero());
+        assert!(!result.solver_invoked);
+    }
 }
 
 #[test]

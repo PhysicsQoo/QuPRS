@@ -42,15 +42,34 @@ impl<'a> WmcProblem<'a> {
         Ok(())
     }
 
-    /// Render exactly the historical solver-specific DIMACS bytes.
-    /// Adapter dispatch, numerical tolerances and solver process behavior
-    /// remain owned by their existing components.
+    /// The normal path remains monomorphized for the historical f64 adapter.
     pub(crate) fn serialize(&self, adapter: &dyn SolverAdapter) -> String {
+        self.serialize_with(|var, weight| adapter.weight_lines(var,weight))
+    }
+
+    #[cfg(feature="high-precision-gpmc")]
+    pub(crate) fn serialize_precise_gpmc(
+        &self, weights: &HashMap<i32,(String,String)>
+    ) -> String {
+        assert_eq!(weights.len(), self.weights.len());
+        self.serialize_with(|var, _| {
+            let (re,im)=weights.get(&var).expect("missing precise source-phase weight");
+            (format!("c p weight {var} {re} {im} 0\n"),
+             format!("c p weight -{var} 1.0 0.0 0\n"))
+        })
+    }
+
+    fn serialize_with<F>(&self, format_weight:F)->String
+    where F: Fn(i32,Complex<f64>)->(String,String) {
         let _timed_serialize = crate::diagnostics::span("cnf_serialize");
         let mut out = String::new();
         out.push_str(&format!("p cnf {} {}\nc t wmc\n", self.variables, self.clauses.len()));
-        for (var, weight) in self.weights {
-            let (positive, negative) = adapter.weight_lines(*var, *weight);
+        // Canonical order for reproducible CNF input and paired profiling.
+        // This does not change the Boolean constraints or weighted models.
+        let mut sorted_weights: Vec<_> = self.weights.iter().collect();
+        sorted_weights.sort_unstable_by_key(|(var, _)| **var);
+        for (var, weight) in sorted_weights {
+            let (positive, negative) = format_weight(*var, *weight);
             out.push_str(&positive);
             out.push_str(&negative);
         }
@@ -82,6 +101,28 @@ mod tests {
         assert!(gpmc.ends_with("1 -2 0\n2 0\n"));
         assert!(ganak.ends_with("1 -2 0\n2 0\n"));
     }
+    #[test]
+    fn canonical_weight_lines_are_independent_of_insertion_order() {
+        let mut one = HashMap::new();
+        one.insert(3, Complex::new(0.75, 0.125));
+        one.insert(1, Complex::new(-0.5, 0.25));
+        let mut two = HashMap::new();
+        two.insert(1, Complex::new(-0.5, 0.25));
+        two.insert(3, Complex::new(0.75, 0.125));
+        let clauses = vec![vec![1, -3], vec![3]];
+        for solver in ["gpmc", "ganak"] {
+            let adapter = adapter_for(solver).unwrap();
+            let lhs = WmcProblem::new(3, &clauses, &one).serialize(adapter);
+            let rhs = WmcProblem::new(3, &clauses, &two).serialize(adapter);
+            assert_eq!(lhs, rhs);
+            let positive_ids: Vec<_> = lhs.lines()
+                .filter(|line| line.starts_with("c p weight ") && !line.starts_with("c p weight -"))
+                .map(|line| line.split_whitespace().nth(3).unwrap().parse::<i32>().unwrap())
+                .collect();
+            assert_eq!(positive_ids, vec![1, 3]);
+        }
+    }
+
     #[test]
     fn invalid_literal_weight_and_nonfinite_fail_closed() {
         let mut weights=HashMap::new();

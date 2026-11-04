@@ -1,0 +1,151 @@
+{
+  "schema": "quprs-codspeed-suite-catalog-v1",
+  "policy": {
+    "initial_release": "0.14.0",
+    "successor_minor_releases_min": 3,
+    "coexistence_days_min": 90,
+    "legacy_full_run_through": "0.17.0",
+    "earliest_legacy_retirement": "0.18.0",
+    "release_gate_requires_verified_e2e_performance": true
+  },
+  "suites": [
+    {
+      "suite_id": "quprs-legacy-simulation-32-v1",
+      "version": 1,
+      "state": "legacy-supported",
+      "instrument": "simulation",
+      "measurement_scope": "host_cpu_model_subprocess_excluded",
+      "simulation_track_subprocess": false,
+      "case_count": 32,
+      "shard_count": 5,
+      "identity_sha256": "7eb82617bf092c81c6a6bde6e8cd05cec9bab71879f17b2bf315c9c420c7c8ed",
+      "test_paths": [
+        "test/test_Feynman.py",
+        "test/test_MQT.py"
+      ],
+      "retirement_earliest_release": "0.18.0"
+    },
+    {
+      "suite_id": "quprs-curated-simulation-v2",
+      "version": 2,
+      "state": "candidate-not-promoted",
+      "instrument": "simulation",
+      "measurement_scope": "solver_free_algorithm_cpu",
+      "simulation_track_subprocess": false,
+      "expected_backend_options": [
+        "python",
+        "rust"
+      ],
+      "candidates": [
+        {
+          "id": "ghz64",
+          "family": "ghz",
+          "qasm": "ghz_nativegates_ibm_qiskit_opt0_64.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "graphstate32",
+          "family": "graphstate",
+          "qasm": "graphstate_nativegates_ibm_qiskit_opt0_32.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "qpeexact8",
+          "family": "qpeexact",
+          "qasm": "qpeexact_nativegates_ibm_qiskit_opt0_8.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "qpeinexact16",
+          "family": "qpeinexact",
+          "qasm": "qpeinexact_nativegates_ibm_qiskit_opt0_16.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "qwalk4",
+          "family": "qwalk",
+          "qasm": "qwalk-noancilla_nativegates_ibm_qiskit_opt0_4.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "wstate4",
+          "family": "wstate",
+          "qasm": "wstate_nativegates_ibm_qiskit_opt0_4.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "tof3",
+          "family": "feynman",
+          "qasm": "tof_3.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "gf2_4_mult",
+          "family": "feynman",
+          "qasm": "gf2^4_mult.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        },
+        {
+          "id": "vbe_adder3",
+          "family": "feynman",
+          "qasm": "vbe_adder_3.qasm",
+          "method": "reduction_rules",
+          "backend_options": [
+            "python",
+            "rust"
+          ],
+          "evidence": "PILOT_NEEDED",
+          "planned_cadence": "opt_in"
+        }
+      ]
+    }
+  ]
+}

@@ -27,7 +27,9 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
     if not pathsum._stats.is_reduction_enabled():
         return pathsum
 
-    new_P = reduce_expression(pathsum.P)
+    # One expansion/normalization pass: retain the complete scalar phase
+    # modulo one, while RR tolerance still simplifies non-global terms.
+    new_P = reduce_expression(pathsum.P, preserve_scalar=True)
 
     # Find path variables that can be reduced
     free_symbols = set().union(
@@ -51,13 +53,17 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
                 new_pathsum
             )  # Recursive call to apply further reductions
 
-        # Reuse immutable phase coefficients within this single attempt only.
-        # A recursive reduction creates a fresh cache for its new phase.
+        # reduce_expression() has already expanded and normalized this phase.
+        # Reuse it and the same eligibility set in Omega and HH; a recursive
+        # RR step will build a new cache for its updated phase.
         pathvar_as_tuple = tuple(pathsum.pathvar)
+        valid_symbols = {str(bit) for bit in pathsum.bits}
+        valid_symbols.update(str(var) for var in pathvar_as_tuple)
         coeff_cache = {}
         yo_val, Q_val, R_val, return_flag = match_omega(
             new_P, reducible_vars, pathvar_as_tuple, pathsum.bits,
             coeff_cache=coeff_cache,
+            expanded_phase=new_P, valid_symbols=valid_symbols,
         )
         if yo_val is not None:
             new_pathsum = omega_reduction(pathsum, yo_val, Q_val, R_val, return_flag)
@@ -69,6 +75,7 @@ def apply_reduction(pathsum: "PathSum") -> "PathSum":
         yo_val, yi_val, Q_val, R_val = match_HH(
             new_P, reducible_vars, pathvar_as_tuple, pathsum.bits,
             coeff_cache=coeff_cache,
+            expanded_phase=new_P, valid_symbols=valid_symbols,
         )
         if yo_val is not None:
             new_pathsum = HH_reduction(pathsum, yo_val, yi_val, Q_val, R_val)

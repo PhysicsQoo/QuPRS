@@ -73,3 +73,27 @@ async function main() {
   console.log("Release policy 13 positive/negative scenarios passed");
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
+
+// Prevent independent wheel/sdist acceptance on dev-to-main PRs.
+// The reusable release-artifact-ci.yml matrix remains required from Release-Ready Main.
+{
+  const publish = fs.readFileSync(".github/workflows/python-publish.yml", "utf8");
+  const release = fs.readFileSync(".github/workflows/release-ready-main.yml", "utf8");
+  const prClause = publish.split(/^  pull_request:/m)[1]?.split(/^\S/m)[0] || "";
+  assert.match(prClause, /\n    branches: \[dev\]/,
+    "Packaging PR CI must be scoped to dev, not main release PRs");
+  assert.match(publish, /\n  push:\n    tags:\n      - 'v\*'/,
+    "Tagged publishing trigger must be preserved");
+  assert.match(release, /uses: \.\/\.github\/workflows\/release-artifact-ci\.yml/,
+    "Main Release-Ready must retain full installed archive smoke matrix");
+  const source = release.split(/^  source-correctness:/m)[1]?.split(/^  installed-artifacts:/m)[0] || "";
+  assert.match(source, /uses: \.\/\.github\/workflows\/pytest\.yml/,
+    "Release-Ready must retain its complete source correctness matrix");
+  assert.doesNotMatch(source, /require_complete_benchmarks:\s*true\b/,
+    "Resource-inconclusive benchmarks must not be Required science failures");
+  const pytest = fs.readFileSync(".github/workflows/pytest.yml", "utf8");
+  assert.match(pytest, /python scripts\/check_benchmark_evidence\.py --junit pytest-results\.xml --json benchmark-evidence\.json/,
+    "The real JUnit auditor must run on every source matrix shard");
+  assert.doesNotMatch(pytest, /--require-complete/,
+    "Strict performance completeness remains opt-in, not release correctness");
+}

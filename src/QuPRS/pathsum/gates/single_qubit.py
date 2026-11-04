@@ -60,7 +60,7 @@ class XGate(SingleQubitGate):
             new_P = pathsum.P.subs(x_i, 1 - x_i)
             new_f = pathsum.f.sub(x_i, sp.Not(x_i))
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 
 
@@ -85,7 +85,7 @@ class YGate(SingleQubitGate):
             ).expand()
             new_f = pathsum.f.sub(x_i, sp.Not(x_i))
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, new_f, pathsum.pathvar, pathsum._stats)
 
 
@@ -104,7 +104,7 @@ class ZGate(SingleQubitGate):
             )
             new_P = (pathsum.P + se.Rational(1, 2) * x_i).expand()
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -123,7 +123,7 @@ class SGate(SingleQubitGate):
             )
             new_P = (pathsum.P + se.Rational(-1, 4) * x_i).expand()
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -142,7 +142,7 @@ class SdgGate(SingleQubitGate):
             )
             new_P = (pathsum.P + se.Rational(1, 4) * x_i).expand()
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -161,7 +161,7 @@ class TGate(SingleQubitGate):
             )
             new_P = (pathsum.P + se.Rational(-1, 8) * x_i).expand()
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -180,7 +180,7 @@ class TdgGate(SingleQubitGate):
             )
             new_P = pathsum.P + se.Rational(1, 8) * x_i
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -209,7 +209,7 @@ class PGate(SingleQubitGate):
             )
             new_P = pathsum.P - se.Rational(1, 2) * self.theta * x_i
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -237,7 +237,7 @@ class RzGate(SingleQubitGate):
             )
             new_P = pathsum.P + se.Rational(1, 4) * (self.theta - 2 * self.theta * x_i)
 
-        new_P = reduce_expression(new_P)
+        new_P = reduce_expression(new_P, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -337,7 +337,7 @@ class SxGate(SingleQubitGate):
 
         # Apply global phase
         phase_shift = se.Rational(1, 8) if not is_bra else se.Rational(-1, 8)
-        new_P = reduce_expression(pathsum.P + phase_shift)
+        new_P = reduce_expression(pathsum.P + phase_shift, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 
@@ -353,7 +353,7 @@ class SXdgGate(SingleQubitGate):
 
         # Apply global phase
         phase_shift = se.Rational(-1, 8) if not is_bra else se.Rational(1, 8)
-        new_P = reduce_expression(pathsum.P + phase_shift)
+        new_P = reduce_expression(pathsum.P + phase_shift, drop_small=False)
         return PathSum(new_P, pathsum.f, pathsum.pathvar, pathsum._stats)
 
 

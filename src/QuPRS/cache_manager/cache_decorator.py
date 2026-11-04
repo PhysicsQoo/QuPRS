@@ -1,6 +1,6 @@
 # cache_manager/cache_decorator.py
 
-from functools import lru_cache, wraps
+from functools import lru_cache
 
 
 def tracked_lru_cache(maxsize=128):
@@ -11,10 +11,9 @@ def tracked_lru_cache(maxsize=128):
         cached_func = lru_cache(maxsize=maxsize)(func)
         cache_manager.register(cached_func)
 
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            return cached_func(*args, **kwargs)
-
-        return wrapper
+        # functools.lru_cache already preserves __wrapped__/__name__.
+        # Returning it directly avoids an additional Python frame on every
+        # RR cache hit/miss; the global cache manager still owns this object.
+        return cached_func
 
     return decorator

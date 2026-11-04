@@ -171,8 +171,16 @@ impl QuantumGates for PathSum {
                 let mut sub_poly = FxHashSet::default();
                 sub_poly.insert(vec![x_t]);
                 sub_poly.insert(vec![x_c]);
-                
-                self.substitute_var_with_poly(x_t, &sub_poly);
+
+                // Preserve F_2 Boolean-state semantics and specialize only
+                // the exact Bra-CX phase update. Unusual equal control and
+                // target variables retain the legacy generic behavior.
+                if x_t == x_c {
+                    self.substitute_var_with_poly(x_t, &sub_poly);
+                } else {
+                    self.f.substitute_var_with_poly(x_t, &sub_poly);
+                    self.p.substitute_bra_cx(x_t, x_c);
+                }
             }
         }
     }

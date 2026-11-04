@@ -61,7 +61,7 @@ jobs:
           echo "QOO157_D4_CACHE_BINARY=$binary" >> "$GITHUB_ENV"
           sha256sum "$binary" > evidence/d4-cache-binary.sha256
           "$binary" -h > evidence/d4-cache-native-help.log
-          grep -q 'cache.isActivated' evidence/d4-cache-native-help.log
+          grep -q 'isActivated' evidence/d4-cache-native-help.log
           grep -q 'actual-gmp-precision-bits 128' evidence/d4-cache-native-help.log
       - name: Native 38-digit WMC cache-on-off x BiPe control no timing
         shell: bash

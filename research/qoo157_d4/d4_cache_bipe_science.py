@@ -13,7 +13,7 @@ BIPE = {
     "auto": (),
     "none": ("--preproc.auto-config=false", "--preproc.preproc-method=none"),
 }
-FLAG = re.compile(r"--(?:[a-zA-Z0-9_]+\.)*cache\.isActivated\b")
+FLAG = "--dpll.cache.isActivated"  # Verified full path from pinned native -h hierarchy
 COUNTERS = {
     "Number of recursive call": "recursive_calls",
     "Number of split formula": "splits",
@@ -28,11 +28,13 @@ METRICS = re.compile(
 def discover(binary):
     p = subprocess.run([str(binary), "-h"], capture_output=True,
                        text=True, timeout=15, check=True)
-    found = set(FLAG.findall(p.stdout))
-    if len(found) != 1 or "actual-gmp-precision-bits 128" not in p.stdout:
-        raise ValueError("native cache CLI flag or 38d/128bit provenance ambiguous: " +
-                         repr(sorted(found)))
-    return found.pop(), sha256(p.stdout.encode()).hexdigest()
+    # optree -h renders a hierarchical tree, not expanded --paths. The
+    # parent 'dpll/' -> child 'cache/' -> leaf 'isActivated' is the exact
+    # command-line path (--dpll.cache.isActivated=bool).
+    tree_path = re.search(r"(?s)└── dpll/.*?└── cache/.*?└── isActivated", p.stdout)
+    if not tree_path or "actual-gmp-precision-bits 128" not in p.stdout:
+        raise ValueError("d4 optree hierarchy or 38d/128bit native provenance mismatch")
+    return FLAG, sha256(p.stdout.encode()).hexdigest()
 
 def native(binary, cnf, flag, bipe, enabled):
     args = ["-i", str(cnf), f"{flag}={'true' if enabled else 'false'}",

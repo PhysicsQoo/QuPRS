@@ -1,0 +1,122 @@
+name: QOO157 GPMC EE vs d4 BiPe preprocessing research
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-preprocessing-compare.yml'
+      - 'research/qoo157_d4/d4_bipe_instrument.py'
+      - 'research/qoo157_d4/qoo157_preprocess_compare.py'
+      - 'research/qoo157_d4/test_codspeed_preprocessing_compare.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  preprocessing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      QOO157_PP_CNF_DIR: evidence/original/cnfs
+      QOO157_PP_PREFLIGHT: evidence/preprocessing-science.json
+      QUPRS_CODSPEED_EXPORT: evidence/preprocessing-codspeed-walltime.json
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source and lightweight validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/d4_bipe_instrument.py research/qoo157_d4/qoo157_preprocess_compare.py research/qoo157_d4/test_codspeed_preprocessing_compare.py
+          python -m pip install 'pytest-codspeed==5.0.3' 'pytest'
+      - name: Download original SHA-certified CNF and numeric oracle screen
+        uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Build pinned GPMC and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          cmake -S GPMC -B "$RUNNER_TEMP/gpmc-qoo157-preproc" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/gpmc-qoo157-preproc" --parallel 2
+          echo "QOO157_GPMC_BINARY=$RUNNER_TEMP/gpmc-qoo157-preproc/gpmc" >> "$GITHUB_ENV"
+          mkdir -p evidence
+          sha256sum "$RUNNER_TEMP/gpmc-qoo157-preproc/gpmc" > evidence/gpmc-preproc-binary.sha256
+      - name: Build scratch patched pinned d4 38d and instrument BiPe before/after
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo157-d4-preproc"
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$root"
+          git -C "$root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          python research/qoo157_d4/matched_precision_variant.py --upstream "$root" --evidence evidence --digits 38
+          python research/qoo157_d4/d4_bipe_instrument.py --source "$root" --evidence evidence
+          git -C "$root" diff --check
+          git -C "$root" diff -- c++/counter/src/Main.cpp c++/counter/src/Counter.cpp > evidence/d4-preproc-research-source.patch
+          (cd "$root/c++/counter" && ./build.sh -j) > evidence/d4-preproc-build.log 2>&1
+          binary="$root/c++/counter/build/counter"
+          test -x "$binary"
+          echo "QOO157_D4_BINARY=$binary" >> "$GITHUB_ENV"
+          sha256sum "$binary" > evidence/d4-preproc-binary.sha256
+          "$binary" -h > evidence/d4-preproc-38-help.log
+          grep -q 'actual-gmp-precision-bits 128' evidence/d4-preproc-38-help.log
+          grep -q 'preproc-method' evidence/d4-preproc-38-help.log
+      - name: Native pre/post counts and source-WMC science screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/qoo157_preprocess_compare.py \
+            --gpmc "$QOO157_GPMC_BINARY" --d4 "$QOO157_D4_BINARY" \
+            --cnf-dir "$QOO157_PP_CNF_DIR" \
+            --science-report evidence/original/matched-science-report.json \
+            --out "$QOO157_PP_PREFLIGHT"
+      - name: Official CodSpeed v5 within-solver preprocessing pairs
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest research/qoo157_d4/test_codspeed_preprocessing_compare.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=5
+      - name: Retain provenance and limitation
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/runner-head.txt
+          uname -a > evidence/runner-kernel.txt
+          echo 'Only within-solver ablation; d4 scratch instrumentation alters stdout, not qualified for cross-solver speed ranking; hosted WallTime observation' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-preprocess-compare-${{ github.sha }}
+          path: |
+            evidence/preprocessing-science.json
+            evidence/preprocessing-codspeed-walltime.json
+            evidence/gpmc-preproc-binary.sha256
+            evidence/d4-preproc-binary.sha256
+            evidence/d4-precision-38-source-provenance.json
+            evidence/d4-bipe-scratch-instrumentation.json
+            evidence/d4-preproc-research-source.patch
+            evidence/d4-preproc-38-help.log
+            evidence/d4-preproc-build.log
+            evidence/runner-head.txt
+            evidence/runner-kernel.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

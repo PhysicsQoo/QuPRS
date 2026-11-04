@@ -1,0 +1,109 @@
+name: QOO-156 Real WMC Solver Docker Memory Envelope
+
+# Isolated source-pinned science pilot; no CodSpeed timing claims.
+# Only rerun when this test driver or workflow changes.
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths:
+      - '.github/workflows/qoo156-real-wmc-docker-memory.yml'
+      - 'scripts/qoo156_docker_wmc_envelope/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-solver-container-memory:
+    name: Real GPMC/Ganak WMC-only with daemon-enforced 256/1024MiB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: One native CLI build with source/solver provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          cargo build --manifest-path rust/Cargo.toml --locked --release -p QuPRS_cli
+          mkdir -p evidence/qoo156-wmc-container
+          test -x rust/target/release/QuPRS_cli
+          test -x src/QuPRS/utils/wmc_tools/gpmc
+          test -x src/QuPRS/utils/wmc_tools/ganak
+          git rev-parse HEAD > evidence/qoo156-wmc-container/source-sha.txt
+          git rev-parse HEAD:rust/pathsum > evidence/qoo156-wmc-container/pathsum-tree.txt
+          git rev-parse HEAD:GPMC > evidence/qoo156-wmc-container/gpmc-submodule.txt
+          sha256sum \
+            rust/target/release/QuPRS_cli \
+            src/QuPRS/utils/wmc_tools/gpmc \
+            src/QuPRS/utils/wmc_tools/ganak \
+            benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm \
+            scripts/qoo156_docker_wmc_envelope/{Dockerfile,solver_driver.py} \
+            > evidence/qoo156-wmc-container/source-sha256.txt
+          grep -q '^934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd ' \
+            evidence/qoo156-wmc-container/source-sha256.txt
+          docker build -q -t qoo156-wmc-mem:pilot \
+            scripts/qoo156_docker_wmc_envelope \
+            > evidence/qoo156-wmc-container/image-id.txt
+          docker image inspect qoo156-wmc-mem:pilot --format '{{.Id}}' \
+            > evidence/qoo156-wmc-container/image-sha.txt
+      - name: Bounded source-backed real WMC within external memory envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          for solver in gpmc ganak; do
+            for mem in 1024 256; do
+              tag="$solver-$mem"
+              name="qoo156-wmc-$tag-$GITHUB_RUN_ID"
+              docker run --detach --name "$name" \
+                --memory="${mem}m" --memory-swap="${mem}m" \
+                --pids-limit=80 --network=none --read-only \
+                --cap-drop=ALL --security-opt no-new-privileges \
+                --user 65534:65534 --tmpfs /tmp:rw,nosuid,size=64m \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/release/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc,target=/opt/gpmc,readonly" \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak,target=/opt/ganak,readonly" \
+                --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/MQTBench/vqe_nativegates_ibm_qiskit_opt0_4.qasm,target=/opt/vqe4.qasm,readonly" \
+                -e "QOO156_SOLVER=$solver" -e "QOO156_LIMIT_MIB=$mem" \
+                qoo156-wmc-mem:pilot \
+                > "evidence/qoo156-wmc-container/$tag-container-id.txt"
+              set +e
+              timeout --signal=TERM --kill-after=5s 45s docker wait "$name" \
+                > "evidence/qoo156-wmc-container/$tag-wait.txt" 2>&1
+              wait_rc=$?
+              set -e
+              docker inspect "$name" --format '{{.HostConfig.Memory}}' \
+                > "evidence/qoo156-wmc-container/$tag-cap-bytes.txt"
+              docker inspect "$name" --format '{{.State.ExitCode}}' \
+                > "evidence/qoo156-wmc-container/$tag-exit.txt"
+              docker inspect "$name" --format '{{.State.OOMKilled}}' \
+                > "evidence/qoo156-wmc-container/$tag-oom-flag.txt"
+              docker logs "$name" > "evidence/qoo156-wmc-container/$tag-log.txt" 2>&1 || true
+              docker rm -f "$name" >/dev/null || true
+              cat "evidence/qoo156-wmc-container/$tag-log.txt"
+              test "$wait_rc" -eq 0
+              test "$(cat "evidence/qoo156-wmc-container/$tag-cap-bytes.txt")" = "$((mem*1024*1024))"
+              test "$(cat "evidence/qoo156-wmc-container/$tag-exit.txt")" = 0
+              grep -Fq "QOO156_REAL_WMC_DOCKER_$solver${mem}=" \
+                "evidence/qoo156-wmc-container/$tag-log.txt"
+              grep -Eq "QOO156_REAL_WMC_DOCKER_$solver${mem}=(REAL_WMC_COMPLETE_PASS|REAL_WMC_EXTERNAL_OOM_SAFE)" \
+                "evidence/qoo156-wmc-container/$tag-log.txt"
+            done
+          done
+          echo 'QOO156_REAL_WMC_DOCKER_ENVELOPE=PASS' \
+            | tee evidence/qoo156-wmc-container/verdict.txt
+          echo 'QOO156_CLI_INTERNAL_MEMORY_GUARD=NOT_TESTED' \
+            | tee evidence/qoo156-wmc-container/internal-verdict.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo156-real-wmc-docker-${{ github.sha }}
+          path: evidence/qoo156-wmc-container/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,7 +1,51 @@
 # QOO-157 — should d4 replace GPMC as QuPRS' recommended solver?
 
-Status (2026-11-04): **NO GLOBAL DEFAULT SWITCH / CONDITIONAL RESEARCH CANDIDATE**.
-This is a go/no-go plan, NOT a measured performance conclusion.
+Status (2026-11-04): **NO-GO for replacing GPMC as recommended first choice or default**.
+Completed official CodSpeed solver-inclusive WMC-only pilot on four representative
+real QuPRS-emitted weighted CNFs. d4-426 was slower in all four observed
+head-to-head same-run cases. Preserve GPMC as the recommended/default solver.
+
+## Completed first-party CodSpeed WallTime pilot
+
+Source code measured: `8b48aa6bbe83eb25a6bba0760ce7d2ab93034b1b`.
+[GitHub Actions #41816616183](https://github.com/PhysicsQoo/QuPRS/actions/runs/41816616183)
+SUCCESS. [CodSpeed run 6aeb0f25e2759d7342f6ae61](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb0f25e2759d7342f6ae61)
+COMPLETED. Artifact ID `13315227468` contains original source QASM SHA,
+identical generated CNF bytes and SHA, native patched d4 binary/source SHA,
+science preflight, official first-party CodSpeed WallTime export, toolchain
+and runner metadata.
+
+| Genuine source-CNF case | GPMC30 median | GPMC90 median | d4-426 median | d4 / GPMC30 |
+| --- | ---: | ---: | ---: | ---: |
+| Grover4 EQ | 61.413 ms | 61.422 ms | 229.226 ms | 3.73x |
+| QAOA7 genuine Random_Rotation NEQ | 41.299 ms | 41.419 ms | 148.717 ms | 3.60x |
+| QPEexact8 EQ | 61.503 ms | 61.518 ms | 190.486 ms | 3.10x |
+| QFT16 EQ | 1129.565 ms | 1270.067 ms | 1922.255 ms | 1.70x |
+
+- Same source CNF across all three solver modes; Rust WMC-only emitted the
+  paired complex weights. Four of four preflight science records were
+  `NUMERICALLY_CONCORDANT_UNCERTIFIED` against GPMC90 at 1e-12 scale-relative
+  screening; this is not an independent proof of original circuit equivalence.
+- Each CodSpeed v5 WallTime benchmark has three rounds. The measured operation
+  is Python QuPRS `run_wmc` on prepared CNF, including supervisor/binary
+  preflight/subprocess and count parsing. It **excludes** QASM parsing,
+  PathSum construction, CNF generation, RR/Hybrid, and complete verification.
+- Official CodSpeed explicitly warns `Walltime results may be unreliable`
+  because the samples ran outside a dedicated Macro Runner. This is
+  **OBSERVATION_ONLY / NOT PERFORMANCE_CERTIFIED**: no fixed absolute or
+  relative speedup/regression threshold can be justified from this hosted run.
+  It nevertheless gives no evidence for d4 superiority in the four tested
+  families; all observed directions favor GPMC.
+- A 426-bit GMP working default versus GPMC 30/90 decimal working digits
+  does not equalize arithmetic contracts, nor establish d4 accuracy bounds.
+  Do not conflate WMC count screening with source/projective distance proof.
+
+**Decision:** keep GPMC first/default, preserve d4 opt-in research.
+Further work should target a reasoned d-DNNF compile-and-reweight workload,
+or independently justified new CNF classes, with CodSpeed on a controlled
+same-host/ABBA cohort. Re-running essentially the same hosted benchmark
+will not resolve statistical reliability or the observed lack of advantage.
+
 
 ## What has been independently demonstrated
 
@@ -37,7 +81,7 @@ This is a go/no-go plan, NOT a measured performance conclusion.
    public API parity, release-scope macOS/Windows and packaging/licensing
    viability. This is a distinct, strictly higher bar.
 
-## Pilot now in progress (not a release benchmark)
+## Source-pinned pilot design (now completed; historical design notes)
 
 Isolated workflow `.github/workflows/qoo157-d4-codspeed-choice.yml`:
 - QASM pairs in grover4 EQ, qaoa7 true NEQ, qpeexact8 EQ, qft16 EQ.
@@ -83,7 +127,7 @@ Isolated workflow `.github/workflows/qoo157-d4-codspeed-choice.yml`:
 
 ## Provisional recommendation
 
-**Keep GPMC as the general recommended and default Solver.**
+**Keep GPMC as the general recommended and default Solver.** No-GO for a global d4 recommendation based on the completed four-case CodSpeed pilot.
 Promote d4 first to a documented optional external Solver on supported
 Linux/macOS systems ONLY if the above science/latency/licensing checks pass.
 Then consider data-driven *per-family recommendations*. A general switch

@@ -43,3 +43,23 @@ Within **each case**, all six have identical literal-weight *text* SHA and ident
 **Mechanism inference with boundaries:** auto/default vs manual_sharp vs no-oracle-vivif vs no-probing produce exactly equal downstream native formula snapshots. Their different [within-d4 CodSpeed costs](D4_BIPE_OPTION_ABLATION.md) therefore cannot be attributed to the final exported clause multiset, literal-weight text, projection or clause order. This **supports** redundant native preprocessing work as a plausible explanation (not yet a stage CPU-cost certificate). Heap state, solver global state and hosted runner variance remain uncontrolled. `auto_no_equiv_subst` actually changes final clause content, so its QAOA7 slowdown may involve a different search problem and must **not** be attributed to preproc overhead alone.
 
 **Decision:** Do not adjust production defaults. The next meaningful experiment isolates the auto-config changes (separate switches for BVA, oracle sparsif, fill limit, growth/resolvent caps), measures each **only with official CodSpeed** and a qualified same-device paired/ABBA design, uses sufficient max-time on QFT16 `none`, and checks exact residual fingerprints after each switch. An isolated internal timing trace must not replace CodSpeed ranking.
+
+## Verified 2026-11-04 outcome: actual residual identity, not just counts
+
+**PASS**: [GitHub Actions #41841100007](https://github.com/PhysicsQoo/QuPRS/actions/runs/41841100007), [native residual and SHA artifact #13329836269](https://github.com/PhysicsQoo/QuPRS/actions/runs/41841100007/artifacts/13329836269), CI SHA `05773452004962834f45c8084f5bfd915f82b1a3`. All **12/12** original-CNF SHA and original complex WMC count screens passed. This is a *science-only, untimed* analysis using pinned d4 with environment-gated source-local dump. Scratch native binary SHA `37e1a4678e73c6d8bd0673fa4acce0518a028870eaa6681251ddeeb767ae48ef`.
+
+| Both original sources (QAOA7, QFT16) | Canonical *residual* clauses + weight strings + projection | Interpretation |
+| --- | --- | --- |
+| `auto_default`, `manual_sharp`, `auto_no_vivif`, `auto_no_probing` | **exact same hash in each circuit**, raw residual dumps also byte-identical | No different residual formula to explain the option timing contrast; candidate preprocessing work or hidden solver state / hosted sampling variation |
+| `auto_no_equiv_subst` | **different clauses despite same clause count**, same weight and projection SHA | Actual residual Boolean formula is modified by the equivalence-substitution option |
+| `none` | Different clauses and clause counts (823 QAOA7, 1144 QFT16 vs 677/1058 for BiPe enabled); same weight and projection SHA | Preprocessor changes Boolean structure; solver search consequences cannot be inferred solely from clause count |
+
+Additional exact multiset comparison, against `auto_default`: QAOA7 `auto_no_equiv_subst` replaced **166 clauses with 166 different clauses**; QFT16 replaced **350 with 350**. In both cases `manual_sharp`, `auto_no_vivif` and `auto_no_probing` have *zero* clause additions/removals and identical raw residual dumps. In all six variants, literal-weight source-text and projection SHA remain identical **within each circuit**; this proves source snapshot identity, not internal arithmetic error bounds, and not absence of hidden downstream solver state.
+
+Canonical clause multiset SHA for the four-setting shared residual:
+- QAOA7: `fe81c52fc2d54b89b74c67c14bf3cdba9bbe334a8c529e7a918395a10299402f`
+- QFT16: `c4ef1793d99daf4a923d0fdfe66debb05a080495be95a6fbe621137537f94bc7`
+
+**Implication for prior CodSpeed**: QAOA7 `manual_sharp` median 64.500 ms vs `auto_default` 92.776 ms (≈30.5% lower), and `auto_no_vivif` 82.070 ms (≈11.5% lower), while the *exported post-BiPe formula is byte-identical*. This supports investigating BiPe work and option-driven hidden state as opposed to a better *exported* residual CNF, **but does not yet isolate time spent in BiPe**. Likewise the observed QFT16 `manual_sharp` ~6.7% reduction is smaller and needs paired repetition. A result with identical residual formula and total WallTime difference does **not** establish that the difference is precisely preprocessing CPU time without staged instrumentation and ABBA.
+
+**Next acceptance gap**: same-binary stage-level BiPe elapsed / native work counters and a CodSpeed-controlled paired Macro Runner experiment with sufficient sampling budget (especially the QFT16 `none` variant observed >5s despite max-time=5). The existing full-solver CodSpeed outcomes are the only timing evidence; this source audit cannot supply timings.

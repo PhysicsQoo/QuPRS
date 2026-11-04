@@ -88,3 +88,34 @@ fn physical_memory_cap_never_silently_falls_back_to_unlimited() {
         "1 MiB memory.max cannot complete a full Rust worker safely");
     assert!(!String::from_utf8_lossy(&result.stdout).contains("equivalent"));
 }
+
+
+#[cfg(target_os = "linux")]
+#[test]
+fn delegated_cgroup_physically_enforces_oom_or_records_not_admitted() {
+    // A successful zero-permission test is NOT memory enforcement evidence.
+    // Only the explicit OOM event + typed failure may claim admission.
+    let source = fixture();
+    let result = Command::new(cli()).arg(source.path())
+        .args(["--max-memory-mib", "64", "--timeout", "15", "--quiet"])
+        .env("QUPRS_CLI_TEST_ALLOC_MIB", "192")
+        .output().expect("spawn real CLI with bounded 64 MiB cgroup");
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    if stderr.contains("no delegated writable memory cgroup")
+        || stderr.contains("memory cgroup delegation unavailable")
+        || stderr.contains("cgroup v2 is unavailable")
+        || stderr.contains("configure physical-memory limit")
+        || stderr.contains("configure group OOM handling")
+    {
+        println!("QOO156_MEMORY_POSITIVE_NOT_ADMITTED: host lacks delegated writable cgroup v2");
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty(), "no fake successful verifier result");
+        return;
+    }
+    assert_eq!(result.status.code(), Some(125),
+        "cgroup resource failure must have typed exit 125, not a verdict: {stderr}");
+    assert!(stderr.contains("MemoryLimitExceeded"),
+        "no positive cgroup memory.events OOM witness: {stderr}");
+    assert!(result.stdout.is_empty(), "a killed worker cannot emit partial EQ/NEQ");
+    println!("QOO156_MEMORY_POSITIVE_ADMITTED: memory.max and memory.events verified");
+}

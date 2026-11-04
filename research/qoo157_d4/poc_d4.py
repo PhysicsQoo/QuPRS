@@ -194,14 +194,20 @@ def run(args):
                   "cnf_sha256": sha256(raw), "oracle": as_pair(expected),
                   "native_status": "NOT_RUN"}
         if binary:
-            observed, meta = native_count(binary, path, args.timeout)
-            difference = (abs(observed[0] - expected[0]), abs(observed[1] - expected[1]))
-            # Pilot sanity band; NOT a solver arithmetic certificate.
-            scale = max(Fraction(1), abs(expected[0]), abs(expected[1]))
-            within = all(d <= Fraction(1, 10**25) * scale for d in difference)
-            record.update(native_status="PILOT_MATCH" if within else "PILOT_MISMATCH",
-                          observed=as_pair(observed), absolute_error=as_pair(difference),
-                          pilot_band="1e-25 * max(1, abs(oracle components))", **meta)
+            try:
+                observed, meta = native_count(binary, path, args.timeout)
+            except (OSError, RuntimeError, ValueError) as exc:
+                # Preserve a report for every attempted case, even if d4
+                # crashes or fails to parse its own input/output format.
+                record.update(native_status="NATIVE_ERROR", native_error=str(exc)[:1024])
+            else:
+                difference = (abs(observed[0] - expected[0]), abs(observed[1] - expected[1]))
+                # Pilot sanity band; NOT a solver arithmetic certificate.
+                scale = max(Fraction(1), abs(expected[0]), abs(expected[1]))
+                within = all(d <= Fraction(1, 10**25) * scale for d in difference)
+                record.update(native_status="PILOT_MATCH" if within else "PILOT_MISMATCH",
+                              observed=as_pair(observed), absolute_error=as_pair(difference),
+                              pilot_band="1e-25 * max(1, abs(oracle components))", **meta)
         records.append(record)
     report = {"upstream_repo": UPSTREAM_REPO, "upstream_commit": UPSTREAM_SHA,
               "upstream_binary_sha256": sha256(binary.read_bytes()) if binary else None,

@@ -307,8 +307,7 @@ pub fn prepare_worker() -> Result<()> {
         anyhow::ensure!(mib <= 256, "test allocation exceeds safe pilot bound");
         let bytes = mib.checked_mul(1024 * 1024)
             .context("test allocation exceeds address space")?;
-        let mut pages = Vec::<u8>::with_capacity(bytes);
-        unsafe { pages.set_len(bytes); }
+        let mut pages = vec![0u8; bytes];
         for index in (0..bytes).step_by(4096) {
             unsafe { std::ptr::write_volatile(pages.as_mut_ptr().add(index), 1); }
         }

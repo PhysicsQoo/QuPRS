@@ -212,3 +212,28 @@ the source precision setup placement, not arbitrary algorithmic error.
 The variant CI strictly requires `PILOT_TIGHT` for every original exact
 decimal-CNF oracle case; this check is distinct from the intentionally
 weak baseline `PILOT_NEAR_UNCERTIFIED` compatibility screen.
+
+
+### Corrected GMP constructor contract
+
+The source witness uses `mpf_class(decimal_string)`, **not**
+`mpf_class(decimal_string, 10)`: for GMP C++, that second integer is a
+precision argument, *not* the decimal input base. The two-argument form
+would accidentally force rounded 64-bit objects even after raising
+the global default precision and is therefore invalid as a high-precision
+control. The corrected single-argument form matches the pinned d4
+`MpzComplexSemiring.hpp` constructor.
+
+Build once and compare both arms with the same witness binary:
+
+    c++ -std=c++17 -O2 research/qoo157_d4/gmp_default_probe.cpp -lgmpxx -lgmp -o /tmp/qoo157-gmp-probe
+    /tmp/qoo157-gmp-probe
+    /tmp/qoo157-gmp-probe --426
+
+Observed locally with GMP 6.3.0: default arm reports 64 bits and loses
+`1e-40` / `1e-60`; the `--426` arm reports effective
+`mpf_class::get_prec()=448` bits due to GMP limb rounding (requested 426),
+and retains both `1e-40` and `1e-60` as printed decimal values.
+This local stand-alone control is **not** a measured proof of corrected
+upstream d4; the native pinned-counter A/B is separately executed by
+CI [#41808891018](https://github.com/PhysicsQoo/QuPRS/actions/runs/41808891018).

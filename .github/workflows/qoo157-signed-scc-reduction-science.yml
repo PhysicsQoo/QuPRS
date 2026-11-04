@@ -1,0 +1,116 @@
+name: QOO157 P0 signed complex WMC SCC reduction science gate
+
+on:
+  push:
+    branches:
+      - experiment/qoo157-d4-effective-digit-parity
+    paths:
+      - '.github/workflows/qoo157-signed-scc-reduction-science.yml'
+      - 'research/qoo157_d4/signed_scc_weighted_reduction.py'
+      - 'research/qoo157_d4/signed_scc_reduction_count_gate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  signed-scc-science:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: research/qoo157_d4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned provenance and exact source code syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:GPMC)" = a1bda3489e959d3695b6798d327c5a1fc1bed305
+          python -m py_compile research/qoo157_d4/signed_scc_weighted_reduction.py research/qoo157_d4/signed_scc_reduction_count_gate.py
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: qoo157-d4-matched-decimal-efab7ccd132214758d4209d0b5c4f6488f30695e
+          run-id: 41822549728
+          repository: PhysicsQoo/QuPRS
+          github-token: ${{ github.token }}
+          path: evidence/original
+      - name: Source SHA and exact Fraction-complex small oracle, then export reduced CNFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python research/qoo157_d4/signed_scc_weighted_reduction.py \
+            --cnf-dir evidence/original/cnfs \
+            --source-science evidence/original/matched-science-report.json \
+            --out-dir evidence/reduced-cnfs \
+            --report evidence/reduction-manifest.json
+      - name: Pinned original GPMC build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S GPMC -B "$RUNNER_TEMP/qoo157-gpmc-scc" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/qoo157-gpmc-scc" --parallel 2
+          echo "QOO157_GPMC=$RUNNER_TEMP/qoo157-gpmc-scc/gpmc" >> "$GITHUB_ENV"
+          sha256sum "$RUNNER_TEMP/qoo157-gpmc-scc/gpmc" > evidence/gpmc-binary.sha256
+      - name: Source-pinned d4 research-only pre-input 38d GMP precision build
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/qoo157-d4-scc"
+          git clone --filter=blob:none https://github.com/jm62300/d4.git "$root"
+          git -C "$root" checkout --detach be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          test "$(git -C "$root" rev-parse HEAD)" = be15f91f3e9769e1f5cb175fa27e3eca3a1ea690
+          python research/qoo157_d4/matched_precision_variant.py --upstream "$root" --evidence evidence --digits 38
+          git -C "$root" diff --check
+          git -C "$root" diff -- c++/counter/src/Main.cpp c++/counter/src/Counter.cpp > evidence/d4-scratch-precision.patch
+          (cd "$root/c++/counter" && ./build.sh -j) > evidence/d4-build.log 2>&1
+          bin="$root/c++/counter/build/counter"
+          test -x "$bin"
+          echo "QOO157_D4=$bin" >> "$GITHUB_ENV"
+          sha256sum "$bin" > evidence/d4-binary.sha256
+          "$bin" -h > evidence/d4-help.log
+          grep -q 'actual-gmp-precision-bits 128' evidence/d4-help.log
+      - name: Four source/reduced CNFs cross-solver complex WMC science admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/qoo157_d4/signed_scc_reduction_count_gate.py \
+            --gpmc "$QOO157_GPMC" --d4 "$QOO157_D4" \
+            --original evidence/original/cnfs \
+            --reduced evidence/reduced-cnfs \
+            --source evidence/original/matched-science-report.json \
+            --exported evidence/reduction-manifest.json \
+            --out evidence/native-count-screen.json
+      - name: Record science-only limitations
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          echo 'No CodSpeed, no timing claims, no solver commits; exact small oracles plus printed WMC count-screen only. Complex arithmetic internal error not certified.' > evidence/scope.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo157-signed-scc-science-${{ github.sha }}
+          path: |
+            evidence/reduction-manifest.json
+            evidence/reduced-cnfs/
+            evidence/native-count-screen.json
+            evidence/gpmc-binary.sha256
+            evidence/d4-binary.sha256
+            evidence/d4-scratch-precision.patch
+            evidence/d4-help.log
+            evidence/d4-build.log
+            evidence/head.txt
+            evidence/scope.txt
+          retention-days: 30
+          if-no-files-found: warn

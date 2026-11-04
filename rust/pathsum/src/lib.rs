@@ -608,9 +608,17 @@ fn check_equivalence_with_distance_mode(
 
         {
             let _encode_scope = diagnostics::span("cnf_encode");
-            wmc_mgr.encode_trace(&ps_miter)?;
+            match wmc_mgr.encode_trace_with_deadline(&ps_miter, deadline) {
+                Ok(()) => {}
+                Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
+                    status = EquivalenceStatus::Timeout;
+                }
+                Err(error) => return Err(error),
+            }
         }
 
+        // An incomplete CNF is never used for SAT/UNSAT or WMC classification.
+        if status != EquivalenceStatus::Timeout {
         let num_active_vars = ps_miter.v.path_vars.len() - num_qubits;
 
         // No path variables alone does NOT prove identity (Tr(X) = 0).
@@ -630,18 +638,23 @@ fn check_equivalence_with_distance_mode(
             let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
             to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
-            solver_invoked = true;
-            let tool_start = Instant::now();
-            match wmc_mgr.solve_with_deadline_distance_printed_precision_prepared(
-                tool_name, deadline, gpmc_precision_digits, &cnf_string,
-            ) {
-                Ok(value) => { printed_count = Some(value); }
-                Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
-                    status = EquivalenceStatus::Timeout;
+            // Serialization can consume the remaining request budget.
+            if deadline.is_some_and(|limit| Instant::now() >= limit) {
+                status = EquivalenceStatus::Timeout;
+            } else {
+                solver_invoked = true;
+                let tool_start = Instant::now();
+                match wmc_mgr.solve_with_deadline_distance_printed_precision_prepared(
+                    tool_name, deadline, gpmc_precision_digits, &cnf_string,
+                ) {
+                    Ok(value) => { printed_count = Some(value); }
+                    Err(error) if error.downcast_ref::<crate::solver_process::SolverTimeout>().is_some() => {
+                        status = EquivalenceStatus::Timeout;
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) => return Err(error),
+                tool_time = Some(tool_start.elapsed().as_secs_f64());
             }
-            tool_time = Some(tool_start.elapsed().as_secs_f64());
         }
 
         if let Some(count) = &printed_count {
@@ -717,6 +730,7 @@ fn check_equivalence_with_distance_mode(
             status = EquivalenceStatus::Equivalent;
             wmc_precision_reason = Some("analytic_unweighted_tautology");
         }
+        } // end fully encoded, uncancelled CNF classification
     }
 
     let total_time = global_start.elapsed().as_secs_f64();

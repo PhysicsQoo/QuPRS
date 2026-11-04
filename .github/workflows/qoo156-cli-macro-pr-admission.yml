@@ -1,10 +1,17 @@
 name: QOO-156 CLI source-paired CodSpeed Macro admission
 
-# NOT auto-run on experimental pushes; triggered only by a source-impacting
-# dev PR *after* repository admins have confirmed the CodSpeed Macro runner
-# is provisioned and set the explicit QOO156_MACRO_ENABLED repository variable.
-# A skipped job is NOT a performance certificate.
+# Controlled staging source-paired measurement BEFORE a dev PR, OR dev PR.
+# Both are opt-in: repository admins must verify a Macro runner is provisioned
+# and set QOO156_MACRO_ENABLED=true before either job can claim admission.
+# A skipped/queued job is NOT a performance certificate.
 on:
+  push:
+    branches: [staging/qoo156-cli-resource-admission]
+    paths:
+      - 'rust/cli/**'
+      - 'rust/Cargo.lock'
+      - 'benchmarks/codspeed/test_qoo156_cli_supervisor.py'
+      - '.github/workflows/qoo156-cli-macro-pr-admission.yml'
   pull_request:
     branches: [dev]
     paths:
@@ -18,7 +25,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: qoo156-macro-pr-${{ github.event.pull_request.number }}
+  group: qoo156-macro-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,17 +34,17 @@ jobs:
     runs-on: codspeed-macro
     timeout-minutes: 30
     env:
-      QOO156_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      QOO156_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      QOO156_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '79e975b0b21c0c650db7a76fe6e35b926c67c2c8' }}
+      QOO156_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.QOO156_HEAD_SHA }}
           submodules: recursive
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ env.QOO156_BASE_SHA }}
           submodules: recursive
           persist-credentials: false
           path: qoo156-base
@@ -95,7 +102,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qoo156-cli-macro-${{ github.event.pull_request.head.sha }}
+          name: qoo156-cli-macro-${{ env.QOO156_HEAD_SHA }}
           path: evidence/
           if-no-files-found: warn
           retention-days: 30

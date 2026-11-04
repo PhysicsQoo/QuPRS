@@ -54,6 +54,40 @@ if investigating a mismatch; hashes alone do not reproduce the error.
 The exhaustive oracle is limited to 16 CNF variables; large paper-family
 circuits are separate independent end-to-end and CodSpeed work.
 
+## Measured native findings — 2026-11-04
+
+Source and reports: GitHub Actions run 41805111794 (QuPRS experiment commit
+30c375014204b2f9a5352384d494c645d89dd778), native artifact
+13308294729, pinned d4 C++ executable SHA256
+b60215c8e3a4b87d7d2c8336c28a4f8e799adf91419151c55c1aeaca3acc88dc.
+
+- Nine hand-computable source CNFs parsed and reproduced the exact rational
+  oracle under the original strict 1e-25 screen.
+- QuPRS' actual Rust WmcManager emitted three weighted CNFs
+  (identity1, H/T/H miter, Bell/T miter); d4 parsed and counted all three.
+  The independent exact-rational oracle of the **serialized f64 weights**
+  differs by at most 5.0e-20, 8.8e-20 and 2.8e-19 in a real or imaginary
+  component, respectively. These are real nonzero numeric discrepancies,
+  **not** grammar failures, and cannot be silently called precise matches.
+- The first run failed its 1e-25 pilot threshold on 3/3 QuPRS cases. The
+  parser/oracle now reports three distinct outcomes:
+  `PILOT_TIGHT` (strict original 1e-25 screen),
+  `PILOT_NEAR_UNCERTIFIED` (only a weak 1e-15 finite-precision
+  *compatibility* screen), and `PILOT_MISMATCH` (or `NATIVE_ERROR`).
+  Passing compatibility **never** means certified high-precision arithmetic
+  or QuPRS EQ/NEQ consistency. The global precision gate is always
+  `NOT_CERTIFIED` until separate evidence establishes an arithmetic bound.
+- The first run archived SHA256 but not the original QuPRS Rust CNF bytes.
+  Subsequent branch-only CI explicitly archives the actual emitted CNF files
+  in `evidence/quprs-source-cnf/` to make WMC numeric discrepancies
+  independently reproducible.
+
+For distance-based equivalence checking, a small **count** error can still be
+material near the decision boundary. Do not reuse the exploratory 1e-15
+count band as a QuPRS tolerance or numerical proof. The next research
+milestone is to establish an actual d4 precision profile under fixed
+weights, then compare native counter behavior with GPMC and Ganak.
+
 ## Known blockers before any adapter or release decision
 
 1. **C++ computation precision not yet certified:** in reviewed
@@ -71,10 +105,12 @@ circuits are separate independent end-to-end and CodSpeed work.
    grounded dialects and rejects contradictory duplicate count lines.
    Production integration still needs a dedicated decimal-preserving adapter
    and typed errors; a parsed count is not a numerical certificate.
-3. **CNF grammar is only source-level plausible:** validate real
-   QuPRS-generated paired weights, negative-literal normalization, SAT/UNSAT,
-   all-free-variable and cancellation cases on a compiled native binary. The
-   independent oracle intentionally rejects projected CNF in this phase.
+3. **CNF grammar is runtime plausible, numerical proof remains open:**
+   Native d4 accepted the three source-generated QuPRS paired-weight CNFs,
+   and all nine small direct controls. The three QuPRS inputs show nonzero
+   ~1e-19 discrepancies versus the exact oracle of their serialized decimal
+   weights. These cannot be silently rounded away. The independent oracle
+   intentionally rejects projected CNF in this phase.
 4. **License/packaging remains unresolved:** upstream LICENSE carries
    LGPL-2.1 text, while some C++ headers and rust/Cargo.toml declare
    GPL-3.0-or-later. Determine exact distribution/linking obligations prior to

@@ -94,6 +94,12 @@ python3 qoo13_p1_admission.py --input '/existing/p1-monitor.json' \
   --output '/separate/directory/qoo13-p1-assessment.json'
 ```
 
+The hardened P1 evaluator rejects NaN/Infinity, inconsistent monitor summaries,
+invalid process telemetry, mismatched swap page sizes, and assessment output
+inside the original evidence directory. These are **fail-closed evidence-quality
+checks**, not new measured performance thresholds. P0 + P1 now have 26
+synthetic offline tests in total; the P0 diagnostic source itself is unchanged.
+
 The previously reported 7-sample Mac pilot (3 CPU idle samples below 50%)
 must classify `ABSTAIN`, even though `backupd` was idle. A passing
 observation window is at most a `QUIET_CANDIDATE_ONLY_NOT_CERTIFIED`, **not**

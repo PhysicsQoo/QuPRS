@@ -2,6 +2,8 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {isPerformanceBearingPath: isMeasured} = require('./codspeed-pr-impact.cjs');
+const {VERSION_PATHS, canonicalVersion, isVersionOnlyChange} =
+  require('./codspeed-metadata-only.cjs');
 
 for (const path of [
   'src/QuPRS/interface/load_qiskit.py', 'rust/pathsum/src/ir.rs',
@@ -10,7 +12,9 @@ for (const path of [
   'test/test_MQT.py', 'test/test_Feynman.py', 'test/conftest.py',
   'test/_benchmark_RR.py', 'test/test_benchmark_solvers.py',
   'scripts/check_codspeed_shards.py', 'scripts/paper_corpus_audit.py',
-  '.github/workflows/codspeed.yml'
+  '.github/workflows/codspeed.yml',
+  '.github/scripts/codspeed-pr-impact.cjs',
+  '.github/scripts/codspeed-metadata-only.cjs'
 ]) assert.equal(isMeasured(path), true, `must measure: ${path}`);
 
 for (const path of [
@@ -35,3 +39,68 @@ assert.match(workflow, /^  workflow_dispatch:/m, 'manual pilot dispatch must rem
 assert.match(workflow, /id: source_scope/);
 assert.match(workflow, /if: \$\{\{ steps\.source_scope\.outputs\.run_source == 'true' \}\}/);
 process.stdout.write('codspeed-pr-impact: source relevance / ready / manual pilot contracts passed\n');
+
+// QOO-106 release bump test: canonicalize only actual workspace/FFI metadata.
+// Never use synthetic measurements or pretend this is a solver performance run.
+const actual = Object.fromEntries([...VERSION_PATHS].map(path =>
+  [path, fs.readFileSync(path, 'utf8')]));
+const previous = Object.fromEntries(Object.entries(actual).map(([path, value]) => {
+  const canonical = canonicalVersion(path, value);
+  assert.equal(canonical?.version, '0.14.0', 'checked-in metadata fixture version changed');
+  return [path, canonical.normalized.replaceAll('<release-version>', '0.13.4')];
+}));
+const versions = [];
+for (const path of VERSION_PATHS) {
+  const verified = isVersionOnlyChange(path, previous[path], actual[path]);
+  assert.deepEqual(verified, {before:'0.13.4', after:'0.14.0'},
+    `exact historical metadata-only upgrade must be excluded: ${path}`);
+  versions.push(verified);
+  assert.equal(isVersionOnlyChange(path, actual[path], actual[path]), null);
+  assert.equal(isVersionOnlyChange(path, previous[path], ''), null);
+  assert.equal(isVersionOnlyChange(path, previous[path],
+    actual[path] + '\n# unrelated change'), null);
+}
+assert.equal(versions.every(v => v.before === versions[0].before &&
+                                 v.after === versions[0].after), true);
+assert.equal(isVersionOnlyChange('rust/pathsum/src/solver_adapter.rs', '', ''), null);
+assert.equal(isVersionOnlyChange('pyproject.toml', '', ''), null);
+
+// Package metadata is safe; compiler/dependencies/features/third-party lock
+// source changes are not, even when bundled alongside version updates.
+const cargo = actual['rust/Cargo.toml'];
+assert.equal(isVersionOnlyChange('rust/Cargo.toml', previous['rust/Cargo.toml'],
+  cargo.replace('edition = "2021"', 'edition = "2024"')), null);
+assert.equal(isVersionOnlyChange('rust/Cargo.toml', previous['rust/Cargo.toml'],
+  cargo.replace('publish = false', 'publish = true')), null);
+assert.equal(isVersionOnlyChange('rust/Cargo.toml', previous['rust/Cargo.toml'],
+  cargo + '\n[features]\nexperimental = []\n'), null);
+const lock = actual['rust/Cargo.lock'];
+const foreign = lock.replace(
+  /(^name = "adler2"\r?\nversion = ")[^"]+(")/m,
+  (_, prefix, suffix) => prefix + '999.1.0' + suffix
+);
+assert.notEqual(foreign, lock, 'negative fixture must modify third-party dependency');
+assert.equal(isVersionOnlyChange('rust/Cargo.lock', previous['rust/Cargo.lock'],
+  foreign), null);
+assert.equal(isVersionOnlyChange('rust/Cargo.lock', previous['rust/Cargo.lock'],
+  lock.replace('name = "pathsum"', 'name = "unknown-pathsum"')), null);
+assert.equal(isVersionOnlyChange('rust/Cargo.lock', previous['rust/Cargo.lock'],
+  lock.replace('name = "quprs_python"', 'name = "quprs_python-other"')), null);
+const inconsistent = lock.replace(
+  /(^name = "QuPRS_cli"\r?\nversion = ")[^"]+(")/m,
+  (_, prefix, suffix) => prefix + '0.14.1' + suffix
+);
+assert.notEqual(inconsistent, lock);
+assert.equal(isVersionOnlyChange('rust/Cargo.lock', previous['rust/Cargo.lock'],
+  inconsistent), null);
+assert.equal(isVersionOnlyChange('src/QuPRS/_version.py',
+  previous['src/QuPRS/_version.py'],
+  actual['src/QuPRS/_version.py']+'\nfrom os import environ'), null);
+for (const path of [
+  'src/QuPRS/interface/load_qiskit.py', 'rust/pathsum/build.rs', 'GPMC',
+  '.github/workflows/codspeed.yml', 'benchmarks/codspeed/solver_case.py'
+]) assert.equal(isMeasured(path), true, `source changes must measure: ${path}`);
+assert.match(workflow, /isVersionOnlyChange/);
+assert.match(workflow, /pull\.base\.sha/);
+assert.match(workflow, /pull\.head\.sha/);
+process.stdout.write('codspeed-pr-impact: strict metadata-only truth table passed\n');

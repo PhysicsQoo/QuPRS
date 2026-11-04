@@ -50,12 +50,14 @@ def alive_after_timeout(pid: int, started: float | None) -> bool:
 
 def run_probe(cli: Path, name: str, real: Path, fixture: Path, folder: Path) -> dict:
     pid_file = folder / f"{name}-solver-pid.txt"
+    wrapper_log = folder / f"{name}-wrapper.log"
     env = os.environ.copy()
     env["QUPRS_GPMC_PATH"] = str(real) if name != "gpmc" else str(folder / "gpmc-stop-wrapper")
     env["QUPRS_GANAK_PATH"] = str(real) if name == "ganak" else env.get("QUPRS_GANAK_PATH", "")
     if name == "gpmc":
         env["QOO156_REAL_GPMC"] = str(real)
         env["QOO156_PID_FILE"] = str(pid_file)
+        env["QOO156_WRAPPER_LOG"] = str(wrapper_log)
     # Both files are intentionally nonidentical; WMC-only must reach the
     # concrete solver rather than a trivial identical-circuit shortcut.
     right = folder / "other.qasm"
@@ -72,6 +74,7 @@ def run_probe(cli: Path, name: str, real: Path, fixture: Path, folder: Path) -> 
     stopped_pid = None
     started = None
     observed_mode = False
+    found_exe = None
     limit = time.monotonic() + 12
     stdout = stderr = ""
     try:
@@ -80,6 +83,7 @@ def run_probe(cli: Path, name: str, real: Path, fixture: Path, folder: Path) -> 
                 try:
                     pid = int(pid_file.read_text().strip())
                     p = psutil.Process(pid)
+                    found_exe = p.exe()
                     if p.exe() == str(real.resolve()):
                         stopped_pid, started, observed_mode = pid, p.create_time(), True
                         break
@@ -135,6 +139,9 @@ def run_probe(cli: Path, name: str, real: Path, fixture: Path, folder: Path) -> 
         "real_executable": str(real),
         "source_fixture_sha256": digest(fixture),
         "solver_pid": stopped_pid,
+        "wrapper_log": wrapper_log.read_text() if wrapper_log.exists() else None,
+        "pid_file_value": pid_file.read_text() if pid_file.exists() else None,
+        "observed_process_exe": found_exe,
         "solver_mode_invoked": observed_mode,
         "timeout_observed": timeout_observed,
         "leftover_active_process": leaked,
@@ -155,8 +162,10 @@ def main() -> int:
         folder = Path(temp)
         left = folder / "left.qasm"
         right = folder / "other.qasm"
-        left.write_text('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\nh q[0];\ncx q[0],q[1];\nt q[1];\n')
-        right.write_text('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\nx q[0];\nh q[1];\n')
+        # One-qubit nonidentical Clifford fixtures keep CNF generation cheap,
+        # so a deadline can be attributed to the real external solver stage.
+        left.write_text('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nh q[0];\n')
+        right.write_text('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nx q[0];\n')
         solvers = {
             name: Path(stack.enter_context(WMC(name))).resolve()
             for name in ("gpmc", "ganak")
@@ -166,10 +175,13 @@ def main() -> int:
         wrapper = folder / "gpmc-stop-wrapper"
         wrapper.write_text(
             "#!/bin/sh\n"
+            'echo entered > "$QOO156_WRAPPER_LOG"\n'
             '"$QOO156_REAL_GPMC" "$@" &\n'
             "child=$!\n"
+            'echo "child=$child" >> "$QOO156_WRAPPER_LOG"\n'
             'if kill -STOP "$child" 2>/dev/null; then\n'
             '  echo "$child" > "$QOO156_PID_FILE"\n'
+            '  echo stopped >> "$QOO156_WRAPPER_LOG"\n'
             "fi\n"
             'wait "$child"\n'
         )

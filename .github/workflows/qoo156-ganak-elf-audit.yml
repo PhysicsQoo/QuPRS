@@ -1,0 +1,61 @@
+name: QOO-156 Ganak ELF linkage audit
+
+# Read-only inspection of the signed/pinned upstream release asset.
+# Does not build or modify Ganak, and does not rerun WMC workloads.
+on:
+  push:
+    branches: [experiment/qoo156-cli-supervisor]
+    paths: ['.github/workflows/qoo156-ganak-elf-audit.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ganak-elf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download and authenticate exact pinned Ganak release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/ganak-elf
+          url='https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz'
+          curl --fail --location --retry 4 --proto '=https' --tlsv1.2 --silent --show-error "$url" -o "$RUNNER_TEMP/ganak.tar.gz"
+          echo 'bea7150787a1e8f2b1bd658cb5a3c227d631d25054f5ff77ce23422e1c8b040c  '"$RUNNER_TEMP/ganak.tar.gz" | sha256sum -c -
+          tar -tzf "$RUNNER_TEMP/ganak.tar.gz" | tee evidence/ganak-elf/archive-list.txt
+          mkdir -p "$RUNNER_TEMP/ganak-out"
+          tar -xzf "$RUNNER_TEMP/ganak.tar.gz" -C "$RUNNER_TEMP/ganak-out"
+          candidate="$(find "$RUNNER_TEMP/ganak-out" -type f -name ganak | head -1)"
+          test -n "$candidate"
+          echo '934a79a3db2f5b3928ce89edde20837f652e4679b099320ac71c198699c709dd  '"$candidate" | sha256sum -c -
+          printf 'Ganak pinned executable: %s\n' "$candidate" | tee evidence/ganak-elf/provenance.txt
+          sha256sum "$candidate" | tee -a evidence/ganak-elf/provenance.txt
+          file "$candidate" | tee evidence/ganak-elf/file.txt
+          readelf -h "$candidate" > evidence/ganak-elf/elf-header.txt
+          readelf -l "$candidate" > evidence/ganak-elf/program-headers.txt
+          readelf -d "$candidate" > evidence/ganak-elf/dynamic.txt 2>&1 || true
+          if readelf -l "$candidate" | grep -q 'INTERP'; then
+            echo 'QOO156_GANAK_ELF_HAS_PT_INTERP=YES' | tee evidence/ganak-elf/classification.txt
+          else
+            echo 'QOO156_GANAK_ELF_HAS_PT_INTERP=NO' | tee evidence/ganak-elf/classification.txt
+          fi
+          if readelf -d "$candidate" 2>&1 | grep -q '(NEEDED)'; then
+            echo 'QOO156_GANAK_ELF_DT_NEEDED=YES' | tee -a evidence/ganak-elf/classification.txt
+          else
+            echo 'QOO156_GANAK_ELF_DT_NEEDED=NO' | tee -a evidence/ganak-elf/classification.txt
+          fi
+          grep -E 'interpreter|INTERP' evidence/ganak-elf/program-headers.txt || true
+          cat evidence/ganak-elf/classification.txt
+          git rev-parse HEAD > evidence/ganak-elf/branch-sha.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo156-ganak-elf-${{ github.sha }}
+          path: evidence/ganak-elf/
+          if-no-files-found: warn
+          retention-days: 30

@@ -285,3 +285,17 @@ Both workflows report **completed SUCCESS** and both matrix jobs passed CLI test
 - **Important**: This closes the blocking pipe `join()` path for exercised cases, not a mathematical guarantee of exact total CLI wall-clock exit: kernel cleanup, output publication to a blocked downstream consumer, and nondelegated detached grandchildren remain separate limits.
 - This branch changes `rust/cli` only, with **unchanged `rust/pathsum`** and no Solver changes. Source-scoped correctness PASS is not a CodSpeed performance certificate; the true Macro Runner job is still queued/unassigned, so **P1 performance NOT_ADMITTED**. No `dev` merge.
 
+## 2026-11-04 final CLI I/O branch source-paired CodSpeed observation
+
+Exactly [GitHub Actions #41855169039](https://github.com/PhysicsQoo/QuPRS/actions/runs/41855169039), source `e7cef4041992bd753ba60a97380e57407bb08b5e`, completed SUCCESS, official connected [CodSpeed run `6aeb4b9d09f1ddb2bf501af8`](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb4b9d09f1ddb2bf501af8). It built untouched `dev@79e975b0` and current bounded-stdout+stderr/worker-admission+EOF-gated HEAD using the **same** `rust/pathsum` tree, then measured source-paired Base/HEAD/HEAD/Base CLI subprocess WallTime on one hosted Ubuntu runner. No direct worker release bypass variant was included.
+
+| CLI case | Base min WallTime (repeated) | HEAD min WallTime (repeated) | Observed extra HEAD fixed cost |
+|---|---:|---:|---:|
+| single H | 1.0 / 1.0 ms | 2.3 / 2.2 ms | approx 1.2–1.3 ms |
+| GHZ32 RR dual circuit | 1.2 / 1.2 ms | 2.4 / 2.4 ms | approx 1.2 ms |
+| QPE-exact8 RR dual circuit | 2.0 / 2.1 ms | 3.2 / 3.3 ms | approx 1.2 ms |
+
+**Official CodSpeed warning on all twelve cases:** `Walltime results may be unreliable` because the run was **NOT a CodSpeed Macro Runner**. Therefore this is an **OBSERVATIONAL_ONLY** scientific/performance early signal, **NOT** a formal performance-regression/no-regression certificate. Absolute startup overhead is real in the hosted observations and large relative to these tiny 1–2ms requests; do not claim zero CLI overhead. All Rust core native pathsum algorithms remain unmodified. The earlier ~20ms polling tail was eliminated, but this final branch adds a bounded pipe pump, verified launch context, extra thread synchronization and process isolation. The current result must not be compared as a different runner/mode environment without accounting for CodSpeed's environment warnings.
+
+**Formal P1 Macro** [GitHub job #126558702309](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124/job/126558702309) still `queued` with no runner assignment. Avoid dispatching more identical queued jobs. Once a truly available Macro Runner is confirmed, run a fresh same-SHA, same-runner ABBA comparison on the finalized CLI and evaluate **absolute extra milliseconds plus relative overhead by circuit duration**, separate from Rust-native CPU Simulation. No full release or five-shard CI rerun for this documentation update; no `dev` merge while formal performance admission remains NOT_MET.
+

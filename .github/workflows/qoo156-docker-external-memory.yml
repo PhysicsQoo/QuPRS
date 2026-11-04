@@ -8,6 +8,7 @@ on:
       - experiment/qoo156-cli-supervisor
     paths:
       - '.github/workflows/qoo156-docker-external-memory.yml'
+      - 'scripts/qoo156_docker_memory_cap_probe.sh'
   workflow_dispatch:
 
 permissions:

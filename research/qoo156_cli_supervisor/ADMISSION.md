@@ -49,13 +49,22 @@ alone is insufficient**: the first attempt observed exit=137 with
 The final certificate uses per-container kernel `memory.events`
 deltas and a successful high-memory control.
 
-An additional experiment runs the **actual Rust debug CLI worker** under
-a Docker 128 MiB cap with a 192 MiB page-touch hook and a 384 MiB
-positive control; see workflow
-`.github/workflows/qoo156-real-cli-docker-memory.yml`.
-It must check no false scientific verdict on OOM. As of this update,
-the real CLI job is still running; no CLI-specific claim until its JSON
-and CI verdict are inspected.
+**Real Rust CLI experiment is now PASS** at [CI #41839492389](https://github.com/PhysicsQoo/QuPRS/actions/runs/41839492389), [artifact #13327809025](https://github.com/PhysicsQoo/QuPRS/actions/runs/41839492389/artifacts/13327809025). The same compiled DEBUG Rust CLI with the existing 192 MiB page-touch hook ran in the same unprivileged Ubuntu 24.04 Docker image, under daemon-installed limits:
+
+| External cap | Kernel memory.max | memory.events oom_kill delta | Actual CLI result | No false scientific result |
+|---|---:|---:|---|---|
+| 384 MiB | 402,653,184 bytes | 0 | Exit 0; expected Reduced PathSum State | N/A (normal verification) |
+| 128 MiB | 134,217,728 bytes | +1 | Exit 125, `WorkerFailed: ... SIGKILL` | **PASS**; stdout empty |
+
+This certifies that an **externally installed Docker cap works on the
+real Rust CLI worker** and prevents a false EQ/NEQ after its process is
+killed. The CLI did NOT produce typed `MemoryLimitExceeded`; it emitted
+generic `WorkerFailed` because it had no privilege to create its own
+child memory cgroup. External Docker kernel event accounting is what
+distinguished actual memory OOM from other SIGKILL causes in this
+experiment. **`QOO156_CLI_INTERNAL_MEMORY_CERTIFICATE=NOT_TESTED`** remains
+explicit; do not re-label the external certificate as internal memory
+guard admission.
 
 This can support an operational Docker/OrbStack resource envelope,
 but cannot replace a positive `--max-memory-mib` child-cgroup
@@ -122,7 +131,7 @@ milliseconds separate from percentage overhead on tiny circuits.
 ## Gate verdict
 
 GPMC/Ganak real solver cancellation: ADMITTED for exercised cases.
-Positive physical-memory OOM enforcement: NOT_ADMITTED.
+Positive physical-memory OOM enforcement: EXTERNAL_DOCKER_ADMITTED for exercised cases; INTERNAL_CLI_NOT_ADMITTED.
 True Macro Runner CLI performance: NOT_ADMITTED.
 Linux subreaper real-Ganak incremental benefit: NOT_DEMONSTRATED.
 No dev merge until the outstanding safety and performance gates are

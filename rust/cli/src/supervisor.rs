@@ -2,13 +2,13 @@
 //! bounded diagnostics, optional resource limits. No Rust pathsum hot-path changes.
 use crate::args::Cli;
 use anyhow::{bail, Context, Result};
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const POLL: Duration = Duration::from_millis(20);
 const OUTPUT_LIMIT: u64 = 16 * 1024 * 1024;
 pub const TIMEOUT_EXIT: i32 = 124;
 pub const RESOURCE_EXIT: i32 = 125;
@@ -53,19 +53,35 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         command.env("QUPRS_CLI_WORKER_CGROUP", &group.path);
     }
     let mut child = command.spawn().context("spawn isolated QuPRS CLI worker")?;
-    let exit = loop {
-        if let Some(status) = child.try_wait().context("poll CLI worker")? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            terminate_tree(&mut child, cgroup.as_ref());
-            let _ = child.wait();
+    let pid = child.id();
+    // Wait for the real OS process-exit event. A dedicated parent-side thread
+    // blocks in wait(), so there is no 20ms polling tail for millisecond jobs.
+    // Only the CLI parent pays this fixed overhead, never rust/pathsum.
+    let (tx, rx) = mpsc::sync_channel::<io::Result<ExitStatus>>(1);
+    let waiter = thread::spawn(move || { let _ = tx.send(child.wait()); });
+    let received = rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+    let exit = match received {
+        Ok(Ok(status)) if Instant::now() < deadline => status,
+        Ok(Ok(_)) | Err(mpsc::RecvTimeoutError::Timeout) => {
+            terminate_tree(pid, cgroup.as_ref());
+            // If the worker already exited, the result was consumed above.
+            // Otherwise the waiter must reap it; never misstate a leaked
+            // worker as a successfully canceled request.
+            if let Err(mpsc::RecvTimeoutError::Timeout) =
+                rx.recv_timeout(Duration::from_secs(2)) {
+                bail!("ResourceSupervisorError: worker was not reaped after timeout");
+            }
+            let _ = waiter.join();
             if cli.quiet { println!("Timeout"); }
             else { eprintln!("Timeout: whole CLI invocation exceeded --timeout"); }
             return Ok(TIMEOUT_EXIT);
         }
-        thread::sleep(POLL.min(deadline.saturating_duration_since(Instant::now())));
+        Ok(Err(error)) => return Err(error).context("wait for CLI worker"),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            bail!("ResourceSupervisorError: worker waiter disconnected")
+        }
     };
+    let _ = waiter.join();
 
     if cgroup.as_ref().is_some_and(MemoryCgroup::oom_killed) {
         eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
@@ -108,23 +124,28 @@ fn install_address_space_limit(command: &mut Command, mib: u64) -> Result<()> {
     Ok(())
 }
 
-fn terminate_tree(child: &mut Child, group: Option<&MemoryCgroup>) {
+fn terminate_tree(pid: u32, group: Option<&MemoryCgroup>) {
     if let Some(group) = group {
         if group.kill_all().is_ok() {
-            let _ = child.kill();
+            #[cfg(unix)]
+            unsafe { libc::kill(pid as i32, libc::SIGKILL); }
             return;
         }
     }
     #[cfg(unix)]
     {
-        // GPMC/Ganak may create a separate process group. Enumerate the
-        // descendants BEFORE killing the parent, then kill both.
-        for descendant in descendant_pids(child.id()).into_iter().rev() {
+        for descendant in descendant_pids(pid).into_iter().rev() {
             unsafe { libc::kill(descendant as i32, libc::SIGKILL); }
         }
-        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+            libc::kill(pid as i32, libc::SIGKILL);
+        }
     }
-    let _ = child.kill();
+    #[cfg(windows)]
+    let _ = Command::new("taskkill").args([
+        "/T", "/F", "/PID", &pid.to_string(),
+    ]).status();
 }
 
 #[cfg(unix)]
@@ -260,7 +281,7 @@ mod tests {
         let mut child = cmd.spawn().unwrap();
         thread::sleep(Duration::from_millis(100));
         assert!(!descendant_pids(child.id()).is_empty());
-        terminate_tree(&mut child, None);
+        terminate_tree(child.id(), None);
         assert!(child.wait().is_ok());
     }
 }

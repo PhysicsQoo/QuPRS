@@ -11,6 +11,7 @@ physical-memory caps, or preemption of parent-side Qiskit serialization.
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
 import json
 import os
 import selectors
@@ -187,7 +188,12 @@ def run_isolated(
     """Opt-in child isolation; parent owns any delegated physical-memory cap."""
     if os.name != "posix":
         raise RustWorkerError("experimental Rust isolation requires a POSIX host")
+    from QuPRS import _pathsum_rust
+    from QuPRS.utils import WMC, get_ganak_path
+
+    native_library = os.path.abspath(_pathsum_rust.__file__)
     request = {
+        "rust_extension_path": native_library,
         "deadline_monotonic_sec": request_deadline,
         "request_started_monotonic_sec": request_started,
         "version": _PROTOCOL_VERSION,
@@ -209,11 +215,17 @@ def run_isolated(
     # supervisor itself dies before it can clean up detached Solver children.
     from . import rust_resources
 
-    with tempfile.TemporaryDirectory(prefix="quprs-rust-worker-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="quprs-rust-worker-") as temporary, ExitStack() as held:
+        # Scope Solver binary extraction to the entire supervised request,
+        # while leaving the embedding process's environment untouched.
+        solver = options["tool_name"]
+        resource = get_ganak_path(verify=False) if solver == "ganak" else WMC(solver)
+        executable = held.enter_context(resource)
         environment = os.environ.copy()
         environment.update({
             "TMPDIR": temporary, "TMP": temporary, "TEMP": temporary,
             "QUPRS_RUST_SUPERVISOR_PARENT_PID": str(os.getpid()),
+            f"QUPRS_{solver.upper()}_PATH": str(executable),
         })
         group = None
         supervisor = None

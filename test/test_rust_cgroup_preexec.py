@@ -163,6 +163,6 @@ def test_private_supervisor_requires_parent_admission(monkeypatch):
 
     monkeypatch.setattr(module.os, "read", read_input)
     assert module._require_parent_admission() is None
-    monkeypatch.setattr(module.os, "read", lambda fd, n: b"wrong")
+    monkeypatch.setattr(module.os, "read", lambda fd, n: b"wrong"[:n])
     with pytest.raises(module.SupervisorResourceError, match="invalid supervisor admission"):
         module._require_parent_admission()

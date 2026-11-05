@@ -138,6 +138,30 @@ fn explicit_failed_cnf_opt_in_preserves_private_directory_only_on_failure() {
 }
 
 #[cfg(unix)]
+#[test]
+fn address_space_cap_failed_worker_does_not_retain_opt_in_cnf() {
+    let temp_root = tempfile::tempdir().unwrap();
+    let witness = tempfile::NamedTempFile::new().unwrap();
+    let output = Command::new(cli()).arg("/missing/qoo156-never-found.qasm")
+        .args(["--quiet", "--timeout", "10", "--max-address-space-mib", "4096"])
+        .env("TMPDIR", temp_root.path())
+        .env("QUPRS_CLI_TEST_TEMP_MARKER", witness.path())
+        .env("QUPRS_KEEP_FAILED_CNF", "1")
+        .output().unwrap();
+    assert!(!output.status.success(), "missing circuit cannot succeed under RLIMIT_AS");
+    assert!(output.stdout.is_empty(), "resource-limited failure leaked science: {output:?}");
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("RetainedFailedSolverArtifacts"),
+        "cannot certify nonzero worker exit under RLIMIT_AS as ordinary failure");
+    let private = fs::read_to_string(witness.path()).unwrap();
+    if !private.is_empty() {
+        assert!(!std::path::Path::new(&private).exists(),
+            "RLIMIT_AS-cap failure retained private CNF directory");
+    }
+    assert!(fs::read_dir(temp_root.path()).unwrap().next().is_none(),
+        "RLIMIT_AS-cap failure left worker temporary artifacts");
+}
+
+#[cfg(unix)]
 fn wait_for_canceled_cli(mut child: std::process::Child) -> std::process::Output {
     for _ in 0..100 {
         if child.try_wait().unwrap().is_some() {

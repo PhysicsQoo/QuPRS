@@ -135,13 +135,24 @@ def _stop_worker(process):
                 pass
             except (psutil.AccessDenied, psutil.Error) as exc:
                 raise RustWorkerError("cannot terminate isolated worker descendant") from exc
-        if os.name == "posix":
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        elif process.poll() is None:
-            process.kill()
+        # Do not signal a stale process group ID after the direct worker has
+        # exited: its PID/PGID may already have been released or reused.
+        if process.poll() is None:
+            if os.name == "posix":
+                try:
+                    if os.getpgid(process.pid) == process.pid:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
+                except PermissionError as exc:
+                    # Never guess that an unauthorized group was ours.
+                    raise RustWorkerError(
+                        "cannot safely terminate isolated worker process group"
+                    ) from exc
+            else:
+                process.kill()
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired as exc:

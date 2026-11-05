@@ -245,23 +245,40 @@ def detached_descendant_proof(limit_mib: int) -> dict:
             if group.path.exists():
                 raise AssertionError("cgroup cleanup did not remove detached-child leaf")
             status_file = Path(f"/proc/{grandchild_pid}/status")
-            if status_file.exists():
-                status_text = status_file.read_text()
-                state = next(
+            # cgroup.kill schedules fatal signals; their delivery can be
+            # asynchronous even if removing the now-empty leaf succeeded.
+            # Confirm *eventual non-running* under a strict 2s bound.
+            post_cleanup_started = time.monotonic()
+            terminal_state = "gone"
+            while status_file.exists():
+                try:
+                    status_text = status_file.read_text()
+                except FileNotFoundError:
+                    break
+                terminal_state = next(
                     (line.split(":", 1)[1].strip().split()[0]
                      for line in status_text.splitlines()
                      if line.startswith("State:")), ""
                 )
-                if state not in {"Z", "X", "x"}:
+                if terminal_state in {"Z", "X", "x"}:
+                    break
+                if time.monotonic() - post_cleanup_started >= 2.0:
                     raise AssertionError(
-                        f"detached child still executing after cleanup, state={state}"
+                        f"detached child still running 2s after cgroup cleanup, "
+                        f"state={terminal_state}"
                     )
+                time.sleep(0.01)
+            cleanup_delivery_ms = round(
+                1000 * (time.monotonic() - post_cleanup_started), 2
+            )
             return {
                 "status": "PASS",
                 "physical_memory_mib": limit_mib,
                 "detached_solver_inherited_private_cgroup": True,
                 "supervisor_killed_with_sigkill": True,
                 "detached_child_not_running_after_cleanup": True,
+                "signal_delivery_after_cgroup_removal_ms": cleanup_delivery_ms,
+                "final_child_state": terminal_state,
                 "private_leaf_removed": True,
                 "scope": "kernel_parent_owned_cgroup_detached_descendant_cleanup",
             }

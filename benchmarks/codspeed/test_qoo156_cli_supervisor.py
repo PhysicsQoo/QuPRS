@@ -26,6 +26,11 @@ def _fixture(case: str) -> list[str]:
     return [src, src]
 
 
+def accepted_dual_verdict(stdout: str) -> bool:
+    """Accept only complete machine-readable EQ verdicts, never NEQ/unknown."""
+    return stdout.strip() in ("equivalent", "equivalent*")
+
+
 def run_case(revision: str, case: str) -> str:
     binary = Path(os.environ["QOO156_BASE_CLI" if revision == "base" else "QOO156_HEAD_CLI"])
     command = [
@@ -48,7 +53,9 @@ def run_case(revision: str, case: str) -> str:
     if case == "single_h":
         assert "Reduced PathSum State" in out
     else:
-        assert "equivalent" in out.lower(), f"{case}/{revision}: {out[-350:]}"
+        assert accepted_dual_verdict(out), (
+            f"{case}/{revision}: expected exact EQ verdict, got {out[-350:]!r}"
+        )
     return "ok"
 
 

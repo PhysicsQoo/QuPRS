@@ -27,6 +27,28 @@ The P8 intervention adds a **scratch-only** `QOO157_PREPROC_ONLY=1` early-return
 
 ## Current evidence
 
-The workflow has been triggered. Fill in the actual same-run science/CodSpeed verdict, immutable artifact ID and official instrument medians only once the run is completed and verified. If the run fails, preserve the failure reason; do not promote any result or claim a speedup.
+The workflow completed SUCCESS with a full native science admission and official CodSpeed. The original evidence and methodological limitations are preserved in the following section.
 
 Track under existing [QOO-157](https://linear.app/qoogohome/issue/QOO-157), rather than creating another issue.
+
+
+
+## Completed P8 native science + six official CodSpeed v5 observations
+
+**PASS:** [GitHub Actions #41944225225](https://github.com/PhysicsQoo/QuPRS/actions/runs/41944225225), measured HEAD `eeef211fc5e31033f041ae24a4369953bf7b968d`; [immutable artifact #13377553454](https://github.com/PhysicsQoo/QuPRS/actions/runs/41944225225/artifacts/13377553454), first-party [CodSpeed run `6aebd3b8ac5c0ebdb12478ef`](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aebd3b8ac5c0ebdb12478ef). The native scratch binary SHA256 was `0b9a892714f84c08c9fa77c4f8b2bc0e06352d29098bafca83881fdecc8020ae`, source weighted-CNF SHA256 `66375ceba75cd7b02e8f4a723c534618d5206dc2ebfaf02255d4c863f79a3123`, actual GMP 128 bits/38 effective digits. All 3 options × 2 scopes (**6/6**) passed fresh native science: every raw residual dump SHA256 exactly **`99d9100538b20ceab66dad1d0f6d06025de5d315720198da90656dff865067bf`** (the previously admitted P7 original data); all three full native complex counts concordant to the exact archived rational source-count screen; the three preproc-only runs returned the explicit marker without executing the counter. No timeout, source drift or scientific mismatch. WMC is **COUNT_CONCORDANT_UNCERTIFIED**, not an MPFR/GMP numerical error certificate.
+
+Six **official CodSpeed v5 WallTime benchmarks completed** with **five actual rounds per identity**; first-party export reports **zero IQR and zero stdev outlier rounds**. The values below are original export **five-round medians**, not the CodSpeed UI minimum. This is same-run/same-binary prepared-original-CNF context:
+
+| BiPe option, QAOA7 genuine NEQ | Preproc-only median | Full native subprocess median | Preproc-only vs default | Full vs default |
+| --- | ---: | ---: | ---: | ---: |
+| `auto_default` | **71.425351 ms** | **144.944134 ms** | — | — |
+| `manual_sharp` | **26.448164 ms** | **91.608299 ms** | **−62.97%** | **−36.80%** |
+| `auto_no_vivif` | **56.397074 ms** | **121.518124 ms** | **−21.04%** | **−16.16%** |
+
+Preproc-only default vs manual difference is **44.977 ms** in the exported medians, while their full-subprocess median difference is **53.336 ms**. The differences are **not mathematically a paired decomposition of the same run into native stages**: each option/scope owns a separate distribution with subprocess startup, parser and wrapper effects. The agreement in direction and order of magnitude, however, supplies evidence that **option-dependent preprocessing/initialization work before DPLL is a major contributor** to QAOA7's previous within-d4 full WallTime gap despite byte-identical residual clauses, weight map, projection and protected set. No single rule is proven to account for that share: `manual_sharp` changes an option **bundle**, not only vivification, and source stage counts cannot identify unobserved SAT work. The full counter's internal heuristic state might also depend on preprocessing even when residual bytes are the same.
+
+**Reliability:** The CodSpeed [run page](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aebd3b8ac5c0ebdb12478ef) explicitly flags **all six non-Macro Runner WallTime benchmarks as potentially unreliable**, with no resolved native flamegraph. Five rounds and zero outliers **do not certify statistical significance**, especially cross option comparisons; this is a **single hosted same-run observational pilot**, NOT fixed Macro Runner paired ABBA/BAAB. Do not splice these absolute medians into prior CodSpeed runs with different hosted runners or proclaim an end-to-end QuPRS performance gain. No experiment modified QuPRS production BiPe settings (there are none), default GPMC, d4 vendored source, dev/main or routine CI.
+
+**Decision:** The crucial gap is narrowed: QAOA7’s preprocessor-only path itself can consume substantial time while yielding the same post-BiPe weighted formula; choosing a shallower/manual preproc option may reduce this work in that QAOA-shaped family. But the earlier [source-pinned BiPe native structural statistics #41847739344](https://github.com/PhysicsQoo/QuPRS/actions/runs/41847739344) found QFT16’s degeneracy-width proxy improving 11→8, while QAOA7 stayed 2→2, so a **global default “disable auto BiPe”** would be unjustified and may drastically hurt QFT-like circuits. Future P9 should first test a **narrow, original-source family-aware criterion** and fixed runner paired official CodSpeed if a concrete d4 integration policy decision needs it; otherwise retain completed P8 and leave d4 research-only.
+
+Owner: [existing QOO-157](https://linear.app/qoogohome/issue/QOO-157). The parent issue remains In Progress for the larger d4 vs GPMC solver choice, not a v0.14.0 release blocker.

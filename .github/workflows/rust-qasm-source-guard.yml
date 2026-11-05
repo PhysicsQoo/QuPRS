@@ -148,7 +148,6 @@ jobs:
             test/test_rust_qasm_fail_closed.py \
             test/test_rust_p_phase_semantics.py \
             test/test_graphstate16_qiskit_provenance.py \
-            docs/development/graphstate16-qasm-provenance.md \
             .github/workflows/rust-qasm-source-guard.yml \
             docs/development/rust-qasm-source-safety.md > evidence/source-sha256.txt
           (

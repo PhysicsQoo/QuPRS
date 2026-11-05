@@ -11,7 +11,6 @@ on:
       - 'test/test_rust_exact_global_phase_verdict.py'
       - 'test/test_rust_exact_global_phase_verdict.py'
       - '.github/workflows/rust-global-phase-exact.yml'
-      - '.diagnostics/rust_exact_global_phase/README.md'
   workflow_dispatch:
 
 permissions:
@@ -114,8 +113,7 @@ jobs:
             rust/pathsum/src/lib.rs \
             rust/pathsum/src/gates.rs \
             test/test_rust_exact_global_phase_verdict.py \
-            .github/workflows/rust-global-phase-exact.yml \
-            .diagnostics/rust_exact_global_phase/README.md > evidence/source-sha256.txt
+            .github/workflows/rust-global-phase-exact.yml > evidence/source-sha256.txt
           (
             cd evidence
             find . -type f ! -name SHA256SUMS -print0 | sort -z | \

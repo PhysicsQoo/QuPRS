@@ -393,6 +393,12 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     let oom_result = cgroup.as_ref().map(MemoryCgroup::oom_observed).transpose();
     let cgroup_cleanup = cgroup.as_ref().map(MemoryCgroup::cleanup).transpose();
     if let Err(error) = cgroup_cleanup {
+        // Even when the kernel refuses to remove a worker cgroup, attempt
+        // private artifact removal explicitly and report failures. TempDir
+        // Drop is only a last-resort fallback; never retain failed CNF here.
+        if let Err(temp_error) = finalize_worker_tempdir(worker_tempdir, false) {
+            eprintln!("ResourceSupervisorCleanupError: worker temporary files after cgroup failure: {temp_error:#}");
+        }
         eprintln!("ResourceSupervisorCleanupError: cgroup: {error:#}");
         return Ok(RESOURCE_EXIT);
     }
@@ -403,6 +409,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         interrupted.is_some(),
         exit.as_ref().is_some_and(|status| !status.success()),
         &oom_result,
+        cli.max_memory_mib.is_some(),
         cli.max_address_space_mib.is_some(),
         std::env::var("QUPRS_KEEP_FAILED_CNF").as_deref() == Ok("1"),
     );
@@ -572,19 +579,23 @@ fn descendant_pids(root: u32) -> Vec<u32> {
     descendants.into_iter().skip(1).collect()
 }
 
-// Preserve failed science data only when the worker failed normally AND
-// kernel resource evidence proves that no OOM occurred. For a missing
-// controller cap, None is a valid witness. Unreadable evidence fails closed.
+// Preserve explicitly requested failed science data ONLY for an ordinary,
+// uncapped failed worker. Linux cgroup memory.events can remain zero even
+// when allocations fail without invoking the kernel OOM killer. RLIMIT_AS
+// likewise has no authoritative exceeded counter. A failed capped worker
+// cannot safely be classified as an ordinary solver failure for CNF retention.
 fn can_preserve_failed_cnf(
     interrupted: bool,
     worker_failed: bool,
     oom_result: &Result<Option<bool>>,
+    physical_memory_cap_requested: bool,
     address_space_cap_requested: bool,
     opt_in: bool,
 ) -> bool {
-    // RLIMIT_AS has no kernel per-invocation exceeded counter. A failed
-    // capped worker cannot be certified as an ordinary non-resource failure.
-    opt_in && !interrupted && worker_failed && !address_space_cap_requested
+    // Even a clean oom/oom_kill snapshot cannot certify all allocation
+    // failures under memory.max. Capped failures never retain CNF.
+    opt_in && !interrupted && worker_failed
+        && !physical_memory_cap_requested && !address_space_cap_requested
         && matches!(oom_result, Ok(None | Some(false)))
 }
 
@@ -971,25 +982,50 @@ pub fn prepare_worker() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn failed_cnf_opt_in_never_overrides_resource_or_unknown_state() {
+    fn failed_cnf_opt_in_only_uncapped_ordinary_failed_worker() {
         let safe_no_cap: Result<Option<bool>> = Ok(None);
-        let safe_no_oom: Result<Option<bool>> = Ok(Some(false));
-        let real_oom: Result<Option<bool>> = Ok(Some(true));
-        let unreadable: Result<Option<bool>> = Err(anyhow::anyhow!("unreadable memory.events"));
-        assert!(can_preserve_failed_cnf(false, true, &safe_no_cap, false, true));
-        assert!(can_preserve_failed_cnf(false, true, &safe_no_oom, false, true));
-        for witness in [&real_oom, &unreadable] {
-            assert!(!can_preserve_failed_cnf(false, true, witness, false, true),
-                "OOM or unknown cgroup evidence must never preserve CNF");
+        let no_recorded_oom: Result<Option<bool>> = Ok(Some(false));
+        let observed_oom: Result<Option<bool>> = Ok(Some(true));
+        let unknown: Result<Option<bool>> = Err(anyhow::anyhow!("unreadable memory.events"));
+
+        // Explicit opt-in, ordinary failure, no resource caps: preserve.
+        assert!(can_preserve_failed_cnf(false, true, &safe_no_cap, false, false, true));
+        for evidence in [&no_recorded_oom, &observed_oom, &unknown] {
+            // Both max-memory and RLIMIT_AS make cause attribution ambiguous.
+            assert!(!can_preserve_failed_cnf(false, true, evidence, true, false, true),
+                "cgroup-capped failed worker must never preserve CNF");
+            assert!(!can_preserve_failed_cnf(false, true, evidence, false, true, true),
+                "address-space-capped failed worker must never preserve CNF");
+            assert!(!can_preserve_failed_cnf(false, true, evidence, true, true, true),
+                "combined-capped failed worker must never preserve CNF");
         }
-        assert!(!can_preserve_failed_cnf(false, true, &safe_no_cap, true, true),
-            "nonzero exit under RLIMIT_AS may be an unobservable ENOMEM");
-        assert!(!can_preserve_failed_cnf(true, true, &safe_no_cap, false, true),
-            "timeout/SIGTERM must not preserve CNF");
-        assert!(!can_preserve_failed_cnf(false, false, &safe_no_cap, false, true),
-            "successful results must not preserve CNF");
-        assert!(!can_preserve_failed_cnf(false, true, &safe_no_cap, false, false),
-            "CNF retention must require explicit opt-in");
+        assert!(!can_preserve_failed_cnf(false, true, &observed_oom, false, false, true));
+        assert!(!can_preserve_failed_cnf(false, true, &unknown, false, false, true));
+        assert!(!can_preserve_failed_cnf(true, true, &safe_no_cap, false, false, true));
+        assert!(!can_preserve_failed_cnf(false, false, &safe_no_cap, false, false, true));
+        assert!(!can_preserve_failed_cnf(false, true, &safe_no_cap, false, false, false));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failed_cgroup_cleanup_still_attempts_private_file_disposal() {
+        let temp_root = tempfile::tempdir().unwrap();
+        let private = tempfile::Builder::new().prefix("qoo156-failed-cgroup-")
+            .tempdir_in(temp_root.path()).unwrap();
+        let private_path = private.path().to_owned();
+        fs::write(private_path.join("temp_eqcheck_test.cnf"), b"sensitive").unwrap();
+        fs::write(private_path.join("quprs-solver_test.tmp"), b"sensitive").unwrap();
+        // Synthetic cgroup.events failure: no controller/real kernel
+        // allocation needed. Exercise the same explicit failure cleanup,
+        // without ever retaining the opt-in artifact.
+        let bad_cgroup_path = temp_root.path().join("fake-cgroup");
+        fs::create_dir(&bad_cgroup_path).unwrap();
+        let fake = MemoryCgroup { path: bad_cgroup_path };
+        let cgroup_result = fake.cleanup();
+        assert!(cgroup_result.is_err());
+        finalize_worker_tempdir(private, false).unwrap();
+        assert!(!private_path.exists(), "cgroup error must not retain CNF");
+        std::mem::forget(fake); // Not a real kernel cgroup.
     }
 
     #[test]

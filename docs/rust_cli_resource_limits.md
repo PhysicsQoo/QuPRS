@@ -58,15 +58,13 @@ from running Rust destructors. After the worker and observable descendants
 are reaped, the supervisor removes the directory **before publishing
 successful stdout**. A removal error is typed
 `ResourceSupervisorCleanupError` (exit **125**, no scientific verdict).
-Existing `QUPRS_KEEP_FAILED_CNF=1` preserves the **mode-0700** private directory **containing only regular `temp_eqcheck_*.cnf` files** on an ordinary uncapped or safely evidenced solver failure; unrelated solver-output captures, nested directories and symlinks are removed without following symlinks, and the retained location is reported on stderr. Timeout, SIGINT/SIGTERM, confirmed/unknown cgroup OOM, and ambiguous RLIMIT_AS capped failures never preserve CNF. Cleanup errors fail closed without publishing successful scientific stdout.
+Existing `QUPRS_KEEP_FAILED_CNF=1` preserves the **mode-0700** private directory **containing only regular `temp_eqcheck_*.cnf` files** on an **ordinary uncapped worker failure**, not on any failure under `--max-memory-mib` or `--max-address-space-mib`. Linux `memory.events.oom=0` is not a complete negative witness: some allocation failures do not invoke the OOM killer or increment the counter. Even a worker that fails normally with `oom=0` and `oom_kill=0` therefore does **not** retain CNF when a memory cap is requested. Unrelated solver captures, nested directories and symlinks are removed without following symlinks. Timeout, signals, any capped failed worker, and success never preserve CNF. The existing uncapped opt-in debug mode is unchanged. Cleanup errors fail closed without publishing a scientific result.
 
 For Linux `--max-memory-mib`, the supervisor now reads the final
 `memory.events` OOM witness, checks `cgroup.events populated`, kills
 any remaining worker-cgroup tasks, and retries `rmdir` for at most one
 second. Missing/malformed controller evidence or an unremoved worker cgroup
-returns **125** with a cleanup error; the `Drop` fallback reports
-errors instead of silently ignoring them. This extra check occurs only
-when the physical cgroup memory cap was requested.
+returns **125** with a cleanup error. If the explicit cgroup cleanup fails, the supervisor **still invokes private TMPDIR cleanup explicitly** with retention disabled before returning exit125, reporting any secondary filesystem cleanup error. The `Drop` fallback remains a last resort and is **not** a guarantee when unkillable descendants remain. This extra controller check occurs only when the physical cgroup memory cap was requested.
 
 [Independent source-scoped P1 CI #41942991745](https://github.com/PhysicsQoo/QuPRS/actions/runs/41942991745)
 **SUCCESS**: Ubuntu24.04 x86-64 **11 unit + 20 integration + Release**,
@@ -101,6 +99,16 @@ release acceptance remains a distinct decision.
 - **64 MiB true kernel OOM:** `oom=1`, `oom_kill=2`, worker exit125, empty stdout, no retained private CNF despite opt-in, worker cgroup removed; **256 MiB complete science:** `oom=0`, `oom_kill=0`, worker exit0, valid output and no residual worker cgroup. [Raw evidence artifact #13382318866](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814/artifacts/13382318866).
 - Pure parser tests additionally cover `oom>0,oom_kill=0` (fail closed), `oom=0,oom_kill>0`, positive `max` alone (not OOM), absent/duplicate/malformed fields; the **no-kill OOM counter combination was synthetically unit tested, not physically induced in this workflow**. RLIMIT_AS + explicit failed-CNF opt-in has focused Unix integration coverage; normal uncapped opt-in remains supported.
 - Same-runner hosted ABBA for earlier fully tested `e6956a7` [#41952943600](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952943600) passed provisional +3 ms additive cost: Single H +2.096 ms, GHZ32 RR +2.085 ms, QPE8 RR +2.048 ms. Full native 12-platform and CodSpeed [#41952952980](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952980) / [#41952952986](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952986) succeeded on that earlier source. **Any newly staged source SHA requires its own integration CI; old SHA success must not be reused as proof for new code.** No CodSpeed Macro PASS or zero-regression claim.
+
+## 2026-11-05 P1 final capped-failure and exceptional-cleanup admission
+
+* Upstream [Linux cgroup-v2 `memory.max` and `memory.events` documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) explicitly notes that some failed allocations do **not** invoke the OOM killer, and `oom` is not always raised. A failed CLI request under a physical `memory.max` cap can therefore have `oom=0, oom_kill=0`. The CLI now withholds `QUPRS_KEEP_FAILED_CNF=1` retention for **all capped worker failures**, independent of those observed counters. This is an intentional loss of opted-in CNF diagnosis under memory caps in exchange for fail-closed cleanup; **uncapped ordinary failed-solver debugging remains enabled**.
+* [Source-scoped pilot `bdc3b2e48`](https://github.com/PhysicsQoo/QuPRS/commit/bdc3b2e48eb2563669e5be61ed444a008097e0f1), [Actions #41957629230](https://github.com/PhysicsQoo/QuPRS/actions/runs/41957629230) **ALL THREE JOBS PASS**: complete CLI unit/integration and Release on Ubuntu24.04 and native macOS14 ARM64; test-only Docker-delegated cgroup + **unprivileged UID65534 CLI** real Linux positive cases:
+  * 64 MiB real OOM: `oom=1,oom_kill=2`, exit125, no science stdout, retained CNF **false**, worker cgroup removed.
+  * 256 MiB **ordinary failed request** (missing QASM) with explicit retention opt-in: `oom=0,oom_kill=0`, exit1, no science stdout, **private CNF deleted**, worker cgroup removed.
+  * 256 MiB successful science: `oom=0,oom_kill=0`, exit0, valid Path-sum output, worker cgroup removed.
+* Exceptional cgroup cleanup error now **explicitly attempts** private-TMPDIR disposal without retention and reports any second cleanup error before exit125. A synthetic non-kernel controller error and private files are unit-tested; an **unkillable real cgroup failure was not reproduced**. This is an improved guaranteed *attempt*, **not** a proof of successful filesystem cleanup in every unrecoverable kernel state. No worker-science code was changed; this protection runs only on the error path and introduces no added process or algorithm hot-path instrumentation.
+* Experimental privilege-assisted Docker, Python pilot, and workflow belong exclusively to the research branch; none are for production deployment or staging integration. A fresh staging HEAD needs its own SHA-specific CI/ABBA acceptance.
 
 ## Source-pinned P0 and final-stage P1 admission — 2026-11-05
 

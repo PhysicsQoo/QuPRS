@@ -59,3 +59,19 @@ For **each of the three completed cache ON/OFF pairs** the printed *complex* cou
 [Official v5 scope commit `076a4f3`](https://github.com/PhysicsQoo/QuPRS/commit/076a4f3bd4d4751b5878eddef21921c0de5053a0), [Actions #41938239985](https://github.com/PhysicsQoo/QuPRS/actions/runs/41938239985).
 
 Only QAOA7 auto, QAOA7 none, and QFT16 auto have valid cache-on/off numeric pairs, hence **6 benchmark identities**. The hosted runner rechecks original CNF SHA, actual native binary digest, **all eight** source science cases, same GMP128 / 38 effective digits, and each measured WMC against admitted preflight. QFT16 none/cache off is a **CENSORED exclusion**. Official CodSpeed v5 WallTime with `--codspeed-max-rounds=3 --codspeed-max-time=100` is the only timing instrument. At this document edit, **official runtime measurements were not yet available** and no speedup factor is claimed. Hosted non-Macro WallTime is observation only; formal fixed Macro Runner ABBA/BAAB is not established.
+
+## CacheList native negative-hit semantics — source audit
+
+**Critical semantic correction for interpreting the raw d4 counters:** pinned [`src/caching/CacheList.hpp` L99–120](https://github.com/jm62300/d4/blob/be15f91f3e9769e1f5cb175fa27e3eca3a1ea690/src/caching/CacheList.hpp#L99-L120) increments `m_nbPositiveHit` after the bucket's header and data match succeeds (L110–113); it increments `m_nbNegativeHit` **after the entire bucket chain has been traversed with no match** (L117–119). The confusing native field `Number of negative hit` therefore means **cache MISS**, not a successful hit. `CacheNoCollision.hpp` has the equivalent distinction. The previous on/off totals are native field names exactly, not counts of two different kinds of successful hits.
+
+Thus the actual attempted-component cache *success rate* for the four cache-ON configurations is:
+```
+actual_cache_success_rate = positive_hits / (positive_hits + negative_hits)
+QAOA7 auto = 2138 / (2138 + 926) = 69.7781%
+QAOA7 none = 2205 / (2205 + 971) = 69.4270%
+QFT16 auto = 133084 / (133084 + 66695) = 66.6156%
+QFT16 none = 917484 / (917484 + 426163) = 68.2831%
+```
+When cache is off, no cache lookup happens and both counters remain 0; **0/0 is undefined**, not zero hit rate. These d4 rates are close in magnitude to the independently verified GPMC cache-eligible rates (66.7%–78.9% in the earlier P3 four-case sweep), **but the opportunity/case/branching distributions are not identical, so there is no justified direct solver ranking from their percentages**.
+
+**Important P5 interaction evidence:** QFT16 BiPe none has **higher measured cache hit fraction** (68.28% vs 66.62% under auto BiPe) but **6.39× more cache-on decisions** (426,163 vs 66,695). Therefore the hit ratio alone is explicitly insufficient to explain search-work efficiency: residual CNF structure, branching and the **number of queried components** matter. This remains an untimed source-level mechanism conclusion, not a cross-solver speed estimate.

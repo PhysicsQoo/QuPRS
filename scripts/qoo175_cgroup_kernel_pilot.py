@@ -138,13 +138,17 @@ def forced_oom_proof(limit_mib: int) -> dict:
                 f"expected cgroup SIGKILL, received {child.returncode}: "
                 f"{out[-100:]!r} {err[-100:]!r}"
             )
-        if not group.oom_observed():
-            raise AssertionError("worker died but no kernel cgroup OOM counters increased")
+        events = (group.path / "memory.events").read_text()
+        oom_kills = _resources._unique_counter(events, "oom_kill")
+        if not group.oom_observed() or oom_kills < 1:
+            raise AssertionError(
+                "worker died but memory.events did not certify a kernel cgroup OOM kill"
+            )
         return {
             "status": "PASS",
             "physical_memory_mib": limit_mib,
             "worker_oom_exit": child.returncode,
-            "memory_events_oom": True,
+            "memory_events_oom_kill": oom_kills,
             "scope": "kernel_cgroup_oom_and_cleanup",
         }
     finally:

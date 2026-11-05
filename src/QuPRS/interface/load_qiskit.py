@@ -297,14 +297,17 @@ def check_equivalence(
             - 'Straightforward': Uses a straightforward strategy.
         timeout (int, optional): Requested deadline in seconds (default 600).
             The external WMC subprocess consumes only the remaining monotonic
-            budget. This is NOT a strict end-to-end wall-clock timeout for Rust
-            in-process reduction/encoding or Python symbolic work on a
-            non-main POSIX thread. Timeout returns a distinct "Timeout" status;
-            solver process/parse failures raise exceptions and do not imply
-            circuit inequivalence. See README "Solver subprocess reliability
-            and timeout limits" for supported-platform and cleanup guarantees.
-        safe_mode (bool, optional): If True, enables safe mode with memory limits by
-            using multiple processes. Default is False.
+            budget. In-process Rust and Python symbolic work on a non-main
+            thread are NOT subject to a strict end-to-end hard timeout.
+            Rust safe_mode=True supervises a separate worker with a monotonic
+            deadline; parent-side Qiskit serialization remains non-preemptible.
+            Solver/process/parse failures do not imply circuit inequivalence.
+        safe_mode (bool, optional): For the Python backend, use the existing
+            strategy isolation; for the Rust backend, invoke PyO3 inside an
+            isolated child worker with bounded IPC and a supervised deadline.
+            Worker isolation alone does not guarantee a physical-memory cap
+            or cleanup of solver processes that detach from its process group.
+            Default is False.
         rr_tolerance (float | None): Per-call RR numerical coefficient matching.
             Defaults to 1e-10. Preserves small source phase terms.
         phase_tolerance (float | None): Phase zero classification in radians
@@ -387,13 +390,13 @@ def check_equivalence(
                 rust_res = run_isolated(
                     c1_input, c2_input,
                     options={
-                    "method": method,
-                    "strategy": strategy,
-                    "tool_name": tool_name,
-                    "wmc_phase_tolerance": wmc_phase_tolerance,
-                    "approximate_distance_tolerance": approximate_distance_tolerance,
-                    "rr_tolerance": rr_tolerance,
-                    "gpmc_precision_digits": gpmc_precision_digits,
+                        "method": method,
+                        "strategy": strategy,
+                        "tool_name": tool_name,
+                        "wmc_phase_tolerance": wmc_phase_tolerance,
+                        "approximate_distance_tolerance": approximate_distance_tolerance,
+                        "rr_tolerance": rr_tolerance,
+                        "gpmc_precision_digits": gpmc_precision_digits,
                         "phase_tolerance": wmc_phase_tolerance,
                         "timeout": remaining,
                     },

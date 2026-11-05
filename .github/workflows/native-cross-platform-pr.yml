@@ -12,6 +12,7 @@ on:
       - '.gitmodules'
       - 'src/QuPRS/utils/**'
       - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/interface/rust_*.py'
       - 'pyproject.toml'
       - 'scripts/install_linux_deps.sh'
       - '.github/workflows/pytest.yml'

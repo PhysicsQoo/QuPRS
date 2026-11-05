@@ -64,3 +64,20 @@ Python/Rust environment, runner CPU, CodSpeed mode, and sources of skipped
 tests. Do not compare CodSpeed Simulation modeled CPU time with Walltime
 seconds as if they were the same metric. Preserve historical baselines when
 benchmark coverage, solver versions or measurement environments change.
+
+## Public engineering records
+
+Public pull-request descriptions, review notes, documentation and changelogs
+should report verifiable engineering facts: the source revision, scope,
+measurements, limitations, decisions and current disposition. Keep drafting
+process or other nontechnical internal workflow details out of project-facing
+records unless they are material to provenance, reproducibility or a required
+disclosure. Do not imply an independent reviewer or a human approval when the
+record only shows a source assessment or a COMMENT review. A second-party
+approval may be claimed only when the repository records that approval.
+
+After integration, update living status pages to distinguish historical
+provisional results from decisions actually made. Preserve original commits,
+test artifacts and review history rather than rewriting them to retroactively
+change the evidence. Documentation-only corrections should reuse existing
+source-qualified CI evidence where repository rules permit.

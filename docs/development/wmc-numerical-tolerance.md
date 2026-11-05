@@ -146,9 +146,9 @@ unconditional source-exact equivalence certificate. A stricter threshold
 may increase uncertainty in the **printed-output evidence**. For
 Ganak, a midpoint-based operational verdict remains explicitly
 uncertified when that evidence is unresolved, and users receive the
-dynamic resolution warning. Release acceptance must include
-source-pinned physical oracles and CodSpeed regression checks
-on both native and Python execution paths.
+dynamic resolution warning. For near-boundary applications, independently
+compare relevant physical or matrix-oracle results rather than treating
+a floating solver output as a mathematical proof.
 
 ## Breaking API migration
 

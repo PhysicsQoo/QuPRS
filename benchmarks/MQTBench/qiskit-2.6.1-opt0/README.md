@@ -88,7 +88,6 @@ python -m scripts.generate_mqtbench_qiskit261_level0 generate
 python -m scripts.generate_mqtbench_qiskit261_level0 verify
 ```
 
-The generation CI commits the resulting QASM and manifest to the
 **experiment branch only**, without changing `dev`, `main`, PR #131
 or any historical Git tag. Additional exact numerical equivalence
 testing should be reviewed independently before replacing formal

@@ -7,6 +7,7 @@ on:
       - experiment/qoo175-cgroup-preexec-p3
     paths:
       - 'scripts/qoo175_cgroup_kernel_pilot.py'
+      - 'scripts/qoo175_cgroup_service.sh'
       - 'src/QuPRS/interface/rust_resources.py'
       - '.github/workflows/qoo175-cgroup-kernel-pilot.yml'
   workflow_dispatch:
@@ -39,27 +40,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Delegate only a new, transient service subtree. Never reconfigure
-          # runner.service, system.slice, or the host's cgroup root.
+          UNIT="qoo175-cgroup-${GITHUB_RUN_ID}"
+          echo "QOO175_UNIT=$UNIT" >> "$GITHUB_ENV"
+          # Only a newly allocated, transient service subtree is modified.
           sudo systemd-run --wait --collect --pipe \
-            --unit="qoo175-cgroup-${GITHUB_RUN_ID}" \
+            --unit="$UNIT" \
             --property="Type=exec" \
             --property="User=$(id -un)" \
             --property="Delegate=memory" \
             --property="DelegateSubgroup=quprs-pilot" \
             --property="WorkingDirectory=${GITHUB_WORKSPACE}" \
-            /usr/bin/env bash -euo pipefail -c '
-              rel=$(awk -F: '\''$1=="0" && $2=="" {print $3}'\'' /proc/self/cgroup)
-              self="/sys/fs/cgroup${rel}"
-              anchor=$(dirname "$self")
-              test -f "$anchor/cgroup.subtree_control"
-              grep -qw memory "$anchor/cgroup.controllers"
-              if ! grep -qw memory "$anchor/cgroup.subtree_control"; then
-                echo +memory > "$anchor/cgroup.subtree_control"
-              fi
-              /usr/bin/python3 scripts/qoo175_cgroup_kernel_pilot.py --memory-mib 192 | tee qoo175-kernel-admission.json
-              /usr/bin/python3 scripts/qoo175_cgroup_kernel_pilot.py --memory-mib 192 --oom | tee qoo175-kernel-oom.json
-            '
+            /usr/bin/bash scripts/qoo175_cgroup_service.sh
+      - name: Diagnose failed transient service, without modifying host cgroups
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "QOO175_SERVICE_DIAGNOSTIC_START"
+          sudo journalctl --no-pager -o short-iso -u "$QOO175_UNIT" -n 120
+          sudo systemctl show "$QOO175_UNIT" \
+            -p Result -p ExecMainStatus -p ControlGroup -p Delegate \
+            -p DelegateControllers -p DelegateSubgroup
+          cat /proc/self/cgroup
+          echo "QOO175_SERVICE_DIAGNOSTIC_END"
       - name: Preserve standalone kernel evidence
         if: always()
         uses: actions/upload-artifact@v4

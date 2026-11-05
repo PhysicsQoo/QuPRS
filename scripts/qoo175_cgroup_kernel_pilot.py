@@ -268,6 +268,8 @@ def detached_descendant_proof(limit_mib: int) -> dict:
                         f"state={terminal_state}"
                     )
                 time.sleep(0.01)
+            if not status_file.exists():
+                terminal_state = "gone"
             cleanup_delivery_ms = round(
                 1000 * (time.monotonic() - post_cleanup_started), 2
             )

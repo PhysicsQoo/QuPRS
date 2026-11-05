@@ -1,0 +1,766 @@
+{
+  "schema_version": 1,
+  "profile": "quprs_complex_positive_weight_negative_literal_unity",
+  "semantics": {
+    "wmc": "Full WMC over all declared variables. For any explicitly weighted variable, w(+v) is complex and w(-v) is exactly 1+0i. Unspecified variables default both weights to 1.",
+    "pwmc": "Projected WMC: P variables can be explicitly weighted, non-P variables are only existential witnesses."
+  },
+  "cases": [
+    {
+      "id": "qp_free_phase_i",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "0",
+          "1",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "1",
+          "im": "1"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_forced_pos_phase_i",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "0",
+          "1",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "1"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_forced_negative_phase",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          -1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "0",
+          "1",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "1",
+          "im": "0"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_equivalence_cancellation",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          -1,
+          2
+        ],
+        [
+          1,
+          -2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "1",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "-1",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_free_exact_cancellation",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "-1",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_unit_propagation_factors",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          -1,
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "6",
+          "im": "0"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_unit_propagation_branch",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ],
+        [
+          -1,
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "8",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_pure_literal_elimination_unsafe",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "11",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_equivalence_elimination_weight_merge",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          -1,
+          2
+        ],
+        [
+          1,
+          -2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "5",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "11",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_xor_complex_cancel",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ],
+        [
+          -1,
+          -2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "-1",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "1",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_disconnected_free_factors",
+      "mode": "wmc",
+      "nvars": 4,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "weights": {
+        "1": [
+          "0",
+          "1",
+          "1",
+          "0"
+        ],
+        "2": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "3": [
+          "0",
+          "-1",
+          "1",
+          "0"
+        ],
+        "4": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "12",
+          "im": "0"
+        },
+        "sat_models": 4,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_free_zero_with_forced_other",
+      "mode": "wmc",
+      "nvars": 3,
+      "clauses": [
+        [
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "-1",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ],
+        "3": [
+          "0",
+          "1",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 4,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_negative_clause_weights",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          -1,
+          -2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "6",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_duplicate_literals",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          1,
+          2,
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "11",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_duplicate_clause_unit",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "3",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "8",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_false_with_unweighted_free",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          -1
+        ],
+        [
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 0,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_complex_tautology_free_var",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          -1
+        ],
+        [
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "0",
+          "1",
+          "1",
+          "0"
+        ],
+        "2": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "2",
+          "im": "2"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_tiny_imag_residual",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "-1",
+          "1/10000000000000000000000000000000000000000",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "1/10000000000000000000000000000000000000000"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_huge_positive_weight",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "10000000000000000000000000000000000000000",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "10000000000000000000000000000000000000001",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "qp_projected_or",
+      "mode": "pwmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ]
+      ],
+      "projection": [
+        1
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "3",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": 2
+      }
+    },
+    {
+      "id": "qp_projected_cancel",
+      "mode": "pwmc",
+      "nvars": 3,
+      "clauses": [
+        [
+          1,
+          3
+        ]
+      ],
+      "projection": [
+        1,
+        2
+      ],
+      "weights": {
+        "1": [
+          "-1",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "1",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 6,
+        "distinct_projected_models": 4
+      }
+    },
+    {
+      "id": "qp_projected_fully_existential_sat",
+      "mode": "pwmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ]
+      ],
+      "projection": [],
+      "expected": {
+        "value": {
+          "re": "1",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": 1
+      }
+    },
+    {
+      "id": "qp_projected_fully_existential_unsat",
+      "mode": "pwmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          -1
+        ]
+      ],
+      "projection": [],
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 0,
+        "distinct_projected_models": 0
+      }
+    },
+    {
+      "id": "qp_projected_forced_suffix",
+      "mode": "pwmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ],
+        [
+          -1,
+          2
+        ]
+      ],
+      "projection": [
+        1
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "3",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": 2
+      }
+    }
+  ]
+}

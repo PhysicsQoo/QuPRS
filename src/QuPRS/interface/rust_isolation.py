@@ -11,6 +11,7 @@ physical-memory caps, or preemption of parent-side Qiskit serialization.
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
 import json
 import os
 import selectors
@@ -187,7 +188,12 @@ def run_isolated(
     if os.name != "posix":
         raise RustWorkerError("experimental Rust isolation requires a POSIX host")
 
+    from QuPRS import _pathsum_rust
+    # Extension path comes from the already-loaded parent package, never
+    # user QASM input. The child loads it without importing Qiskit.
+    native_library = os.path.abspath(_pathsum_rust.__file__)
     request = {
+        "rust_extension_path": native_library,
         "deadline_monotonic_sec": request_deadline,
         "request_started_monotonic_sec": request_started,
         "version": _PROTOCOL_VERSION,
@@ -205,8 +211,16 @@ def run_isolated(
         }
 
     # Parent owns the temporary namespace even if the child is SIGKILL'ed.
-    with tempfile.TemporaryDirectory(prefix="quprs-rust-worker-") as temporary:
+    # Hold packaged binaries for the ENTIRE child lifecycle. Each worker
+    # receives its own solver path without mutating the parent environment
+    # or acquiring the direct-FFI global solver environment lock.
+    from QuPRS.utils import WMC, get_ganak_path
+    with tempfile.TemporaryDirectory(prefix="quprs-rust-worker-") as temporary, ExitStack() as held:
+        solver = options["tool_name"]
+        resource = get_ganak_path(verify=False) if solver == "ganak" else WMC(solver)
+        executable = held.enter_context(resource)
         environment = os.environ.copy()
+        environment[f"QUPRS_{solver.upper()}_PATH"] = str(executable)
         environment["TMPDIR"] = temporary
         environment["TMP"] = temporary
         environment["TEMP"] = temporary

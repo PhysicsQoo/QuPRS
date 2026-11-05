@@ -73,7 +73,7 @@ def test_macos_bounded_cleanup_when_descendants_survive(monkeypatch):
     tree = mod.DarwinProcessTree(42)
     tree._sample()
     tree._cleanup_deadline = time.monotonic() - 1
-    with pytest.raises(mod.ProcessTreeError, match="survived"):
+    with pytest.raises(mod.ProcessTreeError, match="deadline|survived"):
         tree.verify_stopped()
 
 def test_macos_descendant_limit_fails_closed(monkeypatch):

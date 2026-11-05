@@ -259,7 +259,7 @@ def test_address_space_cap_applies_only_inside_worker(monkeypatch):
         # this is an explicit admission failure, not a silent fallback.
         assert sys.platform == "darwin", completed.stderr
         assert "current limit exceeds maximum limit" in completed.stderr
-        qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+        qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
         monkeypatch.setenv("QUPRS_ISOLATED_MAX_ADDRESS_SPACE_MIB", "4096")
         with pytest.raises(RustWorkerError, match="exited with 125"):
             check_equivalence(

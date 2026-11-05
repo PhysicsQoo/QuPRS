@@ -20,6 +20,9 @@ INSTRUMENT = """  // QOO-157 experimental canonical residual export; NEVER enabl
     out << "p";
     for (int v : projected) out << " " << v;
     out << "\\n";
+    out << "b";
+    for (int v : varProtected) out << " " << v;
+    out << "\\n";
     for (const auto& [lit, weight] : formula.weightMap)
       out << "w " << lit << " " << weight << "\\n";
     for (const auto& clause : formula.clauses) {

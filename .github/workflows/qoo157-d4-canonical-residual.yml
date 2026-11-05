@@ -63,7 +63,7 @@ jobs:
           sha256sum "$binary" > evidence/d4-residual-binary.sha256
           "$binary" -h > evidence/d4-residual-help.log
           grep -q 'actual-gmp-precision-bits 128' evidence/d4-residual-help.log
-      - name: Original source SHA, original complex WMC and canonical residual fingerprints
+      - name: Original source SHA, full-weighted WMC and clause/projection/protected fingerprints
         shell: bash
         run: |
           set -euo pipefail

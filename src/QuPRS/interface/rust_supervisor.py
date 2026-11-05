@@ -188,6 +188,14 @@ def run() -> int:
                 iolib._stop_worker(p)
             except Exception as exc:
                 cleanup_error = exc
+        # Reap adopted solver descendants BEFORE cgroup removal, otherwise
+        # zombie tasks may keep cgroup.events populated and prevent cleanup.
+        # Continue resource disposal even when this stage fails.
+        try:
+            _cleanup_adopted_children()
+        except Exception as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
         if group is not None:
             try:
                 oom_seen = group.oom_observed()
@@ -199,11 +207,6 @@ def run() -> int:
             except Exception as exc:
                 if cleanup_error is None:
                     cleanup_error = exc
-        try:
-            _cleanup_adopted_children()
-        except Exception as exc:
-            if cleanup_error is None:
-                cleanup_error = exc
         if cleanup_error is not None:
             raise SupervisorResourceError('worker or resource cleanup failed') from cleanup_error
     if oom_seen:

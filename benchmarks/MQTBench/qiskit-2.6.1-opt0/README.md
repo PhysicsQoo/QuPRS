@@ -88,7 +88,8 @@ python -m scripts.generate_mqtbench_qiskit261_level0 generate
 python -m scripts.generate_mqtbench_qiskit261_level0 verify
 ```
 
-**experiment branch only**, without changing `dev`, `main`, PR #131
-or any historical Git tag. Additional exact numerical equivalence
-testing should be reviewed independently before replacing formal
-benchmark registrations.
+The generated circuits and manifests are version-controlled benchmark
+inputs. Regenerate and verify the corpus when updating its generator or
+transpilation settings; changes that alter circuit semantics or fixtures
+must use a distinct benchmark identity. The operator diagnostics described
+above are not formal equivalence certificates for unverified cases.

@@ -3,6 +3,9 @@
 These tests intentionally do not claim cgroup or detached solver-tree protection.
 """
 import os
+import signal
+import textwrap
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -176,3 +179,56 @@ def test_complete_worker_reply_must_have_valid_science_status_and_fields():
         _parse_worker_response(missing_fields, b"", 0)
     with pytest.raises(RustWorkerError, match="exited with 137"):
         _parse_worker_response(b"", b"OOM killed", 137)
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux-only child-subreaper contract")
+def test_private_supervisor_reaps_detached_solver_descendants(tmp_path):
+    from QuPRS.interface import rust_isolation
+
+    supervisor = Path(rust_isolation.__file__).with_name("rust_supervisor.py")
+    marker = tmp_path / "detached.pid"
+    witness = textwrap.dedent("""
+        import importlib.util, os, signal, subprocess, sys, time
+        spec = importlib.util.spec_from_file_location("private_supervisor", sys.argv[1])
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module._set_supervisor_controls()
+        child = (
+            "import subprocess, sys, time;"
+            "p = subprocess.Popen([sys.executable, '-c',"
+            " 'import time;time.sleep(25)'],"
+            " start_new_session=True, stdin=subprocess.DEVNULL,"
+            " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL);"
+            "open(sys.argv[1], 'w').write(str(p.pid));"
+            "time.sleep(25)"
+        )
+        worker = subprocess.Popen(
+            [sys.executable, "-c", child, sys.argv[2]],
+            start_new_session=True, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            for _ in range(200):
+                if os.path.exists(sys.argv[2]):
+                    break
+                time.sleep(0.01)
+            pid = int(open(sys.argv[2]).read())
+            os.killpg(worker.pid, signal.SIGKILL)
+            worker.wait(timeout=2)
+            assert pid in module._children(), "detached process was not adopted"
+            module._cleanup_adopted_children()
+            assert pid not in module._children()
+            print("SUPERVISOR_REAP_PASS")
+        finally:
+            if worker.poll() is None:
+                worker.kill()
+                worker.wait()
+    """)
+    env = os.environ.copy()
+    env["QUPRS_RUST_SUPERVISOR_PARENT_PID"] = str(os.getpid())
+    outcome = subprocess.run(
+        [sys.executable, "-c", witness, str(supervisor), str(marker)],
+        env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=12, check=False,
+    )
+    assert outcome.returncode == 0, outcome.stderr
+    assert "SUPERVISOR_REAP_PASS" in outcome.stdout

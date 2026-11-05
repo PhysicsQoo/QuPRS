@@ -197,12 +197,22 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         None => None,
     };
 
+    // Parent-owned invocation namespace for Rust WMC CNF and solver capture
+    // files. A killed worker cannot run RAII Drop, so the supervisor owns
+    // removal after the worker/descendants have been reaped.
+    let worker_tempdir = tempfile::Builder::new()
+        .prefix("quprs-cli-")
+        .tempdir()
+        .context("create private per-invocation solver temporary directory")?;
     let output = tempfile::tempfile().context("create private worker stdout")?;
     let diagnostics = tempfile::tempfile().context("create private worker stderr")?;
     let mut command = Command::new(std::env::current_exe()?);
     command.args(std::env::args_os().skip(1))
         .arg("--__quprs-worker")
         .env("QUPRS_CLI_SUPERVISOR_PID", std::process::id().to_string())
+        // std::env::temp_dir() in Rust WMC/solver capture consults TMPDIR
+        // on Linux and macOS. Never change the supervisor's TMPDIR globally.
+        .env("TMPDIR", worker_tempdir.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -377,6 +387,34 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     let _ = waiter.join();
     cleanup_adopted_children()?;
 
+    // Collect kernel OOM evidence BEFORE removing the cgroup, then dispose of
+    // both resource scopes BEFORE any success stdout may be published.
+    // Cleanup failures are typed resource errors, never a scientific verdict.
+    let oom_result = cgroup.as_ref().map(MemoryCgroup::oom_killed).transpose();
+    let cgroup_cleanup = cgroup.as_ref().map(MemoryCgroup::cleanup).transpose();
+    if let Err(error) = cgroup_cleanup {
+        eprintln!("ResourceSupervisorCleanupError: cgroup: {error:#}");
+        return Ok(RESOURCE_EXIT);
+    }
+    let preserve_failed_cnf = interrupted.is_none()
+        && exit.as_ref().is_some_and(|status| !status.success())
+        && std::env::var("QUPRS_KEEP_FAILED_CNF").as_deref() == Ok("1");
+    if let Err(error) = finalize_worker_tempdir(worker_tempdir, preserve_failed_cnf) {
+        eprintln!("ResourceSupervisorCleanupError: worker temporary files: {error:#}");
+        return Ok(RESOURCE_EXIT);
+    }
+    match oom_result {
+        Ok(Some(true)) => {
+            eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
+            return Ok(RESOURCE_EXIT);
+        }
+        Ok(Some(false) | None) => {}
+        Err(error) => {
+            eprintln!("ResourceSupervisorError: cannot certify cgroup memory.events: {error:#}");
+            return Ok(RESOURCE_EXIT);
+        }
+    }
+
     // On any failure, never join a reader whose pipe may still be held by
     // an uncontained descendant. The CLI main process exits after this
     // typed failure; no partial scientific output is committed.
@@ -425,21 +463,6 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         }
     };
 
-    // The OOM witness is mandatory if the user requested a physical-memory
-    // cap. Unreadable/malformed memory.events must NEVER mean "no OOM".
-    if let Some(group) = cgroup.as_ref() {
-        match group.oom_killed() {
-            Ok(true) => {
-                eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
-                return Ok(RESOURCE_EXIT);
-            }
-            Ok(false) => {}
-            Err(error) => {
-                eprintln!("ResourceSupervisorError: cannot certify cgroup memory.events: {error:#}");
-                return Ok(RESOURCE_EXIT);
-            }
-        }
-    }
     if let Some(signal) = interrupted_signal() {
         eprintln!("CancelledBySignal: signal {signal} before output commit");
         return Ok(external_signal_status(signal));
@@ -540,6 +563,25 @@ fn descendant_pids(root: u32) -> Vec<u32> {
         cursor += 1;
     }
     descendants.into_iter().skip(1).collect()
+}
+
+// The worker inherits TMPDIR only for the duration of this invocation;
+// preserving failed CNF is an explicit debugging opt-in on ordinary worker
+// failures, never on cancellation, timeout, cgroup OOM or successful runs.
+fn finalize_worker_tempdir(dir: tempfile::TempDir, preserve_failed_cnf: bool) -> Result<()> {
+    if preserve_failed_cnf {
+        let has_cnf = fs::read_dir(dir.path())
+            .context("inspect failed worker temporary directory")?
+            .filter_map(|entry| entry.ok())
+            .any(|entry| entry.file_name().to_string_lossy().starts_with("temp_eqcheck_")
+                && entry.file_name().to_string_lossy().ends_with(".cnf"));
+        if has_cnf {
+            let retained = dir.keep();
+            eprintln!("RetainedFailedSolverArtifacts: explicitly requested failed CNF at {}", retained.display());
+            return Ok(());
+        }
+    }
+    dir.close().context("remove supervisor-owned per-invocation temporary directory")
 }
 
 // Linux cgroup v2 requires delegation. If unavailable, error before running
@@ -654,6 +696,35 @@ impl MemoryCgroup {
             .context("terminate worker cgroup")?;
         Ok(())
     }
+    // Called on every complete or interrupted request before releasing any
+    // scientific stdout, not just from Drop. This also handles a child that
+    // daemonized within the CLI-owned cgroup after its direct worker exited.
+    fn cleanup(&self) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            if !self.path.exists() { return Ok(()); }
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                let data = fs::read_to_string(self.path.join("cgroup.events"))
+                    .context("read cgroup.events before cleanup")?;
+                if parse_cgroup_populated(&data)? {
+                    self.kill_all().context("kill populated worker cgroup before cleanup")?;
+                }
+                match fs::remove_dir(&self.path) {
+                    Ok(()) => return Ok(()),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                    Err(error) if Instant::now() >= deadline => {
+                        return Err(error).context(format!(
+                            "unable to remove worker cgroup {} after bounded cleanup", self.path.display()
+                        ));
+                    }
+                    Err(_) => thread::sleep(Duration::from_millis(10)),
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        Ok(())
+    }
     fn oom_killed(&self) -> Result<bool> {
         #[cfg(target_os = "linux")]
         {
@@ -682,10 +753,32 @@ fn parse_oom_killed(text: &str) -> Result<bool> {
     Ok(count.context("memory.events missing oom_kill counter")? > 0)
 }
 
+#[cfg(target_os = "linux")]
+fn parse_cgroup_populated(data: &str) -> Result<bool> {
+    let mut populated = None;
+    for line in data.lines() {
+        let mut parts = line.split_whitespace();
+        if parts.next() == Some("populated") {
+            let value = parts.next().context("missing cgroup.events populated value")?;
+            anyhow::ensure!(parts.next().is_none(), "malformed cgroup.events populated value");
+            anyhow::ensure!(populated.is_none(), "duplicate cgroup.events populated value");
+            populated = Some(match value {
+                "0" => false,
+                "1" => true,
+                _ => bail!("invalid cgroup.events populated value"),
+            });
+        }
+    }
+    populated.context("cgroup.events missing populated field")
+}
+
 impl Drop for MemoryCgroup {
     fn drop(&mut self) {
-        let _ = self.kill_all();
-        let _ = fs::remove_dir(&self.path);
+        // Fallback only for early admission/spawn/worker-reap errors. On the
+        // successful path cleanup() has already been checked before commit.
+        if let Err(error) = self.cleanup() {
+            eprintln!("ResourceSupervisorCleanupError: fallback cgroup cleanup failed: {error:#}");
+        }
     }
 }
 
@@ -711,6 +804,20 @@ pub fn authorize_worker_launch() -> Result<()> {
 }
 
 pub fn prepare_worker() -> Result<()> {
+
+    // Test-only witness written into the exact worker TMPDIR. A deterministic
+    // hold/timeout or signal will kill the worker without running its Drop,
+    // proving the parent removes both known Rust WMC temporary-name families.
+    #[cfg(debug_assertions)]
+    if let Ok(witness) = std::env::var("QUPRS_CLI_TEST_TEMP_MARKER") {
+        let dir = std::env::temp_dir();
+        fs::write(dir.join("temp_eqcheck_killed_worker.cnf"), b"test-sensitive-cnf")
+            .context("write controlled CNF crash-remnant")?;
+        fs::write(dir.join("quprs-solver_killed_worker.tmp"), b"test-sensitive-stdout")
+            .context("write controlled solver-output crash-remnant")?;
+        fs::write(witness, dir.as_os_str().to_string_lossy().as_bytes())
+            .context("write parent-owned temporary directory witness")?;
+    }
 
     // Debug-only process-liveness witnesses. These variables are not
     // compiled into the release CLI and do not affect production performance.
@@ -806,6 +913,34 @@ pub fn prepare_worker() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn parent_owned_temporary_directory_reclaims_forced_worker_artifacts() {
+        let dir = tempfile::Builder::new().prefix("qoo156-cleanup-").tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        fs::write(path.join("temp_eqcheck_forced.cnf"), b"secret-cnfdump").unwrap();
+        fs::write(path.join("quprs-solver_forced.tmp"), b"secret-log").unwrap();
+        finalize_worker_tempdir(dir, false).unwrap();
+        assert!(!path.exists(), "forced-termination artifacts were not removed");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cgroup_cleanup_requires_strict_populated_witness() {
+        assert!(!parse_cgroup_populated("populated 0\nfrozen 0\n").unwrap());
+        assert!(parse_cgroup_populated("populated 1\nfrozen 0\n").unwrap());
+        for malformed in ["", "frozen 0", "populated", "populated x",
+                          "populated 2", "populated 0 garbage",
+                          "populated 0\npopulated 1"] {
+            assert!(parse_cgroup_populated(malformed).is_err(), "{malformed:?}");
+        }
+        let fake_root = tempfile::tempdir().unwrap();
+        let fake_path = fake_root.path().join("worker");
+        fs::create_dir(&fake_path).unwrap();
+        let fake = MemoryCgroup { path: fake_path.clone() };
+        assert!(fake.cleanup().is_err(), "unreadable cgroup.events failed open");
+        std::mem::forget(fake); // fake directory isn't a kernel cgroup.
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn memory_oom_witness_must_be_readable_and_well_formed() {

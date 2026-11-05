@@ -51,6 +51,50 @@ If `--max-memory-mib` is requested, a missing/unreadable/malformed
 `oom_kill=false`. This check runs only in the explicitly capped Linux
 CLI path and does not modify the native RR/WMC calculation path.
 
+## P1: parent-owned solver temporary files and verified cgroup removal
+
+The CLI supervisor creates an independent **mode-0700 temporary directory for
+each invocation** and passes its path as **worker-only** `TMPDIR`. Native
+Path-sum WMC creates `temp_eqcheck_*.cnf` and
+`quprs-solver-*.tmp` using `std::env::temp_dir()`; the parent
+therefore owns the containing directory even when SIGKILL prevents the worker
+from running Rust destructors. After the worker and observable descendants
+are reaped, the supervisor removes the directory **before publishing
+successful stdout**. A removal error is typed
+`ResourceSupervisorCleanupError` (exit **125**, no scientific verdict).
+Existing `QUPRS_KEEP_FAILED_CNF=1` still explicitly preserves the
+**mode-0700** directory on an ordinary failed worker solve with a retained
+CNF, and reports its path on stderr; timeout, external signal, OOM and
+successful runs never preserve it.
+
+For Linux `--max-memory-mib`, the supervisor now reads the final
+`memory.events` OOM witness, checks `cgroup.events populated`, kills
+any remaining worker-cgroup tasks, and retries `rmdir` for at most one
+second. Missing/malformed controller evidence or an unremoved worker cgroup
+returns **125** with a cleanup error; the `Drop` fallback reports
+errors instead of silently ignoring them. This extra check occurs only
+when the physical cgroup memory cap was requested.
+
+[Independent source-scoped P1 CI #41942991745](https://github.com/PhysicsQoo/QuPRS/actions/runs/41942991745)
+**SUCCESS**: Ubuntu24.04 x86-64 **11 unit + 20 integration + Release**,
+native macOS14 ARM64 **8 unit + 16 integration + Release**. Tests
+actually killed a worker holding both temporary filename families and
+confirmed no residual parent-owned directory after timeout/SIGTERM;
+explicit failed-CNF opt-in remained testable. In a separate isolated
+test-only privilege-assisted cgroup v2 environment, **unprivileged
+UID65534** CLI verified **64 MiB kernel OOM, exit125, no stdout** and
+**256 MiB valid science, exit0**; the kernel worker cgroup was **absent
+at CLI return in both cases**. The privileged container bootstraps the
+test delegation only; it does not authorize privileged production CLI.
+
+**Limits:** If the supervisor itself receives an uncatchable SIGKILL, its
+cleanup cannot execute; the host/container process manager must own
+whole-job lifetime and residual temporary-directory housekeeping.
+macOS cannot claim Linux cgroup/subreaper behavior, and arbitrary solver
+processes ignoring TMPDIR are outside this scoped temp-file contract.
+The provisional **3 ms** source-paired hosted CLI overhead budget is
+checked independently after the staged source update.
+
 ## Source-pinned P0 and final-stage P1 admission — 2026-11-05
 
 The final P0 control-plane code (Unix SIGINT/SIGTERM cancellation, Linux

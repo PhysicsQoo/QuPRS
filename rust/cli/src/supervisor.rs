@@ -390,7 +390,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     // Collect kernel OOM evidence BEFORE removing the cgroup, then dispose of
     // both resource scopes BEFORE any success stdout may be published.
     // Cleanup failures are typed resource errors, never a scientific verdict.
-    let oom_result = cgroup.as_ref().map(MemoryCgroup::oom_killed).transpose();
+    let oom_result = cgroup.as_ref().map(MemoryCgroup::oom_observed).transpose();
     let cgroup_cleanup = cgroup.as_ref().map(MemoryCgroup::cleanup).transpose();
     if let Err(error) = cgroup_cleanup {
         eprintln!("ResourceSupervisorCleanupError: cgroup: {error:#}");
@@ -403,6 +403,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         interrupted.is_some(),
         exit.as_ref().is_some_and(|status| !status.success()),
         &oom_result,
+        cli.max_address_space_mib.is_some(),
         std::env::var("QUPRS_KEEP_FAILED_CNF").as_deref() == Ok("1"),
     );
     if let Err(error) = finalize_worker_tempdir(worker_tempdir, preserve_failed_cnf) {
@@ -578,9 +579,12 @@ fn can_preserve_failed_cnf(
     interrupted: bool,
     worker_failed: bool,
     oom_result: &Result<Option<bool>>,
+    address_space_cap_requested: bool,
     opt_in: bool,
 ) -> bool {
-    opt_in && !interrupted && worker_failed
+    // RLIMIT_AS has no kernel per-invocation exceeded counter. A failed
+    // capped worker cannot be certified as an ordinary non-resource failure.
+    opt_in && !interrupted && worker_failed && !address_space_cap_requested
         && matches!(oom_result, Ok(None | Some(false)))
 }
 
@@ -763,32 +767,44 @@ impl MemoryCgroup {
         #[cfg(not(target_os = "linux"))]
         Ok(())
     }
-    fn oom_killed(&self) -> Result<bool> {
+    fn oom_observed(&self) -> Result<bool> {
         #[cfg(target_os = "linux")]
         {
             let data = fs::read_to_string(self.path.join("memory.events"))
                 .context("read cgroup memory.events")?;
-            return parse_oom_killed(&data);
+            return parse_oom_observed(&data);
         }
         #[cfg(not(target_os = "linux"))]
         Ok(false)
     }
 }
-// Missing or malformed kernel accounting is an explicit resource error.
+// memory.events 'oom' records allocations about to fail at the cgroup
+// limit, including possible ENOMEM without a killed process. 'oom_kill'
+// records killed tasks. A killed-only check is insufficient for fail-closed
+// CNF retention and correct resource-failure classification. 'max' records
+// threshold pressure that may be reclaimed successfully and is NOT alone OOM.
+// Missing/duplicate/malformed standard kernel accounting fails closed.
 #[cfg(target_os = "linux")]
-fn parse_oom_killed(text: &str) -> Result<bool> {
-    let mut count = None;
+fn parse_oom_observed(text: &str) -> Result<bool> {
+    let mut oom = None;
+    let mut oom_kill = None;
     for line in text.lines() {
         let mut parts = line.split_whitespace();
-        if parts.next() == Some("oom_kill") {
-            let value = parts.next().context("missing oom_kill counter")?;
-            anyhow::ensure!(parts.next().is_none(), "malformed oom_kill counter");
-            anyhow::ensure!(count.is_none(), "duplicate oom_kill counter");
-            count = Some(value.parse::<u64>()
-                .context("invalid oom_kill counter")?);
-        }
+        let field = parts.next().unwrap_or("");
+        let slot = match field {
+            "oom" => &mut oom,
+            "oom_kill" => &mut oom_kill,
+            _ => continue,
+        };
+        let value = parts.next()
+            .with_context(|| format!("missing {field} counter"))?;
+        anyhow::ensure!(parts.next().is_none(), "malformed {field} counter");
+        anyhow::ensure!(slot.is_none(), "duplicate {field} counter");
+        *slot = Some(value.parse::<u64>()
+            .with_context(|| format!("invalid {field} counter"))?);
     }
-    Ok(count.context("memory.events missing oom_kill counter")? > 0)
+    Ok(oom.context("memory.events missing oom counter")? > 0
+        || oom_kill.context("memory.events missing oom_kill counter")? > 0)
 }
 
 #[cfg(target_os = "linux")]
@@ -952,22 +968,24 @@ pub fn prepare_worker() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn failed_cnf_opt_in_never_overrides_cgroup_oom_or_unknown_resource_state() {
+    fn failed_cnf_opt_in_never_overrides_resource_or_unknown_state() {
         let safe_no_cap: Result<Option<bool>> = Ok(None);
         let safe_no_oom: Result<Option<bool>> = Ok(Some(false));
         let real_oom: Result<Option<bool>> = Ok(Some(true));
         let unreadable: Result<Option<bool>> = Err(anyhow::anyhow!("unreadable memory.events"));
-        assert!(can_preserve_failed_cnf(false, true, &safe_no_cap, true));
-        assert!(can_preserve_failed_cnf(false, true, &safe_no_oom, true));
+        assert!(can_preserve_failed_cnf(false, true, &safe_no_cap, false, true));
+        assert!(can_preserve_failed_cnf(false, true, &safe_no_oom, false, true));
         for witness in [&real_oom, &unreadable] {
-            assert!(!can_preserve_failed_cnf(false, true, witness, true),
-                "OOM or unknown cgroup state must never preserve CNF");
+            assert!(!can_preserve_failed_cnf(false, true, witness, false, true),
+                "OOM or unknown cgroup evidence must never preserve CNF");
         }
-        assert!(!can_preserve_failed_cnf(true, true, &safe_no_cap, true),
+        assert!(!can_preserve_failed_cnf(false, true, &safe_no_cap, true, true),
+            "nonzero exit under RLIMIT_AS may be an unobservable ENOMEM");
+        assert!(!can_preserve_failed_cnf(true, true, &safe_no_cap, false, true),
             "timeout/SIGTERM must not preserve CNF");
-        assert!(!can_preserve_failed_cnf(false, false, &safe_no_cap, true),
+        assert!(!can_preserve_failed_cnf(false, false, &safe_no_cap, false, true),
             "successful results must not preserve CNF");
-        assert!(!can_preserve_failed_cnf(false, true, &safe_no_cap, false),
+        assert!(!can_preserve_failed_cnf(false, true, &safe_no_cap, false, false),
             "CNF retention must require explicit opt-in");
     }
 
@@ -1001,19 +1019,27 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn memory_oom_witness_must_be_readable_and_well_formed() {
-        assert_eq!(parse_oom_killed("low 0\nhigh 0\noom 0\noom_kill 0\n").unwrap(), false);
-        assert_eq!(parse_oom_killed("low 0\nhigh 0\noom 2\noom_kill 1\n").unwrap(), true);
-        for malformed in ["", "oom 1", "oom_kill", "oom_kill xyz",
-                          "oom_kill 0 extra", "oom_kill 0\noom_kill 1"] {
-            assert!(parse_oom_killed(malformed).is_err(), "accepted {malformed:?}");
+    fn memory_oom_witness_must_distinguish_pressure_oom_and_kill() {
+        let normal = "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n";
+        assert!(!parse_oom_observed(normal).unwrap());
+        // Reclaim succeeded: max pressure alone must not be a false OOM.
+        assert!(!parse_oom_observed("max 52\noom 0\noom_kill 0\n").unwrap());
+        // ENOMEM/oom without a victim MUST be treated as a resource event.
+        assert!(parse_oom_observed("max 1\noom 2\noom_kill 0\n").unwrap());
+        assert!(parse_oom_observed("oom 0\noom_kill 1\n").unwrap());
+        assert!(parse_oom_observed("oom 2\noom_kill 1\n").unwrap());
+        for malformed in ["", "oom 1", "oom_kill 1", "oom", "oom_kill",
+                          "oom nope\noom_kill 0", "oom 0\noom_kill -1",
+                          "oom 0 extra\noom_kill 0", "oom 0\noom 1\noom_kill 0",
+                          "oom 0\noom_kill 0\noom_kill 1"] {
+            assert!(parse_oom_observed(malformed).is_err(), "accepted {malformed:?}");
         }
         let missing = MemoryCgroup {
             path: std::env::temp_dir().join(format!(
                 "qoo156-uncreated-memory-events-{}", std::process::id()
             )),
         };
-        assert!(missing.oom_killed().is_err(), "unreadable cgroup events failed open");
+        assert!(missing.oom_observed().is_err(), "unreadable cgroup events failed open");
         // Avoid Drop attempting cgroup.kill on an unrelated temp path.
         std::mem::forget(missing);
     }

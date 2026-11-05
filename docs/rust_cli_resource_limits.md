@@ -20,6 +20,37 @@ QuPRS_cli left.qasm right.qasm --timeout 120 --max-memory-mib 2048 --quiet
 
 The host/container manager must arrange writable cgroup v2 controller delegation. Do not deploy a privileged CLI or `docker --privileged` merely to bypass an unavailable delegation. A separate external Docker/VM memory cap constrains the entire process container but is **not** evidence of the internal CLI flag. The tested privileged Docker wrapper was only an isolated CI fixture; QuPRS_cli itself ran as UID65534. Mac mini + OrbStack Linux ARM64 must be qualified on that VM; a hosted ARM64 test is not environment equivalence.
 
+## External signals, sudden parent death and fail-closed OOM
+
+The native POSIX supervisor now traps **SIGINT** and **SIGTERM**. It wakes
+within a bounded receive interval and performs the normal worker-tree
+termination and reaping path. Before successful result publication it checks
+again for a pending signal, returning exit **130** for SIGINT or **143** for
+SIGTERM and **no partial scientific stdout**. This is a CLI control-plane
+operation, not a cooperative cancellation check inside Path-sum.
+
+For **Linux only**, the direct worker also installs
+`PR_SET_PDEATHSIG(SIGKILL)` before exec, with a parent-PID race check.
+This covers abrupt supervisor death for the **direct worker** but not
+arbitrary daemonized solver grandchildren outside its process group.
+**SIGKILL cannot be caught or cleaned up synchronously by the supervisor.**
+For guaranteed whole-job teardown under forced parent death, use a
+separately managed Linux container/job cgroup that constrains the whole CLI
+invocation (independent of the optional internal `--max-memory-mib`).
+
+On **macOS**, signal cancellation and deadline cleanup have focused
+tests with a real detached-session `sleep` child while its worker is alive.
+macOS cannot claim Linux subreaper, PDEATHSIG or cgroup-v2 semantics:
+orphan/daemon escape after worker exit and forced supervisor SIGKILL remain
+**outside the guaranteed whole-descendant cleanup contract**. Never
+advertise this behavior as complete macOS process-tree containment.
+
+If `--max-memory-mib` is requested, a missing/unreadable/malformed
+`memory.events` or `oom_kill` field is a typed
+`ResourceSupervisorError` (exit **125** with no successful stdout), **not**
+`oom_kill=false`. This check runs only in the explicitly capped Linux
+CLI path and does not modify the native RR/WMC calculation path.
+
 ## Source and qualification
 
 Only CLI code, exact workspace lockfile, focused tests, a single CodSpeed CLI benchmark and this file were copied from the [QOO-156 experiment branch](https://github.com/PhysicsQoo/QuPRS/tree/experiment/qoo156-internal-cgroup-p0). No experimental Docker OOM scripts, upstream Solver source, full CI matrices or native Rust RR/CNF changes are included.

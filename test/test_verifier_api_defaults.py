@@ -61,6 +61,7 @@ def test_rust_ffi_rejects_unsupported_safe_mode():
         )
 
 
+@pytest.mark.skipif(os.name != "posix", reason="isolated worker POSIX prototype")
 def test_public_rust_api_uses_same_results_in_isolated_safe_mode():
     one = QuantumCircuit(1)
     fast = check_equivalence(

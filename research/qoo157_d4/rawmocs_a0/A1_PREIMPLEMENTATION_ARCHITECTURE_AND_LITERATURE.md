@@ -83,3 +83,21 @@ No new repo, no Rust solver, no QuPRS main/dev/default/official CodSpeed change.
 
 
 Additional independent evidence: [A0c MCC complex AMC format & dual arithmetic research](A0C_MCC_COMPLEX_AMC_FORMAT_AND_ARITHMETIC.md). A separate BigInt rational-complex independent recount of both original 24-case fixture files (39 FullWmc, 9 ProjectedWmc) reproduced all expected counts and cardinalities on 2026-11-05; remote GitHub workflow completion still UNVERIFIED. A0c is the primary MCC format document; avoid parallel duplicate format roadmaps.
+
+
+## 6. A0d deterministic arithmetic research properties (no Rust solver)
+
+To test mathematical invariants before implementing DPLL/cache, a *newly written* second BigInt rational-complex enumerator was run with deterministic LCG seed 173, giving **RANDOMIZED_EXACT_SEMANTICS_PASS: 620/620** exploratory exact properties:
+
+| Property | Original deterministic cases | Core assertion |
+| --- | ---: | --- |
+| Weighted Shannon split | 200 | WMC(F)=WMC(F AND x)+WMC(F AND NOT x) for arbitrary rational complex weights |
+| Unconstrained variable factor | 200 | WMC(F with new free z)=WMC(F) times (w(z)+w(NOT z)) |
+| Existential distinct projection | 120 | Full-model enumeration with projection dedup agrees with independent projection-first existential enumeration |
+| Disjoint counted components | 100 | WMC(F1 AND F2)=WMC(F1)*WMC(F2) for disjoint supports |
+
+The re-runnable source is [exact_semantics_properties.mjs](exact_semantics_properties.mjs), completely self-contained Node/BigInt with no external solver or benchmark dependency. The **existing single scoped A0 research job** was extended to run it and retain JSON alongside the two 24-case exact oracle reports; this is a path-filtered research branch step, not an extra production CI shard or a CodSpeed measurement.
+
+**Evidence limits:** The 620/620 outcome is an independent in-session calculation using the same deterministic mathematical test design, and the script is now source-controlled. **GitHub Actions execution of this committed script has not yet been independently verified** by a run ID/log/artifact. The tests validate identities by small exhaustive enumeration, NOT caching performance or correctness of a future Rust solver; the tested formulas are random small controls and cannot replace source-pinned QuPRS weighted-CNF cases.
+
+MCC format research is centralized in [A0c](A0C_MCC_COMPLEX_AMC_FORMAT_AND_ARITHMETIC.md). This A1 RFC retains the GPMC original+complex-fork direct MIT license evidence, d4-version differences and Ganak2 ChronoBT zero-divisor caveat. Avoid adding parallel redundant format/algorithm files.

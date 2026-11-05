@@ -28,11 +28,13 @@ class SupervisorResourceError(RuntimeError):
 
 
 class SupervisorInterrupted(RuntimeError):
-    pass
+    def __init__(self, signum):
+        self.signum = signum
+        super().__init__(f"signal {signum} canceled isolated worker")
 
 
 def _interrupt_supervisor(signum, frame):
-    raise SupervisorInterrupted(f"signal {signum} canceled isolated worker")
+    raise SupervisorInterrupted(signum)
 
 
 def _set_supervisor_controls() -> None:
@@ -167,6 +169,7 @@ def run() -> int:
     p = None
     macos_tree = None
     timed_out = False
+    canceled_signal = None
     output = None
     worker_error = None
     try:
@@ -202,11 +205,17 @@ def run() -> int:
         try:
             stdout, stderr = iolib._bounded_exchange(p, raw, deadline)
             output = iolib._parse_worker_response(stdout, stderr, p.returncode)
-        except (iolib._WorkerDeadlineExceeded, SupervisorInterrupted):
+        except iolib._WorkerDeadlineExceeded:
             timed_out = True
+        except SupervisorInterrupted as exc:
+            canceled_signal = exc.signum
         except Exception as exc:
             worker_error = exc
     finally:
+        # A second cancellation signal must not interrupt cleanup halfway.
+        # The outer Python process retains its own bounded escalation policy.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         cleanup_error = None
         if macos_tree is not None:
             try:
@@ -241,6 +250,9 @@ def run() -> int:
                     'message': str(worker_error)[:512]})
             return 0
         raise SupervisorResourceError('worker protocol or solver execution failed') from worker_error
+    if canceled_signal is not None:
+        # Match QOO-156 CLI signal exit classification, not a fake Timeout.
+        return 128 + canceled_signal
     if timed_out:
         _reply({'version': 1, 'ok': True, 'result': {
             'status': 'Timeout', 'verification_time_sec': time.monotonic() - started}})

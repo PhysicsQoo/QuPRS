@@ -20,7 +20,7 @@ supported-platform matrix runs **before** building candidate distribution
 archives. Candidate wheels and sdists are then installed and tested as
 **actual artifacts**, not treated as validated from a source build alone.
 
-Use [release compatibility and packaging acceptance](docs/development/release-compatibility.md)
+Use [version compatibility and upgrade guidance](docs/development/v0140-migration.md)
 for the three-stage gate, the Linux/macOS support boundaries, and the
 required evidence. Do not add duplicate OS/Python matrices to ordinary PRs
 merely to recheck packaging compatibility.
@@ -65,25 +65,14 @@ tests. Do not compare CodSpeed Simulation modeled CPU time with Walltime
 seconds as if they were the same metric. Preserve historical baselines when
 benchmark coverage, solver versions or measurement environments change.
 
-## Public engineering records
+## Documentation
 
-Public pull-request descriptions, review notes, documentation and changelogs
-should report verifiable engineering facts: the source revision, scope,
-measurements, limitations, decisions and current disposition. Keep drafting
-process or other nontechnical internal workflow details out of project-facing
-records unless they are material to provenance, reproducibility or a required
-disclosure. Do not imply an independent reviewer or a human approval when the
-record only shows a source assessment or a COMMENT review. A second-party
-approval may be claimed only when the repository records that approval.
+Keep public documentation focused on installation, supported interfaces,
+scientific behavior, configuration, reproducibility and contribution
+instructions. Update relevant documentation when user-visible behavior changes.
 
-Keep task-specific progress, benchmark admission discussions, review checklists
-and merge decisions in the issue tracker and pull-request discussion. Commit
-Markdown only for maintained user/developer contracts or self-contained
-reproducible technical material; do not mirror per-PR decision logs into the
-source tree. Retain durable evidence through CI artifacts and Git history.
-
-After integration, update living status pages to distinguish historical
-provisional results from decisions actually made. Preserve original commits,
-test artifacts and review history rather than rewriting them to retroactively
-change the evidence. Documentation-only corrections should reuse existing
-source-qualified CI evidence where repository rules permit.
+Use pull-request discussions and the project issue tracker for task planning,
+intermediate experiments, review decisions and investigation history. Do not
+add stand-alone development diaries or dated experiment reports to the
+maintained documentation tree. Preserve the scientific inputs and tests
+required to reproduce supported behavior.

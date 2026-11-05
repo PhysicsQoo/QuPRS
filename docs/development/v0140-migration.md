@@ -13,9 +13,8 @@ The v0.14.0 package declares Python **3.11–3.13** and
 Python 3.14/3.14t have not been admitted to this release. Wheels are
 targeted to Linux x86_64/ARM64 and macOS 15+ Intel/Apple Silicon.
 Historical macOS 14 sdist experiments do not imply a supported 14.x
-prebuilt wheel. The existing recurring CI no longer reinstalls each of
-four old Qiskit versions on every PR; the original admission evidence is
-preserved in [Qiskit 1.x/2.x admission](qiskit-1x-2x-admission.md).
+prebuilt wheel. Prior Qiskit-version admission evidence is recorded in the
+original release PR and CI history; it is not part of the current user guide.
 
 The **native Rust** verifier accepts supported OpenQASM 2 and an
 explicitly limited **OpenQASM 3.0 unitary subset**, including
@@ -111,7 +110,7 @@ For precise numerical semantics consult
 [per-call tolerances](per-call-tolerance.md),
 [WMC projective distance](wmc-numerical-tolerance.md),
 [RR-to-WMC final residual](rr-hybrid-residual-contract.md)
-and [release validation](release-compatibility.md).
+and [release/contribution checks](../../CONTRIBUTING.md).
 
 ## Release and installed-artifact verification
 
@@ -120,6 +119,6 @@ The v0.14.0 public release is recorded at
 When validating an installation, distinguish source-level CI from the
 actual distributed wheel or sdist installed in a supported environment.
 Release compatibility, provenance and publication rules are defined by
-[platform and release acceptance](release-compatibility.md). Historical
+[release and platform contribution guidance](../../CONTRIBUTING.md). Historical
 release-candidate experiments remain in Git and CI history; they are not
 current pending conditions for a release that has already been published.

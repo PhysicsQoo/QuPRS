@@ -117,22 +117,88 @@ class MemoryCgroup:
     def oom_observed(self) -> bool:
         return parse_oom_events((self.path / "memory.events").read_text())
 
+    @staticmethod
+    def _process_identity(pid: int) -> tuple[str, str] | None:
+        """Return (state, kernel starttime) without signalling a reused PID."""
+        try:
+            raw = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise ResourceAdmissionError("cannot inspect owned cgroup process") from exc
+        try:
+            fields = raw.rsplit(") ", 1)[1].split()
+            return fields[0], fields[19]  # /proc stat: state (3), starttime (22)
+        except (IndexError, ValueError) as exc:
+            raise ResourceAdmissionError("invalid owned process identity") from exc
+
+    def _snapshot_processes(self) -> dict[int, str]:
+        """Snapshot direct and nested member identities before cgroup.kill."""
+        identities: dict[int, str] = {}
+        try:
+            proc_files = list(self.path.rglob("cgroup.procs"))
+        except FileNotFoundError:
+            return identities
+        except OSError as exc:
+            raise ResourceAdmissionError("cannot enumerate owned cgroup") from exc
+        for proc_file in proc_files:
+            try:
+                members = proc_file.read_text().split()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise ResourceAdmissionError("cannot read owned cgroup members") from exc
+            for raw in members:
+                if not raw.isascii() or not raw.isdecimal():
+                    raise ResourceAdmissionError("invalid owned cgroup PID")
+                pid = int(raw)
+                identity = self._process_identity(pid)
+                if identity is not None:
+                    identities[pid] = identity[1]
+        return identities
+
+    @classmethod
+    def _all_stopped(cls, members: dict[int, str]) -> bool:
+        for pid, starttime in members.items():
+            identity = cls._process_identity(pid)
+            if (identity is not None and identity[1] == starttime
+                    and identity[0] not in {"Z", "X", "x"}):
+                return False
+        return True
+
     def cleanup(self) -> None:
+        """Signal the private cgroup and confirm observed tasks stopped.
+
+        cgroup.kill is asynchronous: rmdir can succeed before a detached
+        descendant finishes receiving SIGKILL. Fail closed if any captured
+        process with the same kernel identity is still running after 1 s.
+        """
         if self._cleaned:
             return
         deadline = time.monotonic() + 1.0
+        tracked: dict[int, str] = {}
+        removed = False
         while True:
-            try:
-                populated = parse_populated((self.path / "cgroup.events").read_text())
-                if populated:
-                    (self.path / "cgroup.kill").write_text("1")
-                self.path.rmdir()
+            if not removed:
+                try:
+                    populated = parse_populated((self.path / "cgroup.events").read_text())
+                    if populated:
+                        tracked.update(self._snapshot_processes())
+                        (self.path / "cgroup.kill").write_text("1")
+                    self.path.rmdir()
+                    removed = True
+                except FileNotFoundError:
+                    removed = True
+                except OSError as exc:
+                    if time.monotonic() >= deadline:
+                        raise ResourceAdmissionError(
+                            "could not dispose isolated memory cgroup"
+                        ) from exc
+            if removed and self._all_stopped(tracked):
                 self._cleaned = True
                 return
-            except FileNotFoundError:
-                self._cleaned = True
-                return
-            except OSError as exc:
-                if time.monotonic() >= deadline:
-                    raise ResourceAdmissionError("could not dispose isolated memory cgroup") from exc
-                time.sleep(.01)
+            if time.monotonic() >= deadline:
+                raise ResourceAdmissionError(
+                    "owned cgroup descendant remained running after cleanup"
+                )
+            time.sleep(.01)

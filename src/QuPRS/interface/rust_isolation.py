@@ -112,17 +112,48 @@ def _stop_worker(process):
     Detached solver grandchildren require additional supervisor work before
     this experimental path can claim CLI-grade process-tree isolation.
     """
-    if os.name == "posix":
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    elif process.poll() is None:
-        process.kill()
     try:
-        process.wait(timeout=2)
-    except subprocess.TimeoutExpired as exc:
-        raise RustWorkerError("isolated worker could not be reaped") from exc
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.poll() is None:
+            process.kill()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired as exc:
+            raise RustWorkerError("isolated worker could not be reaped") from exc
+    finally:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None and not stream.closed:
+                stream.close()
+
+
+def _parse_worker_response(stdout: bytes, stderr: bytes, returncode: int) -> dict:
+    """Return a complete verified worker result, never a partial verdict."""
+    if returncode != 0:
+        message = stderr.decode("utf-8", "replace").strip()
+        raise RustWorkerError(
+            f"isolated Rust worker exited with {returncode}: {message[:512]}"
+        )
+    try:
+        response = json.loads(stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RustWorkerError("invalid isolated Rust result envelope") from exc
+    if not isinstance(response, dict) or response.get("version") != _PROTOCOL_VERSION:
+        raise RustWorkerError("isolated Rust protocol version mismatch")
+    if response.get("ok") is False:
+        message = str(response.get("message", "worker failed"))[:512]
+        if response.get("error_type") == "ValueError":
+            raise ValueError(message)
+        if response.get("error_type") == "TypeError":
+            raise TypeError(message)
+        raise RustWorkerError(f"isolated Rust worker error: {message}")
+    result = response.get("result")
+    if response.get("ok") is not True or not isinstance(result, dict):
+        raise RustWorkerError("isolated Rust worker returned no complete result")
+    return result
 
 
 def run_isolated(
@@ -179,28 +210,7 @@ def run_isolated(
                     "status": "Timeout",
                     "verification_time_sec": time.monotonic() - request_started,
                 }
-            if worker.returncode != 0:
-                message = stderr.decode("utf-8", "replace").strip()
-                raise RustWorkerError(
-                    f"isolated Rust worker exited with {worker.returncode}: {message[:512]}"
-                )
-            try:
-                response = json.loads(stdout)
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise RustWorkerError("invalid isolated Rust result envelope") from exc
-            if not isinstance(response, dict) or response.get("version") != _PROTOCOL_VERSION:
-                raise RustWorkerError("isolated Rust protocol version mismatch")
-            if response.get("ok") is False:
-                message = str(response.get("message", "worker failed"))[:512]
-                if response.get("error_type") == "ValueError":
-                    raise ValueError(message)
-                if response.get("error_type") == "TypeError":
-                    raise TypeError(message)
-                raise RustWorkerError(f"isolated Rust worker error: {message}")
-            result = response.get("result")
-            if response.get("ok") is not True or not isinstance(result, dict):
-                raise RustWorkerError("isolated Rust worker returned no complete result")
-            return result
+            return _parse_worker_response(stdout, stderr, worker.returncode)
         finally:
             _stop_worker(worker)
 

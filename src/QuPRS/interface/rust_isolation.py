@@ -153,6 +153,16 @@ def _parse_worker_response(stdout: bytes, stderr: bytes, returncode: int) -> dic
     result = response.get("result")
     if response.get("ok") is not True or not isinstance(result, dict):
         raise RustWorkerError("isolated Rust worker returned no complete result")
+    status = result.get("status")
+    if status not in {
+        "Equivalent", "Equivalent (Up to Global Phase)", "Not Equivalent",
+        "Unknown", "Timeout", "MemoryOut",
+    }:
+        raise RustWorkerError("isolated Rust worker returned an invalid status")
+    if status not in {"Timeout", "MemoryOut"} and not {
+        "qubits", "gates1", "gates2", "stats", "final_ps",
+    }.issubset(result):
+        raise RustWorkerError("isolated Rust result is missing required fields")
     return result
 
 

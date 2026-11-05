@@ -29,11 +29,14 @@ distributed Rust CLI executable.
 
 ## Limits and error handling
 
-Isolation is supported on POSIX systems. A monotonic deadline bounds Worker
-execution, IPC, and cleanup attempts. For Qiskit `QuantumCircuit` inputs,
-conversion to QASM occurs in the parent interpreter; that conversion is counted
-against the requested budget but cannot be forcibly interrupted by the child
-Supervisor. Consequently, this is **not** a universal hard end-to-end deadline.
+Isolation is supported on POSIX systems. A monotonic deadline bounds
+supervised Worker execution and IPC. Cleanup has a separate bounded grace
+period, so the call can outlast the requested `timeout` while children are
+being reaped. For Qiskit `QuantumCircuit` inputs, the global-phase preflight
+runs in the parent before the deadline starts; subsequent QASM serialization
+is counted against that budget but cannot be forcibly interrupted by the
+child Supervisor. Consequently, this is **not** an unconditional hard
+end-to-end deadline for the entire Python API call.
 
 The worker protocol bounds request and diagnostic output sizes. Missing,
 partial, or malformed replies, failing Solver processes, and unverified

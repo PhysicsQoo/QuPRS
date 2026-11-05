@@ -24,3 +24,38 @@ A conditional *official CodSpeed v5* follow-up should use **only full numeric-sc
 ### Evidence status
 
 The workflow was triggered at source commit `41984e2`. The completed gate results, if available, should be appended with the exact run outcome and artifact ID; no WMC/counter/time values are asserted before retrieval.
+
+
+## Completed P5 scientific result — native 7/8 PASS, one censored (not a failure of WMC)
+
+[Workflow #41937369604 SUCCESS](https://github.com/PhysicsQoo/QuPRS/actions/runs/41937369604), measured HEAD `464b86e4dabd6b7ff55cfef8df57858297041caf`, immutable [science artifact 13374532991](https://github.com/PhysicsQoo/QuPRS/actions/runs/41937369604/artifacts/13374532991), d4 scratch binary SHA256 `08b486858818cedddf19993d43db6e20800e76c5caed213cdda94da18363452e`.
+
+The first [workflow #41936727984](https://github.com/PhysicsQoo/QuPRS/actions/runs/41936727984) compiled d4 but failed its help-format guard before executing any scientific cases: pinned optree prints a **hierarchical** `dpll/ → cache/ → isActivated`, not a literal expanded `--cache.isActivated`. The exact native cache flag is **`--dpll.cache.isActivated=(true|false)`**. The [guard fix `464b86e4`](https://github.com/PhysicsQoo/QuPRS/commit/464b86e4dabd6b7ff55cfef8df57858297041caf) was tested against the archived `-h` text and retained the same source/pinned numeric patch; the second workflow completed. Preserve both CI records; the first is **not** a solver numeric failure or timing result.
+
+| Original weighted source | BiPe | d4 cache | Complex count screen | Native decisions | Native recursive calls | Native positive / negative hits | Final active clauses |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| QAOA7 genuine NEQ | auto | ON | PASS | 926 | 1,853 | 2,138 / 926 | 677 |
+| QAOA7 genuine NEQ | auto | OFF | PASS | 2,346,830 | 4,693,661 | 0 / 0 | 677 |
+| QAOA7 genuine NEQ | none | ON | PASS | 971 | 1,943 | 2,205 / 971 | 823 |
+| QAOA7 genuine NEQ | none | OFF | PASS | 2,477,422 | 4,954,845 | 0 / 0 | 823 |
+| QFT16 EQ | auto | ON | PASS | 66,695 | 133,391 | 133,084 / 66,695 | 1,058 |
+| QFT16 EQ | auto | OFF | PASS | 590,177 | 1,180,355 | 0 / 0 | 1,058 |
+| QFT16 EQ | none | ON | PASS | 426,163 | 852,327 | 917,484 / 426,163 | 1,144 |
+| QFT16 EQ | none | OFF | **CENSORED_TIMEOUT 30s** | n/a | n/a | n/a | n/a |
+
+For **each of the three completed cache ON/OFF pairs** the printed *complex* count (real and imaginary) was **exactly identical** between on and off. All seven completed settings also agreed with the archived original source d4-38 printed-rational reference under the explicit 1e-12 count-scale screen. Different BiPe strata may produce different last printed digits (the two QAOA7 strata and the two QFT16 strata do); these remain screen-concordant, not an exact internal arithmetic-error guarantee. Cache-disabled pairs produced exactly zero native cache hits, confirming the CLI flag took effect.
+
+**Concrete search-work effects** (within same source / fixed BiPe / same d4 binary; *not* elapsed time):
+
+- QAOA7 auto: decision count `926 → 2,346,830` (cache disabled: **2,534×** baseline); recursive calls `1,853 → 4,693,661` (**2,533×**). Extra decisions = **2,345,904**.
+- QAOA7 none: decisions `971 → 2,477,422` (**2,551×**); recursive calls `1,943 → 4,954,845` (**2,550×**). Extra decisions = **2,476,451**.
+- QFT16 auto: decisions `66,695 → 590,177` (**8.85×**); recursive calls `133,391 → 1,180,355` (**8.85×**). Extra decisions = **523,482**.
+- QFT16 none: cache ON already visits 426,163 decision nodes (versus 66,695 with BiPe auto); cache OFF did not finish within the 30s science limit. This suggests an interaction of preprocessing and cache work on this original weighted source, **but** no cache-off numeric/WMC or runtime ratio is available for this stratum.
+
+**Scope and causal limits:** d4 **actually disables** `searchInCache` and `addInCache`; thus it is a cleaner within-d4 cache-only intervention than GPMC `-cs`. BiPe auto versus none affects clause sets **and** preprocessing effort; do not attribute BiPe net WallTime to caching. Warm-start `warmStart(29,11,...)` remains unchanged. These counts are **source-pinned native mechanism measures**, not official performance. The 30s timeout is not a "speedup" or WMC verdict and must be retained as censored.
+
+## Conditional official CodSpeed follow-up
+
+[Official v5 scope commit `076a4f3`](https://github.com/PhysicsQoo/QuPRS/commit/076a4f3bd4d4751b5878eddef21921c0de5053a0), [Actions #41938239985](https://github.com/PhysicsQoo/QuPRS/actions/runs/41938239985).
+
+Only QAOA7 auto, QAOA7 none, and QFT16 auto have valid cache-on/off numeric pairs, hence **6 benchmark identities**. The hosted runner rechecks original CNF SHA, actual native binary digest, **all eight** source science cases, same GMP128 / 38 effective digits, and each measured WMC against admitted preflight. QFT16 none/cache off is a **CENSORED exclusion**. Official CodSpeed v5 WallTime with `--codspeed-max-rounds=3 --codspeed-max-time=100` is the only timing instrument. At this document edit, **official runtime measurements were not yet available** and no speedup factor is claimed. Hosted non-Macro WallTime is observation only; formal fixed Macro Runner ABBA/BAAB is not established.

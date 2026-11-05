@@ -47,6 +47,12 @@ jobs:
           set -euo pipefail
           python research/qoo157_d4/rawmocs_a0/cache_context_oracle.py \
             --report evidence/rawmocs-a0-cache-context-results.json
+      - name: A0f exhaustive weighted-rewrite safety (65,536 exact complex states)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node research/qoo157_d4/rawmocs_a0/exhaustive_weighted_rewrite_safety.mjs \
+            | tee evidence/rawmocs-a0f-exhaustive-rewrite-safety.json
       - name: Pin evidence provenance
         if: always()
         shell: bash
@@ -63,6 +69,7 @@ jobs:
             evidence/rawmocs-a0-quprs-profile-results.json
             evidence/rawmocs-a0-exact-properties.json
             evidence/rawmocs-a0-cache-context-results.json
+            evidence/rawmocs-a0f-exhaustive-rewrite-safety.json
             evidence/rawmocs-a0-head.txt
             evidence/rawmocs-a0-scope.txt
           retention-days: 30

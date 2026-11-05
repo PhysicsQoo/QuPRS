@@ -15,7 +15,7 @@ Let V={x1,...,xn} be the declared variable universe, F a CNF, and w(x),w(¬x) ar
 
 Every satisfying FULL assignment contributes exactly once. A declared variable absent from every surviving clause contributes w(x)+w(¬x), NOT automatically 1. With weights 1 for both polarities, this specializes to #SAT (each free variable contributes 2).
 
-**Projected weighted semantics** (a separate OPTIONAL mode, not the QuPRS default):
+**Existential distinct-projection weighted semantics (EPWMC)** (a separate OPTIONAL mode, not QuPRS's default; see the A0b RFC below for another projected-weight convention in the Ganak2 paper):
 
 \[
 \mathrm{PWMC}_P(F,w)=\sum_{p\in\{0,1\}^{P}}
@@ -93,7 +93,7 @@ Only apply this formula in the appropriate full-WMC commutative semiring; projec
 
 ### Interface design candidates (NOT implemented)
 
-CountRequest: weighted CNF; counting semantics FullWmc vs ProjectedWmc(P); arithmetic ExactQComplex vs MPFRPoint vs CertifiedInterval; deadline; resource budget.
+CountRequest: weighted CNF; counting semantics FullWmc vs ExistentialDistinctProjectedWmc(P); arithmetic ExactQComplex vs MPFRPoint vs CertifiedInterval; deadline; resource budget. The label PWMC in this original study is shorthand only for the explicitly stated existential distinct-projection equation, and must not be assumed to match arbitrary solver PWMC CLI contracts.
 
 CountObservation: typed complex count; exact/interval/point-estimate precision provenance; source CNF fingerprint and separate weight fingerprint; work/memory stats; solver status. SAT oracle is isolated and cannot silently change a full-weighted count into a Boolean.
 
@@ -101,7 +101,7 @@ Reuse existing QuPRS solver boundary (wmc_problem.rs, solver_adapter.rs, precise
 
 ## 4. Algorithm literature and actual license-file audit
 
-**GPMC**: projected model counting with component decomposition and SAT residual conditions: [official Nagoya source page](https://www.trs.css.i.nagoya-u.ac.jp/projects/PMC/) (Suzuki–Hashimoto–Sakai 2017). QuPRS [NOTICE.md](https://github.com/PhysicsQoo/QuPRS/blob/main/NOTICE.md) says its bundled GPMC is MIT. Exact upstream source GitLab license file and source commit were not fetched in this round; this is NOTICE-level provenance only.
+**GPMC**: projected model counting with component decomposition and SAT residual conditions: [official Nagoya source page](https://www.trs.css.i.nagoya-u.ac.jp/projects/PMC/) (Suzuki–Hashimoto–Sakai 2017). QuPRS [NOTICE.md](https://github.com/PhysicsQoo/QuPRS/blob/main/NOTICE.md) says its bundled GPMC is MIT. **Update 2026-11-05**: official original Nagoya GPMC GitLab mcc2022 LICENSE.md was subsequently confirmed to state MIT (copyright Kenji Hashimoto, revision 32225835). This certifies that upstream branch's declared license, not all files or the QuPRS complex GPMC extension's complete derivative dependency chain; refer to the A0b RFC.
 
 **d4**: Lagniez–Marquis [IJCAI 2017](https://doi.org/10.24963/ijcai.2017/93) describes disjoint components, caching and sparse hypergraph decomposition.
 - Research pinned d4 source jm62300/d4@be15f91f3e9769e1f5cb175fa27e3eca3a1ea690 LICENSE blob c6ae956eff5e7a60d9683d7e39e2382571583c3b identifies **LGPL 2.1**.
@@ -127,3 +127,11 @@ Choose independent implementation from published mathematical specification, ori
 **Only tasks needing future RaWMoCS repo:** Rust solver implementation; Cargo workspace and actual dependency licensing; package/release workflow; future CodSpeed same-SHA fixed Macro Runner ABBA/BAAB and solver-inclusive/end-to-end comparisons. Remaining pre-publication business checks: crates.io/PyPI name ownership/trademark, full upstream/subdependency license pins, MCC version-specific format.
 
 No new repository or Rust solver has been created; no QuPRS production/default/CI changes.
+
+
+## 6. A0b new evidence, QuPRS literal profile, and semantic cautions
+
+* 24 additional QuPRS-specific literal-profile exact Gaussian rational fixtures: [quprs_literal_profile_fixtures.json](quprs_literal_profile_fixtures.json). Positive literal has complex weight and negative literal always weight 1, as pinned to QuPRS `main` in `rust/pathsum/src/solver_adapter.rs` and `wmc_problem.rs`.
+* [A0b / A1 independent algorithm RFC](A1_PREIMPLEMENTATION_ARCHITECTURE_AND_LITERATURE.md) documents **Ganak2 projected weight-class aggregation vs EPWMC semantics**; Ganak2 ChronoBT compensation uses division by weights, which is NOT valid for zero weights or general semirings, hence not a safe first-version Complex WMC optimization.
+* Both 24-case fixture suites independently reproduced at exact arithmetic level; still **no independently verified GitHub Actions completion/retained artifact**, no solver implementation, no CodSpeed performance measurement. Experiment branch workflow now runs both suites and retains separate reports.
+* **Do not claim the prior study's generic projected example is identical to Ganak2 2.8.0 projected mode** without real input/output contract verification. In the next solver implementation, make `FullWmc` and `ExistentialDistinctProjectedWmc` distinct typed variants.

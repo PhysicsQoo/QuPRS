@@ -516,12 +516,14 @@ archive/executable SHA256 and architecture checks still apply.
 Count fixtures compare against hand-computed complex sums and the other solver
 using relative error `1e-8` and absolute error `1e-12`; individual Rust
 solver-integration fixtures use a documented `2e-9` absolute budget. These are
-fixture budgets, not universal error bounds under cancellation. Rust serializes
-both solver inputs with 17 significant decimal digits in scientific notation
-(enough to round-trip binary64 weights). Python evaluates symbolic weights at
-113 bits where supported and writes their decimal form without an arbitrary
-nine-decimal quantization. Input precision cannot exceed the information in
-the original circuit parameters or the numerical type used upstream.
+fixture budgets, not universal error bounds under cancellation. The native
+Rust GPMC projective-distance path evaluates supported source phase weights
+with tolerance-adaptive MPFR precision and serializes the resulting decimal
+values without an intermediate binary64 conversion. The native Ganak path
+retains binary64 input-weight serialization with enough decimal digits for
+round-trip representation. Python evaluates symbolic weights at 113 bits
+where supported. Neither input representation certifies the internal
+arithmetic accuracy of an external solver.
 
 Both Python and Rust WMC public backends use a single configurable
 **projective-distance tolerance**, default `1e-8`. For example:

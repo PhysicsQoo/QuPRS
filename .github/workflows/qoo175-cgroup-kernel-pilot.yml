@@ -1,0 +1,70 @@
+name: QOO-175 delegated cgroup v2 kernel pilot
+
+# Research-only proof on a disposable Ubuntu VM; no Rust build or CodSpeed.
+on:
+  push:
+    branches:
+      - experiment/qoo175-cgroup-preexec-p3
+    paths:
+      - 'scripts/qoo175_cgroup_kernel_pilot.py'
+      - 'src/QuPRS/interface/rust_resources.py'
+      - '.github/workflows/qoo175-cgroup-kernel-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo175-delegation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  kernel-admission-and-oom:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect disposable VM admission prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(stat -f -c %T /sys/fs/cgroup)" = cgroup2fs
+          test -e /run/systemd/system
+          systemd-run --version | head -1
+          cat /proc/self/cgroup
+          findmnt -no OPTIONS /sys/fs/cgroup
+      - name: Run isolated systemd-delegated service kernel proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Delegate only a new, transient service subtree. Never reconfigure
+          # runner.service, system.slice, or the host's cgroup root.
+          sudo systemd-run --wait --collect --pipe \
+            --unit="qoo175-cgroup-${GITHUB_RUN_ID}" \
+            --property="Type=exec" \
+            --property="User=$(id -un)" \
+            --property="Delegate=memory" \
+            --property="DelegateSubgroup=quprs-pilot" \
+            --property="WorkingDirectory=${GITHUB_WORKSPACE}" \
+            /usr/bin/env bash -euo pipefail -c '
+              rel=$(awk -F: '\''$1=="0" && $2=="" {print $3}'\'' /proc/self/cgroup)
+              self="/sys/fs/cgroup${rel}"
+              anchor=$(dirname "$self")
+              test -f "$anchor/cgroup.subtree_control"
+              grep -qw memory "$anchor/cgroup.controllers"
+              if ! grep -qw memory "$anchor/cgroup.subtree_control"; then
+                echo +memory > "$anchor/cgroup.subtree_control"
+              fi
+              /usr/bin/python3 scripts/qoo175_cgroup_kernel_pilot.py --memory-mib 192 | tee qoo175-kernel-admission.json
+              /usr/bin/python3 scripts/qoo175_cgroup_kernel_pilot.py --memory-mib 192 --oom | tee qoo175-kernel-oom.json
+            '
+      - name: Preserve standalone kernel evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo175-delegated-cgroup-kernel
+          path: qoo175-kernel-*.json
+          if-no-files-found: warn
+          retention-days: 14

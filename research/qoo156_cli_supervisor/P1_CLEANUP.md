@@ -22,3 +22,35 @@ For Linux `--max-memory-mib`, after reaping the worker and before stdout commit,
 ## Explicitly not covered by this P1 fix
 
 This does not create a strict wall-clock guarantee for terminal stdout copying, nor solve detached daemon survival after **supervisor** SIGKILL or complete macOS subreaping. It does not modify native Path-sum, GPMC or Ganak original algorithms. The Mac mini/OrbStack guest environment's cgroup delegation remains a separate deployment qualification.
+
+## Final staged P1 performance evidence — 2026-11-05
+
+Clean [staging source `56c8205`](https://github.com/PhysicsQoo/QuPRS/commit/56c8205e8be396b8677e762f93b4a8d3e04f2f68)
+contains only verified CLI `supervisor.rs` and `supervisor`
+integration tests plus documentation; native Rust `rust/pathsum`
+and solver code are identical to the pinned dev baseline.
+All research-only Docker/cgroup-pilot workflows remained on the experiment
+branch. The CI [hosted ABBA run #41943543958](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958)
+**SUCCESS** and [raw timing artifact #13377816518](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958/artifacts/13377816518)
+preserve 30 alternating ABBA/BAAB paired blocks per case:
+
+| Case | Median paired extra CLI latency | 95% bootstrap interval | Paired control jitter | Classification |
+|---|---:|---:|---:|---|
+| Single H | +1.961 ms | [1.949,1.991] ms | 0.042 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+| GHZ32 RR | +1.954 ms | [1.933,1.980] ms | 0.067 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+| QPE-exact8 RR | +1.877 ms | [1.862,1.895] ms | 0.022 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+
+The temporary **3ms additive CLI overhead** engineering envelope
+holds for these three cases on a single runner; this is not proof of
+zero regression, no guarantee for different hardware, not CodSpeed Macro
+and not a final release-SLO approval. Previous QOO-156 P0-only data
+(+1.5–1.6ms) came from a different hosted execution and must not be
+subtracted as though it were a directly controlled P1 A/B comparison.
+
+Native [P1 process and actual OOM CI #41942991745](https://github.com/PhysicsQoo/QuPRS/actions/runs/41942991745)
+independently passed on the exact source blobs that staging copied:
+Linux 11 unit +20 integration; macOS14 ARM64 8 unit +16 integration;
+both Release compiled; nonroot UID65534 cgroup positive/negative
+admitted, with no residual child cgroups. The user-visible CLI continues
+to have real startup overhead, now roughly +1.9–2.0ms.
+

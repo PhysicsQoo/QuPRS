@@ -92,8 +92,15 @@ cleanup cannot execute; the host/container process manager must own
 whole-job lifetime and residual temporary-directory housekeeping.
 macOS cannot claim Linux cgroup/subreaper behavior, and arbitrary solver
 processes ignoring TMPDIR are outside this scoped temp-file contract.
-The provisional **3 ms** source-paired hosted CLI overhead budget is
-checked independently after the staged source update.
+The provisional **3 ms** source-paired hosted CLI overhead budget
+**passed on this staged source** at [Actions #41943543958](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958)
+and [raw artifact #13377816518](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958/artifacts/13377816518).
+Exact paired median extra CLI latency vs pinned dev: **Single H +1.961 ms**
+(95% bootstrap CI [1.949,1.991]), **GHZ32 RR +1.954 ms**
+([1.933,1.980]), **QPE8 RR +1.877 ms** ([1.862,1.895]).
+All are **within the predeclared provisional +3ms absolute overhead budget**,
+but this is not a zero-regression or CodSpeed Macro certification; formal
+release acceptance remains a distinct decision.
 
 ## Source-pinned P0 and final-stage P1 admission — 2026-11-05
 

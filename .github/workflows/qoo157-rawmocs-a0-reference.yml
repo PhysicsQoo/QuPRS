@@ -35,6 +35,12 @@ jobs:
           python research/qoo157_d4/rawmocs_a0/exact_complex_oracle.py \
             --fixtures research/qoo157_d4/rawmocs_a0/quprs_literal_profile_fixtures.json \
             --report evidence/rawmocs-a0-quprs-profile-results.json
+      - name: Deterministic exact semantics properties (BigInt; no solver)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node research/qoo157_d4/rawmocs_a0/exact_semantics_properties.mjs \
+            | tee evidence/rawmocs-a0-exact-properties.json
       - name: Pin evidence provenance
         if: always()
         shell: bash
@@ -49,6 +55,7 @@ jobs:
           path: |
             evidence/rawmocs-a0-exact-count-results.json
             evidence/rawmocs-a0-quprs-profile-results.json
+            evidence/rawmocs-a0-exact-properties.json
             evidence/rawmocs-a0-head.txt
             evidence/rawmocs-a0-scope.txt
           retention-days: 30

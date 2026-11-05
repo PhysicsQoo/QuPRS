@@ -18,8 +18,10 @@ fn dual_circuit_worker_returns_only_complete_equivalence() {
         .args(["--method", "reduction-rules", "--quiet", "--timeout", "20"])
         .output().unwrap();
     assert!(result.status.success(), "{:?}", result);
-    assert!(String::from_utf8_lossy(&result.stdout).trim().contains("equivalent"),
-        "{:?}", result);
+    // --quiet is one exact status label. A substring search would also
+    // accept "not_equivalent", incorrectly passing a negative result.
+    assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), "equivalent",
+        "identical circuits must produce an exact EQ verdict: {result:?}");
 }
 
 #[test]
@@ -352,7 +354,10 @@ fn explicit_address_space_cap_does_not_fail_open() {
         .args(["--max-address-space-mib", "1", "--quiet", "--timeout", "10"])
         .output().unwrap();
     assert!(!result.status.success(), "worker ignored 1 MiB RLIMIT_AS");
-    assert!(!String::from_utf8_lossy(&result.stdout).contains("EQUIVALENT"));
+    // The quiet CLI emits lower-case scientific labels: checking uppercase
+    // "EQUIVALENT" would not catch a leaked "equivalent" verdict.
+    assert!(result.stdout.is_empty(),
+        "RLIMIT_AS failure emitted uncommitted scientific stdout: {result:?}");
 }
 
 #[test]
@@ -375,7 +380,10 @@ fn physical_memory_cap_never_silently_falls_back_to_unlimited() {
         .output().unwrap();
     assert!(!result.status.success(),
         "1 MiB memory.max cannot complete a full Rust worker safely");
-    assert!(!String::from_utf8_lossy(&result.stdout).contains("equivalent"));
+    // Neither "equivalent" nor "not_equivalent" may be published when a
+    // physical cap fails closed; a substring negative check is insufficient.
+    assert!(result.stdout.is_empty(),
+        "unadmitted/low-cap worker leaked science stdout: {result:?}");
 }
 
 

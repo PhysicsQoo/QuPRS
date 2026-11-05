@@ -113,6 +113,16 @@ def _module():
     return mod
 
 
+def _resources():
+    path = Path(__file__).with_name('rust_resources.py')
+    spec = importlib.util.spec_from_file_location('_quprs_private_resources', path)
+    if spec is None or spec.loader is None:
+        raise SupervisorResourceError('cannot load private worker resources')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _reply(payload: dict) -> None:
     output = json.dumps(payload, allow_nan=False, separators=(',', ':')).encode()
     if len(output) > _MAX_RESULT_BYTES:
@@ -141,15 +151,29 @@ def run() -> int:
         _reply({'version': 1, 'ok': True, 'result': {
             'status': 'Timeout', 'verification_time_sec': time.monotonic() - started}})
         return 0
-    p = subprocess.Popen(
-        [sys.executable, '-m', 'QuPRS.interface.rust_isolation'],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        close_fds=True, start_new_session=True, bufsize=0,
-    )
+    resources = _resources()
+    group = None
+    p = None
     timed_out = False
     output = None
     worker_error = None
+    oom_seen = False
     try:
+        # An explicit physical cap must be admitted, or the worker is not run.
+        group = resources.MemoryCgroup.create_if_requested()
+        worker_env = os.environ.copy()
+        worker_env['QUPRS_RUST_WORKER_PARENT_PID'] = str(os.getpid())
+        p = subprocess.Popen(
+            [sys.executable, str(Path(__file__).with_name('rust_worker_bootstrap.py'))],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            close_fds=True, start_new_session=True, bufsize=0, env=worker_env,
+        )
+        if group is not None:
+            group.admit(p.pid)
+        # The bootstrap imports no QuPRS/Qiskit module until admission.
+        admission = b"QuPRS-Rust-Worker-Admit-v1\\n"
+        if os.write(p.stdin.fileno(), admission) != len(admission):
+            raise SupervisorResourceError('incomplete worker admission witness')
         try:
             stdout, stderr = iolib._bounded_exchange(p, raw, deadline)
             output = iolib._parse_worker_response(stdout, stderr, p.returncode)
@@ -159,17 +183,34 @@ def run() -> int:
             worker_error = exc
     finally:
         cleanup_error = None
-        try:
-            iolib._stop_worker(p)
-        except Exception as exc:
-            cleanup_error = exc
+        if p is not None:
+            try:
+                iolib._stop_worker(p)
+            except Exception as exc:
+                cleanup_error = exc
+        if group is not None:
+            try:
+                oom_seen = group.oom_observed()
+            except Exception as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+            try:
+                group.cleanup()
+            except Exception as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
         try:
             _cleanup_adopted_children()
         except Exception as exc:
             if cleanup_error is None:
                 cleanup_error = exc
         if cleanup_error is not None:
-            raise SupervisorResourceError('worker or descendant cleanup failed') from cleanup_error
+            raise SupervisorResourceError('worker or resource cleanup failed') from cleanup_error
+    if oom_seen:
+        # Never publish a successful scientific verdict after OOM evidence.
+        _reply({'version': 1, 'ok': True, 'result': {
+            'status': 'MemoryOut', 'verification_time_sec': time.monotonic() - started}})
+        return 0
     if worker_error is not None:
         if isinstance(worker_error, (ValueError, TypeError)):
             _reply({'version': 1, 'ok': False,

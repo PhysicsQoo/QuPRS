@@ -3,7 +3,6 @@
 These tests intentionally do not claim cgroup or detached solver-tree protection.
 """
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -16,6 +15,7 @@ from QuPRS.interface.rust_isolation import (
     RustWorkerError,
     _WorkerDeadlineExceeded,
     _bounded_exchange,
+    _parse_worker_response,
     _stop_worker,
 )
 
@@ -45,7 +45,7 @@ def test_rust_safe_mode_identity_and_x_parity():
 
 
 def test_rust_safe_mode_qasm_text_parity():
-    qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     direct = check_equivalence(
         qasm, qasm, backend="rust", method="reduction_rules",
         safe_mode=False, timeout=30,
@@ -115,7 +115,8 @@ def test_bounded_worker_rejects_incomplete_output():
         assert process.returncode == 0
     finally:
         _stop_worker(process)
-    # The higher-level response parser must reject this as a protocol error.
+    with pytest.raises(RustWorkerError, match="invalid isolated Rust result envelope"):
+        _parse_worker_response(stdout, stderr, 0)
 
 
 def test_interrupt_cleanup_uses_private_process_group():
@@ -125,3 +126,13 @@ def test_interrupt_cleanup_uses_private_process_group():
     finally:
         _stop_worker(process)
     assert process.poll() is not None
+
+def test_bounded_worker_remote_error_never_becomes_science_verdict():
+    response = (
+        b'{"version":1,"ok":false,"error_type":"ValueError",'
+        b'"message":"invalid solver request"}'
+    )
+    with pytest.raises(ValueError, match="invalid solver request"):
+        _parse_worker_response(response, b"", 0)
+    with pytest.raises(RustWorkerError, match="protocol version mismatch"):
+        _parse_worker_response(b'{"version":42,"ok":true,"result":{}}', b"", 0)

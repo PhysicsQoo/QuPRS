@@ -1,0 +1,643 @@
+{
+  "schema_version": 1,
+  "semantics": {
+    "wmc": "Every satisfying full assignment exactly once; weights for both polarities; omitted weights default (1+0i) per literal.",
+    "pwmc": "Each distinct satisfying projected assignment exactly once, existential extensions deduplicated; only projected variables may carry explicit weights."
+  },
+  "cases": [
+    {
+      "id": "empty_true",
+      "mode": "wmc",
+      "nvars": 0,
+      "clauses": [],
+      "expected": {
+        "value": {
+          "re": "1",
+          "im": "0"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "empty_false",
+      "mode": "wmc",
+      "nvars": 0,
+      "clauses": [
+        []
+      ],
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 0,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "free_unit_weights",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "expected": {
+        "value": {
+          "re": "2",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "free_asymmetric",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "3",
+          "0",
+          "-1/2",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "5/2",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "positive_complex_unit",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "1/3",
+          "2/5",
+          "7",
+          "-1"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "1/3",
+          "im": "2/5"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "negative_complex_unit",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          -1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "5",
+          "7",
+          "-2",
+          "3/7"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "-2",
+          "im": "3/7"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "sat_real_cancel_zero",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "1",
+          "0",
+          "-1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "sat_imag_cancel_zero",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "0",
+          "1",
+          "0",
+          "-1"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "sat_zero_weight",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "0",
+          "0",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "unsat_contradiction",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          -1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "5",
+          "2",
+          "1",
+          "1"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 0,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "disconnected_complex_units",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "3",
+          "1",
+          "0"
+        ],
+        "2": [
+          "1",
+          "-1",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "5",
+          "im": "1"
+        },
+        "sat_models": 1,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "disconnected_complex_free",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "0",
+          "1",
+          "0",
+          "2"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "9"
+        },
+        "sat_models": 4,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "or_two_weighted",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "3",
+          "0"
+        ],
+        "2": [
+          "4",
+          "0",
+          "5",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "30",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "xor_complex_cancel",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ],
+        [
+          -1,
+          -2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "1",
+          "1",
+          "2",
+          "0"
+        ],
+        "2": [
+          "-1",
+          "0",
+          "1",
+          "-1"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "equivalence_complex",
+      "mode": "wmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          -1,
+          2
+        ],
+        [
+          1,
+          -2
+        ]
+      ],
+      "weights": {
+        "1": [
+          "1",
+          "0",
+          "2",
+          "0"
+        ],
+        "2": [
+          "0",
+          "1",
+          "0",
+          "-2"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "-3"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "same_cnf_weights_v1",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1,
+          -1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "1",
+          "0",
+          "2",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "3",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "same_cnf_weights_v2",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1,
+          -1
+        ]
+      ],
+      "weights": {
+        "1": [
+          "1",
+          "0",
+          "-1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "projected_or_dedup",
+      "mode": "pwmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ]
+      ],
+      "projection": [
+        1
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "3",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "5",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": 2
+      }
+    },
+    {
+      "id": "projected_empty_sat",
+      "mode": "pwmc",
+      "nvars": 2,
+      "clauses": [
+        [
+          1,
+          2
+        ]
+      ],
+      "projection": [],
+      "expected": {
+        "value": {
+          "re": "1",
+          "im": "0"
+        },
+        "sat_models": 3,
+        "distinct_projected_models": 1
+      }
+    },
+    {
+      "id": "projected_empty_unsat",
+      "mode": "pwmc",
+      "nvars": 1,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          -1
+        ]
+      ],
+      "projection": [],
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "0"
+        },
+        "sat_models": 0,
+        "distinct_projected_models": 0
+      }
+    },
+    {
+      "id": "projected_free_factor",
+      "mode": "pwmc",
+      "nvars": 3,
+      "clauses": [
+        [
+          1
+        ]
+      ],
+      "projection": [
+        1,
+        2
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "7",
+          "0"
+        ],
+        "2": [
+          "3",
+          "0",
+          "5",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "16",
+          "im": "0"
+        },
+        "sat_models": 4,
+        "distinct_projected_models": 2
+      }
+    },
+    {
+      "id": "forty_digit_cancellation",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "10000000000000000000000000000000000000000",
+          "0",
+          "-9999999999999999999999999999999999999999",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "1",
+          "im": "0"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "tiny_imag_residual",
+      "mode": "wmc",
+      "nvars": 1,
+      "clauses": [],
+      "weights": {
+        "1": [
+          "1",
+          "1/1000000000000000000000000000000",
+          "-1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "1/1000000000000000000000000000000"
+        },
+        "sat_models": 2,
+        "distinct_projected_models": null
+      }
+    },
+    {
+      "id": "eight_vars_free_factor",
+      "mode": "wmc",
+      "nvars": 8,
+      "clauses": [
+        [
+          1
+        ],
+        [
+          8
+        ]
+      ],
+      "weights": {
+        "1": [
+          "2",
+          "0",
+          "1",
+          "0"
+        ],
+        "2": [
+          "2",
+          "0",
+          "3",
+          "0"
+        ],
+        "8": [
+          "0",
+          "1",
+          "1",
+          "0"
+        ]
+      },
+      "expected": {
+        "value": {
+          "re": "0",
+          "im": "320"
+        },
+        "sat_models": 64,
+        "distinct_projected_models": null
+      }
+    }
+  ]
+}

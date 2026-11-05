@@ -184,8 +184,17 @@ def run() -> int:
             # Track Worker ancestry before admission while children can still
             # be identified, matching the CLI's native ps-based cleanup.
             # Only this isolated Supervisor does any polling.
-            from rust_macos_process import DarwinProcessTree
-            macos_tree = DarwinProcessTree(p.pid)
+            # The Supervisor is launched with python -I, so relative
+            # module imports must use an explicit private file path.
+            helper = Path(__file__).with_name('rust_macos_process.py')
+            spec = importlib.util.spec_from_file_location(
+                '_quprs_macos_tree', helper,
+            )
+            if spec is None or spec.loader is None:
+                raise SupervisorResourceError('macOS process helper is unavailable')
+            private_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(private_module)
+            macos_tree = private_module.DarwinProcessTree(p.pid)
             macos_tree.start()
         admission = b"QuPRS-Rust-Worker-Admit-v1\n"
         if os.write(p.stdin.fileno(), admission) != len(admission):

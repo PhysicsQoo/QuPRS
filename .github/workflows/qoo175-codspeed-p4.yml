@@ -1,0 +1,79 @@
+name: QOO-175 isolated PyO3 same-SHA CodSpeed WallTime pilot
+
+# Research branch only: no automatic release gate and no expensive matrix.
+on:
+  push:
+    branches: [experiment/qoo175-codspeed-p4]
+    paths:
+      - 'benchmarks/codspeed/test_qoo175_worker_walltime.py'
+      - '.github/workflows/qoo175-codspeed-p4.yml'
+      - 'src/QuPRS/interface/rust_isolation.py'
+      - 'src/QuPRS/interface/rust_supervisor.py'
+      - 'src/QuPRS/interface/rust_worker_bootstrap.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: qoo175-codspeed-p4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paired-same-sha-walltime:
+    name: Direct PyO3 vs isolated worker / same SHA WallTime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      HEAD_SHA: ${{ github.sha }}
+      QUPRS_CODSPEED_EXPORT: ${{ github.workspace }}/qoo175-isolation-walltime.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo175-p4-same-sha
+      - name: Verify exact source identity and build native extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin pytest-codspeed==5.0.4
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -m pytest benchmarks/codspeed/test_qoo175_worker_walltime.py -q --collect-only
+      - name: Run source-identical direct vs isolated CodSpeed WallTime
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: walltime
+          run: python -m pytest benchmarks/codspeed/test_qoo175_worker_walltime.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=3 --codspeed-max-time=20
+      - name: Save exact SHA and CodSpeed observations
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "sha=$HEAD_SHA"
+            echo "runner=$RUNNER_NAME"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "python=$(python --version)"
+          } > qoo175-codspeed-provenance.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qoo175-single-sha-worker-walltime
+          path: |
+            ${{ env.QUPRS_CODSPEED_EXPORT }}
+            qoo175-codspeed-provenance.txt
+          if-no-files-found: warn
+          retention-days: 14

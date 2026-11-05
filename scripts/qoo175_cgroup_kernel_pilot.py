@@ -9,6 +9,7 @@ the exact requested isolated leaf can be allocated and removed.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import signal
@@ -16,7 +17,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from QuPRS.interface.rust_resources import MemoryCgroup, ResourceAdmissionError
+# Standalone research witness: do not import the QuPRS package or require
+# a built PyO3 extension simply to exercise the delegated kernel controller.
+_resources_file = Path(__file__).resolve().parents[1] / "src" / "QuPRS" / "interface" / "rust_resources.py"
+_spec = importlib.util.spec_from_file_location("qoo175_kernel_resources", _resources_file)
+if _spec is None or _spec.loader is None:
+    raise RuntimeError("private cgroup resource module is not readable")
+_resources = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_resources)
+MemoryCgroup = _resources.MemoryCgroup
+ResourceAdmissionError = _resources.ResourceAdmissionError
 
 
 _SUPERVISOR = r"""
@@ -95,14 +105,71 @@ def positive_group_proof(limit_mib: int) -> dict:
     return snapshot
 
 
+_OOM_CHILD = r"""
+import os, sys
+if os.read(0, 1) != b"1":
+    sys.exit(31)
+size = int(sys.argv[1]) * 1024 * 1024
+block = bytearray(size)
+# Touch physical pages: malloc/overcommit alone is not OOM evidence.
+for i in range(0, size, 4096):
+    block[i] = 1
+print("UNEXPECTED_ALLOCATION_FINISHED", flush=True)
+"""
+
+
+def forced_oom_proof(limit_mib: int) -> dict:
+    """Only allocates inside a requested capped leaf, after admission."""
+    os.environ["QUPRS_ISOLATED_MAX_MEMORY_MIB"] = str(limit_mib)
+    group = MemoryCgroup.create_if_requested()
+    assert group is not None
+    child = None
+    try:
+        child = subprocess.Popen(
+            [sys.executable, "-c", _OOM_CHILD, str(limit_mib + 96)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, start_new_session=True,
+            close_fds=True,
+        )
+        group.admit(child.pid)
+        out, err = child.communicate(input=b"1", timeout=20)
+        if child.returncode != -signal.SIGKILL:
+            raise AssertionError(
+                f"expected cgroup SIGKILL, received {child.returncode}: "
+                f"{out[-100:]!r} {err[-100:]!r}"
+            )
+        if not group.oom_observed():
+            raise AssertionError("worker died but no kernel cgroup OOM counters increased")
+        return {
+            "status": "PASS",
+            "physical_memory_mib": limit_mib,
+            "worker_oom_exit": child.returncode,
+            "memory_events_oom": True,
+            "scope": "kernel_cgroup_oom_and_cleanup",
+        }
+    finally:
+        if child is not None and child.poll() is None:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.wait(timeout=3)
+        try:
+            group.cleanup()
+        except Exception as exc:
+            raise RuntimeError("OOM pilot cgroup cleanup failed") from exc
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--memory-mib", type=int, default=256)
+    parser.add_argument("--memory-mib", type=int, default=192)
+    parser.add_argument("--oom", action="store_true", help="perform bounded in-cgroup OOM witness")
     args = parser.parse_args()
     if not 64 <= args.memory_mib <= 4096:
         parser.error("memory-mib must be between 64 and 4096")
     try:
-        result = positive_group_proof(args.memory_mib)
+        result = (forced_oom_proof(args.memory_mib)
+                  if args.oom else positive_group_proof(args.memory_mib))
     except ResourceAdmissionError as exc:
         print(json.dumps({
             "status": "NOT_MET",

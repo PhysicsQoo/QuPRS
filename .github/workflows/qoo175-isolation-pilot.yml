@@ -15,6 +15,7 @@ on:
       - 'test/test_verifier_api_defaults.py'
       - 'test/test_rust_isolated_worker.py'
       - 'test/test_rust_worker_resources.py'
+      - 'test/test_rust_worker_fastboot.py'
       - '.github/workflows/qoo175-isolation-pilot.yml'
   workflow_dispatch:
 
@@ -59,4 +60,5 @@ jobs:
           python -m pytest -q -ra \
             test/test_verifier_api_defaults.py \
             test/test_rust_isolated_worker.py \
-            test/test_rust_worker_resources.py
+            test/test_rust_worker_resources.py \
+            test/test_rust_worker_fastboot.py

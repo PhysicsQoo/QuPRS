@@ -101,3 +101,43 @@ The re-runnable source is [exact_semantics_properties.mjs](exact_semantics_prope
 **Evidence limits:** The 620/620 outcome is an independent in-session calculation using the same deterministic mathematical test design, and the script is now source-controlled. **GitHub Actions execution of this committed script has not yet been independently verified** by a run ID/log/artifact. The tests validate identities by small exhaustive enumeration, NOT caching performance or correctness of a future Rust solver; the tested formulas are random small controls and cannot replace source-pinned QuPRS weighted-CNF cases.
 
 MCC format research is centralized in [A0c](A0C_MCC_COMPLEX_AMC_FORMAT_AND_ARITHMETIC.md). This A1 RFC retains the GPMC original+complex-fork direct MIT license evidence, d4-version differences and Ganak2 ChronoBT zero-divisor caveat. Avoid adding parallel redundant format/algorithm files.
+
+
+## 7. A0e component-cache context adversarial science (2026-11-05)
+
+**Research-only original inputs**: [cache_context_fixtures.json](cache_context_fixtures.json), **20 paired comparisons / 40 counting states**. New original [cache_context_oracle.py](cache_context_oracle.py) independently reuses the existing Python Fraction brute-force oracle for validation; its result is now covered by the **existing one-job path-scoped** research workflow. **Independent second JS BigInt implementation crosschecked 20/20 original pair expected counts, SAT full-model cardinalities, and EPWMC projected cardinalities.** No Rust component cache exists and **no completed remote Actions run/artifact has been verified**. Do NOT call this cache implementation PASS or measured performance.
+
+### Exact relation classes (all local expected counts matched)
+
+| Class | Pairs | Exact purpose |
+| --- | ---: | --- |
+| Same complex count | 6 | Clause order, duplicate clause, tautology, explicit default literal weights, weight change on a provably unused polarity, extra existential free witness in EPWMC |
+| Different complex count | 13 | Positive/negative literal weights, declared free support, free phase factor, Full WMC vs EPWMC, distinct P, same-shape opposite polarity, lost unit factor, QuPRS phase-forced vs free, 40-digit cancellation, weight change on projection |
+| Equal arithmetic zero with different logical SAT status | 1 | SAT with a zero-weight forced literal vs UNSAT contradictory clauses: count=0 in both, but logical status differs |
+
+An additional standalone proof counterexample deliberately violates *disjoint support*: A=(x OR y) has #SAT=3 over {x,y}, B=(NOT x OR z) has #SAT=3 over {x,z}, while A AND B over {x,y,z} has #SAT=**4**, NOT 9. **Clause/variable support must truly be disjoint after conditioning** to multiply independent component counts. A second counterexample tracks F=x, weight of positive x=i: after the forced assignment the residual empty formula count is 1, while the *caller-owned prefix factor* is i and the full count is i. **Do not contaminate the cached residual value with a caller-specific prefix**, and do not silently drop forced-literal factors.
+
+### Proposed exact scalar cache contract (not implemented)
+
+A cached *sub-count* is a pure function of:
+- The complete residual Boolean formula with **canonicalized clauses/literals** and explicit **remaining counted support** (including unmentioned free variables);
+- The mode (FullWmc, distinct EPWMC(P), or other explicitly defined projection semantics), the projection mask and proper existential-variable treatment;
+- The relevant effective positive and negative literal weights for that subproblem, weight table/version and any *proven* normalization;
+- The arithmetic lane (ExactGaussianRational vs noncertified multiprecision vs certified interval) and, **for approximate point caches**, the precision/rounding/error policy; exact count values do not become valid approximation certificates by assertion;
+- Any preprocessing transformation witness that changes the representation without preserving all original weight/free/projection semantics by construction.
+
+**Important normalization**: a *caller-side* previously accumulated assignment factor may stay **outside** the sub-count key precisely when the cache stores only the conditioned remaining-component count; if the implementation caches a partially scaled value, factor ownership must be part of the semantics. Thus a blanket "prefix factor must always be in every cache key" is **incorrect**. Similarly, if the implementation uses exact symbolic polynomial/compiled structure rather than numerical scalar entries, weight-version reuse can be sound through re-evaluation and is a *different cache type*, not scalar cache reuse.
+
+A HashMap hash is only an index. Deterministic exact results require a full canonical equality comparison (or a separately proven injective ID scheme). Key collision must not silently act as equivalence. Free variables must be included in count ownership **once**, not counted again after component multiplication. The cache retrieval operation must have an unambiguous returned status: cached exact count 0 **does not** certify UNSAT. If the public result requires logical SAT/UNSAT, cache the Boolean existence witness or compute it in a separate sound logical oracle.
+
+### Why learning+decomposition is a separate proof obligation
+
+[Sang, Bacchus, Beame, Kautz & Pitassi, *Combining Component Caching and Clause Learning for Effective Model Counting* (SAT 2004)](https://homes.cs.washington.edu/~beame/papers/cachet.pdf) and [Sang, Beame & Kautz, *Heuristics for Fast Exact Model Counting* (SAT 2005)](https://homes.cs.washington.edu/~beame/papers/cachet-heuristics.pdf) explicitly discuss the correctness difficulty of learned-clause implications crossing previously separated components and necessary cache/propagation bookkeeping. These are published mathematical/algorithmic lessons, not an instruction to copy Cachet's implementation or eviction rules.
+
+**A1 recommendation**: first build a deterministic, no-cross-component-learning weighted DPLL+decomposition+canonical scalar cache. Add modern CDCL/learned-clause sharing only after a *separate* proof or independent oracle test of cross-component dependencies, conflict backtracking, forced-weight ownership, and cache invalidation. Do not assume the existing 620 arithmetic identities test these dynamic learned-clause contexts. Avoid adopting paper-specific cache ages/magic constants without independently deriving and testing a policy.
+
+### Concrete work completed vs outstanding
+
+Completed: original 20 cache-context pairs and their expected rational-complex counts, independent in-session JS verification 20/20, original Python reference validator, an added **step** to the existing low-cost branch-scoped A0 workflow, and this mathematical A1 contract/literature review.
+
+Outstanding: actual GitHub Actions **run ID, conclusion and artifact** for the updated branch; live Rust cache implementation/evaluation; source-CNF solver conformance and held-out CodSpeed; any third-party code reuse/license approval. A0e outcomes are **LOCAL_REFERENCE_CHECK_PASS / REMOTE_CI_UNVERIFIED / RUST_NOT_STARTED**. No new RaWMoCS repo or QuPRS main/dev/default change.

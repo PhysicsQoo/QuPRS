@@ -54,11 +54,10 @@ The Python package uses a native Rust extension and bundled GPMC/Ganak
 solver integration; the standard installation requires a supported
 platform wheel, or a separately prepared source-build environment.
 
-The release-candidate sources identify themselves as `0.14.0`.
-Until the v0.14.0 tag and package are actually published, the default
-`pip install QuPRS` command continues to install the latest published
-release. Follow the [v0.14.0 migration guide](docs/development/v0140-migration.md)
-before updating existing pipelines.
+QuPRS v0.14.0 was [released on 2026-11-04](https://github.com/PhysicsQoo/QuPRS/releases/tag/v0.14.0).
+`pip install QuPRS` installs the latest published package; a source checkout
+may contain newer changes. Review the [v0.14.0 migration guide](docs/development/v0140-migration.md)
+when updating existing pipelines.
 
 It is recommended to install `QuPRS` in a virtual environment.
 
@@ -175,7 +174,7 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 
 ## Equivalence Checking
 
-> **Numerical and source-semantic limits (v0.14.0 candidate):**
+> **Numerical and source-semantic limits (v0.14.0):**
 > Rust preserves supported QASM2 literal decimal-radian angles separately from
 > symbolic multiples of pi through its PathSum/phase representation. Strict
 > source-literal comparison can therefore disagree with historical approximate
@@ -204,9 +203,6 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > equivalence verdict to `unknown`. Ganak additionally reports a dynamic
 > print-resolution warning. Such numerical verdicts are not certificates
 > of internal solver accuracy or source-exact circuit equivalence.
-> The optional research-only `gpmc_distance_budget` model separately reports
-> `model_status` and `numerical_verdict`: its model may be inconclusive
-> for unsupported CNF sizes without overriding the public distance verdict.
 > An **unweighted, tautological CNF** matching the exact trace normalization
 > is counted algebraically (including one-qubit I versus I), with
 > `wmc_solver_invoked=False` and `analytic_unweighted_tautology` provenance.
@@ -461,7 +457,7 @@ time. Do not rely on this API as a hard end-to-end kill switch.
 
 The result statuses `equivalent` / `equivalent*` are **intended** as verified
 equivalence classifications, and `not_equivalent` as an actual negative
-result; known exceptions on current development builds are documented above.
+result; numerical limitations and input boundaries are documented above.
 `unknown` means reduction alone was inconclusive; `Timeout` means a
 deadline expired. Solver launch failures, output overflow, nonzero exits,
 malformed counts and other solver errors **raise an exception** rather
@@ -549,27 +545,12 @@ labels, while `rr_tolerance` independently controls Python and Rust RR matching.
 A printed solver count is not itself an exact mathematical certificate.
 
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md)
-for the current candidate's acceptance limits and QCEC/Quokka-Sharp metric
+for the numerical acceptance limits and QCEC/Quokka-Sharp metric
 comparison. A tighter numerical threshold is not a mathematical certificate.
 Results closer to a decision boundary than encoding or printed-count
 error should be checked independently; agreement between two solvers alone does
 not establish exact equivalence. Nonzero exits, crashes, missing results and
 malformed/non-finite counts are failures, without cross-solver fallback.
-
-### Python WMC precision profiling
-
-Use the deterministic microbenchmark to compare 53-bit and 113-bit phase
-weight evaluation on the same machine:
-
-```bash
-python scripts/profile_wmc_weight_precision.py --samples 96 --repeats 5 --warmups 2 --json-file python_wmc_precision_profile.json
-```
-
-Its JSON report includes distinct and repeated phases, normalized timing, and
-platform metadata. Cache timings are experimental only, not enabled in
-production. The PR benchmark workflow records the report as an artifact.
-Absolute timings across different CI runners are not directly comparable.
-This profile is observational and does not introduce a new release gate.
 
 ## License Information
 

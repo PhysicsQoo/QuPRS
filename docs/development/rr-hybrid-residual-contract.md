@@ -40,12 +40,3 @@ a second WMC distance standard. For a distance check on unmodified
 source phases, set `rr_tolerance=0` or select `wmc_only`.
 RR-only and WMC-only are not required to return the same verdict.
 
-### Acceptance
-
-Verify that Hybrid and RR-only produce the same final RR PathSum under
-each tolerance on Python and Rust, including unresolved cases. Validate
-source and residual boundary oracles independently, plus solver
-invocation counts, approximation warnings, phase semantics, Graphstate16,
-and cross-platform correctness. Compare performance with source-pinned
-CodSpeed WallTime (including solver subprocesses), Simulation, and Memory.
-Keep PR #131 Draft until these gates have passed.

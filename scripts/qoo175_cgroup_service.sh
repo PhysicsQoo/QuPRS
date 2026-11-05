@@ -25,4 +25,6 @@ echo "QOO175_KERNEL_INHERITANCE_BEGIN"
 python3 scripts/qoo175_cgroup_kernel_pilot.py --memory-mib 192 | tee qoo175-kernel-admission.json
 echo "QOO175_KERNEL_OOM_BEGIN"
 python3 scripts/qoo175_cgroup_kernel_pilot.py --memory-mib 192 --oom | tee qoo175-kernel-oom.json
-echo "QOO175_KERNEL_ADMISSION_AND_OOM_PASS"
+echo "QOO175_KERNEL_DETACHED_CLEANUP_BEGIN"
+python3 scripts/qoo175_cgroup_kernel_pilot.py --memory-mib 192 --detached | tee qoo175-kernel-detached.json
+echo "QOO175_KERNEL_ALL_RESOURCE_PROBES_PASS"

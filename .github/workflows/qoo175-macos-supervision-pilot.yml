@@ -1,0 +1,71 @@
+name: macOS supervised Rust API and CLI conformance
+
+# Focused proof on the experimental branch only; not added to release CI.
+on:
+  push:
+    branches: [experiment/qoo175-macos-cli-parity-p1]
+    paths:
+      - 'src/QuPRS/interface/rust_macos_process.py'
+      - 'src/QuPRS/interface/rust_supervisor.py'
+      - 'test/test_rust_macos_process.py'
+      - '.github/workflows/qoo175-macos-supervision-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-cli-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-native-conformance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo175-macos-cli-parity-v1
+      - name: Install macOS native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install cmake gmp mpfr zlib
+          GMP="$(brew --prefix gmp)"
+          MPFR="$(brew --prefix mpfr)"
+          ZLIB="$(brew --prefix zlib)"
+          echo "CFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib -L$ZLIB/lib -Wl,-rpath,$ZLIB/lib" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$GMP/lib:$MPFR/lib:$ZLIB/lib" >> "$GITHUB_ENV"
+      - name: Build original PyO3 verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Validate Python macOS Supervisor and Rust CLI parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q -ra \
+            test/test_rust_macos_process.py \
+            test/test_rust_isolated_worker.py \
+            test/test_rust_worker_resources.py \
+            test/test_verifier_api_defaults.py
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor

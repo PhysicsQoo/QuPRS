@@ -1,0 +1,109 @@
+name: QOO-156 P1 private temp and cgroup cleanup pilot
+
+on:
+  push:
+    branches: [experiment/qoo156-p1-private-temp-cgroup-cleanup]
+    paths:
+      - 'rust/cli/**'
+      - 'rust/Cargo.lock'
+      - 'scripts/qoo156_p1_cgroup/**'
+      - '.github/workflows/qoo156-p1-cleanup-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-p1-cleanup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scoped-native:
+    name: P1 CLI process + disk cleanup (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Native build headers (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+      - name: Verify scoped source and run process integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD:rust/pathsum)" = "142508b35e9e0833f9fd4f3a22c3eb5497d9336d"
+          uname -a
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --bin QuPRS_cli -- --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor -- --nocapture
+      - name: Release CLI build
+        run: |
+          cargo build --locked --release --manifest-path rust/Cargo.toml -p QuPRS_cli
+
+  delegated-positive:
+    name: Isolated nonroot delegated cgroup cleanup and real OOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build debug CLI for memory page-commit hook
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:rust/pathsum)" = "142508b35e9e0833f9fd4f3a22c3eb5497d9336d"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+          cargo build --locked --manifest-path rust/Cargo.toml -p QuPRS_cli
+          python3 -m py_compile scripts/qoo156_p1_cgroup/pilot.py
+          mkdir -p evidence/p1-delegated-cgroup
+          sha256sum rust/target/debug/QuPRS_cli benchmarks/qoo156/single_h.qasm \
+            > evidence/p1-delegated-cgroup/source-hashes.txt
+          git rev-parse HEAD > evidence/p1-delegated-cgroup/source-sha.txt
+      - name: Test-only isolated cgroup v2 bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -q -t qoo156:p1-cgroup scripts/qoo156_p1_cgroup \
+            > evidence/p1-delegated-cgroup/image-build.txt
+          docker image inspect qoo156:p1-cgroup --format '{{.Id}}' \
+            > evidence/p1-delegated-cgroup/image-id.txt
+      - name: Real nonroot worker OOM and no residual CLI child cgroup
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout -k 5s 90s docker run --rm --privileged --cgroupns=private \
+            --memory=512m --memory-swap=512m --pids-limit=64 \
+            --network=none --read-only --user 0:0 --tmpfs /tmp:rw,nosuid,size=16m \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/debug/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/qoo156/single_h.qasm,target=/opt/single_h.qasm,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_p1_cgroup/pilot.py,target=/opt/pilot.py,readonly" \
+            --entrypoint python3 qoo156:p1-cgroup /opt/pilot.py \
+            | tee evidence/p1-delegated-cgroup/positive-run.log
+          grep -Fq QOO156_INTERNAL_CGROUP_UNPRIVILEGED_CLI=PASS \
+            evidence/p1-delegated-cgroup/positive-run.log
+          grep -Fq '"worker_cgroup_removed_at_return": true' \
+            evidence/p1-delegated-cgroup/positive-run.log
+      - name: Preserve exact-source positive/negative evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-p1-cgroup-${{ github.sha }}
+          path: evidence/p1-delegated-cgroup/
+          if-no-files-found: warn
+          retention-days: 30

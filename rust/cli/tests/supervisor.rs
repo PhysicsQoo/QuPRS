@@ -55,6 +55,82 @@ fn supervisor_timeout_includes_qasm_read_and_both_cli_modes() {
     }
 }
 
+#[test]
+fn forced_worker_timeout_removes_private_cnf_and_solver_capture_files() {
+    let fixture = fixture();
+    let temp_root = tempfile::tempdir().unwrap();
+    let witness = tempfile::NamedTempFile::new().unwrap();
+    let output = Command::new(cli()).arg(fixture.path())
+        .args(["--quiet", "--timeout", "1"])
+        .env("TMPDIR", temp_root.path())
+        .env("QUPRS_CLI_TEST_TEMP_MARKER", witness.path())
+        .env("QUPRS_CLI_TEST_HOLD_MS", "2400")
+        .output().unwrap();
+    assert_eq!(output.status.code(), Some(124), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Timeout");
+    let owned = std::path::PathBuf::from(fs::read_to_string(witness.path()).unwrap());
+    assert!(owned.starts_with(temp_root.path()), "{owned:?}");
+    assert!(!owned.exists(), "worker crash left solver/CNF remnants in {owned:?}");
+    assert!(fs::read_dir(temp_root.path()).unwrap().next().is_none(),
+        "supervisor left per-invocation temporary directory");
+}
+
+#[cfg(unix)]
+#[test]
+fn signal_cancellation_removes_private_cnf_and_solver_capture_files() {
+    let fixture = fixture();
+    let temp_root = tempfile::tempdir().unwrap();
+    let witness = tempfile::NamedTempFile::new().unwrap();
+    let child = Command::new(cli()).arg(fixture.path())
+        .args(["--quiet", "--timeout", "20"])
+        .env("TMPDIR", temp_root.path())
+        .env("QUPRS_CLI_TEST_TEMP_MARKER", witness.path())
+        .env("QUPRS_CLI_TEST_HOLD_MS", "6000")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn().unwrap();
+    let mut private = None;
+    for _ in 0..80 {
+        if let Ok(data) = fs::read_to_string(witness.path()) {
+            let path = std::path::PathBuf::from(data);
+            if path.join("temp_eqcheck_killed_worker.cnf").exists()
+                && path.join("quprs-solver_killed_worker.tmp").exists() {
+                private = Some(path);
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let owned = private.expect("debug worker must write both private artifacts before signal");
+    assert!(owned.starts_with(temp_root.path()), "{owned:?}");
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+    let output = wait_for_canceled_cli(child);
+    assert_eq!(output.status.code(), Some(143), "{output:?}");
+    assert!(output.stdout.is_empty(), "signal cancellation leaked science");
+    assert!(!owned.exists(), "signal cancellation left private solver temp dir");
+    assert!(fs::read_dir(temp_root.path()).unwrap().next().is_none());
+}
+
+#[test]
+fn explicit_failed_cnf_opt_in_preserves_private_directory_only_on_failure() {
+    let temp_root = tempfile::tempdir().unwrap();
+    let witness = tempfile::NamedTempFile::new().unwrap();
+    let output = Command::new(cli()).arg("/missing/qoo156-never-found.qasm")
+        .args(["--quiet", "--timeout", "10"])
+        .env("TMPDIR", temp_root.path())
+        .env("QUPRS_CLI_TEST_TEMP_MARKER", witness.path())
+        .env("QUPRS_KEEP_FAILED_CNF", "1")
+        .output().unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    let private = std::path::PathBuf::from(fs::read_to_string(witness.path()).unwrap());
+    assert!(private.starts_with(temp_root.path()));
+    assert!(private.join("temp_eqcheck_killed_worker.cnf").is_file(),
+        "explicit opt-in failed CNF retention must remain available");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("RetainedFailedSolverArtifacts"));
+    // Test fixture's own outer temporary directory owns final disposal.
+}
+
 #[cfg(unix)]
 fn wait_for_canceled_cli(mut child: std::process::Child) -> std::process::Output {
     for _ in 0..100 {

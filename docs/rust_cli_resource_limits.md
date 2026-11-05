@@ -1,6 +1,6 @@
 # Rust CLI resource supervision (QOO-156) — integration candidate
 
-**Status: staging only. NOT merged into dev/main. Final-source interim hosted CLI-cost pilot PASSED its provisional engineering budget; CodSpeed Macro unavailable and not claimed.**
+**Status: QOO-156 PR #144 staging candidate only; NOT merged into dev/main. Verified P0/P1 and additional resource-event safety pilots remain separate from formal integration SHA checks. The interim hosted CLI-cost gate passes its provisional budget; CodSpeed Macro unavailable and NOT certified.**
 
 ## Contract
 
@@ -10,7 +10,7 @@ Parent captures stdout and stderr concurrently with an active 16MiB per-stream l
 
 `--max-memory-mib MIB` is **opt-in physical memory control** ONLY on Linux with a writable delegated cgroup v2. The supervisor must live in a leaf sibling of the worker under an **empty memory-enabled delegated ancestor**, respecting the cgroup v2 no-internal-process rule. The CLI joins the worker to its own `memory.max`/`memory.oom.group=1` cgroup before exec, verifies exact cap readback, and returns typed `MemoryLimitExceeded` (exit **125**, no scientific verdict) for observed cgroup OOM. Without delegation, the command fails closed rather than running without the requested physical cap.
 
-`--max-address-space-mib` instead uses Unix RLIMIT_AS, bounding virtual address space, **not physical RSS**; it must not be silently substituted for the physical cap. Native macOS lacks Linux cgroup-v2, so `--max-memory-mib` is unsupported there. Native macOS also lacks the Linux child-subreaper guarantee for detached solver grandchildren.
+`--max-address-space-mib` instead uses Unix RLIMIT_AS, bounding virtual address space, **not physical RSS**; it must not be silently substituted for the physical cap. A nonzero worker exit while RLIMIT_AS is active may be ENOMEM or a normal solver error; the supervisor cannot distinguish the two from an OS counter. The public exit classification is unchanged, but **failed-CNF opt-in retention is refused for such ambiguous capped failures**. Native macOS lacks Linux cgroup-v2, so `--max-memory-mib` is unsupported there. Native macOS also lacks the Linux child-subreaper guarantee for detached solver grandchildren.
 
 Usage, **only on a correctly delegated Linux host**:
 
@@ -45,11 +45,7 @@ orphan/daemon escape after worker exit and forced supervisor SIGKILL remain
 **outside the guaranteed whole-descendant cleanup contract**. Never
 advertise this behavior as complete macOS process-tree containment.
 
-If `--max-memory-mib` is requested, a missing/unreadable/malformed
-`memory.events` or `oom_kill` field is a typed
-`ResourceSupervisorError` (exit **125** with no successful stdout), **not**
-`oom_kill=false`. This check runs only in the explicitly capped Linux
-CLI path and does not modify the native RR/WMC calculation path.
+If `--max-memory-mib` is requested, `memory.events` must provide valid, distinct `oom` **and** `oom_kill` counters. A positive **either** counter means observed resource OOM (exit **125**, no scientific verdict), including a kernel OOM allocation failure without a killed task (`oom>0`, `oom_kill=0`). A positive `max` pressure counter **alone** is not an OOM: successful reclaim may allow science to complete. Missing/unreadable/malformed or duplicate mandatory fields are typed `ResourceSupervisorError` (exit **125**, no successful stdout), not silently treated as zero. These checks run only in the explicitly capped Linux CLI supervisor and do not modify the native RR/WMC calculation path. Linux kernel semantics: [cgroup v2 memory.events](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
 
 ## P1: parent-owned solver temporary files and verified cgroup removal
 
@@ -62,10 +58,7 @@ from running Rust destructors. After the worker and observable descendants
 are reaped, the supervisor removes the directory **before publishing
 successful stdout**. A removal error is typed
 `ResourceSupervisorCleanupError` (exit **125**, no scientific verdict).
-Existing `QUPRS_KEEP_FAILED_CNF=1` still explicitly preserves the
-**mode-0700** directory on an ordinary failed worker solve with a retained
-CNF, and reports its path on stderr; timeout, external signal, OOM and
-successful runs never preserve it.
+Existing `QUPRS_KEEP_FAILED_CNF=1` preserves the **mode-0700** private directory **containing only regular `temp_eqcheck_*.cnf` files** on an ordinary uncapped or safely evidenced solver failure; unrelated solver-output captures, nested directories and symlinks are removed without following symlinks, and the retained location is reported on stderr. Timeout, SIGINT/SIGTERM, confirmed/unknown cgroup OOM, and ambiguous RLIMIT_AS capped failures never preserve CNF. Cleanup errors fail closed without publishing successful scientific stdout.
 
 For Linux `--max-memory-mib`, the supervisor now reads the final
 `memory.events` OOM witness, checks `cgroup.events populated`, kills
@@ -101,6 +94,13 @@ Exact paired median extra CLI latency vs pinned dev: **Single H +1.961 ms**
 All are **within the predeclared provisional +3ms absolute overhead budget**,
 but this is not a zero-regression or CodSpeed Macro certification; formal
 release acceptance remains a distinct decision.
+
+## 2026-11-05 OOM-event and RLIMIT_AS retention safety qualification
+
+- Isolated test source: [experiment/qoo156-oom-events-rlimit-retention@8b456a5](https://github.com/PhysicsQoo/QuPRS/commit/8b456a52f45ec2fce9a3813cf59008f5ddac66af). [Actions #41954784814](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814) **three jobs SUCCESS**: Ubuntu24.04 full CLI package unit/integration + Release, macOS14 ARM64 same, and Linux non-root UID65534 real delegated cgroup positive test. Test-only privileged Docker created cgroup delegation; no production privileged CLI or Docker harness was transferred.
+- **64 MiB true kernel OOM:** `oom=1`, `oom_kill=2`, worker exit125, empty stdout, no retained private CNF despite opt-in, worker cgroup removed; **256 MiB complete science:** `oom=0`, `oom_kill=0`, worker exit0, valid output and no residual worker cgroup. [Raw evidence artifact #13382318866](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814/artifacts/13382318866).
+- Pure parser tests additionally cover `oom>0,oom_kill=0` (fail closed), `oom=0,oom_kill>0`, positive `max` alone (not OOM), absent/duplicate/malformed fields; the **no-kill OOM counter combination was synthetically unit tested, not physically induced in this workflow**. RLIMIT_AS + explicit failed-CNF opt-in has focused Unix integration coverage; normal uncapped opt-in remains supported.
+- Same-runner hosted ABBA for earlier fully tested `e6956a7` [#41952943600](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952943600) passed provisional +3 ms additive cost: Single H +2.096 ms, GHZ32 RR +2.085 ms, QPE8 RR +2.048 ms. Full native 12-platform and CodSpeed [#41952952980](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952980) / [#41952952986](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952986) succeeded on that earlier source. **Any newly staged source SHA requires its own integration CI; old SHA success must not be reused as proof for new code.** No CodSpeed Macro PASS or zero-regression claim.
 
 ## Source-pinned P0 and final-stage P1 admission — 2026-11-05
 

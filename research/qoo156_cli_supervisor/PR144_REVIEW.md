@@ -1,44 +1,35 @@
-# QOO-156 — PR #144 scoped merge-review (2026-11-05)
+# QOO-156 — PR #144 scoped integration review (2026-11-05)
 
-## Scope and source integrity
+## Latest findings and scope
 
-- [PR #144](https://github.com/PhysicsQoo/QuPRS/pull/144) targets dev from clean staging/qoo156-cli-resource-admission.
-- Initial audit: dev@79e975b0b21c0c650db7a76fe6e35b926c67c2c8, staging@97b96eba3301f153dec4358f88ce4c6580733263, 13 commits ahead, zero behind, 15 changed files, **native rust/pathsum unchanged**.
-- The changed files are restricted to the Rust CLI control-plane, its Cargo direct dependencies, relevant benchmark fixtures/CI, tests, documentation and experiment report. No solver or native algorithm code change.
-- PR is open, non-Draft, mergeable according to GitHub metadata but **has no approving reviews yet**. Do not interpret mergeability as CI or release approval.
+- This is the clean QOO-156 PR [#144](https://github.com/PhysicsQoo/QuPRS/pull/144) targeting `dev`. No source or algorithm changes under native `rust/pathsum`; only Rust CLI supervisor/arguments/dependencies, tests, benchmark scope, research reports and relevant docs. Neither `dev` nor `main` has been merged.
+- The previous code HEAD `e6956a7f99720d9706833aa58fe311b00672999a` has **all required formal CI PASS**: [native 12-platform #41952952980](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952980), [five-shard / Rust CPU / solver-inclusive / cross-instrument CodSpeed #41952952986](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952986), Dev Fast, Python CI and Docker. [Hosted ABBA #41952943600](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952943600) also PASS under the **provisional +3ms additive CLI budget**, with new-source paired overhead Single H +2.096ms, GHZ32 RR +2.085ms and QPE8 RR +2.048ms. These are not zero regressions and not CodSpeed Macro certification.
+- **This review revision incorporates another independently verified safety patch**; prior HEAD CI is historical evidence only. A new staging SHA must reach its own required CI before any merge decision. CodSpeed Macro stays intentionally SKIPPED, not a PASS.
 
-## Reproducible prior P0/P1 evidence
+## P0/P1 safety corrections
 
-- [P0 Linux/macOS exact-source Actions #41940690787](https://github.com/PhysicsQoo/QuPRS/actions/runs/41940690787): source-specific scope PASS.
-- [P1 Linux/macOS/tempdir/true nonroot cgroup OOM Actions #41942991745](https://github.com/PhysicsQoo/QuPRS/actions/runs/41942991745): three jobs PASS, including 64MiB genuine OOM/no stdout/no remaining worker cgroup.
-- [P1 production-source hosted ABBA #41943543958](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958): PASS *against a provisional +3ms additive budget*, no proof of zero regression; +1.9–2.0ms across three short RR cases. This is not CodSpeed Macro.
-- [Same-runner fixed-cost attribution #41945871411](https://github.com/PhysicsQoo/QuPRS/actions/runs/41945871411): P0 roughly +1.5ms, P1 incremental +0.07–0.10ms; worker bootstrap dominates. Different runner observations are not subtracted.
+1. Whole-call timeout, worker process/tree cancellation, bounded 16MiB stdout/stderr, fail-closed scientific result publication and Linux cgroup memory.max are the existing verified control-plane implementation. SIGINT/SIGTERM exits 130/143; timeout 124; resource failures 125.
+2. Confirmed kernel `oom_kill` and unreadable evidence block `QUPRS_KEEP_FAILED_CNF=1` on resource failures. [Real Linux/macOS + privileged-test-only cgroup pilot #41950595305](https://github.com/PhysicsQoo/QuPRS/actions/runs/41950595305) PASS (64MiB kernel OOM with opt-in had no remnant; 256MiB valid science).
+3. On an ordinary opted-in failed solve, preserve only regular matching `temp_eqcheck_*.cnf` files; remove solver output captures and unrelated entries. [Scoped Linux/macOS pilot #41952489722](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952489722) PASS; minimal fix landed as [e6956a7](https://github.com/PhysicsQoo/QuPRS/commit/e6956a7f99720d9706833aa58fe311b00672999a).
+4. **New finding:** Linux `memory.events.oom` can record cgroup allocation failure even when `oom_kill=0`; the previous supervisor only checked `oom_kill`, permitting a resource failure to be classified as ordinary worker failure. Corrected predicate requires independently valid `oom` and `oom_kill`, treats either nonzero as resource OOM; `max` pressure alone is NOT OOM. Reference: [upstream cgroup v2 documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
+5. **New finding:** `RLIMIT_AS` cannot provide unambiguous per-invocation ENOMEM status. For an explicitly address-space-capped worker with a nonzero exit, failed-CNF opt-in is now withheld conservatively. This preserves the existing public worker exit classification and uncapped debug behavior.
 
-## Concrete safety gap discovered at formal PR review and corrected
+## Exact source pilot for new OOM/RLIMIT boundary
 
-**Blocker in the original PR head**: supervisor preserved failed CNF when QUPRS_KEEP_FAILED_CNF=1 if a cgroup-OOM-killed worker exited nonzero with no explicit timeout/signal. The old predicate did not consider the final kernel memory.events OOM witness. This contradicted the documented rule that cancellation and OOM must not retain circuit artifacts.
+[Experiment `8b456a52`](https://github.com/PhysicsQoo/QuPRS/commit/8b456a52f45ec2fce9a3813cf59008f5ddac66af) and [Actions #41954784814](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814) **ALL THREE JOBS SUCCESS**:
+- Ubuntu24.04 Linux CLI complete package unit/integration + release build PASS.
+- macOS14 native ARM64 CLI complete package unit/integration + release build PASS.
+- Linux actual delegated cgroup under CLI UID65534 (test-only privilege-assisted Docker bootstrap): 64MiB cap `oom=1`, `oom_kill=2`, exit125, empty science stdout, no retained CNF, no worker cgroup; 256MiB cap `oom=0`, `oom_kill=0`, valid science exit0, no residual child cgroup. [Raw artifact #13382318866](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814/artifacts/13382318866).
+- Synthetic unit counter combinations also verify `oom>0,oom_kill=0` and `max>0,oom=0,oom_kill=0`. **Do not claim a genuine kernel no-kill OOM test; actual positive OOM had victim kills.** Unix RLIMIT_AS + opt-in fail cleanup is exercised in CLI integration tests.
+- Experiment-only privileged Docker, Python pilot and workflow must **not** enter staging/production. Transfer only verified supervisor source, tests and updated docs/review.
 
-**Minimal fix:** production CLI now uses a pure guard predicate that permits CNF preservation **only if** (a) explicitly opted in, (b) the worker has failed without timeout or signal, and (c) the OOM state is **known absent** (or no physical cgroup requested). A confirmed OOM or an unreadable/invalid kernel memory.events state is always fail-closed and removes the worker's private temporary directory. No change to native Rust pathsum/RR/WMC calculations or the supervisor's normal successful worker execution path.
+## Performance decision and other limits
 
-- [Scoped fix experiment](https://github.com/PhysicsQoo/QuPRS/commit/d9abebbca1165945d0181a3bb9352ac8d90d54b8) contains the minimal source correction, unit test and **experiment-only** delegated cgroup harness.
-- [Native Linux/macOS + actual kernel OOM experiment #41950595305](https://github.com/PhysicsQoo/QuPRS/actions/runs/41950595305) **ALL THREE JOBS SUCCESS**:
-  - Ubuntu24.04 x86-64 12 unit + 20 integration, Release build PASS.
-  - macOS14 Apple Silicon 9 unit + 16 integration, Release build PASS.
-  - Non-root UID65534 actual delegated Linux cgroup, QUPRS_KEEP_FAILED_CNF=1 and debug-only fake CNF+Solver capture: 64MiB kernel OOM, oom_kill=2, CLI exit125, no successful stdout, no residual private TMPDIR (`oom_optin_private_temp_removed=true`), no residual worker cgroup. 256MiB valid science exit0, no residual worker cgroup. Test-only privileged Docker provides delegation; production CLI does not run privileged.
-  - [Positive OOM raw evidence](https://github.com/PhysicsQoo/QuPRS/actions/runs/41950595305/artifacts/13380752372). The experimental Docker/pilot/workflow files MUST NOT be merged into staging.
+- [Same-runner fixed-cost decomposition #41945871411](https://github.com/PhysicsQoo/QuPRS/actions/runs/41945871411): dev→P0 ~+1.53ms, P0→P1 +0.067–0.103ms; worker bootstrap dominates. Do not remove worker isolation/temporary boundary/bounded output for ~0.08ms savings. Native RR/WMC hot path remains unchanged.
+- Maintainer must **explicitly** accept or reject provisional **+3ms fixed CLI startup overhead** before merge; high relative regression for tiny one-shot CLI calls is disclosed. Hosted ABBA is an interim method, not CodSpeed Macro; syscall-heavy CPU Simulation cannot prove complete CLI latency.
+- SIGKILL of supervisor, arbitrary daemonized grandchildren on macOS, Mac mini/OrbStack real guest cgroup delegation and blocked/broken stdout consumer lifetime remain unproven; use an external whole-job manager for stronger guarantees.
+- Remain Open / In Progress. New exact HEAD required CI + appropriate independent review + fixed-cost acceptance are the merge gates. **No auto-merge to dev/main.**
 
-## PR check triage
+## Historical infrastructure triage (superseded)
 
-The initial PR-head Actions had all twelve native Python/Rust build matrix entries PASS; Dev Fast, Docker and Python CI PASS. Four CodSpeed-related jobs were FAIL because upload to CodSpeed returned **503 Service Unavailable**, with benchmark execution itself reported complete; the cross-instrument evidence aggregator then failed by design because upstream jobs failed. This is a transient result **upload** issue, not evidence that RR/WMC scientific outputs were wrong or that the CLI had a measured native regression.
-
-Re-run **only failed CodSpeed workflow jobs** through [Actions #41948355903](https://github.com/PhysicsQoo/QuPRS/actions/runs/41948355903) (attempt 2), not previously passing twelve-platform or other CI. Only successful upload plus downstream aggregator may satisfy the original SHA. **Any source correction updates PR HEAD and must be evaluated against new HEAD checks**; do not use old pass statuses as final branch certification.
-
-## Review status and decision gates
-
-1. Preserve P0/P1 supervision, output isolation, signal cancellation, real kernel OOM fail-closed and bounded cleanup. Keep the minimal safety predicate correction.
-2. Complete fresh PR HEAD required checks, including CodSpeed upload and evidence aggregator. 503 is infra, but a FAIL must not be silently accepted as green.
-3. Require explicit maintainer decision on a **provisional additive +3ms CLI overhead** release envelope. Short single-shot CLI invocations suffer substantial relative regression, even though native Rust algorithm remains unchanged.
-4. Never claim SIGKILL of the supervisor can be intercepted, arbitrary daemonized macOS descendants are contained, or Mac mini/OrbStack cgroup deployment is already certified. The final stdout commit is not hard real-time and not transactionally atomic to a broken consumer.
-5. No merge to dev/main and no auto-merge until gates close.
-
-**Disposition:** PR review in progress. The formerly open CNF/OOM safety defect has a scoped, independently CI-validated source fix ready for clean staging incorporation. Open release decisions and fresh integration SHA checks remain blocking.
+An earlier PR attempt had CodSpeed HTTP 503 *upload* failures after benchmark computation, not scientific mismatch. Failed jobs alone were rerun successfully for their old SHA in [#41948355903](https://github.com/PhysicsQoo/QuPRS/actions/runs/41948355903). Current `e6956a7` already passed the full required set independently. Never restart full expensive native/CodSpeed jobs merely because Markdown-only evidence has changed.

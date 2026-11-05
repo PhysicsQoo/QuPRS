@@ -1,0 +1,79 @@
+name: QOO-175 real Python API delegated cgroup pilot
+
+# One-off source-pinned research gate; never installed on dev or main.
+on:
+  push:
+    branches: [experiment/qoo175-native-kernel-p5]
+    paths:
+      - '.github/workflows/qoo175-native-cgroup-pilot.yml'
+      - 'scripts/qoo175_native_cgroup_api_pilot.py'
+      - 'scripts/qoo175_native_cgroup_service.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo175-native-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-native-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo175-real-cgroup-api-v1
+      - name: Build exact-source Python wheel/native Rust extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --disable-pip-version-check maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+          python -c 'import QuPRS,sys; print("NATIVE_BUILD_PASS",sys.executable,QuPRS.__file__)'
+      - name: Run only the delegated native Python API verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          UNIT="qoo175-native-${GITHUB_RUN_ID}"
+          echo "QOO175_UNIT=$UNIT" >> "$GITHUB_ENV"
+          PYBIN="$(command -v python)"
+          test -x "$PYBIN"
+          sudo systemd-run --wait --collect --pipe \
+            --unit="$UNIT" \
+            --property="Type=exec" \
+            --property="User=$(id -un)" \
+            --property="Delegate=memory" \
+            --property="DelegateSubgroup=quprs-pilot" \
+            --property="WorkingDirectory=${GITHUB_WORKSPACE}" \
+            --setenv="QOO175_NATIVE_PYTHON=$PYBIN" \
+            /usr/bin/bash scripts/qoo175_native_cgroup_service.sh
+      - name: Diagnose delegated service if validation fails
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          sudo journalctl --no-pager -o short-iso -u "$QOO175_UNIT" -n 120
+          cat /proc/self/cgroup
+      - name: Preserve real native API witness
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo175-real-native-cgroup-witness
+          path: qoo175-native-api.json
+          if-no-files-found: warn
+          retention-days: 14

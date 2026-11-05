@@ -6,6 +6,10 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# Experimental profiling only; never included in staging or release builds.
+qoo156-stage-probe = []
+
 [dependencies]
 pathsum = { path = "../pathsum" } 
 clap = { version = "4.4", features = ["derive"] }

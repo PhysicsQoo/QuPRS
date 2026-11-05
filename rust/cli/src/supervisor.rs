@@ -1,6 +1,12 @@
 //! CLI-only process isolation: whole-invocation deadline, atomic output,
 //! bounded diagnostics, optional resource limits. No Rust pathsum hot-path changes.
 use crate::args::Cli;
+#[cfg(feature = "qoo156-stage-probe")]
+use crate::stage_probe::StageProbe;
+#[cfg(feature = "qoo156-stage-probe")]
+macro_rules! phase { ($p:ident, $s:literal) => { $p.mark($s); } }
+#[cfg(not(feature = "qoo156-stage-probe"))]
+macro_rules! phase { ($p:ident, $s:literal) => {} }
 use anyhow::{bail, Context, Result};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -177,6 +183,8 @@ fn cleanup_adopted_children() -> Result<()> {
 }
 
 pub fn supervise(cli: &Cli) -> Result<i32> {
+    #[cfg(feature = "qoo156-stage-probe")]
+    let mut phases = StageProbe::new("parent");
     if cli.timeout == 0 { bail!("--timeout must be positive"); }
     // Handle ordinary terminal/CI cancellation independently from worker
     // process group. SIGKILL is uncatchable; Linux additionally arms
@@ -184,6 +192,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     #[cfg(unix)]
     install_supervisor_signal_handlers()?;
     enable_child_subreaper()?;
+    phase!(phases, "guards_ready");
     if cli.max_memory_mib == Some(0) || cli.max_address_space_mib == Some(0) {
         bail!("resource limits must be positive MiB values");
     }
@@ -196,6 +205,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         Some(mib) => Some(MemoryCgroup::new(mib)?),
         None => None,
     };
+    phase!(phases, "resource_preflight_done");
 
     // Parent-owned invocation namespace for Rust WMC CNF and solver capture
     // files. A killed worker cannot run RAII Drop, so the supervisor owns
@@ -204,8 +214,10 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         .prefix("quprs-cli-")
         .tempdir()
         .context("create private per-invocation solver temporary directory")?;
+    phase!(phases, "private_tmpdir_ready");
     let output = tempfile::tempfile().context("create private worker stdout")?;
     let diagnostics = tempfile::tempfile().context("create private worker stderr")?;
+    phase!(phases, "spool_files_ready");
     let mut command = Command::new(std::env::current_exe()?);
     command.args(std::env::args_os().skip(1))
         .arg("--__quprs-worker")
@@ -253,7 +265,9 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         eprintln!("CancelledBySignal: signal {signal} before worker start");
         return Ok(external_signal_status(signal));
     }
+    phase!(phases, "spawn_begin");
     let mut child = command.spawn().context("spawn isolated QuPRS CLI worker")?;
+    phase!(phases, "spawn_returned");
     #[cfg(target_os = "linux")]
     drop(join_file);
     let pid = child.id();
@@ -267,6 +281,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         return Err(error).context("write worker admission witness");
     }
     drop(admission);
+    phase!(phases, "admission_sent");
     let stdout = child.stdout.take().context("worker stdout pipe unavailable")?;
     let stderr = child.stderr.take().context("worker stderr pipe unavailable")?;
 
@@ -284,6 +299,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         let status = child.wait();
         let _ = tx.send(WorkerEvent::Exited(status, Instant::now()));
     });
+    phase!(phases, "capture_threads_ready");
     let mut exit = None;
     let mut reaped = false;
     let mut stdout_finished = false;
@@ -361,6 +377,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
             }
         }
     }
+    phase!(phases, "worker_and_eof_done");
     if interrupted.is_none() {
         if let Some(signal) = interrupted_signal() {
             interrupted = Some(StopReason::ExternalSignal(signal));
@@ -386,6 +403,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     }
     let _ = waiter.join();
     cleanup_adopted_children()?;
+    phase!(phases, "descendants_cleaned");
 
     // Collect kernel OOM evidence BEFORE removing the cgroup, then dispose of
     // both resource scopes BEFORE any success stdout may be published.
@@ -396,6 +414,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         eprintln!("ResourceSupervisorCleanupError: cgroup: {error:#}");
         return Ok(RESOURCE_EXIT);
     }
+    phase!(phases, "cgroup_cleanup_done");
     let preserve_failed_cnf = interrupted.is_none()
         && exit.as_ref().is_some_and(|status| !status.success())
         && std::env::var("QUPRS_KEEP_FAILED_CNF").as_deref() == Ok("1");
@@ -403,6 +422,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         eprintln!("ResourceSupervisorCleanupError: worker temporary files: {error:#}");
         return Ok(RESOURCE_EXIT);
     }
+    phase!(phases, "private_tmpdir_cleaned");
     match oom_result {
         Ok(Some(true)) => {
             eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
@@ -462,6 +482,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
             return Ok(RESOURCE_EXIT);
         }
     };
+    phase!(phases, "capture_join_done");
 
     if let Some(signal) = interrupted_signal() {
         eprintln!("CancelledBySignal: signal {signal} before output commit");
@@ -473,6 +494,7 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         io::copy(&mut output, &mut io::stdout().lock())?;
         diagnostics.seek(SeekFrom::Start(0))?;
         io::copy(&mut diagnostics, &mut io::stderr().lock())?;
+        phase!(phases, "output_published");
         Ok(0)
     } else {
         diagnostics.seek(SeekFrom::Start(0))?;

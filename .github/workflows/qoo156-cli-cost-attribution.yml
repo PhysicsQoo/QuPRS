@@ -1,0 +1,143 @@
+name: QOO-156 bounded CLI fixed-cost attribution
+
+on:
+  push:
+    branches: [experiment/qoo156-cli-fixed-cost-attribution]
+    paths:
+      - 'rust/cli/**'
+      - 'rust/Cargo.lock'
+      - 'scripts/qoo156_stage_breakdown.py'
+      - '.github/workflows/qoo156-cli-cost-attribution.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-cost-attribution-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-pinned-attribution:
+    name: P0 P1 dev same-runner ABBA + research stage markers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      BASE_SHA: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+      P0_SHA: 61460ebe60fde8768abfbfd4422e9e953d2db158
+      P1_SHA: 56c8205e8be396b8677e762f93b4a8d3e04f2f68
+      RESEARCH_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 79e975b0b21c0c650db7a76fe6e35b926c67c2c8
+          path: qoo156-dev
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 61460ebe60fde8768abfbfd4422e9e953d2db158
+          path: qoo156-p0
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 56c8205e8be396b8677e762f93b4a8d3e04f2f68
+          path: qoo156-p1
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate source, exact native-core identity and probe script
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RESEARCH_SHA"
+          test "$(git -C qoo156-dev rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C qoo156-p0 rev-parse HEAD)" = "$P0_SHA"
+          test "$(git -C qoo156-p1 rev-parse HEAD)" = "$P1_SHA"
+          for d in qoo156-dev qoo156-p0 qoo156-p1; do
+            test "$(git rev-parse HEAD:rust/pathsum)" = "$(git -C "$d" rev-parse HEAD:rust/pathsum)"
+          done
+          python3 -m py_compile scripts/qoo156_stage_breakdown.py scripts/qoo156_cli_abba.py
+          mkdir -p evidence
+          {
+            printf 'research=%s\n' "$RESEARCH_SHA"
+            printf 'dev=%s\n' "$BASE_SHA"
+            printf 'p0=%s\n' "$P0_SHA"
+            printf 'p1=%s\n' "$P1_SHA"
+            printf 'native_tree=%s\n' "$(git rev-parse HEAD:rust/pathsum)"
+            printf 'runner=%s\n' "$RUNNER_NAME"
+            printf 'uname=%s\n' "$(uname -a)"
+            printf 'rustc=%s\n' "$(rustc --version)"
+            printf 'python=%s\n' "$(python3 --version)"
+          } | tee evidence/provenance.txt
+      - name: Install only required native build headers
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+      - name: Build exact pinned production binaries + research probe binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          for version in dev p0 p1; do
+            cargo build --locked --release -p QuPRS_cli \
+              --manifest-path "$GITHUB_WORKSPACE/qoo156-$version/rust/Cargo.toml" \
+              --target-dir "$RUNNER_TEMP/qoo156-$version-target"
+          done
+          cargo build --locked --release -p QuPRS_cli \
+            --features qoo156-stage-probe \
+            --manifest-path "$GITHUB_WORKSPACE/rust/Cargo.toml" \
+            --target-dir "$RUNNER_TEMP/qoo156-probe-target"
+          sha256sum "$RUNNER_TEMP"/qoo156-{dev,p0,p1,probe}-target/release/QuPRS_cli \
+            > evidence/binaries-sha256.txt
+      - name: Compare dev P0 P1 with production binaries and alternating paired timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qoo156_cli_abba.py \
+            --base "$RUNNER_TEMP/qoo156-dev-target/release/QuPRS_cli" \
+            --head "$RUNNER_TEMP/qoo156-p0-target/release/QuPRS_cli" \
+            --workspace "$GITHUB_WORKSPACE" --base-sha "$BASE_SHA" \
+            --head-sha "$P0_SHA" --rounds 24 --budget-ms 15.0 \
+            --jitter-ms 1.5 --output evidence/dev-vs-p0.json
+          python3 scripts/qoo156_cli_abba.py \
+            --base "$RUNNER_TEMP/qoo156-p0-target/release/QuPRS_cli" \
+            --head "$RUNNER_TEMP/qoo156-p1-target/release/QuPRS_cli" \
+            --workspace "$GITHUB_WORKSPACE" --base-sha "$P0_SHA" \
+            --head-sha "$P1_SHA" --rounds 24 --budget-ms 15.0 \
+            --jitter-ms 1.5 --output evidence/p0-vs-p1.json
+          python3 scripts/qoo156_cli_abba.py \
+            --base "$RUNNER_TEMP/qoo156-dev-target/release/QuPRS_cli" \
+            --head "$RUNNER_TEMP/qoo156-p1-target/release/QuPRS_cli" \
+            --workspace "$GITHUB_WORKSPACE" --base-sha "$BASE_SHA" \
+            --head-sha "$P1_SHA" --rounds 24 --budget-ms 15.0 \
+            --jitter-ms 1.5 --output evidence/dev-vs-p1.json
+          python3 scripts/qoo156_cli_abba.py \
+            --base "$RUNNER_TEMP/qoo156-p1-target/release/QuPRS_cli" \
+            --head "$RUNNER_TEMP/qoo156-probe-target/release/QuPRS_cli" \
+            --workspace "$GITHUB_WORKSPACE" --base-sha "$P1_SHA" \
+            --head-sha "$RESEARCH_SHA" --rounds 24 --budget-ms 15.0 \
+            --jitter-ms 1.5 --output evidence/p1-vs-probe-compiled.json
+      - name: Phase markers in same production code; measure observer effect
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qoo156_stage_breakdown.py \
+            --binary "$RUNNER_TEMP/qoo156-probe-target/release/QuPRS_cli" \
+            --workspace "$GITHUB_WORKSPACE" --sha "$RESEARCH_SHA" \
+            --repetitions 48 --control-blocks 20 \
+            --output evidence/stages.json
+      - name: Publish exact benchmark-source evidence, including on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-fixed-cost-attribution-${{ github.sha }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn

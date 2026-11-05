@@ -232,3 +232,36 @@ def test_private_supervisor_reaps_detached_solver_descendants(tmp_path):
     )
     assert outcome.returncode == 0, outcome.stderr
     assert "SUPERVISOR_REAP_PASS" in outcome.stdout
+
+@pytest.mark.parametrize("exit_code", (0, 125))
+def test_timeout_requires_supervisor_cleanup_certification(monkeypatch, exit_code):
+    import io
+    from QuPRS.interface import rust_isolation as isolation
+
+    class FakeSupervisor:
+        def __init__(self):
+            self.returncode = exit_code
+            self.stdin = io.BytesIO()
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(isolation.subprocess, "Popen", lambda *args, **kwargs: FakeSupervisor())
+    monkeypatch.setattr(isolation, "_stop_worker", lambda worker: None)
+
+    def timeout(*args, **kwargs):
+        raise isolation._WorkerDeadlineExceeded("controlled deadline")
+
+    monkeypatch.setattr(isolation, "_bounded_exchange", timeout)
+    now = time.monotonic()
+    call = lambda: isolation.run_isolated(
+        'OPENQASM 2.0;', 'OPENQASM 2.0;',
+        options={}, request_started=now, request_deadline=now + 30,
+    )
+    if exit_code == 0:
+        assert call()["status"] == "Timeout"
+    else:
+        with pytest.raises(isolation.RustWorkerError, match="cleanup failed after deadline"):
+            call()

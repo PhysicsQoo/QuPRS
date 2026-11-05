@@ -7,7 +7,6 @@ on:
     paths:
       - 'rust/pathsum/src/qasm.rs'
       - '.github/workflows/rust-cp-two-qubit-oracle.yml'
-      - '.diagnostics/rust_cp_matrix_oracle/README.md'
   workflow_dispatch:
 
 permissions:
@@ -61,9 +60,7 @@ jobs:
             rust/pathsum/src/qasm.rs \
             rust/pathsum/src/gates.rs \
             rust/pathsum/src/rational.rs \
-            .github/workflows/rust-cp-two-qubit-oracle.yml \
-            .diagnostics/rust_cp_matrix_oracle/README.md \
-            > cp-oracle-evidence/source-file-sha256.txt
+            .github/workflows/rust-cp-two-qubit-oracle.yml > cp-oracle-evidence/source-file-sha256.txt
           (
             cd cp-oracle-evidence
             find . -type f ! -name SHA256SUMS -print0 | sort -z | \

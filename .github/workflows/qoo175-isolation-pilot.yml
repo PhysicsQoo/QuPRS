@@ -1,0 +1,56 @@
+name: QOO-175 Rust API isolation pilot
+
+# Research-branch CI only. Not a release or CodSpeed measurement.
+on:
+  push:
+    branches:
+      - experiment/qoo175-rust-safe-mode-worker-p0
+    paths:
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/interface/rust_isolation.py'
+      - 'test/test_verifier_api_defaults.py'
+      - 'test/test_rust_isolated_worker.py'
+      - '.github/workflows/qoo175-isolation-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo175-isolation-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-isolation:
+    name: Focused Rust safe-mode parity / Ubuntu 3.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo175-isolation-pilot-v1
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Build Python package with existing Rust extension
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Run affected public API and isolated worker tests
+        run: |
+          python -m pytest -q -ra \
+            test/test_verifier_api_defaults.py \
+            test/test_rust_isolated_worker.py

@@ -5,11 +5,16 @@ on:
   push:
     branches:
       - experiment/qoo175-rust-safe-mode-worker-p0
+      - experiment/qoo175-fastboot-p4
     paths:
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/interface/rust_isolation.py'
+      - 'src/QuPRS/interface/rust_worker_standalone.py'
+      - 'src/QuPRS/interface/rust_worker_bootstrap.py'
+      - 'src/QuPRS/interface/rust_supervisor.py'
       - 'test/test_verifier_api_defaults.py'
       - 'test/test_rust_isolated_worker.py'
+      - 'test/test_rust_worker_resources.py'
       - '.github/workflows/qoo175-isolation-pilot.yml'
   workflow_dispatch:
 
@@ -53,4 +58,5 @@ jobs:
         run: |
           python -m pytest -q -ra \
             test/test_verifier_api_defaults.py \
-            test/test_rust_isolated_worker.py
+            test/test_rust_isolated_worker.py \
+            test/test_rust_worker_resources.py

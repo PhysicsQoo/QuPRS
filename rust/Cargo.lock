@@ -11,8 +11,10 @@ dependencies = [
  "colored",
  "env_logger",
  "indicatif",
+ "libc",
  "log",
  "pathsum",
+ "tempfile",
 ]
 
 [[package]]

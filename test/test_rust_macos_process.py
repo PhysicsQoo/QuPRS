@@ -78,8 +78,9 @@ def test_macos_bounded_cleanup_when_descendants_survive(monkeypatch):
 
 def test_macos_descendant_limit_fails_closed(monkeypatch):
     mod = _module()
-    _fake(monkeypatch, mod)
-    monkeypatch.setattr(mod, "_children", lambda pid: list(range(100, 100+mod._MAX_PIDS)))
+    records = _fake(monkeypatch, mod)
+    for pid in range(100, 100+mod._MAX_PIDS):
+        records[pid] = (42, 2, os.geteuid(), 100, pid)
     tree = mod.DarwinProcessTree(42)
     with pytest.raises(mod.ProcessTreeError, match="too many|exceeded"):
         tree._sample()

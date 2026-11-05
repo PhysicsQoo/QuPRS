@@ -77,9 +77,11 @@ def main() -> int:
     _read_admission()
     _arm_supervisor_death_signal()
     _apply_address_space_limit()
-    from QuPRS.interface import rust_isolation
+    # Parent already holds the installed Solver resource for this request.
+    # Load the existing PyO3 extension without QuPRS/Qiskit child imports.
+    import rust_worker_standalone
 
-    return rust_isolation._worker_main()
+    return rust_worker_standalone.main()
 
 
 if __name__ == "__main__":

@@ -141,3 +141,49 @@ A HashMap hash is only an index. Deterministic exact results require a full cano
 Completed: original 20 cache-context pairs and their expected rational-complex counts, independent in-session JS verification 20/20, original Python reference validator, an added **step** to the existing low-cost branch-scoped A0 workflow, and this mathematical A1 contract/literature review.
 
 Outstanding: actual GitHub Actions **run ID, conclusion and artifact** for the updated branch; live Rust cache implementation/evaluation; source-CNF solver conformance and held-out CodSpeed; any third-party code reuse/license approval. A0e outcomes are **LOCAL_REFERENCE_CHECK_PASS / REMOTE_CI_UNVERIFIED / RUST_NOT_STARTED**. No new RaWMoCS repo or QuPRS main/dev/default change.
+
+
+## 8. A0f exhaustive exact-complex preprocessing-soundness study (2026-11-05)
+
+**Source-controlled independently authored mathematical reference:** [exhaustive_weighted_rewrite_safety.mjs](exhaustive_weighted_rewrite_safety.mjs). This is separate from GPMC/d4/Ganak and previous Python oracles, using **exact Gaussian integer** operations (not f64 or MPFR). Enumerates all 256 CNF subsets of two Boolean variables formed from 8 unique non-tautological length-1/length-2 clauses. Each of 4 literal polarities independently has a weight from {0,1,-1,i}, yielding 256 weight configurations per CNF.
+
+**In-session reference result: 65,536/65,536 states** verified. This is not GitHub Actions PASS, Rust solver verification or a CodSpeed performance result.
+
+| Mathematical check | Exact checks | Result |
+| --- | ---: | --- |
+| Add an existing duplicate clause (same variable universe) | 65,536 | PASS |
+| Add tautology x OR NOT x (retaining declared support) | 65,536 | PASS |
+| Add a logically redundant clause subsumed by an existing clause | 65,280 | PASS |
+| Factor weight for forced unit assignment exactly once | 49,152 | PASS |
+| Isolated equivalence x iff y, with weights combined on elimination | 256 | PASS |
+| Satisfiable but weighted count exactly zero | 10,049 cases | Witness count, not failures |
+| Force a pure literal without count compensation | Explicit counterexample | UNSOUND |
+| Drop an equivalence variable without reweighting | Explicit counterexample | UNSOUND |
+
+**Pure literal witness:** F=(x OR y), w(x)=0, w(NOT x)=1, w(y)=1, w(NOT y)=0. Then **WMC(F)=1**, but forcing positive-pure x=1 changes full WMC to **0**, despite preserving SAT truth. An even simpler all-weights-one example has full model count 3 versus 2 if x is forced. SAT-safe pure-literal elimination is therefore not a generally valid counting simplification.
+
+**Equivalence witness:** For the **isolated constraint** F=(x iff y), the exact full count is w(x)w(y)+w(NOT x)w(NOT y). Eliminating counted y can be correct by reweighting x as w'(x)=w(x)w(y), w'(NOT x)=w(NOT x)w(NOT y). Simply removing y is incorrect. More formula clauses involving x/y or changes to projection require separate formal rewrite obligations; this example does not authorize a general unconstrained equivalence-substitution pass.
+
+### General theorem, separate from the finite tests
+
+With a FIXED declared Boolean universe V, fixed literal weights w and a commutative semiring, if formulas F and G are logically equivalent on every assignment over V, then they have exactly the same set of satisfying assignments and thus WMC_V(F,w)=WMC_V(G,w). This is true even for zero, negative and complex weights. The finite test validates the named transformations in its small universe; the theorem itself follows directly from the WMC definition. **Do not remove declared free variables** when simplifying an equivalent CNF: a free counted variable still contributes w(x)+w(NOT x).
+
+For distinct EPWMC over P, preserving the full truth function of the existential projection (existentially quantify V\P) for every projected assignment is sufficient; preserving only global SAT/UNSAT of F is not. Changes of projection or weight semantics require an explicit mapping/factor witness.
+
+| Proposed preprocessing | Mathematical requirement for full Complex WMC | A1 decision |
+| --- | --- | --- |
+| Clause/literal ordering and duplicate clause deletion | Same models on V | Allow exact canonicalization |
+| Tautology deletion and subsumption | Same models on V, keep free counted support | Allow with exact support bookkeeping |
+| Add a globally implied learned clause | Implication must hold at the exact residual component/cache scope | Later only, requires dependency/scoping proof |
+| Unit propagation and remove assigned variable | Apply the forced literal factor once | Allow with trail/factor ownership |
+| Pure literal forcing | SAT preserving only, may change weighted count | Disable absent special proof |
+| Blocked Clause Elimination | General SAT-safe BCE is count-changing | Disable absent complex-WMC proof |
+| SAT-style existential variable forgetting | Loses extension multiplicity | Disable for full WMC absent extension-weight witness |
+| Literal-equivalence substitution | Combine polarity weights, preserve projection/extension mappings | Future optional guarded rewrite |
+| Residual SAT for distinct EPWMC | Valid for purely existential suffix after projected assignments/weights fixed | Separate typed mode only |
+
+Relevant published mathematical ideas: Lagniez/Marquis/Biere, [Dynamic Blocked Clause Elimination for Projected Model Counting (SAT 2024)](https://arxiv.org/abs/2408.06199), demonstrates SAT-safe BCE generally changes projected model count and supplies a specialized projected-safe rule. Lai/Meel/Yap, [The Power of Literal Equivalence in Model Counting (AAAI 2021)](https://doi.org/10.1609/aaai.v35i5.16503), motivates counting-aware literal equivalence; neither licenses copying external code or ignoring complex weights.
+
+The SAME one-job path-filtered A0 research workflow now adds this lightweight source-only property test and writes the evidence artifact named rawmocs-a0f-exhaustive-rewrite-safety.json. This does not create a new production CI shard. **A completed GitHub Actions run ID, logs and artifact have not yet been independently verified** with the available tools. Preserve REMOTE_CI_UNVERIFIED.
+
+**Decision:** The first Rust MVP should restrict preprocessing to model-set-preserving canonicalization and explicitly weighted unit propagation. SAT-only shortcuts, unconstrained BCE, pure-literal forcing, or cross-component learned clauses need separate proof and held-out scientific gates; no claim of runtime improvement or change to QuPRS GPMC default follows from this study.

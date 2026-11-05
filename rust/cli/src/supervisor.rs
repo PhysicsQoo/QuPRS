@@ -396,9 +396,15 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         eprintln!("ResourceSupervisorCleanupError: cgroup: {error:#}");
         return Ok(RESOURCE_EXIT);
     }
-    let preserve_failed_cnf = interrupted.is_none()
-        && exit.as_ref().is_some_and(|status| !status.success())
-        && std::env::var("QUPRS_KEEP_FAILED_CNF").as_deref() == Ok("1");
+    // Explicit retention is ONLY for ordinary failed solver requests.
+    // Even with QUPRS_KEEP_FAILED_CNF=1, a kernel OOM or an unreadable
+    // memory.events witness is a resource failure and MUST delete CNF.
+    let preserve_failed_cnf = can_preserve_failed_cnf(
+        interrupted.is_some(),
+        exit.as_ref().is_some_and(|status| !status.success()),
+        &oom_result,
+        std::env::var("QUPRS_KEEP_FAILED_CNF").as_deref() == Ok("1"),
+    );
     if let Err(error) = finalize_worker_tempdir(worker_tempdir, preserve_failed_cnf) {
         eprintln!("ResourceSupervisorCleanupError: worker temporary files: {error:#}");
         return Ok(RESOURCE_EXIT);
@@ -563,6 +569,19 @@ fn descendant_pids(root: u32) -> Vec<u32> {
         cursor += 1;
     }
     descendants.into_iter().skip(1).collect()
+}
+
+// Preserve failed science data only when the worker failed normally AND
+// kernel resource evidence proves that no OOM occurred. For a missing
+// controller cap, None is a valid witness. Unreadable evidence fails closed.
+fn can_preserve_failed_cnf(
+    interrupted: bool,
+    worker_failed: bool,
+    oom_result: &Result<Option<bool>>,
+    opt_in: bool,
+) -> bool {
+    opt_in && !interrupted && worker_failed
+        && matches!(oom_result, Ok(None | Some(false)))
 }
 
 // The worker inherits TMPDIR only for the duration of this invocation;
@@ -913,6 +932,26 @@ pub fn prepare_worker() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_cnf_opt_in_never_overrides_cgroup_oom_or_unknown_resource_state() {
+        let safe_no_cap: Result<Option<bool>> = Ok(None);
+        let safe_no_oom: Result<Option<bool>> = Ok(Some(false));
+        let real_oom: Result<Option<bool>> = Ok(Some(true));
+        let unreadable: Result<Option<bool>> = Err(anyhow::anyhow!("unreadable memory.events"));
+        assert!(can_preserve_failed_cnf(false, true, &safe_no_cap, true));
+        assert!(can_preserve_failed_cnf(false, true, &safe_no_oom, true));
+        for witness in [&real_oom, &unreadable] {
+            assert!(!can_preserve_failed_cnf(false, true, witness, true),
+                "OOM or unknown cgroup state must never preserve CNF");
+        }
+        assert!(!can_preserve_failed_cnf(true, true, &safe_no_cap, true),
+            "timeout/SIGTERM must not preserve CNF");
+        assert!(!can_preserve_failed_cnf(false, false, &safe_no_cap, true),
+            "successful results must not preserve CNF");
+        assert!(!can_preserve_failed_cnf(false, true, &safe_no_cap, false),
+            "CNF retention must require explicit opt-in");
+    }
+
     #[test]
     fn parent_owned_temporary_directory_reclaims_forced_worker_artifacts() {
         let dir = tempfile::Builder::new().prefix("qoo156-cleanup-").tempdir().unwrap();

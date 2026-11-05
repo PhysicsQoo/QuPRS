@@ -2,6 +2,22 @@
 
 The `QuPRS_cli` executable supervises each invocation in a separate worker process. The deadline includes QASM parsing, verification, worker termination and closure of both captured output streams. The native Path-sum reduction and weighted counting algorithms are unchanged by this CLI mechanism.
 
+## Build from source
+
+The Rust command-line executable is a separate Cargo workspace target.
+It is **not** a console script provided by the `QuPRS` Python wheel.
+With the native build dependencies installed and the repository checked out:
+
+```bash
+cargo build --manifest-path rust/Cargo.toml --release -p QuPRS_cli
+./rust/target/release/QuPRS_cli --help
+```
+
+The prebuilt PyPI wheels distribute the Python package and native extension;
+they do not promise an installed `QuPRS_cli` command. For application
+automation, distinguish CLI process exit codes from scientific verification
+results.
+
 ## Usage
 
 ```bash

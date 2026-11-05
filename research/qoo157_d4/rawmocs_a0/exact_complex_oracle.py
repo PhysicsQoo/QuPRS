@@ -153,6 +153,11 @@ def run(path):
     cases = obj["cases"]
     assert len(cases) == 24
     assert len({c["id"] for c in cases}) == len(cases)
+    if obj.get("profile") == "quprs_complex_positive_weight_negative_literal_unity":
+        for case in cases:
+            for w in case.get("weights", {}).values():
+                assert Fraction(w[2]) == 1 and Fraction(w[3]) == 0, (
+                    case["id"], "QuPRS requires negative-polarity literal weight 1")
     results = []
     for c in cases:
         valid(c)
@@ -178,16 +183,26 @@ def run(path):
                         "case_sha256": hashlib.sha256(casebytes).hexdigest()})
 
     by_id = {r["id"]: r for r in results}
-    assert by_id["sat_real_cancel_zero"]["satisfying_full_models"] > 0
-    assert by_id["sat_real_cancel_zero"]["value"] == by_id["unsat_contradiction"]["value"]
-    assert by_id["same_cnf_weights_v1"]["value"] != by_id["same_cnf_weights_v2"]["value"]
-    assert by_id["projected_or_dedup"]["satisfying_full_models"] == 3
-    assert by_id["projected_or_dedup"]["satisfying_distinct_projections"] == 2
-    # An explicit f64 failure witness: exact count = 1, float rounds it to 0.
-    big = next(c for c in cases if c["id"] == "forty_digit_cancellation")
-    row = big["weights"]["1"]
-    assert (Fraction(row[0]) + Fraction(row[2])) == 1
-    assert (float(row[0]) + float(row[2])) == 0.0
+    if obj.get("profile") == "quprs_complex_positive_weight_negative_literal_unity":
+        assert by_id["qp_pure_literal_elimination_unsafe"]["value"] == {"re": "11", "im": "0"}
+        assert by_id["qp_equivalence_elimination_weight_merge"]["value"] == {"re": "11", "im": "0"}
+        assert by_id["qp_projected_cancel"]["value"] == {"re": "0", "im": "0"}
+        assert by_id["qp_projected_cancel"]["satisfying_distinct_projections"] == 4
+        assert by_id["qp_tiny_imag_residual"]["value"]["re"] == "0"
+        assert by_id["qp_tiny_imag_residual"]["value"]["im"] == "1/10000000000000000000000000000000000000000"
+        # Even when the negative literal is exactly 1+0i, weighted free variables
+        # and non-conserving SAT preprocessing still affect the true count.
+    else:
+        assert by_id["sat_real_cancel_zero"]["satisfying_full_models"] > 0
+        assert by_id["sat_real_cancel_zero"]["value"] == by_id["unsat_contradiction"]["value"]
+        assert by_id["same_cnf_weights_v1"]["value"] != by_id["same_cnf_weights_v2"]["value"]
+        assert by_id["projected_or_dedup"]["satisfying_full_models"] == 3
+        assert by_id["projected_or_dedup"]["satisfying_distinct_projections"] == 2
+        # An explicit f64 failure witness: exact count = 1, float rounds it to 0.
+        big = next(c for c in cases if c["id"] == "forty_digit_cancellation")
+        row = big["weights"]["1"]
+        assert (Fraction(row[0]) + Fraction(row[2])) == 1
+        assert (float(row[0]) + float(row[2])) == 0.0
     return {"status": "RAWMOCS_A0_EXACT_ORACLE_PASS_24_OF_24",
             "manifest_sha256": hashlib.sha256(raw).hexdigest(),
             "cases": len(results),

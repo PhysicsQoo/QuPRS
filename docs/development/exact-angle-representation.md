@@ -1,6 +1,6 @@
 # Exact input-angle domain: design and migration contract
 
-**Status (v0.13.4 candidate):** the supported Rust QASM2 angle/phase
+**Current representation contract (v0.14.0):** the supported Rust QASM2 angle/phase
 representation has been integrated into `rational.rs`, `qasm.rs` and the
 PathSum/WMC path. Exact decimal-radian input provenance is preserved through
 symbolic phase operations. The solver complex-weight boundary and some

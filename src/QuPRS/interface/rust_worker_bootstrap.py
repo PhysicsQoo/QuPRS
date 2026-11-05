@@ -77,9 +77,11 @@ def main() -> int:
     _read_admission()
     _arm_supervisor_death_signal()
     _apply_address_space_limit()
-    from QuPRS.interface import rust_isolation
+    # Keep the interpreter's startup lightweight; the parent resolves the
+    # native extension and solver resource before this worker is admitted.
+    import rust_worker_standalone
 
-    return rust_isolation._worker_main()
+    return rust_worker_standalone.main()
 
 
 if __name__ == "__main__":

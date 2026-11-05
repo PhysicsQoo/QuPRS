@@ -1,6 +1,6 @@
 # Rust CLI resource supervision (QOO-156) — integration candidate
 
-**Status: QOO-156 PR #144 staging candidate only; NOT merged into dev/main. Verified P0/P1 and additional resource-event safety pilots remain separate from formal integration SHA checks. The interim hosted CLI-cost gate passes its provisional budget; CodSpeed Macro unavailable and NOT certified.**
+**Status (2026-11-05): PR #144 is OPEN and unmerged. Exact tested code `df0a554bf` passed all required 12-platform Native, CodSpeed (9 required jobs), Python, Dev Fast, Docker and same-runner hosted ABBA checks. The +3 ms additive CLI budget is provisional and not maintainer-approved; CodSpeed Macro is SKIPPED/not certified. Documentation-only revisions do not constitute new Rust/Python code admission. See [current PR review](../research/qoo156_cli_supervisor/PR144_REVIEW.md).**
 
 ## Contract
 
@@ -84,7 +84,7 @@ whole-job lifetime and residual temporary-directory housekeeping.
 macOS cannot claim Linux cgroup/subreaper behavior, and arbitrary solver
 processes ignoring TMPDIR are outside this scoped temp-file contract.
 The provisional **3 ms** source-paired hosted CLI overhead budget
-**passed on this staged source** at [Actions #41943543958](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958)
+**passed on the earlier source `56c8205`** at [Actions #41943543958](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958)
 and [raw artifact #13377816518](https://github.com/PhysicsQoo/QuPRS/actions/runs/41943543958/artifacts/13377816518).
 Exact paired median extra CLI latency vs pinned dev: **Single H +1.961 ms**
 (95% bootstrap CI [1.949,1.991]), **GHZ32 RR +1.954 ms**
@@ -98,7 +98,7 @@ release acceptance remains a distinct decision.
 - Isolated test source: [experiment/qoo156-oom-events-rlimit-retention@8b456a5](https://github.com/PhysicsQoo/QuPRS/commit/8b456a52f45ec2fce9a3813cf59008f5ddac66af). [Actions #41954784814](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814) **three jobs SUCCESS**: Ubuntu24.04 full CLI package unit/integration + Release, macOS14 ARM64 same, and Linux non-root UID65534 real delegated cgroup positive test. Test-only privileged Docker created cgroup delegation; no production privileged CLI or Docker harness was transferred.
 - **64 MiB true kernel OOM:** `oom=1`, `oom_kill=2`, worker exit125, empty stdout, no retained private CNF despite opt-in, worker cgroup removed; **256 MiB complete science:** `oom=0`, `oom_kill=0`, worker exit0, valid output and no residual worker cgroup. [Raw evidence artifact #13382318866](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814/artifacts/13382318866).
 - Pure parser tests additionally cover `oom>0,oom_kill=0` (fail closed), `oom=0,oom_kill>0`, positive `max` alone (not OOM), absent/duplicate/malformed fields; the **no-kill OOM counter combination was synthetically unit tested, not physically induced in this workflow**. RLIMIT_AS + explicit failed-CNF opt-in has focused Unix integration coverage; normal uncapped opt-in remains supported.
-- Same-runner hosted ABBA for earlier fully tested `e6956a7` [#41952943600](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952943600) passed provisional +3 ms additive cost: Single H +2.096 ms, GHZ32 RR +2.085 ms, QPE8 RR +2.048 ms. Full native 12-platform and CodSpeed [#41952952980](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952980) / [#41952952986](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952986) succeeded on that earlier source. **Any newly staged source SHA requires its own integration CI; old SHA success must not be reused as proof for new code.** No CodSpeed Macro PASS or zero-regression claim.
+- Same-runner hosted ABBA for earlier fully tested `e6956a7` [#41952943600](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952943600) passed provisional +3 ms additive cost: Single H +2.096 ms, GHZ32 RR +2.085 ms, QPE8 RR +2.048 ms. Full native 12-platform and CodSpeed [#41952952980](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952980) / [#41952952986](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952986) succeeded on that earlier source. **Any newly staged **code-changing** SHA requires its own integration CI; Markdown-only edits can reuse previously verified code evidence under the CI source-impact policy.** No CodSpeed Macro PASS or zero-regression claim.
 
 ## 2026-11-05 P1 final capped-failure and exceptional-cleanup admission
 
@@ -108,7 +108,7 @@ release acceptance remains a distinct decision.
   * 256 MiB **ordinary failed request** (missing QASM) with explicit retention opt-in: `oom=0,oom_kill=0`, exit1, no science stdout, **private CNF deleted**, worker cgroup removed.
   * 256 MiB successful science: `oom=0,oom_kill=0`, exit0, valid Path-sum output, worker cgroup removed.
 * Exceptional cgroup cleanup error now **explicitly attempts** private-TMPDIR disposal without retention and reports any second cleanup error before exit125. A synthetic non-kernel controller error and private files are unit-tested; an **unkillable real cgroup failure was not reproduced**. This is an improved guaranteed *attempt*, **not** a proof of successful filesystem cleanup in every unrecoverable kernel state. No worker-science code was changed; this protection runs only on the error path and introduces no added process or algorithm hot-path instrumentation.
-* Experimental privilege-assisted Docker, Python pilot, and workflow belong exclusively to the research branch; none are for production deployment or staging integration. A fresh staging HEAD needs its own SHA-specific CI/ABBA acceptance.
+* Experimental privilege-assisted Docker, Python pilot, and workflow belong exclusively to the research branch; none are for production deployment or staging integration. A new code-changing staging HEAD needs SHA-specific CI/ABBA; docs-only updates preserve qualified executable provenance.
 
 ## Adopted-child cleanup error path — isolated Linux qualification
 
@@ -173,3 +173,6 @@ Only CLI code, exact workspace lockfile, focused tests, a single CodSpeed CLI be
 - Prior connected official CodSpeed hosted, non-Macro [run 6aeb4b9d](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb4b9d09f1ddb2bf501af8) independently observed roughly +1.19–1.20 ms fixed CLI overhead on earlier source and is **OBSERVATIONAL_ONLY**. The [Macro queue #41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remained unassigned/source-stale; the [staging Macro workflow](../.github/workflows/qoo156-cli-macro-pr-admission.yml) remains opt-in/off. **Do not block this interim QOO-156 pilot on unknown Macro runner provisioning**, and do not generalize this exception to the project's formal CodSpeed requirements for native RR/WMC algorithmic performance.
 
 Do not trigger full CodSpeed/release matrices on Markdown-only modifications. The bounded additive CLI cost pilot now supports an integration review decision without Macro, but the **3 ms provisional release envelope must be explicitly reviewed** and Mac mini/OrbStack cgroup delegation remains a separate deployment-specific gate. A draft PR does not itself establish acceptance.
+
+## Current tested code-head admission and merge policy
+ At [`df0a554bf`](https://github.com/PhysicsQoo/QuPRS/commit/df0a554bf936b836769f72db27eb816bee4cb730), [Native 13/13 #41964905814](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905814), [CodSpeed 9 required PASS / 11 optional skipped #41964905799](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905799), [Python #41964905770](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905770), [Dev Fast #41964905787](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905787), and [Docker #41964905768](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905768) all succeeded. [Hosted ABBA #41964899052](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964899052) passed the provisional +3 ms budget with Single H +2.136 ms, GHZ32 RR +2.068 ms and QPE-exact8 RR +2.073 ms; exact dual-circuit EQ guards 18/18 PASS. Only the baseline/HEAD **full-output parity** and a structural marker are checked for Single H; this is not an independent state oracle. Maintainer +3 ms policy acceptance and independent review are still outstanding. CodSpeed Macro and Mac mini/OrbStack delegated-cgroup qualification are not established.

@@ -1,117 +1,69 @@
-# QOO-156 — PR #144 scoped integration review (2026-11-05)
+# QOO-156 — PR #144 scoped integration review
 
-## Latest findings and scope
+> **Living source-of-truth for integration review.** Updated 2026-11-05.
+> Tested **code HEAD**: [`df0a554bf`](https://github.com/PhysicsQoo/QuPRS/commit/df0a554bf936b836769f72db27eb816bee4cb730);
+> base `dev@79e975b0b21c0c650db7a76fe6e35b926c67c2c8`.
+> Subsequent **Markdown-only** review edits do not change the qualified CLI
+> binaries, but their SHA must not be mistaken for newly executed source tests.
 
-- This is the clean QOO-156 PR [#144](https://github.com/PhysicsQoo/QuPRS/pull/144) targeting `dev`. No source or algorithm changes under native `rust/pathsum`; only Rust CLI supervisor/arguments/dependencies, tests, benchmark scope, research reports and relevant docs. Neither `dev` nor `main` has been merged.
-- The previous code HEAD `e6956a7f99720d9706833aa58fe311b00672999a` has **all required formal CI PASS**: [native 12-platform #41952952980](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952980), [five-shard / Rust CPU / solver-inclusive / cross-instrument CodSpeed #41952952986](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952952986), Dev Fast, Python CI and Docker. [Hosted ABBA #41952943600](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952943600) also PASS under the **provisional +3ms additive CLI budget**, with new-source paired overhead Single H +2.096ms, GHZ32 RR +2.085ms and QPE8 RR +2.048ms. These are not zero regressions and not CodSpeed Macro certification.
-- Current `c201a51969430fc9870ac9bb1bd77b7c5e20fb61` **has all required CI PASS**: [Native 12/12 #41955447323](https://github.com/PhysicsQoo/QuPRS/actions/runs/41955447323), [five-shard + Rust CPU + solver-inclusive CodSpeed #41955447264](https://github.com/PhysicsQoo/QuPRS/actions/runs/41955447264), Dev Fast/Python/Docker PASS, [source-paired ABBA #41955439091](https://github.com/PhysicsQoo/QuPRS/actions/runs/41955439091) provisional +3ms PASS (Single H +1.623ms, GHZ32 RR +1.607ms, QPE8 RR +1.593ms). CodSpeed Macro is SKIPPED and must not be claimed as certified. This `c201a519` proof becomes **previous-HEAD evidence** once a new staging code commit is made.
+## Decision snapshot
 
-## P0/P1 safety corrections
+- [PR #144](https://github.com/PhysicsQoo/QuPRS/pull/144): **OPEN, not merged, non-draft**; at tested code SHA, **20 commits ahead / 0 behind**, **17 changed files**. No edits under `rust/pathsum` or upstream GPMC/Ganak.
+- **Science / resource / integration CI: all mandatory checks PASS at `df0a554bf`.** See exact-source evidence below.
+- **Performance: provisional fixed +3 ms additive CLI budget PASS on hosted same-runner ABBA only.** Not zero overhead; not a CodSpeed Macro qualification; not a cgroup/GPMC/Ganak/OrbStack claim.
+- **NOT approved for merge automatically.** Await independent maintainer source/risk review and explicit acceptance/rejection of the provisional +3 ms startup cost. This is **post-v0.14.0** work; the next release version is not assigned.
 
-1. Whole-call timeout, worker process/tree cancellation, bounded 16MiB stdout/stderr, fail-closed scientific result publication and Linux cgroup memory.max are the existing verified control-plane implementation. SIGINT/SIGTERM exits 130/143; timeout 124; resource failures 125.
-2. Confirmed kernel `oom_kill` and unreadable evidence block `QUPRS_KEEP_FAILED_CNF=1` on resource failures. [Real Linux/macOS + privileged-test-only cgroup pilot #41950595305](https://github.com/PhysicsQoo/QuPRS/actions/runs/41950595305) PASS (64MiB kernel OOM with opt-in had no remnant; 256MiB valid science).
-3. On an ordinary opted-in failed solve, preserve only regular matching `temp_eqcheck_*.cnf` files; remove solver output captures and unrelated entries. [Scoped Linux/macOS pilot #41952489722](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952489722) PASS; minimal fix landed as [e6956a7](https://github.com/PhysicsQoo/QuPRS/commit/e6956a7f99720d9706833aa58fe311b00672999a).
-4. **New finding:** Linux `memory.events.oom` can record cgroup allocation failure even when `oom_kill=0`; the previous supervisor only checked `oom_kill`, permitting a resource failure to be classified as ordinary worker failure. Corrected predicate requires independently valid `oom` and `oom_kill`, treats either nonzero as resource OOM; `max` pressure alone is NOT OOM. Reference: [upstream cgroup v2 documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
-5. **New finding:** `RLIMIT_AS` cannot provide unambiguous per-invocation ENOMEM status. For an explicitly address-space-capped worker with a nonzero exit, failed-CNF opt-in is now withheld conservatively. This preserves the existing public worker exit classification and uncapped debug behavior.
+## Accepted implementation contract
 
-## Exact source pilot for new OOM/RLIMIT boundary
+| Area | Current code behavior | Boundary |
+| --- | --- | --- |
+| Deadline | Isolated worker with monotonic timeout spanning QASM load, worker exit and both stdout/stderr EOF; timeout exit **124**. | Cleanup grace and a blocked/broken downstream stdout may exceed requested deadline; not hard real-time. |
+| Atomic science | Parent spools stdout/stderr concurrently, **16 MiB cap per pipe**, then publishes only on successful worker completion; capture/resource failure **125**. | No guarantee of transactional stdout delivery if the consumer breaks mid-copy. `--quiet` can print the non-science token `Timeout` with exit124. |
+| Cancellation | Unix SIGINT **130** / SIGTERM **143**. Worker process-group kill; Linux direct worker PDEATHSIG and subreaper for adopted children. | Supervisor SIGKILL is uncatchable. Native macOS cannot guarantee collection of all orphaned daemon grandchildren. |
+| Physical memory | Optional Linux delegated cgroup v2 `memory.max`, strict readback, `memory.oom.group`, `cgroup.events` cleanup, `memory.events.oom` **and** `oom_kill`. | No delegation → fail closed; `max>0` alone does not establish OOM; `oom=0` cannot rule out every allocation failure. |
+| Virtual memory | Unix `--max-address-space-mib` uses `RLIMIT_AS`. | Not RSS; failure cause cannot be proven from a dedicated RLIMIT_AS exceeded counter. |
+| Temporary files | Parent-owned mode-0700 per-request TMPDIR for WMC CNF and solver-output captures; explicit cleanup before science commit. | On exceptional cleanup, **attempt** disposal and typed exit125; unkillable tasks/SIGKILL cannot give universal reclamation guarantees. |
+| Debug CNF | `QUPRS_KEEP_FAILED_CNF=1` retains **only regular `temp_eqcheck_*.cnf`** on ordinary **uncapped** worker failure. | Never retains for timeout, signal, OOM, unknown witness, success, **any capped failure** (`memory.max` or `RLIMIT_AS`), or cleanup error. Other solver capture files are removed. |
 
-[Experiment `8b456a52`](https://github.com/PhysicsQoo/QuPRS/commit/8b456a52f45ec2fce9a3813cf59008f5ddac66af) and [Actions #41954784814](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814) **ALL THREE JOBS SUCCESS**:
-- Ubuntu24.04 Linux CLI complete package unit/integration + release build PASS.
-- macOS14 native ARM64 CLI complete package unit/integration + release build PASS.
-- Linux actual delegated cgroup under CLI UID65534 (test-only privilege-assisted Docker bootstrap): 64MiB cap `oom=1`, `oom_kill=2`, exit125, empty science stdout, no retained CNF, no worker cgroup; 256MiB cap `oom=0`, `oom_kill=0`, valid science exit0, no residual child cgroup. [Raw artifact #13382318866](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814/artifacts/13382318866).
-- Synthetic unit counter combinations also verify `oom>0,oom_kill=0` and `max>0,oom=0,oom_kill=0`. **Do not claim a genuine kernel no-kill OOM test; actual positive OOM had victim kills.** Unix RLIMIT_AS + opt-in fail cleanup is exercised in CLI integration tests.
-- Experiment-only privileged Docker, Python pilot and workflow must **not** enter staging/production. Transfer only verified supervisor source, tests and updated docs/review.
+Contract/details: [resource limits](../../docs/rust_cli_resource_limits.md), [P1 cleanup](P1_CLEANUP.md).
 
-## New P1 cap-failure and cleanup-error research pilot
+## Exact-code-head qualification: `df0a554bf`
 
-- **Cause:** `memory.events.oom=0` and `oom_kill=0` cannot prove that all Linux memory-limit allocation errors are absent. Consequently the original cap-specific opt-in CNF retention condition was not universally safe; a cgroup-enabled failed worker with no recorded OOM could preserve CNF.
-- **Minimal source-only policy:** If physical `--max-memory-mib` OR virtual `--max-address-space-mib` is requested, a nonzero worker exit never retains opted-in CNF, whether counters are zero, positive, or unreadable. Default uncapped ordinary failure retains only matching CNF files as before. No native RR/WMC/solver changes.
-- **Failure-path cleanup:** Even when worker-cgroup `cleanup()` errors, explicitly attempt removal of private TMPDIR before exit125; show both resource and filesystem errors when appropriate. Hard unkillable kernel tasks and unexpected adopted-child cleanup errors remain outside an absolute artifact-lifetime guarantee.
-- **Exact pilot `bdc3b2e48eb2563669e5be61ed444a008097e0f1`** [Actions #41957629230](https://github.com/PhysicsQoo/QuPRS/actions/runs/41957629230): Ubuntu24.04 full native CLI suite/Release PASS, native macOS14 ARM64 full suite/Release PASS, genuine delegated Linux cgroup CLI UID65534 three positive cases: 64MiB OOM `oom=1/oom_kill=2` exit125/CNF removed; 256MiB ordinary missing QASM `oom=0/oom_kill=0` exit1/CNF removed **despite opt-in**; 256MiB complete science exit0. In all cases no worker cgroup remains. Kernel cleanup-error injection is synthetic unit test, **not** a real unkillable cgroup witness.
-- **Integrity:** transfer only `rust/cli/src/supervisor.rs` plus CLI resource contract and this review ledger; test-only Docker, Python pilot and workflow are not transferred. New staged exact SHA admission must run independently; no dev/main merge or automatic approval.
+| Evidence | Source-pinned conclusion |
+| --- | --- |
+| [Native Cross-Platform #41964905814](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905814) | **13/13 jobs SUCCESS**, 12 OS/Python combinations. |
+| [Official CodSpeed #41964905799](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905799) | **9 required SUCCESS**, including five Simulation shards, native Rust CPU, paired Solver-inclusive WallTime and per-SHA evidence; **11 optional SKIPPED**. Solver-inclusive stage/science matrix **20/20 PASS** (per workflow evidence; do not substitute Ganak precision caveats with a blanket numerical certification). |
+| [Python #41964905770](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905770), [Dev Fast #41964905787](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905787), [Docker #41964905768](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964905768) | **All SUCCESS.** |
+| [Hosted ABBA #41964899052](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964899052) | **SUCCESS**, strict verdict guards **18/18** and source-paired, byte-identical stdout; paired additive median: Single H **+2.136 ms**, GHZ32 RR **+2.068 ms**, QPE-exact8 RR **+2.073 ms**. 95% bootstrap intervals respectively **[2.118,2.151]**, **[2.054,2.093]**, **[2.058,2.085] ms**. All below provisional +3 ms upper CI budget. |
+| CodSpeed Macro | **SKIPPED / not provisioned**, not a PASS. |
 
-## Adopted-child cleanup exception P1 pilot
+The formal CI results above are **specific to the tested code HEAD**. Earlier commits' PASS and different hosted runner environments must not be silently pooled. Current PR code did not change after `df0a554bf` at this review; a later Rust/Python/benchmark edit requires its own source-specific checks.
 
-In former staging HEAD `53f3907dd`, `cleanup_adopted_children()?`
-could return `Err` immediately after the direct-worker waiter joined,
-bypassing explicit cgroup/private-temp disposal and public typed
-resource exit125. No observed field leak was claimed: RAII Drop still
-attempted best effort; the issue was typed contract and missing explicit
-cleanup on an exceptional path.
+## Review findings resolved in earlier isolated experiments
 
-The isolated [experiment `dd7f263d`](https://github.com/PhysicsQoo/QuPRS/commit/dd7f263d6246fbbfc0379870ae7a74c6d3cc0558) /
-[Actions #41959156390](https://github.com/PhysicsQoo/QuPRS/actions/runs/41959156390)
-**PASS**: Ubuntu24.04 CLI 13 unit tests; exact new post-worker failure
-injection, ordinary failed-CNF opt-in, timeout cleanup tests 1/1 each;
-Release build and absence of the test-only fault-injection marker.
-The CLI supervisor now catches the exceptional error, attempts
-terminate_tree + cgroup cleanup + private directory cleanup (without
-retention) and returns explicit resource125. Synthetic fault injection
-is **not** evidence of real unkillable worker/cgroup recovery.
+1. **Cgroup OOM missed without process kill.** Linux `memory.events.oom>0,oom_kill=0` can indicate failed allocation. Parser now validates both independently and returns resource125 for either positive; `max>0` by itself is only pressure. **The no-kill OOM combination was tested synthetically, not as a real kernel event.** [Source pilot `8b456a52`](https://github.com/PhysicsQoo/QuPRS/commit/8b456a52f45ec2fce9a3813cf59008f5ddac66af), [3/3 jobs #41954784814](https://github.com/PhysicsQoo/QuPRS/actions/runs/41954784814), [Linux cgroup v2 upstream semantics](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
+2. **Capped failure with apparently zero OOM counters.** Counter-zero is not a complete absence-of-ENOMEM witness; `RLIMIT_AS` also lacks a dedicated exceeded counter. Any explicitly capped nonzero worker failure now refuses opt-in CNF retention. [Source pilot `bdc3b2e4`](https://github.com/PhysicsQoo/QuPRS/commit/bdc3b2e48eb2563669e5be61ed444a008097e0f1), [3/3 jobs #41957629230](https://github.com/PhysicsQoo/QuPRS/actions/runs/41957629230). Real nonroot UID65534 cgroup tests: **64 MiB** OOM `oom=1/oom_kill=2`, exit125 and no CNF; **256 MiB** ordinary failure `oom=0/oom_kill=0`, exit1 and no CNF; **256 MiB** valid science exit0. No residual worker cgroup.
+3. **Unrelated capture files retained with CNF.** Retention now filters to regular CNF files; solver capture, nested directories and symlinks are deleted. [Linux/macOS pilot #41952489722](https://github.com/PhysicsQoo/QuPRS/actions/runs/41952489722).
+4. **Exceptional cleanup skipped explicit removal.** Adopted-child failure and cgroup cleanup-error paths now **attempt** private TMPDIR cleanup, disable retention and report typed resource125. [Synthetic Linux exception pilot #41959156390](https://github.com/PhysicsQoo/QuPRS/actions/runs/41959156390) PASS. An actual unkillable kernel descendant is **not verified**.
+5. **False-positive scientific test guards.** `"equivalent" in output.lower()` also accepts `not_equivalent`; fixed both Python ABBA/CodSpeed dual-verdict parsers (exact EQ/EQ* only), [18/18 pilot #41963333044](https://github.com/PhysicsQoo/QuPRS/actions/runs/41963333044). Rust identical-circuit test now requires **exact** `equivalent` and failed-cap tests require **empty science stdout**, [focused real CLI tests #41964598964](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964598964) 3/3 PASS. **These were test-admission defects, not a demonstrated QuPRS algorithmic false verdict.**
 
-Only `supervisor.rs` and its integration test blobs, plus updated docs
-are eligible for clean staging; the experiment workflow must stay
-outside the PR. An integration HEAD update requires **fresh exact-HEAD
-native/CodSpeed/hosted ABBA** acceptance. No native `rust/pathsum` change.
+All privileged Docker delegation and fault-injection workflows above remain in **experiment branches**, not PR #144. The production CLI was exercised as a nonroot worker in the delegated-cgroup pilots.
 
-## 2026-11-05 strict end-to-end benchmark verdict guard
+## Evidence boundaries and further research
 
-Formal review found a **false scientific acceptance** in both
-`scripts/qoo156_cli_abba.py` and
-`benchmarks/codspeed/test_qoo156_cli_supervisor.py`:
-`"equivalent" in stdout.lower()` also matches the valid **NEQ** status
-`not_equivalent`. Exits are checked, but a zero-exit negative/unknown
-CLI verdict must not pass the baseline's same-QASM EQ check. Rust
-`EquivalenceStatus::Display` emits exact machine-readable `equivalent`,
-`equivalent*`, `not_equivalent`, `unknown`, `Timeout` and `MemoryOut`
-in quiet mode.
+- The ABBA single-H case checks a **structural output marker** (`Reduced PathSum State`) and exact full-output parity with the base, **not** an independent numerical oracle for its state. The GHZ/QPE dual mode independently accepts only exact EQ/EQ* tokens for identical QASM, but equal self-inputs and full-output parity alone do not replace the project's separate scientific conformance suites.
+- The hosted ABBA uses 8 warmups + 30 alternating ABBA/BAAB blocks per case on **one Ubuntu runner**, with a 4000-sample bootstrap. This is a **provisional engineering envelope**; bootstrapped precision is conditional on the measured runner/blocks, not a hardware-independent uncertainty statement. Small one-shot circuits may incur a large relative slowdown. [Measurement method](HOSTED_ABBA.md).
+- Official CodSpeed cross-run comparisons can reflect **different hosts/runtime versions**. The reported 20 apparent speedups against older HEAD and historical QAOA7/GPMC `-10.29%` comparison are **PERFORMANCE_INCONCLUSIVE** as source-caused changes. Only code HEAD's official run + the separate same-host ABBA support the narrow claims above. CodSpeed Macro remains unprovisioned.
+- `cleanup_adopted_children` and cgroup removal can consume bounded **post-deadline cleanup grace**; do not advertise `--timeout` as strict process-exit wall clock. A higher-level container/job manager is required for supervisor SIGKILL, stray macOS daemons, a blocked stdout receiver, and lifecycle housekeeping.
+- The physical cgroup pilot demonstrates **constructed delegation** (hosted Linux x86-64/ARM64, nonroot CLI). **Mac mini + OrbStack guest delegation, exact guest image/identity, and CodSpeed Macro parity are not admitted.**
+- **CI cost observation, not a QOO-156 blocker:** a Rust CLI **test-only** change after a green code SHA still re-triggered five CodSpeed shards due to cumulative PR-to-dev impact classification and an insufficient narrow evidence-reuse whitelist. Restrict any future CI refinement to proven non-benchmark test-only scopes; do not globally exempt tests, reopen Done [QOO-130](https://linear.app/qoogohome/issue/QOO-130), or rerun expensive suites for Markdown updates. Later **documentation-only** commits should reuse previously verified code evidence via source-impact skipping.
 
-Both Python checks now accept **only exact, single-token**
-`equivalent` or `equivalent*` and reject all other or multi-line statuses.
-[Isolated pilot `a59b03a3`](https://github.com/PhysicsQoo/QuPRS/commit/a59b03a3e5dc0f293301afbaecc30c6ade1a5159),
-[Actions #41963333044](https://github.com/PhysicsQoo/QuPRS/actions/runs/41963333044)
-**SUCCESS, 18/18 tests**: valid EQ/EQ*; false-positive
-`not_equivalent`, unknown, Timeout, MemoryOut, mixed/multiline output;
-mocked complete public CLI timing harness calls. No native Rust solver
-or science source change; the hosted ABBA job runs this small regression
-test **before** expensive CLI compilation, and results are still compared
-byte-for-byte between BASE and HEAD. This fixes the **benchmark scientific
-admission guard**, not any real observed incorrect QuPRS verdict. The
-latest staging SHA requires its own official CodSpeed/ABBA CI.
+## Merge disposition
 
-## Exact Rust CLI integration assertions — scientific-output false-pass closure
+- [x] Mandatory science/CI and provisional hosted ABBA successful on tested source `df0a554bf`.
+- [x] Explicit Linux/macOS scope, kernel-accounting limitations and high-relative-cost disclosure documented.
+- [ ] **Independent maintainer review** of the 17 changed files and exceptional worker-tree failure semantics; only COMMENT reviews exist so far.
+- [ ] **Maintainer accepts/rejects +3 ms additive startup overhead as a release policy**; this is not yet approved.
+- [ ] Only then consider **squash merge to dev**; no auto-merge or main update.
 
-A final review identified the same false-acceptance issue in Rust
-`rust/cli/tests/supervisor.rs`: the identical-circuit positive test used
-`.contains("equivalent")`, which accepts `not_equivalent`.
-The 1MiB `RLIMIT_AS` failure test rejected only uppercase
-`"EQUIVALENT"`, although `--quiet` outputs lowercase statuses;
-the physical cap failure test only rejected the substring
-`"equivalent"` instead of guarding *all* science output.
-The new exact-source assertions require **the complete `equivalent`**
-status for the identical-circuit RR case, and **empty stdout** on
-low-cap resource failure paths, without modifying production source.
-
-[Independent Ubuntu24.04 pilot `d6523a626`](https://github.com/PhysicsQoo/QuPRS/commit/d6523a6265792fa169f4ffeed9e34302afe79f2b),
-[Actions #41964598964](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964598964)
-**SUCCESS** with the three focused real CLI tests **1/1 PASS each**:
-same-circuit RR exact EQ, low `RLIMIT_AS` no scientific stdout, low
-physical cap (or no-delegation fail-closed) no stdout. The latter is
-not a new delegated-cgroup OOM positive test; earlier nonroot 64MiB
-true OOM evidence remains the qualified physical-enforcement source.
-Only `rust/cli/tests/supervisor.rs` must move into the PR; the
-test-only workflow remains an experiment artifact. A new integrated
-source SHA requires its own mandatory tests, but do not re-run
-expensive unrelated CodSpeed measurements on test-only edits.
-
-## Performance decision and other limits
-
-- [Same-runner fixed-cost decomposition #41945871411](https://github.com/PhysicsQoo/QuPRS/actions/runs/41945871411): dev→P0 ~+1.53ms, P0→P1 +0.067–0.103ms; worker bootstrap dominates. Do not remove worker isolation/temporary boundary/bounded output for ~0.08ms savings. Native RR/WMC hot path remains unchanged.
-- Maintainer must **explicitly** accept or reject provisional **+3ms fixed CLI startup overhead** before merge; high relative regression for tiny one-shot CLI calls is disclosed. Hosted ABBA is an interim method, not CodSpeed Macro; syscall-heavy CPU Simulation cannot prove complete CLI latency.
-- SIGKILL of supervisor, arbitrary daemonized grandchildren on macOS, Mac mini/OrbStack real guest cgroup delegation and blocked/broken stdout consumer lifetime remain unproven; use an external whole-job manager for stronger guarantees.
-- Remain Open / In Progress. New exact HEAD required CI + appropriate independent review + fixed-cost acceptance are the merge gates. **No auto-merge to dev/main.**
-
-## Historical infrastructure triage (superseded)
-
-An earlier PR attempt had CodSpeed HTTP 503 *upload* failures after benchmark computation, not scientific mismatch. Failed jobs alone were rerun successfully for their old SHA in [#41948355903](https://github.com/PhysicsQoo/QuPRS/actions/runs/41948355903). Current `e6956a7` already passed the full required set independently. Never restart full expensive native/CodSpeed jobs merely because Markdown-only evidence has changed.
+Historical chronological investigations are preserved by [Linear QOO-156 archived research ledger](https://linear.app/qoogohome/document/qoo-156-historical-research-and-ci-ledger-through-2026-11-05-894ef448b837) and their linked Actions runs, rather than multiple contradictory "CURRENT" entries in this document.

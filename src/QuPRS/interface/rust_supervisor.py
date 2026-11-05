@@ -113,7 +113,7 @@ def _module():
     return mod
 
 
-_SUPERVISOR_ADMISSION = b"QuPRS-Rust-Supervisor-Admit-v1\\n"
+_SUPERVISOR_ADMISSION = b"QuPRS-Rust-Supervisor-Admit-v1\n"
 
 
 def _require_parent_admission() -> None:
@@ -178,7 +178,7 @@ def run() -> int:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             close_fds=True, start_new_session=True, bufsize=0, env=worker_env,
         )
-        admission = b"QuPRS-Rust-Worker-Admit-v1\\n"
+        admission = b"QuPRS-Rust-Worker-Admit-v1\n"
         if os.write(p.stdin.fileno(), admission) != len(admission):
             raise SupervisorResourceError('incomplete worker admission witness')
         try:

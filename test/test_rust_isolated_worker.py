@@ -215,7 +215,7 @@ def test_stop_worker_terminates_visible_detached_solver_child():
 
 def test_explicit_physical_memory_cap_fails_closed_without_cgroup(monkeypatch):
     monkeypatch.setenv("QUPRS_ISOLATED_MAX_MEMORY_MIB", "1024")
-    qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     with pytest.raises(RustWorkerError, match="requires an unavailable delegated cgroup"):
         check_equivalence(
             qasm, qasm, backend="rust", safe_mode=True,
@@ -225,7 +225,7 @@ def test_explicit_physical_memory_cap_fails_closed_without_cgroup(monkeypatch):
 
 def test_bad_address_space_limit_fails_before_worker_import(monkeypatch):
     monkeypatch.setenv("QUPRS_ISOLATED_MAX_ADDRESS_SPACE_MIB", "invalid")
-    qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     with pytest.raises(RustWorkerError, match="exited with 125"):
         check_equivalence(
             qasm, qasm, backend="rust", safe_mode=True,

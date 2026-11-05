@@ -91,7 +91,7 @@ print("ADDRESS_CAP_PASS")
         assert sys.platform == "darwin", done.stderr
         assert "setrlimit" in done.stderr or "current limit exceeds maximum limit" in done.stderr
         from QuPRS import check_equivalence
-        qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+        qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
         with pytest.raises(rust_isolation.RustWorkerError):
             check_equivalence(
                 qasm, qasm, backend="rust", safe_mode=True,

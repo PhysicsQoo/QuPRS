@@ -5,7 +5,7 @@ Date: 2026-11-05. Owner: QOO-173. Research-only, no new repo, no Rust implementa
 ## 1. Official evidence and scope
 
 - [MCC 2026 tracks](https://mccompetition.org/2026/mc_description): Track 1 #SAT, Track 2B signed real WMC, Track 3 projected counting, Track 4 mixed projected weighted counting, experimental Track 5B field/complex Algebraic Model Counting. Ranking A exact (wrong answers excluded), C approximate guarantee and D heuristic have distinct reporting. Resources in the 2026 rules: 3600s/32 GB. Future MCC editions may alter these.
-- [MCC data format v1.2, 2025-06-10](https://mccompetition.org/assets/files/mccomp_format_25.pdf), linked from 2026 rules: type line, weighted/projection details, AMC complex numeric grammar, SAT status and result outputs. The PDF was inspected visually on pages 6, 7 and 12.
+- [MCC data format v1.2 (originally 2025; current PDF cover **updated 2026-05-11**)](https://mccompetition.org/assets/files/mccomp_format_25.pdf), linked from 2026 rules: type line, weighted/projection details, AMC complex numeric grammar, SAT status and result outputs. The PDF was inspected visually on pages 6, 7 and 12.
 - [MCC 2026 submission rules](https://mccompetition.org/2026/submission): top-level build.sh (no parameters) and run.sh (one CNF filename), target container, standardized stdout; 2026 submissions use **private GitHub repository** with organizer access. This is **only a future submission requirement**, not a reason to create a RaWMoCS repository during A0 research.
 
 ## 2. Complex AMC count is EXACT over finite rational component input (mathematical feasibility)
@@ -62,3 +62,6 @@ The output must identify numeric type honestly (exact rational vs finite-precisi
 ## 6. Remaining items
 
 Official current-year (future year if entered) format/rules must be revalidated; actual submission-specific parser and stdout conformance requires a runnable executable, hence **belongs to A1/R4 after a repo exists**. Current A0c closes the research-format design preflight and separates viable exact-rational AMC from QuPRS source-phase numerical WMC.
+
+
+**Second-source verification 2026-11-05:** The PDF itself was visually checked on cover/page 1 and pages 6–7; its cover says **May 11, 2026**, whereas some indexed text still shows the original 2025 date. This document treats the actual screenshot as authoritative for revision date. Both original A0 fixtures (24 cases) and QuPRS-profile A0b fixtures (24 cases) were independently enumerated with a separate JavaScript BigInt rational-complex implementation, returning **48/48** identical exact real/imag counts and SAT/projected cardinalities; this is local source-value verification, not an official GitHub Actions PASS. GPMC license details and typed A1 contracts are maintained in [A1 preimplementation RFC](A1_PREIMPLEMENTATION_ARCHITECTURE_AND_LITERATURE.md), not duplicated here.

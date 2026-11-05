@@ -222,32 +222,43 @@ def run_isolated(
             bufsize=0,
         )
         timed_out = False
+        result = None
         try:
             try:
                 stdout, stderr = _bounded_exchange(worker, payload, request_deadline)
             except _WorkerDeadlineExceeded:
                 timed_out = True
-                stdout, stderr = b"", b""
-            if timed_out:
-                return {
-                    "status": "Timeout",
-                    "verification_time_sec": time.monotonic() - request_started,
-                }
-            return _parse_worker_response(stdout, stderr, worker.returncode)
+            if not timed_out:
+                result = _parse_worker_response(stdout, stderr, worker.returncode)
         finally:
-            # SIGTERM lets the dedicated supervisor reap adopted solver
-            # descendants before the parent releases its temporary directory.
+            # Let the dedicated supervisor reap adopted solver descendants
+            # before returning any result or removing the private temp dir.
             if worker.poll() is None:
                 worker.terminate()
                 try:
                     worker.wait(timeout=2)
-                except subprocess.TimeoutExpired:
+                except subprocess.TimeoutExpired as exc:
                     _stop_worker(worker)
+                    raise RustWorkerError(
+                        "supervisor cleanup did not complete after cancellation"
+                    ) from exc
             else:
                 _stop_worker(worker)
             for stream in (worker.stdin, worker.stdout, worker.stderr):
                 if stream is not None and not stream.closed:
                     stream.close()
+        if timed_out:
+            # The signal handler must confirm termination/cleanup by exiting
+            # successfully. Exit 125 or SIGKILL is not a scientific timeout.
+            if worker.returncode != 0:
+                raise RustWorkerError(
+                    f"isolated supervisor cleanup failed after deadline: exit={worker.returncode}"
+                )
+            return {
+                "status": "Timeout",
+                "verification_time_sec": time.monotonic() - request_started,
+            }
+        return result
 
 
 def _worker_main() -> int:

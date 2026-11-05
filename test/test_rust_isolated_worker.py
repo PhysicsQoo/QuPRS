@@ -85,6 +85,17 @@ def test_rust_safe_mode_external_gpmc_wmc_parity():
     assert direct.wmc_precision_reason == isolated.wmc_precision_reason
 
 
+def test_rust_safe_mode_up_to_global_phase_parity():
+    identity = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+    phased = identity + "s q[0];\\nx q[0];\\ns q[0];\\nx q[0];\\n"
+    common = dict(backend="rust", method="hybrid", tool_name="gpmc", timeout=60)
+    direct = check_equivalence(identity, phased, safe_mode=False, **common)
+    isolated = check_equivalence(identity, phased, safe_mode=True, **common)
+    assert isolated.equivalent == direct.equivalent == "equivalent*"
+    assert isolated.wmc_solver_invoked == direct.wmc_solver_invoked
+    assert isolated.rr_approximate == direct.rr_approximate
+
+
 def _spawn_script(code):
     return subprocess.Popen(
         [sys.executable, "-c", code],

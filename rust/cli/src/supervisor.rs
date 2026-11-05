@@ -584,16 +584,35 @@ fn can_preserve_failed_cnf(
         && matches!(oom_result, Ok(None | Some(false)))
 }
 
-// The worker inherits TMPDIR only for the duration of this invocation;
-// preserving failed CNF is an explicit debugging opt-in on ordinary worker
-// failures, never on cancellation, timeout, cgroup OOM or successful runs.
+// The worker inherits TMPDIR only for the duration of this invocation.
+// An opt-in ordinary failure may keep failed CNF files, but NOT other private
+// solver captures. Every other artifact remains supervisor-owned and must be
+// disposed of before the private directory can be retained.
 fn finalize_worker_tempdir(dir: tempfile::TempDir, preserve_failed_cnf: bool) -> Result<()> {
     if preserve_failed_cnf {
-        let has_cnf = fs::read_dir(dir.path())
+        let mut has_cnf = false;
+        for entry in fs::read_dir(dir.path())
             .context("inspect failed worker temporary directory")?
-            .filter_map(|entry| entry.ok())
-            .any(|entry| entry.file_name().to_string_lossy().starts_with("temp_eqcheck_")
-                && entry.file_name().to_string_lossy().ends_with(".cnf"));
+        {
+            let entry = entry.context("read failed worker temporary entry")?;
+            let kind = entry.file_type().context("inspect failed worker temporary entry type")?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if kind.is_file() && name.starts_with("temp_eqcheck_") && name.ends_with(".cnf") {
+                has_cnf = true;
+                continue;
+            }
+            // Use file_type rather than following symlinks when cleaning.
+            // A cleanup error fails closed and TempDir's Drop still tries
+            // to remove the remaining private directory.
+            if kind.is_dir() {
+                fs::remove_dir_all(entry.path())
+                    .context("remove non-CNF failed worker temporary directory")?;
+            } else {
+                fs::remove_file(entry.path())
+                    .context("remove non-CNF failed worker temporary artifact")?;
+            }
+        }
         if has_cnf {
             let retained = dir.keep();
             eprintln!("RetainedFailedSolverArtifacts: explicitly requested failed CNF at {}", retained.display());

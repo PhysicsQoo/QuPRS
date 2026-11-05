@@ -127,6 +127,12 @@ fn explicit_failed_cnf_opt_in_preserves_private_directory_only_on_failure() {
     assert!(private.starts_with(temp_root.path()));
     assert!(private.join("temp_eqcheck_killed_worker.cnf").is_file(),
         "explicit opt-in failed CNF retention must remain available");
+    assert!(!private.join("quprs-solver_killed_worker.tmp").exists(),
+        "opt-in CNF retention must not leak private solver stdout captures");
+    let retained: Vec<_> = fs::read_dir(&private).unwrap()
+        .map(|entry| entry.unwrap().file_name()).collect();
+    assert_eq!(retained, vec![std::ffi::OsString::from("temp_eqcheck_killed_worker.cnf")],
+        "only explicitly requested CNF may survive an ordinary worker failure");
     assert!(String::from_utf8_lossy(&output.stderr).contains("RetainedFailedSolverArtifacts"));
     // Test fixture's own outer temporary directory owns final disposal.
 }

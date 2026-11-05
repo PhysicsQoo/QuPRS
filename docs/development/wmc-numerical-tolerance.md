@@ -118,8 +118,9 @@ must never be classified positive by this shortcut.
 
 ## Separate knobs and no solver retry
 
-- `phase_tolerance` / `wmc_phase_tolerance`: labels a proven
-  up-to-global-phase relation as `equivalent` or `equivalent*`.
+- `phase_tolerance` / `wmc_phase_tolerance`: labels an accepted
+  up-to-global-phase relation as `equivalent` or `equivalent*`;
+  numerical WMC acceptance is not a source-exact proof.
 - `rr_tolerance`: per-verification RR coefficient tolerance in
   Python and native Rust. Native RR-only also uses a conservative
   aggregate bound for nonzero diagonal residual phase in cycles;

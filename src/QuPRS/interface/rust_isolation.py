@@ -147,6 +147,10 @@ def _stop_worker(process):
         except subprocess.TimeoutExpired as exc:
             raise RustWorkerError("isolated worker could not be reaped") from exc
 
+        # Reaping a separate descendant belongs to its actual parent.
+        # Give the kernel a bounded opportunity to deliver SIGKILL.
+        if descendants:
+            psutil.wait_procs(descendants, timeout=0.3)
         # A finished direct child does not establish reaping of grandchildren.
         # Zombies are already dead; live survivors are a resource failure.
         for child in descendants:

@@ -36,6 +36,64 @@ def snapshot_private_leaves(parent: Path) -> set[str]:
     return {p.name for p in parent.glob("quprs-py-*")}
 
 
+
+def real_memoryout_witness(parent: Path, before: set[str]) -> dict:
+    """Bounded real API OOM injection entirely inside a fresh delegated leaf.
+
+    To remove swapping as a confounder, this *test process only* wraps
+    resource admission to set its own leaf's memory.swap.max=0.
+    Production defaults are unchanged.
+    """
+    from QuPRS.interface.rust_resources import MemoryCgroup
+
+    original_descriptor = MemoryCgroup.__dict__["create_if_requested"]
+    original = MemoryCgroup.create_if_requested
+    old_env = os.environ.get("QUPRS_ISOLATED_MAX_MEMORY_MIB")
+
+    def capped_no_swap():
+        group = original()
+        if group is not None:
+            try:
+                swap = group.path / "memory.swap.max"
+                swap.write_text("0")
+                if swap.read_text().strip() != "0":
+                    raise RuntimeError("real API OOM witness could not disable leaf swap")
+            except Exception:
+                group.cleanup()
+                raise
+        return group
+
+    try:
+        MemoryCgroup.create_if_requested = staticmethod(capped_no_swap)
+        # This bound is deliberately too small for a fresh native Python
+        # Worker, but it never restricts the embedding Python process.
+        os.environ["QUPRS_ISOLATED_MAX_MEMORY_MIB"] = "8"
+        result = check_equivalence(
+            QASM, QASM, backend="rust", safe_mode=True,
+            method="reduction_rules", timeout=30,
+        )
+        if result.equivalent != "MemoryOut":
+            raise AssertionError(
+                f"real capped Worker did not return MemoryOut: {result.equivalent}"
+            )
+        if snapshot_private_leaves(parent) != before:
+            raise AssertionError("real API OOM left an isolated cgroup behind")
+        return {
+            "case": "real_worker_kernel_oom",
+            "physical_memory_mib": 8,
+            "leaf_swap_max_bytes": 0,
+            "verdict": result.equivalent,
+            "no_private_cgroup_leftovers": True,
+        }
+    finally:
+        MemoryCgroup.create_if_requested = original_descriptor
+        if old_env is None:
+            os.environ.pop("QUPRS_ISOLATED_MAX_MEMORY_MIB", None)
+        else:
+            os.environ["QUPRS_ISOLATED_MAX_MEMORY_MIB"] = old_env
+
+
+
 def witness() -> dict:
     parent = service_ancestor()
     old_limit = os.environ.get("QUPRS_ISOLATED_MAX_MEMORY_MIB")
@@ -87,10 +145,12 @@ def witness() -> dict:
             os.environ.pop("QUPRS_ISOLATED_MAX_MEMORY_MIB", None)
         else:
             os.environ["QUPRS_ISOLATED_MAX_MEMORY_MIB"] = old_limit
+    oom_witness = real_memoryout_witness(parent, before)
     return {
         "status": "PASS",
         "scope": "real_Python_API_isolated_PyO3_under_delegated_cgroup",
         "cases": observations,
+        "real_kernel_memoryout": oom_witness,
         "no_private_cgroup_leftovers": snapshot_private_leaves(parent) == before,
         "python_version": sys.version.split()[0],
     }

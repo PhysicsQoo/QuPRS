@@ -1,8 +1,9 @@
 """Private, standalone POSIX supervisor for isolated QuPRS Rust verification.
 
-Launched as a script (not -m) so this supervisor imports only Python's stdlib
-until the worker is created. On Linux this *separate* process becomes a child
-subreaper; the embedding Python application is never modified.
+Launched as a script (not -m), it imports only stdlib before worker creation.
+Linux uses a private child-subreaper; macOS samples Worker ancestry using
+native ps, following the Rust CLI resource-supervision contract. Neither
+changes process-wide supervision settings in the embedding Python app.
 """
 from __future__ import annotations
 
@@ -164,6 +165,7 @@ def run() -> int:
             'status': 'Timeout', 'verification_time_sec': time.monotonic() - started}})
         return 0
     p = None
+    macos_tree = None
     timed_out = False
     output = None
     worker_error = None
@@ -178,6 +180,13 @@ def run() -> int:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             close_fds=True, start_new_session=True, bufsize=0, env=worker_env,
         )
+        if sys.platform == 'darwin':
+            # Track Worker ancestry before admission while children can still
+            # be identified, matching the CLI's native ps-based cleanup.
+            # Only this isolated Supervisor does any polling.
+            from rust_macos_process import DarwinProcessTree
+            macos_tree = DarwinProcessTree(p.pid)
+            macos_tree.start()
         admission = b"QuPRS-Rust-Worker-Admit-v1\n"
         if os.write(p.stdin.fileno(), admission) != len(admission):
             raise SupervisorResourceError('incomplete worker admission witness')
@@ -190,18 +199,32 @@ def run() -> int:
             worker_error = exc
     finally:
         cleanup_error = None
+        if macos_tree is not None:
+            try:
+                # The Worker must still have its original PID while the final
+                # macOS ancestry observation and detached-child kill occur.
+                macos_tree.kill_observed_descendants()
+            except Exception as exc:
+                cleanup_error = exc
         if p is not None:
             try:
                 iolib._stop_worker(p)
             except Exception as exc:
-                cleanup_error = exc
+                if cleanup_error is None:
+                    cleanup_error = exc
         try:
             _cleanup_adopted_children()
         except Exception as exc:
             if cleanup_error is None:
                 cleanup_error = exc
+        if macos_tree is not None:
+            try:
+                macos_tree.verify_stopped()
+            except Exception as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
         if cleanup_error is not None:
-            raise SupervisorResourceError('worker or adopted descendant cleanup failed') from cleanup_error
+            raise SupervisorResourceError('worker or tracked descendant cleanup failed') from cleanup_error
     if worker_error is not None:
         if isinstance(worker_error, (ValueError, TypeError)):
             _reply({'version': 1, 'ok': False,

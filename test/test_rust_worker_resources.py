@@ -126,3 +126,46 @@ print("WORKER_PARENT_DEATH_ARMED")
     )
     assert result.returncode == 0, result.stderr
     assert "WORKER_PARENT_DEATH_ARMED" in result.stdout
+
+
+def test_cgroup_cleanup_waits_for_killed_descendant(monkeypatch, tmp_path):
+    resources = _private_module("rust_resources.py")
+    leaf = tmp_path / "quprs-py-test"
+    leaf.mkdir()
+    (leaf / "cgroup.events").write_text("populated 1\\n")
+    (leaf / "cgroup.procs").write_text("424242\\n")
+    (leaf / "cgroup.kill").write_text("")
+    group = resources.MemoryCgroup(leaf)
+    calls = []
+
+    def simulated_process(pid):
+        assert pid == 424242
+        calls.append(pid)
+        # The cgroup directory can disappear while SIGKILL is still pending.
+        return (("R" if len(calls) <= 3 else "Z"), "stable-kernel-starttime")
+
+    monkeypatch.setattr(
+        resources.MemoryCgroup, "_process_identity",
+        staticmethod(simulated_process),
+    )
+    original_rmdir = Path.rmdir
+
+    def simulate_immediate_leaf_disposal(path):
+        if path == leaf:
+            return None
+        return original_rmdir(path)
+
+    monkeypatch.setattr(Path, "rmdir", simulate_immediate_leaf_disposal)
+    group.cleanup()
+    assert group._cleaned is True
+    assert len(calls) >= 4
+    assert (leaf / "cgroup.kill").read_text() == "1"
+
+
+def test_cgroup_cleanup_pid_reuse_cannot_block_old_child(monkeypatch):
+    resources = _private_module("rust_resources.py")
+    monkeypatch.setattr(
+        resources.MemoryCgroup, "_process_identity",
+        staticmethod(lambda pid: ("R", "different-starttime")),
+    )
+    assert resources.MemoryCgroup._all_stopped({123: "old-starttime"})

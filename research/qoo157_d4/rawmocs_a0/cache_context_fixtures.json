@@ -1,0 +1,984 @@
+{
+  "schema_version": 1,
+  "kind": "RaWMoCS A0e conditional component cache and weighted counting context adversarial research cases",
+  "arithmetic": "exact Gaussian rational, weights are [positive_re,positive_im,negative_re,negative_im], omitted defaults 1+0i",
+  "pairs": [
+    {
+      "id": "order_invariance",
+      "assert": "equal",
+      "why": "Clause order is not semantic cache identity",
+      "left": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ],
+          [
+            -1,
+            2
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "3",
+            "0"
+          ],
+          "2": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "0",
+          "im": "5",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            -1,
+            2
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "3",
+            "0"
+          ],
+          "2": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "0",
+          "im": "5",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "duplicate_clause",
+      "assert": "equal",
+      "why": "Duplicate clause is logically idempotent even for arbitrary complex literal weights",
+      "left": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "5",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            2
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "5",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "tautological_clause",
+      "assert": "equal",
+      "why": "Tautological clause insertion is counting invariant if declared support is unchanged",
+      "left": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "1",
+            "0"
+          ],
+          "2": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "2",
+          "im": "2",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1
+          ],
+          [
+            2,
+            -2
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "1",
+            "0"
+          ],
+          "2": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "2",
+          "im": "2",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "explicit_default_weight",
+      "assert": "equal",
+      "why": "Implicit default (1+0i for both polarities) and explicit defaults have same semantics",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {},
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "1",
+            "0",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "positive_weight_changed",
+      "assert": "different",
+      "why": "Same CNF and counted support but changed positive literal weight",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "3",
+            "0",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "3",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "negative_weight_changed",
+      "assert": "different",
+      "why": "Same empty residual but changed negative weight, full WMC not normalized",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "3",
+          "im": "0",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "-1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "declared_support_changed",
+      "assert": "different",
+      "why": "Same clause bytes but a new declared free variable multiplies full count by 2",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {},
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {},
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "free_phase_support_changed",
+      "assert": "different",
+      "why": "Same clause bytes but extra free variable has (1+i) factor, not 1",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {},
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "2": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "1",
+          "im": "1",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "full_vs_epwmc_mode",
+      "assert": "different",
+      "why": "Same CNF but full count includes extensions; EPWMC only counts projections once",
+      "left": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "weights": {},
+        "expected": {
+          "re": "3",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "epwmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [
+          1
+        ],
+        "weights": {},
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": 2
+        }
+      }
+    },
+    {
+      "id": "projection_mask_changed",
+      "assert": "different",
+      "why": "Same CNF and mode but P={x} vs P={} changes count",
+      "left": {
+        "mode": "epwmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [
+          1
+        ],
+        "weights": {},
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": 2
+        }
+      },
+      "right": {
+        "mode": "epwmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [],
+        "weights": {},
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": 1
+        }
+      }
+    },
+    {
+      "id": "unused_weight_changed",
+      "assert": "equal",
+      "why": "Forced x=true makes negative literal weight semantically irrelevant (conservative cache key may still separate)",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "10",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "-7",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "zero_sat_vs_unsat",
+      "assert": "sat-different",
+      "why": "Identical zero weighted count cannot identify logical SAT vs UNSAT",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "0",
+            "0",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "0",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ],
+          [
+            -1
+          ]
+        ],
+        "weights": {},
+        "expected": {
+          "re": "0",
+          "im": "0",
+          "sat_models": 0,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "same_shape_opposite_literals",
+      "assert": "different",
+      "why": "Same nvars/nclauses/length but opposite polarity not a valid cache hit",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "3",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            -1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "3",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "3",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "forced_literal_factor_not_lost",
+      "assert": "different",
+      "why": "Removing forced literal without extracting its weight changes the count",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "0",
+          "im": "1",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 0,
+        "clauses": [],
+        "weights": {},
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "quprs_positive_phase_forced_vs_free",
+      "assert": "different",
+      "why": "QuPRS w(-x)=1 and w(+x)=i; free factor (1+i) differs from forced i",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [],
+        "weights": {
+          "1": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "1",
+          "im": "1",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "1": [
+            "0",
+            "1",
+            "1",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "0",
+          "im": "1",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "large_exact_cancellation_vs_full_cancel",
+      "assert": "different",
+      "why": "Two weight contexts differ by one beyond f64 representability but exact counts differ",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [],
+        "weights": {
+          "1": [
+            "10000000000000000000000000000000000000000",
+            "0",
+            "-9999999999999999999999999999999999999999",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [],
+        "weights": {
+          "1": [
+            "10000000000000000000000000000000000000000",
+            "0",
+            "-10000000000000000000000000000000000000000",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "0",
+          "im": "0",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "existential_free_extra_not_multiply",
+      "assert": "equal",
+      "why": "EPWMC existential extra unweighted variable duplicates witnesses but not projections",
+      "left": {
+        "mode": "epwmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [
+          1
+        ],
+        "weights": {},
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": 2
+        }
+      },
+      "right": {
+        "mode": "epwmc",
+        "nvars": 3,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [
+          1
+        ],
+        "weights": {},
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 6,
+          "projected_models": 2
+        }
+      }
+    },
+    {
+      "id": "weighted_projected_vs_unweighted",
+      "assert": "different",
+      "why": "Same projected CNF and P but changing projection weights changes EPWMC",
+      "left": {
+        "mode": "epwmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [
+          1
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "3",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "5",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": 2
+        }
+      },
+      "right": {
+        "mode": "epwmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [
+          1
+        ],
+        "weights": {},
+        "expected": {
+          "re": "2",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": 2
+        }
+      }
+    },
+    {
+      "id": "same_clauses_counted_free_cancellation",
+      "assert": "different",
+      "why": "Explicit free variable can make a nonzero residual result vanish by exact cancellation",
+      "left": {
+        "mode": "wmc",
+        "nvars": 1,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {},
+        "expected": {
+          "re": "1",
+          "im": "0",
+          "sat_models": 1,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1
+          ]
+        ],
+        "weights": {
+          "2": [
+            "0",
+            "1",
+            "0",
+            "-1"
+          ]
+        },
+        "expected": {
+          "re": "0",
+          "im": "0",
+          "sat_models": 2,
+          "projected_models": null
+        }
+      }
+    },
+    {
+      "id": "class_weight_summation_vs_distinct_extension",
+      "assert": "different",
+      "why": "Full WMC counts all extensions while distinct-projection weighted count collapses them",
+      "left": {
+        "mode": "wmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "3",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "7",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": null
+        }
+      },
+      "right": {
+        "mode": "epwmc",
+        "nvars": 2,
+        "clauses": [
+          [
+            1,
+            2
+          ]
+        ],
+        "projection": [
+          1
+        ],
+        "weights": {
+          "1": [
+            "2",
+            "0",
+            "3",
+            "0"
+          ]
+        },
+        "expected": {
+          "re": "5",
+          "im": "0",
+          "sat_models": 3,
+          "projected_models": 2
+        }
+      }
+    }
+  ]
+}

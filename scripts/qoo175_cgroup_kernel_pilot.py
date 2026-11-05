@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import signal
+import time
 import subprocess
 import sys
 from pathlib import Path
@@ -125,20 +126,40 @@ def forced_oom_proof(limit_mib: int) -> dict:
     assert group is not None
     child = None
     try:
+        # The test asserts an OOM KILL, not merely physical-memory pressure.
+        # Disable swap ONLY for this newly created private cgroup leaf.
+        # Otherwise swapping can allow a 288 MiB workload to finish under
+        # memory.max=192 MiB while physical memory stays within the cap.
+        swap_limit = group.path / "memory.swap.max"
+        try:
+            swap_limit.write_text("0")
+            observed = swap_limit.read_text().strip()
+        except OSError as exc:
+            raise ResourceAdmissionError(
+                "kernel witness requires writable leaf-local memory.swap.max"
+            ) from exc
+        if observed != "0":
+            raise ResourceAdmissionError("kernel did not apply leaf-local swap cap")
         child = subprocess.Popen(
-            [sys.executable, "-c", _OOM_CHILD, str(limit_mib + 96)],
+            [sys.executable, "-c", _OOM_CHILD, str(limit_mib + 320)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, start_new_session=True,
             close_fds=True,
         )
         group.admit(child.pid)
         out, err = child.communicate(input=b"1", timeout=20)
+        events = (group.path / "memory.events").read_text()
+        current = (group.path / "memory.current").read_text().strip()
+        peak_file = group.path / "memory.peak"
+        peak = peak_file.read_text().strip() if peak_file.exists() else "unavailable"
+        swap_current = (group.path / "memory.swap.current").read_text().strip()
         if child.returncode != -signal.SIGKILL:
             raise AssertionError(
-                f"expected cgroup SIGKILL, received {child.returncode}: "
-                f"{out[-100:]!r} {err[-100:]!r}"
+                "expected kernel SIGKILL with leaf-local swap disabled; "
+                f"returncode={child.returncode}, stdout={out[-160:]!r}, "
+                f"stderr={err[-160:]!r}, current={current}, peak={peak}, "
+                f"swap_current={swap_current}, memory.events={events!r}"
             )
-        events = (group.path / "memory.events").read_text()
         oom_kills = _resources._unique_counter(events, "oom_kill")
         if not group.oom_observed() or oom_kills < 1:
             raise AssertionError(
@@ -149,6 +170,8 @@ def forced_oom_proof(limit_mib: int) -> dict:
             "physical_memory_mib": limit_mib,
             "worker_oom_exit": child.returncode,
             "memory_events_oom_kill": oom_kills,
+            "leaf_swap_max_bytes": 0,
+            "memory_peak_bytes": peak,
             "scope": "kernel_cgroup_oom_and_cleanup",
         }
     finally:
@@ -171,6 +194,8 @@ def main() -> int:
     args = parser.parse_args()
     if not 64 <= args.memory_mib <= 4096:
         parser.error("memory-mib must be between 64 and 4096")
+    if args.oom and args.memory_mib > 256:
+        parser.error("OOM stress is capped at 256 MiB to protect disposable hosts")
     try:
         result = (forced_oom_proof(args.memory_mib)
                   if args.oom else positive_group_proof(args.memory_mib))

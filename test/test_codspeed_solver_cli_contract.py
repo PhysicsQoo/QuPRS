@@ -184,3 +184,45 @@ def test_legacy_dev_api_rejects_mixed_precision_or_unproven_defaults(harness, mo
             "approximate_distance_tolerance": 1e-8,
             "gpmc_precision_digits": 90,
         })
+
+
+def test_qasm261_source_capability_probe_reports_supported_modern_api(harness, monkeypatch, capsys):
+    module, calls = harness
+    def modern_checker(first, second, *, rr_tolerance, gpmc_precision_digits,
+                       approximate_distance_tolerance, wmc_phase_tolerance, **kw):
+        return None
+    monkeypatch.setattr(module, "check_equivalence", modern_checker)
+    monkeypatch.setattr(sys, "argv", [str(HARNESS), "--probe-qasm261-contract"])
+    module.main()
+    line = capsys.readouterr().out.strip()
+    assert line.startswith(module.CAPABILITY_PREFIX)
+    record = json.loads(line[len(module.CAPABILITY_PREFIX):])
+    assert record["status"] == "SUPPORTED"
+    assert record["precision_contract"] == "public_per_call_pinned"
+    assert calls == []
+
+
+def test_qasm261_probe_only_recognizes_known_legacy_precision_gap(harness, monkeypatch, capsys):
+    module, calls = harness
+    def legacy_checker(first, second, *, method, strategy, tool_name,
+                       backend, timeout, wmc_phase_tolerance,
+                       approximate_distance_tolerance):
+        return None
+    monkeypatch.setattr(module, "check_equivalence", legacy_checker)
+    monkeypatch.setattr(sys.modules["QuPRS"], "config",
+                        types.SimpleNamespace(TOLERANCE=1e-10), raising=False)
+    monkeypatch.setattr(sys, "argv", [str(HARNESS), "--probe-qasm261-contract"])
+    monkeypatch.setattr(module, "_compatible_solver_kwargs",
+                        lambda _: (_ for _ in ()).throw(RuntimeError(
+                            module.LEGACY_GPMC_90_UNPROVEN)))
+    module.main()
+    record = json.loads(capsys.readouterr().out.strip()[len(module.CAPABILITY_PREFIX):])
+    assert record == {
+        "status": "NOT_COMPARABLE_LEGACY_BASE",
+        "reason": module.LEGACY_GPMC_90_UNPROVEN,
+    }
+    monkeypatch.setattr(module, "_compatible_solver_kwargs",
+                        lambda _: (_ for _ in ()).throw(RuntimeError("Actual Solver failure")))
+    with pytest.raises(RuntimeError, match="Actual Solver failure"):
+        module.main()
+    assert calls == []

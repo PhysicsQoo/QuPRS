@@ -1,9 +1,10 @@
 # Upgrading from QuPRS v0.13.4 to v0.14.0
 
-**Status:** v0.14.0 release-candidate API and source contract.
-The package is not published until the guarded `v0.14.0` tag and PyPI
-workflow complete. The last published version before this candidate was
-v0.13.4 (2026-10-27).
+**Status:** v0.14.0 public upgrade contract. The official
+[v0.14.0 GitHub release](https://github.com/PhysicsQoo/QuPRS/releases/tag/v0.14.0)
+was published on **2026-11-04**. This page describes the versioned
+interface and does not replace the supported-platform or package-artifact
+acceptance conditions.
 
 ## Supported environment and input
 
@@ -12,9 +13,8 @@ The v0.14.0 package declares Python **3.11–3.13** and
 Python 3.14/3.14t have not been admitted to this release. Wheels are
 targeted to Linux x86_64/ARM64 and macOS 15+ Intel/Apple Silicon.
 Historical macOS 14 sdist experiments do not imply a supported 14.x
-prebuilt wheel. The existing recurring CI no longer reinstalls each of
-four old Qiskit versions on every PR; the original admission evidence is
-preserved in [Qiskit 1.x/2.x admission](qiskit-1x-2x-admission.md).
+prebuilt wheel. Prior Qiskit-version admission evidence is recorded in the
+original release PR and CI history; it is not part of the current user guide.
 
 The **native Rust** verifier accepts supported OpenQASM 2 and an
 explicitly limited **OpenQASM 3.0 unitary subset**, including
@@ -103,21 +103,20 @@ informational rather than a second veto.
   source proof or malformed Solver results fail; `Timeout`,
   `MemoryOut`, `INCONCLUSIVE_RESOURCE` and planned benchmark skips
   do **not** certify either equivalence or inequivalence. A full
-  benchmark-performance cohort may be required explicitly, not as
-  an automatic scientific-error gate.
+  missing performance samples do not establish the absence of a
+  regression or change the scientific classification.
 
 For precise numerical semantics consult
 [per-call tolerances](per-call-tolerance.md),
 [WMC projective distance](wmc-numerical-tolerance.md),
 [RR-to-WMC final residual](rr-hybrid-residual-contract.md)
-and [release validation](release-compatibility.md).
+and [release/contribution checks](../../CONTRIBUTING.md).
 
-## Release-candidate acceptance
+## Release and installed-artifact verification
 
-The v0.14.0 code and version metadata may appear on `dev` before
-a published `v0.14.0` package exists. **Do not create or use a
-publication tag** until the normal `dev → main` Release-Ready gate
-has passed its 12 supported source/OS/Python jobs, candidate wheel
-and sdist build/install matrix, provenance, version consistency and
-policy-negative tests. The dedicated tagged publication workflow is
-the only path that publishes artifacts.
+The v0.14.0 public release is recorded at
+[GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases/tag/v0.14.0).
+When validating an installation, distinguish source-level CI from the
+actual distributed wheel or sdist installed in a supported environment.
+Release compatibility, provenance and publication rules are defined by
+[release and platform contribution guidance](../../CONTRIBUTING.md).

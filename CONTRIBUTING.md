@@ -20,7 +20,7 @@ supported-platform matrix runs **before** building candidate distribution
 archives. Candidate wheels and sdists are then installed and tested as
 **actual artifacts**, not treated as validated from a source build alone.
 
-Use [release compatibility and packaging acceptance](docs/development/release-compatibility.md)
+Use [version compatibility and upgrade guidance](docs/development/v0140-migration.md)
 for the three-stage gate, the Linux/macOS support boundaries, and the
 required evidence. Do not add duplicate OS/Python matrices to ordinary PRs
 merely to recheck packaging compatibility.
@@ -64,3 +64,15 @@ Python/Rust environment, runner CPU, CodSpeed mode, and sources of skipped
 tests. Do not compare CodSpeed Simulation modeled CPU time with Walltime
 seconds as if they were the same metric. Preserve historical baselines when
 benchmark coverage, solver versions or measurement environments change.
+
+## Documentation
+
+Keep public documentation focused on installation, supported interfaces,
+scientific behavior, configuration, reproducibility and contribution
+instructions. Update relevant documentation when user-visible behavior changes.
+
+Use pull-request discussions and the project issue tracker for task planning,
+intermediate experiments, review decisions and investigation history. Do not
+add stand-alone development diaries or dated experiment reports to the
+maintained documentation tree. Preserve the scientific inputs and tests
+required to reproduce supported behavior.

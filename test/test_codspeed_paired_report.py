@@ -191,3 +191,87 @@ def test_known_ganak_coarse_print_retains_conditional_timing_not_science_go():
     head["wmc_print_resolution_distance"] = 1e-9
     assert report_module.produce(measurement, records, "base-sha", "head-sha",
                                  source)[0]["status"] == "FAIL"
+
+
+def make_legacy_base_unavailable(measurement, records, cases=None):
+    """Synthetic unavailable BASE source; NOT measured zero or a Solver failure."""
+    cases = cases or report_module.QASM261_WALLTIME_CASE_IDS
+    measurement["benchmarks"] = [
+        row for row in measurement["benchmarks"]
+        if not any(row["uri"].endswith(f"[{case}-base]") for case in cases)
+    ]
+    for case in cases:
+        row = next(x for x in records if x["case"] == case and x["revision"] == "base")
+        row.update(
+            verdict=None, solver_invoked=None,
+            verification_status="NOT_COMPARABLE_LEGACY_BASE",
+            capability_reason="Legacy dev GPMC distance precision not proven to be 90",
+            requested_contract={
+                "rr_tolerance": 1e-10, "approximate_distance_tolerance": 1e-8,
+                "wmc_phase_tolerance": 1e-8, "gpmc_precision_digits": 90,
+            },
+        )
+
+
+def test_legacy_unavailable_base_preserves_seven_pairs_and_three_real_head_samples():
+    measurement, records = sample()
+    make_legacy_base_unavailable(measurement, records)
+    result, markdown = report_module.produce(measurement, records, "base-sha", "head-sha")
+    assert result["status"] == "BASE_CAPABILITY_LIMITED"
+    assert result["errors"] == []
+    assert result["paired_measured_cases"] == 7
+    assert result["head_only_cases"] == 3
+    assert len(result["cases"]) == 10
+    assert len(measurement["benchmarks"]) == 17
+    for row in result["cases"]:
+        if row["case"].startswith("q261_"):
+            assert row["base_median_ms"] is None
+            assert row["change_percent"] is None
+            assert row["head_median_ms"] > 0
+            assert row["performance_comparison_tier"] == "NOT_COMPARABLE_LEGACY_BASE"
+        else:
+            assert row["base_median_ms"] > 0
+            assert row["change_percent"] is not None
+    assert "7 exact case pairs" in markdown
+    assert "N/A (legacy capability)" in markdown
+
+
+def test_unexplained_missing_base_remains_fatal():
+    measurement, records = sample()
+    measurement["benchmarks"] = [
+        row for row in measurement["benchmarks"]
+        if not row["uri"].endswith("[q261_qft16_negative-base]")
+    ]
+    with pytest.raises(ValueError, match="Incomplete/extra paired coverage"):
+        report_module.produce(measurement, records, "base-sha", "head-sha")
+
+
+def test_legacy_capability_forgery_or_missing_head_stays_fatal():
+    measurement, records = sample()
+    make_legacy_base_unavailable(measurement, records,
+                                 {"q261_qft16_negative"})
+    base = next(x for x in records if x["case"] == "q261_qft16_negative"
+                and x["revision"] == "base")
+    base["sha"] = "forged-base"
+    report, _ = report_module.produce(measurement, records, "base-sha", "head-sha")
+    assert report["status"] == "FAIL"
+    assert any("incorrect source/fixture SHA" in e for e in report["errors"])
+    base["sha"] = "base-sha"
+    base["requested_contract"]["gpmc_precision_digits"] = 30
+    report, _ = report_module.produce(measurement, records, "base-sha", "head-sha")
+    assert report["status"] == "FAIL"
+    assert any("invalid source-capability evidence" in e for e in report["errors"])
+    base["requested_contract"]["gpmc_precision_digits"] = 90
+    measurement["benchmarks"] = [
+        row for row in measurement["benchmarks"]
+        if not row["uri"].endswith("[q261_qft16_negative-head]")
+    ]
+    with pytest.raises(ValueError, match="Incomplete/extra paired coverage"):
+        report_module.produce(measurement, records, "base-sha", "head-sha")
+
+
+def test_legacy_classification_not_allowed_for_historical_or_head_case():
+    measurement, records = sample()
+    make_legacy_base_unavailable(measurement, records, {"vqe4_gpmc"})
+    with pytest.raises(ValueError, match="only allowed on QASM261 base"):
+        report_module.produce(measurement, records, "base-sha", "head-sha")

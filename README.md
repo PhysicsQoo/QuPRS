@@ -54,11 +54,10 @@ The Python package uses a native Rust extension and bundled GPMC/Ganak
 solver integration; the standard installation requires a supported
 platform wheel, or a separately prepared source-build environment.
 
-The release-candidate sources identify themselves as `0.14.0`.
-Until the v0.14.0 tag and package are actually published, the default
-`pip install QuPRS` command continues to install the latest published
-release. Follow the [v0.14.0 migration guide](docs/development/v0140-migration.md)
-before updating existing pipelines.
+QuPRS v0.14.0 was [released on 2026-11-04](https://github.com/PhysicsQoo/QuPRS/releases/tag/v0.14.0).
+`pip install QuPRS` installs the latest published package; a source checkout
+may contain newer changes. Review the [v0.14.0 migration guide](docs/development/v0140-migration.md)
+when updating existing pipelines.
 
 It is recommended to install `QuPRS` in a virtual environment.
 
@@ -84,17 +83,11 @@ QuPRS provides pre-built wheels for the following operating systems and architec
 | **macOS** | Apple Silicon (M1/M2/M3) | ✅ Supported | macOS 15+ |
 | **Windows** | x86_64 / ARM64 | ⚠️ **WSL2 Only** | Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) |
 
-The published macOS wheels for QuPRS v0.13.2 are tagged `macosx_15_0_*` and require **macOS 15+**. On macOS 14, pip cannot use these prebuilt wheels but can attempt to build the source distribution (sdist). A [macOS 14.8.9 / Apple Silicon / Python 3.12.10 smoke test](https://github.com/PhysicsQoo/QuPRS/actions/runs/39217598481) successfully installed v0.13.2 from sdist with Homebrew build dependencies and ran a basic Ganak-backed equivalence check. This is **limited source-install evidence**, not a guarantee for every macOS 14 configuration, Python version, or solver feature.
-
-For the tested macOS 14 ARM64 source-build path (rather than a prebuilt wheel):
-
-```bash
-brew install cmake gmp mpfr zlib
-python -m pip install --no-binary=quprs 'QuPRS==0.13.2'
-```
-
-For the **supported prebuilt-wheel installation path**, use macOS 15 or later.
-
+QuPRS v0.14.0 macOS wheels target **macOS 15 or later** on Intel and
+Apple Silicon. macOS 14 has no supported prebuilt-wheel claim for this
+release; an independently prepared source build may be possible but is not
+a substitute for a supported wheel. See the
+[v0.14.0 platform and upgrade guide](docs/development/v0140-migration.md).
 
 ### v0.14.0 input and migration notes
 
@@ -175,7 +168,7 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 
 ## Equivalence Checking
 
-> **Numerical and source-semantic limits (v0.14.0 candidate):**
+> **Numerical and source-semantic limits (v0.14.0):**
 > Rust preserves supported QASM2 literal decimal-radian angles separately from
 > symbolic multiples of pi through its PathSum/phase representation. Strict
 > source-literal comparison can therefore disagree with historical approximate
@@ -204,9 +197,6 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > equivalence verdict to `unknown`. Ganak additionally reports a dynamic
 > print-resolution warning. Such numerical verdicts are not certificates
 > of internal solver accuracy or source-exact circuit equivalence.
-> The optional research-only `gpmc_distance_budget` model separately reports
-> `model_status` and `numerical_verdict`: its model may be inconclusive
-> for unsupported CNF sizes without overriding the public distance verdict.
 > An **unweighted, tautological CNF** matching the exact trace normalization
 > is counted algebraically (including one-qubit I versus I), with
 > `wmc_solver_invoked=False` and `analytic_unweighted_tautology` provenance.
@@ -284,8 +274,10 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
 ### Phase preservation and reduction tolerance
 
-Both Python and Rust preserve the input gate-angle representation.
-During RR simplification, the per-request tolerance may remove small
+Rust preserves supported source-literal QASM angles; the Python Qiskit
+path retains the precision of the supplied parameters, which may already
+have been rounded upstream. During RR simplification, the per-request
+tolerance may remove small
 **non-global** phase terms or permit near-HH/omega matching; these are
 approximate working-state transformations, indicated by `rr_approximate`.
 Scalar global phase is never discarded by the RR tolerance. A request with
@@ -419,6 +411,8 @@ The shorter aliases `--distance-tolerance` and
 or phase tolerances without a second circuit is an error, because
 single-circuit CLI mode only reduces the PathSum and does not verify a pair.
 
+For the CLI's end-to-end timeout, worker isolation, memory caps and cleanup behavior, see [Rust CLI resource limits](docs/rust_cli_resource_limits.md).
+
 The `--quiet` **stdout** remains machine-readable and prints only
 the verdict; an observed Ganak resolution warning is printed separately
 on **stderr**. Normal output reports the selected solver, requested
@@ -461,7 +455,7 @@ time. Do not rely on this API as a hard end-to-end kill switch.
 
 The result statuses `equivalent` / `equivalent*` are **intended** as verified
 equivalence classifications, and `not_equivalent` as an actual negative
-result; known exceptions on current development builds are documented above.
+result; numerical limitations and input boundaries are documented above.
 `unknown` means reduction alone was inconclusive; `Timeout` means a
 deadline expired. Solver launch failures, output overflow, nonzero exits,
 malformed counts and other solver errors **raise an exception** rather
@@ -522,12 +516,14 @@ archive/executable SHA256 and architecture checks still apply.
 Count fixtures compare against hand-computed complex sums and the other solver
 using relative error `1e-8` and absolute error `1e-12`; individual Rust
 solver-integration fixtures use a documented `2e-9` absolute budget. These are
-fixture budgets, not universal error bounds under cancellation. Rust serializes
-both solver inputs with 17 significant decimal digits in scientific notation
-(enough to round-trip binary64 weights). Python evaluates symbolic weights at
-113 bits where supported and writes their decimal form without an arbitrary
-nine-decimal quantization. Input precision cannot exceed the information in
-the original circuit parameters or the numerical type used upstream.
+fixture budgets, not universal error bounds under cancellation. The native
+Rust GPMC projective-distance path evaluates supported source phase weights
+with tolerance-adaptive MPFR precision and serializes the resulting decimal
+values without an intermediate binary64 conversion. The native Ganak path
+retains binary64 input-weight serialization with enough decimal digits for
+round-trip representation. Python evaluates symbolic weights at 113 bits
+where supported. Neither input representation certifies the internal
+arithmetic accuracy of an external solver.
 
 Both Python and Rust WMC public backends use a single configurable
 **projective-distance tolerance**, default `1e-8`. For example:
@@ -549,27 +545,12 @@ labels, while `rr_tolerance` independently controls Python and Rust RR matching.
 A printed solver count is not itself an exact mathematical certificate.
 
 See [WMC numerical tolerance policy](docs/development/wmc-numerical-tolerance.md)
-for the current candidate's acceptance limits and QCEC/Quokka-Sharp metric
+for the numerical acceptance limits and QCEC/Quokka-Sharp metric
 comparison. A tighter numerical threshold is not a mathematical certificate.
 Results closer to a decision boundary than encoding or printed-count
 error should be checked independently; agreement between two solvers alone does
 not establish exact equivalence. Nonzero exits, crashes, missing results and
 malformed/non-finite counts are failures, without cross-solver fallback.
-
-### Python WMC precision profiling
-
-Use the deterministic microbenchmark to compare 53-bit and 113-bit phase
-weight evaluation on the same machine:
-
-```bash
-python scripts/profile_wmc_weight_precision.py --samples 96 --repeats 5 --warmups 2 --json-file python_wmc_precision_profile.json
-```
-
-Its JSON report includes distinct and repeated phases, normalized timing, and
-platform metadata. Cache timings are experimental only, not enabled in
-production. The PR benchmark workflow records the report as an artifact.
-Absolute timings across different CI runners are not directly comparable.
-This profile is observational and does not introduce a new release gate.
 
 ## License Information
 

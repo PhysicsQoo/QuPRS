@@ -1,79 +1,36 @@
-> **Historical contract notice (v0.14.0 integration, 2026-11-04).**
-> The following describes the original first-stage Python-to-Rust QASM2
-> fail-closed research, **not** the complete current cross-backend behavior.
-> PR #134 delivered `qiskit>=1.0.0,<3.0`; PR #135 delivered Python
-> `QuantumCircuit.global_phase` transport on its own verification path
-> and native Rust QASM3 `gphase(theta)` in a bounded unitary subset.
-> The existing Qiskit-object-to-Rust **QASM2** bridge continues to reject
-> unequal explicit phases it cannot transport. See
-> [bounded QASM3](rust-qasm3-supported-subset.md),
-> [Qiskit dual-major admission](qiskit-1x-2x-admission.md) and
-> [v0.14.0 migration](v0140-migration.md). Retain the dated design
-> below for historical provenance; do not use its `qiskit<2`
-> statement or its early first-stage TODO as current implementation facts.
+# Explicit global-phase handling through the Rust QASM2 bridge
 
-# Explicit QuantumCircuit global-phase provenance across QASM2 Rust transport
+A Qiskit `QuantumCircuit` can carry an explicit `global_phase`.
+The Python-to-Rust OpenQASM2 bridge cannot transport that independent
+scalar as a standalone OpenQASM2 instruction. Silently stripping a
+*difference* between the circuits' source global phases can therefore
+misclassify strict `equivalent` versus `equivalent*` results.
 
-The current Python→Rust bridge serializes Qiskit `QuantumCircuit`
-objects using `qasm2.dumps`. In isolated Qiskit 1.4.6 and 2.6.1
-comparisons, an explicitly set `QuantumCircuit.global_phase` was not
-preserved by QASM2/QASM3 export/import: a circuit with an explicit
-`global_phase=0.05` round-tripped with zero stored phase, changing the
-full matrix even though equivalence *up to a global phase* was preserved.
+For the Rust backend's QASM2 input path, the interface validates
+the source phase scalars **before** native QASM conversion or WMC:
 
-The public QuPRS result distinguishes:
-- `equivalent`: exact unitary equality;
-- `equivalent*`: equal up to global phase;
-- `not_equivalent` or `unknown`: other outcomes.
+- Two identical, finite, bound source phase scalars cancel and normal
+  verification proceeds.
+- Unequal source scalars fail closed with `ValueError`, rather than
+  publishing an ungrounded scientific verdict.
+- An unbound symbolic or non-finite source phase fails closed.
+- An OpenQASM2 string has no independent standalone `gphase` value;
+  Qiskit-object-to-QASM2 transport must not silently invent one.
 
-Dropping a relative input global phase can turn a scientifically correct
-`equivalent*` result into a **false exact** `equivalent`, or a true
-exact equality (when circuit gate phases cancel an explicit source
-phase) into a misleading `equivalent*`.
+This deliberately conservative QASM2 rule can reject a comparison that
+would otherwise be exactly equal after accounting for gate-derived
+global phase. Rejection is preferable to a false exact-equivalence result.
 
-## Conservative first-stage source contract
+This is **not** a limitation on all supported native source formats:
+the [bounded native OpenQASM3 unitary subset](rust-qasm3-supported-subset.md)
+includes a standalone `gphase(theta)` statement with its own parser
+and provenance contract. Nor does this QASM2 guard by itself imply
+complete cross-backend global-phase or arbitrary parameterized-angle
+certification.
 
-Before invoking the Rust backend, the Python interface inspects the
-explicit `QuantumCircuit.global_phase` attached to each Qiskit input.
-For raw QASM2 strings, the transport's independently expressible
-global-phase scalar is taken as zero (QASM2 has no standalone
-`gphase` statement). The current contract:
-
-- If source scalar phases are equal as **finite bound numbers**, they
-  cancel from the compared operators exactly, so existing unitary
-  verification can proceed unchanged.
-- If source scalar phases differ, fail closed with an explicit
-  `ValueError` explaining that the QASM2 bridge cannot preserve
-  the relative global phase. Do **not** issue a mathematically
-  unsubstantiated exact-equivalence, up-to-global-phase or inequivalence
-  verdict.
-- If an input's phase is unbound symbolic or nonfinite, fail closed.
-- The validation happens before the native Rust checker or any
-  WMC solver is launched. No automatic transpiler rewrite or
-  tolerance adjustment is used.
-
-This is **not full global-phase metadata transmission** to the Rust
-engine. In particular, different phases that physically cancel a
-nontrivial gate-derived phase will conservatively raise rather than
-return a precise exact-equality status. That is preferable to silently
-dropping an observable distinction in the public classification.
-
-## Future complete contract
-
-A complete solution should pass a separately encoded and validated
-global-phase coefficient into Rust's verification miter (or a
-source-faithful IR), with phase algebra capable of representing
-parameterized and nontrivial rational-pi angles. Both exact-unitary
-equality and equality up to global phase must then be independently
-tested against source-level mathematical oracles. It must not
-treat arbitrary float or continued-fraction approximations as
-rigorous source-angle proofs; `RZ(1e-12)` remains a separate numerical
-precision issue.
-
-This research Draft PR limits the first-stage guard to
-`backend="rust"`, leaving the historical pure-Python method,
-reduction-first Hybrid strategy, WMC thresholds and all solver
-adapters unchanged. Python backend explicit-source-phase parity is
-a separate scientific acceptance requirement before a broad exact
-phase classification claim can be made. Qiskit 2.x package metadata
-remains `qiskit<2` until independent resolver/platform gates pass.
+Scientific regression examples: `test/test_rust_global_phase_qasm_contract.py`
+and `test/test_qasm3_python_global_phase.py`.
+For supported Qiskit versions consult
+[supported Qiskit versions](v0140-migration.md); for exact/unitary
+classification consult [equivalence semantics](equivalence-semantics.md)
+and [v0.14.0 migration](v0140-migration.md).

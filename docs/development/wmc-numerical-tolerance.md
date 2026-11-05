@@ -118,8 +118,9 @@ must never be classified positive by this shortcut.
 
 ## Separate knobs and no solver retry
 
-- `phase_tolerance` / `wmc_phase_tolerance`: labels a proven
-  up-to-global-phase relation as `equivalent` or `equivalent*`.
+- `phase_tolerance` / `wmc_phase_tolerance`: labels an accepted
+  up-to-global-phase relation as `equivalent` or `equivalent*`;
+  numerical WMC acceptance is not a source-exact proof.
 - `rr_tolerance`: per-verification RR coefficient tolerance in
   Python and native Rust. Native RR-only also uses a conservative
   aggregate bound for nonzero diagonal residual phase in cycles;
@@ -146,9 +147,9 @@ unconditional source-exact equivalence certificate. A stricter threshold
 may increase uncertainty in the **printed-output evidence**. For
 Ganak, a midpoint-based operational verdict remains explicitly
 uncertified when that evidence is unresolved, and users receive the
-dynamic resolution warning. Release acceptance must include
-source-pinned physical oracles and CodSpeed regression checks
-on both native and Python execution paths.
+dynamic resolution warning. For near-boundary applications, independently
+compare relevant physical or matrix-oracle results rather than treating
+a floating solver output as a mathematical proof.
 
 ## Breaking API migration
 

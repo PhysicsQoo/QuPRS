@@ -21,7 +21,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmarks.codspeed.case_registry import (
-    ALL_WALLTIME_CASE_IDS, CROSS_INSTRUMENT_MATCH, NATIVE_IDS, PYTHON_CORE_CASE_IDS,
+    ALL_WALLTIME_CASE_IDS, QASM261_WALLTIME_CASE_IDS,
+    CROSS_INSTRUMENT_MATCH, NATIVE_IDS, PYTHON_CORE_CASE_IDS,
 )
 from benchmarks.codspeed.suite_compat import (
     SuiteCompatibilityError, load_catalog, normalize_manifest, suite_spec_digest,
@@ -184,11 +185,29 @@ def validate_walltime(folder, head_sha, base_sha):
     cases = report.get("cases", [])
     if len(cases) != WALLTIME_CASES or report.get("errors"):
         raise ValueError("Solver-inclusive paired report incomplete or contains audit errors")
-    if len({row["case"] for row in cases}) != WALLTIME_CASES:
-        raise ValueError("Solver-inclusive case IDs duplicated")
+    if {row["case"] for row in cases} != ALL_WALLTIME_CASE_IDS:
+        raise ValueError("Solver-inclusive case IDs missing/duplicated")
+    legacy = []
     for row in cases:
-        if not row["solver_invoked_base"] or not row["solver_invoked_head"]:
+        if row.get("performance_comparison_tier") == "NOT_COMPARABLE_LEGACY_BASE":
+            if (row["case"] not in QASM261_WALLTIME_CASE_IDS
+                    or row.get("capability_reason") !=
+                    "Legacy dev GPMC distance precision not proven to be 90"
+                    or row.get("base_median_ms") is not None
+                    or row.get("change_percent") is not None
+                    or row.get("solver_invoked_base") is not None
+                    or row.get("solver_invoked_head") is not True
+                    or row.get("performance_comparable") is not False
+                    or not isinstance(row.get("head_median_ms"), (int, float))
+                    or row["head_median_ms"] <= 0):
+                raise ValueError(f"{row['case']}: invalid legacy base capability classification")
+            legacy.append(row["case"])
+        elif not row["solver_invoked_base"] or not row["solver_invoked_head"]:
             raise ValueError(f"{row['case']}: non-solver path in Solver-inclusive benchmark")
+    if sorted(legacy) != report.get("legacy_base_incomparable", []):
+        raise ValueError("Legacy base capability classification inconsistent with report")
+    if len(legacy) + report.get("paired_measured_cases", len(cases)) != len(cases):
+        raise ValueError("Legacy capability gap conflicts with paired count")
     return report
 
 
@@ -273,7 +292,12 @@ def produce(folder, sha, base_sha, *, require_solver_cpu=False, require_memory=F
         "simulation_total_count": len(sim),
         "native_core_expected_count": NATIVE_CASES,
         "native_core_metrics": "CodSpeed service only; no fabricated local numeric result",
-        "walltime_paired_cases": WALLTIME_CASES if wall else 0,
+        "walltime_registered_cases": WALLTIME_CASES if wall else 0,
+        "walltime_paired_cases": (wall.get("paired_measured_cases", WALLTIME_CASES)
+                                  if wall else 0),
+        "walltime_head_only_cases": (len(wall.get("legacy_base_incomparable", []))
+                                     if wall else 0),
+        "legacy_base_incomparable": (wall.get("legacy_base_incomparable", []) if wall else []),
         "optional_solver_cpu_count": 7 if require_solver_cpu else 0,
         "optional_python_core_count": len(PYTHON_CORE_CASE_IDS) if require_python_core else 0,
         "optional_cross_method_cpu_count": 8 if require_cross_method else 0,
@@ -281,7 +305,9 @@ def produce(folder, sha, base_sha, *, require_solver_cpu=False, require_memory=F
         "optional_rust_memory_count": NATIVE_CASES if require_memory else 0,
         "cross_instrument_rows": rows,
         "scientific_status": scientific_status,
-        "evidence_collection": "COMPLETE",
+        "evidence_collection": ("PARTIAL_LEGACY_BASE_CAPABILITY"
+                                if wall and wall.get("legacy_base_incomparable")
+                                else "COMPLETE"),
         "performance_certified": False,
         "limitations": [
             "No metrics from a different SHA or carried-forward CodSpeed results",
@@ -321,7 +347,9 @@ def main():
         f"- Canonical: 32/32 original CPU Simulation IDs plus "
         f"{result['qasm261_addon_count']} versioned QASM261 IDs across five shards",
         f"- Native Rust: {result['native_core_expected_count']} benchmark identities uploaded; numeric metrics only in CodSpeed",
-        f"- Solver-inclusive: {result['walltime_paired_cases']} paired workloads, 2 revisions each",
+        f"- Solver-inclusive: {result['walltime_paired_cases']} measured pairs "
+        f"of {result['walltime_registered_cases']} registered cases; "
+        f"{result['walltime_head_only_cases']} HEAD-only legacy base gaps",
         f"- Scientific status: **{result['scientific_status']}** (independent of CI collection)",
         "- Performance certified: **NO** (shared runner variance and external metrics)",
         "",

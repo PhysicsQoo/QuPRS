@@ -40,6 +40,20 @@ pub struct Cli {
     #[arg(short, long, default_value_t = 600)]
     pub timeout: u64,
 
+    /// Hard worker-tree physical-memory limit (MiB): Linux delegated cgroup v2 only.
+    /// Fails closed when the host cannot enforce memory.max.
+    #[arg(long = "max-memory-mib", value_name = "MIB")]
+    pub max_memory_mib: Option<u64>,
+
+    /// Optional virtual address-space cap (MiB), NOT a physical RSS limit.
+    /// Enforced with RLIMIT_AS for the worker on Unix.
+    #[arg(long = "max-address-space-mib", value_name = "MIB")]
+    pub max_address_space_mib: Option<u64>,
+
+    /// Internal process-isolation worker marker; not a public user option.
+    #[arg(long = "__quprs-worker", hide = true)]
+    pub internal_worker: bool,
+
     /// Verbosity level (-v: stats, -vv: debug state, -vvv: raw trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -135,6 +149,22 @@ mod tests {
         assert!(Cli::try_parse_from([
             "QuPRS-CLI", "a.qasm", "b.qasm", "--gpmc-precision", "15",
         ]).is_err());
+    }
+
+    #[test]
+    fn cli_resource_flags_are_explicit_and_worker_mode_is_hidden() {
+        let cli = Cli::try_parse_from([
+            "QuPRS-CLI", "a.qasm", "--timeout", "2",
+            "--max-address-space-mib", "1024",
+        ]).unwrap();
+        assert_eq!(cli.timeout, 2);
+        assert_eq!(cli.max_address_space_mib, Some(1024));
+        assert_eq!(cli.max_memory_mib, None);
+        assert!(!cli.internal_worker);
+        let cap = Cli::try_parse_from([
+            "QuPRS-CLI", "a.qasm", "--max-memory-mib", "4096",
+        ]).unwrap();
+        assert_eq!(cap.max_memory_mib, Some(4096));
     }
 
     #[test]

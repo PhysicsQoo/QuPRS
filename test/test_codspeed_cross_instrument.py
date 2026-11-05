@@ -191,3 +191,40 @@ def test_versioned_simulation_v3_dynamic_three_shards(tmp_path):
         module.validate_curated_simulation(
             tmp_path, SHA, suite_id=suite["suite_id"], expected_uris=names,
         )
+
+
+def test_cross_instrument_accepts_only_explicit_legacy_base_capability_gap(
+    tmp_path, monkeypatch
+):
+    fixture_tree(tmp_path, monkeypatch)
+    path = tmp_path / "walltime-report" / "paired-walltime-report.json"
+    wall = json.loads(path.read_text())
+    for row in wall["cases"]:
+        if row["case"] in QASM261_WALLTIME_CASE_IDS:
+            row.update(
+                base_median_ms=None, change_percent=None, verdict_base=None,
+                solver_invoked_base=None, solver_invoked_head=True,
+                head_median_ms=880, performance_comparable=False,
+                performance_comparison_tier="NOT_COMPARABLE_LEGACY_BASE",
+                capability_reason="Legacy dev GPMC distance precision not proven to be 90",
+            )
+    wall.update(
+        status="BASE_CAPABILITY_LIMITED",
+        legacy_base_incomparable=sorted(QASM261_WALLTIME_CASE_IDS),
+        paired_measured_cases=7,
+        head_only_cases=3,
+    )
+    path.write_text(json.dumps(wall))
+    result = module.produce(tmp_path, SHA, BASE)
+    assert result["walltime_paired_cases"] == 7
+    assert result["walltime_registered_cases"] == 10
+    assert result["walltime_head_only_cases"] == 3
+    assert result["scientific_status"] == "BASE_CAPABILITY_LIMITED"
+    assert result["evidence_collection"] == "PARTIAL_LEGACY_BASE_CAPABILITY"
+    assert len(result["cross_instrument_rows"]) == 3
+    # Unknown/unproven reason is not a legitimate skip justification.
+    bad = next(x for x in wall["cases"] if x["case"] == "q261_qft16_negative")
+    bad["capability_reason"] = "arbitrary solver error"
+    path.write_text(json.dumps(wall))
+    with pytest.raises(ValueError, match="invalid legacy base capability"):
+        module.produce(tmp_path, SHA, BASE)

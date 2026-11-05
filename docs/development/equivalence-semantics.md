@@ -1,10 +1,9 @@
-# Quantum-circuit equivalence: mathematical contract and implementation status
+# Quantum-circuit equivalence and numerical semantics
 
-This document distinguishes the **intended mathematical specification** from the
-**observed behavior of the current implementation**. It is not a claim that all
-current QuPRS verdicts are sound. In particular, see the reproductions linked
-below before relying on a positive WMC verdict or a negative Rust reduction
-verdict involving decimal-radian angles.
+This document defines the supported unitary comparison boundary, result labels,
+and numerical limits. A finite-precision WMC classification is not a mathematical
+proof of exact equivalence, and unsupported input or solver failure must not be
+reported as a definitive equivalence result.
 
 ## Domain and comparison boundary
 
@@ -107,30 +106,19 @@ verdict can depend on RR tolerance. Rust FFI display strings are
 normalized by the Python facade. Solver failures do not silently
 select a different solver.
 
-**Implementation status for the v0.14.0 candidate (2026-10-28):**
+## Source representation and numerical limitations
 
-1. **Historical pre-fix findings (2026-10-22):** the source-angle RED and
-   default WMC negative-control results in the archived
-   [native tests](https://github.com/PhysicsQoo/QuPRS/pull/74) and
-   [solver audit](https://github.com/PhysicsQoo/QuPRS/pull/77) describe
-   earlier commits. They must not be presented as a fresh native RED result
-   from current `dev`.
-2. **Current Rust source representation:** supported QASM2 decimal-radian
-   literals are retained in an exact rational-radian component, separate from
-   symbolic pi coefficients, through the Rust PathSum phase operations.
-   Conversion at the external weighted-complex-solver boundary remains finite
-   precision; exact source representation is **not** a general WMC certificate.
-3. **Remaining known limitation:** floating WMC thresholds can classify
-   strictly inequivalent near-identity rotations as numerically equivalent.
-   There is no selectable `wmc_policy`; the solver observation remains
-   available through `wmc_numerical_verdict`. The default finite-count projective-distance classifier uses the
-   printed-count central value. Printing resolution remains a distinct
-   diagnostic, not a certified arithmetic bound or a veto.
-   Strict and approximate Qiskit-transpilation relations (including
-   Graphstate16) remain separate.
-4. **Release gate:** source-pinned QPE, Graphstate16, CP/U2/SX and global-phase
-   oracle controls, both backends and both independent solvers, must be checked
-   again at the actual RC SHA. Those prior-run findings are not substitutes.
+Supported native Rust QASM2 decimal-radian literals retain their rational
+source representation separately from symbolic multiples of pi through the
+PathSum phase operations. Qiskit-object inputs can already contain rounded
+floating-point parameters; the native parser cannot reconstruct original
+source literals from those values.
+
+External weighted-complex solvers use finite-precision arithmetic and report
+numerical counts rather than certified bounds on the exact trace. Near the
+selected distance threshold, a numerically accepted result can differ from
+strict source-exact equivalence. Use an independent physical or matrix oracle
+when the distinction matters. See [WMC evidence policy](wmc-evidence-policy.md).
 
 ## Minimal independent reference checks
 
@@ -139,7 +127,6 @@ select a different solver.
 The small one-qubit reference suite exercises exact identity, global phase,
 near-identity inequality, nontrivial inequality, exact decimal-radian
 composition, symbolic π provenance and parameter-domain counterexamples.
-It is not a substitute for the pinned native RED gate or actual solver
-audit. A production claim additionally requires backend- and
-method-specific parity on exact source SHAs, including both true-positive
-and true-negative controls.
+It is not a complete proof for arbitrary circuit families. Backend- and
+method-specific checks should include both equivalent and inequivalent
+controls under the documented source and numerical semantics.

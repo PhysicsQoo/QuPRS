@@ -10,7 +10,6 @@ on:
       - 'test/test_rust_u2_semantics.py'
       - 'test/test_rust_p_phase_semantics.py'
       - '.github/workflows/rust-u2-semantics.yml'
-      - 'docs/development/rust-u2-semantics.md'
   workflow_dispatch:
 
 permissions:
@@ -123,8 +122,7 @@ jobs:
             rust/pathsum/src/gates.rs \
             test/test_rust_u2_semantics.py \
             test/test_rust_p_phase_semantics.py \
-            .github/workflows/rust-u2-semantics.yml \
-            docs/development/rust-u2-semantics.md > evidence/source-sha256.txt
+            .github/workflows/rust-u2-semantics.yml > evidence/source-sha256.txt
           (
             cd evidence
             find . -type f ! -name SHA256SUMS -print0 | sort -z | \

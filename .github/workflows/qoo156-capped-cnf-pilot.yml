@@ -1,0 +1,105 @@
+name: QOO-156 capped failed-CNF cleanup admission pilot
+
+on:
+  push:
+    branches: [experiment/qoo156-capped-cnf-and-cleanup-p1]
+    paths:
+      - 'rust/cli/**'
+      - 'rust/Cargo.lock'
+      - 'scripts/qoo156_pr144_cgroup/**'
+      - '.github/workflows/qoo156-capped-cnf-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-capped-cnf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scoped-native:
+    name: OOM / RLIMIT_AS native CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Native headers (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+      - name: Verify exact pilot and untouched native Path-sum tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD:rust/pathsum)" = "142508b35e9e0833f9fd4f3a22c3eb5497d9336d"
+      - name: Unit and integration tests for P0/P1 resource safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --bin QuPRS_cli -- --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor -- --nocapture
+      - name: Release build
+        run: cargo build --locked --release --manifest-path rust/Cargo.toml -p QuPRS_cli
+
+  delegated-oom:
+    name: Genuine cgroup OOM + capped ordinary failure cleanup (UID65534; test-only privileged bootstrap)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile exact-source debug CLI + cgroup witness pilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD:rust/pathsum)" = "142508b35e9e0833f9fd4f3a22c3eb5497d9336d"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+          cargo build --locked --manifest-path rust/Cargo.toml -p QuPRS_cli
+          python3 -m py_compile scripts/qoo156_pr144_cgroup/pilot.py
+          mkdir -p evidence/qoo156-capped-cnf
+          git rev-parse HEAD > evidence/qoo156-capped-cnf/source-sha.txt
+          sha256sum rust/target/debug/QuPRS_cli benchmarks/qoo156/single_h.qasm > evidence/qoo156-capped-cnf/source-hashes.txt
+      - name: Isolated temporary Docker cgroup delegation bootstrap
+        shell: bash
+        run: |
+          docker build -q -t qoo156:oom-events scripts/qoo156_pr144_cgroup > evidence/qoo156-capped-cnf/docker-image-build.txt
+      - name: Real nonroot OOM, normal science and capped-failure CNF cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout -k 5s 90s docker run --rm --privileged --cgroupns=private \
+            --memory=512m --memory-swap=512m --pids-limit=64 \
+            --network=none --read-only --user 0:0 --tmpfs /tmp:rw,nosuid,size=16m \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/rust/target/debug/QuPRS_cli,target=/opt/QuPRS_cli,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/benchmarks/qoo156/single_h.qasm,target=/opt/single_h.qasm,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/scripts/qoo156_pr144_cgroup/pilot.py,target=/opt/pilot.py,readonly" \
+            --entrypoint python3 qoo156:oom-events /opt/pilot.py \
+            | tee evidence/qoo156-capped-cnf/positive-run.log
+          grep -Fq QOO156_INTERNAL_CGROUP_UNPRIVILEGED_CLI=PASS evidence/qoo156-capped-cnf/positive-run.log
+          grep -Fq '"worker_cgroup_removed_at_return": true' evidence/qoo156-capped-cnf/positive-run.log
+      - name: Preserve source-bound result, even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qoo156-capped-cnf-${{ github.sha }}
+          path: evidence/qoo156-capped-cnf/
+          if-no-files-found: warn
+          retention-days: 30

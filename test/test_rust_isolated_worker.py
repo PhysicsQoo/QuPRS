@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 
+import psutil
 import pytest
 from qiskit import QuantumCircuit
 
@@ -176,3 +177,82 @@ def test_complete_worker_reply_must_have_valid_science_status_and_fields():
         _parse_worker_response(missing_fields, b"", 0)
     with pytest.raises(RustWorkerError, match="exited with 137"):
         _parse_worker_response(b"", b"OOM killed", 137)
+
+def test_stop_worker_terminates_visible_detached_solver_child():
+    # start_new_session gives the solver a separate process group, so
+    # killpg(worker.pid) alone cannot end it.
+    script = (
+        "import subprocess, sys, time; "
+        "p = subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(30)'], "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+        "stderr=subprocess.DEVNULL, start_new_session=True); "
+        "print(p.pid, flush=True); time.sleep(30)"
+    )
+    worker = _spawn_script(script)
+    solver_pid = int(worker.stdout.readline().decode().strip())
+    try:
+        assert psutil.pid_exists(solver_pid)
+        _stop_worker(worker)
+        for _ in range(20):
+            try:
+                child = psutil.Process(solver_pid)
+                if child.status() == psutil.STATUS_ZOMBIE:
+                    break
+            except psutil.NoSuchProcess:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("detached solver child survived isolated-worker cleanup")
+    finally:
+        if worker.poll() is None:
+            _stop_worker(worker)
+        try:
+            psutil.Process(solver_pid).kill()
+        except psutil.NoSuchProcess:
+            pass
+
+
+def test_explicit_physical_memory_cap_fails_closed_without_cgroup(monkeypatch):
+    monkeypatch.setenv("QUPRS_ISOLATED_MAX_MEMORY_MIB", "1024")
+    qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+    with pytest.raises(RustWorkerError, match="requires an unavailable delegated cgroup"):
+        check_equivalence(
+            qasm, qasm, backend="rust", safe_mode=True,
+            method="reduction_rules", timeout=30,
+        )
+
+
+def test_bad_address_space_limit_fails_before_worker_import(monkeypatch):
+    monkeypatch.setenv("QUPRS_ISOLATED_MAX_ADDRESS_SPACE_MIB", "invalid")
+    qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+    with pytest.raises(RustWorkerError, match="exited with 125"):
+        check_equivalence(
+            qasm, qasm, backend="rust", safe_mode=True,
+            method="reduction_rules", timeout=30,
+        )
+
+
+def test_address_space_cap_applies_only_inside_worker(monkeypatch):
+    import resource
+
+    if not hasattr(resource, "RLIMIT_AS"):
+        pytest.skip("RLIMIT_AS unsupported on this platform")
+    code = (
+        "import os, resource; "
+        "from QuPRS._rust_worker_bootstrap import _apply_address_space_cap; "
+        "_apply_address_space_cap(); "
+        "print(resource.getrlimit(resource.RLIMIT_AS)[0])"
+    )
+    env = os.environ.copy()
+    env["QUPRS_ISOLATED_MAX_ADDRESS_SPACE_MIB"] = "4096"
+    parent_before = resource.getrlimit(resource.RLIMIT_AS)
+    completed = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True,
+        text=True, timeout=15,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert int(completed.stdout.strip()) <= 4096 * 1024 * 1024
+    assert resource.getrlimit(resource.RLIMIT_AS) == parent_before
+
+

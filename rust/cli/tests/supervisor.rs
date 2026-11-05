@@ -144,6 +144,38 @@ fn signal_cancellation_kills_worker_detached_process_group_helper() {
     panic!("detached helper pid {helper} survived supervisor SIGTERM cleanup");
 }
 
+#[cfg(unix)]
+#[test]
+fn deadline_cancels_detached_process_group_helper_without_partial_verdict() {
+    let file = fixture();
+    let pidfile = tempfile::NamedTempFile::new().unwrap();
+    let child = Command::new(cli()).arg(file.path())
+        .args(["--quiet", "--timeout", "1"])
+        .env("QUPRS_CLI_TEST_DETACHED_PIDFILE", pidfile.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn().unwrap();
+    let helper: u32 = (0..80).find_map(|_| {
+        if let Ok(data) = fs::read_to_string(pidfile.path()) {
+            if let Ok(pid) = data.trim().parse::<u32>() {
+                return Some(pid);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        None
+    }).expect("real detached helper must be alive before deadline");
+    assert!(!pid_is_gone_or_zombie(helper));
+    let output = wait_for_canceled_cli(child);
+    assert_eq!(output.status.code(), Some(124), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Timeout");
+    for _ in 0..50 {
+        if pid_is_gone_or_zombie(helper) { return; }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    unsafe { libc::kill(helper as libc::pid_t, libc::SIGKILL); }
+    panic!("detached helper pid {helper} survived deadline cleanup");
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn supervisor_sigkill_triggers_worker_parent_death_signal() {

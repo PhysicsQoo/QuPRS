@@ -80,6 +80,31 @@ byte-for-byte between BASE and HEAD. This fixes the **benchmark scientific
 admission guard**, not any real observed incorrect QuPRS verdict. The
 latest staging SHA requires its own official CodSpeed/ABBA CI.
 
+## Exact Rust CLI integration assertions — scientific-output false-pass closure
+
+A final review identified the same false-acceptance issue in Rust
+`rust/cli/tests/supervisor.rs`: the identical-circuit positive test used
+`.contains("equivalent")`, which accepts `not_equivalent`.
+The 1MiB `RLIMIT_AS` failure test rejected only uppercase
+`"EQUIVALENT"`, although `--quiet` outputs lowercase statuses;
+the physical cap failure test only rejected the substring
+`"equivalent"` instead of guarding *all* science output.
+The new exact-source assertions require **the complete `equivalent`**
+status for the identical-circuit RR case, and **empty stdout** on
+low-cap resource failure paths, without modifying production source.
+
+[Independent Ubuntu24.04 pilot `d6523a626`](https://github.com/PhysicsQoo/QuPRS/commit/d6523a6265792fa169f4ffeed9e34302afe79f2b),
+[Actions #41964598964](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964598964)
+**SUCCESS** with the three focused real CLI tests **1/1 PASS each**:
+same-circuit RR exact EQ, low `RLIMIT_AS` no scientific stdout, low
+physical cap (or no-delegation fail-closed) no stdout. The latter is
+not a new delegated-cgroup OOM positive test; earlier nonroot 64MiB
+true OOM evidence remains the qualified physical-enforcement source.
+Only `rust/cli/tests/supervisor.rs` must move into the PR; the
+test-only workflow remains an experiment artifact. A new integrated
+source SHA requires its own mandatory tests, but do not re-run
+expensive unrelated CodSpeed measurements on test-only edits.
+
 ## Performance decision and other limits
 
 - [Same-runner fixed-cost decomposition #41945871411](https://github.com/PhysicsQoo/QuPRS/actions/runs/41945871411): dev→P0 ~+1.53ms, P0→P1 +0.067–0.103ms; worker bootstrap dominates. Do not remove worker isolation/temporary boundary/bounded output for ~0.08ms savings. Native RR/WMC hot path remains unchanged.

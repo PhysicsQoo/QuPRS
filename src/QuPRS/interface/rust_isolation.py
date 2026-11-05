@@ -295,7 +295,7 @@ def run_isolated(
         if timed_out:
             if supervisor is None or supervisor.returncode != 0:
                 raise RustWorkerError(
-                    "supervisor did not certify cleanup after deadline"
+                    "supervisor cleanup failed after deadline"
                 )
             return {
                 "status": "Timeout",

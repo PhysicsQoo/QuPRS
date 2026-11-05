@@ -177,7 +177,9 @@ def run() -> int:
         try:
             stdout, stderr = iolib._bounded_exchange(p, raw, deadline)
             output = iolib._parse_worker_response(stdout, stderr, p.returncode)
-        except iolib._WorkerDeadlineExceeded:
+        except (iolib._WorkerDeadlineExceeded, SupervisorInterrupted):
+            # Parent-issued SIGTERM is a cancellation request. Only report
+            # a clean timeout after owned descendants and cgroup are disposed.
             timed_out = True
         except Exception as exc:
             worker_error = exc

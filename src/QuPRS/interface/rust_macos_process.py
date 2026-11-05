@@ -66,8 +66,10 @@ def _info(pid):
 
 def _children(pid):
     buf = (ctypes.c_int * (_MAX_PIDS + 1))()
+    ctypes.set_errno(0)
     count = _lib().proc_listchildpids(pid, ctypes.byref(buf), ctypes.sizeof(buf))
-    if count < 0 or count >= len(buf):
+    # libproc can return zero rather than -1 on an underlying syscall error.
+    if (count == 0 and ctypes.get_errno() != 0) or count < 0 or count >= len(buf):
         raise ProcessTreeError("macOS child enumeration failed or exceeded limit")
     result = [int(buf[i]) for i in range(count) if buf[i] > 1]
     if len(result) != len(set(result)):
@@ -152,8 +154,18 @@ class DarwinProcessTree:
                 self._sample()
             except Exception:
                 errors.append("final process observation failed")
-        with self._lock:
+        remaining = max(0, self._cleanup_deadline - time.monotonic())
+        locked = self._lock.acquire(timeout=remaining)
+        try:
+            # A stalled native inspector must not prevent the Supervisor from
+            # attempting to kill the last known PIDs. CPython's GIL protects
+            # copying a dict snapshot even if the observer holds this lock.
             owned = list(self._owned.items())
+            if not locked:
+                errors.append("macOS observation lock did not release")
+        finally:
+            if locked:
+                self._lock.release()
         # Even if the scanner errored, still kill all already observed children.
         for pid, token in reversed(owned):
             if pid in (self.worker_pid, os.getpid()):
@@ -185,13 +197,20 @@ class DarwinProcessTree:
     def verify_stopped(self):
         if self._cleanup_deadline is None:
             raise ProcessTreeError("cleanup was not attempted")
-        with self._lock:
+        remaining = max(0, self._cleanup_deadline - time.monotonic())
+        if not self._lock.acquire(timeout=remaining):
+            raise ProcessTreeError("macOS cleanup verification lock timed out")
+        try:
             owned = dict(self._owned)
+        finally:
+            self._lock.release()
         while True:
             living = []
             for pid, token in owned.items():
                 if pid == self.worker_pid:
                     continue
+                if time.monotonic() >= self._cleanup_deadline:
+                    raise ProcessTreeError("macOS cleanup deadline exceeded")
                 info = _info(pid)
                 if _alive(info):
                     if _birth(info) != token:

@@ -24,6 +24,10 @@ CASES = {
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def accepted_dual_verdict(stdout: bytes) -> bool:
+    """Accept only complete machine-readable EQ verdicts, never NEQ/unknown."""
+    return stdout.strip() in (b"equivalent", b"equivalent*")
+
 def run(binary: Path, inputs: list[Path], case: str) -> dict:
     cmd = [str(binary), *(str(x) for x in inputs), "--timeout", "30", "--quiet"]
     if case != "single_h":
@@ -40,9 +44,14 @@ def run(binary: Path, inputs: list[Path], case: str) -> dict:
     elapsed = time.perf_counter_ns() - started
     if process.returncode:
         raise RuntimeError(f"{case}: rc={process.returncode}, stderr={err[-900:]!r}")
-    expected = b"Reduced PathSum State" if case == "single_h" else b"equivalent"
-    if expected.lower() not in out.lower():
-        raise AssertionError(f"Scientific output missing or unexpected: {case}")
+    if case == "single_h":
+        scientific_ok = b"Reduced PathSum State" in out
+    else:
+        scientific_ok = accepted_dual_verdict(out)
+    if not scientific_ok:
+        raise AssertionError(
+            f"Scientific output missing or incorrect verdict: {case}, stdout={out[-350:]!r}"
+        )
     return {"elapsed_ns": elapsed, "stdout_sha256": hashlib.sha256(out).hexdigest(),
             "stderr_sha256": hashlib.sha256(err).hexdigest(), "stdout_bytes": len(out)}
 

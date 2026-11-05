@@ -55,6 +55,31 @@ are eligible for clean staging; the experiment workflow must stay
 outside the PR. An integration HEAD update requires **fresh exact-HEAD
 native/CodSpeed/hosted ABBA** acceptance. No native `rust/pathsum` change.
 
+## 2026-11-05 strict end-to-end benchmark verdict guard
+
+Formal review found a **false scientific acceptance** in both
+`scripts/qoo156_cli_abba.py` and
+`benchmarks/codspeed/test_qoo156_cli_supervisor.py`:
+`"equivalent" in stdout.lower()` also matches the valid **NEQ** status
+`not_equivalent`. Exits are checked, but a zero-exit negative/unknown
+CLI verdict must not pass the baseline's same-QASM EQ check. Rust
+`EquivalenceStatus::Display` emits exact machine-readable `equivalent`,
+`equivalent*`, `not_equivalent`, `unknown`, `Timeout` and `MemoryOut`
+in quiet mode.
+
+Both Python checks now accept **only exact, single-token**
+`equivalent` or `equivalent*` and reject all other or multi-line statuses.
+[Isolated pilot `a59b03a3`](https://github.com/PhysicsQoo/QuPRS/commit/a59b03a3e5dc0f293301afbaecc30c6ade1a5159),
+[Actions #41963333044](https://github.com/PhysicsQoo/QuPRS/actions/runs/41963333044)
+**SUCCESS, 18/18 tests**: valid EQ/EQ*; false-positive
+`not_equivalent`, unknown, Timeout, MemoryOut, mixed/multiline output;
+mocked complete public CLI timing harness calls. No native Rust solver
+or science source change; the hosted ABBA job runs this small regression
+test **before** expensive CLI compilation, and results are still compared
+byte-for-byte between BASE and HEAD. This fixes the **benchmark scientific
+admission guard**, not any real observed incorrect QuPRS verdict. The
+latest staging SHA requires its own official CodSpeed/ABBA CI.
+
 ## Performance decision and other limits
 
 - [Same-runner fixed-cost decomposition #41945871411](https://github.com/PhysicsQoo/QuPRS/actions/runs/41945871411): dev→P0 ~+1.53ms, P0→P1 +0.067–0.103ms; worker bootstrap dominates. Do not remove worker isolation/temporary boundary/bounded output for ~0.08ms savings. Native RR/WMC hot path remains unchanged.

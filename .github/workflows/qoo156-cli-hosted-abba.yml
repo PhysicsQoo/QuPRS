@@ -10,6 +10,8 @@ on:
       - 'rust/cli/**'
       - 'rust/Cargo.lock'
       - 'scripts/qoo156_cli_abba.py'
+      - 'scripts/test_qoo156_verdict_guard.py'
+      - 'benchmarks/codspeed/test_qoo156_cli_supervisor.py'
       - 'benchmarks/qoo156/**'
       - '.github/workflows/qoo156-cli-hosted-abba.yml'
   workflow_dispatch:
@@ -42,6 +44,9 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Check only scoped source and same native Rust Path-sum
         shell: bash
         run: |
@@ -63,6 +68,12 @@ jobs:
             echo "rustc=$(rustc --version)"
             echo "python=$(python3 --version)"
           } > evidence/identity.txt
+      - name: Fast scientific verdict negative guards (before expensive builds)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check pytest
+          python3 -m pytest -q scripts/test_qoo156_verdict_guard.py
       - name: Install local native build headers only
         run: |
           sudo apt-get update -qq

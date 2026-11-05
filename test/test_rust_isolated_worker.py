@@ -69,7 +69,7 @@ def test_rust_safe_mode_preserves_global_phase_fail_closed():
 
 
 def test_rust_safe_mode_external_gpmc_wmc_parity():
-    identity = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+    identity = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
     altered = identity + "rz(0.001) q[0];\\n"
     common = dict(
         backend="rust", method="wmc_only", tool_name="gpmc",
@@ -144,6 +144,7 @@ def test_interrupt_cleanup_uses_private_process_group():
         _stop_worker(process)
     assert process.poll() is not None
 
+
 def test_bounded_worker_remote_error_never_becomes_science_verdict():
     response = (
         b'{"version":1,"ok":false,"error_type":"ValueError",'
@@ -153,6 +154,7 @@ def test_bounded_worker_remote_error_never_becomes_science_verdict():
         _parse_worker_response(response, b"", 0)
     with pytest.raises(RustWorkerError, match="protocol version mismatch"):
         _parse_worker_response(b'{"version":42,"ok":true,"result":{}}', b"", 0)
+
 
 def test_complete_worker_reply_must_have_valid_science_status_and_fields():
     bad_status = b'{"version":1,"ok":true,"result":{"status":"Fabricated"}}'

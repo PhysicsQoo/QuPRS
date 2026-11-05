@@ -251,8 +251,21 @@ def test_address_space_cap_applies_only_inside_worker(monkeypatch):
         [sys.executable, "-c", code], env=env, capture_output=True,
         text=True, timeout=15,
     )
-    assert completed.returncode == 0, completed.stderr
-    assert int(completed.stdout.strip()) <= 4096 * 1024 * 1024
+    if completed.returncode == 0:
+        # The kernel accepted the requested virtual-address cap.
+        assert int(completed.stdout.strip()) <= 4096 * 1024 * 1024
+    else:
+        # Some macOS kernels reject RLIMIT_AS even for a lower limit;
+        # this is an explicit admission failure, not a silent fallback.
+        assert sys.platform == "darwin", completed.stderr
+        assert "current limit exceeds maximum limit" in completed.stderr
+        qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+        monkeypatch.setenv("QUPRS_ISOLATED_MAX_ADDRESS_SPACE_MIB", "4096")
+        with pytest.raises(RustWorkerError, match="exited with 125"):
+            check_equivalence(
+                qasm, qasm, backend="rust", safe_mode=True,
+                method="reduction_rules", timeout=30,
+            )
     assert resource.getrlimit(resource.RLIMIT_AS) == parent_before
 
 

@@ -166,3 +166,64 @@ def test_private_supervisor_requires_parent_admission(monkeypatch):
     monkeypatch.setattr(module.os, "read", lambda fd, n: b"wrong"[:n])
     with pytest.raises(module.SupervisorResourceError, match="invalid supervisor admission"):
         module._require_parent_admission()
+
+
+def test_cgroup_cleanup_failure_never_publishes_science(monkeypatch):
+    from QuPRS.interface import rust_resources
+    events = []
+
+    class FailingGroup:
+        def admit(self, pid):
+            events.append("admitted")
+
+        def oom_observed(self):
+            events.append("oom_checked")
+            return False
+
+        def cleanup(self):
+            events.append("cleanup_failed")
+            raise rust_resources.ResourceAdmissionError("controlled cgroup busy")
+
+    monkeypatch.setattr(
+        rust_resources.MemoryCgroup, "create_if_requested",
+        lambda: FailingGroup(),
+    )
+    monkeypatch.setattr(
+        rust_isolation.subprocess, "Popen",
+        lambda *args, **kwargs: _make_fake_supervisor(),
+    )
+    monkeypatch.setattr(rust_isolation, "_stop_worker", lambda p: None)
+    monkeypatch.setattr(
+        rust_isolation, "_bounded_exchange",
+        lambda *args: (b"{}", b""),
+    )
+    monkeypatch.setattr(
+        rust_isolation, "_parse_worker_response",
+        lambda *args: {"status": "Equivalent"},
+    )
+    now = time.monotonic()
+    with pytest.raises(
+        rust_isolation.RustWorkerError,
+        match="cgroup cleanup was not certified",
+    ):
+        rust_isolation.run_isolated(QASM, QASM, {}, now, now + 10)
+    assert events == ["admitted", "oom_checked", "cleanup_failed"]
+
+
+def test_cgroup_admission_refuses_unbounded_fallback(monkeypatch):
+    from QuPRS.interface import rust_resources
+    monkeypatch.setattr(
+        rust_resources.MemoryCgroup, "create_if_requested",
+        lambda: (_ for _ in ()).throw(
+            rust_resources.ResourceAdmissionError("no delegated controller")
+        ),
+    )
+    monkeypatch.setattr(
+        rust_isolation.subprocess, "Popen",
+        lambda *args, **kwargs: pytest.fail("cannot spawn uncapped supervisor"),
+    )
+    now = time.monotonic()
+    with pytest.raises(
+        rust_resources.ResourceAdmissionError, match="no delegated controller"
+    ):
+        rust_isolation.run_isolated(QASM, QASM, {}, now, now + 10)

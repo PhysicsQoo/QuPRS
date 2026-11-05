@@ -82,5 +82,18 @@ print("ADDRESS_CAP_PASS")
         [sys.executable, "-c", script, path], env=env, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
     )
-    assert done.returncode == 0, done.stderr
-    assert "ADDRESS_CAP_PASS" in done.stdout
+    if done.returncode == 0:
+        assert "ADDRESS_CAP_PASS" in done.stdout
+    else:
+        # Some macOS kernels report RLIMIT_AS but reject lowering its hard
+        # limit. Verify explicit resource admission refuses the request;
+        # do not silently downgrade to an unbounded worker.
+        assert sys.platform == "darwin", done.stderr
+        assert "setrlimit" in done.stderr or "current limit exceeds maximum limit" in done.stderr
+        from QuPRS import check_equivalence
+        qasm = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+        with pytest.raises(rust_isolation.RustWorkerError):
+            check_equivalence(
+                qasm, qasm, backend="rust", safe_mode=True,
+                method="reduction_rules", timeout=30,
+            )

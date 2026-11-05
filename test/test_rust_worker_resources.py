@@ -97,3 +97,23 @@ print("ADDRESS_CAP_PASS")
                 qasm, qasm, backend="rust", safe_mode=True,
                 method="reduction_rules", timeout=30,
             )
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux PR_SET_PDEATHSIG only")
+def test_worker_arms_linux_parent_death_only_in_child():
+    script = """
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("quprs_bootstrap", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+os.environ["QUPRS_RUST_WORKER_PARENT_PID"] = str(os.getppid())
+module._arm_supervisor_death_signal()
+print("WORKER_PARENT_DEATH_ARMED")
+"""
+    path = str(Path(rust_isolation.__file__).with_name("rust_worker_bootstrap.py"))
+    result = subprocess.run(
+        [sys.executable, "-c", script, path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, timeout=6,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "WORKER_PARENT_DEATH_ARMED" in result.stdout

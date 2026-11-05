@@ -14,6 +14,7 @@ import json
 import os
 import signal
 import time
+import tempfile
 import subprocess
 import sys
 from pathlib import Path
@@ -187,18 +188,116 @@ def forced_oom_proof(limit_mib: int) -> dict:
             raise RuntimeError("OOM pilot cgroup cleanup failed") from exc
 
 
+_DETACHED_SUPERVISOR = r"""
+import os, subprocess, sys, time
+if os.read(0, 1) != b"1":
+    sys.exit(31)
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time;time.sleep(30)"],
+    start_new_session=True,
+    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+with open(sys.argv[1], "w", encoding="ascii") as f:
+    f.write(str(child.pid))
+    f.flush()
+time.sleep(30)
+"""
+
+
+def detached_descendant_proof(limit_mib: int) -> dict:
+    """Simulate a SIGKILL'ed supervisor leaving a detached Solver child.
+
+    A parent-owned cgroup is allowed to terminate only PIDs inside its own
+    newly created leaf. This does not change a host's subreaper settings.
+    """
+    os.environ["QUPRS_ISOLATED_MAX_MEMORY_MIB"] = str(limit_mib)
+    group = MemoryCgroup.create_if_requested()
+    assert group is not None
+    supervisor = None
+    grandchild_pid = None
+    cleanup_done = False
+    with tempfile.TemporaryDirectory(prefix="qoo175-detached-") as temp:
+        witness_file = Path(temp) / "orphan.pid"
+        try:
+            supervisor = subprocess.Popen(
+                [sys.executable, "-c", _DETACHED_SUPERVISOR, str(witness_file)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                close_fds=True, start_new_session=True,
+            )
+            group.admit(supervisor.pid)
+            supervisor.stdin.write(b"1")
+            supervisor.stdin.flush()
+            deadline = time.monotonic() + 5
+            while not witness_file.exists():
+                if time.monotonic() >= deadline:
+                    raise AssertionError("detached Solver child not observed")
+                time.sleep(0.01)
+            grandchild_pid = int(witness_file.read_text())
+            before = Path(f"/proc/{grandchild_pid}/cgroup").read_text()
+            if group.path.name not in before:
+                raise AssertionError("detached child never entered owned cgroup leaf")
+            os.kill(supervisor.pid, signal.SIGKILL)
+            supervisor.wait(timeout=2)
+            group.cleanup()
+            cleanup_done = True
+            if group.path.exists():
+                raise AssertionError("cgroup cleanup did not remove detached-child leaf")
+            status_file = Path(f"/proc/{grandchild_pid}/status")
+            if status_file.exists():
+                status_text = status_file.read_text()
+                state = next(
+                    (line.split(":", 1)[1].strip().split()[0]
+                     for line in status_text.splitlines()
+                     if line.startswith("State:")), ""
+                )
+                if state not in {"Z", "X", "x"}:
+                    raise AssertionError(
+                        f"detached child still executing after cleanup, state={state}"
+                    )
+            return {
+                "status": "PASS",
+                "physical_memory_mib": limit_mib,
+                "detached_solver_inherited_private_cgroup": True,
+                "supervisor_killed_with_sigkill": True,
+                "detached_child_not_running_after_cleanup": True,
+                "private_leaf_removed": True,
+                "scope": "kernel_parent_owned_cgroup_detached_descendant_cleanup",
+            }
+        finally:
+            if supervisor is not None and supervisor.poll() is None:
+                try:
+                    os.killpg(supervisor.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                supervisor.wait(timeout=3)
+            if not cleanup_done:
+                try:
+                    group.cleanup()
+                except Exception as exc:
+                    raise RuntimeError("detached-child test cgroup cleanup failed") from exc
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--memory-mib", type=int, default=192)
     parser.add_argument("--oom", action="store_true", help="perform bounded in-cgroup OOM witness")
+    parser.add_argument("--detached", action="store_true", help="verify cgroup cleanup of detached child after supervisor SIGKILL")
     args = parser.parse_args()
     if not 64 <= args.memory_mib <= 4096:
         parser.error("memory-mib must be between 64 and 4096")
+    if args.oom and args.detached:
+        parser.error("choose either --oom or --detached")
     if args.oom and args.memory_mib > 256:
         parser.error("OOM stress is capped at 256 MiB to protect disposable hosts")
     try:
-        result = (forced_oom_proof(args.memory_mib)
-                  if args.oom else positive_group_proof(args.memory_mib))
+        if args.oom:
+            result = forced_oom_proof(args.memory_mib)
+        elif args.detached:
+            result = detached_descendant_proof(args.memory_mib)
+        else:
+            result = positive_group_proof(args.memory_mib)
     except ResourceAdmissionError as exc:
         print(json.dumps({
             "status": "NOT_MET",

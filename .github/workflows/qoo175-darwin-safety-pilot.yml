@@ -7,6 +7,7 @@ on:
       - 'src/QuPRS/interface/rust_macos_process.py'
       - 'src/QuPRS/interface/rust_supervisor.py'
       - 'test/test_rust_macos_process.py'
+      - 'test/test_rust_macos_supervisor_faults.py'
       - '.github/workflows/qoo175-darwin-safety-pilot.yml'
   workflow_dispatch:
 
@@ -65,5 +66,5 @@ jobs:
           WHEEL="$(ls dist/*.whl | head -n 1)"
           pip install "${WHEEL}[dev]"
           python -c 'import QuPRS, importlib.util; assert importlib.util.find_spec("QuPRS.interface.rust_macos_process")'
-          python -m pytest -q -ra test/test_rust_macos_process.py test/test_rust_isolated_worker.py test/test_verifier_api_defaults.py
+          python -m pytest -q -ra test/test_rust_macos_process.py test/test_rust_macos_supervisor_faults.py test/test_rust_isolated_worker.py test/test_verifier_api_defaults.py
           cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor

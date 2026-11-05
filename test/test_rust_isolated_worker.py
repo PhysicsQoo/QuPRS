@@ -153,3 +153,13 @@ def test_bounded_worker_remote_error_never_becomes_science_verdict():
         _parse_worker_response(response, b"", 0)
     with pytest.raises(RustWorkerError, match="protocol version mismatch"):
         _parse_worker_response(b'{"version":42,"ok":true,"result":{}}', b"", 0)
+
+def test_complete_worker_reply_must_have_valid_science_status_and_fields():
+    bad_status = b'{"version":1,"ok":true,"result":{"status":"Fabricated"}}'
+    with pytest.raises(RustWorkerError, match="invalid status"):
+        _parse_worker_response(bad_status, b"", 0)
+    missing_fields = b'{"version":1,"ok":true,"result":{"status":"Equivalent"}}'
+    with pytest.raises(RustWorkerError, match="missing required fields"):
+        _parse_worker_response(missing_fields, b"", 0)
+    with pytest.raises(RustWorkerError, match="exited with 137"):
+        _parse_worker_response(b"", b"OOM killed", 137)

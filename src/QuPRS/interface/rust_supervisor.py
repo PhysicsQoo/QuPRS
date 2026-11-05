@@ -1,8 +1,8 @@
 """Private, standalone POSIX supervisor for isolated QuPRS Rust verification.
 
 Launched as a script (not -m), it imports only stdlib before worker creation.
-Linux uses a private child-subreaper; macOS samples Worker ancestry using
-native ps, following the Rust CLI resource-supervision contract. Neither
+Linux uses a private child-subreaper; macOS observes verified Worker descendants
+via native libproc, following the Rust CLI resource-supervision contract. Neither
 changes process-wide supervision settings in the embedding Python app.
 """
 from __future__ import annotations

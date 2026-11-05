@@ -121,3 +121,16 @@ def test_macos_detached_solver_cleanup_real_kernel(tmp_path):
             try: os.kill(child, signal.SIGKILL)
             except ProcessLookupError: pass
         if worker.poll() is None: rust_isolation._stop_worker(worker)
+
+
+def test_libproc_zero_count_with_errno_is_not_silent_empty_tree(monkeypatch):
+    import ctypes
+    import errno
+    mod = _module()
+    class Lib:
+        def proc_listchildpids(self, pid, buffer, size):
+            ctypes.set_errno(errno.EPERM)
+            return 0
+    monkeypatch.setattr(mod, "_lib", lambda: Lib())
+    with pytest.raises(mod.ProcessTreeError, match="enumeration failed"):
+        mod._children(42)

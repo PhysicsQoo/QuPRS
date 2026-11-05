@@ -49,13 +49,14 @@ An isolated Worker is not a general-purpose sandbox for hostile code.
 On Linux, supervision includes a dedicated child-subreaper so that ordinary
 detached solver descendants can be reaped without changing the host Python
 application's child-process handling. A force-killed Supervisor or malicious
-daemonization may still require an outer container/job manager. On macOS, the private Supervisor also samples Worker PID/PPID ancestry
-using the native `ps` interface, following the Rust CLI's process-tree cleanup
-contract. It tracks observed descendants through reparenting and verifies
-their PID/start-time witness before terminating them. This tracking applies
-only to `safe_mode=True`, not the default direct PyO3 path. Sampling cannot
-guarantee discovery of a process that daemonizes or re-parents between
-observations; it cannot recover descendants after the Supervisor itself is
+daemonization may still require an outer container/job manager. On macOS, the private Supervisor uses native `libproc` process enumeration
+and checks the observed Worker/Solver descendants' PID, owner and
+microsecond-resolution process creation time, following the Rust CLI's
+process-tree cleanup contract. It retains observed descendants through
+reparenting and verifies their identity before attempting termination. This tracking applies
+only to `safe_mode=True`, not the default direct PyO3 path. Sampling cannot guarantee discovery of a process that daemonizes or
+re-parents between observations; the identity-check-to-signal step is not
+atomic, and it cannot recover descendants after the Supervisor itself is
 force-killed. Native macOS isolation therefore remains **best-effort process
 containment**, not an equivalent of Linux cgroup v2 or a sandbox.
 

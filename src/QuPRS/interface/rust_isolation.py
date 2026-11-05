@@ -112,8 +112,8 @@ def _bounded_exchange(process, payload: bytes, deadline: float) -> tuple[bytes, 
 def _stop_worker(process):
     """Best-effort kill of the worker's private POSIX process group and reap.
 
-    Detached solver grandchildren require additional supervisor work before
-    this experimental path can claim CLI-grade process-tree isolation.
+    Detached macOS solver grandchildren are also checked by the dedicated
+    Supervisor's native libproc tracker, not by this generic group helper.
     """
     try:
         # Never signal a freed process-group ID after its leader was reaped:
@@ -261,11 +261,11 @@ def run_isolated(
             if supervisor is not None:
                 try:
                     if supervisor.poll() is None:
-                        # Give the private subreaper a bounded opportunity
-                        # to terminate and reap detached descendants.
+                        # Linux has a private subreaper; macOS must finish its
+                        # tracked native descendant cleanup before escalation.
                         supervisor.terminate()
                         try:
-                            supervisor.wait(timeout=2)
+                            supervisor.wait(timeout=5 if sys.platform == "darwin" else 2)
                         except subprocess.TimeoutExpired as exc:
                             _stop_worker(supervisor)
                             raise RustWorkerError(

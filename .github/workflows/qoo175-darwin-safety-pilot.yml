@@ -5,6 +5,8 @@ on:
     branches: [experiment/qoo175-darwin-safety-p0]
     paths:
       - 'src/QuPRS/interface/rust_macos_process.py'
+      - 'src/QuPRS/interface/rust_isolation.py'
+      - 'docs/python_rust_isolation.md'
       - 'src/QuPRS/interface/rust_supervisor.py'
       - 'test/test_rust_macos_process.py'
       - 'test/test_rust_macos_supervisor_faults.py'

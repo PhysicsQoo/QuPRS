@@ -419,6 +419,8 @@ The shorter aliases `--distance-tolerance` and
 or phase tolerances without a second circuit is an error, because
 single-circuit CLI mode only reduces the PathSum and does not verify a pair.
 
+For the CLI's end-to-end timeout, worker isolation, memory caps and cleanup behavior, see [Rust CLI resource limits](docs/rust_cli_resource_limits.md).
+
 The `--quiet` **stdout** remains machine-readable and prints only
 the verdict; an observed Ganak resolution warning is printed separately
 on **stderr**. Normal output reports the selected solver, requested

@@ -178,6 +178,8 @@ def run_isolated(
         raise RustWorkerError("experimental Rust isolation requires a POSIX host")
 
     request = {
+        "deadline_monotonic_sec": request_deadline,
+        "request_started_monotonic_sec": request_started,
         "version": _PROTOCOL_VERSION,
         "circuit1": circuit1,
         "circuit2": circuit2,
@@ -198,8 +200,9 @@ def run_isolated(
         environment["TMPDIR"] = temporary
         environment["TMP"] = temporary
         environment["TEMP"] = temporary
+        environment["QUPRS_RUST_SUPERVISOR_PARENT_PID"] = str(os.getpid())
         worker = subprocess.Popen(
-            [sys.executable, "-m", "QuPRS.interface.rust_isolation"],
+            [sys.executable, "-I", os.path.join(os.path.dirname(__file__), "rust_supervisor.py")],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -222,7 +225,19 @@ def run_isolated(
                 }
             return _parse_worker_response(stdout, stderr, worker.returncode)
         finally:
-            _stop_worker(worker)
+            # SIGTERM lets the dedicated supervisor reap adopted solver
+            # descendants before the parent releases its temporary directory.
+            if worker.poll() is None:
+                worker.terminate()
+                try:
+                    worker.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    _stop_worker(worker)
+            else:
+                _stop_worker(worker)
+            for stream in (worker.stdin, worker.stdout, worker.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
 
 
 def _worker_main() -> int:

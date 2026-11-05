@@ -103,8 +103,8 @@ informational rather than a second veto.
   source proof or malformed Solver results fail; `Timeout`,
   `MemoryOut`, `INCONCLUSIVE_RESOURCE` and planned benchmark skips
   do **not** certify either equivalence or inequivalence. A full
-  benchmark-performance cohort may be required explicitly, not as
-  an automatic scientific-error gate.
+  missing performance samples do not establish the absence of a
+  regression or change the scientific classification.
 
 For precise numerical semantics consult
 [per-call tolerances](per-call-tolerance.md),

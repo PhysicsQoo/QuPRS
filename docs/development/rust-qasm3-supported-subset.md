@@ -51,7 +51,6 @@ Named quantum-register **partition metadata** is not reconstructed in a
 public `PathSum`. Wire ordering is preserved, but complete partition
 provenance and arbitrary Qiskit-generated OpenQASM3 are not promised.
 
-This is **not** general OpenQASM 3 support. Future acceptance of
-source-exact Python phases, complete register partitions, symbolic
-parameters, measurements, classical control and custom gate definitions
-requires separate semantic specifications and evidence.
+This is **not** general OpenQASM 3 support. Symbolic parameters,
+measurements, classical control, custom gate definitions and complete
+register-partition reconstruction are outside the supported contract.

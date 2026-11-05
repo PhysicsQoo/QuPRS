@@ -83,17 +83,11 @@ QuPRS provides pre-built wheels for the following operating systems and architec
 | **macOS** | Apple Silicon (M1/M2/M3) | ✅ Supported | macOS 15+ |
 | **Windows** | x86_64 / ARM64 | ⚠️ **WSL2 Only** | Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) |
 
-The published macOS wheels for QuPRS v0.13.2 are tagged `macosx_15_0_*` and require **macOS 15+**. On macOS 14, pip cannot use these prebuilt wheels but can attempt to build the source distribution (sdist). A [macOS 14.8.9 / Apple Silicon / Python 3.12.10 smoke test](https://github.com/PhysicsQoo/QuPRS/actions/runs/39217598481) successfully installed v0.13.2 from sdist with Homebrew build dependencies and ran a basic Ganak-backed equivalence check. This is **limited source-install evidence**, not a guarantee for every macOS 14 configuration, Python version, or solver feature.
-
-For the tested macOS 14 ARM64 source-build path (rather than a prebuilt wheel):
-
-```bash
-brew install cmake gmp mpfr zlib
-python -m pip install --no-binary=quprs 'QuPRS==0.13.2'
-```
-
-For the **supported prebuilt-wheel installation path**, use macOS 15 or later.
-
+QuPRS v0.14.0 macOS wheels target **macOS 15 or later** on Intel and
+Apple Silicon. macOS 14 has no supported prebuilt-wheel claim for this
+release; an independently prepared source build may be possible but is not
+a substitute for a supported wheel. See the
+[v0.14.0 platform and upgrade guide](docs/development/v0140-migration.md).
 
 ### v0.14.0 input and migration notes
 
@@ -280,8 +274,10 @@ You can load circuits from QASM files or define them directly using Qiskit for c
 
 ### Phase preservation and reduction tolerance
 
-Both Python and Rust preserve the input gate-angle representation.
-During RR simplification, the per-request tolerance may remove small
+Rust preserves supported source-literal QASM angles; the Python Qiskit
+path retains the precision of the supplied parameters, which may already
+have been rounded upstream. During RR simplification, the per-request
+tolerance may remove small
 **non-global** phase terms or permit near-HH/omega matching; these are
 approximate working-state transformations, indicated by `rr_approximate`.
 Scalar global phase is never discarded by the RR tolerance. A request with
@@ -518,12 +514,14 @@ archive/executable SHA256 and architecture checks still apply.
 Count fixtures compare against hand-computed complex sums and the other solver
 using relative error `1e-8` and absolute error `1e-12`; individual Rust
 solver-integration fixtures use a documented `2e-9` absolute budget. These are
-fixture budgets, not universal error bounds under cancellation. Rust serializes
-both solver inputs with 17 significant decimal digits in scientific notation
-(enough to round-trip binary64 weights). Python evaluates symbolic weights at
-113 bits where supported and writes their decimal form without an arbitrary
-nine-decimal quantization. Input precision cannot exceed the information in
-the original circuit parameters or the numerical type used upstream.
+fixture budgets, not universal error bounds under cancellation. The native
+Rust GPMC projective-distance path evaluates supported source phase weights
+with tolerance-adaptive MPFR precision and serializes the resulting decimal
+values without an intermediate binary64 conversion. The native Ganak path
+retains binary64 input-weight serialization with enough decimal digits for
+round-trip representation. Python evaluates symbolic weights at 113 bits
+where supported. Neither input representation certifies the internal
+arithmetic accuracy of an external solver.
 
 Both Python and Rust WMC public backends use a single configurable
 **projective-distance tolerance**, default `1e-8`. For example:

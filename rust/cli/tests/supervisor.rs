@@ -56,6 +56,127 @@ fn supervisor_timeout_includes_qasm_read_and_both_cli_modes() {
 }
 
 #[cfg(unix)]
+fn wait_for_canceled_cli(mut child: std::process::Child) -> std::process::Output {
+    for _ in 0..100 {
+        if child.try_wait().unwrap().is_some() {
+            return child.wait_with_output().unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("supervisor did not exit within 5s after cancellation");
+}
+
+#[cfg(unix)]
+fn pid_is_gone_or_zombie(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"));
+        return match stat {
+            Err(_) => true,
+            Ok(data) => data.rsplit_once(") ").is_some_and(|(_, tail)| tail.starts_with('Z')),
+        };
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = Command::new("ps").args(["-p", &pid.to_string(), "-o", "stat="])
+            .output().unwrap();
+        if !output.status.success() || output.stdout.is_empty() {
+            return true;
+        }
+        String::from_utf8_lossy(&output.stdout).trim_start().starts_with('Z')
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn supervisor_sigint_sigterm_cancels_worker_and_preserves_empty_science_stdout() {
+    let file = fixture();
+    for signal in [libc::SIGINT, libc::SIGTERM] {
+        let child = Command::new(cli()).arg(file.path())
+            .args(["--quiet", "--timeout", "20"])
+            .env("QUPRS_CLI_TEST_HOLD_MS", "6000")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(unsafe { libc::kill(child.id() as i32, signal) }, 0);
+        let output = wait_for_canceled_cli(child);
+        assert_eq!(output.status.code(), Some(128 + signal),
+            "signal cancellation was not typed: {output:?}");
+        assert!(output.stdout.is_empty(), "partial science stdout escaped: {output:?}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("CancelledBySignal"),
+            "signal cancellation not reported: {output:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn signal_cancellation_kills_worker_detached_process_group_helper() {
+    let file = fixture();
+    let pidfile = tempfile::NamedTempFile::new().unwrap();
+    let child = Command::new(cli()).arg(file.path())
+        .args(["--quiet", "--timeout", "20"])
+        .env("QUPRS_CLI_TEST_DETACHED_PIDFILE", pidfile.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn().unwrap();
+    let helper: u32 = (0..80).find_map(|_| {
+        if let Ok(data) = fs::read_to_string(pidfile.path()) {
+            if let Ok(pid) = data.trim().parse::<u32>() {
+                return Some(pid);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        None
+    }).expect("debug worker must write genuine detached PID before parent cancel");
+    assert!(!pid_is_gone_or_zombie(helper), "detached helper was never alive");
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+    let output = wait_for_canceled_cli(child);
+    assert_eq!(output.status.code(), Some(143), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    for _ in 0..50 {
+        if pid_is_gone_or_zombie(helper) { return; }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    unsafe { libc::kill(helper as libc::pid_t, libc::SIGKILL); }
+    panic!("detached helper pid {helper} survived supervisor SIGTERM cleanup");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn supervisor_sigkill_triggers_worker_parent_death_signal() {
+    let file = fixture();
+    let pidfile = tempfile::NamedTempFile::new().unwrap();
+    let mut child = Command::new(cli()).arg(file.path())
+        .args(["--quiet", "--timeout", "20"])
+        .env("QUPRS_CLI_TEST_WORKER_PIDFILE", pidfile.path())
+        .env("QUPRS_CLI_TEST_HOLD_MS", "6000")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn().unwrap();
+    let worker: u32 = (0..80).find_map(|_| {
+        if let Ok(data) = fs::read_to_string(pidfile.path()) {
+            if let Ok(pid) = data.trim().parse::<u32>() {
+                return Some(pid);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        None
+    }).expect("worker PID witness must be produced before supervisor SIGKILL");
+    assert!(!pid_is_gone_or_zombie(worker), "worker must be alive before SIGKILL");
+    assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGKILL) }, 0);
+    let _ = child.wait().unwrap();
+    for _ in 0..80 {
+        if pid_is_gone_or_zombie(worker) { return; }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    unsafe { libc::kill(worker as libc::pid_t, libc::SIGKILL); }
+    panic!("worker PID {worker} survived abrupt supervisor death");
+}
+
+#[cfg(unix)]
 #[test]
 fn explicit_address_space_cap_does_not_fail_open() {
     let file = fixture();

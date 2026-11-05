@@ -1,0 +1,61 @@
+name: QOO-156 P0 supervisor signal and OOM fail-closed pilot
+
+on:
+  push:
+    branches:
+      - experiment/qoo156-supervisor-signal-oom-p0
+    paths:
+      - 'rust/cli/**'
+      - 'rust/Cargo.lock'
+      - '.github/workflows/qoo156-supervisor-p0-pilot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo156-signal-oom-p0-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scoped-supervisor:
+    name: Rust CLI signal and OOM (native ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+          - os: macos-14
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native C++ / MPFR headers on Linux only
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+      - name: Verify exact source and machine
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          uname -a
+          rustc --version
+          cargo --version
+          echo "QOO156_TESTED_SHA=$(git rev-parse HEAD)"
+      - name: CLI unit tests and exact real-process integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --bin QuPRS_cli -- --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor -- --nocapture
+      - name: Production release CLI compile
+        shell: bash
+        run: |
+          cargo build --locked --release --manifest-path rust/Cargo.toml -p QuPRS_cli
+          echo "QOO156_SIGNAL_OOM_SCOPED_PASS=${{ matrix.os }}"

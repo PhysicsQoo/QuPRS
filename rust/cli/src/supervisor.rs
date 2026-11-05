@@ -6,11 +6,53 @@ use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const OUTPUT_LIMIT: u64 = 16 * 1024 * 1024;
 const WORKER_LAUNCH_WITNESS: &[u8] = b"QuPRS-supervisor-inherited-stdin-v1\n";
+
+// POSIX signal handlers must not allocate, lock, print, or inspect the
+// process tree. Record the signal and let the normal supervisor path perform
+// bounded tree termination and reaping. No extra threads on the fast path.
+#[cfg(unix)]
+static INTERRUPTED_SIGNAL: AtomicI32 = AtomicI32::new(0);
+
+#[cfg(unix)]
+extern "C" fn record_supervisor_interrupt(signal: libc::c_int) {
+    INTERRUPTED_SIGNAL.store(signal, Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+fn install_supervisor_signal_handlers() -> Result<()> {
+    for signal in [libc::SIGINT, libc::SIGTERM] {
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = record_supervisor_interrupt as usize;
+        unsafe {
+            libc::sigemptyset(&mut action.sa_mask);
+            if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+                return Err(io::Error::last_os_error())
+                    .context("install CLI supervisor cancellation signal handler");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn interrupted_signal() -> Option<i32> {
+    #[cfg(unix)]
+    {
+        let signal = INTERRUPTED_SIGNAL.load(Ordering::Relaxed);
+        if signal != 0 { return Some(signal); }
+    }
+    None
+}
+
+fn external_signal_status(signal: i32) -> i32 {
+    128 + signal
+}
 pub const TIMEOUT_EXIT: i32 = 124;
 pub const RESOURCE_EXIT: i32 = 125;
 
@@ -30,6 +72,7 @@ enum StopReason {
     OutputLimit(&'static str),
     CaptureFailed(&'static str),
     WaitFailed(String),
+    ExternalSignal(i32),
 }
 
 // An output EOF at (or after) deadline is not a successful completion even
@@ -135,6 +178,11 @@ fn cleanup_adopted_children() -> Result<()> {
 
 pub fn supervise(cli: &Cli) -> Result<i32> {
     if cli.timeout == 0 { bail!("--timeout must be positive"); }
+    // Handle ordinary terminal/CI cancellation independently from worker
+    // process group. SIGKILL is uncatchable; Linux additionally arms
+    // PR_SET_PDEATHSIG on the worker before it may parse QASM.
+    #[cfg(unix)]
+    install_supervisor_signal_handlers()?;
     enable_child_subreaper()?;
     if cli.max_memory_mib == Some(0) || cli.max_address_space_mib == Some(0) {
         bail!("resource limits must be positive MiB values");
@@ -173,6 +221,28 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     #[cfg(target_os = "linux")]
     let join_file = cgroup.as_ref()
         .map(|group| group.install_pre_exec(&mut command)).transpose()?;
+    // Linux worker death on abrupt supervisor loss (e.g. SIGKILL). This
+    // guards the direct worker, not arbitrary daemonized solver grandchildren.
+    #[cfg(target_os = "linux")]
+    {
+        let parent_pid = std::process::id() as libc::pid_t;
+        unsafe {
+            command.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if libc::getppid() != parent_pid {
+                    return Err(io::Error::new(io::ErrorKind::NotConnected,
+                        "CLI supervisor exited before worker admission"));
+                }
+                Ok(())
+            });
+        }
+    }
+    if let Some(signal) = interrupted_signal() {
+        eprintln!("CancelledBySignal: signal {signal} before worker start");
+        return Ok(external_signal_status(signal));
+    }
     let mut child = command.spawn().context("spawn isolated QuPRS CLI worker")?;
     #[cfg(target_os = "linux")]
     drop(join_file);
@@ -210,11 +280,19 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
     let mut stderr_finished = false;
     let mut interrupted = None;
     loop {
+        if let Some(signal) = interrupted_signal() {
+            interrupted = Some(StopReason::ExternalSignal(signal));
+            break;
+        }
         // Worker exit alone is not sufficient: an inherited stdout/stderr
         // descriptor can remain open in a detached descendant. EOF for both
         // captures is part of a successful bounded request.
         if exit.is_some() && stdout_finished && stderr_finished { break; }
-        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        // A short receive cap wakes the supervisor on SIGINT/SIGTERM without
+        // introducing a polling tail into completed requests. No extra
+        // subprocess, signal thread, or computational hot-path instrumentation.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(remaining.min(Duration::from_millis(50))) {
             Ok(WorkerEvent::Exited(Ok(status), finished)) => {
                 reaped = true;
                 if finished < deadline {
@@ -255,8 +333,15 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
                 break;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                interrupted = Some(StopReason::Timeout);
-                break;
+                if let Some(signal) = interrupted_signal() {
+                    interrupted = Some(StopReason::ExternalSignal(signal));
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    interrupted = Some(StopReason::Timeout);
+                    break;
+                }
+                continue;
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 interrupted = Some(StopReason::WaitFailed(
@@ -264,6 +349,11 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
                 ));
                 break;
             }
+        }
+    }
+    if interrupted.is_none() {
+        if let Some(signal) = interrupted_signal() {
+            interrupted = Some(StopReason::ExternalSignal(signal));
         }
     }
     if interrupted.is_some() {
@@ -306,6 +396,10 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
             StopReason::WaitFailed(message) => {
                 eprintln!("ResourceSupervisorError: {message}");
             }
+            StopReason::ExternalSignal(signal) => {
+                eprintln!("CancelledBySignal: received signal {signal}; worker tree canceled");
+                return Ok(external_signal_status(signal));
+            }
         }
         return Ok(RESOURCE_EXIT);
     }
@@ -331,9 +425,24 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         }
     };
 
-    if cgroup.as_ref().is_some_and(MemoryCgroup::oom_killed) {
-        eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
-        return Ok(RESOURCE_EXIT);
+    // The OOM witness is mandatory if the user requested a physical-memory
+    // cap. Unreadable/malformed memory.events must NEVER mean "no OOM".
+    if let Some(group) = cgroup.as_ref() {
+        match group.oom_killed() {
+            Ok(true) => {
+                eprintln!("MemoryLimitExceeded: cgroup memory.max was reached");
+                return Ok(RESOURCE_EXIT);
+            }
+            Ok(false) => {}
+            Err(error) => {
+                eprintln!("ResourceSupervisorError: cannot certify cgroup memory.events: {error:#}");
+                return Ok(RESOURCE_EXIT);
+            }
+        }
+    }
+    if let Some(signal) = interrupted_signal() {
+        eprintln!("CancelledBySignal: signal {signal} before output commit");
+        return Ok(external_signal_status(signal));
     }
     let exit = exit.context("worker exit status missing after successful event wait")?;
     if exit.success() {
@@ -545,15 +654,34 @@ impl MemoryCgroup {
             .context("terminate worker cgroup")?;
         Ok(())
     }
-    fn oom_killed(&self) -> bool {
+    fn oom_killed(&self) -> Result<bool> {
         #[cfg(target_os = "linux")]
-        if let Ok(data) = fs::read_to_string(self.path.join("memory.events")) {
-            return data.lines().any(|line| line.split_once(' ')
-                .is_some_and(|(key, value)| key == "oom_kill" && value.parse::<u64>().unwrap_or(0) > 0));
+        {
+            let data = fs::read_to_string(self.path.join("memory.events"))
+                .context("read cgroup memory.events")?;
+            return parse_oom_killed(&data);
         }
-        false
+        #[cfg(not(target_os = "linux"))]
+        Ok(false)
     }
 }
+// Missing or malformed kernel accounting is an explicit resource error.
+#[cfg(target_os = "linux")]
+fn parse_oom_killed(text: &str) -> Result<bool> {
+    let mut count = None;
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        if parts.next() == Some("oom_kill") {
+            let value = parts.next().context("missing oom_kill counter")?;
+            anyhow::ensure!(parts.next().is_none(), "malformed oom_kill counter");
+            anyhow::ensure!(count.is_none(), "duplicate oom_kill counter");
+            count = Some(value.parse::<u64>()
+                .context("invalid oom_kill counter")?);
+        }
+    }
+    Ok(count.context("memory.events missing oom_kill counter")? > 0)
+}
+
 impl Drop for MemoryCgroup {
     fn drop(&mut self) {
         let _ = self.kill_all();
@@ -583,6 +711,34 @@ pub fn authorize_worker_launch() -> Result<()> {
 }
 
 pub fn prepare_worker() -> Result<()> {
+
+    // Debug-only process-liveness witnesses. These variables are not
+    // compiled into the release CLI and do not affect production performance.
+    #[cfg(debug_assertions)]
+    if let Ok(path) = std::env::var("QUPRS_CLI_TEST_WORKER_PIDFILE") {
+        fs::write(path, std::process::id().to_string())
+            .context("write worker PID for parent-death-signal test")?;
+    }
+
+    #[cfg(all(debug_assertions, unix))]
+    if let Ok(path) = std::env::var("QUPRS_CLI_TEST_DETACHED_PIDFILE") {
+        let mut cmd = Command::new("sleep");
+        cmd.arg("30").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let helper = cmd.spawn().context("spawn detached worker-session witness")?;
+        fs::write(path, helper.id().to_string())
+            .context("save detached helper PID")?;
+        // Hold the worker alive so a parent can observe and kill even a
+        // descendant in a separate process group before it becomes orphaned.
+        thread::sleep(Duration::from_secs(6));
+    }
 
     // Debug-only bounded I/O pressure. Large writes reach the parent capture
     // threads before any QASM parsing; never compiled into release binaries.
@@ -650,6 +806,25 @@ pub fn prepare_worker() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn memory_oom_witness_must_be_readable_and_well_formed() {
+        assert_eq!(parse_oom_killed("low 0\nhigh 0\noom 0\noom_kill 0\n").unwrap(), false);
+        assert_eq!(parse_oom_killed("low 0\nhigh 0\noom 2\noom_kill 1\n").unwrap(), true);
+        for malformed in ["", "oom 1", "oom_kill", "oom_kill xyz",
+                          "oom_kill 0 extra", "oom_kill 0\noom_kill 1"] {
+            assert!(parse_oom_killed(malformed).is_err(), "accepted {malformed:?}");
+        }
+        let missing = MemoryCgroup {
+            path: std::env::temp_dir().join(format!(
+                "qoo156-uncreated-memory-events-{}", std::process::id()
+            )),
+        };
+        assert!(missing.oom_killed().is_err(), "unreadable cgroup events failed open");
+        // Avoid Drop attempting cgroup.kill on an unrelated temp path.
+        std::mem::forget(missing);
+    }
+
     #[test]
     fn worker_and_pipe_completion_at_deadline_is_not_success() {
         let deadline = Instant::now();

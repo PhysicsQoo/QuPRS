@@ -1,8 +1,6 @@
 # CodSpeed benchmark suite compatibility and retirement policy
 
-Status: updated for v0.14.0 controlled CodSpeed v3 PR #133.
-The original research proposal and its pre-release benchmark migration are
-distinguished from the active suite. This governs CodSpeed measurement
+Status: v0.14.0 published suite compatibility contract. This governs CodSpeed measurement
 identities and history, not the public QuPRS Python/Rust API.
 
 ## Policy and releases
@@ -13,13 +11,8 @@ identities and history, not the public QuPRS Python/Rust API.
   44 Simulation IDs total. Retain 30 Native Rust/core identities and
   ten full-Solver paired WallTime cases (nine existing Hybrid + one
   source-pinned QAOA7 Rust/GPMC WMC-only NEQ).
-  The initial development-only proposal had 24 QASM261 CPU aliases
-  (two Solvers × two backends × six circuits). The 12 Ganak-alias
-  identities were retired *before release* because CPU Simulation
-  does not measure GPMC/Ganak subprocess execution. Historical results
-  remain archived under their original SHA and must not be relabeled
-  as current-suite numbers. The larger curated corpus and v3
-  manifest schema remain separate research candidates.
+  Previously proposed extra solver-named CPU aliases were not released;
+  simulation without subprocess tracking does not measure the GPMC/Ganak child runtime.
 - v0.15.0: curated suite may become the default only after source/oracle,
   instrument and CI cost qualification. The complete legacy suite must remain
   runnable by opt-in and in periodic/release validation.
@@ -66,43 +59,15 @@ In a later integration phase, new CI reporters must use this module instead
 of hard-coded 32/five-shard checks for the new suite; they must preserve the
 legacy verification path and its original report schema.
 
-## Evidence-backed suite selection
+## Future benchmark retirement
 
-Primary difficulty prior: TACAS 2026 Table 2 (36 normal-mode rows) and
-Table 3(b) (random-rotation negative rows; Table 3 also includes WState32).
-The historical 200-second timeout and Azure hardware are *not* comparable to
-current CodSpeed timings. The source ledger is
-`benchmarks/codspeed/paper_difficulty.json`; pinned source identity is in
-`docs/development/paper-corpus-manifest.json`. Graphstate64 belongs to Table
-2 and WState32 is a Table 3-only supplemental stress case.
+Replacement cases must preserve independent source oracles, correct
+EQ/NEQ/timeout classification, original input provenance, bounded CPU and
+memory workloads, and actual solver-inclusive CodSpeed coverage. A changed
+instrument, fixture, solver-invocation stage or tolerance is a **new
+benchmark identity**, not a comparable new version of the old measurement.
 
-Pilot selection must cover RR-only vs Hybrid/WMC-only, both Python and Rust,
-true positive and independently established negative cases, GPMC/Ganak with
-correctness/precision warnings, larger family instances, and resource-risk
-classes. An unchanged compiler/solver-excluded CPU Simulation trace cannot
-serve as the primary end-to-end verifier regression signal. Only CodSpeed
-solver-inclusive WallTime measured on comparable base/HEAD source/runner
-cohorts can resolve the current PR #131 performance hold. Dedicated
-subprocess-tracked Simulation CPU is optional, bounded, and **not** WallTime.
-
-For each candidate record `PILOT_NEEDED`, `NOT_MEASURED`, or a real CodSpeed
-run ID with observed solver stage, verdict, source and instrument provenance.
-Do not automatically promote the nine preliminary algorithm CPU candidates.
-
-## Migration release gates
-
-The following must pass before promoting the replacement suite: full
-paper-table source set comparison, legacy 32/5 SHA unchanged, candidate
-collection with no duplicate/missing URI, versioned dynamic-shard report,
-v2/v3 ingestion tests, unmodified historical baseline, same-SHA CodSpeed
-WallTime and independent source/verdict/precision checks, bounded CPU/memory
-pilots and documented CI cost. GitHub artifact retention alone (some entries
-currently retain only 14 days) is insufficient: archive a privacy-reviewed
-source/manifest/run-URL/hash baseline snapshot in the existing benchmark
-history or release assets, preserving the original service-run links.
-
-PR #131's earlier performance hold was historical development context,
-not a current merge gate on the separate PR #133 benchmark integration.
-The PR #133 five-shard, ten-pair, and opt-in true ABBA contracts were
-verified in Actions #41643926066 and #41645323941. P5 remains
-observation-only; no unqualified percentage performance veto applies.
+A future retirement of the legacy automatic suite must follow the
+versioned coexistence and baseline requirements above. Keep the original
+QASM fixtures and prior-run provenance accessible; a CI artifact with a
+short retention window alone is insufficient historical evidence.

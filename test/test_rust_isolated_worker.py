@@ -70,7 +70,7 @@ def test_rust_safe_mode_preserves_global_phase_fail_closed():
 
 def test_rust_safe_mode_external_gpmc_wmc_parity():
     identity = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
-    altered = identity + "rz(0.001) q[0];\\n"
+    altered = identity + "rz(0.001) q[0];\n"
     common = dict(
         backend="rust", method="wmc_only", tool_name="gpmc",
         timeout=60, approximate_distance_tolerance=1e-8,
@@ -86,8 +86,8 @@ def test_rust_safe_mode_external_gpmc_wmc_parity():
 
 
 def test_rust_safe_mode_up_to_global_phase_parity():
-    identity = 'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
-    phased = identity + "s q[0];\\nx q[0];\\ns q[0];\\nx q[0];\\n"
+    identity = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
+    phased = identity + "s q[0];\nx q[0];\ns q[0];\nx q[0];\n"
     common = dict(backend="rust", method="hybrid", tool_name="gpmc", timeout=60)
     direct = check_equivalence(identity, phased, safe_mode=False, **common)
     isolated = check_equivalence(identity, phased, safe_mode=True, **common)

@@ -113,13 +113,23 @@ def _stop_worker(process):
     this experimental path can claim CLI-grade process-tree isolation.
     """
     try:
-        if os.name == "posix":
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        elif process.poll() is None:
-            process.kill()
+        # Never signal a freed process-group ID after its leader was reaped:
+        # on macOS, a stale PGID can even refer to an unrelated protected group.
+        if process.poll() is None:
+            if os.name == "posix":
+                try:
+                    if os.getpgid(process.pid) == process.pid:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
+                except PermissionError as exc:
+                    raise RustWorkerError(
+                        "cannot safely terminate isolated worker process group"
+                    ) from exc
+            else:
+                process.kill()
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired as exc:

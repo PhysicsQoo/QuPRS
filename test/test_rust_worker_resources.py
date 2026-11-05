@@ -92,11 +92,20 @@ print("ADDRESS_CAP_PASS")
         assert "setrlimit" in done.stderr or "current limit exceeds maximum limit" in done.stderr
         from QuPRS import check_equivalence
         qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
-        with pytest.raises(rust_isolation.RustWorkerError):
-            check_equivalence(
+        try:
+            observed = check_equivalence(
                 qasm, qasm, backend="rust", safe_mode=True,
                 method="reduction_rules", timeout=30,
             )
+        except rust_isolation.RustWorkerError:
+            # A worker that cannot enforce the requested limit must fail
+            # closed; kernel-dependent admission may reject the same cap.
+            pass
+        else:
+            # Success is also legal when the fresh worker's smaller initial
+            # address-space footprint allows the cap. The worker bootstrap
+            # itself verifies the applied RLIMIT_AS before importing QuPRS.
+            assert observed.equivalent == "equivalent"
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux PR_SET_PDEATHSIG only")
 def test_worker_arms_linux_parent_death_only_in_child():

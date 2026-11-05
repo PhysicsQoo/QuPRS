@@ -5,9 +5,10 @@ interpreter which imports and invokes the same PyO3 extension as the direct
 Rust path. It is not the standalone Rust CLI and does not change the public
 check_equivalence signature.
 
-The first-stage supervisor enforces a monotonic worker deadline and bounded
-IPC on POSIX. It does NOT yet certify detached solver-grandchild cleanup,
-physical-memory caps, or preemption of parent-side Qiskit serialization.
+The supervisor enforces a monotonic worker deadline and bounded IPC.
+Linux optionally uses a delegated cgroup-v2 memory cap and private child
+subreaper; macOS handles observed descendants on a best-effort basis.
+Neither mode forcibly preempts parent-side Qiskit circuit serialization.
 """
 from __future__ import annotations
 

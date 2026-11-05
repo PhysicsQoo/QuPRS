@@ -119,6 +119,4 @@ The v0.14.0 public release is recorded at
 When validating an installation, distinguish source-level CI from the
 actual distributed wheel or sdist installed in a supported environment.
 Release compatibility, provenance and publication rules are defined by
-[release and platform contribution guidance](../../CONTRIBUTING.md). Historical
-release-candidate experiments remain in Git and CI history; they are not
-current pending conditions for a release that has already been published.
+[release and platform contribution guidance](../../CONTRIBUTING.md).

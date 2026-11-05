@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.14.0 — Per-call reduction tolerance and projective-distance WMC (release candidate)
+## v0.14.0 — Per-call reduction tolerance and projective-distance WMC
 
 ### Numerical verification
 
@@ -98,9 +98,7 @@
   Do not call this a source-exact proof or claim complete Ganak
   internal-arithmetic certification.
 
-**Release status:** this 0.14.0 section describes the integrated
-release candidate, not a published package. Publication is conditional
-on final `dev → main` source, wheel/sdist and tag-time acceptance.
+**Released:** 2026-11-04 ([v0.14.0](https://github.com/PhysicsQoo/QuPRS/releases/tag/v0.14.0)).
 
 Significant user-facing changes to QuPRS are summarized here. See
 [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases)
@@ -128,8 +126,6 @@ for published packages and release dates.
 - Legacy finite-tolerance WMC may accept near-identity but strictly inequivalent circuits. For proof-sensitive numerical WMC paths, request `wmc_policy="conservative"` and treat `unknown` as inconclusive. No general certified error enclosure for arbitrary external solver outputs is claimed.
 - Some historical transpiled-QASM benchmark pairs, including Graphstate16, are extremely close in numerical projective distance yet not strictly equal as source-decimal operators. Strict and approximate outcomes must not be conflated.
 
-**Release status:** v0.13.4 was published on 2026-10-27; the historical RC preparation notes above refer to the prepublication source tree, not to v0.14.0 acceptance.
-
 ## 0.13.3
 
 ### Fixed
@@ -143,9 +139,6 @@ for published packages and release dates.
 
 ### Compatibility
 - The prebuilt macOS Wheels remain targeted at macOS 15+; macOS 14 source-build evidence is documented separately. This is a clarification of existing packaging support, not a new minimum-version change in v0.13.3.
-
-### Performance evidence
-- Same-host, paired ABBA measurements of the WMC correctness fix across eight selected QFT16, Grover4 and QAOA7 configurations (Rust/Python and Ganak/GPMC as applicable) did not show a significant unrelated regression. These samples do not establish a universal performance guarantee.
 
 ## 0.13.2
 

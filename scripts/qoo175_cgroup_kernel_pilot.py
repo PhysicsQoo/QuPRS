@@ -91,7 +91,7 @@ def positive_group_proof(limit_mib: int) -> dict:
         except Exception as exc:
             cleanup_error = exc
         if cleanup_error is not None:
-            raise ResourceAdmissionError("kernel pilot leaf cleanup failed") from cleanup_error
+            raise RuntimeError("kernel pilot leaf cleanup failed") from cleanup_error
     return snapshot
 
 

@@ -35,8 +35,8 @@ def _record(parent: int, state: str, birth: str):
 def test_macos_process_tree_parser_and_pid_birth_witness(monkeypatch):
     mod = _macos_tree_module()
     text = (
-        " 42  1 Ss Fri Nov  6 01:02:03 2026\\n"
-        " 43 42 S  Fri Nov  6 01:02:04 2026\\n"
+        " 42  1 Ss Fri Nov  6 01:02:03 2026\n"
+        " 43 42 S  Fri Nov  6 01:02:04 2026\n"
     )
 
     class Result:

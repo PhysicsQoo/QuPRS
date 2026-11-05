@@ -1,4 +1,4 @@
-# Per-verification numerical tolerances (v0.14.0 candidate)
+# Per-verification numerical tolerances (v0.14.0)
 
 QuPRS exposes three independent per-verification numerical thresholds:
 
@@ -63,16 +63,4 @@ operational result is `equivalent`, `equivalent*`, or
 This is a numerical observation, **not** a source-exact
 mathematical certificate. At `D_proj=1e-8`, the ideal normalized
 trace magnitude defect is about `5e-17`; independent source-pinned
-oracles and Solver conformance remain essential. The optional
-`gpmc_distance_budget.py` research model is not a production
-acceptance policy and cannot override the public numerical verdict.
-
-## Performance acceptance
-
-Formal performance comparisons use CodSpeed. Simulation results on
-different CI processors cannot isolate a source regression in
-external Solver work. A same-host hosted-VM WallTime experiment
-is exploratory, not a bare-metal Macro Runner guarantee.
-For main/dev/PR attribution, compare exact pinned source versions,
-track `wmc_solver_invoked`, and separate Graphstate16 cases where
-the reduction/WMC execution path differs across versions.
+oracles and Solver conformance remain essential. 

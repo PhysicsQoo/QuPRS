@@ -1,4 +1,4 @@
-# QOO-168 — native Rust OpenQASM 3 unitary subset
+# Native Rust OpenQASM 3 unitary subset
 
 QuPRS accepts a **bounded, explicitly versioned OpenQASM 3 subset** directly
 as a string or file for the Rust verifier. The source is parsed into native
@@ -50,25 +50,6 @@ distance-tolerance change.
 Named quantum-register **partition metadata** is not reconstructed in a
 public `PathSum`. Wire ordering is preserved, but complete partition
 provenance and arbitrary Qiskit-generated OpenQASM3 are not promised.
-
-## Focused verification evidence
-
-- Native parser, exact scalar/bra behavior and public Rust fail-closed:
-  [Actions #41729279162](https://github.com/PhysicsQoo/QuPRS/actions/runs/41729279162),
-  Qiskit 1.4.6/2.6.1, each 16 native and 25 FFI tests passed.
-- Python source `gphase(pi/2)` propagation defect first reproduced:
-  [Actions #41730220598](https://github.com/PhysicsQoo/QuPRS/actions/runs/41730220598).
-- Corrected Python numeric scalar and WMC-only behavior:
-  [Actions #41731014720](https://github.com/PhysicsQoo/QuPRS/actions/runs/41731014720),
-  8/8 controls per version.
-- Python/Rust phase, unequal rotations, measurement/reset fail-closed and
-  WMC-only comparison: [Actions #41732324256](https://github.com/PhysicsQoo/QuPRS/actions/runs/41732324256),
-  21/21 per Qiskit version.
-
-The above results are from a research branch, not the formal integration
-commit. The integration PR must certify its **own exact HEAD** and source
-against `dev`, and maintain an independent package-install CI. Benchmark
-performance comparisons must use CodSpeed; no speedup is claimed.
 
 This is **not** general OpenQASM 3 support. Future acceptance of
 source-exact Python phases, complete register partitions, symbolic

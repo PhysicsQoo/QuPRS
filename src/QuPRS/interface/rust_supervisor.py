@@ -113,14 +113,25 @@ def _module():
     return mod
 
 
-def _resources():
-    path = Path(__file__).with_name('rust_resources.py')
-    spec = importlib.util.spec_from_file_location('_quprs_private_resources', path)
-    if spec is None or spec.loader is None:
-        raise SupervisorResourceError('cannot load private worker resources')
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+_SUPERVISOR_ADMISSION = b"QuPRS-Rust-Supervisor-Admit-v1\\n"
+
+
+def _require_parent_admission() -> None:
+    # The parent installs the requested cgroup memory.max BEFORE admitting
+    # this process to launch the actual Python/Rust Worker. No host Python
+    # fork/preexec hook or shared process-global resource mutation.
+    remaining = len(_SUPERVISOR_ADMISSION)
+    chunks = []
+    while remaining:
+        fragment = os.read(0, remaining)
+        if not fragment:
+            raise SupervisorResourceError('missing parent resource admission')
+        chunks.append(fragment)
+        remaining -= len(fragment)
+    if b''.join(chunks) != _SUPERVISOR_ADMISSION:
+        raise SupervisorResourceError('invalid supervisor admission token')
+    if os.getppid() != int(os.environ['QUPRS_RUST_SUPERVISOR_PARENT_PID']):
+        raise SupervisorResourceError('supervisor parent disappeared during admission')
 
 
 def _reply(payload: dict) -> None:
@@ -133,6 +144,7 @@ def _reply(payload: dict) -> None:
 
 def run() -> int:
     _set_supervisor_controls()
+    _require_parent_admission()
     iolib = _module()
     raw = sys.stdin.buffer.read(_MAX_REQUEST_BYTES + 1)
     if len(raw) > _MAX_REQUEST_BYTES:
@@ -151,35 +163,28 @@ def run() -> int:
         _reply({'version': 1, 'ok': True, 'result': {
             'status': 'Timeout', 'verification_time_sec': time.monotonic() - started}})
         return 0
-    resources = _resources()
-    group = None
     p = None
     timed_out = False
     output = None
     worker_error = None
-    oom_seen = False
     try:
-        # An explicit physical cap must be admitted, or the worker is not run.
-        group = resources.MemoryCgroup.create_if_requested()
         worker_env = os.environ.copy()
         worker_env['QUPRS_RUST_WORKER_PARENT_PID'] = str(os.getpid())
+        # The supervisor entered the parent's delegated cgroup (if any)
+        # before this spawn. Children inherit membership before exec, so
+        # Python startup and native library loading are both accounted.
         p = subprocess.Popen(
             [sys.executable, str(Path(__file__).with_name('rust_worker_bootstrap.py'))],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             close_fds=True, start_new_session=True, bufsize=0, env=worker_env,
         )
-        if group is not None:
-            group.admit(p.pid)
-        # The bootstrap imports no QuPRS/Qiskit module until admission.
-        admission = b"QuPRS-Rust-Worker-Admit-v1\n"
+        admission = b"QuPRS-Rust-Worker-Admit-v1\\n"
         if os.write(p.stdin.fileno(), admission) != len(admission):
             raise SupervisorResourceError('incomplete worker admission witness')
         try:
             stdout, stderr = iolib._bounded_exchange(p, raw, deadline)
             output = iolib._parse_worker_response(stdout, stderr, p.returncode)
         except (iolib._WorkerDeadlineExceeded, SupervisorInterrupted):
-            # Parent-issued SIGTERM is a cancellation request. Only report
-            # a clean timeout after owned descendants and cgroup are disposed.
             timed_out = True
         except Exception as exc:
             worker_error = exc
@@ -190,32 +195,13 @@ def run() -> int:
                 iolib._stop_worker(p)
             except Exception as exc:
                 cleanup_error = exc
-        # Reap adopted solver descendants BEFORE cgroup removal, otherwise
-        # zombie tasks may keep cgroup.events populated and prevent cleanup.
-        # Continue resource disposal even when this stage fails.
         try:
             _cleanup_adopted_children()
         except Exception as exc:
             if cleanup_error is None:
                 cleanup_error = exc
-        if group is not None:
-            try:
-                oom_seen = group.oom_observed()
-            except Exception as exc:
-                if cleanup_error is None:
-                    cleanup_error = exc
-            try:
-                group.cleanup()
-            except Exception as exc:
-                if cleanup_error is None:
-                    cleanup_error = exc
         if cleanup_error is not None:
-            raise SupervisorResourceError('worker or resource cleanup failed') from cleanup_error
-    if oom_seen:
-        # Never publish a successful scientific verdict after OOM evidence.
-        _reply({'version': 1, 'ok': True, 'result': {
-            'status': 'MemoryOut', 'verification_time_sec': time.monotonic() - started}})
-        return 0
+            raise SupervisorResourceError('worker or adopted descendant cleanup failed') from cleanup_error
     if worker_error is not None:
         if isinstance(worker_error, (ValueError, TypeError)):
             _reply({'version': 1, 'ok': False,

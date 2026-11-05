@@ -1,0 +1,51 @@
+name: QOO-156 adopted-child failure path focused admission
+
+on:
+  push:
+    branches: [experiment/qoo156-adopted-error-failclosed]
+    paths:
+      - "rust/cli/**"
+      - ".github/workflows/qoo156-adopted-error-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-fault-path:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native library dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
+      - name: Verify source exactness and unchanged native core
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD:rust/pathsum)" = "142508b35e9e0833f9fd4f3a22c3eb5497d9336d"
+      - name: All CLI bin tests plus exact exceptional cleanup integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --bin QuPRS_cli -- --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor adopted_child_cleanup_failure_is_typed_and_removes_private_artifacts -- --exact --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor explicit_failed_cnf_opt_in_preserves_private_directory_only_on_failure -- --exact --nocapture
+          cargo test --locked --manifest-path rust/Cargo.toml -p QuPRS_cli --test supervisor forced_worker_timeout_removes_private_cnf_and_solver_capture_files -- --exact --nocapture
+      - name: Release build must exclude debug fault injection
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --manifest-path rust/Cargo.toml -p QuPRS_cli
+          if grep -aFq 'QUPRS_CLI_TEST_FAIL_ADOPTED_CLEANUP' rust/target/release/QuPRS_cli; then
+            echo "Unexpected debug-only injection in release" >&2
+            exit 1
+          fi

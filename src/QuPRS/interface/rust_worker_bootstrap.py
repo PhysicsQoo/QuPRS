@@ -57,8 +57,25 @@ def _read_admission() -> None:
         raise RuntimeError("isolated worker supervisor is not the parent")
 
 
+def _arm_supervisor_death_signal() -> None:
+    # Run in the fresh worker, never in the embedding Python process.
+    # Prevent it continuing to verify after an abrupt supervisor SIGKILL.
+    if sys.platform != "linux":
+        return
+    import ctypes
+    import signal
+
+    expected = int(os.environ["QUPRS_RUST_WORKER_PARENT_PID"])
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "worker PR_SET_PDEATHSIG")
+    if os.getppid() != expected:
+        raise RuntimeError("supervisor disappeared during worker admission")
+
+
 def main() -> int:
     _read_admission()
+    _arm_supervisor_death_signal()
     _apply_address_space_limit()
     from QuPRS.interface import rust_isolation
 

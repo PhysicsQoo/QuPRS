@@ -76,6 +76,12 @@ disclosure. Do not imply an independent reviewer or a human approval when the
 record only shows a source assessment or a COMMENT review. A second-party
 approval may be claimed only when the repository records that approval.
 
+Keep task-specific progress, benchmark admission discussions, review checklists
+and merge decisions in the issue tracker and pull-request discussion. Commit
+Markdown only for maintained user/developer contracts or self-contained
+reproducible technical material; do not mirror per-PR decision logs into the
+source tree. Retain durable evidence through CI artifacts and Git history.
+
 After integration, update living status pages to distinguish historical
 provisional results from decisions actually made. Preserve original commits,
 test artifacts and review history rather than rewriting them to retroactively

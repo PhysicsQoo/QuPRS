@@ -25,6 +25,7 @@ _MAX_RESULT_BYTES = 16 * 1024 * 1024
 _MAX_DIAGNOSTIC_BYTES = 1024 * 1024
 _CHUNK_BYTES = 64 * 1024
 _PROTOCOL_VERSION = 1
+_SUPERVISOR_ADMISSION = b"QuPRS-Rust-Supervisor-Admit-v1\n"
 
 
 class RustWorkerError(RuntimeError):
@@ -183,10 +184,9 @@ def run_isolated(
     request_started: float,
     request_deadline: float,
 ) -> dict:
-    """Run the Rust FFI in a separate process without changing public options."""
+    """Opt-in child isolation; parent owns any delegated physical-memory cap."""
     if os.name != "posix":
         raise RustWorkerError("experimental Rust isolation requires a POSIX host")
-
     request = {
         "deadline_monotonic_sec": request_deadline,
         "request_started_monotonic_sec": request_started,
@@ -195,64 +195,107 @@ def run_isolated(
         "circuit2": circuit2,
         "options": options,
     }
-    payload = json.dumps(request, allow_nan=False, separators=(",", ":")).encode("utf-8")
-    if len(payload) > _MAX_REQUEST_BYTES:
+    request_bytes = json.dumps(
+        request, allow_nan=False, separators=(",", ":")
+    ).encode("utf-8")
+    if len(request_bytes) > _MAX_REQUEST_BYTES:
         raise RustWorkerError("isolated Rust request exceeds IPC input limit")
     if time.monotonic() >= request_deadline:
         return {
             "status": "Timeout",
             "verification_time_sec": time.monotonic() - request_started,
         }
+    # Cgroup parent ownership allows a group-wide kill even if the dedicated
+    # supervisor itself dies before it can clean up detached Solver children.
+    from . import rust_resources
 
-    # Parent owns the temporary namespace even if the child is SIGKILL'ed.
     with tempfile.TemporaryDirectory(prefix="quprs-rust-worker-") as temporary:
         environment = os.environ.copy()
-        environment["TMPDIR"] = temporary
-        environment["TMP"] = temporary
-        environment["TEMP"] = temporary
-        environment["QUPRS_RUST_SUPERVISOR_PARENT_PID"] = str(os.getpid())
-        worker = subprocess.Popen(
-            [sys.executable, "-I", os.path.join(os.path.dirname(__file__), "rust_supervisor.py")],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=environment,
-            start_new_session=True,
-            close_fds=True,
-            bufsize=0,
-        )
-        timed_out = False
+        environment.update({
+            "TMPDIR": temporary, "TMP": temporary, "TEMP": temporary,
+            "QUPRS_RUST_SUPERVISOR_PARENT_PID": str(os.getpid()),
+        })
+        group = None
+        supervisor = None
+        operation_error = None
         result = None
+        timed_out = False
+        oom_observed = False
         try:
-            try:
-                stdout, stderr = _bounded_exchange(worker, payload, request_deadline)
-            except _WorkerDeadlineExceeded:
-                timed_out = True
-            if not timed_out:
-                result = _parse_worker_response(stdout, stderr, worker.returncode)
+            group = rust_resources.MemoryCgroup.create_if_requested()
+            supervisor = subprocess.Popen(
+                [sys.executable, "-I",
+                 os.path.join(os.path.dirname(__file__), "rust_supervisor.py")],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, env=environment, start_new_session=True,
+                close_fds=True, bufsize=0,
+            )
+            if group is not None:
+                # Supervisor cannot start a Worker without the admission
+                # witness, and its Worker inherits cgroup membership at fork.
+                group.admit(supervisor.pid)
+            stdout, stderr = _bounded_exchange(
+                supervisor, _SUPERVISOR_ADMISSION + request_bytes,
+                request_deadline,
+            )
+            result = _parse_worker_response(stdout, stderr, supervisor.returncode)
+        except _WorkerDeadlineExceeded:
+            timed_out = True
+        except Exception as exc:
+            operation_error = exc
         finally:
-            # Let the dedicated supervisor reap adopted solver descendants
-            # before returning any result or removing the private temp dir.
-            if worker.poll() is None:
-                worker.terminate()
+            cleanup_error = None
+            if supervisor is not None:
                 try:
-                    worker.wait(timeout=2)
-                except subprocess.TimeoutExpired as exc:
-                    _stop_worker(worker)
-                    raise RustWorkerError(
-                        "supervisor cleanup did not complete after cancellation"
-                    ) from exc
-            else:
-                _stop_worker(worker)
-            for stream in (worker.stdin, worker.stdout, worker.stderr):
-                if stream is not None and not stream.closed:
-                    stream.close()
-        if timed_out:
-            # The signal handler must confirm termination/cleanup by exiting
-            # successfully. Exit 125 or SIGKILL is not a scientific timeout.
-            if worker.returncode != 0:
+                    if supervisor.poll() is None:
+                        # Give the private subreaper a bounded opportunity
+                        # to terminate and reap detached descendants.
+                        supervisor.terminate()
+                        try:
+                            supervisor.wait(timeout=2)
+                        except subprocess.TimeoutExpired as exc:
+                            _stop_worker(supervisor)
+                            raise RustWorkerError(
+                                "supervisor did not certify child cleanup"
+                            ) from exc
+                    else:
+                        _stop_worker(supervisor)
+                except Exception as exc:
+                    cleanup_error = exc
+                finally:
+                    for stream in (
+                        supervisor.stdin, supervisor.stdout, supervisor.stderr
+                    ):
+                        if stream is not None and not stream.closed:
+                            stream.close()
+            if group is not None:
+                try:
+                    # Capture OOM evidence before disposing the cgroup.
+                    oom_observed = group.oom_observed()
+                except Exception as exc:
+                    if cleanup_error is None:
+                        cleanup_error = exc
+                try:
+                    # cgroup.kill also covers children of a dead supervisor.
+                    group.cleanup()
+                except Exception as exc:
+                    if cleanup_error is None:
+                        cleanup_error = exc
+            if cleanup_error is not None:
                 raise RustWorkerError(
-                    f"isolated supervisor cleanup failed after deadline: exit={worker.returncode}"
+                    "isolated Worker/cgroup cleanup was not certified"
+                ) from cleanup_error
+        if oom_observed:
+            return {
+                "status": "MemoryOut",
+                "verification_time_sec": time.monotonic() - request_started,
+            }
+        if operation_error is not None:
+            raise operation_error
+        if timed_out:
+            if supervisor is None or supervisor.returncode != 0:
+                raise RustWorkerError(
+                    "supervisor did not certify cleanup after deadline"
                 )
             return {
                 "status": "Timeout",

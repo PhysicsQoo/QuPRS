@@ -31,6 +31,6 @@ certification.
 Scientific regression examples: `test/test_rust_global_phase_qasm_contract.py`
 and `test/test_qasm3_python_global_phase.py`.
 For supported Qiskit versions consult
-[Qiskit compatibility](qiskit-1x-2x-admission.md); for exact/unitary
+[supported Qiskit versions](v0140-migration.md); for exact/unitary
 classification consult [equivalence semantics](equivalence-semantics.md)
 and [v0.14.0 migration](v0140-migration.md).

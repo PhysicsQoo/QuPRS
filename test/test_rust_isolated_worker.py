@@ -258,7 +258,7 @@ def test_timeout_requires_supervisor_cleanup_certification(monkeypatch, exit_cod
     now = time.monotonic()
     call = lambda: isolation.run_isolated(
         'OPENQASM 2.0;', 'OPENQASM 2.0;',
-        options={}, request_started=now, request_deadline=now + 30,
+        options={"tool_name": "gpmc"}, request_started=now, request_deadline=now + 30,
     )
     if exit_code == 0:
         assert call()["status"] == "Timeout"

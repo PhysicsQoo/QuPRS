@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — v0.14.1
+## v0.14.1 — Rust CLI resource supervision and maintenance
 
 ### Rust CLI reliability and resource controls
 
@@ -27,10 +27,10 @@
 - Improve CodSpeed source-impact classification and paired
   solver-inclusive benchmark evidence. The measurements remain observational
   rather than a fixed-percentage release gate.
-- Retire dated internal research and review narratives from maintained
-  open-source documentation, correct supported QASM and solver-adapter
-  descriptions, and remove archived Markdown paths from six opt-in
-  workflow source-file manifests. Keep the functional verification jobs.
+- Consolidate public documentation for installation, supported QASM inputs,
+  solver adapters and numerical behavior. Remove obsolete documentation
+  references from six opt-in workflow source-file manifests while preserving
+  the functional verification jobs.
 
 ### Compatibility and distribution
 
@@ -40,9 +40,6 @@
 - The `QuPRS_cli` program is built from the Rust workspace; do not assume a
   standalone executable is installed by the `QuPRS` PyPI wheel. Wheel/sdist
   validation still covers the Python package and native Python extension.
-
-**Status:** Unreleased. The release requires a successful protected
-`dev → main` validation and a matching `v0.14.1` tag before publication.
 
 ## v0.14.0 — Per-call reduction tolerance and projective-distance WMC
 

@@ -39,3 +39,32 @@ Mac mini/OrbStack guest cgroup controller delegation is an independent deploymen
 All three completed 30 alternating ABBA/BAAB blocks each and matched full scientific stdout hashes. The predeclared provisional ceiling of **+3.0 ms additive overhead** was met for these cases. **This is not evidence of zero performance regression**, nor is it a verified threshold for solver-intensive workloads or a hardware-independent confidence interval. The bounded absolute latency may represent a very large *relative* overhead on sub-2ms CLI tasks. A maintainer must still decide whether this safety wrapper tradeoff is acceptable for release.
 
 The original [Macro job #41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remains unassigned, and an unrelated [official CodSpeed hosted run](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb4b9d09f1ddb2bf501af8) is observational only. **No Macro result is necessary for this temporary, explicitly scoped CLI-cost evidence**; normal CodSpeed requirements for core Rust algorithmic changes are not changed.
+
+## Tested final staging source: P0 signal/oom changes + P1 budget
+
+P0 source [experiment commit `5930fdf`](https://github.com/PhysicsQoo/QuPRS/commit/5930fdfbf8161b436614d819fcc1dddc1ff94445)
+was accepted in [native scoped CI #41940690787](https://github.com/PhysicsQoo/QuPRS/actions/runs/41940690787):
+Linux **9 unit +17 integration**, macOS14 ARM64 **7 unit +13 integration**,
+all tests and both Release builds PASS. Verified external SIGINT/SIGTERM,
+Linux direct worker parent SIGKILL, real detached-session helper on timeout
+and on signal cancellation, and cgroup OOM event fail-closed parsing.
+The scientific Rust pathsum tree remains unchanged.
+
+The exact tested changes entered [staging commit `61460eb`](https://github.com/PhysicsQoo/QuPRS/commit/61460ebe60fde8768abfbfd4422e9e953d2db158).
+The scoped hosted ABBA [#41941084754](https://github.com/PhysicsQoo/QuPRS/actions/runs/41941084754)
+**SUCCESS**, with complete [raw artifact #13376437268](https://github.com/PhysicsQoo/QuPRS/actions/runs/41941084754/artifacts/13376437268):
+
+| RR / CLI case | Median additive overhead | 95% bootstrap CI | Median paired control jitter | Result |
+|---|---:|---:|---:|---|
+| Single H | +1.579 ms | [1.565, 1.587] ms | 0.040 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+| GHZ32 | +1.558 ms | [1.545, 1.572] ms | 0.049 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+| QPE-exact8 | +1.502 ms | [1.493, 1.513] ms | 0.031 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
+
+A **3ms provisional absolute CLI overhead budget** holds in this one same-runner
+source-paired observation; it is neither zero regression nor a CodSpeed
+Macro certification. The Linux PDEATHSIG directly protects the worker,
+**not arbitrary daemonized grandchildren after supervisor SIGKILL**. macOS
+does not have Linux subreaper, cgroup v2 or PDEATHSIG. Parent-owned private
+temp directories, cgroup Drop cleanup diagnostics, and independent Mac mini
+OrbStack runtime qualification remain separate follow-up topics.
+

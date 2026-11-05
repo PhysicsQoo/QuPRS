@@ -1,6 +1,6 @@
 # Rust CLI resource supervision (QOO-156) — integration candidate
 
-**Status: staging only. NOT merged into dev/main. Interim hosted CLI-cost pilot PASSED its provisional engineering budget; CodSpeed Macro unavailable and not claimed.**
+**Status: staging only. NOT merged into dev/main. Final-source interim hosted CLI-cost pilot PASSED its provisional engineering budget; CodSpeed Macro unavailable and not claimed.**
 
 ## Contract
 
@@ -50,6 +50,29 @@ If `--max-memory-mib` is requested, a missing/unreadable/malformed
 `ResourceSupervisorError` (exit **125** with no successful stdout), **not**
 `oom_kill=false`. This check runs only in the explicitly capped Linux
 CLI path and does not modify the native RR/WMC calculation path.
+
+## Source-pinned P0 and final-stage P1 admission — 2026-11-05
+
+The final P0 control-plane code (Unix SIGINT/SIGTERM cancellation, Linux
+direct-worker `PR_SET_PDEATHSIG`, fail-closed Linux `memory.events`, detached
+session helper timeout/cancel tests) was validated at experiment source
+`5930fdfbf8161b436614d819fcc1dddc1ff94445` on
+[scoped native Linux/macOS #41940690787](https://github.com/PhysicsQoo/QuPRS/actions/runs/41940690787):
+**Ubuntu24.04 9 unit + 17 integration**, **macOS14 ARM64 7 unit + 13
+integration**, both **Release build PASS**. The exact supervisor and test
+file blobs were then copied to [clean staging source
+`61460ebe60fde8768abfbfd4422e9e953d2db158`](https://github.com/PhysicsQoo/QuPRS/commit/61460ebe60fde8768abfbfd4422e9e953d2db158);
+native `rust/pathsum` remains source-identical to `dev`.
+
+[Final-source hosted ABBA #41941084754](https://github.com/PhysicsQoo/QuPRS/actions/runs/41941084754)
+**SUCCESS**, [raw artifact #13376437268](https://github.com/PhysicsQoo/QuPRS/actions/runs/41941084754/artifacts/13376437268).
+Exact same-runner paired extra CLI latency: Single H **+1.579 ms** (95%
+bootstrap CI [1.565,1.587]), GHZ32 RR **+1.558 ms** ([1.545,1.572]),
+QPE8 RR **+1.502 ms** ([1.493,1.513]); 30 alternating ABBA/BAAB
+blocks/case. All three are within the **3.0 ms provisional additive safety
+overhead budget**, not a claim of zero regression or CodSpeed Macro equivalence.
+The 3 ms engineering envelope still requires explicit release acceptance.
+Neither `dev` nor `main` was merged by this evidence.
 
 ## Source and qualification
 

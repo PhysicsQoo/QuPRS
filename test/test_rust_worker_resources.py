@@ -132,8 +132,8 @@ def test_cgroup_cleanup_waits_for_killed_descendant(monkeypatch, tmp_path):
     resources = _private_module("rust_resources.py")
     leaf = tmp_path / "quprs-py-test"
     leaf.mkdir()
-    (leaf / "cgroup.events").write_text("populated 1\\n")
-    (leaf / "cgroup.procs").write_text("424242\\n")
+    (leaf / "cgroup.events").write_text("populated 1\n")
+    (leaf / "cgroup.procs").write_text("424242\n")
     (leaf / "cgroup.kill").write_text("")
     group = resources.MemoryCgroup(leaf)
     calls = []

@@ -71,7 +71,7 @@ def test_supervisor_real_ipc_detached_solver_cleanup(tmp_path, stop):
             "version": 1, "request_started_monotonic_sec": now,
             "deadline_monotonic_sec": now + 4.0,
         }
-        payload = b"QuPRS-Rust-Supervisor-Admit-v1\\n" + json.dumps(req).encode()
+        payload = b"QuPRS-Rust-Supervisor-Admit-v1\n" + json.dumps(req).encode()
         p.stdin.write(payload)
         p.stdin.close()
         p.stdin = None

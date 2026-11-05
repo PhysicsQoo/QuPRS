@@ -56,3 +56,27 @@ Owners: [existing QOO-157](https://linear.app/qoogohome/issue/QOO-157), no dupli
 
 **Official CodSpeed next step is justified by the missing SAT overhead, *not* a search-counter difference:** [official research commit `cd9e749`](https://github.com/PhysicsQoo/QuPRS/commit/cd9e7496f9dc63d8f0f02392d79086e3b73545a7), [Actions #41941617634](https://github.com/PhysicsQoo/QuPRS/actions/runs/41941617634), 10 benchmark IDs from five matched pairs (Grover4 auto, QAOA7 auto/none, QPE8 auto, QFT16 auto). **Fresh same-run 16/16 numeric science admission on the exact two recompiled binaries before timing**. CodSpeed v5 WallTime is the only authorized timing; hosted results will remain observational until fixed Macro Runner ABBA/BAAB. No QFT16 none timed arm, as it adds substantial CI cost without a new mechanism category.
 
+
+
+## Official CodSpeed v5 — completed 10/10, five paired observations
+
+[GitHub Actions #41941617634 SUCCESS](https://github.com/PhysicsQoo/QuPRS/actions/runs/41941617634), **measured HEAD `cd9e7496f9dc63d8f0f02392d79086e3b73545a7`**, [first-party CodSpeed run `6aebcefb1b3fd78c63b53fe2`](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aebcefb1b3fd78c63b53fe2), immutable [CI artifact `13376448354`](https://github.com/PhysicsQoo/QuPRS/actions/runs/41941617634/artifacts/13376448354). Same-run source/38d/recompiled-two-binary **16/16 complex-count scientific prequalification PASS**, **eight matched native search counter vectors still identical**; all **10/10** official CodSpeed benchmarks PASS, each **exactly 3 rounds**, **0 IQR or stdev outlier rounds** in first-party export.
+
+The following are first-party export **three-round medians**, **not** CodSpeed UI's minimum WallTime:
+
+| Original weighted CNF / BiPe | Warm-ON median (ms) | Warm-OFF median (ms) | OFF minus ON / ON (%) | Native component decisions |
+| --- | ---: | ---: | ---: | ---: |
+| Grover4 EQ / auto | 216.640308 | 212.849579 | **−1.750%** | 3,105 (identical) |
+| QAOA7 genuine NEQ / auto | 136.132925 | 137.832706 | **+1.249%** | 926 (identical) |
+| QAOA7 genuine NEQ / none | 79.536187 | 78.220670 | **−1.654%** | 971 (identical) |
+| QPE-exact8 EQ / auto | 166.180511 | 164.306863 | **−1.127%** | 5,083 (identical) |
+| QFT16 EQ / auto | 1,762.632660 | 1,780.878718 | **+1.035%** | 66,695 (identical) |
+
+**Conclusion (bounded):** d4 warmStart-on vs warmStart-off produces **no native component-search work differences in 8/8 source-paired science controls**. Within the five official within-run CodSpeed pairs, observed median relative changes are small (absolute 1.0–1.8%) and **mixed in sign** (OFF faster in 3, slower in 2). This is **not evidence of a broadly useful warm-start speedup**, not evidence that disabling warm-start always improves runtime, and cannot explain any large GPMC/d4 differential by itself. A prewarm 29-query overhead is part of warm-on's real end-to-end subprocess work, but the current hosted measurements do not isolate it with high-confidence paired statistics.
+
+**Strict measurement limitations:** CodSpeed's first-party run warns **all 10 WallTime benchmarks used hardware outside a fixed Macro Runner** and may be unreliable; **no flamegraphs** due to unresolved profiling frames. One hosted runner, one workflow run, three rounds/variant, **not ABBA/BAAB**. The first-party export's absence of IQR/stdev outliers does **not** turn this into a statistically certified regression/improvement. Absolute medians must **not** be compared with previous d4/GPMC experiments run on other hosted workers, and no claim is made for UNSAT or other unmeasured circuits. All timed operations are **prepared original weighted CNF → d4 native subprocess + Python parsing**; QuPRS QASM/RR/CNF generation/Hybrid stages are excluded.
+
+**Decision:** P6 source-paired mechanism study has enough evidence to **deprioritize d4 warmStart as a leading GPMC-vs-d4 speed-gap explanation** without touching production flags or patching upstream solver. Do **not** remove warm-start from the recommended d4 build, do not change QuPRS recommended GPMC default, and do not add routine benchmark shards. Only pursue fixed Macro Runner paired ABBA/BAAB for warmStart if a concrete future shipping decision or substantially larger fixed-CNF work difference justifies it.
+
+**Next source-structural question:** The prior [d4 BiPe option study](D4_BIPE_OPTION_ABLATION.md) already identified that residual variable/clause **counts** can match while the actual surviving clause multiset and weight/projection assignments differ. Prioritize an **independent canonical residual weighted-CNF hash/projection provenance** for `auto_default`, `manual_sharp`, `auto_no_vivif` and `none` on original QAOA7/QFT16 before any more CodSpeed, avoiding duplicate BiPe option sweeps. Only then investigate which BiPe transformations or SAT preprocessing path account for remaining gap. Continue tracking under [QOO-157](https://linear.app/qoogohome/issue/QOO-157).
+

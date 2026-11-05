@@ -1,6 +1,6 @@
 # QOO-156 interim performance admission: hosted paired ABBA
 
-Status: **controlled interim CLI-specific gate, NOT CodSpeed Macro**.
+Status: **controlled CLI-specific measurement gate, NOT CodSpeed Macro**. Final integration: [PR #144](https://github.com/PhysicsQoo/QuPRS/pull/144) merged into `dev` on 2026-11-05; +3 ms fixed CLI overhead explicitly accepted for QOO-156, with existing environment/scope limitations.
 
 CodSpeed Macro scheduling is currently unavailable. QOO-156 must not indefinitely block its CLI-safety implementation while preserving the project's scientific and native-algorithm performance rules. This one-purpose gate runs on a **single GitHub-hosted Ubuntu 24.04 x86-64 runner**, compiling the baseline dev CLI and the staging HEAD CLI from exact SHAs with separate target directories and the **same unchanged rust/pathsum Git tree**. It does not replace regular CodSpeed for other project performance comparisons.
 
@@ -11,7 +11,7 @@ CodSpeed Macro scheduling is currently unavailable. QOO-156 must not indefinitel
 - 8 interleaved warmups followed by **30 paired blocks per case**, alternating **ABBA / BAAB**. Cases: single H, GHZ32 RR, QPE-exact8 RR. Record **every subprocess elapsed perf_counter_ns**, raw stdout and stderr hashes, scientific output identity, fixture hashes, both binary hashes, runner name, OS/CPU/affinity, and source SHAs.
 - For each block, calculate mean(HEAD pair) minus mean(BASE pair); bootstrap the median of the 30 paired deltas with 4000 fixed-seed samples for an approximate 95% interval. Measure within-variant paired jitter separately; a high jitter or borderline confidence interval must produce **INCONCLUSIVE**, not PASS.
 - Require both revisions to exit 0 with byte-identical full scientific stdout on every warmup and test, **and** independently parse the *complete* `--quiet` dual-circuit status as `equivalent` or `equivalent*` only. A substring test for `equivalent` is **scientifically unsafe** because `not_equivalent` contains the same substring; also reject `unknown`, `Timeout`, `MemoryOut`, extra lines and partial verdicts. [18 focused negative/positive guards](../../scripts/test_qoo156_verdict_guard.py) run before the expensive hosted ABBA compile. Do not use a real solver in this **RR-only CLI process-overhead** comparison; memory/OOM/cancellation real solver safety already has separately archived P0 evidence.
-- **Provisional engineering envelope**, subject to explicit release review: upper 95% bootstrap endpoint for extra fixed CLI overhead at most **3.0 milliseconds** for each case; median within-variant paired jitter at most **1.5 milliseconds**. This is an acceptance of **bounded additive CLI overhead**, NOT a claim of no regression. A high/noisy runner or exceeded budget returns nonzero and archives its raw evidence.
+- **Predeclared engineering envelope**, accepted for the scoped QOO-156 integration on 2026-11-05: upper 95% bootstrap endpoint for extra fixed CLI overhead at most **3.0 milliseconds** for each case; median within-variant paired jitter at most **1.5 milliseconds**. This is an acceptance of **bounded additive CLI overhead**, NOT a claim of no regression. A high/noisy runner or exceeded budget returns nonzero and archives its raw evidence.
 - Why 3.0 ms: earlier non-Macro official CodSpeed hosted WallTime observations clustered around **+1.19 to +1.20 ms**; the 3 ms ceiling is a preliminary engineering tolerance for the mandatory safety wrapper rather than a statistically derived release SLO. No sub-3 ms relative percentage guarantee for a 1 ms circuit can be claimed.
 
 ## Triggers and costs
@@ -22,7 +22,7 @@ If the hosted runner is noisy or source identity differs, report **NOT_ADMITTED*
 
 ## Release decision
 
-This workflow is a **temporary QOO-156-specific alternative**, not an automatic general project policy change. With the P0 cancellation/cgroup/science proof and a valid hosted ABBA **bounded-overhead** result, the feature can proceed to review, with documented fixed CLI startup cost. The final choice of a 3 ms release threshold remains subject to maintainer agreement. Native Rust algorithm performance still follows the established official CodSpeed provenance.
+This workflow is a **temporary QOO-156-specific alternative**, not an automatic general project policy change. With the P0 cancellation/cgroup/science proof and a valid hosted ABBA **bounded-overhead** result, the feature can proceed to review, with documented fixed CLI startup cost. The +3 ms fixed-cost threshold was accepted for this QOO-156 CLI integration on 2026-11-05; it is not a general project release SLO. Native Rust algorithm performance still follows the established official CodSpeed provenance.
 
 Mac mini/OrbStack guest cgroup controller delegation is an independent deployment qualification, not something this elapsed-time benchmark can prove. CodSpeed Macro may be reintroduced when the runner is actually provisioned without invalidating the provisional evidence.
 
@@ -36,7 +36,7 @@ Mac mini/OrbStack guest cgroup controller delegation is an independent deploymen
 | GHZ32, EQ dual | +1.297 ms | +1.289 to +1.335 ms | 0.032 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
 | QPE-exact8, EQ dual | +1.596 ms | +1.309 to +1.683 ms | 0.069 ms | WITHIN_PROVISIONAL_FIXED_COST_BUDGET |
 
-All three completed 30 alternating ABBA/BAAB blocks each and matched full scientific stdout hashes. The predeclared provisional ceiling of **+3.0 ms additive overhead** was met for these cases. **This is not evidence of zero performance regression**, nor is it a verified threshold for solver-intensive workloads or a hardware-independent confidence interval. The bounded absolute latency may represent a very large *relative* overhead on sub-2ms CLI tasks. A maintainer must still decide whether this safety wrapper tradeoff is acceptable for release.
+All three completed 30 alternating ABBA/BAAB blocks each and matched full scientific stdout hashes. The predeclared provisional ceiling of **+3.0 ms additive overhead** was met for these cases. **This is not evidence of zero performance regression**, nor is it a verified threshold for solver-intensive workloads or a hardware-independent confidence interval. The bounded absolute latency may represent a very large *relative* overhead on sub-2ms CLI tasks. The maintainer accepted this bounded safety-wrapper overhead for QOO-156 on 2026-11-05; solver-inclusive, other-host and full-release behavior require separate evidence.
 
 The original [Macro job #41825389124](https://github.com/PhysicsQoo/QuPRS/actions/runs/41825389124) remains unassigned, and an unrelated [official CodSpeed hosted run](https://app.codspeed.io/PhysicsQoo/QuPRS/runs/6aeb4b9d09f1ddb2bf501af8) is observational only. **No Macro result is necessary for this temporary, explicitly scoped CLI-cost evidence**; normal CodSpeed requirements for core Rust algorithmic changes are not changed.
 

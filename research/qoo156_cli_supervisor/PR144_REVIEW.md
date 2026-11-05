@@ -1,17 +1,16 @@
 # QOO-156 — PR #144 scoped integration review
 
-> **Living source-of-truth for integration review.** Updated 2026-11-05.
-> Tested **code HEAD**: [`df0a554bf`](https://github.com/PhysicsQoo/QuPRS/commit/df0a554bf936b836769f72db27eb816bee4cb730);
-> base `dev@79e975b0b21c0c650db7a76fe6e35b926c67c2c8`.
-> Subsequent **Markdown-only** review edits do not change the qualified CLI
-> binaries, but their SHA must not be mistaken for newly executed source tests.
+> **Final integration record — merged 2026-11-05.** [PR #144](https://github.com/PhysicsQoo/QuPRS/pull/144) was squash-merged into `dev` as [`96ca0f622e0d`](https://github.com/PhysicsQoo/QuPRS/commit/96ca0f622e0df1489315a029e28f74466f2a1ea4).
+> Last fully qualified executable source: [`df0a554bf`](https://github.com/PhysicsQoo/QuPRS/commit/df0a554bf936b836769f72db27eb816bee4cb730);
+> original base: `dev@79e975b0b21c0c650db7a76fe6e35b926c67c2c8`.
+> Subsequent changes to the PR before merging were Markdown-only, not new executable-source evidence.
 
 ## Decision snapshot
 
-- [PR #144](https://github.com/PhysicsQoo/QuPRS/pull/144): **OPEN, not merged, non-draft**; at tested code SHA, **20 commits ahead / 0 behind**, **17 changed files**. No edits under `rust/pathsum` or upstream GPMC/Ganak.
-- **Science / resource / integration CI: all mandatory checks PASS at `df0a554bf`.** See exact-source evidence below.
-- **Performance: provisional fixed +3 ms additive CLI budget PASS on hosted same-runner ABBA only.** Not zero overhead; not a CodSpeed Macro qualification; not a cgroup/GPMC/Ganak/OrbStack claim.
-- **NOT approved for merge automatically.** Await independent maintainer source/risk review and explicit acceptance/rejection of the provisional +3 ms startup cost. This is **post-v0.14.0** work; the next release version is not assigned.
+- [PR #144](https://github.com/PhysicsQoo/QuPRS/pull/144): **MERGED** to `dev` by squash at `96ca0f622e0d`; **17 changed files**. No edits under `rust/pathsum` or upstream GPMC/Ganak.
+- **Science / resource / integration CI:** all mandatory checks **PASS** at executable source `df0a554bf`; later documentation-only head was admitted using prior evidence. See the source-scoped matrix below.
+- **Fixed CLI cost:** hosted same-runner ABBA **PASS** against an additive **+3 ms engineering ceiling**, which the maintainer explicitly accepted on 2026-11-05. Not zero overhead, a CodSpeed Macro qualification, or a solver/cgroup/OrbStack performance claim.
+- **Review disposition:** source/risk inspection found no blocking defects within the stated scope. [GitHub COMMENT review](https://github.com/PhysicsQoo/QuPRS/pull/144#pullrequestreview-5780312280) records the assessment; **no separate human APPROVED review is recorded**. The integration was accepted for `dev`, not for an immediate `main` release.
 
 ## Accepted implementation contract
 
@@ -37,7 +36,7 @@ Contract/details: [resource limits](../../docs/rust_cli_resource_limits.md), [P1
 | [Hosted ABBA #41964899052](https://github.com/PhysicsQoo/QuPRS/actions/runs/41964899052) | **SUCCESS**, strict verdict guards **18/18** and source-paired, byte-identical stdout; paired additive median: Single H **+2.136 ms**, GHZ32 RR **+2.068 ms**, QPE-exact8 RR **+2.073 ms**. 95% bootstrap intervals respectively **[2.118,2.151]**, **[2.054,2.093]**, **[2.058,2.085] ms**. All below provisional +3 ms upper CI budget. |
 | CodSpeed Macro | **SKIPPED / not provisioned**, not a PASS. |
 
-The formal CI results above are **specific to the tested code HEAD**. Earlier commits' PASS and different hosted runner environments must not be silently pooled. Current PR code did not change after `df0a554bf` at this review; a later Rust/Python/benchmark edit requires its own source-specific checks.
+The formal CI results above are **specific to the tested code HEAD**. Earlier commits' PASS and different hosted runner environments must not be silently pooled. The merged executable source did not change after `df0a554bf`; any future Rust/Python/benchmark edit requires new source-specific checks.
 
 ## Review findings resolved in earlier isolated experiments
 
@@ -52,7 +51,7 @@ All privileged Docker delegation and fault-injection workflows above remain in *
 ## Evidence boundaries and further research
 
 - The ABBA single-H case checks a **structural output marker** (`Reduced PathSum State`) and exact full-output parity with the base, **not** an independent numerical oracle for its state. The GHZ/QPE dual mode independently accepts only exact EQ/EQ* tokens for identical QASM, but equal self-inputs and full-output parity alone do not replace the project's separate scientific conformance suites.
-- The hosted ABBA uses 8 warmups + 30 alternating ABBA/BAAB blocks per case on **one Ubuntu runner**, with a 4000-sample bootstrap. This is a **provisional engineering envelope**; bootstrapped precision is conditional on the measured runner/blocks, not a hardware-independent uncertainty statement. Small one-shot circuits may incur a large relative slowdown. [Measurement method](HOSTED_ABBA.md).
+- The hosted ABBA uses 8 warmups + 30 alternating ABBA/BAAB blocks per case on **one Ubuntu runner**, with a 4000-sample bootstrap. This was a **provisional engineering envelope at measurement time** and was accepted on 2026-11-05 for this scoped CLI integration; bootstrapped precision remains conditional on the measured runner/blocks, not a hardware-independent uncertainty statement. Small one-shot circuits may incur a large relative slowdown. [Measurement method](HOSTED_ABBA.md).
 - Official CodSpeed cross-run comparisons can reflect **different hosts/runtime versions**. The reported 20 apparent speedups against older HEAD and historical QAOA7/GPMC `-10.29%` comparison are **PERFORMANCE_INCONCLUSIVE** as source-caused changes. Only code HEAD's official run + the separate same-host ABBA support the narrow claims above. CodSpeed Macro remains unprovisioned.
 - `cleanup_adopted_children` and cgroup removal can consume bounded **post-deadline cleanup grace**; do not advertise `--timeout` as strict process-exit wall clock. A higher-level container/job manager is required for supervisor SIGKILL, stray macOS daemons, a blocked stdout receiver, and lifecycle housekeeping.
 - The physical cgroup pilot demonstrates **constructed delegation** (hosted Linux x86-64/ARM64, nonroot CLI). **Mac mini + OrbStack guest delegation, exact guest image/identity, and CodSpeed Macro parity are not admitted.**
@@ -60,10 +59,10 @@ All privileged Docker delegation and fault-injection workflows above remain in *
 
 ## Merge disposition
 
-- [x] Mandatory science/CI and provisional hosted ABBA successful on tested source `df0a554bf`.
-- [x] Explicit Linux/macOS scope, kernel-accounting limitations and high-relative-cost disclosure documented.
-- [ ] **Independent maintainer review** of the 17 changed files and exceptional worker-tree failure semantics; only COMMENT reviews exist so far.
-- [ ] **Maintainer accepts/rejects +3 ms additive startup overhead as a release policy**; this is not yet approved.
-- [ ] Only then consider **squash merge to dev**; no auto-merge or main update.
+- [x] Mandatory science CI and bounded-overhead hosted ABBA **PASS** on tested source `df0a554bf`.
+- [x] Explicit Linux/macOS process and resource limitations documented.
+- [x] All 17 changed files covered by a source/risk assessment; GitHub submission is a **COMMENT**, not a separate human APPROVED review.
+- [x] **Maintainer accepted +3 ms additive CLI fixed overhead** for QOO-156 on 2026-11-05 (RR-only, no physical cap, hosted Ubuntu measurements).
+- [x] **Squash-merged to `dev`** as `96ca0f622e0d`, verified with the destination branch. `main` and any further release require their separate acceptance policy.
 
 Historical chronological investigations are preserved by [Linear QOO-156 archived research ledger](https://linear.app/qoogohome/document/qoo-156-historical-research-and-ci-ledger-through-2026-11-05-894ef448b837) and their linked Actions runs, rather than multiple contradictory "CURRENT" entries in this document.

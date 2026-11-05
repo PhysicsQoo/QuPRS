@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.14.1 — Rust CLI resource supervision and maintenance
+
+### Rust CLI reliability and resource controls
+
+- Supervise each native CLI invocation in a separate worker process with an
+  end-to-end timeout covering input parsing, verification and worker cleanup.
+  The default timeout remains 600 seconds.
+- Add an optional Linux delegated-cgroup-v2 worker-tree physical-memory limit
+  (`--max-memory-mib`) and an independent Unix virtual address-space limit
+  (`--max-address-space-mib`). Unsupported or unenforceable requested limits
+  fail closed; the address-space limit is not an RSS limit.
+- Bound stdout and stderr capture independently, clean up worker temporary
+  files, and suppress partial equivalence verdicts on timeout, cancellation,
+  output-limit or resource-supervision failure. Document exit statuses and
+  platform limitations in the [Rust CLI resource guide](docs/rust_cli_resource_limits.md).
+- These controls are for trusted local execution and are not a sandbox
+  against a malicious external solver. They introduce process-supervision
+  overhead; no cross-platform or solver-inclusive speedup is claimed.
+
+### Verification, tooling and documentation
+
+- Tighten native CLI regression checks so `not_equivalent` cannot satisfy an
+  `equivalent` test through substring matching; preserve solver and
+  scientific verdict semantics.
+- Improve CodSpeed source-impact classification and paired
+  solver-inclusive benchmark evidence. The measurements remain observational
+  rather than a fixed-percentage release gate.
+- Consolidate public documentation for installation, supported QASM inputs,
+  solver adapters and numerical behavior. Remove obsolete documentation
+  references from six opt-in workflow source-file manifests while preserving
+  the functional verification jobs.
+
+### Compatibility and distribution
+
+- No change to the public Python equivalence API, RR/WMC algorithms,
+  GPMC/Ganak source, default numerical tolerances or existing Python
+  3.11–3.13 / Qiskit 1.x–2.x compatibility claims.
+- The `QuPRS_cli` program is built from the Rust workspace; do not assume a
+  standalone executable is installed by the `QuPRS` PyPI wheel. Wheel/sdist
+  validation still covers the Python package and native Python extension.
+
 ## v0.14.0 — Per-call reduction tolerance and projective-distance WMC
 
 ### Numerical verification

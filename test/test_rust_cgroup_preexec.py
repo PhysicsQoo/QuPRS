@@ -69,7 +69,7 @@ def test_supervisor_admitted_before_receiving_worker_launch_witness(monkeypatch)
     )
     now = time.monotonic()
     result = rust_isolation.run_isolated(
-        QASM, QASM, {}, now, now + 10,
+        QASM, QASM, {"tool_name": "gpmc"}, now, now + 10,
     )
     assert result == {"status": "Equivalent"}
     assert state == ["admitted", "launched", "oom_checked", "disposed"]
@@ -108,7 +108,7 @@ def test_cgroup_oom_disallows_successful_scientific_verdict(monkeypatch):
     )
     now = time.monotonic()
     result = rust_isolation.run_isolated(
-        QASM, QASM, {}, now, now + 10,
+        QASM, QASM, {"tool_name": "gpmc"}, now, now + 10,
     )
     assert result["status"] == "MemoryOut"
     assert state == ["admitted", "oom_checked", "disposed"]
@@ -143,7 +143,7 @@ def test_failed_cgroup_admission_cannot_launch_worker(monkeypatch):
     )
     now = time.monotonic()
     with pytest.raises(rust_resources.ResourceAdmissionError, match="test refused"):
-        rust_isolation.run_isolated(QASM, QASM, {}, now, now + 10)
+        rust_isolation.run_isolated(QASM, QASM, {"tool_name": "gpmc"}, now, now + 10)
     assert state == ["refused", "disposed"]
 
 
@@ -206,7 +206,7 @@ def test_cgroup_cleanup_failure_never_publishes_science(monkeypatch):
         rust_isolation.RustWorkerError,
         match="cgroup cleanup was not certified",
     ):
-        rust_isolation.run_isolated(QASM, QASM, {}, now, now + 10)
+        rust_isolation.run_isolated(QASM, QASM, {"tool_name": "gpmc"}, now, now + 10)
     assert events == ["admitted", "oom_checked", "cleanup_failed"]
 
 
@@ -226,4 +226,4 @@ def test_cgroup_admission_refuses_unbounded_fallback(monkeypatch):
     with pytest.raises(
         rust_resources.ResourceAdmissionError, match="no delegated controller"
     ):
-        rust_isolation.run_isolated(QASM, QASM, {}, now, now + 10)
+        rust_isolation.run_isolated(QASM, QASM, {"tool_name": "gpmc"}, now, now + 10)

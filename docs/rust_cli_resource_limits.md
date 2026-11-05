@@ -110,6 +110,31 @@ release acceptance remains a distinct decision.
 * Exceptional cgroup cleanup error now **explicitly attempts** private-TMPDIR disposal without retention and reports any second cleanup error before exit125. A synthetic non-kernel controller error and private files are unit-tested; an **unkillable real cgroup failure was not reproduced**. This is an improved guaranteed *attempt*, **not** a proof of successful filesystem cleanup in every unrecoverable kernel state. No worker-science code was changed; this protection runs only on the error path and introduces no added process or algorithm hot-path instrumentation.
 * Experimental privilege-assisted Docker, Python pilot, and workflow belong exclusively to the research branch; none are for production deployment or staging integration. A fresh staging HEAD needs its own SHA-specific CI/ABBA acceptance.
 
+## Adopted-child cleanup error path — isolated Linux qualification
+
+The parent checks and reaps adopted worker descendants **before** explicit
+kernel-cgroup and private-TMPDIR disposal. If the adopted-child cleanup
+routine itself fails, the supervisor now takes an **exception-only** path:
+terminate the remaining worker process group, attempt cgroup cleanup if
+available, **explicitly attempt private TMPDIR removal without CNF
+retention**, report any secondary cleanup errors, then return a typed
+resource error (exit **125**, with **no scientific stdout**).
+This is stricter than returning an untyped Rust `Result` error and relying
+only on destructors. Destructors still provide last-resort best effort;
+**a genuinely unkillable kernel/daemon child remains outside a universal
+filesystem-removal guarantee**.
+
+[Isolated branch commit `dd7f263d`](https://github.com/PhysicsQoo/QuPRS/commit/dd7f263d6246fbbfc0379870ae7a74c6d3cc0558)
+and [focused Linux Actions #41959156390](https://github.com/PhysicsQoo/QuPRS/actions/runs/41959156390)
+**SUCCESS**: CLI 13 unit tests; debug-only post-worker cleanup failure
+integration **1 PASS** asserting exit125, no scientific stdout, no CNF
+retention even with `QUPRS_KEEP_FAILED_CNF=1`, no residual private
+directory; ordinary uncapped opt-in and forced timeout focused controls
+both **PASS**; Release build **PASS** and test-injection marker absent.
+This uses **synthetic exception injection**, not a real unkillable kernel
+cgroup. The debug-only injection is not compiled into Release. No native
+`rust/pathsum`, solver, or worker-science implementation changes.
+
 ## Source-pinned P0 and final-stage P1 admission — 2026-11-05
 
 The final P0 control-plane code (Unix SIGINT/SIGTERM cancellation, Linux

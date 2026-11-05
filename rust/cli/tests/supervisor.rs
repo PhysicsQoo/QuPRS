@@ -111,6 +111,36 @@ fn signal_cancellation_removes_private_cnf_and_solver_capture_files() {
     assert!(fs::read_dir(temp_root.path()).unwrap().next().is_none());
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn adopted_child_cleanup_failure_is_typed_and_removes_private_artifacts() {
+    let fixture = fixture();
+    let temp_root = tempfile::tempdir().unwrap();
+    let witness = tempfile::NamedTempFile::new().unwrap();
+    let output = Command::new(cli()).arg(fixture.path())
+        .args(["--quiet", "--timeout", "10"])
+        .env("TMPDIR", temp_root.path())
+        .env("QUPRS_CLI_TEST_TEMP_MARKER", witness.path())
+        .env("QUPRS_CLI_TEST_FAIL_ADOPTED_CLEANUP", "1")
+        .env("QUPRS_KEEP_FAILED_CNF", "1")
+        .output().unwrap();
+    assert_eq!(output.status.code(), Some(125),
+        "adopted-child resource failure must be typed 125: {output:?}");
+    assert!(output.stdout.is_empty(), "resource error leaked partial science: {output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("QOO156InjectedAdoptedCleanupFailure"),
+        "debug-only post-worker fault did not exercise exact path: {stderr}");
+    assert!(stderr.contains("ResourceSupervisorCleanupError: adopted solver descendants"),
+        "adopted-child cleanup must be typed: {stderr}");
+    assert!(!stderr.contains("RetainedFailedSolverArtifacts"),
+        "cleanup error must override opt-in CNF retention");
+    let private = std::path::PathBuf::from(fs::read_to_string(witness.path()).unwrap());
+    assert!(private.starts_with(temp_root.path()));
+    assert!(!private.exists(), "post-worker cleanup error left private CNF directory");
+    assert!(fs::read_dir(temp_root.path()).unwrap().next().is_none(),
+        "failure path leaked per-invocation temp files");
+}
+
 #[test]
 fn explicit_failed_cnf_opt_in_preserves_private_directory_only_on_failure() {
     let temp_root = tempfile::tempdir().unwrap();

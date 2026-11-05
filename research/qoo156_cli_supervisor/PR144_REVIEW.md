@@ -31,6 +31,30 @@
 - **Exact pilot `bdc3b2e48eb2563669e5be61ed444a008097e0f1`** [Actions #41957629230](https://github.com/PhysicsQoo/QuPRS/actions/runs/41957629230): Ubuntu24.04 full native CLI suite/Release PASS, native macOS14 ARM64 full suite/Release PASS, genuine delegated Linux cgroup CLI UID65534 three positive cases: 64MiB OOM `oom=1/oom_kill=2` exit125/CNF removed; 256MiB ordinary missing QASM `oom=0/oom_kill=0` exit1/CNF removed **despite opt-in**; 256MiB complete science exit0. In all cases no worker cgroup remains. Kernel cleanup-error injection is synthetic unit test, **not** a real unkillable cgroup witness.
 - **Integrity:** transfer only `rust/cli/src/supervisor.rs` plus CLI resource contract and this review ledger; test-only Docker, Python pilot and workflow are not transferred. New staged exact SHA admission must run independently; no dev/main merge or automatic approval.
 
+## Adopted-child cleanup exception P1 pilot
+
+In former staging HEAD `53f3907dd`, `cleanup_adopted_children()?`
+could return `Err` immediately after the direct-worker waiter joined,
+bypassing explicit cgroup/private-temp disposal and public typed
+resource exit125. No observed field leak was claimed: RAII Drop still
+attempted best effort; the issue was typed contract and missing explicit
+cleanup on an exceptional path.
+
+The isolated [experiment `dd7f263d`](https://github.com/PhysicsQoo/QuPRS/commit/dd7f263d6246fbbfc0379870ae7a74c6d3cc0558) /
+[Actions #41959156390](https://github.com/PhysicsQoo/QuPRS/actions/runs/41959156390)
+**PASS**: Ubuntu24.04 CLI 13 unit tests; exact new post-worker failure
+injection, ordinary failed-CNF opt-in, timeout cleanup tests 1/1 each;
+Release build and absence of the test-only fault-injection marker.
+The CLI supervisor now catches the exceptional error, attempts
+terminate_tree + cgroup cleanup + private directory cleanup (without
+retention) and returns explicit resource125. Synthetic fault injection
+is **not** evidence of real unkillable worker/cgroup recovery.
+
+Only `supervisor.rs` and its integration test blobs, plus updated docs
+are eligible for clean staging; the experiment workflow must stay
+outside the PR. An integration HEAD update requires **fresh exact-HEAD
+native/CodSpeed/hosted ABBA** acceptance. No native `rust/pathsum` change.
+
 ## Performance decision and other limits
 
 - [Same-runner fixed-cost decomposition #41945871411](https://github.com/PhysicsQoo/QuPRS/actions/runs/41945871411): dev→P0 ~+1.53ms, P0→P1 +0.067–0.103ms; worker bootstrap dominates. Do not remove worker isolation/temporary boundary/bounded output for ~0.08ms savings. Native RR/WMC hot path remains unchanged.

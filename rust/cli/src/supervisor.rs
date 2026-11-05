@@ -136,6 +136,12 @@ fn enable_child_subreaper() -> Result<()> {
 fn cleanup_adopted_children() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
+        // Test-only deterministic exception after direct-worker reaping.
+        // This is not compiled into Release or exposed as a production flag.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("QUPRS_CLI_TEST_FAIL_ADOPTED_CLEANUP").is_some() {
+            bail!("QOO156InjectedAdoptedCleanupFailure");
+        }
         let mut status = 0_i32;
         let mut pid = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
         while pid > 0 {
@@ -385,7 +391,22 @@ pub fn supervise(cli: &Cli) -> Result<i32> {
         }
     }
     let _ = waiter.join();
-    cleanup_adopted_children()?;
+    if let Err(error) = cleanup_adopted_children() {
+        // The direct worker is reaped, but an unreaped adopted solver may
+        // still hold private files. Never return early with an untyped
+        // Result error before attempting process/cgroup/filesystem cleanup.
+        terminate_tree(pid, cgroup.as_ref());
+        if let Some(ref group) = cgroup {
+            if let Err(cgroup_error) = group.cleanup() {
+                eprintln!("ResourceSupervisorCleanupError: cgroup after adopted-child failure: {cgroup_error:#}");
+            }
+        }
+        if let Err(temp_error) = finalize_worker_tempdir(worker_tempdir, false) {
+            eprintln!("ResourceSupervisorCleanupError: worker temp after adopted-child failure: {temp_error:#}");
+        }
+        eprintln!("ResourceSupervisorCleanupError: adopted solver descendants: {error:#}");
+        return Ok(RESOURCE_EXIT);
+    }
 
     // Collect kernel OOM evidence BEFORE removing the cgroup, then dispose of
     // both resource scopes BEFORE any success stdout may be published.

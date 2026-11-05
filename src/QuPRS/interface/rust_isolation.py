@@ -20,6 +20,8 @@ import sys
 import tempfile
 import time
 
+import psutil
+
 _MAX_REQUEST_BYTES = 64 * 1024 * 1024
 _MAX_RESULT_BYTES = 16 * 1024 * 1024
 _MAX_DIAGNOSTIC_BYTES = 1024 * 1024
@@ -107,12 +109,32 @@ def _bounded_exchange(process, payload: bytes, deadline: float) -> tuple[bytes, 
 
 
 def _stop_worker(process):
-    """Best-effort kill of the worker's private POSIX process group and reap.
+    """Reap the worker and kill visible descendants, including detached groups.
 
-    Detached solver grandchildren require additional supervisor work before
-    this experimental path can claim CLI-grade process-tree isolation.
+    Capturing descendants BEFORE killing the parent closes the common
+    detached-session escape; it is not a kernel-enforced containment boundary.
+    A dedicated subreaper/cgroup supervisor is needed to guarantee no escaped
+    descendants after arbitrary daemonization, races or supervisor SIGKILL.
     """
+    survivors = []
     try:
+        try:
+            root = psutil.Process(process.pid)
+            descendants = root.children(recursive=True)
+        except psutil.NoSuchProcess:
+            descendants = []
+        except (psutil.AccessDenied, psutil.Error) as exc:
+            raise RustWorkerError("cannot enumerate isolated worker descendants") from exc
+
+        # Kill recorded descendants first. psutil.Process identity includes
+        # creation time, preventing PID reuse from targeting unrelated work.
+        for child in reversed(descendants):
+            try:
+                child.kill()
+            except psutil.NoSuchProcess:
+                pass
+            except (psutil.AccessDenied, psutil.Error) as exc:
+                raise RustWorkerError("cannot terminate isolated worker descendant") from exc
         if os.name == "posix":
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -124,6 +146,17 @@ def _stop_worker(process):
             process.wait(timeout=2)
         except subprocess.TimeoutExpired as exc:
             raise RustWorkerError("isolated worker could not be reaped") from exc
+
+        # A finished direct child does not establish reaping of grandchildren.
+        # Zombies are already dead; live survivors are a resource failure.
+        for child in descendants:
+            try:
+                if child.is_running() and child.status() != psutil.STATUS_ZOMBIE:
+                    survivors.append(child.pid)
+            except psutil.NoSuchProcess:
+                pass
+        if survivors:
+            raise RustWorkerError("isolated worker descendants survived termination")
     finally:
         for stream in (process.stdin, process.stdout, process.stderr):
             if stream is not None and not stream.closed:
@@ -176,6 +209,12 @@ def run_isolated(
     """Run the Rust FFI in a separate process without changing public options."""
     if os.name != "posix":
         raise RustWorkerError("experimental Rust isolation requires a POSIX host")
+    # A virtual-address cap must never be misrepresented as a physical RSS
+    # limit. cgroup delegation/admission is a separate integration gate.
+    if "QUPRS_ISOLATED_MAX_MEMORY_MIB" in os.environ:
+        raise RustWorkerError(
+            "physical-memory cap requires an unavailable delegated cgroup supervisor"
+        )
 
     request = {
         "version": _PROTOCOL_VERSION,
@@ -198,8 +237,11 @@ def run_isolated(
         environment["TMPDIR"] = temporary
         environment["TMP"] = temporary
         environment["TEMP"] = temporary
+        worker_bootstrap = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "_rust_worker_bootstrap.py"
+        )
         worker = subprocess.Popen(
-            [sys.executable, "-m", "QuPRS.interface.rust_isolation"],
+            [sys.executable, worker_bootstrap],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

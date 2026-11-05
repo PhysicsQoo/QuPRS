@@ -171,7 +171,7 @@ def run() -> int:
         if group is not None:
             group.admit(p.pid)
         # The bootstrap imports no QuPRS/Qiskit module until admission.
-        admission = b"QuPRS-Rust-Worker-Admit-v1\\n"
+        admission = b"QuPRS-Rust-Worker-Admit-v1\n"
         if os.write(p.stdin.fileno(), admission) != len(admission):
             raise SupervisorResourceError('incomplete worker admission witness')
         try:

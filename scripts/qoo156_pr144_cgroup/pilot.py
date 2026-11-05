@@ -167,6 +167,7 @@ def case(subtree, label, cap_mib, alloc_mib):
             case=label,
             internal_memory_max_bytes=captured_max,
             requested_memory_max_bytes=cap_mib * MIB,
+            internal_kernel_oom=events_last.get("oom"),
             internal_kernel_oom_kill=events_last.get("oom_kill"),
             internal_peak_bytes=peak_max,
             child_returncode=child.returncode,
@@ -195,10 +196,12 @@ def case(subtree, label, cap_mib, alloc_mib):
         if label == "oom":
             admitted = (child.returncode == 125
                         and "MemoryLimitExceeded" in err
+                        and events_last.get("oom", 0) >= 1
                         and events_last.get("oom_kill", 0) >= 1
                         and not out)
         else:
             admitted = (child.returncode == 0
+                        and events_last.get("oom", 0) == 0
                         and events_last.get("oom_kill", 0) == 0
                         and "Reduced PathSum State" in out)
         result["admitted"] = admitted

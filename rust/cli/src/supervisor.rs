@@ -803,8 +803,11 @@ fn parse_oom_observed(text: &str) -> Result<bool> {
         *slot = Some(value.parse::<u64>()
             .with_context(|| format!("invalid {field} counter"))?);
     }
-    Ok(oom.context("memory.events missing oom counter")? > 0
-        || oom_kill.context("memory.events missing oom_kill counter")? > 0)
+    // Resolve BOTH required fields before OR: short-circuiting on oom>0
+    // must not silently accept a missing/malformed oom_kill witness.
+    let oom_count = oom.context("memory.events missing oom counter")?;
+    let killed_count = oom_kill.context("memory.events missing oom_kill counter")?;
+    Ok(oom_count > 0 || killed_count > 0)
 }
 
 #[cfg(target_os = "linux")]

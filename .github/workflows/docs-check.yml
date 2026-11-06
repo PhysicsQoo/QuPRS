@@ -62,8 +62,8 @@ jobs:
         run: python -m pip install -r docs/requirements-site.txt
       - name: Validate site source selection
         run: python scripts/check_docs_site.py --sources
-      - name: Check static PathSum Gate signatures against source and Griffe
-        run: python scripts/check_docs_gate_stubs.py --check
+      - name: Verify committed core.pyi against Python and Gate source (no runtime import)
+        run: python scripts/generate_stubs.py --check
       - name: Check stub generator and release typing smoke syntax
         run: python -m py_compile scripts/generate_stubs.py scripts/release_artifact_smoke.py
       - name: Check published example syntax

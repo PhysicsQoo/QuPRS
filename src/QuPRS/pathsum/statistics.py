@@ -2,9 +2,16 @@
 
 
 class StatisticsManager:
-    """
-    Manages and tracks statistics for pathsum reduction rules.
-    This class encapsulates the state and logic for statistical tracking.
+    """Tracks reductions performed by the Python Path-sum implementation.
+
+    Counts include `total`, `Elim`, `HH`, and `omega`. The hit rate is
+    `(Elim + HH + omega) / total` when `total > 0`; otherwise it is zero.
+    This is diagnostic instrumentation, not an equivalence certificate.
+    Instances are available through `PathSum.stats` and result `Statistics`.
+
+    Notes:
+        The counter keys and this class's location are implementation-facing;
+        prefer the documented result object for high-level verification.
     """
 
     def __init__(self):

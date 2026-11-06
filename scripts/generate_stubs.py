@@ -1,10 +1,14 @@
 # scripts/generate_stubs.py
-"""Regenerate QuPRS PathSum type stubs from installed runtime API metadata.
+"""Maintain the generated PathSum type stub.
 
-For no-import CI validation use scripts/check_docs_gate_stubs.py instead.
-The source files, not the generated .pyi, are the canonical definitions.
+Use --check in lightweight CI: static AST/Griffe validation never imports QuPRS.
+Use --write to regenerate from a correctly installed QuPRS source checkout.
+The Python and Gate source files are authoritative; core.pyi is an artifact.
 """
 
+from __future__ import annotations
+
+import argparse
 import inspect
 import os
 import sys
@@ -15,12 +19,6 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
-
-from QuPRS.pathsum import core as core_module
-from QuPRS.pathsum.gates import get_all_gates
-from QuPRS.pathsum.gates.base import Gate
-from QuPRS.pathsum.gates.builder import build_docstring, build_signature
-
 
 def _format_pyi_docstring(doc: str) -> str:
     """
@@ -104,7 +102,7 @@ def _build_stub_for_member(name: str, member: Any) -> str:
     return ""
 
 
-def _build_dynamic_method_stub(gate_cls: Type[Gate]) -> str:
+def _build_dynamic_method_stub(gate_cls: Type[Any], build_signature, build_docstring) -> str:
     """
     Generate a .pyi stub for a dynamically injected gate method.
     Used for PathSum gate methods.
@@ -117,10 +115,11 @@ def _build_dynamic_method_stub(gate_cls: Type[Gate]) -> str:
 
 
 def generate_stub_file():
-    """
-    Main function to generate the .pyi stub file for core classes.
-    Writes the output to QuPRS/pathsum/core.pyi.
-    """
+    """Regenerate the committed core.pyi file in an installed development environment."""
+    from QuPRS.pathsum import core as core_module
+    from QuPRS.pathsum.gates import get_all_gates
+    from QuPRS.pathsum.gates.builder import build_docstring, build_signature
+
     print("Starting to generate .pyi stub file...")
     output_path = os.path.join(src_path, "QuPRS", "pathsum", "core.pyi")
     pyi_content = [
@@ -148,7 +147,7 @@ def generate_stub_file():
         if cls is core_module.PathSum:
             pyi_content.append("\n    # --- Dynamically Injected Gate Methods ---")
             for gate_cls in sorted(gate_class_map.values(), key=lambda c: c.gate_name):
-                pyi_content.append(_build_dynamic_method_stub(gate_cls))
+                pyi_content.append(_build_dynamic_method_stub(gate_cls, build_signature, build_docstring))
         pyi_content.append("\n")
     generated = "\n".join(pyi_content)
     if os.path.exists(output_path):
@@ -161,5 +160,33 @@ def generate_stub_file():
     print(f"Generated stub updated: {output_path}")
 
 
+def check_stub() -> None:
+    """Fail on stale core methods, dynamically mounted Gates or generated docs.
+
+    Imports only the AST-based validator and Griffe, not QuPRS itself, Qiskit,
+    or the native Rust extension. Safe for fast documentation CI.
+    """
+    from check_docs_gate_stubs import check_core_stub, check_gate_stub, check_griffe
+
+    gates = check_gate_stub()
+    check_core_stub(gates)
+    check_griffe(gates)
+    print("Committed core.pyi matches its source declarations: PASS")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="Read-only source/stub parity gate")
+    mode.add_argument("--write", action="store_true", help="Regenerate core.pyi from an installed checkout")
+    args = parser.parse_args()
+    if args.check:
+        check_stub()
+    else:
+        # No arguments retains the previous generator command behavior.
+        generate_stub_file()
+        check_stub()
+
+
 if __name__ == "__main__":
-    generate_stub_file()
+    main()

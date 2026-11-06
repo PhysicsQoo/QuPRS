@@ -1,20 +1,20 @@
 # Theory
 
-## Path-sum representation
+QuPRS verifies supported unitary quantum-circuit comparisons using Boolean Path-sum representations, algebraic reduction rules, and optional complex weighted model counting.
 
-A Path-sum expresses a quantum circuit using Boolean path variables and phase polynomials. QuPRS applies algebraic reduction rules, including elimination, Hadamard–Hadamard, and omega-style simplifications.
+## Mathematical foundations
 
-When reductions do not determine the result, the hybrid method can encode the remaining expression as a weighted model counting (WMC) problem.
+- [Path-sum and reduction rules](path-sum.md) explains Boolean path variables, phase-polynomial expressions, the roles of Elim/HH/omega, and exact-versus-tolerance-aware reduction.
+- [Weighted model counting](weighted-model-counting.md) explains the complex counting formulation, independent solver selection, and limits of numerical evidence.
+- [Verification methods and result meanings](verification.md) relates the mathematical stages to the user-facing API.
 
-## Numerical equivalence
-
-For unitary operators `U` and `V` on `n` qubits, a projective distance used by QuPRS is
+For two unitary operators `U` and `V` on `n` qubits, the projective metric used by the default WMC classifier is
 
 $$
 D_{\mathrm{proj}}(U,V)
-= \sqrt{1 - \frac{|\operatorname{Tr}(U^\dagger V)|^2}{4^n}}.
+=\sqrt{1-\frac{|\operatorname{Tr}(U^\dagger V)|^2}{4^n}}.
 $$
 
-This distance is insensitive to a global phase. Source-exact gate equivalence, numerical acceptance, and solver precision are distinct concepts; results must be interpreted using the requested verification method and its tolerance contract.
+An equality claim may be structural or approximate, depending on the selected method and tolerances. This distance is global-phase invariant, but a positive finite-precision solver verdict is not, by itself, a proof of source-exact equivalence.
 
-See the [public numerical semantics](https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/development/per-call-tolerance.md) for the API's per-verification thresholds.
+The complete publicly documented [equivalence semantics](https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/development/equivalence-semantics.md) distinguish exact equality, global-phase equivalence, and finite numerical acceptance. See [executable examples](examples.md) for small controls.

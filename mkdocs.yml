@@ -31,9 +31,14 @@ plugins:
 
 nav:
   - Overview: index.md
-  - Getting started: getting-started.md
-  - Verification: verification.md
-  - Theory: theory.md
+  - User guide:
+      - Getting started: getting-started.md
+      - Executable examples: examples.md
+      - Verification methods: verification.md
+  - Theory:
+      - Overview: theory.md
+      - Path-sum and reduction: path-sum.md
+      - Weighted model counting: weighted-model-counting.md
   - API Reference:
       - Overview: reference.md
       - Python API: python-api.md

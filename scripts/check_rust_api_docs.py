@@ -46,12 +46,24 @@ def compose() -> None:
     if RUST_API.exists():
         raise AssertionError("Rust API destination must be absent before composition")
     shutil.copytree(RUSTDOC_ROOT, RUST_API)
+    # Cargo may omit its top-level crate index for a single-package build.
+    # Rustdoc's own Help/Settings navigation expects this landing page.
+    (RUST_API / "index.html").write_text(
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="robots" content="noindex,nofollow">'
+        '<meta http-equiv="refresh" content="0;url=pathsum/index.html">'
+        '<title>Rust API Reference</title></head>'
+        '<body><a href="pathsum/index.html">pathsum crate reference</a></body></html>\n',
+        encoding="utf-8",
+    )
 
 
 def check_assets() -> None:
     rust_index = RUST_API / "pathsum" / "index.html"
     if not rust_index.is_file():
         raise AssertionError("Missing Rust API entry point")
+    if not (RUST_API / "index.html").is_file():
+        raise AssertionError("Rustdoc landing page missing")
     static = RUST_API / "static.files"
     if not static.is_dir() or not any(static.iterdir()):
         raise AssertionError("Missing Rustdoc shared static assets")
@@ -79,7 +91,7 @@ def check_assets() -> None:
         raise AssertionError("Rustdoc asset validation did not check any resources")
 
     reference = (SITE_ROOT / "reference" / "index.html").read_text(encoding="utf-8")
-    if "../rust-api/pathsum/index.html" not in reference:
+    if 'href="../rust-api/pathsum/index.html"' not in reference:
         raise AssertionError("The main site does not link to the Rust API")
 
 

@@ -20,6 +20,9 @@ EXPECTED_PAGES = (
     "reference/index.html",
     "python-api/index.html",
     "architecture/index.html",
+    "examples/index.html",
+    "path-sum/index.html",
+    "weighted-model-counting/index.html",
 )
 ALLOWED_SUFFIXES = {".md", ".js"}
 PRIVATE_TRACKER_KEY = re.compile(r"\b[A-Z]{2,8}-[0-9]{1,6}\b")
@@ -35,6 +38,8 @@ def check_sources() -> None:
         if path.suffix not in ALLOWED_SUFFIXES:
             raise AssertionError(f"Unexpected site source file: {path}")
         content = path.read_text(encoding="utf-8")
+        if path.suffix == ".md" and any(line.strip() == "$" for line in content.splitlines()):
+            raise AssertionError(f"Broken standalone math delimiter in {path}")
         if PRIVATE_TRACKER_KEY.search(content):
             raise AssertionError(f"Non-public reference in documentation source: {path}")
 
@@ -56,6 +61,14 @@ def verify_site(site_dir: Path) -> None:
     theory = (site_dir / "theory" / "index.html").read_text(encoding="utf-8")
     if "arithmatex" not in theory:
         raise AssertionError("Mathematical expressions were not emitted")
+    for relative, expected in (
+        ("path-sum/index.html", "Elim"),
+        ("weighted-model-counting/index.html", "Ganak"),
+        ("examples/index.html", "wmc_only"),
+    ):
+        rendered = (site_dir / relative).read_text(encoding="utf-8")
+        if expected not in rendered:
+            raise AssertionError(f"Missing scientific content on {relative}")
     if not (site_dir / "javascripts" / "mathjax.js").is_file():
         raise AssertionError("MathJax configuration was not included")
     for path in site_dir.rglob("*.html"):

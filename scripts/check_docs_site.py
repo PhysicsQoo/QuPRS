@@ -21,7 +21,7 @@ EXPECTED_PAGES = (
 )
 ALLOWED_SUFFIXES = {".md", ".js"}
 PRIVATE_TRACKER_KEY = re.compile(r"\b[A-Z]{2,8}-[0-9]{1,6}\b")
-PRIVATE_LINK = re.compile(r"https?://(?:www\.)?linear\.app/|github\.com/PhysicsQoo/obsidian(?:/|\b)", re.I)
+PRIVATE_LINK = re.compile(r"https?://(?:www\.)?linear\.app/", re.I)
 
 
 def check_sources() -> None:

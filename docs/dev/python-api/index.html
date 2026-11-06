@@ -17,7 +17,7 @@
         <link rel="prev" href="../reference/">
       
       
-        <link rel="next" href="../architecture/">
+        <link rel="next" href="../pathsum-api/">
       
       
         
@@ -28,7 +28,7 @@
     
     
       
-        <title>Python API - QuPRS</title>
+        <title>General Python API - QuPRS</title>
       
     
     
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Python API
+              General Python API
             
           </span>
         </div>
@@ -606,7 +606,7 @@
   <span class="md-ellipsis">
     
   
-  Python API
+  General Python API
 
     
   </span>
@@ -623,7 +623,7 @@
   <span class="md-ellipsis">
     
   
-  Python API
+  General Python API
 
     
   </span>
@@ -690,16 +690,363 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#numerical-results" class="md-nav__link">
+    <nav class="md-nav" aria-label="EquivalenceCheckResult">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.CNF" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Numerical results
+        CNF
       </span>
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.Statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Statistics
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.approximate_distance_tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        approximate_distance_tolerance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.equivalent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        equivalent
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.expect" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        expect
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.final_pathsum" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        final_pathsum
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        gate_num
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        gate_num2
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.log_wmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        log_wmc
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.method" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        method
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.pathsum_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        pathsum_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.progress" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        progress
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.qubit_num" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        qubit_num
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.rr_approximate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        rr_approximate
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        strategy
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.to_DIMACS_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        to_DIMACS_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        tool_name
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        tool_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.verification_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        verification_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_numeric_model_bound" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_numeric_model_bound
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_numerical_verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_numerical_verdict
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_phase_tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_phase_tolerance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_precision_reason" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_precision_reason
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_print_resolution_distance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_print_resolution_distance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_printed_verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_printed_verdict
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_solver_invoked" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_solver_invoked
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.__init__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        __init__
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.__repr__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        __repr__
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.__str__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        __str__
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult._fmt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        _fmt
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verdicts-and-numerical-meaning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verdicts and numerical meaning
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -707,6 +1054,33 @@
   
 </nav>
       
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pathsum-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Advanced Path-sum API
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -829,16 +1203,363 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#numerical-results" class="md-nav__link">
+    <nav class="md-nav" aria-label="EquivalenceCheckResult">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.CNF" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Numerical results
+        CNF
       </span>
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.Statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Statistics
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.approximate_distance_tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        approximate_distance_tolerance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.equivalent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        equivalent
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.expect" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        expect
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.final_pathsum" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        final_pathsum
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        gate_num
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        gate_num2
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.log_wmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        log_wmc
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.method" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        method
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.pathsum_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        pathsum_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.progress" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        progress
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.qubit_num" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        qubit_num
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.rr_approximate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        rr_approximate
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        strategy
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.to_DIMACS_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        to_DIMACS_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        tool_name
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        tool_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.verification_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        verification_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_numeric_model_bound" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_numeric_model_bound
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_numerical_verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_numerical_verdict
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_phase_tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_phase_tolerance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_precision_reason" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_precision_reason
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_print_resolution_distance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_print_resolution_distance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_printed_verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_printed_verdict
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_solver_invoked" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_solver_invoked
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        wmc_time
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.__init__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        __init__
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.__repr__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        __repr__
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult.__str__" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        __str__
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#QuPRS.interface.load_qiskit.EquivalenceCheckResult._fmt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        _fmt
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verdicts-and-numerical-meaning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verdicts and numerical meaning
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -862,11 +1583,20 @@
   
 
 
-<h1 id="python-api">Python API</h1>
-<p>The primary supported Python import is:</p>
+<h1 id="python-api-general">Python API: General</h1>
+<p>QuPRS provides a high-level Python entry point for comparing quantum circuits.
+For symbolic circuit construction, gate methods, and reductions, see the
+<a href="../pathsum-api/">Advanced Path-sum API</a>. These are separate import surfaces:
+<code>QuPRS</code> and <code>QuPRS.pathsum</code> respectively.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span><span class="s2">"first.qasm"</span><span class="p">,</span> <span class="s2">"second.qasm"</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"hybrid"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">equivalent</span><span class="p">)</span>
 </code></pre></div>
-<p>The generated signatures below come from the Python source tree. Only explicitly selected API entry points are documented; Python implementation helpers and private Rust worker modules are not part of this API reference.</p>
+<p>The input filenames above are illustrative; provide existing OpenQASM files or
+Qiskit <code>QuantumCircuit</code> objects. The generated signatures and descriptions
+below are taken from the version-matched Python source, without importing the
+package into the documentation builder.</p>
 <h2 id="circuit-equivalence">Circuit equivalence</h2>
 
 
@@ -1123,6 +1853,12 @@ raw printed uncertainty remains separately diagnostic.</p>
       <tbody>
           <tr class="doc-section-item">
 <td><code>EquivalenceCheckResult</code></td>            <td>
+                  <code><a class="autorefs autorefs-internal" title="EquivalenceCheckResult
+
+
+  
+      dataclass
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult">EquivalenceCheckResult</a></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1137,8 +1873,16 @@ final PathSum circuit object.</p>
 
     </div>
 
-</div><h2 id="verification-result">Verification result</h2>
-<p><code>check_equivalence()</code> returns an <code>EquivalenceCheckResult</code> object. The result type is defined in <code>QuPRS.interface.load_qiskit</code> and is not currently re-exported by <code>QuPRS.__all__</code>.</p>
+</div><p><code>method</code> selects <code>hybrid</code>, <code>reduction_rules</code>, or <code>wmc_only</code>. The
+<code>backend</code> argument selects the Python or Rust implementation; the solver
+<code>tool_name</code> is independently selected when WMC is reached. A timeout request
+is not always an end-to-end hard deadline for in-process symbolic work: see
+the <code>safe_mode</code> contract in the function's source-generated reference and
+the <a href="../architecture/">Architecture</a> guide.</p>
+<h2 id="verification-result">Verification result</h2>
+<p>The function returns
+<code>QuPRS.interface.load_qiskit.EquivalenceCheckResult</code>. It is a concrete
+result dataclass, <strong>not</strong> currently an export of <code>QuPRS.__all__</code>.</p>
 
 
 <div class="doc doc-object doc-class">
@@ -1174,7 +1918,11 @@ final PathSum circuit object.</p>
       </thead>
       <tbody>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.qubit_num">qubit_num</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="qubit_num
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.qubit_num)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.qubit_num">qubit_num</a></code></td>
             <td>
                   <code><span title="int">int</span></code>
             </td>
@@ -1185,7 +1933,11 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num">gate_num</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="gate_num
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num">gate_num</a></code></td>
             <td>
                   <code><span title="int">int</span></code>
             </td>
@@ -1196,7 +1948,11 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num2">gate_num2</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="gate_num2
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num2)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num2">gate_num2</a></code></td>
             <td>
                   <code><span title="int">int</span></code>
             </td>
@@ -1207,7 +1963,11 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.method">method</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="method
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.method)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.method">method</a></code></td>
             <td>
                   <code><span title="str">str</span></code>
             </td>
@@ -1218,7 +1978,11 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.strategy">strategy</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="strategy
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.strategy)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.strategy">strategy</a></code></td>
             <td>
                   <code><span title="str">str</span></code>
             </td>
@@ -1229,7 +1993,11 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.equivalent">equivalent</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="equivalent
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.equivalent)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.equivalent">equivalent</a></code></td>
             <td>
                   <code><span title="str">str</span></code>
             </td>
@@ -1240,7 +2008,11 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.verification_time">verification_time</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="verification_time
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.verification_time)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.verification_time">verification_time</a></code></td>
             <td>
                   <code><span title="float">float</span></code>
             </td>
@@ -1251,7 +2023,11 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.pathsum_time">pathsum_time</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="pathsum_time
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.pathsum_time)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.pathsum_time">pathsum_time</a></code></td>
             <td>
                   <code><span title="float">float</span></code>
             </td>
@@ -1262,9 +2038,13 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.final_pathsum">final_pathsum</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="final_pathsum
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.final_pathsum)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.final_pathsum">final_pathsum</a></code></td>
             <td>
-                  <code><span title="QuPRS.pathsum.PathSum">PathSum</span></code>
+                  <code><a class="autorefs autorefs-internal" title="PathSum (QuPRS.pathsum.PathSum)" href="../pathsum-api/#QuPRS.pathsum.core.PathSum">PathSum</a></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1273,9 +2053,13 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.Statistics">Statistics</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="Statistics
+
+  
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.Statistics)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.Statistics">Statistics</a></code></td>
             <td>
-                  <code><span title="QuPRS.pathsum.statistics.StatisticsManager">StatisticsManager</span></code>
+                  <code><a class="autorefs autorefs-internal" title="StatisticsManager (QuPRS.pathsum.statistics.StatisticsManager)" href="../pathsum-api/#QuPRS.pathsum.statistics.StatisticsManager">StatisticsManager</a></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1284,7 +2068,12 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.progress">progress</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="progress = &#x27;0/0&#x27;
+
+  
+      class-attribute
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.progress)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.progress">progress</a></code></td>
             <td>
                   <code><span title="str">str</span></code>
             </td>
@@ -1295,7 +2084,12 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.to_DIMACS_time">to_DIMACS_time</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="to_DIMACS_time = None
+
+  
+      class-attribute
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.to_DIMACS_time)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.to_DIMACS_time">to_DIMACS_time</a></code></td>
             <td>
                   <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
             </td>
@@ -1306,7 +2100,12 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_name">tool_name</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="tool_name = None
+
+  
+      class-attribute
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_name)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_name">tool_name</a></code></td>
             <td>
                   <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
             </td>
@@ -1317,7 +2116,12 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_time">tool_time</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="tool_time = None
+
+  
+      class-attribute
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_time)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_time">tool_time</a></code></td>
             <td>
                   <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
             </td>
@@ -1328,7 +2132,12 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_time">wmc_time</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="wmc_time = None
+
+  
+      class-attribute
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_time)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_time">wmc_time</a></code></td>
             <td>
                   <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
             </td>
@@ -1339,7 +2148,12 @@ final PathSum circuit object.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="QuPRS.interface.load_qiskit.EquivalenceCheckResult.CNF">CNF</span></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="CNF = None
+
+  
+      class-attribute
+      instance-attribute
+   (QuPRS.interface.load_qiskit.EquivalenceCheckResult.CNF)" href="./#QuPRS.interface.load_qiskit.EquivalenceCheckResult.CNF">CNF</a></code></td>
             <td>
                   <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
             </td>
@@ -1370,8 +2184,639 @@ final PathSum circuit object.</p>
 
 
 
+<div class="doc doc-object doc-attribute">
 
 
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.CNF" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">CNF</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.Statistics" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">Statistics</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.approximate_distance_tolerance" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">approximate_distance_tolerance</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.equivalent" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">equivalent</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.expect" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">expect</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.final_pathsum" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">final_pathsum</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">gate_num</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.gate_num2" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">gate_num2</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.log_wmc" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">log_wmc</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.method" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">method</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.pathsum_time" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">pathsum_time</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.progress" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">progress</span> <span class="o">=</span> <span class="s1">'0/0'</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.qubit_num" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">qubit_num</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.rr_approximate" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">rr_approximate</span> <span class="o">=</span> <span class="kc">False</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.strategy" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">strategy</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.to_DIMACS_time" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">to_DIMACS_time</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_name" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">tool_name</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.tool_time" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">tool_time</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.verification_time" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">verification_time</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_numeric_model_bound" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_numeric_model_bound</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_numerical_verdict" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_numerical_verdict</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_phase_tolerance" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_phase_tolerance</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_precision_reason" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_precision_reason</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_print_resolution_distance" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_print_resolution_distance</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_printed_verdict" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_printed_verdict</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_solver_invoked" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_solver_invoked</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.wmc_time" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">wmc_time</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">qubit_num</span><span class="p">,</span> <span class="n">gate_num</span><span class="p">,</span> <span class="n">gate_num2</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">strategy</span><span class="p">,</span> <span class="n">equivalent</span><span class="p">,</span> <span class="n">verification_time</span><span class="p">,</span> <span class="n">pathsum_time</span><span class="p">,</span> <span class="n">final_pathsum</span><span class="p">,</span> <span class="n">Statistics</span><span class="p">,</span> <span class="n">progress</span><span class="o">=</span><span class="s1">'0/0'</span><span class="p">,</span> <span class="n">to_DIMACS_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">tool_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">tool_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wmc_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">CNF</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">expect</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">log_wmc</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wmc_numerical_verdict</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wmc_precision_reason</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wmc_printed_verdict</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wmc_print_resolution_distance</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wmc_numeric_model_bound</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">approximate_distance_tolerance</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wmc_solver_invoked</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">rr_approximate</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">wmc_phase_tolerance</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.__repr__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__repr__</span><span class="p">()</span></code>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult.__str__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__str__</span><span class="p">()</span></code>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="QuPRS.interface.load_qiskit.EquivalenceCheckResult._fmt" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">_fmt</span><span class="p">(</span><span class="n">val</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-staticmethod"><code>staticmethod</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Unified formatting logic:
+1. If the value is a number (float/int) -&gt; format to .3f (without unit)
+2. If the value is None -&gt; return 'N/A'
+3. If the value is something else (e.g., error string)
+    -&gt; return the original string</p>
+
+
+    </div>
+
+</div>
 
 
 
@@ -1379,9 +2824,57 @@ final PathSum circuit object.</p>
 
     </div>
 
-</div><h2 id="numerical-results">Numerical results</h2>
-<p>The <code>equivalent</code> field can report <code>equivalent</code>, <code>equivalent*</code>, <code>not_equivalent</code>, <code>unknown</code>, <code>Timeout</code>, or <code>MemoryOut</code>. An inconclusive or resource-limited result is not a proof of circuit inequivalence.</p>
-<p><code>rr_tolerance</code>, <code>wmc_phase_tolerance</code> (or its <code>phase_tolerance</code> alias), and <code>approximate_distance_tolerance</code> control distinct parts of verification. See <a href="../verification/">Verification</a> and the <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/development/equivalence-semantics.md">equivalence semantics</a>.</p>
+</div><p>Important result fields include:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>equivalent</code></td>
+<td>Verification verdict string; see the states below.</td>
+</tr>
+<tr>
+<td><code>final_pathsum</code></td>
+<td>Residual symbolic <code>PathSum</code>; consult the <a href="../pathsum-api/">advanced reference</a>.</td>
+</tr>
+<tr>
+<td><code>Statistics</code></td>
+<td>Reduction diagnostic object (<code>StatisticsManager</code>).</td>
+</tr>
+<tr>
+<td><code>rr_approximate</code></td>
+<td>An accepted RR-based result used tolerance-dependent reduction.</td>
+</tr>
+<tr>
+<td><code>wmc_solver_invoked</code></td>
+<td>Whether a real WMC solver process was called (when supplied).</td>
+</tr>
+<tr>
+<td><code>wmc_printed_verdict</code> / <code>wmc_precision_reason</code></td>
+<td>Solver-output interpretation and diagnostic provenance, not a mathematical error certificate.</td>
+</tr>
+<tr>
+<td><code>approximate_distance_tolerance</code> / <code>wmc_phase_tolerance</code></td>
+<td>Effective numerical thresholds recorded in the result.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="verdicts-and-numerical-meaning">Verdicts and numerical meaning</h3>
+<p><code>equivalent</code> can report <code>equivalent</code>, <code>equivalent*</code>,
+<code>not_equivalent</code>, <code>unknown</code>, <code>Timeout</code>, or <code>MemoryOut</code>.
+<code>equivalent*</code> denotes equivalence up to global phase under the
+configured numerical policy. Neither <code>unknown</code> nor a resource-limited or
+solver-error result proves inequivalence. Numerical WMC output granularity
+is not an exact solver error bound.</p>
+<p>The independent <code>rr_tolerance</code>, <code>wmc_phase_tolerance</code> (alias
+<code>phase_tolerance</code>), and <code>approximate_distance_tolerance</code> parameters
+must not be conflated. For their scientific interpretation, see
+<a href="../verification/">Verification</a> and
+<a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/development/equivalence-semantics.md">Equivalence semantics</a>.</p>
 
 
 

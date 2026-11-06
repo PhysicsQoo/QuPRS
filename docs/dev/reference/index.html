@@ -677,7 +677,34 @@
   <span class="md-ellipsis">
     
   
-  Python API
+  General Python API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pathsum-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Advanced Path-sum API
 
     
   </span>
@@ -822,7 +849,12 @@
 <p>QuPRS exposes a Python API, a native Rust library, and a separate Rust command-line program. Their public interfaces and available input formats differ.</p>
 <h2 id="python-api">Python API</h2>
 <p>The user-facing Python entry point is <code>QuPRS.check_equivalence()</code> (import it with <code>from QuPRS import check_equivalence</code>). Its signature and return object are generated from the implementation:</p>
-<p><a href="../python-api/">Python API Reference</a></p>
+<p><a href="../python-api/">General Python API Reference</a></p>
+<p>For the lower-level symbolic Path-sum, output mapping, dynamic gate methods,
+and reduction statistics, consult the
+<a href="../pathsum-api/">Advanced Path-sum API Reference</a>. Its gate signatures are
+extracted from the source-generated <code>core.pyi</code> stub without importing or
+executing QuPRS during the documentation build.</p>
 <h2 id="rust-library">Rust library</h2>
 <p>The native <code>pathsum</code> crate provides its own typed verification API. It is documented with Rust's <code>cargo doc</code> tool.</p>
 <p><a href="../rust-api/pathsum/index.html">Rust crate API Reference</a></p>

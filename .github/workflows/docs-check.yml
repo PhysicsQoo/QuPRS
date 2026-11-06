@@ -8,6 +8,12 @@ on:
       - 'docs/requirements-site.txt'
       - 'docs/site/**'
       - 'scripts/check_docs_site.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'scripts/check_docs_examples.py'
       - '.github/workflows/docs-check.yml'
   push:
@@ -17,6 +23,12 @@ on:
       - 'docs/requirements-site.txt'
       - 'docs/site/**'
       - 'scripts/check_docs_site.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'scripts/check_docs_examples.py'
       - '.github/workflows/docs-check.yml'
   workflow_dispatch:
@@ -46,11 +58,15 @@ jobs:
         run: python -m pip install -r docs/requirements-site.txt
       - name: Validate site source selection
         run: python scripts/check_docs_site.py --sources
+      - name: Check static PathSum Gate signatures against source and Griffe
+        run: python scripts/check_docs_gate_stubs.py --check
       - name: Check published example syntax
         run: python scripts/check_docs_examples.py --check
       - name: Build documentation in strict mode
         run: zensical build --strict --clean
       - name: Validate generated documentation
         run: python scripts/check_docs_site.py --site
+      - name: Check rendered dynamic Gate members
+        run: python scripts/check_docs_gate_stubs.py --site
       - name: Reject broken internal links
         run: python scripts/check_docs_site.py --negative-link-test

@@ -100,11 +100,11 @@ def execute(*, installed: bool = False) -> None:
             env.pop("PYTHONPATH", None)
             env.pop("PYTHONHOME", None)
         provenance = (
-            "from importlib.metadata import distribution\\n"
-            "from pathlib import Path\\n"
-            "import QuPRS\\n"
-            "installed_root = Path(distribution('QuPRS').locate_file('')).resolve()\\n"
-            "assert Path(QuPRS.__file__).resolve().is_relative_to(installed_root)\\n"
+            "from importlib.metadata import distribution\n"
+            "from pathlib import Path\n"
+            "import QuPRS\n"
+            "installed_root = Path(distribution('QuPRS').locate_file('')).resolve()\n"
+            "assert Path(QuPRS.__file__).resolve().is_relative_to(installed_root)\n"
         ) if installed else ""
         for index, block in enumerate(python_blocks, start=1):
             try:
@@ -116,7 +116,7 @@ def execute(*, installed: bool = False) -> None:
                 raise AssertionError(f"Python example {index} exceeded 90 s") from exc
             if result.returncode:
                 raise AssertionError(
-                    f"Python example {index} failed (exit={result.returncode}):\\n"
+                    f"Python example {index} failed (exit={result.returncode}):\n"
                     + (result.stdout + result.stderr)[-6000:]
                 )
             print(f"Python example {index} ({'installed' if installed else 'source'}): PASS")
@@ -133,7 +133,7 @@ def execute(*, installed: bool = False) -> None:
             raise AssertionError(f"CLI example {index} exceeded 180 s") from exc
         if result.returncode:
             raise AssertionError(
-                f"CLI example {index} failed (exit={result.returncode}):\\n"
+                f"CLI example {index} failed (exit={result.returncode}):\n"
                 + (result.stdout + result.stderr)[-6000:]
             )
         print(f"CLI example {index}: PASS")

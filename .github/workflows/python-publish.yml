@@ -22,6 +22,9 @@ on:
     paths:
       - '.github/workflows/python-publish.yml'
       - 'scripts/release_artifact_smoke.py'
+      - 'scripts/check_installed_typing.py'
+      - 'src/QuPRS/py.typed'
+      - '.github/workflows/release-artifact-ci.yml'
       - 'scripts/verify_macos_wheel_support.py'
       - 'test/test_macos_wheel_support.py'
       - 'rust/Cargo.toml'

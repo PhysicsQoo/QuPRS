@@ -280,7 +280,7 @@ jobs:
           origin_pages="$(git rev-parse gh-pages)"
           echo "$origin_pages" > "$RUNNER_TEMP/pages-base.txt"
           before_root="$(git rev-parse gh-pages:index.html)"
-          before_preview="$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)"
+          before_preview="$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)"
           was_versioned=false
           if git cat-file -e gh-pages:docs/index.html 2>/dev/null; then
             was_versioned=true
@@ -292,7 +292,7 @@ jobs:
           test "$(git show gh-pages:docs/dev/source-sha.txt | tr -d '\r\n')" = "${{ github.sha }}"
           git cat-file -e gh-pages:docs/dev/rust-api/pathsum/index.html
           test "$(git rev-parse gh-pages:index.html)" = "$before_root"
-          test "$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)" = "$before_preview"
+          test "$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)" = "$before_preview"
           git worktree add --detach "$RUNNER_TEMP/versioned-docs" gh-pages
           python scripts/docs_versioning.py check-layout \
             --pages "$RUNNER_TEMP/versioned-docs" --versions dev

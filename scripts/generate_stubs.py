@@ -1,19 +1,25 @@
 # scripts/generate_stubs.py
+"""Regenerate QuPRS PathSum type stubs from installed runtime API metadata.
+
+For no-import CI validation use scripts/check_docs_gate_stubs.py instead.
+The source files, not the generated .pyi, are the canonical definitions.
+"""
+
 import inspect
 import os
 import sys
 from typing import Any, Callable, Type
 
-from QuPRS.pathsum import core as core_module
-from QuPRS.pathsum.gates import get_all_gates
-from QuPRS.pathsum.gates.base import Gate
-from QuPRS.pathsum.gates.builder import build_docstring, build_signature
-
-# Set up the project root and source path for module imports.
+# Make source checkout imports work even without an editable installation.
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
+
+from QuPRS.pathsum import core as core_module
+from QuPRS.pathsum.gates import get_all_gates
+from QuPRS.pathsum.gates.base import Gate
+from QuPRS.pathsum.gates.builder import build_docstring, build_signature
 
 
 def _format_pyi_docstring(doc: str) -> str:
@@ -55,6 +61,16 @@ def _build_stub_for_member(name: str, member: Any) -> str:
     Generate a .pyi stub string for a class member.
     Handles properties, static/class methods, and regular methods.
     """
+    if name == "reduction" and inspect.isfunction(member):
+        # reduction.apply_reduction is attached as a bound PathSum method.
+        # Direct inspect.signature prints nested quoted forward references,
+        # e.g. "'PathSum'", which are not useful annotations in .pyi.
+        doc = inspect.getdoc(member) or ""
+        return (
+            '\n    def reduction(self) -> "PathSum":\n'
+            f'        {_format_pyi_docstring(doc)}\n'
+            '        ...\n'
+        )
     if name.startswith("__") and name not in (
         "__init__",
         "__eq__",

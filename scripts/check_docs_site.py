@@ -18,6 +18,8 @@ EXPECTED_PAGES = (
     "verification/index.html",
     "theory/index.html",
     "reference/index.html",
+    "python-api/index.html",
+    "architecture/index.html",
 )
 ALLOWED_SUFFIXES = {".md", ".js"}
 PRIVATE_TRACKER_KEY = re.compile(r"\b[A-Z]{2,8}-[0-9]{1,6}\b")
@@ -44,6 +46,13 @@ def verify_site(site_dir: Path) -> None:
             raise AssertionError(f"Missing generated page: {path}")
         if "<html" not in path.read_text(encoding="utf-8").lower():
             raise AssertionError(f"Invalid generated HTML: {path}")
+    python_api = (site_dir / "python-api" / "index.html").read_text(encoding="utf-8")
+    for name in ("check_equivalence", "EquivalenceCheckResult", "safe_mode",
+                 "rr_tolerance", "wmc_phase_tolerance", "approximate_distance_tolerance"):
+        if name not in python_api:
+            raise AssertionError(f"Missing Python API symbol or argument: {name}")
+    if "doc-function" not in python_api or "doc-class" not in python_api:
+        raise AssertionError("Python API directives were not rendered as API objects")
     theory = (site_dir / "theory" / "index.html").read_text(encoding="utf-8")
     if "arithmatex" not in theory:
         raise AssertionError("Mathematical expressions were not emitted")

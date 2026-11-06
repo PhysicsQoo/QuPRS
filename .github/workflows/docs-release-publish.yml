@@ -159,7 +159,10 @@ jobs:
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/unpacked"
-          tar -tzf reviewed/docs.tar.gz | grep -v -E '^docs(/|$)' && exit 1 || true
+          if tar -tzf reviewed/docs.tar.gz | grep -v -E '^docs(/|$)'; then
+            echo 'Archive contains paths outside the isolated docs subtree' >&2
+            exit 1
+          fi
           tar -xzf reviewed/docs.tar.gz -C "$RUNNER_TEMP/unpacked" --no-same-owner
           test -f "$RUNNER_TEMP/unpacked/docs/$TAG/source-sha.txt"
           test "$(tr -d '\r\n' < "$RUNNER_TEMP/unpacked/docs/$TAG/source-sha.txt")" = "$SOURCE_SHA"

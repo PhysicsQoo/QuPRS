@@ -8,7 +8,7 @@ When reductions do not determine the result, the hybrid method can encode the re
 
 ## Numerical equivalence
 
-For unitary operators (U) and (V) on (n) qubits, a projective distance used by QuPRS is
+For unitary operators `U` and `V` on `n` qubits, a projective distance used by QuPRS is
 
 $$
 D_{\mathrm{proj}}(U,V)

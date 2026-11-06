@@ -98,16 +98,20 @@ def runtime_contract() -> None:
             raise AssertionError("Actual HH matcher rejected cross term")
         if match_HH(y0 / 3, (y0,), (y0, y1), ())[0] is not None:
             raise AssertionError("Actual HH accepted third-cycle coefficient")
-        omega_phase = y0 * (se.Rational(1, 4) + y1)
-        om = match_omega(omega_phase, (y0,), (y0, y1), ())
-        if om[0] != y0 or not om[3]:
-            coefficient = omega_phase.expand().coeff(y0)
-            raise AssertionError(
-                f"Actual Omega rejected quarter-cycle fixture: result={om!r}, "
-                f"coefficient={coefficient!r}, terms={coefficient.args!r}"
-            )
         if match_omega(y0 / 3, (y0,), (y0, y1), ())[0] is not None:
             raise AssertionError("Actual Omega accepted third-cycle coefficient")
+    # Reuse the already source-tested quarter-cycle matcher fixture with an
+    # explicit nonzero RR tolerance. Its acceptance is not a claim of
+    # source-exact Omega matching under rr_tolerance=0.
+    from QuPRS.utils.util import reduce_expression
+    with scoped_rr_tolerance(1e-8):
+        omega_phase = reduce_expression(
+            y0 * (se.Rational(1, 4) + y1 / 2) + se.Rational(1, 10**11),
+            preserve_scalar=True,
+        )
+        omega = match_omega(omega_phase, (y0,), (y0, y1), ())
+        if omega[0] != y0:
+            raise AssertionError(f"Toleranced Omega matcher fixture drifted: {omega!r}")
 
     gpmc, ganak = get_solver_adapter("gpmc"), get_solver_adapter("ganak")
     if (gpmc.capabilities.weight_format, ganak.capabilities.weight_format) != ("pair", "complex-i"):

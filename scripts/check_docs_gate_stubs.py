@@ -155,6 +155,109 @@ def check_gate_stub() -> set[str]:
     return set(gates)
 
 
+
+def _return_type(method: ast.FunctionDef) -> str | None:
+    if method.returns is None:
+        return None
+    result = method.returns
+    if isinstance(result, ast.Constant) and isinstance(result.value, str):
+        return result.value
+    return ast.unparse(result)
+
+
+def _normalized_type(annotation: str | None) -> str | None:
+    if annotation is None:
+        return None
+    return annotation.replace("QuPRS.pathsum.statistics.StatisticsManager", "StatisticsManager")
+
+
+def _decorators(method: ast.FunctionDef) -> list[str]:
+    return [ast.unparse(decorator) for decorator in method.decorator_list]
+
+
+def _class_members(cls: ast.ClassDef) -> dict[str, ast.FunctionDef]:
+    return {
+        node.name: node for node in cls.body
+        if isinstance(node, ast.FunctionDef)
+    }
+
+
+def check_core_stub(gates: set[str]) -> None:
+    """Detect stale ordinary PathSum, Register and F signatures or docstrings.
+
+    Checking only dynamically attached Gates is insufficient: this same .pyi
+    also shadows every ordinary core class member for typing and doc tools.
+    """
+    source_path = ROOT / "src" / "QuPRS" / "pathsum" / "core.py"
+    py_module = ast.parse(source_path.read_text(encoding="utf-8"))
+    stub_module = ast.parse(STUB_PATH.read_text(encoding="utf-8"))
+
+    def classes(module: ast.Module) -> dict[str, ast.ClassDef]:
+        return {
+            node.name: node for node in module.body
+            if isinstance(node, ast.ClassDef)
+        }
+
+    src_classes, stub_classes = classes(py_module), classes(stub_module)
+    for cls_name in ("Register", "F", "PathSum"):
+        if cls_name not in src_classes or cls_name not in stub_classes:
+            raise AssertionError(f"Missing Python core/stub class: {cls_name}")
+        source_cls, stub_cls = src_classes[cls_name], stub_classes[cls_name]
+        if (ast.get_docstring(source_cls) or "") != (ast.get_docstring(stub_cls) or ""):
+            raise AssertionError(f"Outdated .pyi class docstring: {cls_name}")
+        source_methods = _class_members(source_cls)
+        stub_methods = _class_members(stub_cls)
+        extras = set(gates) | {"reduction"} if cls_name == "PathSum" else set()
+        missing = set(source_methods) - set(stub_methods)
+        stale = set(stub_methods) - set(source_methods) - extras
+        if missing or stale:
+            raise AssertionError(
+                f"Outdated .pyi {cls_name}: missing={sorted(missing)}, "
+                f"stale={sorted(stale)}"
+            )
+        for name, source_method in source_methods.items():
+            stub_method = stub_methods[name]
+            source_params = parameter_shape(source_method, set())
+            stub_params = parameter_shape(stub_method, set())
+            norm = lambda rows: [
+                (name, kind, _normalized_type(ann), default)
+                for name, kind, ann, default in rows
+            ]
+            if norm(source_params) != norm(stub_params):
+                raise AssertionError(
+                    f"Outdated .pyi signature for {cls_name}.{name}: "
+                    f"source={source_params}, stub={stub_params}"
+                )
+            if _normalized_type(_return_type(source_method)) != _normalized_type(
+                _return_type(stub_method)
+            ):
+                raise AssertionError(f"Outdated .pyi return for {cls_name}.{name}")
+            if _decorators(source_method) != _decorators(stub_method):
+                raise AssertionError(f"Outdated .pyi decorator for {cls_name}.{name}")
+            if (ast.get_docstring(source_method) or "") != (
+                ast.get_docstring(stub_method) or ""
+            ):
+                raise AssertionError(f"Outdated .pyi method docstring: {cls_name}.{name}")
+
+    reduction_method = _class_members(stub_classes["PathSum"]).get("reduction")
+    if (
+        reduction_method is None
+        or parameter_shape(reduction_method, set()) !=
+        [("self", "positional", None, None)]
+        or _return_type(reduction_method) != "PathSum"
+    ):
+        raise AssertionError("PathSum.reduction must use a normal bound-method stub")
+    pathsum_init = ROOT / "src" / "QuPRS" / "pathsum" / "__init__.py"
+    if "PathSum.reduction = reduction.apply_reduction" not in pathsum_init.read_text(
+        encoding="utf-8"
+    ):
+        raise AssertionError("PathSum.reduction runtime attachment changed")
+    marker = ROOT / "src" / "QuPRS" / "py.typed"
+    if not marker.is_file() or marker.read_bytes():
+        raise AssertionError("Missing or nonempty QuPRS PEP 561 py.typed marker")
+    print("Source/stub class and public method parity PASS: Register, F, PathSum")
+
+
 def check_griffe(gates: set[str]) -> None:
     # This call must be entirely static. No QuPRS or Qiskit imports are made.
     import griffe
@@ -205,7 +308,9 @@ def main() -> None:
     if not args.check and not args.site:
         parser.error("select --check and/or --site")
     if args.check:
-        check_griffe(check_gate_stub())
+        gates = check_gate_stub()
+        check_core_stub(gates)
+        check_griffe(gates)
     if args.site:
         check_site()
 

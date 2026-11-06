@@ -89,6 +89,27 @@ QuPRS implements the **Elim**, **HH**, and **omega** families of simplifications
 
 These descriptions are the rule *roles*, not substitutes for their algebraic side conditions. An arbitrary phase polynomial or path variable cannot be eliminated just because it resembles a pattern. See the public [Rust reduction implementation](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust/pathsum/src) and [Python PathSum implementation](https://github.com/PhysicsQoo/QuPRS/tree/dev/src/QuPRS/pathsum) for the exact supported cases.
 
+## Hand-checkable applicability and counterexamples
+
+The identities above are sums of **amplitudes attached to output kets**,
+not merely identities between scalar phases. The following small cases
+make the preconditions explicit; the scalar factors are before applying
+the Path-sum's own normalization.
+
+| Rule | Applicable example | Counterexample (do not reduce) |
+| --- | --- | --- |
+| Elim | With `P=1/8` and a constant output `|0⟩`, summing an unused `y₀` gives `2 exp(iπ/4)|0⟩`. | With `P=y₀/2`, the sum is zero, not twice either term. With an output `|y₀⟩`, the ket sum is `|0⟩+|1⟩`, not `2|0⟩`. |
+| HH | Set `Q=3`, `R=y₁/8`, and `f(y₁)=y₁`. The source `P=y₀(y₁+3)/2+y₁/8` leaves only `y₁=1` after summing `y₀`, yielding `2 exp(iπ/4)|1⟩`. | If the ket depends on the eliminated `y₀`, then for fixed `y₁=0, Q=3` the weighted sum is `|0⟩−|1⟩`, not the scalar constraint `0`. The eliminated variable must be absent from both `R` and `f`. |
+| Omega | For `Q=2`, `R=1/16` and the `1/4` branch, summing `y₀` gives `√2 exp(2πi(1/16+1/8))` times the unchanged ket. | With coefficient `y₀/3`, the sum has magnitude `1`, not `√2`; a near-looking coefficient is not an exact quarter-cycle match. If `f` depends on `y₀`, no scalar omega reduction applies. |
+
+In HH, the **source** retains the full integer `Q=3` in the phase;
+only the replacement `y₁ ← 3 mod 2 = 1` uses parity. The same
+distinction holds for the source of Omega. In all three rules,
+`y₀` must be an eligible *summed* variable, and the output-map
+dependency check precedes coefficient matching. These hand calculations
+are checked independently by the documentation science smoke; matcher
+eligibility is checked against the actual Python implementation.
+
 ## Exact source expressions versus approximate reduction
 
 The per-call `rr_tolerance` controls numerical coefficient matching and approximate reduction in the supported implementations. The default is `1e-10`. Choosing `rr_tolerance=0` is useful when checking whether the reduction relies on numerical acceptance rather than a tolerance-matched coefficient.

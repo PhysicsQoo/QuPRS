@@ -26,43 +26,54 @@ $$
 
 Removing \(y\) must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.
 
-**HH.** Let the complete set of Boolean path variables be \(y=(y_0,y_1,z)\), and define the **residual variables** \(y'=(y_1,z)\), which exclude \(y_0\). The complete phase polynomial is
+**HH.** Let the complete path-variable tuple be \(y=(y_0,y_1,z)\), with residual tuple \(y'=(y_1,z)\) excluding \(y_0\). The integer-valued polynomial \(Q(x,z)\) is independent of \(y_0,y_1\). The **source phase**, before applying the reduction, is
 
 $$
-P(x,y)=\frac12 y_0(y_1+q)+R(x,y'),
+P(x,y)=\frac12 y_0\bigl(y_1+Q(x,z)\bigr)+R(x,y').
 $$
 
-where \(q=Q(x,z)\bmod 2\) is independent of \(y_0\) and \(y_1\). **Only the \(y\) in \(P(x,y)\) includes \(y_0\)**; the residual phase \(R(x,y')\) and output state \(|f(x,y')\rangle\) are independent of \(y_0\).
+Here the original \(Q\) is **not reduced modulo 2**. The residual phase \(R(x,y')\) and output ket \(|f(x,y')\rangle\) are independent of the eliminated variable \(y_0\).
 
-When \(y_0\) and \(y_1\) are both summed path variables, the HH reduction acts on the complete amplitude **and its output ket**:
+Summing \(y_0\) enforces the Boolean constraint \(y_1=\overline Q\), where **only at substitution** do we define \(\overline Q=Q(x,z)\bmod 2\). If \(y_0\) and \(y_1\) are both summed variables, HH acts on the complete amplitude and output ket:
 
 $$
 \begin{aligned}
 &\sum_{y_0,y_1\in\{0,1\}}
  e^{2\pi iP(x,y)}\,|f(x,y')\rangle\\
-&\qquad=2\,e^{2\pi iR_q(x,z)}\,|f_q(x,z)\rangle .
+&\qquad=2\,e^{2\pi iR_{\overline Q}(x,z)}
+ |f_{\overline Q}(x,z)\rangle.
 \end{aligned}
 $$
 
-Here \(R_q(x,z)=R(x,(q,z))\) and \(f_q(x,z)=f(x,(q,z))\). The original exponent contains **both** the half-cycle term \(\frac12 y_0(y_1+q)\) and the \(y_0\)-independent residual \(R(x,y')\). Summing over \(y_0\) imposes \(y_1=q\), which must be substituted into **both the residual phase and the ket**. The factor \(2\) is combined with the Path-sum normalization.
+Here \(R_{\overline Q}(x,z)=R(x,(\overline Q,z))\) and \(f_{\overline Q}(x,z)=f(x,(\overline Q,z))\). Thus the **original phase keeps \(Q\)**, while the replacement \(y_1\leftarrow\overline Q\) is performed in **both the residual phase and the output ket**. The factor \(2\) must be combined with the Path-sum normalization.
 
-If \(y_1\) is not a summed variable, summing over \(y_0\) instead produces \(2\delta_{y_1,q}\) times the residual amplitude and ket. The implementation additionally requires its supported half-cycle coefficient pattern and a target variable that does not reappear in its replacement polynomial.
+When \(y_1\) is not a summed variable, summing over \(y_0\) instead gives \(2\delta_{y_1,\overline Q}\) times the residual amplitude and ket. Implementation matching additionally requires the supported half-cycle coefficient pattern and a target variable absent from its own replacement polynomial.
 
-**Omega.** Let \(y\) be an internal summed Boolean variable, with the residual phase \(R\), Boolean-valued \(Q\), and **output ket \(|f\rangle\) all independent of \(y\)**. The two quarter-cycle identities therefore retain the same ket on both sides:
-
-$$
-\sum_{y=0}^{1}
- e^{2\pi i[R+y(\frac14+\frac12Q)]}\,|f\rangle
-=\sqrt{2}\,e^{2\pi i[R+\frac18-\frac14Q]}\,|f\rangle,
-$$
+**Omega.** Let \(y_0\) be a summed Boolean variable, with residual phase \(R\), integer-valued \(Q\), and output ket \(|f\rangle\) all independent of \(y_0\). As in HH, the **source** keeps the unreduced \(Q\), while the reduced phase uses \(\overline Q=Q\bmod 2\). The quarter-cycle identities preserve the output ket:
 
 $$
-\sum_{y=0}^{1}
- e^{2\pi i[R+y(\frac34+\frac12Q)]}\,|f\rangle
-=\sqrt{2}\,e^{2\pi i[R-\frac18+\frac14Q]}\,|f\rangle.
+\begin{aligned}
+&\sum_{y_0=0}^{1}
+ e^{2\pi i[R+y_0(\frac14+\frac12Q)]}
+ |f\rangle\\
+&\qquad=\sqrt{2}\,
+ e^{2\pi i[R+\frac18-\frac14\overline Q]}
+ |f\rangle,
+\end{aligned}
 $$
 
-The output \(|f\rangle\) is **unchanged** because it does not depend on the eliminated \(y\). The \(\sqrt{2}\) scalar factor is accounted for by the Path-sum normalization when the path-variable count changes. These identities require the specified quarter-cycle singleton and half-cycle cross terms; they cannot be applied to an arbitrary phase coefficient or to a \(y\)-dependent output ket.
+$$
+\begin{aligned}
+&\sum_{y_0=0}^{1}
+ e^{2\pi i[R+y_0(\frac34+\frac12Q)]}
+ |f\rangle\\
+&\qquad=\sqrt{2}\,
+ e^{2\pi i[R-\frac18+\frac14\overline Q]}
+ |f\rangle.
+\end{aligned}
+$$
+
+The output ket \(|f\rangle\) is unchanged because it does not depend on \(y_0\). The \(\sqrt{2}\) factor is accounted for by the Path-sum normalization when the path-variable count changes. These identities require the specified quarter-cycle singleton and half-cycle cross terms; they cannot be applied to arbitrary coefficients or a \(y_0\)-dependent output.
 
 For implementation-level applicability, see [Python matching and substitutions](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py) and [native Rust reduction matching](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs). The algebraic identities appear in the [TACAS 2026 QuPRS paper](https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21) and earlier [path-sum verification calculus](https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf). 
 

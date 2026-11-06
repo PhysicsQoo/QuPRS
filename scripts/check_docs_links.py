@@ -94,7 +94,7 @@ def negative_fixture() -> None:
             encoding="utf-8",
         )
         try:
-            check_links(root, "https://example.org/QuPRS/pr-preview/pr-159/")
+            check_links(root, "https://example.org/QuPRS/pr-preview/pr-1/")
         except AssertionError as exc:
             if "targets a missing file" not in str(exc):
                 raise

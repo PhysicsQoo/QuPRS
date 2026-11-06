@@ -68,9 +68,9 @@ jobs:
       - name: Build Python reference and documentation site
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.number }}" == "159" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             cp mkdocs.yml mkdocs-preview.yml
-            printf '\nsite_url: https://physicsqoo.github.io/QuPRS/pr-preview/pr-159/\n' >> mkdocs-preview.yml
+            printf '\nsite_url: https://physicsqoo.github.io/QuPRS/pr-preview/pr-${{ github.event.number }}/\n' >> mkdocs-preview.yml
             zensical build --strict --clean -f mkdocs-preview.yml
           else
             zensical build --strict --clean
@@ -99,33 +99,33 @@ jobs:
       - name: Audit all internal links against deployment URL prefix
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.number }}" == "159" ]]; then
-            python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/pr-preview/pr-159/
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/pr-preview/pr-${{ github.event.number }}/
           else
             python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/
           fi
 
       - name: Install browser for preview inspection
-        if: github.event_name == 'pull_request' && github.event.number == 159
+        if: github.event_name == 'pull_request'
         run: |
           python -m pip install 'playwright==1.56.0'
           python -m playwright install --with-deps chromium
       - name: Inspect real browser rendering
-        if: github.event_name == 'pull_request' && github.event.number == 159
+        if: github.event_name == 'pull_request'
         run: python scripts/check_docs_visual.py --site site --output docs-preview-review
       - name: Upload preview website for review
-        if: github.event_name == 'pull_request' && github.event.number == 159
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: quprs-preview-site-pr-159-${{ github.event.pull_request.head.sha }}
+          name: quprs-preview-site-pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
           path: site/
           retention-days: 7
           if-no-files-found: error
       - name: Upload desktop and mobile screenshots
-        if: always() && github.event_name == 'pull_request' && github.event.number == 159
+        if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: quprs-visual-review-pr-159-${{ github.event.pull_request.head.sha }}
+          name: quprs-visual-review-pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
           path: docs-preview-review/
           retention-days: 14
           if-no-files-found: warn
@@ -133,7 +133,7 @@ jobs:
   preview-deploy:
     name: Publish review-only preview subtree
     needs: generated-reference
-    if: github.event_name == 'pull_request' && github.event.number == 159 && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -145,12 +145,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          current="$(gh api "repos/${{ github.repository }}/pulls/159" --jq '.head.sha')"
+          current="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.number }}" --jq '.head.sha')"
           test "$current" = "$EXPECTED_SHA"
       - name: Retrieve reviewed static website
         uses: actions/download-artifact@v4
         with:
-          name: quprs-preview-site-pr-159-${{ github.event.pull_request.head.sha }}
+          name: quprs-preview-site-pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
           path: preview-site
       - name: Validate deployed artifact boundaries
         run: |
@@ -178,13 +178,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          destination="preview-branch/pr-preview/pr-159"
+          destination="preview-branch/pr-preview/pr-${{ github.event.number }}"
           mkdir -p "$(dirname "$destination")"
           rm -rf "$destination"
           mkdir -p "$destination"
           cp -a preview-site/. "$destination/"
           printf '%s\n' "$EXPECTED_SHA" > "$destination/source-sha.txt"
-          git -C preview-branch add -- pr-preview/pr-159
+          git -C preview-branch add -- pr-preview/pr-${{ github.event.number }}
           if git -C preview-branch diff --cached --quiet; then
             echo 'Preview subtree is already identical to the reviewed artifact'
           else
@@ -198,7 +198,7 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          base='https://physicsqoo.github.io/QuPRS/pr-preview/pr-159'
+          base='https://physicsqoo.github.io/QuPRS/pr-preview/pr-${{ github.event.number }}'
           matched=false
           for attempt in $(seq 1 30); do
             if curl --fail --location --silent --show-error --max-time 12 \

@@ -12,6 +12,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import re
+import re
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -31,7 +32,7 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     prefix = base_path.strip("/")
-    if prefix != "QuPRS/pr-preview/pr-159":
+    if not re.fullmatch(r"QuPRS/pr-preview/pr-[1-9][0-9]*", prefix):
         raise ValueError("Unexpected documentation preview location")
     with TemporaryDirectory(prefix="quprs-preview-") as temp:
         mount = Path(temp) / prefix
@@ -146,7 +147,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--site", default="site")
     parser.add_argument("--output", default="docs-preview-review")
-    parser.add_argument("--base-path", default="/QuPRS/pr-preview/pr-159/")
+    parser.add_argument("--base-path", required=True)
     args = parser.parse_args()
     verify_browser(Path(args.site), Path(args.output), args.base_path)
 

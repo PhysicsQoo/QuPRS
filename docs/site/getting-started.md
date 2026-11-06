@@ -27,8 +27,8 @@ result = check_equivalence(original, optimized, method="hybrid")
 print(result.equivalent)
 ```
 
-See [Verification](verification.md) for the meaning of each result and for available verification methods.
+See the [fully tested examples](examples.md) for positive/negative controls, global phase, GPMC/Ganak selection, isolated Rust verification, and native CLI input.
 
 ## Rust users
 
-The native Rust crate and command-line tool are maintained in the [Rust workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust). The Python wheel does not install a standalone Rust CLI executable.
+The native Rust crate and command-line tool are maintained in the [Rust workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust). The Python wheel does not install a standalone Rust CLI executable. See the [CLI example](examples.md#6-standalone-rust-cli) for a self-contained native source-checkout invocation.

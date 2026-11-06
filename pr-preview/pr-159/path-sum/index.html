@@ -875,20 +875,21 @@ U|x\rangle = \alpha\!\!\sum_{y\in\{0,1\}^{m}}
 =2e^{2\pi iP}\,|f\rangle.
 \]</div>
 <p>Removing <span class="arithmatex">\(y\)</span> must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.</p>
-<p><strong>HH.</strong> Write the Boolean path variables as <span class="arithmatex">\(y=(y_0,y_1,z)\)</span>, where <span class="arithmatex">\(z\)</span> denotes the remaining variables. The <strong>complete phase polynomial</strong> is</p>
+<p><strong>HH.</strong> Let the complete set of Boolean path variables be <span class="arithmatex">\(y=(y_0,y_1,z)\)</span>, and define the <strong>residual variables</strong> <span class="arithmatex">\(y'=(y_1,z)\)</span>, which exclude <span class="arithmatex">\(y_0\)</span>. The complete phase polynomial is</p>
 <div class="arithmatex">\[
-P(x,y)=\frac12 y_0(y_1+q)+R(x,y),
+P(x,y)=\frac12 y_0(y_1+q)+R(x,y'),
 \]</div>
-<p>where <span class="arithmatex">\(q=Q(x,z)\bmod 2\)</span> is independent of <span class="arithmatex">\(y_0,y_1\)</span>, and the residual phase <span class="arithmatex">\(R\)</span> and output function <span class="arithmatex">\(f\)</span> are independent of the eliminated <span class="arithmatex">\(y_0\)</span>. When <strong>both</strong> <span class="arithmatex">\(y_0\)</span> and <span class="arithmatex">\(y_1\)</span> are summed variables, the HH rule acts on the complete amplitude and output ket:</p>
+<p>where <span class="arithmatex">\(q=Q(x,z)\bmod 2\)</span> is independent of <span class="arithmatex">\(y_0\)</span> and <span class="arithmatex">\(y_1\)</span>. <strong>Only the <span class="arithmatex">\(y\)</span> in <span class="arithmatex">\(P(x,y)\)</span> includes <span class="arithmatex">\(y_0\)</span></strong>; the residual phase <span class="arithmatex">\(R(x,y')\)</span> and output state <span class="arithmatex">\(|f(x,y')\rangle\)</span> are independent of <span class="arithmatex">\(y_0\)</span>.</p>
+<p>When <span class="arithmatex">\(y_0\)</span> and <span class="arithmatex">\(y_1\)</span> are both summed path variables, the HH reduction acts on the complete amplitude <strong>and its output ket</strong>:</p>
 <div class="arithmatex">\[
 \begin{aligned}
 &amp;\sum_{y_0,y_1\in\{0,1\}}
- e^{2\pi iP(x,y)}\,|f(x,y)\rangle\\
+ e^{2\pi iP(x,y)}\,|f(x,y')\rangle\\
 &amp;\qquad=2\,e^{2\pi iR_q(x,z)}\,|f_q(x,z)\rangle .
 \end{aligned}
 \]</div>
-<p>Here <span class="arithmatex">\(R_q(x,z)=R(x,y)|_{y_1=q}\)</span> and <span class="arithmatex">\(f_q(x,z)=f(x,y)|_{y_1=q}\)</span>. The original exponent includes <strong>both</strong> <span class="arithmatex">\(\frac12 y_0(y_1+q)\)</span> and <span class="arithmatex">\(R(x,y)\)</span>; the residual term is not a separate reduction rule and must not be dropped. Summing <span class="arithmatex">\(y_0\)</span> imposes <span class="arithmatex">\(y_1=q\)</span>, which is substituted into <strong>both the residual phase and the ket</strong>. The factor <span class="arithmatex">\(2\)</span> must be combined with the Path-sum normalization.</p>
-<p>If <span class="arithmatex">\(y_1\)</span> is not summed, summation over <span class="arithmatex">\(y_0\)</span> instead gives <span class="arithmatex">\(2\delta_{y_1,q}\)</span> times the unchanged residual amplitude and ket. The implementation also requires the supported half-cycle coefficient pattern and a target variable that does not reappear in its replacement polynomial.</p>
+<p>Here <span class="arithmatex">\(R_q(x,z)=R(x,(q,z))\)</span> and <span class="arithmatex">\(f_q(x,z)=f(x,(q,z))\)</span>. The original exponent contains <strong>both</strong> the half-cycle term <span class="arithmatex">\(\frac12 y_0(y_1+q)\)</span> and the <span class="arithmatex">\(y_0\)</span>-independent residual <span class="arithmatex">\(R(x,y')\)</span>. Summing over <span class="arithmatex">\(y_0\)</span> imposes <span class="arithmatex">\(y_1=q\)</span>, which must be substituted into <strong>both the residual phase and the ket</strong>. The factor <span class="arithmatex">\(2\)</span> is combined with the Path-sum normalization.</p>
+<p>If <span class="arithmatex">\(y_1\)</span> is not a summed variable, summing over <span class="arithmatex">\(y_0\)</span> instead produces <span class="arithmatex">\(2\delta_{y_1,q}\)</span> times the residual amplitude and ket. The implementation additionally requires its supported half-cycle coefficient pattern and a target variable that does not reappear in its replacement polynomial.</p>
 <p><strong>Omega.</strong> Let <span class="arithmatex">\(y\)</span> be an internal summed Boolean variable, with the residual phase <span class="arithmatex">\(R\)</span>, Boolean-valued <span class="arithmatex">\(Q\)</span>, and <strong>output ket <span class="arithmatex">\(|f\rangle\)</span> all independent of <span class="arithmatex">\(y\)</span></strong>. The two quarter-cycle identities therefore retain the same ket on both sides:</p>
 <div class="arithmatex">\[
 \sum_{y=0}^{1}

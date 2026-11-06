@@ -111,8 +111,11 @@ def test_supervisor_real_ipc_detached_solver_cleanup(tmp_path, stop):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX cancellation contract")
-def test_supervisor_sigterm_before_parent_admission_is_cli_typed():
-    """A cancellation while waiting for admission must be 143, not 125.
+@pytest.mark.parametrize("signal_number,exit_code", [
+    (signal.SIGINT, 130), (signal.SIGTERM, 143),
+])
+def test_supervisor_signal_before_parent_admission_is_cli_typed(signal_number, exit_code):
+    """Cancellation before admission must be 130/143, not resource exit 125.
 
     There is no Worker to reap in this phase. The process must not publish a
     scientific verdict or treat SIGTERM as a resource/supervision failure.
@@ -130,9 +133,9 @@ def test_supervisor_sigterm_before_parent_admission_is_cli_typed():
         # Supervisor starts reading the inherited parent-admission pipe.
         time.sleep(.6)
         assert process.poll() is None, "Supervisor exited before admission"
-        process.send_signal(signal.SIGTERM)
+        process.send_signal(signal_number)
         stdout, stderr = process.communicate(timeout=6)
-        assert process.returncode == 143, stderr.decode(errors="replace")
+        assert process.returncode == exit_code, stderr.decode(errors="replace")
         assert stdout == b"", "early cancellation published scientific output"
     finally:
         if process.poll() is None:

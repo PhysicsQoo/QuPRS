@@ -19,6 +19,8 @@ on:
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
       - 'scripts/check_docs_links.py'
+      - 'scripts/docs_versioning.py'
+      - 'docs/requirements-versioned.txt'
       - '.github/workflows/rust-api-docs.yml'
   push:
     branches: [dev]
@@ -38,6 +40,8 @@ on:
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
       - 'scripts/check_docs_links.py'
+      - 'scripts/docs_versioning.py'
+      - 'docs/requirements-versioned.txt'
       - '.github/workflows/rust-api-docs.yml'
   workflow_dispatch:
 
@@ -107,6 +111,15 @@ jobs:
           else
             python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/
           fi
+
+      - name: Save source-built Rustdoc for versioned dev publication
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdoc-versioned-dev-${{ github.sha }}
+          path: rust/target/doc/
+          retention-days: 3
+          if-no-files-found: error
 
       - name: Install browser for preview inspection
         if: github.event_name == 'pull_request'
@@ -224,3 +237,100 @@ jobs:
             --max-time 12 -o preview-home.html "$base/?v=$EXPECTED_SHA"
           grep -q 'QuPRS' preview-home.html
 
+
+
+  versioned-dev-deploy:
+    name: Publish isolated /docs/dev site from reviewed Rustdoc
+    needs: generated-reference
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact tested dev source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned Zensical versioning toolchain
+        run: python -m pip install -r docs/requirements-versioned.txt
+      - name: Retrieve exact-source native documentation
+        uses: actions/download-artifact@v4
+        with:
+          name: rustdoc-versioned-dev-${{ github.sha }}
+          path: rust/target/doc
+      - name: Prepare source-accurate versioned site
+        run: |
+          set -euo pipefail
+          python scripts/docs_versioning.py config --ref dev
+          python scripts/docs_versioning.py stage-native --source-sha "${{ github.sha }}"
+      - name: Stage dev docs in an isolated git branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin gh-pages:refs/heads/gh-pages
+          origin_pages="$(git rev-parse gh-pages)"
+          echo "$origin_pages" > "$RUNNER_TEMP/pages-base.txt"
+          before_root="$(git rev-parse gh-pages:index.html)"
+          before_preview="$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)"
+          was_versioned=false
+          if git cat-file -e gh-pages:docs/index.html 2>/dev/null; then
+            was_versioned=true
+          fi
+          mike deploy --branch gh-pages --config-file mkdocs.versioned.yml dev
+          if [[ "$was_versioned" == false ]]; then
+            mike set-default --branch gh-pages --config-file mkdocs.versioned.yml dev
+          fi
+          test "$(git show gh-pages:docs/dev/source-sha.txt | tr -d '\r\n')" = "${{ github.sha }}"
+          git cat-file -e gh-pages:docs/dev/rust-api/pathsum/index.html
+          test "$(git rev-parse gh-pages:index.html)" = "$before_root"
+          test "$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)" = "$before_preview"
+          git worktree add --detach "$RUNNER_TEMP/versioned-docs" gh-pages
+          python scripts/docs_versioning.py check-layout \
+            --pages "$RUNNER_TEMP/versioned-docs" --versions dev
+          python scripts/check_docs_links.py \
+            --site "$RUNNER_TEMP/versioned-docs/docs/dev" \
+            --base-url https://physicsqoo.github.io/QuPRS/docs/dev/
+      - name: Publish only the isolated docs subtree
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat "$RUNNER_TEMP/pages-base.txt")"
+          actual="$(git ls-remote origin refs/heads/gh-pages | cut -f1)"
+          if [[ "$expected" != "$actual" ]]; then
+            echo 'gh-pages changed since validation; stop without overwriting it' >&2
+            exit 1
+          fi
+          git push origin gh-pages:gh-pages
+      - name: Validate live dev docs provenance
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://physicsqoo.github.io/QuPRS/docs/dev/source-sha.txt'
+          matched=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --location --max-time 12 \
+              -o source-sha.txt "$url?v=$EXPECTED_SHA"; then
+              observed="$(tr -d '\r\n' < source-sha.txt)"
+              if [[ "$observed" == "$EXPECTED_SHA" ]]; then
+                matched=true
+                echo "Live versioned dev source SHA verified ($attempt/30)"
+                break
+              fi
+            fi
+            sleep 8
+          done
+          test "$matched" = true
+          curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
+            -o homepage.html 'https://physicsqoo.github.io/QuPRS/docs/dev/'
+          grep -q 'QuPRS' homepage.html

@@ -5,6 +5,7 @@ on:
     branches: [dev]
     paths:
       - 'scripts/docs_versioning.py'
+      - '.github/workflows/docs-release-publish.yml'
       - 'scripts/check_docs_version_browser.py'
       - 'docs/requirements-versioned.txt'
       - '.github/workflows/docs-versioning-poc.yml'
@@ -31,6 +32,14 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
+      - name: Validate publication workflow syntax and expressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error             -o "$RUNNER_TEMP/actionlint.tar.gz"             'https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz'
+          printf '%s  %s\n'             '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'             "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"             .github/workflows/docs-release-publish.yml             .github/workflows/docs-versioning-poc.yml             .github/workflows/rust-api-docs.yml
       - name: Set up Python
         uses: actions/setup-python@v6
         with:

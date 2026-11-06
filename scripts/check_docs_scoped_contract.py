@@ -98,7 +98,7 @@ def runtime_contract() -> None:
             raise AssertionError("Actual HH matcher rejected cross term")
         if match_HH(y0 / 3, (y0,), (y0, y1), ())[0] is not None:
             raise AssertionError("Actual HH accepted third-cycle coefficient")
-        om = match_omega(y0 * (se.Rational(1, 4) + y1 / 2),
+        om = match_omega(y0 * (se.Rational(1, 4) + y1),
                          (y0,), (y0, y1), ())
         if om[0] != y0 or not om[3]:
             raise AssertionError("Actual Omega rejected quarter-cycle fixture")

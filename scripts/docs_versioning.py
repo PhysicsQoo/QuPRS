@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import shutil
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,6 +88,32 @@ def create_config(output: Path, ref: str) -> None:
     print(f"Versioned config created: {output} (source={ref}, prefix=docs)")
 
 
+def stage_native_reference(source_sha: str) -> None:
+    if not SHA.fullmatch(source_sha):
+        raise AssertionError("Source provenance requires a 40-character commit SHA")
+    if git("rev-parse", "HEAD").stdout.strip() != source_sha:
+        raise AssertionError("Native documentation source SHA differs from Zensical checkout")
+    native = ROOT / "rust" / "target" / "doc"
+    if not (native / "pathsum" / "index.html").is_file():
+        raise AssertionError("Missing source-built rustdoc/pathsum/index.html")
+    if not (native / "static.files").is_dir():
+        raise AssertionError("Rustdoc static files are missing")
+    destination = ROOT / "docs" / "site" / "rust-api"
+    if destination.exists():
+        raise AssertionError("Rustdoc source staging directory must be absent")
+    if any(p.is_symlink() for p in native.rglob("*")):
+        raise AssertionError("Rustdoc contains unsupported symlinks")
+    shutil.copytree(native, destination)
+    (destination / "index.html").write_text(
+        '<!doctype html><html><meta charset="utf-8">'
+        '<meta http-equiv="refresh" content="0;url=pathsum/index.html">'
+        '<title>Rust API</title><a href="pathsum/index.html">pathsum</a></html>\n',
+        encoding="utf-8",
+    )
+    (ROOT / "docs" / "site" / "source-sha.txt").write_text(source_sha + "\n", encoding="ascii")
+    print(f"Source-matched Python site and rustdoc staged at {source_sha}")
+
+
 def check_local_layout(root: Path, expected: tuple[str, ...]) -> None:
     folder = root / "docs"
     if not folder.is_dir():
@@ -94,7 +121,8 @@ def check_local_layout(root: Path, expected: tuple[str, ...]) -> None:
     for version in expected:
         if not re.fullmatch(r"dev|v[0-9]+\.[0-9]+\.[0-9]+(?:-test)?|stable", version):
             raise AssertionError(f"Unsafe version: {version}")
-        for name in ("index.html", "python-api/index.html", "reference/index.html"):
+        for name in ("index.html", "python-api/index.html", "reference/index.html",
+                     "rust-api/pathsum/index.html", "source-sha.txt"):
             target = folder / version / name
             if not target.is_file():
                 raise AssertionError(f"Missing versioned source page: {target}")
@@ -124,6 +152,8 @@ def main() -> None:
     p.add_argument("tag")
     p = sub.add_parser("assert-historical-unavailable")
     p.add_argument("tag")
+    p = sub.add_parser("stage-native")
+    p.add_argument("--source-sha", required=True)
     p = sub.add_parser("check-layout")
     p.add_argument("--pages", required=True)
     p.add_argument("--versions", nargs="+", required=True)
@@ -141,6 +171,8 @@ def main() -> None:
             print(f"Historical tag correctly excluded from stable docs: {a.tag}")
         else:
             raise AssertionError(f"Historical tag unexpectedly eligible: {a.tag}")
+    elif a.command == "stage-native":
+        stage_native_reference(a.source_sha)
     elif a.command == "check-layout":
         check_local_layout(Path(a.pages), tuple(a.versions))
 

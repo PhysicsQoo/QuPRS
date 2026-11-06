@@ -70,6 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           mike deploy --branch gh-pages --config-file mkdocs.versioned.yml dev
+          mike set-default --branch gh-pages --config-file mkdocs.versioned.yml dev
           # Synthetic release exists only on the CI runner, never published.
           mike deploy --branch gh-pages --config-file mkdocs.versioned.yml \
             --update-aliases v0.99.99-test stable

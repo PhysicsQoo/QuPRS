@@ -106,20 +106,76 @@ jobs:
         run: python scripts/check_docs_science.py
       - name: Verify Python reference
         run: python scripts/check_docs_site.py --site
+      - name: Reuse proven base Rustdoc for Markdown-only PR previews
+        id: reuse-rustdoc
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Reuse is safe only when *all* changed files are site Markdown or
+          # site assets. The PR therefore has the same native source as base.
+          if ! git fetch --quiet --no-tags --depth=1 origin "$BASE_SHA"; then
+            echo "Cannot retrieve exact PR base; build native Rustdoc"
+            exit 0
+          fi
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          if (( ${#changed[@]} == 0 )); then
+            echo "No reliable site-only diff; build native Rustdoc"
+            exit 0
+          fi
+          for path in "${changed[@]}"; do
+            if [[ "$path" != docs/site/* ]]; then
+              echo "Non-site change ($path); build native Rustdoc"
+              exit 0
+            fi
+          done
+
+          # Use the *git* gh-pages tree, not an eventually consistent public URL.
+          # Exact source-sha matching prevents mixing Rustdoc from a stale dev.
+          pages="$(mktemp -d)"
+          if ! git clone --quiet --depth=1 --single-branch --branch gh-pages \
+              "https://github.com/$GITHUB_REPOSITORY.git" "$pages/gh-pages"; then
+            echo "Could not retrieve dev Rustdoc; build native Rustdoc"
+            exit 0
+          fi
+          archive="$pages/gh-pages/docs/dev"
+          if [[ ! -f "$archive/source-sha.txt" ||
+                ! -f "$archive/rust-api/pathsum/index.html" ||
+                ! -d "$archive/rust-api/static.files" ]]; then
+            echo "Dev Rustdoc artifact incomplete; build native Rustdoc"
+            exit 0
+          fi
+          actual="$(tr -d '\r\n' < "$archive/source-sha.txt")"
+          if [[ "$actual" != "$BASE_SHA" ]]; then
+            echo "Dev Rustdoc SHA $actual != exact PR base $BASE_SHA; build native Rustdoc"
+            exit 0
+          fi
+          mkdir -p rust/target/doc
+          cp -a "$archive/rust-api/." rust/target/doc/
+          echo "used=true" >> "$GITHUB_OUTPUT"
+          echo "Reused source-verified Rustdoc for base $BASE_SHA (site-only PR)" >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Rust
+        if: steps.reuse-rustdoc.outputs.used != 'true'
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust build outputs
+        if: steps.reuse-rustdoc.outputs.used != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'rust -> target'
           key: rust-api-reference-v1
       - name: Install native build dependencies
+        if: steps.reuse-rustdoc.outputs.used != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
       - name: Build Rust library reference
+        if: steps.reuse-rustdoc.outputs.used != 'true'
         run: cargo doc --locked --manifest-path rust/Cargo.toml -p pathsum --no-deps
       - name: Run Rust documentation tests
+        if: steps.reuse-rustdoc.outputs.used != 'true'
         run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
       - name: Compose and validate both API references
         run: python scripts/check_rust_api_docs.py --compose --check

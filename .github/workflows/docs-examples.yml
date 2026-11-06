@@ -1,5 +1,9 @@
 name: Documentation Examples
 
+# Markdown-only theory edits are checked by docs-check.yml without a native
+# rebuild. Executable examples, matcher/adapter changes and CLI source still
+# require the source-built native smoke below.
+
 on:
   pull_request:
     branches: [dev]
@@ -7,8 +11,6 @@ on:
       - 'docs/site/examples.md'
       - 'scripts/check_docs_examples.py'
       - 'scripts/check_docs_scoped_contract.py'
-      - 'docs/site/path-sum.md'
-      - 'docs/site/weighted-model-counting.md'
       - 'src/QuPRS/pathsum/pattern_match.py'
       - 'src/QuPRS/utils/solver_adapter.py'
       - 'src/QuPRS/utils/wmc_problem.py'
@@ -21,8 +23,6 @@ on:
       - 'docs/site/examples.md'
       - 'scripts/check_docs_examples.py'
       - 'scripts/check_docs_scoped_contract.py'
-      - 'docs/site/path-sum.md'
-      - 'docs/site/weighted-model-counting.md'
       - 'src/QuPRS/pathsum/pattern_match.py'
       - 'src/QuPRS/utils/solver_adapter.py'
       - 'src/QuPRS/utils/wmc_problem.py'

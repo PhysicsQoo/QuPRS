@@ -31,6 +31,12 @@ on:
       - 'src/QuPRS/_version.py'
       - 'pyproject.toml'
 
+# Only a newer HEAD of the *same PR* may cancel its obsolete package matrix.
+# Manual dry runs and official tag publications have unique concurrency groups.
+concurrency:
+  group: python-publish-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify_release_ref:
     name: Verify version and release ref

@@ -26,27 +26,25 @@ $$
 
 Removing \(y\) must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.
 
-**HH.** Let \(y_0\) be an internal summed Boolean path variable absent from the residual phase \(R\), output \(f\), and Boolean expression \(Q\). Let \(y_1\) be a second Boolean path variable, absent from \(Q\), and write \(q=Q\bmod 2\). Summing over \(y_0\) constrains the **full output ket**:
+**HH.** Write the Boolean path variables as \(y=(y_0,y_1,z)\), where \(z\) denotes the remaining variables. The **complete phase polynomial** is
+
+$$
+P(x,y)=\frac12 y_0(y_1+q)+R(x,y),
+$$
+
+where \(q=Q(x,z)\bmod 2\) is independent of \(y_0,y_1\), and the residual phase \(R\) and output function \(f\) are independent of the eliminated \(y_0\). When **both** \(y_0\) and \(y_1\) are summed variables, the HH rule acts on the complete amplitude and output ket:
 
 $$
 \begin{aligned}
-&\sum_{y_0=0}^{1}(-1)^{y_0(y_1+q)}
-  |f(y_1)\rangle\\
-&\qquad=2\,\delta_{y_1,q}\,|f(y_1)\rangle.
+&\sum_{y_0,y_1\in\{0,1\}}
+ e^{2\pi iP(x,y)}\,|f(x,y)\rangle\\
+&\qquad=2\,e^{2\pi iR_q(x,z)}\,|f_q(x,z)\rangle .
 \end{aligned}
 $$
 
-When \(y_1\) is itself summed, multiply by the residual phase and apply the constraint:
+Here \(R_q(x,z)=R(x,y)|_{y_1=q}\) and \(f_q(x,z)=f(x,y)|_{y_1=q}\). The original exponent includes **both** \(\frac12 y_0(y_1+q)\) and \(R(x,y)\); the residual term is not a separate reduction rule and must not be dropped. Summing \(y_0\) imposes \(y_1=q\), which is substituted into **both the residual phase and the ket**. The factor \(2\) must be combined with the Path-sum normalization.
 
-$$
-\begin{aligned}
-&2\sum_{y_1=0}^{1}\delta_{y_1,q}\,
-  e^{2\pi iR(y_1)}\,|f(y_1)\rangle\\
-&\qquad=2\,e^{2\pi iR(q)}\,|f(q)\rangle.
-\end{aligned}
-$$
-
-Thus the reduction removes \(y_0\) and substitutes \(y_1\leftarrow q\) in **both the residual phase and the output state**. The second identity assumes \(y_1\) is summed; when it is not summed, the Kronecker constraint remains the relevant identity. The implementation also requires matching half-cycle coefficients and a target variable that does not reappear in its own replacement polynomial.
+If \(y_1\) is not summed, summation over \(y_0\) instead gives \(2\delta_{y_1,q}\) times the unchanged residual amplitude and ket. The implementation also requires the supported half-cycle coefficient pattern and a target variable that does not reappear in its replacement polynomial.
 
 **Omega.** Let \(y\) be an internal summed Boolean variable, with the residual phase \(R\), Boolean-valued \(Q\), and **output ket \(|f\rangle\) all independent of \(y\)**. The two quarter-cycle identities therefore retain the same ket on both sides:
 

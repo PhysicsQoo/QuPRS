@@ -61,18 +61,25 @@ def check_reduction_kets() -> None:
         for actual, expected in zip(a, b):
             near(actual, expected)
 
-    # HH: the output f(y1)=y1 XOR flip depends on the target y1.
-    # Verify that summing y0 and y1 substitutes y1=Q in *both* R and f.
-    for q in (0, 1):
-        for flip in (0, 1):
-            acc = (0j, 0j)
-            for y1 in (0, 1):
-                for y0 in (0, 1):
-                    residual = (0.07 + 0.125 * y1)
-                    weight = cmath.exp(2j * pi * (0.5 * y0 * (y1 + q) + residual))
-                    acc = add(acc, scale(weight, basis(y1 ^ flip)))
-            expected = scale(2 * cmath.exp(2j * pi * (0.07 + 0.125 * q)), basis(q ^ flip))
-            check(acc, expected)
+    # Full phase: 1/2*y0*(y1+Q(x,z)) + R(x,y1,z).
+    # Test complete output-state amplitudes with input- and path-dependent R.
+    for x in (0, 1):
+        for z in (0, 1):
+            q = x ^ z
+            for flip in (0, 1):
+                actual = (0j, 0j)
+                for y1 in (0, 1):
+                    for y0 in (0, 1):
+                        residual = 0.07 + 0.125 * y1 + 0.03125 * x + 0.0625 * z
+                        phase = 0.5 * y0 * (y1 + q) + residual
+                        ket = basis(x ^ z ^ y1 ^ flip)
+                        actual = add(actual, scale(cmath.exp(2j * pi * phase), ket))
+                substituted_residual = 0.07 + 0.125 * q + 0.03125 * x + 0.0625 * z
+                substituted_ket = basis(x ^ z ^ q ^ flip)
+                expected = scale(
+                    2 * cmath.exp(2j * pi * substituted_residual), substituted_ket
+                )
+                check(actual, expected)
 
     # Omega: the output f is arbitrary but independent of y.
     # Verify both possible quarter-cycle coefficients and both Boolean Q values.
@@ -115,14 +122,17 @@ def check_projective_distance() -> None:
 def check_public_guide_markers() -> None:
     reductions = PATH_GUIDE.read_text(encoding="utf-8")
     wmc = WMC_GUIDE.read_text(encoding="utf-8")
-    for marker in (r"\delta_", r"\sqrt{2}", r"\frac34", "TACAS 2026",
-                   r"|f(y_1)\rangle", r"|f(q)\rangle"):
+    for marker in (r"\sqrt{2}", r"\frac34", "TACAS 2026",
+                   r"P(x,y)=\frac12 y_0(y_1+q)+R(x,y)",
+                   r"|f(x,y)\rangle", r"|f_q(x,z)\rangle"):
         if marker not in reductions:
             raise AssertionError(f"Missing published reduction identity: {marker}")
     hh_section = reductions.split("**HH.**", 1)[1].split("**Omega.**", 1)[0]
     omega_section = reductions.split("**Omega.**", 1)[1].split("## Reduction rules", 1)[0]
-    if hh_section.count(r"|f(y_1)\rangle") < 3:
-        raise AssertionError("HH must preserve ket and substitute target state")
+    if r"P(x,y)=\frac12 y_0(y_1+q)+R(x,y)" not in hh_section:
+        raise AssertionError("HH must retain the full source phase polynomial")
+    if r"|f(x,y)\rangle" not in hh_section or r"|f_q(x,z)\rangle" not in hh_section:
+        raise AssertionError("HH must preserve and substitute the output ket")
     if omega_section.count(r"|f\rangle") < 4:
         raise AssertionError("Omega must retain ket on both sides of both rules")
     for marker in (r"D_{\mathrm{proj}}", r"D_{\mathrm{gp}}", r"R_z(\theta)"):

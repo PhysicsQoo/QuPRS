@@ -14,8 +14,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GATE_SOURCE_NAMES = ("single_qubit.py", "two_qubit.py", "multi_qubit.py")
 GATE_ROOT = ROOT / "src" / "QuPRS" / "pathsum" / "gates"
+NON_GATE_MODULES = {"__init__.py", "base.py", "builder.py", "patcher.py",
+                    "applier.py", "utils.py"}
 STUB_PATH = ROOT / "src" / "QuPRS" / "pathsum" / "core.pyi"
 STATIC_PACKAGE = "QuPRS.pathsum.core"
 STUB_MARKER = "# --- Dynamically Injected Gate Methods ---"
@@ -25,8 +26,11 @@ def source_gate_classes() -> dict[str, ast.ClassDef]:
     """Collect only declared Gate classes with literal gate_name values."""
     result: dict[str, ast.ClassDef] = {}
     by_class: dict[str, ast.ClassDef] = {}
-    for file_name in GATE_SOURCE_NAMES:
-        source = (GATE_ROOT / file_name).read_text(encoding="utf-8")
+    for source_file in sorted(GATE_ROOT.glob("*.py")):
+        if source_file.name in NON_GATE_MODULES:
+            continue
+        file_name = source_file.name
+        source = source_file.read_text(encoding="utf-8")
         parsed = ast.parse(source, filename=file_name)
         for node in parsed.body:
             if not isinstance(node, ast.ClassDef):
@@ -161,13 +165,20 @@ def check_griffe(gates: set[str]) -> None:
 
 def check_site() -> None:
     html = (ROOT / "site" / "pathsum-api" / "index.html").read_text(encoding="utf-8")
-    for name in ("PathSum", "Register", "StatisticsManager", "PathSum.h",
-                 "PathSum.cx", "PathSum.rz", "PathSum.mcx", "PathSum.CRk"):
-        if name not in html:
-            raise AssertionError(f"Static advanced API HTML missing {name}")
-    if html.count('class="doc-function"') < 4 and html.count("doc-function") < 4:
-        raise AssertionError("Dynamic Gate methods did not render as function objects")
-    print("Rendered advanced PathSum Gate reference PASS")
+    for name, anchor in (
+        ("PathSum", 'id="QuPRS.pathsum.core.PathSum"'),
+        ("Register", 'id="QuPRS.pathsum.core.Register"'),
+        ("F", 'id="QuPRS.pathsum.core.F"'),
+        ("StatisticsManager", 'id="QuPRS.pathsum.statistics.StatisticsManager"'),
+    ):
+        if anchor not in html:
+            raise AssertionError(f"Static advanced API HTML missing class {name}")
+    gate_names = check_gate_stub()
+    for name in gate_names:
+        anchor = f'id="{STATIC_PACKAGE}.PathSum.{name}"'
+        if anchor not in html:
+            raise AssertionError(f"Rendered PathSum gate method missing: {name}")
+    print(f"Rendered advanced PathSum Gate reference PASS: {len(gate_names)} methods")
 
 
 def main() -> None:

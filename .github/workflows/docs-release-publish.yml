@@ -102,14 +102,14 @@ jobs:
             exit 1
           fi
           root_before="$(git rev-parse gh-pages:index.html)"
-          preview_before="$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)"
+          preview_before="$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)"
           mike deploy --branch gh-pages --config-file mkdocs.versioned.yml \
             --update-aliases "$TAG" stable
           mike set-default --branch gh-pages --config-file mkdocs.versioned.yml stable
           test "$(git show "gh-pages:docs/$TAG/source-sha.txt" | tr -d '\r\n')" = "$EXPECTED_SHA"
           git cat-file -e "gh-pages:docs/$TAG/rust-api/pathsum/index.html"
           test "$(git rev-parse gh-pages:index.html)" = "$root_before"
-          test "$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)" = "$preview_before"
+          test "$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)" = "$preview_before"
           git worktree add --detach "$RUNNER_TEMP/version-pages" gh-pages
           python scripts/docs_versioning.py check-layout --pages "$RUNNER_TEMP/version-pages" \
             --versions "$TAG" stable

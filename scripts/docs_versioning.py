@@ -18,6 +18,8 @@ import shutil
 ROOT = Path(__file__).resolve().parents[1]
 SITE_ORIGIN = "https://physicsqoo.github.io/QuPRS/docs/"
 SEMVER = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+$")
+MINIMUM_DOCS_VERSION = (0, 15, 0)
+MINIMUM_DOCS_TAG = "v0.15.0"
 SHA = re.compile(r"[0-9a-f]{40}$")
 NECESSARY_SOURCES = (
     "mkdocs.yml",
@@ -39,9 +41,19 @@ def git(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def check_release_tag(tag: str) -> str:
+def validate_release_version(tag: str) -> None:
     if not SEMVER.fullmatch(tag):
         raise AssertionError(f"Not a semver-style release tag: {tag}")
+    version = tuple(int(part) for part in tag[1:].split("."))
+    if version < MINIMUM_DOCS_VERSION:
+        raise AssertionError(
+            f"Versioned documentation starts at {MINIMUM_DOCS_TAG}; "
+            f"release {tag} is not eligible"
+        )
+
+
+def check_release_tag(tag: str) -> str:
+    validate_release_version(tag)
     resolved = git("rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}")
     if resolved.returncode or not SHA.fullmatch(resolved.stdout.strip()):
         raise AssertionError(f"Release tag missing or invalid: {tag}")
@@ -59,8 +71,8 @@ def check_release_tag(tag: str) -> str:
 
 
 def create_config(output: Path, ref: str) -> None:
-    if ref != "dev" and not SEMVER.fullmatch(ref):
-        raise AssertionError(f"Invalid source ref: {ref}")
+    if ref != "dev":
+        validate_release_version(ref)
     source = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
     anchor = "  - mkdocstrings:"
     if source.count(anchor) != 1 or "\nextra:\n" in source:
@@ -173,7 +185,8 @@ def main() -> None:
         try:
             check_release_tag(a.tag)
         except AssertionError as error:
-            if "predates versioned documentation" not in str(error):
+            if ("predates versioned documentation" not in str(error)
+                    and f"starts at {MINIMUM_DOCS_TAG}" not in str(error)):
                 raise
             print(f"Historical tag correctly excluded from stable docs: {a.tag}")
         else:

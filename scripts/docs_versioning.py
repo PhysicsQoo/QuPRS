@@ -121,8 +121,13 @@ def check_local_layout(root: Path, expected: tuple[str, ...]) -> None:
     for version in expected:
         if not re.fullmatch(r"dev|v[0-9]+\.[0-9]+\.[0-9]+(?:-test)?|stable", version):
             raise AssertionError(f"Unsafe version: {version}")
-        for name in ("index.html", "python-api/index.html", "reference/index.html",
-                     "rust-api/pathsum/index.html", "source-sha.txt"):
+        names = ("index.html", "python-api/index.html", "reference/index.html",
+                 "rust-api/pathsum/index.html")
+        # Redirect aliases expose HTML pages; the source stamp belongs to the
+        # immutable version directory (or the separately updated dev directory).
+        if version != "stable":
+            names += ("source-sha.txt",)
+        for name in names:
             target = folder / version / name
             if not target.is_file():
                 raise AssertionError(f"Missing versioned source page: {target}")

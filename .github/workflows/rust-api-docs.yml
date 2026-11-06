@@ -4,18 +4,17 @@ on:
   pull_request:
     branches: [dev]
     paths:
-      - 'rust/pathsum/src/lib.rs'
+      - 'rust/pathsum/src/**'
+      - 'src/QuPRS/__init__.py'
+      - 'src/QuPRS/interface/load_qiskit.py'
       - 'rust/pathsum/Cargo.toml'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
       - 'docs/requirements-site.txt'
-      - 'docs/site/reference.md'
-      - 'docs/site/architecture.md'
-      - 'docs/site/python-api.md'
+      - 'docs/site/**'
+
       - 'scripts/check_rust_api_docs.py'
-      - 'docs/site/path-sum.md'
-      - 'docs/site/weighted-model-counting.md'
-      - 'docs/site/examples.md'
+
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
       - 'scripts/check_docs_links.py'
@@ -25,18 +24,17 @@ on:
   push:
     branches: [dev]
     paths:
-      - 'rust/pathsum/src/lib.rs'
+      - 'rust/pathsum/src/**'
+      - 'src/QuPRS/__init__.py'
+      - 'src/QuPRS/interface/load_qiskit.py'
       - 'rust/pathsum/Cargo.toml'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
       - 'docs/requirements-site.txt'
-      - 'docs/site/reference.md'
-      - 'docs/site/architecture.md'
-      - 'docs/site/python-api.md'
+      - 'docs/site/**'
+
       - 'scripts/check_rust_api_docs.py'
-      - 'docs/site/path-sum.md'
-      - 'docs/site/weighted-model-counting.md'
-      - 'docs/site/examples.md'
+
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
       - 'scripts/check_docs_links.py'
@@ -236,8 +234,6 @@ jobs:
           curl --fail --location --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
             --max-time 12 -o preview-home.html "$base/?v=$EXPECTED_SHA"
           grep -q 'QuPRS' preview-home.html
-
-
 
   versioned-dev-deploy:
     name: Publish isolated /docs/dev site from reviewed Rustdoc

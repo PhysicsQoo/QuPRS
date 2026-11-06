@@ -131,6 +131,9 @@ jobs:
           check_core_stub(gates)
           print("Regenerated core.pyi source semantic parity PASS")
           PY
+          # Compare every generated declaration, return annotation and docstring
+          # to the committed source, ignoring only formatting/import ordering.
+          python scripts/check_generated_stub.py "$original" src/QuPRS/pathsum/core.pyi
           cp src/QuPRS/pathsum/core.pyi "$generated"
           python scripts/generate_stubs.py --write
           if ! cmp -s "$generated" src/QuPRS/pathsum/core.pyi; then

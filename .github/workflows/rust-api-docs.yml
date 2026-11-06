@@ -13,6 +13,11 @@ on:
       - 'docs/site/architecture.md'
       - 'docs/site/python-api.md'
       - 'scripts/check_rust_api_docs.py'
+      - 'docs/site/path-sum.md'
+      - 'docs/site/weighted-model-counting.md'
+      - 'docs/site/examples.md'
+      - 'scripts/check_docs_science.py'
+      - 'scripts/check_docs_visual.py'
       - '.github/workflows/rust-api-docs.yml'
   push:
     branches: [dev]
@@ -26,6 +31,11 @@ on:
       - 'docs/site/architecture.md'
       - 'docs/site/python-api.md'
       - 'scripts/check_rust_api_docs.py'
+      - 'docs/site/path-sum.md'
+      - 'docs/site/weighted-model-counting.md'
+      - 'docs/site/examples.md'
+      - 'scripts/check_docs_science.py'
+      - 'scripts/check_docs_visual.py'
       - '.github/workflows/rust-api-docs.yml'
   workflow_dispatch:
 
@@ -54,7 +64,17 @@ jobs:
       - name: Install documentation dependencies
         run: python -m pip install -r docs/requirements-site.txt
       - name: Build Python reference and documentation site
-        run: zensical build --strict --clean
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.number }}" == "159" ]]; then
+            cp mkdocs.yml mkdocs-preview.yml
+            printf '\nsite_url: https://physicsqoo.github.io/QuPRS/pr-preview/pr-159/\n' >> mkdocs-preview.yml
+            zensical build --strict --clean -f mkdocs-preview.yml
+          else
+            zensical build --strict --clean
+          fi
+      - name: Verify public mathematical identities
+        run: python scripts/check_docs_science.py
       - name: Verify Python reference
         run: python scripts/check_docs_site.py --site
       - name: Set up Rust
@@ -74,3 +94,99 @@ jobs:
         run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
       - name: Compose and validate both API references
         run: python scripts/check_rust_api_docs.py --compose --check
+      - name: Install browser for preview inspection
+        if: github.event_name == 'pull_request' && github.event.number == 159
+        run: |
+          python -m pip install 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Inspect real browser rendering
+        if: github.event_name == 'pull_request' && github.event.number == 159
+        run: python scripts/check_docs_visual.py --site site --output docs-preview-review
+      - name: Upload preview website for review
+        if: github.event_name == 'pull_request' && github.event.number == 159
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-preview-site-pr-159-${{ github.event.pull_request.head.sha }}
+          path: site/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload desktop and mobile screenshots
+        if: always() && github.event_name == 'pull_request' && github.event.number == 159
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-visual-review-pr-159-${{ github.event.pull_request.head.sha }}
+          path: docs-preview-review/
+          retention-days: 14
+          if-no-files-found: warn
+
+  preview-deploy:
+    name: Publish review-only preview subtree
+    needs: generated-reference
+    if: github.event_name == 'pull_request' && github.event.number == 159 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Reject stale preview deployments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current="$(gh api "repos/${{ github.repository }}/pulls/159" --jq '.head.sha')"
+          test "$current" = "$EXPECTED_SHA"
+      - name: Retrieve reviewed static website
+        uses: actions/download-artifact@v4
+        with:
+          name: quprs-preview-site-pr-159-${{ github.event.pull_request.head.sha }}
+          path: preview-site
+      - name: Validate deployed artifact boundaries
+        run: |
+          test -f preview-site/index.html
+          test -f preview-site/path-sum/index.html
+          test -f preview-site/weighted-model-counting/index.html
+          test -f preview-site/examples/index.html
+          test -f preview-site/python-api/index.html
+          test -f preview-site/rust-api/pathsum/index.html
+          test -d preview-site/rust-api/static.files
+          if find preview-site -type l | grep -q .; then
+            echo 'Symlinks are not supported in the preview tree' >&2
+            exit 1
+          fi
+      - name: Check out isolated preview branch
+        uses: actions/checkout@v5
+        with:
+          ref: gh-pages
+          path: preview-branch
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Update only this PR's preview directory
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="preview-branch/pr-preview/pr-159"
+          mkdir -p "$(dirname "$destination")"
+          rm -rf "$destination"
+          mkdir -p "$destination"
+          cp -a preview-site/. "$destination/"
+          printf '%s\n' "$EXPECTED_SHA" > "$destination/source-sha.txt"
+          git -C preview-branch add -- pr-preview/pr-159
+          git -C preview-branch -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m 'docs: refresh isolated pull-request preview'
+          git -C preview-branch push origin HEAD:gh-pages
+      - name: Confirm Pages URL serves the exact preview
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          base='https://physicsqoo.github.io/QuPRS/pr-preview/pr-159'
+          curl --fail --location --silent --show-error --retry 10 --retry-all-errors --retry-delay 5 \
+            --max-time 12 -o preview-sha.txt "$base/source-sha.txt"
+          test "$(tr -d '\r\n' < preview-sha.txt)" = "$EXPECTED_SHA"
+          curl --fail --location --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
+            --max-time 12 -o preview-home.html "$base/"
+          grep -q 'QuPRS' preview-home.html
+

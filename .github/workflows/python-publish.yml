@@ -274,6 +274,17 @@ jobs:
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$QU_VERSION"
 
+      # The PR and tag workflow has its own artifact-install jobs; keep the
+      # same representative consumer typing gate as release-artifact-ci.yml.
+      - name: Check wheel typing from outside source with mypy
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'mypy==1.18.2'
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/scripts/check_installed_typing.py" --mypy
+
   sdist_install:
     name: Sdist smoke (${{ matrix.os }}, py3.12)
     needs: [verify_release_ref, build_sdist]

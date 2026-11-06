@@ -108,3 +108,33 @@ def test_supervisor_real_ipc_detached_solver_cleanup(tmp_path, stop):
         if p.poll() is None:
             p.kill()
             p.wait(timeout=4)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX cancellation contract")
+def test_supervisor_sigterm_before_parent_admission_is_cli_typed():
+    """A cancellation while waiting for admission must be 143, not 125.
+
+    There is no Worker to reap in this phase. The process must not publish a
+    scientific verdict or treat SIGTERM as a resource/supervision failure.
+    """
+    supervisor = Path(rust_isolation.__file__).with_name("rust_supervisor.py")
+    env = os.environ.copy()
+    env["QUPRS_RUST_SUPERVISOR_PARENT_PID"] = str(os.getpid())
+    process = subprocess.Popen(
+        [sys.executable, "-I", str(supervisor)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, env=env, start_new_session=True,
+    )
+    try:
+        # On the target CI interpreters only stdlib is imported before the
+        # Supervisor starts reading the inherited parent-admission pipe.
+        time.sleep(.6)
+        assert process.poll() is None, "Supervisor exited before admission"
+        process.send_signal(signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=6)
+        assert process.returncode == 143, stderr.decode(errors="replace")
+        assert stdout == b"", "early cancellation published scientific output"
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=4)

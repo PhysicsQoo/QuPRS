@@ -185,10 +185,14 @@ jobs:
           cp -a preview-site/. "$destination/"
           printf '%s\n' "$EXPECTED_SHA" > "$destination/source-sha.txt"
           git -C preview-branch add -- pr-preview/pr-159
-          git -C preview-branch -c user.name='github-actions[bot]' \
-              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m 'docs: refresh isolated pull-request preview'
-          git -C preview-branch push origin HEAD:gh-pages
+          if git -C preview-branch diff --cached --quiet; then
+            echo 'Preview subtree is already identical to the reviewed artifact'
+          else
+            git -C preview-branch -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m 'docs: refresh isolated pull-request preview'
+            git -C preview-branch push origin HEAD:gh-pages
+          fi
       - name: Confirm Pages URL serves the exact preview
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}

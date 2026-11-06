@@ -870,27 +870,27 @@ U|x\rangle = \alpha\!\!\sum_{y\in\{0,1\}^{m}}
 <h2 id="exact-algebraic-identities-underlying-the-rules">Exact algebraic identities underlying the rules</h2>
 <p>These identities hold for <strong>Boolean</strong> variables. They are algebraic checks on the rule families, not a claim that any approximate coefficient match is exact.</p>
 <p><strong>Elim.</strong> If an internal path variable <span class="arithmatex">\(y\)</span> occurs in neither the phase <span class="arithmatex">\(P\)</span> nor the output <span class="arithmatex">\(f\)</span>, then the two contributions are identical:</p>
-<p>$
-\sum_{y\in{0,1}} e^{2\pi iP}\,|f\rangle
+<div class="arithmatex">\[
+\sum_{y\in\{0,1\}} e^{2\pi iP}\,|f\rangle
 =2e^{2\pi iP}\,|f\rangle.
-$</p>
+\]</div>
 <p>Removing <span class="arithmatex">\(y\)</span> must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.</p>
 <p><strong>HH.</strong> Suppose <span class="arithmatex">\(y_0\)</span> does not occur in the remaining phase, output, or <span class="arithmatex">\(Q\)</span>, and <span class="arithmatex">\(y_1\)</span> does not occur in <span class="arithmatex">\(Q\)</span>. Then:</p>
-<p>$
-\sum_{y_0\in{0,1}}
+<div class="arithmatex">\[
+\sum_{y_0\in\{0,1\}}
  e^{2\pi i\frac12 y_0(y_1+Q)}
 =2\,\delta_{y_1,\,Q\bmod2}.
-$</p>
+\]</div>
 <p>The eliminated <span class="arithmatex">\(y_0\)</span> imposes a Boolean constraint; the remaining phase and output must consistently substitute <span class="arithmatex">\(y_1\leftarrow Q\bmod2\)</span>. In the native implementation, each phase monomial involving <span class="arithmatex">\(y_0\)</span> must have the required half-cycle coefficient, and the selected singleton target must not occur elsewhere in its replacement polynomial.</p>
 <p><strong>Omega.</strong> If an internal <span class="arithmatex">\(y\)</span> is absent from the remaining phase/output and <span class="arithmatex">\(Q\)</span> is Boolean-valued, the quarter-cycle identities are:</p>
-<p>$
+<div class="arithmatex">\[
 \sum_{y=0}^1e^{2\pi i\,y(\frac14+\frac12Q)}
 =\sqrt2\,e^{2\pi i(\frac18-\frac14Q)},
-$</p>
-<p>$
+\]</div>
+<div class="arithmatex">\[
 \sum_{y=0}^1e^{2\pi i\,y(\frac34+\frac12Q)}
 =\sqrt2\,e^{2\pi i(-\frac18+\frac14Q)}.
-$</p>
+\]</div>
 <p>These assume the specified quarter-cycle singleton and half-cycle cross terms; the <span class="arithmatex">\(\sqrt2\)</span> amplitude factor is accounted for by the path-count normalization. They cannot be applied to an arbitrary phase coefficient.</p>
 <p>For implementation-level applicability, see <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py">Python matching and substitutions</a> and <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs">native Rust reduction matching</a>. The algebraic identities appear in the <a href="https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21">TACAS 2026 QuPRS paper</a> and earlier <a href="https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf">path-sum verification calculus</a>. </p>
 <h2 id="reduction-rules">Reduction rules</h2>

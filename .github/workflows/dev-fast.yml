@@ -12,6 +12,8 @@ on:
       - 'benchmarks/**'
       - 'scripts/paper_corpus_audit.py'
       - 'scripts/check_benchmark_evidence.py'
+      - 'scripts/generate_stubs.py'
+      - 'scripts/check_generated_stub.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'GPMC'
       - '.gitmodules'

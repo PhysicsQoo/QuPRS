@@ -61,16 +61,27 @@ def test_rust_ffi_rejects_unsupported_safe_mode():
         )
 
 
-def test_public_rust_api_does_not_claim_safe_mode():
+@pytest.mark.skipif(os.name != "posix", reason="isolated worker POSIX prototype")
+def test_public_rust_api_uses_same_results_in_isolated_safe_mode():
     one = QuantumCircuit(1)
-    with pytest.raises(ValueError, match="safe_mode is not supported"):
-        check_equivalence(
-            one, one, method="reduction_rules", backend="rust", safe_mode=True,
-        )
+    fast = check_equivalence(
+        one, one, method="reduction_rules", backend="rust", safe_mode=False,
+    )
+    isolated = check_equivalence(
+        one, one, method="reduction_rules", backend="rust", safe_mode=True,
+    )
+    assert fast.equivalent == isolated.equivalent == "equivalent"
+    assert fast.Statistics == isolated.Statistics
+    assert fast.rr_approximate == isolated.rr_approximate
+    assert fast.wmc_solver_invoked == isolated.wmc_solver_invoked
+    assert fast.wmc_precision_reason == isolated.wmc_precision_reason
+    assert type(fast) is type(isolated)
 
 
 def test_python_public_api_has_single_distance_metric_and_phase_default():
     params = inspect.signature(check_equivalence).parameters
+    assert "execution_mode" not in params
+    assert "max_memory_mib" not in params
     assert "wmc_policy" not in params
     assert "wmc_magnitude_tolerance" not in params
     assert params["approximate_distance_tolerance"].default == 1e-8

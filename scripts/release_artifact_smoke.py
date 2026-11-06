@@ -96,6 +96,40 @@ def main() -> None:
         else:
             raise AssertionError(f"Rust QASM2 must reject unequal explicit scalar phases: {solver}")
 
+    # Exercise the *installed archive's* private Python/Rust isolation
+    # files. Source-tree editable installs can conceal packaging omissions.
+    isolated_files = (
+        "rust_isolation.py", "rust_supervisor.py", "rust_resources.py",
+        "rust_worker_bootstrap.py", "rust_worker_standalone.py",
+        "rust_macos_process.py",
+    )
+    interface_dir = imported.parent / "interface"
+    for filename in isolated_files:
+        helper = interface_dir / filename
+        if not helper.is_file() or not helper.resolve().is_relative_to(site):
+            raise AssertionError(f"Missing installed Rust Worker helper: {helper}")
+
+    isolated_cases = (
+        ("equivalent", identity, "equivalent"),
+        ("inequivalent", inequivalent, "not_equivalent"),
+    )
+    for label, circuit, expected_status in isolated_cases:
+        common = dict(
+            backend="rust", method="reduction_rules", timeout=60,
+        )
+        direct = check_equivalence(identity, circuit, safe_mode=False, **common)
+        isolated = check_equivalence(identity, circuit, safe_mode=True, **common)
+        if (direct.equivalent != expected_status
+                or isolated.equivalent != direct.equivalent):
+            raise AssertionError(
+                f"installed isolated Rust parity failed: {label}: "
+                f"direct={direct.equivalent}, isolated={isolated.equivalent}"
+            )
+        measurements.append({
+            "case": label, "backend": "rust_isolated",
+            "equivalent": isolated.equivalent,
+        })
+
     print(json.dumps({
         "version": expected, "python": sys.version.split()[0],
         "package": str(imported), "native": str(native_path),

@@ -26,25 +26,27 @@ $$
 
 Removing \(y\) must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.
 
-**HH.** Write the Boolean path variables as \(y=(y_0,y_1,z)\), where \(z\) denotes the remaining variables. The **complete phase polynomial** is
+**HH.** Let the complete set of Boolean path variables be \(y=(y_0,y_1,z)\), and define the **residual variables** \(y'=(y_1,z)\), which exclude \(y_0\). The complete phase polynomial is
 
 $$
-P(x,y)=\frac12 y_0(y_1+q)+R(x,y),
+P(x,y)=\frac12 y_0(y_1+q)+R(x,y'),
 $$
 
-where \(q=Q(x,z)\bmod 2\) is independent of \(y_0,y_1\), and the residual phase \(R\) and output function \(f\) are independent of the eliminated \(y_0\). When **both** \(y_0\) and \(y_1\) are summed variables, the HH rule acts on the complete amplitude and output ket:
+where \(q=Q(x,z)\bmod 2\) is independent of \(y_0\) and \(y_1\). **Only the \(y\) in \(P(x,y)\) includes \(y_0\)**; the residual phase \(R(x,y')\) and output state \(|f(x,y')\rangle\) are independent of \(y_0\).
+
+When \(y_0\) and \(y_1\) are both summed path variables, the HH reduction acts on the complete amplitude **and its output ket**:
 
 $$
 \begin{aligned}
 &\sum_{y_0,y_1\in\{0,1\}}
- e^{2\pi iP(x,y)}\,|f(x,y)\rangle\\
+ e^{2\pi iP(x,y)}\,|f(x,y')\rangle\\
 &\qquad=2\,e^{2\pi iR_q(x,z)}\,|f_q(x,z)\rangle .
 \end{aligned}
 $$
 
-Here \(R_q(x,z)=R(x,y)|_{y_1=q}\) and \(f_q(x,z)=f(x,y)|_{y_1=q}\). The original exponent includes **both** \(\frac12 y_0(y_1+q)\) and \(R(x,y)\); the residual term is not a separate reduction rule and must not be dropped. Summing \(y_0\) imposes \(y_1=q\), which is substituted into **both the residual phase and the ket**. The factor \(2\) must be combined with the Path-sum normalization.
+Here \(R_q(x,z)=R(x,(q,z))\) and \(f_q(x,z)=f(x,(q,z))\). The original exponent contains **both** the half-cycle term \(\frac12 y_0(y_1+q)\) and the \(y_0\)-independent residual \(R(x,y')\). Summing over \(y_0\) imposes \(y_1=q\), which must be substituted into **both the residual phase and the ket**. The factor \(2\) is combined with the Path-sum normalization.
 
-If \(y_1\) is not summed, summation over \(y_0\) instead gives \(2\delta_{y_1,q}\) times the unchanged residual amplitude and ket. The implementation also requires the supported half-cycle coefficient pattern and a target variable that does not reappear in its replacement polynomial.
+If \(y_1\) is not a summed variable, summing over \(y_0\) instead produces \(2\delta_{y_1,q}\) times the residual amplitude and ket. The implementation additionally requires its supported half-cycle coefficient pattern and a target variable that does not reappear in its replacement polynomial.
 
 **Omega.** Let \(y\) be an internal summed Boolean variable, with the residual phase \(R\), Boolean-valued \(Q\), and **output ket \(|f\rangle\) all independent of \(y\)**. The two quarter-cycle identities therefore retain the same ket on both sides:
 

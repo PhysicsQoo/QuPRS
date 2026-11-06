@@ -123,15 +123,19 @@ def check_public_guide_markers() -> None:
     reductions = PATH_GUIDE.read_text(encoding="utf-8")
     wmc = WMC_GUIDE.read_text(encoding="utf-8")
     for marker in (r"\sqrt{2}", r"\frac34", "TACAS 2026",
-                   r"P(x,y)=\frac12 y_0(y_1+q)+R(x,y)",
-                   r"|f(x,y)\rangle", r"|f_q(x,z)\rangle"):
+                   r"P(x,y)=\frac12 y_0(y_1+q)+R(x,y')",
+                   r"|f(x,y')\rangle", r"|f_q(x,z)\rangle"):
         if marker not in reductions:
             raise AssertionError(f"Missing published reduction identity: {marker}")
     hh_section = reductions.split("**HH.**", 1)[1].split("**Omega.**", 1)[0]
     omega_section = reductions.split("**Omega.**", 1)[1].split("## Reduction rules", 1)[0]
-    if r"P(x,y)=\frac12 y_0(y_1+q)+R(x,y)" not in hh_section:
+    if r"P(x,y)=\frac12 y_0(y_1+q)+R(x,y')" not in hh_section:
         raise AssertionError("HH must retain the full source phase polynomial")
-    if r"|f(x,y)\rangle" not in hh_section or r"|f_q(x,z)\rangle" not in hh_section:
+    if r"y'=(y_1,z)" not in hh_section or r"y=(y_0,y_1,z)" not in hh_section:
+        raise AssertionError("HH must distinguish complete and residual path variables")
+    if "R(x,y)" in hh_section or "|f(x,y)\\rangle" in hh_section:
+        raise AssertionError("HH residual must not depend on eliminated y0")
+    if r"|f(x,y')\rangle" not in hh_section or r"|f_q(x,z)\rangle" not in hh_section:
         raise AssertionError("HH must preserve and substitute the output ket")
     if omega_section.count(r"|f\rangle") < 4:
         raise AssertionError("Omega must retain ket on both sides of both rules")

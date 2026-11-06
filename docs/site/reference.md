@@ -6,7 +6,13 @@ QuPRS exposes a Python API, a native Rust library, and a separate Rust command-l
 
 The user-facing Python entry point is `QuPRS.check_equivalence()` (import it with `from QuPRS import check_equivalence`). Its signature and return object are generated from the implementation:
 
-[Python API Reference](python-api.md)
+[General Python API Reference](python-api.md)
+
+For the lower-level symbolic Path-sum, output mapping, dynamic gate methods,
+and reduction statistics, consult the
+[Advanced Path-sum API Reference](pathsum-api.md). Its gate signatures are
+extracted from the source-generated `core.pyi` stub without importing or
+executing QuPRS during the documentation build.
 
 ## Rust library
 

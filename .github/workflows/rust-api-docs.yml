@@ -7,6 +7,11 @@ on:
       - 'rust/pathsum/src/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'rust/pathsum/Cargo.toml'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
@@ -14,6 +19,10 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'src/QuPRS/py.typed'
+      - 'scripts/check_docs_site.py'
 
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
@@ -27,6 +36,11 @@ on:
       - 'rust/pathsum/src/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'rust/pathsum/Cargo.toml'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
@@ -34,6 +48,10 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'src/QuPRS/py.typed'
+      - 'scripts/check_docs_site.py'
 
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
@@ -68,6 +86,8 @@ jobs:
           python-version: '3.12'
       - name: Install documentation dependencies
         run: python -m pip install -r docs/requirements-site.txt
+      - name: Validate static source-derived Gate reference
+        run: python scripts/check_docs_gate_stubs.py --check
       - name: Build Python reference and documentation site
         shell: bash
         run: |
@@ -80,6 +100,8 @@ jobs:
             printf '\nsite_url: https://physicsqoo.github.io/QuPRS/\n' >> mkdocs-dev-check.yml
             zensical build --strict --clean -f mkdocs-dev-check.yml
           fi
+      - name: Verify rendered dynamic Gate API members
+        run: python scripts/check_docs_gate_stubs.py --site
       - name: Verify public mathematical identities
         run: python scripts/check_docs_science.py
       - name: Verify Python reference
@@ -207,33 +229,58 @@ jobs:
                 commit -m 'docs: refresh isolated pull-request preview'
             git -C preview-branch push origin HEAD:gh-pages
           fi
-      - name: Confirm Pages URL serves the exact preview
+      # The gh-pages tree is the source artifact; its remote provenance is a
+      # correctness gate. Public Pages propagation is asynchronous and cannot
+      # establish whether the source build itself is correct.
+      - name: Verify exact preview artifact on remote gh-pages
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          destination="pr-preview/pr-${{ github.event.number }}"
+          git -C preview-branch fetch --no-tags --depth=1 origin gh-pages
+          remote="$(git -C preview-branch rev-parse FETCH_HEAD)"
+          actual="$(git -C preview-branch show "$remote:$destination/source-sha.txt" | tr -d '\r\n')"
+          if [[ "$actual" != "$EXPECTED_SHA" ]]; then
+            echo "::error::Remote preview source is not the reviewed PR HEAD: $actual"
+            exit 1
+          fi
+          # Validate the exact committed content, not merely the SHA marker.
+          for page in index.html python-api/index.html rust-api/pathsum/index.html; do
+            git -C preview-branch show "$remote:$destination/$page" |
+              cmp - "preview-site/$page"
+          done
+          echo "Reviewed preview artifact matches remote gh-pages branch"
+          echo "### PR preview source" >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified the reviewed HEAD and HTML files in the remote gh-pages tree." >> "$GITHUB_STEP_SUMMARY"
+      - name: Observe public Pages preview (informational)
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           base='https://physicsqoo.github.io/QuPRS/pr-preview/pr-${{ github.event.number }}'
-          matched=false
-          for attempt in $(seq 1 30); do
-            if curl --fail --location --silent --show-error --max-time 12 \
+          observed=''
+          # GitHub Pages is eventually consistent. Branch provenance is the
+          # required gate; do not fail source correctness on CDN propagation.
+          for attempt in 1 2 3; do
+            echo "Checking public preview propagation ($attempt/3)"
+            if curl --fail --location --silent --show-error --max-time 10 \
               -H 'Cache-Control: no-cache' \
               -o preview-sha.txt "$base/source-sha.txt?v=$EXPECTED_SHA"; then
-              actual="$(tr -d '\r\n' < preview-sha.txt)"
-              if [[ "$actual" == "$EXPECTED_SHA" ]]; then
-                matched=true
-                echo "Public Pages source SHA matches reviewed artifact on check $attempt"
-                break
+              observed="$(tr -d '\r\n' < preview-sha.txt)"
+              if [[ "$observed" == "$EXPECTED_SHA" ]] &&
+                 curl --fail --location --silent --show-error --max-time 10 \
+                   -o preview-home.html "$base/?v=$EXPECTED_SHA" &&
+                 grep -q 'QuPRS' preview-home.html; then
+                echo "Public preview serves reviewed PR HEAD"
+                echo "Public URL: $base/" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
               fi
-              echo "Pages propagation pending ($attempt/30): observed ${actual:0:100}"
-            else
-              echo "Pages not available yet ($attempt/30)"
             fi
-            sleep 8
+            sleep 5
           done
-          test "$matched" = true
-          curl --fail --location --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
-            --max-time 12 -o preview-home.html "$base/?v=$EXPECTED_SHA"
-          grep -q 'QuPRS' preview-home.html
+          echo "::warning::Public GitHub Pages preview not yet verified for $EXPECTED_SHA (observed: ${observed:-unavailable}). Branch artifact verified; public deployment/propagation must be checked separately."
+          echo "Public URL: $base/ (not yet confirmed for this HEAD)" >> "$GITHUB_STEP_SUMMARY"
 
   versioned-dev-deploy:
     name: Publish isolated /docs/dev site from reviewed Rustdoc

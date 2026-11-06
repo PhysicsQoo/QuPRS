@@ -41,7 +41,8 @@ nav:
       - Weighted model counting: weighted-model-counting.md
   - API Reference:
       - Overview: reference.md
-      - Python API: python-api.md
+      - General Python API: python-api.md
+      - Advanced Path-sum API: pathsum-api.md
       - Architecture: architecture.md
 
 markdown_extensions:

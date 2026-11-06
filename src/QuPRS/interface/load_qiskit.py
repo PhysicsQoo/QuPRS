@@ -269,7 +269,7 @@ def check_equivalence(
     rr_tolerance: float | None = None,
     phase_tolerance: float | None = None,
     gpmc_precision_digits: int = 30,
-):
+) -> "EquivalenceCheckResult":
     """
     Check whether two quantum circuits are equivalent using different verification
     methods.

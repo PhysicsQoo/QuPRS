@@ -251,6 +251,17 @@ jobs:
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$QU_VERSION"
 
+      # One representative external-consumer type check per candidate build;
+      # all other wheels already verify installed PEP 561 marker/stub presence.
+      - name: Check wheel typing from outside source with mypy
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'mypy==1.18.2'
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/scripts/check_installed_typing.py" --mypy
+
   sdist_install:
     name: Sdist smoke (${{ matrix.os }}, py3.12)
     needs: [verify_release_ref, build_sdist]

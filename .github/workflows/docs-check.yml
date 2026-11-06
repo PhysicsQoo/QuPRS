@@ -8,6 +8,16 @@ on:
       - 'docs/requirements-site.txt'
       - 'docs/site/**'
       - 'scripts/check_docs_site.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'scripts/check_generated_stub.py'
+      - 'test/test_generated_stub_parity.py'
+      - 'src/QuPRS/py.typed'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'scripts/check_docs_examples.py'
       - '.github/workflows/docs-check.yml'
   push:
@@ -17,6 +27,16 @@ on:
       - 'docs/requirements-site.txt'
       - 'docs/site/**'
       - 'scripts/check_docs_site.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'scripts/check_generated_stub.py'
+      - 'test/test_generated_stub_parity.py'
+      - 'src/QuPRS/py.typed'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'scripts/check_docs_examples.py'
       - '.github/workflows/docs-check.yml'
   workflow_dispatch:
@@ -46,11 +66,19 @@ jobs:
         run: python -m pip install -r docs/requirements-site.txt
       - name: Validate site source selection
         run: python scripts/check_docs_site.py --sources
+      - name: Verify committed core.pyi against Python and Gate source (no runtime import)
+        run: python scripts/generate_stubs.py --check
+      - name: Check generated stub comparison negative contracts (offline)
+        run: python -m unittest discover -s test -p 'test_generated_stub_parity.py'
+      - name: Check stub generator and release typing smoke syntax
+        run: python -m py_compile scripts/generate_stubs.py scripts/check_generated_stub.py scripts/release_artifact_smoke.py
       - name: Check published example syntax
         run: python scripts/check_docs_examples.py --check
       - name: Build documentation in strict mode
         run: zensical build --strict --clean
       - name: Validate generated documentation
         run: python scripts/check_docs_site.py --site
+      - name: Check rendered dynamic Gate members
+        run: python scripts/check_docs_gate_stubs.py --site
       - name: Reject broken internal links
         run: python scripts/check_docs_site.py --negative-link-test

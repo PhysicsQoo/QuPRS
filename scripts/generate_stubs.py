@@ -1,20 +1,24 @@
 # scripts/generate_stubs.py
+"""Maintain the generated PathSum type stub.
+
+Use --check in lightweight CI: static AST/Griffe validation never imports QuPRS.
+Use --write to regenerate from a correctly installed QuPRS source checkout.
+The Python and Gate source files are authoritative; core.pyi is an artifact.
+"""
+
+from __future__ import annotations
+
+import argparse
 import inspect
 import os
 import sys
 from typing import Any, Callable, Type
 
-from QuPRS.pathsum import core as core_module
-from QuPRS.pathsum.gates import get_all_gates
-from QuPRS.pathsum.gates.base import Gate
-from QuPRS.pathsum.gates.builder import build_docstring, build_signature
-
-# Set up the project root and source path for module imports.
+# Make source checkout imports work even without an editable installation.
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
-
 
 def _format_pyi_docstring(doc: str) -> str:
     """
@@ -50,11 +54,27 @@ def _cleanup_type_str(type_str: str) -> str:
     )
 
 
+def _own_docstring(member: Any) -> str:
+    """Do not inherit generic object.__init__/__repr__ documentation into stubs."""
+    doc = getattr(member, "__doc__", None)
+    return inspect.cleandoc(doc) if doc else ""
+
+
 def _build_stub_for_member(name: str, member: Any) -> str:
     """
     Generate a .pyi stub string for a class member.
     Handles properties, static/class methods, and regular methods.
     """
+    if name == "reduction" and inspect.isfunction(member):
+        # reduction.apply_reduction is attached as a bound PathSum method.
+        # Direct inspect.signature prints nested quoted forward references,
+        # e.g. "'PathSum'", which are not useful annotations in .pyi.
+        doc = _own_docstring(member)
+        return (
+            '\n    def reduction(self) -> "PathSum":\n'
+            f'        {_format_pyi_docstring(doc)}\n'
+            '        ...\n'
+        )
     if name.startswith("__") and name not in (
         "__init__",
         "__eq__",
@@ -67,7 +87,7 @@ def _build_stub_for_member(name: str, member: Any) -> str:
     func: Callable[..., Any] | None = None
     decorator = ""
     if isinstance(member, property):
-        doc = inspect.getdoc(member.fget) or ""
+        doc = _own_docstring(member.fget)
         return_type = "Any"
         if member.fget and "return" in member.fget.__annotations__:
             return_type = _cleanup_type_str(member.fget.__annotations__["return"])
@@ -80,7 +100,7 @@ def _build_stub_for_member(name: str, member: Any) -> str:
     if func:
         try:
             sig = inspect.signature(func)
-            doc = inspect.getdoc(func) or ""
+            doc = _own_docstring(func)
             cleaned_sig_str = _cleanup_type_str(str(sig))
             return f"\n    {decorator}def {name}{cleaned_sig_str}:\n        {_format_pyi_docstring(doc)}\n        ...\n"
         except (ValueError, TypeError):
@@ -88,7 +108,7 @@ def _build_stub_for_member(name: str, member: Any) -> str:
     return ""
 
 
-def _build_dynamic_method_stub(gate_cls: Type[Gate]) -> str:
+def _build_dynamic_method_stub(gate_cls: Type[Any], build_signature, build_docstring) -> str:
     """
     Generate a .pyi stub for a dynamically injected gate method.
     Used for PathSum gate methods.
@@ -101,10 +121,11 @@ def _build_dynamic_method_stub(gate_cls: Type[Gate]) -> str:
 
 
 def generate_stub_file():
-    """
-    Main function to generate the .pyi stub file for core classes.
-    Writes the output to QuPRS/pathsum/core.pyi.
-    """
+    """Regenerate the committed core.pyi file in an installed development environment."""
+    from QuPRS.pathsum import core as core_module
+    from QuPRS.pathsum.gates import get_all_gates
+    from QuPRS.pathsum.gates.builder import build_docstring, build_signature
+
     print("Starting to generate .pyi stub file...")
     output_path = os.path.join(src_path, "QuPRS", "pathsum", "core.pyi")
     pyi_content = [
@@ -132,15 +153,51 @@ def generate_stub_file():
         if cls is core_module.PathSum:
             pyi_content.append("\n    # --- Dynamically Injected Gate Methods ---")
             for gate_cls in sorted(gate_class_map.values(), key=lambda c: c.gate_name):
-                pyi_content.append(_build_dynamic_method_stub(gate_cls))
+                pyi_content.append(_build_dynamic_method_stub(gate_cls, build_signature, build_docstring))
         pyi_content.append("\n")
-    try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(pyi_content))
-        print(f"\nSuccessfully generated stub file at:\n{output_path}")
-    except Exception as e:
-        print(f"\nError writing to file: {e}")
+    generated = "\n".join(pyi_content)
+    if os.path.exists(output_path):
+        with open(output_path, encoding="utf-8") as file:
+            if file.read() == generated:
+                print(f"Generated stub is already current: {output_path}")
+                return
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(generated)
+    print(f"Generated stub updated: {output_path}")
+
+
+def check_stub() -> None:
+    """Fail on stale core methods, dynamically mounted Gates or generated docs.
+
+    Imports only the AST-based validator and Griffe, not QuPRS itself, Qiskit,
+    or the native Rust extension. Safe for fast documentation CI.
+    """
+    from check_docs_gate_stubs import check_core_stub, check_gate_stub, check_griffe
+
+    gates = check_gate_stub()
+    check_core_stub(gates)
+    check_griffe(gates)
+    print("Committed core.pyi matches its source declarations: PASS")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="Read-only source/stub parity gate")
+    mode.add_argument("--write", action="store_true", help="Regenerate core.pyi from an installed checkout")
+    args = parser.parse_args()
+    if args.check:
+        # Documentation CI has pinned Griffe; this mode does not import QuPRS.
+        check_stub()
+    else:
+        # --write only regenerates; Dev Fast compares the emitted bytes against
+        # the committed stub before proceeding. The separate docs CI owns
+        # Griffe/source/stub semantic checks without a native build.
+        generate_stub_file()
+        if not args.write:
+            # Retain no-argument behavior for installed documentation environments.
+            check_stub()
 
 
 if __name__ == "__main__":
-    generate_stub_file()
+    main()

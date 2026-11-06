@@ -37,6 +37,29 @@ def main() -> None:
     if not imported.is_relative_to(site) or not native_path.is_relative_to(site):
         raise AssertionError(f"Not an installed package: {imported}, {native_path}, site={site}")
 
+    # PEP 561 typing data must exist in the installed wheel or sdist
+    # (source-tree presence alone is not packaging evidence).
+    typing_marker = imported.parent / "py.typed"
+    pathsum_stub = imported.parent / "pathsum" / "core.pyi"
+    if not typing_marker.is_file() or typing_marker.read_bytes():
+        raise AssertionError(f"Installed QuPRS py.typed marker missing/invalid: {typing_marker}")
+    if not pathsum_stub.is_file() or not pathsum_stub.resolve().is_relative_to(site):
+        raise AssertionError(f"Installed PathSum typing stub missing: {pathsum_stub}")
+    import ast
+    stub = ast.parse(pathsum_stub.read_text(encoding="utf-8"), filename=str(pathsum_stub))
+    core_classes = {
+        node.name: node for node in stub.body if isinstance(node, ast.ClassDef)
+    }
+    for name in ("Register", "F", "PathSum"):
+        if name not in core_classes:
+            raise AssertionError(f"Installed typing stub is incomplete: {name}")
+    static_gates = {
+        node.name for node in core_classes["PathSum"].body
+        if isinstance(node, ast.FunctionDef)
+    }
+    if not {"h", "cx", "rz", "mcx", "CRk", "reduction"}.issubset(static_gates):
+        raise AssertionError("Installed typing stub omits representative PathSum methods")
+
     identity = QuantumCircuit(1)
     hh = QuantumCircuit(1)
     hh.h(0)

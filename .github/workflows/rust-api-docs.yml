@@ -252,7 +252,7 @@ jobs:
           done
           echo "Reviewed preview artifact matches remote gh-pages branch"
           echo "### PR preview source" >> "$GITHUB_STEP_SUMMARY"
-          echo "Verified the reviewed HEAD and HTML files in the remote `gh-pages` tree." >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified the reviewed HEAD and HTML files in the remote gh-pages tree." >> "$GITHUB_STEP_SUMMARY"
       - name: Observe public Pages preview (informational)
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}

@@ -80,7 +80,7 @@ def negative_link_test() -> None:
         output = result.stdout + result.stderr
         if result.returncode == 0:
             raise AssertionError("Strict documentation build accepted a broken link")
-        if "does-not-exist.md" not in output:
+        if "page does not exist" not in output or "index.md" not in output:
             raise AssertionError(
                 "Negative link test failed for a reason unrelated to the missing page:\n"
                 + output[-3000:]

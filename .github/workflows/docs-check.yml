@@ -33,11 +33,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out documentation sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install documentation tooling

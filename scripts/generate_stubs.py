@@ -187,11 +187,16 @@ def main() -> None:
     mode.add_argument("--write", action="store_true", help="Regenerate core.pyi from an installed checkout")
     args = parser.parse_args()
     if args.check:
+        # Documentation CI has pinned Griffe; this mode does not import QuPRS.
         check_stub()
     else:
-        # No arguments retains the previous generator command behavior.
+        # --write only regenerates; Dev Fast compares the emitted bytes against
+        # the committed stub before proceeding. The separate docs CI owns
+        # Griffe/source/stub semantic checks without a native build.
         generate_stub_file()
-        check_stub()
+        if not args.write:
+            # Retain no-argument behavior for installed documentation environments.
+            check_stub()
 
 
 if __name__ == "__main__":

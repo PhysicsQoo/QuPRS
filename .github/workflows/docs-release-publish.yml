@@ -44,10 +44,17 @@ jobs:
         id: resolve
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git fetch --tags origin
           python scripts/docs_versioning.py check-release "$RELEASE_TAG"
+          release_state="$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq '[.isDraft,.isPrerelease] | tostring')"
+          if [[ "$release_state" != '[false,false]' ]]; then
+            echo 'Stable docs require an officially published, non-prerelease GitHub Release' >&2
+            exit 1
+          fi
           source_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
           git checkout --detach "$source_sha"
           git submodule update --init --recursive

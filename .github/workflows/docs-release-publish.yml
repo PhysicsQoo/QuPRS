@@ -134,9 +134,10 @@ jobs:
     needs: build
     if: inputs.publish == true && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Fetch reviewed release artifact
         uses: actions/download-artifact@v4
@@ -151,6 +152,7 @@ jobs:
           fetch-depth: 1
           path: pages
       - name: Fail closed on concurrent Pages edits and existing tags
+        id: publish
         env:
           TAG: ${{ needs.build.outputs.release_tag }}
           SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
@@ -185,27 +187,113 @@ jobs:
             -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m "docs: publish immutable $TAG and update stable alias"
           git -C pages push origin HEAD:gh-pages
+          published_sha="$(git -C pages rev-parse HEAD)"
+          echo "pages_sha=$published_sha" >> "$GITHUB_OUTPUT"
+      - name: Verify published gh-pages provenance and stable alias
+        env:
+          TAG: ${{ needs.build.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          PAGES_SHA: ${{ steps.publish.outputs.pages_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C pages fetch --no-tags origin gh-pages
+          remote="$(git -C pages rev-parse FETCH_HEAD)"
+          # Concurrent preview updates are allowed, provided they preserve
+          # the reviewed immutable tag and the stable alias.
+          actual="$(git -C pages show "$remote:docs/$TAG/source-sha.txt" | tr -d '\r\n')"
+          if [[ "$actual" != "$SOURCE_SHA" ]]; then
+            echo "::error::Published gh-pages revision does not contain the reviewed release source"
+            exit 1
+          fi
+          git -C pages show "$remote:docs/$TAG/rust-api/pathsum/index.html" > /dev/null
+          git -C pages show "$remote:docs/versions.json" |
+            jq -e --arg tag "$TAG" '
+              [.[] | select(.version == $tag and ((.aliases // []) | index("stable") != null))]
+              | length == 1
+            ' > /dev/null
+          echo "Reviewed immutable docs and stable alias are present in remote gh-pages ($remote)"
+          echo "Published gh-pages commit: $PAGES_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Wait for actual GitHub Pages deployment of published revision
+        env:
+          PAGES_SHA: ${{ steps.publish.outputs.pages_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The built-in dynamic Pages workflow can remain queued for several
+          # minutes after the branch push. A published git tree is not proof of
+          # a public Pages deployment.
+          deadline=$((SECONDS + 900))
+          while ((SECONDS < deadline)); do
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=gh-pages&per_page=100")"
+            status="$(jq -r --arg sha "$PAGES_SHA" '
+              [.workflow_runs[] |
+                select(.name == "pages build and deployment"
+                  and .head_branch == "gh-pages" and .head_sha == $sha)]
+              | sort_by(.created_at) | last
+              | if . == null then "pending"
+                elif .status != "completed" then .status
+                elif .conclusion == "success" then "success"
+                else "failed:" + (.conclusion // "unknown") end
+            ' <<< "$runs")"
+            case "$status" in
+              success)
+                echo "GitHub Pages deployment succeeded for $PAGES_SHA"
+                break
+                ;;
+              failed:*)
+                echo "::error::GitHub Pages deployment of $PAGES_SHA finished $status"
+                exit 1
+                ;;
+              *)
+                echo "Pages deployment pending for $PAGES_SHA: $status"
+                ;;
+            esac
+            sleep 20
+          done
+          if [[ "$status" != success ]]; then
+            echo "::error::No successful Pages deployment for $PAGES_SHA within 15 minutes"
+            exit 1
+          fi
+          echo "Pages deployment for $PAGES_SHA: success" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify public release tag and stable alias
         env:
           TAG: ${{ needs.build.outputs.release_tag }}
           EXPECTED_SHA: ${{ needs.build.outputs.source_sha }}
+          PAGES_SHA: ${{ steps.publish.outputs.pages_sha }}
+        shell: bash
         run: |
           set -euo pipefail
-          base="https://physicsqoo.github.io/QuPRS/docs/$TAG"
+          base="https://physicsqoo.github.io/QuPRS/docs"
+          # The deployment is already confirmed above. Allow a separate,
+          # bounded public/CDN propagation interval without rebuilding docs.
+          deadline=$((SECONDS + 180))
           matched=false
-          for attempt in $(seq 1 30); do
-            if curl --silent --show-error --location --fail --max-time 12 \
-              -o checked-sha.txt "$base/source-sha.txt?v=$EXPECTED_SHA"; then
-              observed="$(tr -d '\r\n' < checked-sha.txt)"
-              if [[ "$observed" == "$EXPECTED_SHA" ]]; then
-                matched=true
-                echo "Public immutable tag source verified ($attempt/30)"
-                break
-              fi
+          while ((SECONDS < deadline)); do
+            if curl --fail --location --silent --show-error --max-time 12 \
+                  -H 'Cache-Control: no-cache' \
+                  -o checked-sha.txt "$base/$TAG/source-sha.txt?v=$PAGES_SHA" &&
+               [[ "$(tr -d '\r\n' < checked-sha.txt)" == "$EXPECTED_SHA" ]] &&
+               curl --fail --location --silent --show-error --max-time 12 \
+                  -H 'Cache-Control: no-cache' \
+                  -o checked-versions.json "$base/versions.json?v=$PAGES_SHA" &&
+               jq -e --arg tag "$TAG" '
+                 [.[] | select(.version == $tag and ((.aliases // []) | index("stable") != null))]
+                 | length == 1
+               ' checked-versions.json > /dev/null &&
+               curl --fail --location --silent --show-error --max-time 12 \
+                  -o stable.html "$base/stable/?v=$PAGES_SHA" &&
+               grep -qi 'QuPRS' stable.html; then
+              matched=true
+              break
             fi
-            sleep 8
+            echo "Live tag or stable alias has not propagated after Pages deployment"
+            sleep 15
           done
-          test "$matched" = true
-          curl --fail --location --silent --show-error --retry 5 --retry-all-errors \
-            -o stable.html 'https://physicsqoo.github.io/QuPRS/docs/stable/'
-          grep -q 'html' stable.html
+          if [[ "$matched" != true ]]; then
+            echo "::error::Pages deployment succeeded, but live tag/stable alias did not match $TAG within 3 minutes"
+            exit 1
+          fi
+          echo "Public immutable docs ($TAG) and stable alias verified"
+          echo "Live docs: $base/$TAG/ ; stable: $base/stable/" >> "$GITHUB_STEP_SUMMARY"

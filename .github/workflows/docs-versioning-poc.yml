@@ -74,7 +74,7 @@ jobs:
           git config user.email 'docs-ci@users.noreply.github.com'
           git fetch origin gh-pages:refs/heads/gh-pages
           git rev-parse gh-pages:index.html > "$RUNNER_TEMP/root-before.txt"
-          git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt > "$RUNNER_TEMP/preview-before.txt"
+          { git rev-parse gh-pages:pr-preview 2>/dev/null || printf "absent\n"; } > "$RUNNER_TEMP/preview-before.txt"
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust documentation build
@@ -100,7 +100,7 @@ jobs:
             --update-aliases v0.99.99-test stable
           mike set-default --branch gh-pages --config-file mkdocs.versioned.yml stable
           git rev-parse gh-pages:index.html > "$RUNNER_TEMP/root-after.txt"
-          git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt > "$RUNNER_TEMP/preview-after.txt"
+          { git rev-parse gh-pages:pr-preview 2>/dev/null || printf "absent\n"; } > "$RUNNER_TEMP/preview-after.txt"
           diff -u "$RUNNER_TEMP/root-before.txt" "$RUNNER_TEMP/root-after.txt"
           diff -u "$RUNNER_TEMP/preview-before.txt" "$RUNNER_TEMP/preview-after.txt"
       - name: Inspect generated versions and URL boundaries

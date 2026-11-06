@@ -424,10 +424,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-standalone-rust-cli" class="md-nav__link">
+  <a href="#6-fail-closed-on-inconclusive-results" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        6. Standalone Rust CLI
+        6. Fail closed on inconclusive results
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-standalone-rust-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Standalone Rust CLI
       </span>
     </span>
   </a>
@@ -881,10 +892,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-standalone-rust-cli" class="md-nav__link">
+  <a href="#6-fail-closed-on-inconclusive-results" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        6. Standalone Rust CLI
+        6. Fail closed on inconclusive results
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-standalone-rust-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Standalone Rust CLI
       </span>
     </span>
   </a>
@@ -991,7 +1013,39 @@
                            <span class="n">backend</span><span class="o">=</span><span class="s2">"rust"</span><span class="p">,</span> <span class="n">safe_mode</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
 <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span> <span class="o">==</span> <span class="s2">"equivalent"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span>
 </code></pre></div>
-<h2 id="6-standalone-rust-cli">6. Standalone Rust CLI</h2>
+<h2 id="6-fail-closed-on-inconclusive-results">6. Fail closed on inconclusive results</h2>
+<p>The example below tests the <strong>consumer's status-handling policy</strong>. The
+<code>SimpleNamespace</code> values simulate possible result statuses; they are not
+claims that the trivial test circuit can produce a real timeout or unknown
+solver result. Real timeout and resource supervision have separate runtime
+tests.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">SimpleNamespace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">qiskit</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantumCircuit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">original</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">optimized</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"reduction_rules"</span><span class="p">,</span>
+                           <span class="n">backend</span><span class="o">=</span><span class="s2">"python"</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">classify</span><span class="p">(</span><span class="n">result</span><span class="p">):</span>
+    <span class="n">status</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span>
+    <span class="k">if</span> <span class="n">status</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="s2">"Timeout"</span><span class="p">,</span> <span class="s2">"MemoryOut"</span><span class="p">}:</span>
+        <span class="k">return</span> <span class="s2">"inconclusive"</span>
+    <span class="k">if</span> <span class="n">status</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">"equivalent"</span><span class="p">,</span> <span class="s2">"equivalent*"</span><span class="p">}:</span>
+        <span class="k">return</span> <span class="s2">"equivalent"</span>
+    <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="s2">"not_equivalent"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">"not_equivalent"</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported verification status: </span><span class="si">{</span><span class="n">status</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="k">assert</span> <span class="n">classify</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"equivalent"</span>
+<span class="k">for</span> <span class="n">status</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="s2">"Timeout"</span><span class="p">,</span> <span class="s2">"MemoryOut"</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="n">classify</span><span class="p">(</span><span class="n">SimpleNamespace</span><span class="p">(</span><span class="n">equivalent</span><span class="o">=</span><span class="n">status</span><span class="p">))</span> <span class="o">==</span> <span class="s2">"inconclusive"</span>
+<span class="k">assert</span> <span class="n">classify</span><span class="p">(</span><span class="n">SimpleNamespace</span><span class="p">(</span><span class="n">equivalent</span><span class="o">=</span><span class="s2">"not_equivalent"</span><span class="p">))</span> <span class="o">==</span> <span class="s2">"not_equivalent"</span>
+</code></pre></div>
+<h2 id="7-standalone-rust-cli">7. Standalone Rust CLI</h2>
 <p>For a source checkout with native dependencies installed, run the Rust CLI using QASM2 files. Its command-line options are not Python API arguments, and installing the Python wheel does not install a standalone CLI command.</p>
 <div class="highlight"><pre><span></span><code><span class="nb">set</span><span class="w"> </span>-eu
 <span class="nv">scratch</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span>-d<span class="k">)</span><span class="s2">"</span>

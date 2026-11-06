@@ -11,6 +11,7 @@ import argparse
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -71,10 +72,19 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                 page.wait_for_function("document.querySelectorAll('mjx-container').length > 0",
                                                        timeout=20000)
                                 math_count = page.locator("mjx-container").count()
-                                if math_count < 2:
-                                    raise AssertionError(f"MathJax expressions did not render on {name}")
+                                display_count = page.locator('mjx-container[display="true"]').count()
+                                required_displays = 5 if name == "path-sum" else 4
+                                if display_count < required_displays:
+                                    raise AssertionError(
+                                        f"Unrendered display math on {name}: "
+                                        f"{display_count}/{required_displays}"
+                                    )
+                                visible_text = page.locator("main").inner_text()
+                                if re.search(r"\$\s*\\(?:sum|sqrt|frac|operatorname)|\$\s*D_\{", visible_text):
+                                    raise AssertionError(f"Raw LaTeX leaked into rendered content: {name}")
                             else:
                                 math_count = 0
+                                display_count = 0
                             if name == "examples" and page.locator("pre code").count() < 5:
                                 raise AssertionError("Published code blocks are not visible")
                             if name == "wmc" and page.locator("table").count() < 2:
@@ -86,7 +96,7 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                             if broken:
                                 raise AssertionError(f"Broken local resources in {name}: {broken[:5]}")
                             page.screenshot(path=str(output / f"desktop-{name}.png"), full_page=True)
-                            records.append({"page": name, "status": 200, "math": math_count,
+                            records.append({"page": name, "status": 200, "math": math_count, "display_math": display_count,
                                             "screenshot": f"desktop-{name}.png"})
                             page.close()
 

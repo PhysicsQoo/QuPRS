@@ -38,6 +38,8 @@ def check_sources() -> None:
         if path.suffix not in ALLOWED_SUFFIXES:
             raise AssertionError(f"Unexpected site source file: {path}")
         content = path.read_text(encoding="utf-8")
+        if path.suffix == ".md" and any(line.strip() == "$" for line in content.splitlines()):
+            raise AssertionError(f"Broken standalone math delimiter in {path}")
         if PRIVATE_TRACKER_KEY.search(content):
             raise AssertionError(f"Non-public reference in documentation source: {path}")
 

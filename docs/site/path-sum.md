@@ -19,34 +19,34 @@ These identities hold for **Boolean** variables. They are algebraic checks on th
 
 **Elim.** If an internal path variable \(y\) occurs in neither the phase \(P\) nor the output \(f\), then the two contributions are identical:
 
-$
+$$
 \sum_{y\in\{0,1\}} e^{2\pi iP}\,|f\rangle
 =2e^{2\pi iP}\,|f\rangle.
-$
+$$
 
 Removing \(y\) must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.
 
 **HH.** Suppose \(y_0\) does not occur in the remaining phase, output, or \(Q\), and \(y_1\) does not occur in \(Q\). Then:
 
-$
+$$
 \sum_{y_0\in\{0,1\}}
  e^{2\pi i\frac12 y_0(y_1+Q)}
 =2\,\delta_{y_1,\,Q\bmod2}.
-$
+$$
 
 The eliminated \(y_0\) imposes a Boolean constraint; the remaining phase and output must consistently substitute \(y_1\leftarrow Q\bmod2\). In the native implementation, each phase monomial involving \(y_0\) must have the required half-cycle coefficient, and the selected singleton target must not occur elsewhere in its replacement polynomial.
 
 **Omega.** If an internal \(y\) is absent from the remaining phase/output and \(Q\) is Boolean-valued, the quarter-cycle identities are:
 
-$
+$$
 \sum_{y=0}^1e^{2\pi i\,y(\frac14+\frac12Q)}
 =\sqrt2\,e^{2\pi i(\frac18-\frac14Q)},
-$
+$$
 
-$
+$$
 \sum_{y=0}^1e^{2\pi i\,y(\frac34+\frac12Q)}
 =\sqrt2\,e^{2\pi i(-\frac18+\frac14Q)}.
-$
+$$
 
 These assume the specified quarter-cycle singleton and half-cycle cross terms; the \(\sqrt2\) amplitude factor is accounted for by the path-count normalization. They cannot be applied to an arbitrary phase coefficient.
 

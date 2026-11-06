@@ -114,6 +114,21 @@ jobs:
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
           maturin develop --release -E dev
 
+      - name: Verify reproducible generated core.pyi after native installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$(mktemp)"
+          cp src/QuPRS/pathsum/core.pyi "$original"
+          # This checks the real --write path in the already-built environment.
+          python scripts/generate_stubs.py --write
+          if ! cmp -s "$original" src/QuPRS/pathsum/core.pyi; then
+            echo "::error::core.pyi differs after --write; regenerate and commit the canonical stub"
+            diff -u "$original" src/QuPRS/pathsum/core.pyi || true
+            exit 1
+          fi
+          python scripts/generate_stubs.py --check
+
       - name: Verify bundled native solver distribution
         run: python -m QuPRS.utils.ganak_distribution
 

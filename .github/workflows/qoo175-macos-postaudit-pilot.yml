@@ -1,0 +1,97 @@
+name: macOS installed-wheel isolated Supervisor pilot
+
+on:
+  push:
+    branches: [experiment/qoo175-macos-postaudit-p2]
+    paths:
+      - 'src/QuPRS/interface/rust_supervisor.py'
+      - 'src/QuPRS/interface/rust_isolation.py'
+      - 'test/test_rust_macos_supervisor_faults.py'
+      - 'scripts/release_artifact_smoke.py'
+      - '.github/workflows/qoo175-macos-postaudit-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qoo175-wheel-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installed-wheel-native-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qoo175-wheel-post-audit
+      - name: macOS dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install cmake gmp mpfr zlib
+          GMP="$(brew --prefix gmp)"
+          MPFR="$(brew --prefix mpfr)"
+          ZLIB="$(brew --prefix zlib)"
+          echo "CFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-I$GMP/include -I$MPFR/include -I$ZLIB/include" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib -L$ZLIB/lib -Wl,-rpath,$ZLIB/lib" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$GMP/lib:$MPFR/lib:$ZLIB/lib" >> "$GITHUB_ENV"
+      - name: Build actual installed wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install maturin
+          maturin build --release --out "$RUNNER_TEMP/wheelhouse"
+          python -m venv "$RUNNER_TEMP/quprs-installed"
+          "$RUNNER_TEMP/quprs-installed/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/quprs-installed/bin/python" -m pip install "$RUNNER_TEMP"/wheelhouse/*.whl pytest
+      - name: Exercise installed wheel outside source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/quprs-installed/bin/python" - <<'PY'
+          import pathlib
+          from importlib.metadata import distribution
+          import QuPRS
+          from QuPRS import check_equivalence
+          root=pathlib.Path(QuPRS.__file__).resolve().parent
+          meta=pathlib.Path(distribution("QuPRS").locate_file("")).resolve()
+          assert root.is_relative_to(meta), (root,meta)
+          for name in ("rust_isolation.py","rust_supervisor.py","rust_resources.py",
+                       "rust_worker_bootstrap.py","rust_worker_standalone.py",
+                       "rust_macos_process.py"):
+              assert (root/"interface"/name).is_file(), name
+          qasm='OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+          for l,r,expected in ((qasm,qasm,"equivalent"),
+                               (qasm,qasm+"x q[0];\\n","not_equivalent")):
+              direct=check_equivalence(l,r,backend="rust",method="reduction_rules",
+                                       safe_mode=False,timeout=30)
+              isolated=check_equivalence(l,r,backend="rust",method="reduction_rules",
+                                         safe_mode=True,timeout=30)
+              assert direct.equivalent==isolated.equivalent==expected, (direct,isolated)
+          print("INSTALLED_MACOS_RUST_SAFE_MODE_PASS")
+          PY
+      - name: Real macOS fault injection from installed wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/quprs-installed/bin/python" -m pytest -q -ra \
+            "$GITHUB_WORKSPACE/test/test_rust_macos_supervisor_faults.py" \
+            "$GITHUB_WORKSPACE/test/test_rust_macos_process.py"

@@ -1,3 +1,0 @@
-# .gitattributes
-benchmarks/**/*.qasm linguist-vendored
-benchmarks/**/*.qc linguist-vendored

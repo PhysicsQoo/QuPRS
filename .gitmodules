@@ -1,4 +1,0 @@
-[submodule "GPMC"]
-	path = GPMC
-	url = https://github.com/PhysicsQoo/GPMC.git
-	branch = arm64-musl-patch

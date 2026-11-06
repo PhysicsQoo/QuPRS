@@ -17,11 +17,13 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE_ORIGIN = "https://physicsqoo.github.io/QuPRS/docs/"
-SEMVER = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
+SEMVER = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+$")
 SHA = re.compile(r"[0-9a-f]{40}$")
 NECESSARY_SOURCES = (
     "mkdocs.yml",
     "docs/requirements-site.txt",
+    "docs/requirements-versioned.txt",
+    "scripts/docs_versioning.py",
     "docs/site/index.md",
     "docs/site/python-api.md",
     "docs/site/reference.md",

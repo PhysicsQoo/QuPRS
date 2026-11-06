@@ -1,0 +1,201 @@
+name: Documentation Stable Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing immutable release tag containing versioned docs (vX.Y.Z)"
+        required: true
+        type: string
+      publish:
+        description: "Publish reviewed docs to stable alias (false = dry run only)"
+        default: false
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quprs-docs-stable-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Check release provenance and stage immutable docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      pages_base: ${{ steps.pages.outputs.base_sha }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+    steps:
+      - name: Check out documentation tooling
+        uses: actions/checkout@v5
+        with:
+          ref: dev
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Resolve and admit immutable release source
+        id: resolve
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          python scripts/docs_versioning.py check-release "$RELEASE_TAG"
+          source_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          git checkout --detach "$source_sha"
+          git submodule update --init --recursive
+          test "$(git rev-parse HEAD)" = "$source_sha"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - name: Install pinned versioned docs dependencies from tag
+        run: python -m pip install -r docs/requirements-versioned.txt
+      - name: Verify release's scientific documentation
+        run: |
+          python scripts/check_docs_site.py --sources
+          python scripts/check_docs_science.py
+          python scripts/check_docs_examples.py --check
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache release Rustdoc
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: docs-stable-rustdoc
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
+      - name: Generate Rustdoc from the same release SHA
+        run: |
+          cargo doc --locked --manifest-path rust/Cargo.toml -p pathsum --no-deps
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
+          python scripts/docs_versioning.py stage-native --source-sha '${{ steps.resolve.outputs.source_sha }}'
+          python scripts/docs_versioning.py config --ref '${{ steps.resolve.outputs.release_tag }}'
+      - name: Stage versioned docs without publishing
+        id: pages
+        env:
+          TAG: ${{ steps.resolve.outputs.release_tag }}
+          EXPECTED_SHA: ${{ steps.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin gh-pages:refs/heads/gh-pages
+          base_sha="$(git rev-parse gh-pages)"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          if git cat-file -e "gh-pages:docs/$TAG/index.html" 2>/dev/null; then
+            echo "Immutable release docs already published: $TAG" >&2
+            exit 1
+          fi
+          root_before="$(git rev-parse gh-pages:index.html)"
+          preview_before="$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)"
+          mike deploy --branch gh-pages --config-file mkdocs.versioned.yml \
+            --update-aliases "$TAG" stable
+          mike set-default --branch gh-pages --config-file mkdocs.versioned.yml stable
+          test "$(git show "gh-pages:docs/$TAG/source-sha.txt" | tr -d '\r\n')" = "$EXPECTED_SHA"
+          git cat-file -e "gh-pages:docs/$TAG/rust-api/pathsum/index.html"
+          test "$(git rev-parse gh-pages:index.html)" = "$root_before"
+          test "$(git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt)" = "$preview_before"
+          git worktree add --detach "$RUNNER_TEMP/version-pages" gh-pages
+          python scripts/docs_versioning.py check-layout --pages "$RUNNER_TEMP/version-pages" \
+            --versions "$TAG" stable
+          python scripts/check_docs_links.py \
+            --site "$RUNNER_TEMP/version-pages/docs/$TAG" \
+            --base-url "https://physicsqoo.github.io/QuPRS/docs/$TAG/"
+          mkdir -p "$RUNNER_TEMP/publish-evidence"
+          git archive gh-pages docs | gzip -9 > "$RUNNER_TEMP/publish-evidence/docs.tar.gz"
+          printf '%s\n' "$EXPECTED_SHA" > "$RUNNER_TEMP/publish-evidence/source-sha.txt"
+          printf '%s\n' "$base_sha" > "$RUNNER_TEMP/publish-evidence/base-sha.txt"
+          printf '%s\n' "$TAG" > "$RUNNER_TEMP/publish-evidence/tag.txt"
+      - name: Preserve reviewed, non-published release site
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-stable-docs-${{ steps.resolve.outputs.release_tag }}-${{ steps.resolve.outputs.source_sha }}
+          path: ${{ runner.temp }}/publish-evidence/
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: Publish stable alias after every validation passes
+    needs: build
+    if: inputs.publish == true && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch reviewed release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: reviewed-stable-docs-${{ needs.build.outputs.release_tag }}-${{ needs.build.outputs.source_sha }}
+          path: reviewed
+      - name: Check out existing public Pages branch
+        uses: actions/checkout@v5
+        with:
+          ref: gh-pages
+          persist-credentials: true
+          fetch-depth: 1
+          path: pages
+      - name: Fail closed on concurrent Pages edits and existing tags
+        env:
+          TAG: ${{ needs.build.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          BASE_SHA: ${{ needs.build.outputs.pages_base }}
+        run: |
+          set -euo pipefail
+          test "$(tr -d '\r\n' < reviewed/tag.txt)" = "$TAG"
+          test "$(tr -d '\r\n' < reviewed/source-sha.txt)" = "$SOURCE_SHA"
+          test "$(tr -d '\r\n' < reviewed/base-sha.txt)" = "$BASE_SHA"
+          test "$(git -C pages rev-parse HEAD)" = "$BASE_SHA"
+          if [[ -e "pages/docs/$TAG/index.html" ]]; then
+            echo 'Immutable documentation version already exists' >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/unpacked"
+          tar -tzf reviewed/docs.tar.gz | grep -v -E '^docs(/|$)' && exit 1 || true
+          tar -xzf reviewed/docs.tar.gz -C "$RUNNER_TEMP/unpacked" --no-same-owner
+          test -f "$RUNNER_TEMP/unpacked/docs/$TAG/source-sha.txt"
+          test "$(tr -d '\r\n' < "$RUNNER_TEMP/unpacked/docs/$TAG/source-sha.txt")" = "$SOURCE_SHA"
+          if find "$RUNNER_TEMP/unpacked/docs" -type l | grep -q .; then
+            echo 'Symlinks in versioned site are not allowed' >&2
+            exit 1
+          fi
+          rm -rf pages/docs
+          cp -a "$RUNNER_TEMP/unpacked/docs" pages/docs
+          git -C pages add -- docs
+          test -z "$(git -C pages diff --cached --name-only | grep -v '^docs/' || true)"
+          git -C pages -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "docs: publish immutable $TAG and update stable alias"
+          git -C pages push origin HEAD:gh-pages
+      - name: Verify public release tag and stable alias
+        env:
+          TAG: ${{ needs.build.outputs.release_tag }}
+          EXPECTED_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          base="https://physicsqoo.github.io/QuPRS/docs/$TAG"
+          matched=false
+          for attempt in $(seq 1 30); do
+            if curl --silent --show-error --location --fail --max-time 12 \
+              -o checked-sha.txt "$base/source-sha.txt?v=$EXPECTED_SHA"; then
+              observed="$(tr -d '\r\n' < checked-sha.txt)"
+              if [[ "$observed" == "$EXPECTED_SHA" ]]; then
+                matched=true
+                echo "Public immutable tag source verified ($attempt/30)"
+                break
+              fi
+            fi
+            sleep 8
+          done
+          test "$matched" = true
+          curl --fail --location --silent --show-error --retry 5 --retry-all-errors \
+            -o stable.html 'https://physicsqoo.github.io/QuPRS/docs/stable/'
+          grep -q 'html' stable.html

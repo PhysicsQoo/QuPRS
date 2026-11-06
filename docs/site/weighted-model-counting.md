@@ -20,6 +20,23 @@ $$
 
 for two unitary operators on `n` qubits. It is unchanged by a global phase. The default `approximate_distance_tolerance=1e-8` applies to this distance, **not** to a raw trace-magnitude defect or an angle in radians.
 
+Writing \(d=2^n\) and \(m=|\operatorname{Tr}(U^\dagger V)|/d\), exact global-phase equivalence requires \(m=1\). The two commonly used distances are distinct:
+
+$
+D_{\mathrm{proj}}^2=1-m^2,\qquad
+D_{\mathrm{gp}}^2=2-2m,\qquad
+D_{\mathrm{proj}}^2=D_{\mathrm{gp}}^2-\frac{D_{\mathrm{gp}}^4}{4}.
+$
+
+For the single-qubit Qiskit rotation \(R_z(\theta)\), the analytic control is
+
+$
+D_{\mathrm{proj}}(I,R_z(\theta))=
+|\sin(\theta/2)|.
+$
+
+These are mathematical properties of unitary matrices, **not** certificates of external solver arithmetic. The actual WMC stage uses a finite-precision complex count; source semantics, numeric verdicts, and printed-count resolution remain separate.
+
 ## Supported external solvers
 
 | User selection | Weight format | Numerical characteristics |

@@ -67,6 +67,36 @@ benchmark coverage, solver versions or measurement environments change.
 
 ## Documentation
 
+### Python type stub synchronization
+
+The Python class definitions in `src/QuPRS/pathsum/core.py` and Gate subclasses
+in `src/QuPRS/pathsum/gates/` are authoritative. The committed
+`src/QuPRS/pathsum/core.pyi` is a **generated** typing/documentation artifact;
+do not change public signatures in the stub without updating the source.
+
+Check after source or gate changes (requires only the pinned documentation
+tooling, not a native Rust build):
+
+```console
+python -m pip install -r docs/requirements-site.txt
+python scripts/generate_stubs.py --check
+```
+
+If a stub needs regenerating, use a development environment with QuPRS and
+its native extension installed:
+
+```console
+python scripts/generate_stubs.py --write
+python scripts/generate_stubs.py --check
+```
+
+Commit the updated stub alongside the Python source and review the diff.
+The documentation CI runs the read-only check automatically on relevant PRs.
+It verifies regular class members, dynamically attached Gate signatures,
+docstrings and static Griffe resolution; the generated HTML is checked
+separately. CI does **not** commit or overwrite your generated stub.
+
+
 Keep public documentation focused on installation, supported interfaces,
 scientific behavior, configuration, reproducibility and contribution
 instructions. Update relevant documentation when user-visible behavior changes.

@@ -19,6 +19,7 @@ EXPECTED_PAGES = (
     "theory/index.html",
     "reference/index.html",
     "python-api/index.html",
+    "pathsum-api/index.html",
     "architecture/index.html",
     "examples/index.html",
     "path-sum/index.html",
@@ -58,6 +59,13 @@ def verify_site(site_dir: Path) -> None:
             raise AssertionError(f"Missing Python API symbol or argument: {name}")
     if "doc-function" not in python_api or "doc-class" not in python_api:
         raise AssertionError("Python API directives were not rendered as API objects")
+    advanced_api = (site_dir / "pathsum-api" / "index.html").read_text(encoding="utf-8")
+    for name in ("PathSum", "Register", "StatisticsManager", "PathSum.h",
+                 "PathSum.cx", "PathSum.rz", "PathSum.mcx", "PathSum.CRk"):
+        if name not in advanced_api:
+            raise AssertionError(f"Advanced Python API missing: {name}")
+    if "doc-function" not in advanced_api or "doc-class" not in advanced_api:
+        raise AssertionError("Advanced Python API was not rendered as API objects")
     theory = (site_dir / "theory" / "index.html").read_text(encoding="utf-8")
     if "arithmatex" not in theory:
         raise AssertionError("Mathematical expressions were not emitted")

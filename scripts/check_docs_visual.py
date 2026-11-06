@@ -111,6 +111,19 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                 raise AssertionError(f"Mobile page failed: {name}")
                             if not mobile.locator("h1").first.is_visible():
                                 raise AssertionError(f"Mobile heading not visible: {name}")
+                            if name in ("wmc", "path-sum"):
+                                mobile.wait_for_function(
+                                    "document.querySelectorAll('mjx-container[display=\\\"true\\\"]').length > 1",
+                                    timeout=20000,
+                                )
+                                clipped = mobile.evaluate("""() => Array.from(
+                                    document.querySelectorAll('mjx-container[display="true"] mjx-math')
+                                ).map((node, index) => {
+                                    const b = node.getBoundingClientRect();
+                                    return {index, left: b.left, right: b.right};
+                                }).filter(b => b.left < -1 || b.right > window.innerWidth + 1)""")
+                                if clipped:
+                                    raise AssertionError(f"MathJax content clipped on mobile {name}: {clipped}")
                             mobile.screenshot(path=str(output / f"mobile-{name}.png"), full_page=True)
                         mobile.close()
                     finally:

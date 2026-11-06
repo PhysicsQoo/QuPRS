@@ -23,9 +23,11 @@ for two unitary operators on `n` qubits. It is unchanged by a global phase. The 
 Writing \(d=2^n\) and \(m=|\operatorname{Tr}(U^\dagger V)|/d\), exact global-phase equivalence requires \(m=1\). The two commonly used distances are distinct:
 
 $$
-D_{\mathrm{proj}}^2=1-m^2,\qquad
-D_{\mathrm{gp}}^2=2-2m,\qquad
-D_{\mathrm{proj}}^2=D_{\mathrm{gp}}^2-\frac{D_{\mathrm{gp}}^4}{4}.
+\begin{aligned}
+D_{\mathrm{proj}}^2 &= 1-m^2,\\
+D_{\mathrm{gp}}^2 &= 2-2m,\\
+D_{\mathrm{proj}}^2 &= D_{\mathrm{gp}}^2-\frac{D_{\mathrm{gp}}^4}{4}.
+\end{aligned}
 $$
 
 For the single-qubit Qiskit rotation \(R_z(\theta)\), the analytic control is

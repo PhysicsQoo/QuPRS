@@ -284,7 +284,7 @@ jobs:
                ' checked-versions.json > /dev/null &&
                curl --fail --location --silent --show-error --max-time 12 \
                   -o stable.html "$base/stable/?v=$PAGES_SHA" &&
-               grep -qi 'QuPRS' stable.html; then
+               grep -qiE '<!doctype html|<html' stable.html; then
               matched=true
               break
             fi

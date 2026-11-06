@@ -23,11 +23,11 @@ class Register:
     def __init__(
         self, size: int | None = None, name: str | None = None, bits=None
     ) -> None:
-        """Initialize self.  See help(type(self)) for accurate signature."""
+        """"""
         ...
 
     def __repr__(self) -> str:
-        """Return repr(self)."""
+        """"""
         ...
 
     @property
@@ -62,19 +62,19 @@ class F:
         bits: Optional explicit output-bit order.
     """
     def __init__(self, *regs, data=None, bits=None) -> None:
-        """Initialize self.  See help(type(self)) for accurate signature."""
+        """"""
         ...
 
     def __repr__(self) -> str:
-        """Return repr(self)."""
+        """"""
         ...
 
     def __hash__(self) -> int:
-        """Return hash(self)."""
+        """"""
         ...
 
     def __eq__(self, other: object) -> bool:
-        """Return self==value."""
+        """"""
         ...
 
     @property
@@ -159,15 +159,15 @@ class PathSum:
         ...
 
     def __repr__(self) -> str:
-        """Return repr(self)."""
+        """"""
         ...
 
     def __hash__(self) -> int:
-        """Return hash(self)."""
+        """"""
         ...
 
     def __eq__(self, other: object) -> bool:
-        """Return self==value."""
+        """"""
         ...
 
     @property

@@ -45,6 +45,56 @@ def check_reduction_identities() -> None:
             near(lhs, rhs)
 
 
+def check_reduction_kets() -> None:
+    """Check full two-component state vectors, not just scalar phase sums."""
+
+    def basis(index: int) -> tuple[complex, complex]:
+        return (1 + 0j, 0j) if index == 0 else (0j, 1 + 0j)
+
+    def scale(a: complex, ket: tuple[complex, complex]) -> tuple[complex, complex]:
+        return (a * ket[0], a * ket[1])
+
+    def add(a: tuple[complex, complex], b: tuple[complex, complex]) -> tuple[complex, complex]:
+        return (a[0] + b[0], a[1] + b[1])
+
+    def check(a: tuple[complex, complex], b: tuple[complex, complex]) -> None:
+        for actual, expected in zip(a, b):
+            near(actual, expected)
+
+    # HH: the output f(y1)=y1 XOR flip depends on the target y1.
+    # Verify that summing y0 and y1 substitutes y1=Q in *both* R and f.
+    for q in (0, 1):
+        for flip in (0, 1):
+            acc = (0j, 0j)
+            for y1 in (0, 1):
+                for y0 in (0, 1):
+                    residual = (0.07 + 0.125 * y1)
+                    weight = cmath.exp(2j * pi * (0.5 * y0 * (y1 + q) + residual))
+                    acc = add(acc, scale(weight, basis(y1 ^ flip)))
+            expected = scale(2 * cmath.exp(2j * pi * (0.07 + 0.125 * q)), basis(q ^ flip))
+            check(acc, expected)
+
+    # Omega: the output f is arbitrary but independent of y.
+    # Verify both possible quarter-cycle coefficients and both Boolean Q values.
+    for q in (0, 1):
+        for output in (0, 1):
+            for quarter, offset, slope in (
+                (0.25, 0.125, -0.25),
+                (0.75, -0.125, 0.25),
+            ):
+                residual = 0.1375
+                amplitude = sum(
+                    cmath.exp(2j * pi * (residual + y * (quarter + 0.5 * q)))
+                    for y in (0, 1)
+                )
+                lhs = scale(amplitude, basis(output))
+                rhs = scale(
+                    sqrt(2) * cmath.exp(2j * pi * (residual + offset + slope * q)),
+                    basis(output),
+                )
+                check(lhs, rhs)
+
+
 def check_projective_distance() -> None:
     # For I and Rz(theta), the trace is 2*cos(theta/2) and d=2.
     for theta in (0.0, 0.001, 0.2, pi, 2 * pi):
@@ -65,9 +115,16 @@ def check_projective_distance() -> None:
 def check_public_guide_markers() -> None:
     reductions = PATH_GUIDE.read_text(encoding="utf-8")
     wmc = WMC_GUIDE.read_text(encoding="utf-8")
-    for marker in (r"\delta_", r"\sqrt2", r"\frac34", "TACAS 2026"):
+    for marker in (r"\delta_", r"\sqrt{2}", r"\frac34", "TACAS 2026",
+                   r"|f(y_1)\rangle", r"|f(Q\bmod2)\rangle"):
         if marker not in reductions:
             raise AssertionError(f"Missing published reduction identity: {marker}")
+    hh_section = reductions.split("**HH.**", 1)[1].split("**Omega.**", 1)[0]
+    omega_section = reductions.split("**Omega.**", 1)[1].split("## Reduction rules", 1)[0]
+    if hh_section.count(r"|f(y_1)\rangle") < 3:
+        raise AssertionError("HH must preserve ket and substitute target state")
+    if omega_section.count(r"|f\rangle") < 4:
+        raise AssertionError("Omega must retain ket on both sides of both rules")
     for marker in (r"D_{\mathrm{proj}}", r"D_{\mathrm{gp}}", r"R_z(\theta)"):
         if marker not in wmc:
             raise AssertionError(f"Missing published metric identity: {marker}")
@@ -75,6 +132,7 @@ def check_public_guide_markers() -> None:
 
 if __name__ == "__main__":
     check_reduction_identities()
+    check_reduction_kets()
     check_projective_distance()
     check_public_guide_markers()
-    print("Public mathematical identity checks: 3 reduction families and projective metric PASS")
+    print("Public mathematical identity checks: full ket-preserving reduction identities and projective metric PASS")

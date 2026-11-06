@@ -73,7 +73,7 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                                        timeout=20000)
                                 math_count = page.locator("mjx-container").count()
                                 display_count = page.locator('mjx-container[display="true"]').count()
-                                required_displays = 5 if name == "path-sum" else 4
+                                required_displays = 6 if name == "path-sum" else 4
                                 if display_count < required_displays:
                                     raise AssertionError(
                                         f"Unrendered display math on {name}: "

@@ -26,29 +26,42 @@ $$
 
 Removing \(y\) must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.
 
-**HH.** Suppose \(y_0\) does not occur in the remaining phase, output, or \(Q\), and \(y_1\) does not occur in \(Q\). Then:
+**HH.** Let \(y_0\) be an internal summed Boolean path variable absent from the remaining phase \(R\), output \(f\), and Boolean expression \(Q\). Let \(y_1\) be a second summed Boolean path variable, absent from \(Q\). The sum over \(y_0\) imposes a constraint **on the full output ket**, not just on the scalar phase:
 
-$$
+$
 \sum_{y_0\in\{0,1\}}
- e^{2\pi i\frac12 y_0(y_1+Q)}
-=2\,\delta_{y_1,\,Q\bmod2}.
-$$
+ e^{2\pi i[\frac12 y_0(y_1+Q)+R(y_1)]}
+ \,|f(y_1)\rangle
+=2\,\delta_{y_1,\,Q\bmod2}\,
+ e^{2\pi iR(y_1)}\,|f(y_1)\rangle.
+$
 
-The eliminated \(y_0\) imposes a Boolean constraint; the remaining phase and output must consistently substitute \(y_1\leftarrow Q\bmod2\). In the native implementation, each phase monomial involving \(y_0\) must have the required half-cycle coefficient, and the selected singleton target must not occur elsewhere in its replacement polynomial.
+When \(y_1\) is itself summed, applying the constraint gives
 
-**Omega.** If an internal \(y\) is absent from the remaining phase/output and \(Q\) is Boolean-valued, the quarter-cycle identities are:
+$
+\sum_{y_0,y_1\in\{0,1\}}
+ e^{2\pi i[\frac12 y_0(y_1+Q)+R(y_1)]}
+ \,|f(y_1)\rangle
+=2\,e^{2\pi iR(Q\bmod2)}\,|f(Q\bmod2)\rangle.
+$
 
-$$
-\sum_{y=0}^1e^{2\pi i\,y(\frac14+\frac12Q)}
-=\sqrt2\,e^{2\pi i(\frac18-\frac14Q)},
-$$
+Thus the reduction removes \(y_0\) and substitutes \(y_1\leftarrow Q\bmod2\) in **both the residual phase and the output state**. The second identity assumes \(y_1\) is a summed variable; when a target is not summed, the Kronecker constraint remains the relevant identity. The implementation also requires matching half-cycle coefficients and a target variable that does not reappear in its own replacement polynomial.
 
-$$
-\sum_{y=0}^1e^{2\pi i\,y(\frac34+\frac12Q)}
-=\sqrt2\,e^{2\pi i(-\frac18+\frac14Q)}.
-$$
+**Omega.** Let \(y\) be an internal summed Boolean variable, with the residual phase \(R\), Boolean-valued \(Q\), and **output ket \(|f\rangle\) all independent of \(y\)**. The two quarter-cycle identities therefore retain the same ket on both sides:
 
-These assume the specified quarter-cycle singleton and half-cycle cross terms; the \(\sqrt2\) amplitude factor is accounted for by the path-count normalization. They cannot be applied to an arbitrary phase coefficient.
+$
+\sum_{y=0}^{1}
+ e^{2\pi i[R+y(\frac14+\frac12Q)]}\,|f\rangle
+=\sqrt{2}\,e^{2\pi i[R+\frac18-\frac14Q]}\,|f\rangle,
+$
+
+$
+\sum_{y=0}^{1}
+ e^{2\pi i[R+y(\frac34+\frac12Q)]}\,|f\rangle
+=\sqrt{2}\,e^{2\pi i[R-\frac18+\frac14Q]}\,|f\rangle.
+$
+
+The output \(|f\rangle\) is **unchanged** because it does not depend on the eliminated \(y\). The \(\sqrt{2}\) scalar factor is accounted for by the Path-sum normalization when the path-variable count changes. These identities require the specified quarter-cycle singleton and half-cycle cross terms; they cannot be applied to an arbitrary phase coefficient or to a \(y\)-dependent output ket.
 
 For implementation-level applicability, see [Python matching and substitutions](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py) and [native Rust reduction matching](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs). The algebraic identities appear in the [TACAS 2026 QuPRS paper](https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21) and earlier [path-sum verification calculus](https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf). 
 

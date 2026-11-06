@@ -94,7 +94,12 @@ Commit the updated stub alongside the Python source and review the diff.
 The documentation CI runs the read-only check automatically on relevant PRs.
 It verifies regular class members, dynamically attached Gate signatures,
 docstrings and static Griffe resolution; the generated HTML is checked
-separately. CI does **not** commit or overwrite your generated stub.
+separately. After a native development build, Dev Fast CI additionally
+compares the **committed** stub with a fresh `--write` result using
+`scripts/check_generated_stub.py`: declaration signatures, annotations,
+return types and documentation must match, while cosmetic formatting is
+ignored. A second regeneration must produce identical output. CI does
+**not** commit or overwrite your generated stub.
 
 
 Keep public documentation focused on installation, supported interfaces,

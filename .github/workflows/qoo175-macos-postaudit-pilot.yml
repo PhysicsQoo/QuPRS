@@ -77,9 +77,9 @@ jobs:
                        "rust_worker_bootstrap.py","rust_worker_standalone.py",
                        "rust_macos_process.py"):
               assert (root/"interface"/name).is_file(), name
-          qasm='OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[1];\\n'
+          qasm='OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n'
           for l,r,expected in ((qasm,qasm,"equivalent"),
-                               (qasm,qasm+"x q[0];\\n","not_equivalent")):
+                               (qasm,qasm+"x q[0];\n","not_equivalent")):
               direct=check_equivalence(l,r,backend="rust",method="reduction_rules",
                                        safe_mode=False,timeout=30)
               isolated=check_equivalence(l,r,backend="rust",method="reduction_rules",

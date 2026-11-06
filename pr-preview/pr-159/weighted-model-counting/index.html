@@ -830,9 +830,11 @@ D_{\mathrm{proj}}(U,V)=
 <p>for two unitary operators on <code>n</code> qubits. It is unchanged by a global phase. The default <code>approximate_distance_tolerance=1e-8</code> applies to this distance, <strong>not</strong> to a raw trace-magnitude defect or an angle in radians.</p>
 <p>Writing <span class="arithmatex">\(d=2^n\)</span> and <span class="arithmatex">\(m=|\operatorname{Tr}(U^\dagger V)|/d\)</span>, exact global-phase equivalence requires <span class="arithmatex">\(m=1\)</span>. The two commonly used distances are distinct:</p>
 <div class="arithmatex">\[
-D_{\mathrm{proj}}^2=1-m^2,\qquad
-D_{\mathrm{gp}}^2=2-2m,\qquad
-D_{\mathrm{proj}}^2=D_{\mathrm{gp}}^2-\frac{D_{\mathrm{gp}}^4}{4}.
+\begin{aligned}
+D_{\mathrm{proj}}^2 &amp;= 1-m^2,\\
+D_{\mathrm{gp}}^2 &amp;= 2-2m,\\
+D_{\mathrm{proj}}^2 &amp;= D_{\mathrm{gp}}^2-\frac{D_{\mathrm{gp}}^4}{4}.
+\end{aligned}
 \]</div>
 <p>For the single-qubit Qiskit rotation <span class="arithmatex">\(R_z(\theta)\)</span>, the analytic control is</p>
 <div class="arithmatex">\[

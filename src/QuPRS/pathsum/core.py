@@ -48,10 +48,10 @@ class Register:
     def size(self) -> int:
         return self._size
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self._size
 
-    def __getitem__(self, key: int):
+    def __getitem__(self, key: int) -> se.Symbol:
         return self._bits[key]
 
 
@@ -101,21 +101,21 @@ class F:
         return self.data == other.data
 
     @property
-    def regs(self):
+    def regs(self) -> tuple[Register, ...]:
         return self._regs
 
     @property
-    def bits(self):
+    def bits(self) -> tuple[str, ...]:
         return self._bits
 
     @property
-    def data(self):
+    def data(self) -> dict:
         return self._data
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._bits)
 
-    def __getitem__(self, key: int | se.Symbol | str):
+    def __getitem__(self, key: int | se.Symbol | str) -> object:
         key_name = (
             self._bits[key]
             if isinstance(key, int)
@@ -123,7 +123,7 @@ class F:
         )
         return self.data[key_name]
 
-    def sub(self, arg1, arg2):
+    def sub(self, arg1, arg2) -> "F":
         """Substitute a Boolean variable or expression and normalize to ANF.
 
         Args:
@@ -162,7 +162,7 @@ class F:
                 new_data[key] = to_anf(expr.subs(arg1, arg2))
         return self.update_data(new_data)
 
-    def update(self, key: int | se.Symbol | str, value):
+    def update(self, key: int | se.Symbol | str, value) -> "F":
         """Return a new map with one output bit replaced by `value`."""
         key_name = (
             self._bits[key]
@@ -173,11 +173,12 @@ class F:
         new_data[key_name] = value
         return F(*self.regs, data=new_data, bits=self.bits)
 
-    def update_data(self, data):
+    def update_data(self, data) -> "F":
         """Return a new map using `data` with the current bit ordering."""
         return F(*self.regs, data=data, bits=self.bits)
 
     def items(self):
+        """Iterate output bit names and their corresponding Boolean expressions."""
         return self.data.items()
 
 
@@ -280,7 +281,7 @@ class PathSum:
         """Calculate the hit rate of reduction rules for this instance."""
         return self._stats.get_reduction_hitrate()
 
-    def reset_reduction_counts(self):
+    def reset_reduction_counts(self) -> None:
         """Reset all reduction rule counts for this instance to 0."""
         self._stats.reset_reduction_counts()
 

@@ -18,6 +18,7 @@ on:
       - 'docs/site/examples.md'
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
+      - 'scripts/check_docs_links.py'
       - '.github/workflows/rust-api-docs.yml'
   push:
     branches: [dev]
@@ -36,6 +37,7 @@ on:
       - 'docs/site/examples.md'
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
+      - 'scripts/check_docs_links.py'
       - '.github/workflows/rust-api-docs.yml'
   workflow_dispatch:
 
@@ -94,6 +96,15 @@ jobs:
         run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
       - name: Compose and validate both API references
         run: python scripts/check_rust_api_docs.py --compose --check
+      - name: Audit all internal links against deployment URL prefix
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.number }}" == "159" ]]; then
+            python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/pr-preview/pr-159/
+          else
+            python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/
+          fi
+
       - name: Install browser for preview inspection
         if: github.event_name == 'pull_request' && github.event.number == 159
         run: |

@@ -127,7 +127,8 @@ jobs:
             diff -u "$original" src/QuPRS/pathsum/core.pyi || true
             exit 1
           fi
-          python scripts/generate_stubs.py --check
+          # Griffe/source/stub validation already runs in Documentation CI.
+          # This native job exclusively proves real generator byte equality.
 
       - name: Verify bundled native solver distribution
         run: python -m QuPRS.utils.ganak_distribution

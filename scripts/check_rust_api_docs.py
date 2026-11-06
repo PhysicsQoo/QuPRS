@@ -91,7 +91,7 @@ def check_assets() -> None:
         raise AssertionError("Rustdoc asset validation did not check any resources")
 
     reference = (SITE_ROOT / "reference" / "index.html").read_text(encoding="utf-8")
-    if not re.search(r'href=["\\\']\\.\\./rust-api/pathsum/index\\.html["\\\']', reference):
+    if 'href="../rust-api/pathsum/index.html"' not in reference:
         raise AssertionError("The main site does not link to the Rust API")
 
 

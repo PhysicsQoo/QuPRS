@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/architecture/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/examples/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/getting-started/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/path-sum/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/python-api/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/reference/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/rust-api/static.files/SourceSerif4-LICENSE-a2cfd9d5/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/theory/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/verification/</loc>
+      </url>
+      <url>
+        <loc>https://physicsqoo.github.io/QuPRS/docs/dev/weighted-model-counting/</loc>
+      </url>
+</urlset>

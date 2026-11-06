@@ -197,11 +197,27 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           base='https://physicsqoo.github.io/QuPRS/pr-preview/pr-159'
-          curl --fail --location --silent --show-error --retry 10 --retry-all-errors --retry-delay 5 \
-            --max-time 12 -o preview-sha.txt "$base/source-sha.txt"
-          test "$(tr -d '\r\n' < preview-sha.txt)" = "$EXPECTED_SHA"
+          matched=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --location --silent --show-error --max-time 12 \
+              -H 'Cache-Control: no-cache' \
+              -o preview-sha.txt "$base/source-sha.txt?v=$EXPECTED_SHA"; then
+              actual="$(tr -d '\r\n' < preview-sha.txt)"
+              if [[ "$actual" == "$EXPECTED_SHA" ]]; then
+                matched=true
+                echo "Public Pages source SHA matches reviewed artifact on check $attempt"
+                break
+              fi
+              echo "Pages propagation pending ($attempt/30): observed ${actual:0:100}"
+            else
+              echo "Pages not available yet ($attempt/30)"
+            fi
+            sleep 8
+          done
+          test "$matched" = true
           curl --fail --location --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
-            --max-time 12 -o preview-home.html "$base/"
+            --max-time 12 -o preview-home.html "$base/?v=$EXPECTED_SHA"
           grep -q 'QuPRS' preview-home.html
 

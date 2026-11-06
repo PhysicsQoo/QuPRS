@@ -116,7 +116,7 @@ def check_public_guide_markers() -> None:
     reductions = PATH_GUIDE.read_text(encoding="utf-8")
     wmc = WMC_GUIDE.read_text(encoding="utf-8")
     for marker in (r"\delta_", r"\sqrt{2}", r"\frac34", "TACAS 2026",
-                   r"|f(y_1)\rangle", r"|f(Q\bmod2)\rangle"):
+                   r"|f(y_1)\rangle", r"|f(q)\rangle"):
         if marker not in reductions:
             raise AssertionError(f"Missing published reduction identity: {marker}")
     hh_section = reductions.split("**HH.**", 1)[1].split("**Omega.**", 1)[0]

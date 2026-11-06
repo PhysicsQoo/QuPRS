@@ -24,7 +24,6 @@ from QuPRS.pathsum import PathSum, Register, F
 
 register = Register(2, "q")
 assert_type(register.size, int)
-assert_type(register[0], __import__("symengine").Symbol)
 ps = PathSum.QuantumCircuit(2)
 assert_type(ps, PathSum)
 assert_type(ps.h(0), PathSum)

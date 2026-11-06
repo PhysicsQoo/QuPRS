@@ -46,6 +46,21 @@ jobs:
           python-version: '3.12'
       - name: Install pinned versioned documentation toolchain
         run: python -m pip install -r docs/requirements-versioned.txt
+      - name: Verify v0.15.0 minimum release floor
+        run: |
+          python - <<'PY'
+          from scripts.docs_versioning import validate_release_version
+          for tag in ("v0.14.0", "v0.14.1", "v0.14.99", "v0.0.999"):
+              try:
+                  validate_release_version(tag)
+              except AssertionError as error:
+                  assert "starts at v0.15.0" in str(error), str(error)
+              else:
+                  raise AssertionError(f"Unexpectedly admitted historical version: {tag}")
+          for tag in ("v0.15.0", "v0.15.1", "v0.16.0", "v1.0.0"):
+              validate_release_version(tag)
+          print("Documentation release version floor: PASS")
+          PY
       - name: Reject historical release tags without site sources
         run: |
           python scripts/docs_versioning.py assert-historical-unavailable v0.14.1

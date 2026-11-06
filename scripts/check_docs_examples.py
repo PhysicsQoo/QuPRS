@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import ast
+from contextlib import nullcontext
 from pathlib import Path
+import os
 import re
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,8 +25,8 @@ def examples() -> tuple[list[str], list[str]]:
     blocks = [(language, code) for language, code in FENCES.findall(page)]
     python_blocks = [code for language, code in blocks if language == "python"]
     shell_blocks = [code for language, code in blocks if language == "bash"]
-    if len(python_blocks) != 5 or len(shell_blocks) != 1:
-        raise AssertionError("Expected five standalone Python and one CLI shell example")
+    if len(python_blocks) != 6 or len(shell_blocks) != 1:
+        raise AssertionError("Expected six standalone Python and one CLI shell example")
     return python_blocks, shell_blocks
 
 
@@ -84,22 +87,42 @@ def syntax_check() -> tuple[list[str], list[str]]:
     return python_blocks, shell_blocks
 
 
-def execute() -> None:
+def execute(*, installed: bool = False) -> None:
+    """Execute the published blocks in a source or clean installed archive."""
     python_blocks, shell_blocks = syntax_check()
-    for index, block in enumerate(python_blocks, start=1):
-        try:
-            result = subprocess.run(
-                [sys.executable, "-c", block], cwd=ROOT, capture_output=True,
-                text=True, timeout=90, check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise AssertionError(f"Python example {index} exceeded 90 s") from exc
-        if result.returncode:
-            raise AssertionError(
-                f"Python example {index} failed (exit={result.returncode}):\n"
-                + (result.stdout + result.stderr)[-6000:]
-            )
-        print(f"Python example {index}: PASS")
+    context = TemporaryDirectory(prefix="quprs-installed-docs-") if installed else nullcontext()
+    with context as directory:
+        # In installed mode, never execute from the repository checkout:
+        # Python's initial sys.path must resolve to the wheel/sdist install.
+        cwd = Path(directory) if installed else ROOT
+        env = os.environ.copy()
+        if installed:
+            env.pop("PYTHONPATH", None)
+            env.pop("PYTHONHOME", None)
+        provenance = (
+            "from importlib.metadata import distribution\n"
+            "from pathlib import Path\n"
+            "import QuPRS\n"
+            "installed_root = Path(distribution('QuPRS').locate_file('')).resolve()\n"
+            "assert Path(QuPRS.__file__).resolve().is_relative_to(installed_root)\n"
+        ) if installed else ""
+        for index, block in enumerate(python_blocks, start=1):
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-c", provenance + block], cwd=cwd, env=env,
+                    capture_output=True, text=True, timeout=90, check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise AssertionError(f"Python example {index} exceeded 90 s") from exc
+            if result.returncode:
+                raise AssertionError(
+                    f"Python example {index} failed (exit={result.returncode}):\n"
+                    + (result.stdout + result.stderr)[-6000:]
+                )
+            print(f"Python example {index} ({'installed' if installed else 'source'}): PASS")
+    if installed:
+        # A wheel/sdist does not ship the standalone Rust CLI binary.
+        return
     for index, block in enumerate(shell_blocks, start=1):
         try:
             result = subprocess.run(
@@ -120,10 +143,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--installed", action="store_true",
+                        help="run only Python examples from an installed wheel/sdist")
     args = parser.parse_args()
-    if not (args.check or args.run):
-        parser.error("select --check or --run")
-    if args.run:
+    if not (args.check or args.run or args.installed):
+        parser.error("select --check, --run or --installed")
+    if args.installed:
+        execute(installed=True)
+    elif args.run:
         execute()
     else:
         python_blocks, shell_blocks = syntax_check()

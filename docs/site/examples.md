@@ -103,7 +103,43 @@ result = check_equivalence(original, optimized, method="reduction_rules",
 assert result.equivalent == "equivalent", result.equivalent
 ```
 
-## 6. Standalone Rust CLI
+## 6. Fail closed on inconclusive results
+
+The example below tests the **consumer's status-handling policy**. The
+`SimpleNamespace` values simulate possible result statuses; they are not
+claims that the trivial test circuit can produce a real timeout or unknown
+solver result. Real timeout and resource supervision have separate runtime
+tests.
+
+```python
+from types import SimpleNamespace
+from qiskit import QuantumCircuit
+from QuPRS import check_equivalence
+
+original = QuantumCircuit(1)
+optimized = QuantumCircuit(1)
+optimized.h(0)
+optimized.h(0)
+result = check_equivalence(original, optimized, method="reduction_rules",
+                           backend="python", timeout=30)
+
+def classify(result):
+    status = result.equivalent
+    if status in {"unknown", "Timeout", "MemoryOut"}:
+        return "inconclusive"
+    if status in {"equivalent", "equivalent*"}:
+        return "equivalent"
+    if status == "not_equivalent":
+        return "not_equivalent"
+    raise ValueError(f"Unsupported verification status: {status}")
+
+assert classify(result) == "equivalent"
+for status in ("unknown", "Timeout", "MemoryOut"):
+    assert classify(SimpleNamespace(equivalent=status)) == "inconclusive"
+assert classify(SimpleNamespace(equivalent="not_equivalent")) == "not_equivalent"
+```
+
+## 7. Standalone Rust CLI
 
 For a source checkout with native dependencies installed, run the Rust CLI using QASM2 files. Its command-line options are not Python API arguments, and installing the Python wheel does not install a standalone CLI command.
 

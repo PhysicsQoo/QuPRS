@@ -50,6 +50,39 @@ Solver selection is explicit, and unsupported choices, missing executables, malf
 
 The phase classification threshold `phase_tolerance` (or `wmc_phase_tolerance`) is in radians, while `rr_tolerance` governs reduction coefficient matching. The **three user-facing tolerances**—reduction matching, global-phase classification, and projective-distance acceptance—serve different purposes and are independently configurable. `gpmc_precision_digits` is a separate numerical solver setting; there is no supported process-global mutable WMC policy.
 
+## Implemented adapter boundary versus future extensions
+
+The current Python solver-neutral transport lives in
+[`utils/solver_adapter.py`](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/utils/solver_adapter.py),
+with the weighted-CNF representation in
+[`utils/wmc_problem.py`](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/utils/wmc_problem.py).
+These are **implementation-level extension contracts**, not an unconditional
+promise of long-term public API stability. The supported user-facing
+`tool_name` choices remain `"gpmc"` and `"ganak"`.
+
+| Component / capability | Currently implemented | Not guaranteed by this contract |
+| --- | --- | --- |
+| `SolverAdapter`, `get_solver_adapter` | Explicit solver ID, fixed argument tuple, resource resolver, output parsing, and selected-process execution | Automatic solver discovery, transparent fallback, or arbitrary third-party solver support across Rust/Python |
+| `SolverCapabilities` | `weight_format`, `complex_weights`, `exact_count_certificate` fields; both built-in solvers currently advertise `exact_count_certificate=False` | A certified exact count from a solver that prints decimals |
+| `SolverResult` | `solver_id`, numerical `count`, invoked `arguments`, `returncode`, and `elapsed_seconds` | Cross-platform binary SHA, solver version, or source provenance in the result dataclass |
+| `WmcProblem` / `WmcWeight` | Bounded CNF clause/variable validation and source-preserving real/imaginary weight objects | Arbitrary negative-literal weights: the current serializer gives the negative literal weight `1+0i` |
+| `registered_solver_adapter` | Scoped Python-only registration with duplicate/built-in override rejection, useful for isolated extension tests | A supported production plugin discovery or native Rust solver registration protocol |
+| Error and resource handling | Unknown solver: `ValueError`; unsupported complex weights: `ValueError`; nonzero exit: `SolverExecutionError`; malformed/conflicting counts: `SolverResultError`; deadline: `SolverTimeout` | Treating failures, resource limits or inconclusive counts as `not_equivalent` |
+
+The Python adapter executes the **selected** solver with an explicit
+remaining time budget under its process lock. Ganak performs additional
+binary diagnostics. `GpmcAdapter` uses paired real/imaginary weight
+components; `GanakAdapter` uses signed complex-`i` syntax.
+Their differing printed precision is not resolved by a common
+`SolverCapabilities` flag: see the [numerical evidence policy](https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/development/wmc-evidence-policy.md).
+
+The separate Rust solver manager and Python `check_equivalence` route have
+their own established integration boundaries. A Python-registered mock third
+adapter is a **test of extensibility**, not proof that a new solver has the
+same portable Rust CLI, error, timeout, packaging, and numerical guarantees
+as GPMC/Ganak. A new official backend requires independent cross-platform
+and complex-count conformance before public support is advertised.
+
 ## Understanding the returned evidence
 
 The following Python result fields have distinct meanings:

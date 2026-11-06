@@ -23,8 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: docs-examples-${ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${ github.event_name == 'pull_request' }}
+  group: docs-examples-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   examples:

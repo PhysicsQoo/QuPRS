@@ -875,23 +875,35 @@ U|x\rangle = \alpha\!\!\sum_{y\in\{0,1\}^{m}}
 =2e^{2\pi iP}\,|f\rangle.
 \]</div>
 <p>Removing <span class="arithmatex">\(y\)</span> must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.</p>
-<p><strong>HH.</strong> Suppose <span class="arithmatex">\(y_0\)</span> does not occur in the remaining phase, output, or <span class="arithmatex">\(Q\)</span>, and <span class="arithmatex">\(y_1\)</span> does not occur in <span class="arithmatex">\(Q\)</span>. Then:</p>
+<p><strong>HH.</strong> Let <span class="arithmatex">\(y_0\)</span> be an internal summed Boolean path variable absent from the residual phase <span class="arithmatex">\(R\)</span>, output <span class="arithmatex">\(f\)</span>, and Boolean expression <span class="arithmatex">\(Q\)</span>. Let <span class="arithmatex">\(y_1\)</span> be a second Boolean path variable, absent from <span class="arithmatex">\(Q\)</span>, and write <span class="arithmatex">\(q=Q\bmod 2\)</span>. Summing over <span class="arithmatex">\(y_0\)</span> constrains the <strong>full output ket</strong>:</p>
 <div class="arithmatex">\[
-\sum_{y_0\in\{0,1\}}
- e^{2\pi i\frac12 y_0(y_1+Q)}
-=2\,\delta_{y_1,\,Q\bmod2}.
+\begin{aligned}
+&amp;\sum_{y_0=0}^{1}(-1)^{y_0(y_1+q)}
+  |f(y_1)\rangle\\
+&amp;\qquad=2\,\delta_{y_1,q}\,|f(y_1)\rangle.
+\end{aligned}
 \]</div>
-<p>The eliminated <span class="arithmatex">\(y_0\)</span> imposes a Boolean constraint; the remaining phase and output must consistently substitute <span class="arithmatex">\(y_1\leftarrow Q\bmod2\)</span>. In the native implementation, each phase monomial involving <span class="arithmatex">\(y_0\)</span> must have the required half-cycle coefficient, and the selected singleton target must not occur elsewhere in its replacement polynomial.</p>
-<p><strong>Omega.</strong> If an internal <span class="arithmatex">\(y\)</span> is absent from the remaining phase/output and <span class="arithmatex">\(Q\)</span> is Boolean-valued, the quarter-cycle identities are:</p>
+<p>When <span class="arithmatex">\(y_1\)</span> is itself summed, multiply by the residual phase and apply the constraint:</p>
 <div class="arithmatex">\[
-\sum_{y=0}^1e^{2\pi i\,y(\frac14+\frac12Q)}
-=\sqrt2\,e^{2\pi i(\frac18-\frac14Q)},
+\begin{aligned}
+&amp;2\sum_{y_1=0}^{1}\delta_{y_1,q}\,
+  e^{2\pi iR(y_1)}\,|f(y_1)\rangle\\
+&amp;\qquad=2\,e^{2\pi iR(q)}\,|f(q)\rangle.
+\end{aligned}
+\]</div>
+<p>Thus the reduction removes <span class="arithmatex">\(y_0\)</span> and substitutes <span class="arithmatex">\(y_1\leftarrow q\)</span> in <strong>both the residual phase and the output state</strong>. The second identity assumes <span class="arithmatex">\(y_1\)</span> is summed; when it is not summed, the Kronecker constraint remains the relevant identity. The implementation also requires matching half-cycle coefficients and a target variable that does not reappear in its own replacement polynomial.</p>
+<p><strong>Omega.</strong> Let <span class="arithmatex">\(y\)</span> be an internal summed Boolean variable, with the residual phase <span class="arithmatex">\(R\)</span>, Boolean-valued <span class="arithmatex">\(Q\)</span>, and <strong>output ket <span class="arithmatex">\(|f\rangle\)</span> all independent of <span class="arithmatex">\(y\)</span></strong>. The two quarter-cycle identities therefore retain the same ket on both sides:</p>
+<div class="arithmatex">\[
+\sum_{y=0}^{1}
+ e^{2\pi i[R+y(\frac14+\frac12Q)]}\,|f\rangle
+=\sqrt{2}\,e^{2\pi i[R+\frac18-\frac14Q]}\,|f\rangle,
 \]</div>
 <div class="arithmatex">\[
-\sum_{y=0}^1e^{2\pi i\,y(\frac34+\frac12Q)}
-=\sqrt2\,e^{2\pi i(-\frac18+\frac14Q)}.
+\sum_{y=0}^{1}
+ e^{2\pi i[R+y(\frac34+\frac12Q)]}\,|f\rangle
+=\sqrt{2}\,e^{2\pi i[R-\frac18+\frac14Q]}\,|f\rangle.
 \]</div>
-<p>These assume the specified quarter-cycle singleton and half-cycle cross terms; the <span class="arithmatex">\(\sqrt2\)</span> amplitude factor is accounted for by the path-count normalization. They cannot be applied to an arbitrary phase coefficient.</p>
+<p>The output <span class="arithmatex">\(|f\rangle\)</span> is <strong>unchanged</strong> because it does not depend on the eliminated <span class="arithmatex">\(y\)</span>. The <span class="arithmatex">\(\sqrt{2}\)</span> scalar factor is accounted for by the Path-sum normalization when the path-variable count changes. These identities require the specified quarter-cycle singleton and half-cycle cross terms; they cannot be applied to an arbitrary phase coefficient or to a <span class="arithmatex">\(y\)</span>-dependent output ket.</p>
 <p>For implementation-level applicability, see <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py">Python matching and substitutions</a> and <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs">native Rust reduction matching</a>. The algebraic identities appear in the <a href="https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21">TACAS 2026 QuPRS paper</a> and earlier <a href="https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf">path-sum verification calculus</a>. </p>
 <h2 id="reduction-rules">Reduction rules</h2>
 <p>QuPRS implements the <strong>Elim</strong>, <strong>HH</strong>, and <strong>omega</strong> families of simplifications:</p>

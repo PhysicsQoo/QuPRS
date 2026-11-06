@@ -9,7 +9,7 @@ $$
 \sum_{\sigma\models F}\;\prod_{\ell\in\sigma}w(\ell),
 $$
 
-where `F` is a Boolean formula, `\sigma` ranges over satisfying assignments, and the literal weights `w` may be complex. The circuit-specific encoding and trace normalization determine how the count contributes to the comparison; the generic formula alone is not a full circuit verification algorithm.
+where \(F\) is a Boolean formula, \(\sigma\) ranges over satisfying assignments, and the literal weights \(w\) may be complex. The circuit-specific encoding and trace normalization determine how the count contributes to the comparison; the generic formula alone is not a full circuit verification algorithm.
 
 The default numerical equivalence metric is the **projective Hilbert–Schmidt distance**:
 
@@ -29,7 +29,7 @@ for two unitary operators on `n` qubits. It is unchanged by a global phase. The 
 
 Solver selection is explicit, and unsupported choices, missing executables, malformed or nonfinite results, and failed processes must **not** silently fall back to a different solver. The exact invocation and count parser depend on the backend.
 
-The phase classification threshold `phase_tolerance` (or `wmc_phase_tolerance`) is in radians, while `rr_tolerance` governs reduction coefficient matching. All three tolerances are independent from the WMC distance threshold; there is no supported process-global mutable `wmc_policy`.
+The phase classification threshold `phase_tolerance` (or `wmc_phase_tolerance`) is in radians, while `rr_tolerance` governs reduction coefficient matching. The **three user-facing tolerances**—reduction matching, global-phase classification, and projective-distance acceptance—serve different purposes and are independently configurable. `gpmc_precision_digits` is a separate numerical solver setting; there is no supported process-global mutable WMC policy.
 
 ## Understanding the returned evidence
 

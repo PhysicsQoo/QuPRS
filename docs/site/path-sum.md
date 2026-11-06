@@ -9,7 +9,7 @@ U|x\rangle = \alpha\!\!\sum_{y\in\{0,1\}^{m}}
  e^{2\pi i P(x,y)}\,|f(x,y)\rangle.
 $$
 
-Here, `x` is the input bit string, `y` is the path-variable string, `P` is a real-valued phase polynomial measured in **cycles** (one cycle is `2\pi` radians), `f` gives the output bit string, and `\alpha` accounts for normalization. The exact representation and allowed coefficient domains depend on the constructed PathSum; not every circuit is a sum with unit coefficients.
+Here, \(x\) is the input bit string, \(y\) is the path-variable string, \(P\) is a real-valued phase polynomial measured in **cycles** (one cycle is \(2\pi\) radians), \(f\) gives the output bit string, and \(\alpha\) accounts for normalization. The exact representation and allowed coefficient domains depend on the constructed PathSum; not every circuit is a sum with unit coefficients.
 
 For a comparison, QuPRS builds an expression reflecting the input and output circuit composition. The reduction engine rewrites the Path-sum while attempting to preserve the represented operation.
 

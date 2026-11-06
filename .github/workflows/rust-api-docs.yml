@@ -7,6 +7,11 @@ on:
       - 'rust/pathsum/src/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'rust/pathsum/Cargo.toml'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
@@ -14,6 +19,8 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/check_docs_site.py'
 
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
@@ -27,6 +34,11 @@ on:
       - 'rust/pathsum/src/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/gates/**'
       - 'rust/pathsum/Cargo.toml'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
@@ -34,6 +46,8 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/check_docs_site.py'
 
       - 'scripts/check_docs_science.py'
       - 'scripts/check_docs_visual.py'
@@ -68,6 +82,8 @@ jobs:
           python-version: '3.12'
       - name: Install documentation dependencies
         run: python -m pip install -r docs/requirements-site.txt
+      - name: Validate static source-derived Gate reference
+        run: python scripts/check_docs_gate_stubs.py --check
       - name: Build Python reference and documentation site
         shell: bash
         run: |
@@ -80,6 +96,8 @@ jobs:
             printf '\nsite_url: https://physicsqoo.github.io/QuPRS/\n' >> mkdocs-dev-check.yml
             zensical build --strict --clean -f mkdocs-dev-check.yml
           fi
+      - name: Verify rendered dynamic Gate API members
+        run: python scripts/check_docs_gate_stubs.py --site
       - name: Verify public mathematical identities
         run: python scripts/check_docs_science.py
       - name: Verify Python reference

@@ -12,7 +12,6 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import re
-import re
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -56,6 +55,7 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                             ("wmc", "weighted-model-counting/", "Weighted model counting and solver contracts"),
                             ("examples", "examples/", "Executable examples"),
                             ("python-api", "python-api/", "Python API"),
+                            ("pathsum-api", "pathsum-api/", "Python API: Advanced Path-sum"),
                             ("rustdoc", "rust-api/pathsum/index.html", "pathsum"),
                         ]
                         for name, suffix, heading in scenarios:
@@ -86,6 +86,13 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                             else:
                                 math_count = 0
                                 display_count = 0
+                            if name == "pathsum-api":
+                                for gate in ("h", "cx", "rz", "mcx", "CRk"):
+                                    locator = page.locator(
+                                        f'[id="QuPRS.pathsum.core.PathSum.{gate}"]'
+                                    )
+                                    if locator.count() != 1:
+                                        raise AssertionError(f"Gate API anchor missing: {gate}")
                             if name == "examples" and page.locator("pre code").count() < 5:
                                 raise AssertionError("Published code blocks are not visible")
                             if name == "wmc" and page.locator("table").count() < 2:
@@ -96,7 +103,10 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                     raise AssertionError("Expected navigation links missing")
                             if broken:
                                 raise AssertionError(f"Broken local resources in {name}: {broken[:5]}")
-                            page.screenshot(path=str(output / f"desktop-{name}.png"), full_page=True)
+                            page.screenshot(
+                                path=str(output / f"desktop-{name}.png"),
+                                full_page=name != "pathsum-api",
+                            )
                             records.append({"page": name, "status": 200, "math": math_count, "display_math": display_count,
                                             "screenshot": f"desktop-{name}.png"})
                             page.close()
@@ -106,7 +116,8 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                                   has_touch=True)
                         for name, suffix in (("overview", ""), ("path-sum", "path-sum/"),
                                              ("wmc", "weighted-model-counting/"),
-                                             ("examples", "examples/")):
+                                             ("examples", "examples/"),
+                                             ("pathsum-api", "pathsum-api/")):
                             response = mobile.goto(base + suffix, wait_until="networkidle", timeout=30000)
                             if response is None or response.status != 200:
                                 raise AssertionError(f"Mobile page failed: {name}")
@@ -125,7 +136,13 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                 }).filter(b => b.left < -1 || b.right > window.innerWidth + 1)""")
                                 if clipped:
                                     raise AssertionError(f"MathJax content clipped on mobile {name}: {clipped}")
-                            mobile.screenshot(path=str(output / f"mobile-{name}.png"), full_page=True)
+                            if name == "pathsum-api":
+                                if mobile.locator('[id="QuPRS.pathsum.core.PathSum.cx"]').count() != 1:
+                                    raise AssertionError("Mobile advanced Gate API anchor missing")
+                            mobile.screenshot(
+                                path=str(output / f"mobile-{name}.png"),
+                                full_page=name != "pathsum-api",
+                            )
                         mobile.close()
                     finally:
                         browser.close()
@@ -140,7 +157,7 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                 )
                 server.shutdown()
                 worker.join(timeout=10)
-            print(f"Browser review: {len(records)} desktop pages, 4 mobile screenshots PASS")
+            print(f"Browser review: {len(records)} desktop pages, 5 mobile screenshots PASS")
 
 
 def main() -> None:

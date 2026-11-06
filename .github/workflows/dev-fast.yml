@@ -114,21 +114,31 @@ jobs:
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
           maturin develop --release -E dev
 
-      - name: Verify reproducible generated core.pyi after native installation
+      - name: Verify source-correct and deterministic core.pyi regeneration
         shell: bash
         run: |
           set -euo pipefail
+          # The checked-in stub is formatted for review. Regeneration need not
+          # rewrite formatting, but must preserve the complete public API.
+          # Griffe/rendering are independently verified in Documentation CI.
           original="$(mktemp)"
+          generated="$(mktemp)"
           cp src/QuPRS/pathsum/core.pyi "$original"
-          # This checks the real --write path in the already-built environment.
           python scripts/generate_stubs.py --write
-          if ! cmp -s "$original" src/QuPRS/pathsum/core.pyi; then
-            echo "::error::core.pyi differs after --write; regenerate and commit the canonical stub"
-            diff -u "$original" src/QuPRS/pathsum/core.pyi || true
+          PYTHONPATH=scripts python - <<'PY'
+          from check_docs_gate_stubs import check_core_stub, check_gate_stub
+          gates = check_gate_stub()
+          check_core_stub(gates)
+          print("Regenerated core.pyi source semantic parity PASS")
+          PY
+          cp src/QuPRS/pathsum/core.pyi "$generated"
+          python scripts/generate_stubs.py --write
+          if ! cmp -s "$generated" src/QuPRS/pathsum/core.pyi; then
+            echo "::error::core.pyi generator is nondeterministic"
             exit 1
           fi
-          # Griffe/source/stub validation already runs in Documentation CI.
-          # This native job exclusively proves real generator byte equality.
+          echo "Regenerated core.pyi deterministic output PASS"
+          cp "$original" src/QuPRS/pathsum/core.pyi
 
       - name: Verify bundled native solver distribution
         run: python -m QuPRS.utils.ganak_distribution

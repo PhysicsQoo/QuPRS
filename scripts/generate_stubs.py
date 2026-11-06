@@ -150,12 +150,15 @@ def generate_stub_file():
             for gate_cls in sorted(gate_class_map.values(), key=lambda c: c.gate_name):
                 pyi_content.append(_build_dynamic_method_stub(gate_cls))
         pyi_content.append("\n")
-    try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(pyi_content))
-        print(f"\nSuccessfully generated stub file at:\n{output_path}")
-    except Exception as e:
-        print(f"\nError writing to file: {e}")
+    generated = "\n".join(pyi_content)
+    if os.path.exists(output_path):
+        with open(output_path, encoding="utf-8") as file:
+            if file.read() == generated:
+                print(f"Generated stub is already current: {output_path}")
+                return
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(generated)
+    print(f"Generated stub updated: {output_path}")
 
 
 if __name__ == "__main__":

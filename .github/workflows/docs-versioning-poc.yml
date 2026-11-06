@@ -56,7 +56,7 @@ jobs:
           # Synthetic release exists only on the CI runner, never published.
           mike deploy --branch gh-pages --config-file mkdocs.versioned.yml \
             --update-aliases v0.99.99-test stable
-          mike set-default --branch gh-pages stable
+          mike set-default --branch gh-pages --config-file mkdocs.versioned.yml stable
           git rev-parse gh-pages:index.html > "$RUNNER_TEMP/root-after.txt"
           git rev-parse gh-pages:pr-preview/pr-159/source-sha.txt > "$RUNNER_TEMP/preview-after.txt"
           diff -u "$RUNNER_TEMP/root-before.txt" "$RUNNER_TEMP/root-after.txt"

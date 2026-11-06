@@ -20,6 +20,8 @@ on:
 
       - 'scripts/check_rust_api_docs.py'
       - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'src/QuPRS/py.typed'
       - 'scripts/check_docs_site.py'
 
       - 'scripts/check_docs_science.py'
@@ -47,6 +49,8 @@ on:
 
       - 'scripts/check_rust_api_docs.py'
       - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'src/QuPRS/py.typed'
       - 'scripts/check_docs_site.py'
 
       - 'scripts/check_docs_science.py'

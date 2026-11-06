@@ -264,6 +264,12 @@ def run() -> int:
 if __name__ == '__main__':
     try:
         sys.exit(run())
+    except SupervisorInterrupted as exc:
+        # A signal can arrive during Supervisor startup, before a Worker
+        # exists or before entering the inner exchange handler. Match the
+        # Rust CLI's Unix cancellation status even in these early windows.
+        # A spawned Worker is handled by run()'s unconditional finally.
+        sys.exit(128 + exc.signum)
     except Exception as exc:
         print('Rust supervisor failed: %s: %s' %
               (type(exc).__name__, str(exc)[:512]), file=sys.stderr)

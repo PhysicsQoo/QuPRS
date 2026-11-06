@@ -485,7 +485,7 @@ If you use `QuPRS` in your research, please cite our paper:
 
 > **Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting**  
 > Wei-Jia Huang, Christophe Chareton, Yu-Fang Chen, Kai-Min Chung, Min-Hsiu Hsieh, Alfons Laarman, and Jingyi Mei.  
-> In *Tools and Algorithms for the Construction and Analysis of Systems (TACAS 2026)*, Lecture Notes in Computer Science, vol. 15668, pp. 419–439. Springer, 2026.  
+> In *Tools and Algorithms for the Construction and Analysis of Systems (TACAS 2026)*, Lecture Notes in Computer Science, vol. 16506, pp. 419–439. Springer, 2026.  
 > DOI: [10.1007/978-3-032-22749-2_21](https://doi.org/10.1007/978-3-032-22749-2_21)
 
 ```bibtex
@@ -494,6 +494,7 @@ If you use `QuPRS` in your research, please cite our paper:
   title     = {Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting},
   booktitle = {Tools and Algorithms for the Construction and Analysis of Systems (TACAS 2026)},
   series    = {Lecture Notes in Computer Science},
+  volume    = {16506},
   pages     = {419--439},
   year      = {2026},
   publisher = {Springer Nature Switzerland},

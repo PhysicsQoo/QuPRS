@@ -1,4 +1,5 @@
-// rust-test/pathsum/src/lib.rs
+#![doc(html_no_source)]
+//! Native Path-sum verification types and operations.
 
 pub mod pathsum;
 pub mod gates;
@@ -98,6 +99,14 @@ pub struct EquivalenceCheckResult {
 ///
 /// RR tolerance controls approximate non-global phase normalization and
 /// HH/Omega matching. Phase and projective-distance tolerances are separate.
+///
+/// # Example
+///
+/// ```rust
+/// use pathsum::{VerificationMethod, VerificationOptions};
+/// let options = VerificationOptions::default();
+/// assert_eq!(options.method, VerificationMethod::Hybrid);
+/// ```
 #[derive(Debug, Clone)]
 pub struct VerificationOptions {
     pub method: VerificationMethod,

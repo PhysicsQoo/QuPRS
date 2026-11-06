@@ -7,6 +7,7 @@ The project provides a Python interface for Qiskit circuits, a native Rust verif
 - [Getting started](getting-started.md) explains installation and supported environments.
 - [Verification](verification.md) introduces the available verification methods and result semantics.
 - [Theory](theory.md) outlines the Path-sum and WMC approaches.
-- [API Reference](reference.md) identifies the public Python and Rust entry points.
+- [API Reference](reference.md) links the generated Python and Rust documentation.
+- [Architecture](architecture.md) describes the relationship between the Python and native Rust interfaces.
 
 Source code, releases, and contribution instructions are available in the [QuPRS repository](https://github.com/PhysicsQoo/QuPRS).

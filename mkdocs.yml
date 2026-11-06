@@ -14,12 +14,30 @@ theme:
     - navigation.top
     - toc.follow
 
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            allow_inspection: false
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            members: false
+            docstring_style: google
+
 nav:
   - Overview: index.md
   - Getting started: getting-started.md
   - Verification: verification.md
   - Theory: theory.md
-  - API Reference: reference.md
+  - API Reference:
+      - Overview: reference.md
+      - Python API: python-api.md
+      - Architecture: architecture.md
 
 markdown_extensions:
   - admonition

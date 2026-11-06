@@ -19,6 +19,9 @@ on:
       - 'src/QuPRS/pathsum/__init__.py'
       - 'src/QuPRS/pathsum/gates/**'
       - 'scripts/check_docs_examples.py'
+      - 'scripts/check_docs_scoped_contract.py'
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/utils/wmc_problem.py'
       - '.github/workflows/docs-check.yml'
   push:
     branches: [dev]
@@ -38,6 +41,9 @@ on:
       - 'src/QuPRS/pathsum/__init__.py'
       - 'src/QuPRS/pathsum/gates/**'
       - 'scripts/check_docs_examples.py'
+      - 'scripts/check_docs_scoped_contract.py'
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/utils/wmc_problem.py'
       - '.github/workflows/docs-check.yml'
   workflow_dispatch:
 
@@ -74,6 +80,8 @@ jobs:
         run: python -m py_compile scripts/generate_stubs.py scripts/check_generated_stub.py scripts/release_artifact_smoke.py
       - name: Check published example syntax
         run: python scripts/check_docs_examples.py --check
+      - name: Check published rule witnesses and solver adapter source contracts
+        run: python scripts/check_docs_scoped_contract.py
       - name: Build documentation in strict mode
         run: zensical build --strict --clean
       - name: Validate generated documentation

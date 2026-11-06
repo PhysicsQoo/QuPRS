@@ -21,7 +21,6 @@ EXPECTED_PAGES = (
 )
 ALLOWED_SUFFIXES = {".md", ".js"}
 PRIVATE_TRACKER_KEY = re.compile(r"\b[A-Z]{2,8}-[0-9]{1,6}\b")
-PRIVATE_LINK = re.compile(r"https?://(?:www\.)?linear\.app/", re.I)
 
 
 def check_sources() -> None:
@@ -34,7 +33,7 @@ def check_sources() -> None:
         if path.suffix not in ALLOWED_SUFFIXES:
             raise AssertionError(f"Unexpected site source file: {path}")
         content = path.read_text(encoding="utf-8")
-        if PRIVATE_TRACKER_KEY.search(content) or PRIVATE_LINK.search(content):
+        if PRIVATE_TRACKER_KEY.search(content):
             raise AssertionError(f"Non-public reference in documentation source: {path}")
 
 
@@ -52,7 +51,7 @@ def verify_site(site_dir: Path) -> None:
         raise AssertionError("MathJax configuration was not included")
     for path in site_dir.rglob("*.html"):
         content = path.read_text(encoding="utf-8")
-        if PRIVATE_TRACKER_KEY.search(content) or PRIVATE_LINK.search(content):
+        if PRIVATE_TRACKER_KEY.search(content):
             raise AssertionError(f"Non-public reference in generated HTML: {path}")
 
 

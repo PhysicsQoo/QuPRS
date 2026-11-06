@@ -54,6 +54,12 @@ def _cleanup_type_str(type_str: str) -> str:
     )
 
 
+def _own_docstring(member: Any) -> str:
+    """Do not inherit generic object.__init__/__repr__ documentation into stubs."""
+    doc = getattr(member, "__doc__", None)
+    return inspect.cleandoc(doc) if doc else ""
+
+
 def _build_stub_for_member(name: str, member: Any) -> str:
     """
     Generate a .pyi stub string for a class member.
@@ -63,7 +69,7 @@ def _build_stub_for_member(name: str, member: Any) -> str:
         # reduction.apply_reduction is attached as a bound PathSum method.
         # Direct inspect.signature prints nested quoted forward references,
         # e.g. "'PathSum'", which are not useful annotations in .pyi.
-        doc = inspect.getdoc(member) or ""
+        doc = _own_docstring(member)
         return (
             '\n    def reduction(self) -> "PathSum":\n'
             f'        {_format_pyi_docstring(doc)}\n'
@@ -81,7 +87,7 @@ def _build_stub_for_member(name: str, member: Any) -> str:
     func: Callable[..., Any] | None = None
     decorator = ""
     if isinstance(member, property):
-        doc = inspect.getdoc(member.fget) or ""
+        doc = _own_docstring(member.fget)
         return_type = "Any"
         if member.fget and "return" in member.fget.__annotations__:
             return_type = _cleanup_type_str(member.fget.__annotations__["return"])
@@ -94,7 +100,7 @@ def _build_stub_for_member(name: str, member: Any) -> str:
     if func:
         try:
             sig = inspect.signature(func)
-            doc = inspect.getdoc(func) or ""
+            doc = _own_docstring(func)
             cleaned_sig_str = _cleanup_type_str(str(sig))
             return f"\n    {decorator}def {name}{cleaned_sig_str}:\n        {_format_pyi_docstring(doc)}\n        ...\n"
         except (ValueError, TypeError):

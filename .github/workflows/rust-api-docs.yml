@@ -263,6 +263,7 @@ jobs:
           # GitHub Pages is eventually consistent. Branch provenance is the
           # required gate; do not fail source correctness on CDN propagation.
           for attempt in 1 2 3; do
+            echo "Checking public preview propagation ($attempt/3)"
             if curl --fail --location --silent --show-error --max-time 10 \
               -H 'Cache-Control: no-cache' \
               -o preview-sha.txt "$base/source-sha.txt?v=$EXPECTED_SHA"; then

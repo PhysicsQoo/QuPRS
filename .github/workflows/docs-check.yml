@@ -10,6 +10,8 @@ on:
       - 'scripts/check_docs_site.py'
       - 'scripts/check_docs_gate_stubs.py'
       - 'scripts/generate_stubs.py'
+      - 'scripts/check_generated_stub.py'
+      - 'test/test_generated_stub_parity.py'
       - 'src/QuPRS/py.typed'
       - 'src/QuPRS/pathsum/core.py'
       - 'src/QuPRS/pathsum/core.pyi'
@@ -27,6 +29,8 @@ on:
       - 'scripts/check_docs_site.py'
       - 'scripts/check_docs_gate_stubs.py'
       - 'scripts/generate_stubs.py'
+      - 'scripts/check_generated_stub.py'
+      - 'test/test_generated_stub_parity.py'
       - 'src/QuPRS/py.typed'
       - 'src/QuPRS/pathsum/core.py'
       - 'src/QuPRS/pathsum/core.pyi'
@@ -64,8 +68,10 @@ jobs:
         run: python scripts/check_docs_site.py --sources
       - name: Verify committed core.pyi against Python and Gate source (no runtime import)
         run: python scripts/generate_stubs.py --check
+      - name: Check generated stub comparison negative contracts (offline)
+        run: python -m unittest discover -s test -p 'test_generated_stub_parity.py'
       - name: Check stub generator and release typing smoke syntax
-        run: python -m py_compile scripts/generate_stubs.py scripts/release_artifact_smoke.py
+        run: python -m py_compile scripts/generate_stubs.py scripts/check_generated_stub.py scripts/release_artifact_smoke.py
       - name: Check published example syntax
         run: python scripts/check_docs_examples.py --check
       - name: Build documentation in strict mode

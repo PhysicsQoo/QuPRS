@@ -22,7 +22,7 @@ STATIC_PACKAGE = "QuPRS.pathsum.core"
 STUB_MARKER = "# --- Dynamically Injected Gate Methods ---"
 
 
-def source_gate_classes() -> dict[str, ast.ClassDef]:
+def source_gate_classes() -> tuple[dict[str, ast.ClassDef], dict[str, ast.ClassDef]]:
     """Collect only declared Gate classes with literal gate_name values."""
     result: dict[str, ast.ClassDef] = {}
     by_class: dict[str, ast.ClassDef] = {}
@@ -73,24 +73,40 @@ def method_in_hierarchy(
     return None
 
 
-def parameter_shape(method: ast.FunctionDef, ignored: set[str]) -> list[tuple[str, str, bool]]:
+def _annotation(argument: ast.arg) -> str | None:
+    value = argument.annotation
+    if value is None:
+        return None
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        return value.value
+    return ast.unparse(value)
+
+
+def parameter_shape(
+    method: ast.FunctionDef, ignored: set[str]
+) -> list[tuple[str, str, str | None, str | None]]:
     args = method.args
     positional = args.posonlyargs + args.args
     default_start = len(positional) - len(args.defaults)
-    result = [
-        (parameter.arg, "positional", index >= default_start)
-        for index, parameter in enumerate(positional)
-        if parameter.arg not in ignored
-    ]
+    result = []
+    for index, parameter in enumerate(positional):
+        if parameter.arg in ignored:
+            continue
+        default = (
+            ast.unparse(args.defaults[index - default_start])
+            if index >= default_start else None
+        )
+        result.append((parameter.arg, "positional", _annotation(parameter), default))
     if args.vararg is not None:
-        result.append((args.vararg.arg, "vararg", False))
-    result.extend(
-        (parameter.arg, "keyword_only", default is not None)
-        for parameter, default in zip(args.kwonlyargs, args.kw_defaults)
-        if parameter.arg not in ignored
-    )
+        result.append((args.vararg.arg, "vararg", _annotation(args.vararg), None))
+    for parameter, default in zip(args.kwonlyargs, args.kw_defaults):
+        if parameter.arg not in ignored:
+            result.append((
+                parameter.arg, "keyword_only", _annotation(parameter),
+                ast.unparse(default) if default is not None else None,
+            ))
     if args.kwarg is not None:
-        result.append((args.kwarg.arg, "kwargs", False))
+        result.append((args.kwarg.arg, "kwargs", _annotation(args.kwarg), None))
     return result
 
 

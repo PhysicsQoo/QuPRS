@@ -68,6 +68,11 @@ jobs:
           python scripts/docs_versioning.py check-layout \
             --pages "$RUNNER_TEMP/versioned-pages" \
             --versions dev v0.99.99-test stable
+          # This stage checks Zensical/mike path construction only; real Rustdoc
+          # generation and provenance are validated by the existing native job.
+          mkdir -p "$RUNNER_TEMP/versioned-pages/docs/dev/rust-api/pathsum"
+          printf '<!doctype html><title>PoC stub, not published</title>\n' \
+            > "$RUNNER_TEMP/versioned-pages/docs/dev/rust-api/pathsum/index.html"
           python scripts/check_docs_links.py \
             --site "$RUNNER_TEMP/versioned-pages/docs/dev" \
             --base-url https://physicsqoo.github.io/QuPRS/docs/dev/

@@ -15,7 +15,7 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SITE_ORIGIN = "https://physicsqoo.github.io/QuPRS/"
+SITE_ORIGIN = "https://physicsqoo.github.io/QuPRS/docs/"
 SEMVER = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$")
 SHA = re.compile(r"[0-9a-f]{40}$")
 NECESSARY_SOURCES = (

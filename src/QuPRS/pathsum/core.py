@@ -1,6 +1,6 @@
 # src/QuPRS/pathsum/core.py
 
-from typing import Iterable, Optional, Sequence
+from typing import ItemsView, Optional, Sequence
 
 import symengine as se
 import sympy as sp
@@ -69,6 +69,9 @@ class F:
         *regs: Symbolic :class:`Register` objects.
         data: Optional mapping from bit names to Boolean expressions.
         bits: Optional explicit output-bit order.
+
+    Values remain typed as object: update stores arbitrary objects without
+    input validation, while substitution normalizes through SymPy.
     """
 
     def __init__(self, *regs: Register, data: dict[str, object] | None = None, bits: Optional[Sequence[str]] = None) -> None:
@@ -179,8 +182,8 @@ class F:
         """Return a new map using `data` with the current bit ordering."""
         return F(*self.regs, data=data, bits=self.bits)
 
-    def items(self) -> Iterable[tuple[str, object]]:
-        """Iterate output bit names and their corresponding Boolean expressions."""
+    def items(self) -> ItemsView[str, object]:
+        """Return the live mapping view of output bit names and stored values."""
         return self.data.items()
 
 
@@ -197,7 +200,7 @@ class PathSum:
         P: SymEngine phase expression. Do not implicitly reduce coefficients
             modulo two when constructing this value.
         f: Boolean output-state map, with output-bit ordering defined by `F`.
-        pathvar: Set of internal summation variables.
+        pathvar: Set or frozenset of internal SymEngine summation variables.
         stats: Optional :class:`StatisticsManager` shared across operations.
 
     Notes:
@@ -212,7 +215,7 @@ class PathSum:
         self,
         P: se.Expr,
         f: F,
-        pathvar: frozenset | set = frozenset(),
+        pathvar: frozenset[se.Symbol] | set[se.Symbol] = frozenset(),
         stats: StatisticsManager | None = None,
     ) -> None:
         """Initialize a Path-sum from its phase, output map and path variables."""
@@ -298,13 +301,13 @@ class PathSum:
     # --- Static Constructors ---
     @staticmethod
     def QuantumCircuit(
-        *regs: Register | int, initial_state: bool | list | tuple = None
+        *regs: Register | int, initial_state: Optional[Sequence[object]] = None
     ) -> "PathSum":
         """Create the identity Path-sum for the supplied registers or width.
 
         Args:
             *regs: A width integer or one or more symbolic Register objects.
-            initial_state: Optional sequence of initial Boolean output values.
+            initial_state: Optional indexable sequence of values converted with SymPy's to_anf; scalar bool is not accepted.
 
         Returns:
             PathSum: New symbolic circuit, initially with zero phase.
@@ -321,7 +324,7 @@ class PathSum:
 
     @staticmethod
     def load_from_qasm_file(
-        filename: str, initial_state: bool | list | tuple = None
+        filename: str, initial_state: Optional[Sequence[object]] = None
     ) -> "PathSum":
         from qiskit import qasm2, qasm3
 
@@ -336,7 +339,7 @@ class PathSum:
 
     @staticmethod
     def load_from_qasm_str(
-        program: str, initial_state: bool | list | tuple = None
+        program: str, initial_state: Optional[Sequence[object]] = None
     ) -> "PathSum":
         from qiskit import qasm2, qasm3
 

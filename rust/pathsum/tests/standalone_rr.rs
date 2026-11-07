@@ -46,3 +46,17 @@ fn standalone_hybrid_requires_explicit_reduction_only() {
     ).expect_err("standalone mode must not silently enable WMC");
     assert!(err.to_string().contains("standalone-rr"));
 }
+
+#[test]
+fn standalone_rr_leaves_irreducible_h_as_unknown() {
+    let options = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        ..VerificationOptions::default()
+    };
+    let result = check_equivalence_with_options(
+        1, &[QuantumOp::H(0)], &[], &options,
+    ).unwrap();
+    assert_eq!(result.status, EquivalenceStatus::Unknown);
+    assert!(!result.solver_invoked);
+    assert!(result.wmc_printed_verdict.is_none());
+}

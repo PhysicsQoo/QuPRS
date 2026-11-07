@@ -5,6 +5,7 @@ import math
 
 import symengine as se
 import sympy as sp
+from qiskit.circuit import ParameterExpression
 from sympy.logic.boolalg import to_anf
 
 from QuPRS.utils.util import (
@@ -187,7 +188,7 @@ class TdgGate(SingleQubitGate):
 class PGate(SingleQubitGate):
     gate_name = "p"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.theta = div_pi(theta)
 
     def apply(
@@ -216,7 +217,7 @@ class PGate(SingleQubitGate):
 class RzGate(SingleQubitGate):
     gate_name = "rz"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.theta = div_pi(theta)
 
     def apply(
@@ -249,7 +250,7 @@ class RzGate(SingleQubitGate):
 class UGate(SingleQubitGate):
     gate_name = "u"
 
-    def __init__(self, theta, phi, lam):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression, phi: int | float | se.Expr | sp.Expr | ParameterExpression, lam: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.theta, self.phi, self.lam = map(div_pi, [theta, phi, lam])
 
     def apply(
@@ -300,7 +301,7 @@ class UGate(SingleQubitGate):
 class RxGate(SingleQubitGate):
     gate_name = "rx"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.theta = theta  # div_pi is handled by UGate
 
     def apply(
@@ -314,7 +315,7 @@ class RxGate(SingleQubitGate):
 class RyGate(SingleQubitGate):
     gate_name = "ry"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.theta = theta  # div_pi is handled by UGate
 
     def apply(
@@ -373,19 +374,19 @@ class IdGate(SingleQubitGate):
 class U1Gate(PGate):  # U1 is an alias for PGate
     gate_name = "u1"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         super().__init__(theta)
 
 
 class U2Gate(UGate):  # U2 is a specific UGate
     gate_name = "u2"
 
-    def __init__(self, phi, lam):
+    def __init__(self, phi: int | float | se.Expr | sp.Expr | ParameterExpression, lam: int | float | se.Expr | sp.Expr | ParameterExpression):
         super().__init__(se.pi / 2, phi, lam)
 
 
 class U3Gate(UGate):  # U3 is an alias for UGate
     gate_name = "u3"
 
-    def __init__(self, theta, phi, lam):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression, phi: int | float | se.Expr | sp.Expr | ParameterExpression, lam: int | float | se.Expr | sp.Expr | ParameterExpression):
         super().__init__(theta, phi, lam)

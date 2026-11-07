@@ -1,5 +1,7 @@
 # src/QuPRS/pathsum/core.py
 
+from typing import Iterable, Optional, Sequence
+
 import symengine as se
 import sympy as sp
 from sympy.logic.boolalg import to_anf
@@ -24,7 +26,7 @@ class Register:
     """
 
     def __init__(
-        self, size: int | None = None, name: str | None = None, bits=None
+        self, size: int | None = None, name: str | None = None, bits: Optional[Sequence[se.Symbol]] = None
     ) -> None:
         if bits is not None:
             size = len(bits)
@@ -69,7 +71,7 @@ class F:
         bits: Optional explicit output-bit order.
     """
 
-    def __init__(self, *regs, data=None, bits=None) -> None:
+    def __init__(self, *regs: Register, data: dict[str, object] | None = None, bits: Optional[Sequence[str]] = None) -> None:
         self._regs = tuple(regs)
         self._bits = tuple(bits) if bits is not None else list()
         self._data = data if data is not None else dict()
@@ -109,7 +111,7 @@ class F:
         return self._bits
 
     @property
-    def data(self) -> dict:
+    def data(self) -> dict[str, object]:
         return self._data
 
     def __len__(self) -> int:
@@ -123,7 +125,7 @@ class F:
         )
         return self.data[key_name]
 
-    def sub(self, arg1, arg2) -> "F":
+    def sub(self, arg1: object, arg2: object) -> "F":
         """Substitute a Boolean variable or expression and normalize to ANF.
 
         Args:
@@ -162,7 +164,7 @@ class F:
                 new_data[key] = to_anf(expr.subs(arg1, arg2))
         return self.update_data(new_data)
 
-    def update(self, key: int | se.Symbol | str, value) -> "F":
+    def update(self, key: int | se.Symbol | str, value: object) -> "F":
         """Return a new map with one output bit replaced by `value`."""
         key_name = (
             self._bits[key]
@@ -173,11 +175,11 @@ class F:
         new_data[key_name] = value
         return F(*self.regs, data=new_data, bits=self.bits)
 
-    def update_data(self, data) -> "F":
+    def update_data(self, data: dict[str, object]) -> "F":
         """Return a new map using `data` with the current bit ordering."""
         return F(*self.regs, data=data, bits=self.bits)
 
-    def items(self):
+    def items(self) -> Iterable[tuple[str, object]]:
         """Iterate output bit names and their corresponding Boolean expressions."""
         return self.data.items()
 
@@ -237,11 +239,11 @@ class PathSum:
 
     # --- Properties ---
     @property
-    def regs(self) -> tuple:
+    def regs(self) -> tuple[Register, ...]:
         return self.f.regs
 
     @property
-    def bits(self) -> tuple:
+    def bits(self) -> tuple[str, ...]:
         return self.f.bits
 
     @property
@@ -253,7 +255,7 @@ class PathSum:
         return self._f
 
     @property
-    def pathvar(self) -> frozenset:
+    def pathvar(self) -> frozenset[se.Symbol]:
         return self._pathvar
 
     @property
@@ -269,7 +271,7 @@ class PathSum:
         return self._stats
         # --- Instance methods for statistics ---
 
-    def get_reduction_counts(self) -> dict:
+    def get_reduction_counts(self) -> dict[str, int]:
         """Get a copy of all reduction rule counts for this instance."""
         return self._stats.get_reduction_counts()
 

@@ -1,11 +1,11 @@
-# Upgrading from QuPRS v0.14.1 to v0.15.0 (development preview)
+# Upgrading from QuPRS v0.14.1 to v0.15.0
 
-**Release status:** v0.15.0 is not yet published. This document describes
-features merged to `dev`, not a promise that they are available in the
-current `pip install QuPRS` stable release. For the latest officially
-published behavior see [v0.14.1](https://github.com/PhysicsQoo/QuPRS/releases/tag/v0.14.1)
-and the [CHANGELOG](../../CHANGELOG.md). The final v0.15.0 compatibility
-statement will be checked against its protected main release tag.
+This guide describes QuPRS version 0.15.0. Verify availability and provenance
+against the [official GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases),
+[PyPI distributions](https://pypi.org/project/QuPRS/), and the
+[CHANGELOG](../../CHANGELOG.md). Development branch builds and preview docs
+are not evidence of a published release. Use artifacts from the official
+release and verify their installed version before relying on this guide.
 
 ## What changes
 
@@ -20,9 +20,9 @@ timeout, memory and macOS/Linux process-cleanup limitations.
 Public documentation now includes source-derived Python class and
 Path-sum gate interfaces, generated `core.pyi` and packaged `py.typed`,
 native Rustdoc, runnable examples and the verified theory of Elim/HH/Omega
-with explicit preconditions. The version selector will keep a mutable
-development site separate from immutable official tags, with the first
-versioned official site starting at v0.15.0; v0.14.x will not be backfilled.
+with explicit preconditions. The version selector separates a mutable
+development site from immutable official tags. Versioned official
+documentation starts with v0.15.0; v0.14.x is not backfilled.
 
 ## What does not change
 
@@ -49,11 +49,10 @@ versioned official site starting at v0.15.0; v0.14.x will not be backfilled.
    from an unrelated runner or experimental source build.
 3. Re-run representative EQ/NEQ/global-phase fixtures with the same
    solver, tolerance settings and source inputs. Use the
-   [public executable examples](https://physicsqoo.github.io/QuPRS/docs/dev/examples/)
-   as development illustrations, not as evidence of a released v0.15.0
-   package.
-4. After the official tag is released, install the tagged wheel or sdist,
-   then verify its version and its matching published documentation.
+   [public executable examples](../site/examples.md) as source-backed
+   illustrations; verify the corresponding installed package independently.
+4. Install the official v0.15.0 wheel or sdist and verify its installed
+   version, supported platform and matching published documentation.
 
 An official release requires a protected `dev→main` acceptance of
 source correctness and installed artifacts; a green development docs

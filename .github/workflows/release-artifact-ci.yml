@@ -251,8 +251,8 @@ jobs:
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$QU_VERSION"
 
-      # One representative external-consumer type check per candidate build;
-      # all other wheels already verify installed PEP 561 marker/stub presence.
+      # The PR and tag workflow has its own artifact-install jobs; keep the
+      # same representative consumer typing gate as release-artifact-ci.yml.
       - name: Check wheel typing from outside source with mypy
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         shell: bash
@@ -261,6 +261,13 @@ jobs:
           python -m pip install 'mypy==1.18.2'
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/scripts/check_installed_typing.py" --mypy
+      - name: Run published Python examples against the installed wheel
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 
   sdist_install:
     name: Sdist smoke (${{ matrix.os }}, py3.12)
@@ -309,4 +316,12 @@ jobs:
           cd "$RUNNER_TEMP"
           python -m pip install --no-cache-dir "$SDIST"
           python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$VERSION"
+      - name: Run published Python examples against the installed sdist
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/quprs-sdist-env/bin/activate"
+          cd "$RUNNER_TEMP"
+          python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 

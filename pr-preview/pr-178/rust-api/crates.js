@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["pathsum"];
-//{"start":21,"fragment_lengths":[9]}
+window.ALL_CRATES = ["quprs"];
+//{"start":21,"fragment_lengths":[7]}

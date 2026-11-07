@@ -909,15 +909,15 @@ headers. On macOS, the corresponding dependencies are available with Homebrew:</
 <p>Clone the repository and its native GPMC dependency:</p>
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--recurse-submodules<span class="w"> </span>https://github.com/PhysicsQoo/QuPRS.git
 <span class="nb">cd</span><span class="w"> </span>QuPRS
-cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--manifest-path<span class="w"> </span>rust/Cargo.toml<span class="w"> </span>-p<span class="w"> </span>pathsum
+cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--manifest-path<span class="w"> </span>rust/Cargo.toml<span class="w"> </span>-p<span class="w"> </span>quprs
 </code></pre></div>
 <p>The <strong>default monorepo build</strong> currently provisions the pinned GPMC/Ganak
 executables and integrates with the Python wheel. It is not the isolated
 crate installation path.</p>
 <p>For a source-only Rust build that <strong>does not download or build the
-WMC solvers</strong>, use the <code>external-wmc</code> feature:</p>
-<div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>check<span class="w"> </span>--manifest-path<span class="w"> </span>rust/Cargo.toml<span class="w"> </span>-p<span class="w"> </span>pathsum<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--no-default-features<span class="w"> </span>--features<span class="w"> </span>external-wmc,high-precision-gpmc
+WMC solvers</strong>, set the explicit provisioning mode (not a Cargo feature):</p>
+<div class="highlight"><pre><span></span><code><span class="nv">QUPRS_SOLVER_PROVISION</span><span class="o">=</span>external<span class="w"> </span>cargo<span class="w"> </span>check<span class="w"> </span>--manifest-path<span class="w"> </span>rust/Cargo.toml<span class="w"> </span>-p<span class="w"> </span>quprs<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--all-features
 </code></pre></div>
 <p>This preserves the full verification API and the high-precision MPFR
 weight bridge while delegating solver installation to the user.
@@ -941,7 +941,10 @@ Choose the matching operating system and architecture, verify the
 download and executable checksums, then configure its absolute path:</p>
 <div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">QUPRS_GANAK_PATH</span><span class="o">=</span><span class="s2">"/absolute/path/to/ganak"</span>
 </code></pre></div>
-<p>Do not download binaries during <code>cargo build</code>. Using an explicit solver
+<p>The source-checkout default can provision its pinned solvers for the
+existing Python/CLI build; the staged registry crate never downloads them.
+Use <code>QUPRS_SOLVER_PROVISION=external</code> in a source checkout to opt out.
+Do not download binaries during a registry consumer's <code>cargo build</code>. Using an explicit solver
 path is an <strong>override</strong>, not proof that the executable matches a
 pinned artifact. Only use binaries obtained from trusted sources and
 verified against the relevant release manifest. An override that cannot
@@ -951,11 +954,11 @@ be verified must not be represented as a certified native solver build.</p>
 A missing executable causes a solver execution error, <strong>not</strong>
 <code>NotEquivalent</code>, and there is no automatic cross-solver fallback.</p>
 <h2 id="use-the-rust-api">Use the Rust API</h2>
-<p>For the current source workspace, the crate is named <code>pathsum</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">pathsum</span><span class="p">::{</span>
+<p>The canonical source workspace crate and library are named <code>quprs</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::{</span>
 <span class="w">    </span><span class="n">EquivalenceStatus</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationMethod</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="p">,</span>
 <span class="p">};</span>
-<span class="k">use</span><span class="w"> </span><span class="n">pathsum</span><span class="p">::</span><span class="n">verification</span><span class="p">::</span><span class="n">check_equivalence</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::</span><span class="n">verification</span><span class="p">::</span><span class="n">check_equivalence</span><span class="p">;</span>
 
 <span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">original</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
 <span class="n">original</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
@@ -985,7 +988,8 @@ wrapper, which returns <code>not_equivalent</code> for differing register widths
 the typed Rust façade rejects that invalid comparison before invoking
 a solver and does not fabricate a final symbolic residual.</p>
 <p>An independent consumer of the eventually released registry package
-will instead import <code>quprs::...</code>.</p>
+uses the same <code>quprs::...</code> imports as the source workspace. The package is
+not yet released on crates.io.</p>
 <p><code>VerificationOptions::default()</code> selects Hybrid, GPMC, 30 solver
 decimal digits and the existing tolerance defaults. Explicit GPMC
 90-digit solver mode is supported, but <strong>solver print precision is not

@@ -18,6 +18,13 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    // This configuration must be buildable from the package directory alone.
+    // No submodule, native solver download, Python package path, or network
+    // access is required for reduction-only verification.
+    if env::var_os("CARGO_FEATURE_STANDALONE_RR").is_some() {
+        println!("cargo:rerun-if-changed=build.rs");
+        return;
+    }
     if env::var_os("CARGO_FEATURE_HIGH_PRECISION_GPMC").is_some() {
         // No additional Cargo crate or solver patch. Keep the native bridge
         // behind an opt-in feature until static wheel portability is proven.

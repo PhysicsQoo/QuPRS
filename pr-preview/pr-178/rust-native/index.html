@@ -953,23 +953,38 @@ A missing executable causes a solver execution error, <strong>not</strong>
 <h2 id="use-the-rust-api">Use the Rust API</h2>
 <p>For the current source workspace, the crate is named <code>pathsum</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">pathsum</span><span class="p">::{</span>
-<span class="w">    </span><span class="n">check_equivalence_with_options</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">,</span>
-<span class="w">    </span><span class="n">VerificationMethod</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="p">,</span>
+<span class="w">    </span><span class="n">EquivalenceStatus</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationMethod</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="p">,</span>
 <span class="p">};</span>
-<span class="k">use</span><span class="w"> </span><span class="n">pathsum</span><span class="p">::</span><span class="n">ir</span><span class="p">::</span><span class="n">QuantumOp</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">pathsum</span><span class="p">::</span><span class="n">verification</span><span class="p">::</span><span class="n">check_equivalence</span><span class="p">;</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">original</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="n">original</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">optimized</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
 
 <span class="kd">let</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="nc">VerificationMethod</span><span class="p">::</span><span class="n">Hybrid</span><span class="p">,</span>
 <span class="w">    </span><span class="o">..</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
 <span class="p">};</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence_with_options</span><span class="p">(</span>
-<span class="w">    </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="p">[</span><span class="n">QuantumOp</span><span class="p">::</span><span class="n">H</span><span class="p">(</span><span class="mi">0</span><span class="p">)],</span><span class="w"> </span><span class="o">&amp;</span><span class="p">[],</span><span class="w"> </span><span class="o">&amp;</span><span class="n">options</span><span class="p">,</span>
-<span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span><span class="o">&amp;</span><span class="n">original</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">optimized</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">options</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
 <span class="fm">assert_eq!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">NotEquivalent</span><span class="p">);</span>
+<span class="fm">assert_eq!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">equivalent</span><span class="p">(),</span><span class="w"> </span><span class="s">"not_equivalent"</span><span class="p">);</span>
+<span class="fm">assert!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
 </code></pre></div>
 <p>The snippet assumes it is placed inside a Rust function returning
 <code>anyhow::Result&lt;()&gt;</code> and that a valid GPMC executable is available.
-An independent consumer of the eventually released registry package
+<code>QuantumCircuit::from_qasm_str(source)</code> and
+<code>QuantumCircuit::from_qasm_file(path)</code> use the same strict unitary
+OpenQASM parser as the existing Rust CLI and preserve exact source angles.
+For more gate variants, use <code>QuantumCircuit::push(QuantumOp::...)</code>, which
+validates wire indices and preserves the native <code>Angle</code> representation.</p>
+<p>The Rust result provides Python-name compatibility methods:
+<code>equivalent()</code>, <code>wmc_solver_invoked()</code>, <code>final_pathsum()</code> and
+<code>gate_num()</code>. They are read-only accessors on the original typed result,
+with no duplicated status state or Path-sum copy. Unlike Python's Qiskit
+wrapper, which returns <code>not_equivalent</code> for differing register widths,
+the typed Rust façade rejects that invalid comparison before invoking
+a solver and does not fabricate a final symbolic residual.</p>
+<p>An independent consumer of the eventually released registry package
 will instead import <code>quprs::...</code>.</p>
 <p><code>VerificationOptions::default()</code> selects Hybrid, GPMC, 30 solver
 decimal digits and the existing tolerance defaults. Explicit GPMC

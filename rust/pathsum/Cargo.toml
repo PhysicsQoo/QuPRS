@@ -36,11 +36,9 @@ sha2 = "0.10"
 proptest = "1.0"
 
 [features]
-# Preserve the original native/Python-enabled default. The independent
-# reduction-only package prototype is an explicit, solver-free opt-in.
+# Cargo features are additive *compile-time capabilities*, never verification
+# modes or solver-provisioning switches. All three verification methods are
+# always available; select RR via VerificationMethod::ReductionRules.
+# Use QUPRS_SOLVER_PROVISION=external to omit solver provisioning in a checkout.
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
-standalone-rr = []
-# Keep RR/Hybrid/WMC and the MPFR weight bridge; provision external solver
-# executables separately. The normal monorepo build remains unchanged.
-external-wmc = []

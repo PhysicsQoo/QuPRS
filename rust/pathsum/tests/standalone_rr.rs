@@ -1,5 +1,5 @@
-#![cfg(feature = "standalone-rr")]
-// This consumer-facing target intentionally needs no installed WMC solver.
+// RR-only verification is selected by method, not a compile-time Cargo feature.
+// These tests intentionally require no installed WMC solver.
 use pathsum::{check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
 use pathsum::ir::QuantumOp;
 
@@ -28,23 +28,12 @@ fn standalone_rr_cannot_mislabel_an_x_gate_as_identity() {
 }
 
 #[test]
-fn standalone_wmc_only_reports_error_instead_of_panicking() {
-    let options = VerificationOptions {
-        method: VerificationMethod::WmcOnly,
-        ..VerificationOptions::default()
-    };
-    // X versus I is not an unweighted tautology and must not call WMC.
-    let result = check_equivalence_with_options(1, &[QuantumOp::X(0)], &[], &options);
-    let err = result.expect_err("standalone-rr must not use a WMC solver");
-    assert!(err.to_string().contains("standalone-rr"));
-}
-
-#[test]
-fn standalone_hybrid_requires_explicit_reduction_only() {
-    let err = check_equivalence_with_options(
-        1, &[], &[], &VerificationOptions::default(),
-    ).expect_err("standalone mode must not silently enable WMC");
-    assert!(err.to_string().contains("standalone-rr"));
+fn hybrid_identity_can_finish_without_an_external_solver() {
+    let result = check_equivalence_with_options(
+        1, &[], &[], &VerificationOptions::default()
+    ).unwrap();
+    assert_eq!(result.status, EquivalenceStatus::Equivalent);
+    assert!(!result.solver_invoked);
 }
 
 #[test]

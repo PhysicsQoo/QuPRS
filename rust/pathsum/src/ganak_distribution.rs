@@ -4,7 +4,14 @@ use std::path::Path;
 
 pub const VERSION: &str = "2.8.0";
 pub const UPSTREAM_SHA: &str = "b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281";
+// The pinned Ganak manifest remains maintained in the Python/source tree for
+// normal native and FFI builds. The standalone reduction-only crate neither
+// distributes nor executes Ganak, and its missing external manifest must not
+// prevent building an independent .crate archive.
+#[cfg(not(feature = "standalone-rr"))]
 pub const MANIFEST: &str = include_str!("../../../src/QuPRS/utils/ganak-release.txt");
+#[cfg(feature = "standalone-rr")]
+pub const MANIFEST: &str = "";
 
 pub fn asset(os: &str, arch: &str) -> Result<Vec<&'static str>, String> {
     MANIFEST.lines().filter(|line| !line.starts_with('#'))

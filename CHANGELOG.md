@@ -1,42 +1,71 @@
 # Changelog
 
-## Unreleased (planned v0.15.0)
+## v0.15.0 — Release candidate (unreleased)
 
-These changes are integrated on the development branch but **v0.15.0 has not
-yet been released**. This section will be finalized against the protected
-release tag before publication.
+**Release status:** The development source is prepared for v0.15.0; no
+v0.15.0 tag, GitHub Release, PyPI package, or versioned `stable`
+documentation has been published yet. Release availability and final
+supported-artifact claims depend on the protected `dev → main` Release-Ready
+checks and the official release process.
 
-### Python/Rust execution and compatibility
+### Python/Rust execution
 
-- Add optional process-supervised Rust verification to the existing
-  `check_equivalence(..., backend="rust", safe_mode=True)` interface. The
-  default `safe_mode=False` remains in-process PyO3. The isolated path uses
-  the same verifier and result type, **not** the standalone Rust CLI. POSIX
-  resource-control guarantees differ by platform; see
-  [Python Rust isolation](docs/python_rust_isolation.md).
-- Preserve the existing solver selection, RR/phase/projective-distance
-  numerical semantics, and supported Python 3.11–3.13, Qiskit 1.x–2.x and
-  Linux/macOS 15+ wheel families. This development release does not announce
-  d4 as a built-in solver, a new WMC proof certificate, Qiskit 3.x or
-  Python 3.14 support.
+- Add opt-in process-supervised Rust verification via
+  `check_equivalence(..., backend="rust", safe_mode=True)`. The default
+  `safe_mode=False` retains the existing in-process PyO3 behavior. Safe mode
+  executes the same verifier and returns the existing result type; it does
+  **not** silently switch Python calls to the standalone `QuPRS_cli`.
+- Bound supervised-worker lifetime and propagate failures without converting
+  timeouts or resource-limit errors into equivalence verdicts. Memory and
+  process-tree enforcement depend on the operating system and supported
+  mechanisms; see the [Python/Rust isolation guide](docs/python_rust_isolation.md).
 
-### Public documentation and release quality
+### Public API, examples and documentation
 
-- Provide Zensical user guides, source-derived Python class references and
-  native Rustdoc under one documentation site. Published versioned
-  documentation begins with **v0.15.0**; older tags will not be backfilled.
-- Synchronize the generated `core.pyi` interface and installable `py.typed`
-  metadata with the public Python source, including dynamically defined gate
-  members; verify with source, installed-wheel typing and documentation CI.
-- Add executable one-qubit EQ/NEQ/global-phase/solver/safe-mode examples and
-  source-backed Elim/HH/Omega theory witnesses. Keep tolerance-dependent
-  matcher acceptance separate from exact mathematical equivalence.
-- Verify `dev` and immutable release documentation publication separately,
-  including the `stable` alias, deployment source SHA, and live Pages checks.
-  Avoid re-running expensive artifact matrices for obsolete PR commits.
+- Provide source-derived Python class and dynamically mounted PathSum gate
+  references alongside native Rustdoc through the Zensical documentation site.
+  The generated `core.pyi` and packaged `py.typed` expose the public typing
+  contract for installed wheel/sdist consumers.
+- Add runnable installed-package examples for equivalence, inequivalence,
+  global phase, explicit solver selection and optional supervised execution.
+- Document Elim, HH and Omega with their preconditions, phase/output-map
+  witnesses, normalization factors and termination boundaries. These algebraic
+  witnesses do not imply verifier completeness or byte-identical Python/Rust
+  internal IR representations.
+- Prepare immutable versioned documentation beginning with **v0.15.0** plus
+  independently updated `dev` and `stable` aliases. Publication of
+  `/docs/v0.15.0/` and the stable alias occurs only after the official tag;
+  v0.14.x documentation is not retroactively backfilled.
 
-See the [v0.15.0 candidate upgrade guide](docs/development/v0150-migration.md)
-for differences from v0.14.1 and the release-status boundary.
+### Numerical correctness, solver integration and release checks
+
+- Expand independent direct weighted-CNF regression coverage for GPMC and
+  Ganak using exact rational-complex Boolean model enumeration, including
+  satisfiable and unsatisfiable CNFs, conjunctions of clauses, signed complex
+  weights, conjugate pairs and cancellation.
+- Preserve solver-specific observations, `unknown` and failure provenance.
+  Neither floating Complex WMC output nor a tolerance-dependent reduction is
+  an unconditional exact-equivalence certificate; no new solver fallback or
+  default solver is introduced.
+- Check generated public API signatures, installed artifact behavior and
+  source/scientific-documentation consistency. The full cross-platform
+  source and wheel/sdist matrices remain mandatory at formal Release-Ready;
+  ordinary documentation PRs do not repeat those expensive matrices.
+
+### Compatibility and migration
+
+- Retain Python **3.11–3.13**, Qiskit **1.x–2.x**
+  (`qiskit>=1.0.0,<3.0`), Linux x86-64/ARM64 and macOS **15+**
+  Intel/Apple Silicon release targets. This version does not claim
+  Python 3.14/3.14t, Qiskit 3.x, macOS 14 wheels, or full Ubuntu 26.04
+  qualification.
+- Preserve the public `check_equivalence` entry point, default solver
+  selection behavior and independent RR, phase and projective-distance
+  tolerances. Experimental d4 integration and a certified Complex WMC solver
+  are **not** production features of v0.15.0.
+
+See the [v0.15.0 upgrade guide](docs/development/v0150-migration.md)
+for the migration contract and release-status boundary.
 
 ## v0.14.1 — Rust CLI resource supervision and maintenance
 

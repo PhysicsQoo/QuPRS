@@ -110,6 +110,68 @@ dependency check precedes coefficient matching. These hand calculations
 are checked independently by the documentation science smoke; matcher
 eligibility is checked against the actual Python implementation.
 
+## Reduction termination and reproducible IR witnesses
+
+A *single* reduction pass starts with a finite set of summed path variables
+(`pathvar`). In the current Python implementation,
+[`apply_reduction`](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/reduction.py)
+tries **Elim**, then **Omega**, then **HH** and recursively continues only
+after a successful application. Each accepted rule removes its matched
+summation variable `y₀` from `pathvar`:
+
+`len(pathvar_after) = len(pathvar_before) - 1`.
+
+Consequently, that invocation can make at most its *initial* number of
+successful eliminations before returning a residual Path-sum. Rust's
+[`full_reduce`](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs)
+likewise reduces a finite set of path variables under its own supported
+matching and numerical policies. This **termination argument is not a
+completeness claim**: no rule may apply even when two circuits are
+equivalent; the resulting residual may remain inconclusive, and symbolic
+expression sizes or the number of circuit compositions need not be small.
+A later gate composition can introduce additional path variables.
+
+The following *fully summed mathematical* IR witnesses explicitly track
+the phase `P`, output map `f`, summed-variable set and amplitude factor.
+Here `y₀` (and for HH also `y₁`) are summed Boolean variables.
+The right-hand columns describe the net result of **all the indicated
+Boolean sums**, not a byte-for-byte intermediate snapshot of a single
+implementation rewrite. In particular, the current Python HH routine
+removes `y₀` first, while a subsequent Elim may remove the now-unused
+`y₁`. All displayed phases are before implementation-specific
+canonicalization modulo one.
+
+| Rule | Source IR `(P; f; pathvar)` | Expected reduced IR `(P'; f'; pathvar')` | Amplitude factor on the remaining ket |
+| --- | --- | --- | --- |
+| Elim | `(1/8; 0; {y₀})` | `(1/8; 0; {})` | `2` |
+| HH | `(y₀(y₁+3)/2 + y₁/8; y₁; {y₀,y₁})` | `(1/8; 1; {})` | `2` |
+| Omega, quarter-cycle | `(y₀(1/4+2/2)+1/16; 0; {y₀})` | `(3/16; 0; {})` | `√2` |
+
+For HH the **original** source phase still contains the full integer
+`Q=3`. Only when substituting into the residual phase and output map is
+`y₁ ← Q mod 2 = 1`. In Omega, `Q=2` has parity zero, yielding
+`1/16 + 1/8 = 3/16` cycles in the reduced phase. The factor must be
+combined with the Path-sum's normalization; it is not permission to multiply
+a completed quantum operator by an arbitrary scalar.
+
+**How to reproduce the evidence.** The
+[independent full-ket algebraic checks](https://github.com/PhysicsQoo/QuPRS/blob/dev/scripts/check_docs_science.py)
+evaluate the Elim/HH/Omega identities, including nonbinary original
+integers `Q` and a nontrivial output map. The
+[source-backed negative and Python matcher witnesses](https://github.com/PhysicsQoo/QuPRS/blob/dev/scripts/check_docs_scoped_contract.py)
+verify eligible/invalid phase patterns and output dependence. The
+[Python/Rust reduction-result parity tests](https://github.com/PhysicsQoo/QuPRS/blob/dev/test/test_rr_backend_tolerance_parity.py)
+exercise pinned QASM inputs with `rr_tolerance=0` and nonzero tolerance,
+check classifications and final RR-to-Hybrid residual handoff.
+Native [Rust rule tests](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs)
+cover Elim, HH and Omega reduction examples. These are independently scoped
+checks; they do **not** assert that Python's symbolic object serialization
+and Rust's internal IR representation are byte-for-byte identical or prove
+arbitrary circuits equivalent. In particular, the existing Python Omega
+matcher accepts a particular near-quarter example at
+`rr_tolerance=1e-8` but does **not** accept the same example under
+`rr_tolerance=0`; tolerance acceptance is not an exact algebraic proof.
+
 ## Exact source expressions versus approximate reduction
 
 The per-call `rr_tolerance` controls numerical coefficient matching and approximate reduction in the supported implementations. The default is `1e-10`. Choosing `rr_tolerance=0` is useful when checking whether the reduction relies on numerical acceptance rather than a tolerance-matched coefficient.

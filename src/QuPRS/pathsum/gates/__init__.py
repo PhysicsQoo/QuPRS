@@ -62,7 +62,7 @@ def get_gates_by_type(gate_type: str) -> list[str]:
     )
 
 
-def list_supported_gates():
+def list_supported_gates() -> None:
     """Prints all supported quantum gate classes, grouped by their base class type."""
     print("--- Supported Gate Classes ---")
     all_gates = get_all_gates()
@@ -80,7 +80,7 @@ def list_supported_gates():
     print("------------------------------")
 
 
-def support_gate_set() -> set:
+def support_gate_set() -> set[str]:
     """Returns a set containing the names of all supported quantum gate methods (e.g.,
     'h', 'cx').
 

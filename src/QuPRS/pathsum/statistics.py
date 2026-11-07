@@ -14,18 +14,18 @@ class StatisticsManager:
         prefer the documented result object for high-level verification.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.reset_reduction_counts()
         self._reduction_enabled = True
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
             f"reduction_counts={self._reduction_counts}, "
             f"hitrate={self.get_reduction_hitrate()})"
         )
 
-    def get_reduction_counts(self) -> dict:
+    def get_reduction_counts(self) -> dict[str, int]:
         """Get a copy of all reduction rule counts."""
         return self._reduction_counts.copy()
 
@@ -33,7 +33,7 @@ class StatisticsManager:
         """Get the count for a specific reduction rule."""
         return self._reduction_counts.get(key, 0)
 
-    def increment_reduction_count(self, key: str, value: int = 1):
+    def increment_reduction_count(self, key: str, value: int = 1) -> None:
         """Increase the count for a specific reduction rule."""
         if key in self._reduction_counts:
             self._reduction_counts[key] += value
@@ -51,7 +51,7 @@ class StatisticsManager:
             )
             return hit / total
 
-    def reset_reduction_counts(self):
+    def reset_reduction_counts(self) -> None:
         """Reset all reduction rule counts to 0."""
         self._reduction_counts = {
             "total": 0,

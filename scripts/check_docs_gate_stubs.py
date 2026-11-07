@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 from pathlib import Path
 
 
@@ -135,6 +136,7 @@ def check_gate_stub() -> set[str]:
             f"missing={sorted(set(gates)-set(methods))}, "
             f"stale={sorted(set(methods)-set(gates))}"
         )
+    angle_parameters = {"theta", "phi", "lam", "gamma"}
     for name, cls in sorted(gates.items()):
         init = method_in_hierarchy(cls, "__init__", classes)
         apply = method_in_hierarchy(cls, "apply", classes)
@@ -150,6 +152,13 @@ def check_gate_stub() -> set[str]:
                 f"{name} stub params differ from Gate implementation:\n"
                 f"source={expected}\nstub={actual}"
             )
+        for parameter, _kind, annotation, _default in expected:
+            if parameter in angle_parameters and (
+                annotation is None or annotation == "Any"
+            ):
+                raise AssertionError(
+                    f"Missing explicit symbolic/numeric Gate angle type: {name}.{parameter}"
+                )
         if ast.get_docstring(methods[name]) is None:
             raise AssertionError(f"Missing generated Gate method docstring: {name}")
     return set(gates)
@@ -297,6 +306,21 @@ def check_site() -> None:
         anchor = f'id="{STATIC_PACKAGE}.PathSum.{name}"'
         if anchor not in html:
             raise AssertionError(f"Rendered PathSum gate method missing: {name}")
+    # Check the actual HTML rather than only the .pyi: Griffe might otherwise
+    # silently render an angle as Any even when the source check passes.
+    rows = re.findall(
+        r"<code>(theta|phi|lam|gamma)</code>\s*</td>\s*<td>(.*?)</td>",
+        html,
+        flags=re.DOTALL,
+    )
+    if len(rows) != 25:
+        raise AssertionError(f"Expected 25 typed public angle rows; got {len(rows)}")
+    for angle, cell in rows:
+        visible = re.sub(r"<[^>]*>", " ", cell)
+        if re.search(r"\bAny\b", visible):
+            raise AssertionError(f"Rendered angle {angle} reverted to Any")
+        if "ParameterExpression" not in cell:
+            raise AssertionError(f"Rendered angle {angle} lacks symbolic type")
     print(f"Rendered advanced PathSum Gate reference PASS: {len(gate_names)} methods")
 
 

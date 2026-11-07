@@ -130,3 +130,45 @@ fn methods_statuses_and_defaults_share_python_contract() {
         assert_eq!(status.to_string(), text);
     }
 }
+
+
+#[test]
+fn from_ops_adopts_original_vec_allocation_without_rebuilding() {
+    let mut ops = Vec::with_capacity(512);
+    let exact = Angle::from_qasm_str("1.2345678901234567").unwrap();
+    ops.extend([
+        QuantumOp::H(0),
+        QuantumOp::RZ(1, exact.clone()),
+        QuantumOp::CX(0, 1),
+        QuantumOp::GlobalPhase(exact.clone()),
+    ]);
+    let before = ops.as_ptr();
+    let expected = ops.clone();
+    let circuit = QuantumCircuit::from_ops(2, ops).unwrap();
+    assert_eq!(circuit.operations().as_ptr(), before);
+    assert_eq!(circuit.operations(), expected.as_slice());
+    assert_eq!(circuit.len(), 4);
+}
+
+#[test]
+fn from_ops_rejects_invalid_last_gate_without_exposing_partial_circuit() {
+    let angle = Angle::from_qasm_str("1.2345678901234567").unwrap();
+    for invalid in [
+        QuantumOp::SWAP(0, 2),
+        QuantumOp::CCX(0, 1, 1),
+        QuantumOp::U2(2, angle.clone(), angle.clone()),
+    ] {
+        let ops = vec![QuantumOp::H(0), QuantumOp::RZ(1, angle.clone()), invalid];
+        assert!(QuantumCircuit::from_ops(2, ops).is_err());
+    }
+}
+
+#[test]
+fn qasm_parse_preserves_exact_angles_when_adopting_parsed_vec() {
+    let source = "OPENQASM 3.0;\nqubit[2] q;\nrz(1.2345678901234567) q[0];\ncx q[0], q[1];\n";
+    let (ops, width) = pathsum::qasm::parse_qasm_str(source).unwrap();
+    let from_ops = QuantumCircuit::from_ops(width, ops).unwrap();
+    let parsed = QuantumCircuit::from_qasm_str(source).unwrap();
+    assert_eq!(from_ops, parsed);
+    assert!(matches!(parsed.operations()[0], QuantumOp::RZ(0, _)));
+}

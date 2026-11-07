@@ -17,11 +17,15 @@ impl QuantumCircuit {
         Self { num_qubits, ops: Vec::new() }
     }
 
-    /// Construct from an owned operation list, validating every target.
+    /// Validate and adopt an owned operation list without reallocation.
+    ///
+    /// Each operation is checked before the circuit can escape. The original
+    /// allocation and exact Angle values are retained; validation is linear
+    /// in gate count, but does not rebuild the operations Vec.
     pub fn from_ops(num_qubits: usize, ops: Vec<QuantumOp>) -> Result<Self> {
-        let mut circuit = Self::new(num_qubits);
-        for op in ops {
-            circuit.push(op)?;
+        let circuit = Self { num_qubits, ops };
+        for op in &circuit.ops {
+            circuit.validate(op)?;
         }
         Ok(circuit)
     }

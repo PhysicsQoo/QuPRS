@@ -141,6 +141,32 @@ jobs:
       # ==========================================
       # Testing & Coverage
       # ==========================================
+      # Exercise the actual isolated .crate once on Apple Silicon using the
+      # solvers already produced by this matrix's source build.
+      - name: Validate extracted quprs Rust crate on macOS ARM64
+        if: matrix.os == 'macos-15' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/quprs-macos-candidate"
+          unpack="$RUNNER_TEMP/quprs-macos-unpacked"
+          python scripts/stage_rust_crate_candidate.py --output "$candidate"
+          cargo package --manifest-path "$candidate/Cargo.toml" --no-verify
+          version="$(python -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$candidate/Cargo.toml")"
+          archive="$candidate/target/package/quprs-$version.crate"
+          test -s "$archive"
+          mkdir -p "$unpack"
+          tar -xzf "$archive" -C "$unpack"
+          crate="$unpack/quprs-$version"
+          cmp "$crate/src/ganak-release.txt" src/QuPRS/utils/ganak-release.txt
+          export QUPRS_GPMC_PATH="$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc"
+          export QUPRS_GANAK_PATH="$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak"
+          test -x "$QUPRS_GPMC_PATH"
+          test -x "$QUPRS_GANAK_PATH"
+          cargo test --manifest-path "$crate/Cargo.toml" --test external_wmc
+          QUPRS_GPMC_PATH="$RUNNER_TEMP/quprs-missing-gpmc" cargo test \
+            --manifest-path "$crate/Cargo.toml" --test external_wmc \
+            missing_solver_fails_closed -- --ignored
       - name: Run tests (Unix)
         if: matrix.os != 'windows-latest'
         run: |

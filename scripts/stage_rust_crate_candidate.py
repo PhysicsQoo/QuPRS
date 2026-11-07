@@ -58,7 +58,7 @@ def stage(destination: Path) -> None:
     if "CARGO_FEATURE_EXTERNAL_WMC" not in (destination / "build.rs").read_text():
         raise AssertionError("missing external WMC build isolation")
     print(f"STAGED_QUprs_CRATE={destination}")
-    print(f"STAGED_RR_VERSION={package['version']}")
+    print(f"STAGED_QUprs_VERSION={package['version']}")
 
 
 if __name__ == "__main__":

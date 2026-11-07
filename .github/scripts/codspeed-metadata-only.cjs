@@ -2,7 +2,7 @@
 // QOO-106: strictly classify release-version-only input changes.
 // Any missing source, unknown package stanza or dependency diff fails closed.
 const VERSION_PATHS = new Set(['rust/Cargo.toml','rust/Cargo.lock','src/QuPRS/_version.py']);
-const INTERNAL_CRATES = new Set(['QuPRS_cli','pathsum','quprs_python']);
+const INTERNAL_CRATES = new Set(['QuPRS_cli','quprs','quprs_python']);
 const SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 function canonicalVersion(path, source) {

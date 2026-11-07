@@ -1,6 +1,9 @@
 #![doc(html_no_source)]
 //! Native Path-sum verification types and operations.
 
+#[cfg(all(feature = "standalone-rr", feature = "high-precision-gpmc"))]
+compile_error!("standalone-rr and high-precision-gpmc are mutually exclusive");
+
 pub mod pathsum;
 pub mod gates;
 pub mod qasm;
@@ -145,6 +148,11 @@ pub fn check_equivalence_with_options(
     gates2: &[QuantumOp],
     options: &VerificationOptions,
 ) -> Result<EquivalenceCheckResult> {
+    // Reject implicit Hybrid/WMC in the standalone build before any solver work.
+    #[cfg(feature = "standalone-rr")]
+    if options.method != VerificationMethod::ReductionRules {
+        return Err(anyhow::anyhow!("standalone-rr supports only ReductionRules"));
+    }
     if options.gpmc_precision_digits != 30 && options.gpmc_precision_digits != 90 {
         return Err(anyhow::anyhow!("gpmc_precision_digits must be 30 or 90"));
     }

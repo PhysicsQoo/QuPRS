@@ -38,3 +38,11 @@ fn standalone_wmc_only_reports_error_instead_of_panicking() {
     let err = result.expect_err("standalone-rr must not use a WMC solver");
     assert!(err.to_string().contains("standalone-rr"));
 }
+
+#[test]
+fn standalone_hybrid_requires_explicit_reduction_only() {
+    let err = check_equivalence_with_options(
+        1, &[], &[], &VerificationOptions::default(),
+    ).expect_err("standalone mode must not silently enable WMC");
+    assert!(err.to_string().contains("standalone-rr"));
+}

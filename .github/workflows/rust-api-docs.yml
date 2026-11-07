@@ -213,6 +213,59 @@ jobs:
           cargo check --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --test standalone_rr
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --lib solver_adapter::standalone_tests
+      - name: Package standalone Rust crate and test extracted consumer
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/quprs-rr-candidate"
+          python scripts/stage_rust_crate_candidate.py --output "$candidate"
+          cargo package --manifest-path "$candidate/Cargo.toml" --list > "$RUNNER_TEMP/rr-crate-file-list.txt"
+          if grep -Ei '(GPMC/|QuPRS/utils/|\.git/)' "$RUNNER_TEMP/rr-crate-file-list.txt"; then
+            echo 'Monorepo-only files unexpectedly included' >&2
+            exit 1
+          fi
+          cargo package --manifest-path "$candidate/Cargo.toml"
+          cargo publish --manifest-path "$candidate/Cargo.toml" --dry-run
+          version="$(python -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$candidate/Cargo.toml")"
+          archive="$candidate/target/package/pathsum-$version.crate"
+          test -s "$archive"
+          mkdir -p "$RUNNER_TEMP/quprs-rr-unpacked" "$RUNNER_TEMP/quprs-rr-consumer/src"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/quprs-rr-unpacked"
+          unpacked="$RUNNER_TEMP/quprs-rr-unpacked/pathsum-$version"
+          test -f "$unpacked/LICENSE.md"
+          test ! -e "$unpacked/GPMC"
+          test ! -e "$unpacked/src/QuPRS"
+          printf '[package]\nname = "quprs_rr_consumer"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\npathsum = { path = "%s" }\n' "$unpacked" > "$RUNNER_TEMP/quprs-rr-consumer/Cargo.toml"
+          cat > "$RUNNER_TEMP/quprs-rr-consumer/src/lib.rs" <<'RUST'
+          #[cfg(test)]
+          mod tests {
+              use pathsum::{check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
+              use pathsum::ir::QuantumOp;
+              #[test]
+              fn archive_has_reduction_only_functionality() {
+                  let options = VerificationOptions {
+                      method: VerificationMethod::ReductionRules,
+                      ..VerificationOptions::default()
+                  };
+                  let eq = check_equivalence_with_options(1, &[], &[], &options).unwrap();
+                  assert_eq!(eq.status, EquivalenceStatus::Equivalent);
+                  assert!(!eq.solver_invoked);
+                  let neq = check_equivalence_with_options(1, &[QuantumOp::X(0)], &[], &options).unwrap();
+                  assert_ne!(neq.status, EquivalenceStatus::Equivalent);
+                  assert!(!neq.solver_invoked);
+              }
+              #[test]
+              fn no_implicit_hybrid_solver() {
+                  let err = check_equivalence_with_options(
+                      1, &[QuantumOp::X(0)], &[], &VerificationOptions::default(),
+                  ).unwrap_err();
+                  assert!(err.to_string().contains("standalone-rr"));
+              }
+          }
+          RUST
+          cargo test --manifest-path "$RUNNER_TEMP/quprs-rr-consumer/Cargo.toml"
+          cargo test --manifest-path "$unpacked/Cargo.toml" --doc
       - name: Compose and validate both API references
         run: python scripts/check_rust_api_docs.py --compose --check
       - name: Audit all internal links against deployment URL prefix

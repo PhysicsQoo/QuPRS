@@ -3,7 +3,7 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3
@@ -105,7 +105,9 @@ def _add_global_phase_cycles(pathsum_circuit: PathSum, cycles):
     )
 
 
-def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
+def build_circuit(
+    circuit: QuantumCircuit, initial_state: Optional[Sequence[object]] = None
+) -> PathSum:
     pathsum_circuit = initialize(circuit, initial_state)
     gate_list = get_gates(circuit)
     for gate in gate_list:
@@ -123,7 +125,9 @@ def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = 
     )
 
 
-def initialize(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
+def initialize(
+    circuit: QuantumCircuit, initial_state: Optional[Sequence[object]] = None
+) -> PathSum:
     """
     Construct initial PathSum and the name mapping.
     """

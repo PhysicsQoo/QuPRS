@@ -7,6 +7,8 @@ compile_error!("standalone-rr and high-precision-gpmc are mutually exclusive");
 compile_error!("standalone-rr and external-wmc are mutually exclusive");
 
 pub mod pathsum;
+pub mod circuit;
+pub mod verification;
 pub mod gates;
 pub mod qasm;
 pub mod ir;
@@ -25,6 +27,7 @@ mod diagnostics;
 pub use diagnostics::ExclusiveLedger;
 
 pub use pathsum::PathSum;
+pub use circuit::QuantumCircuit;
 pub use rational::{Rational, PhaseCoeff};
 pub use strategy::VerificationStrategy;
 use ir::QuantumOp;
@@ -41,6 +44,23 @@ pub enum VerificationMethod {
     WmcOnly,
 }
 
+impl VerificationMethod {
+    /// Canonical public Python method name.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Hybrid => "hybrid",
+            Self::ReductionRules => "reduction_rules",
+            Self::WmcOnly => "wmc_only",
+        }
+    }
+}
+
+impl std::fmt::Display for VerificationMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// The result status of the equivalence check
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EquivalenceStatus {
@@ -52,17 +72,23 @@ pub enum EquivalenceStatus {
     MemoryOut,
 }
 
-impl std::fmt::Display for EquivalenceStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl EquivalenceStatus {
+    /// Return the Python-compatible verdict spelling without allocation.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
             Self::Equivalent => "equivalent",
             Self::EquivalentUpToGlobalPhase => "equivalent*",
             Self::NotEquivalent => "not_equivalent",
             Self::Unknown => "unknown",
             Self::Timeout => "Timeout",
             Self::MemoryOut => "MemoryOut",
-        };
-        write!(f, "{}", s)
+        }
+    }
+}
+
+impl std::fmt::Display for EquivalenceStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -98,6 +124,28 @@ pub struct EquivalenceCheckResult {
     pub final_ps: PathSum, 
     /// Present only when QUPRS_STAGE_LEDGER=1, never populated in ordinary runs.
     pub stage_ledger: Option<ExclusiveLedger>,
+}
+
+impl EquivalenceCheckResult {
+    /// Python-compatible verdict name; the typed status stays authoritative.
+    pub fn equivalent(&self) -> &'static str {
+        self.status.as_str()
+    }
+
+    /// Actual external WMC solver process invocation, not analytic shortcuts.
+    pub fn wmc_solver_invoked(&self) -> bool {
+        self.solver_invoked
+    }
+
+    /// Borrow the final symbolic PathSum without cloning it.
+    pub fn final_pathsum(&self) -> &PathSum {
+        &self.final_ps
+    }
+
+    /// Gate count for the first circuit, matching the Python result name.
+    pub fn gate_num(&self) -> usize {
+        self.gate_num1
+    }
 }
 
 /// Per-request verification configuration shared by native callers and the Python FFI.

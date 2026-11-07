@@ -158,7 +158,7 @@ def test_supervisor_signal_after_controls_before_parent_admission_is_cli_typed(s
         readable, _, _ = select.select([process.stderr], [], [], 6)
         assert readable, "Supervisor never armed its cancellation controls"
         marker = process.stderr.readline()
-        assert marker == b"SUPERVISOR_CONTROLS_READY\\n", marker
+        assert marker == b"SUPERVISOR_CONTROLS_READY\n", marker
         assert process.poll() is None, "Supervisor exited before admission"
         process.send_signal(signal_number)
         stdout, stderr = process.communicate(timeout=6)

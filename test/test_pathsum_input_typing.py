@@ -31,7 +31,10 @@ def test_initial_state_sequences_keep_anf_semantics(values):
 def test_qiskit_initial_state_entry_points_keep_sequence_values():
     circuit = QuantumCircuit(2)
     values = (sp.true, sp.false)
-    expected = PathSum.QuantumCircuit(2, initial_state=values).f.data
+    expected = {
+        f"{circuit.qregs[0].name}_{i}": to_anf(value)
+        for i, value in enumerate(values)
+    }
     assert initialize(circuit, initial_state=values).f.data == expected
     assert build_circuit(circuit, initial_state=values).f.data == expected
 

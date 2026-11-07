@@ -68,3 +68,17 @@ fn missing_solver_fails_closed() {
     let result = check_equivalence_with_options(1, &[QuantumOp::X(0)], &[], &options);
     assert!(result.is_err(), "an unavailable GPMC must never produce a scientific verdict");
 }
+
+
+#[test]
+fn public_facade_hybrid_uses_real_gpmc_and_retains_python_result_names() {
+    let mut source = pathsum::QuantumCircuit::new(1);
+    source.h(0).unwrap();
+    let reference = pathsum::QuantumCircuit::new(1);
+    let result = pathsum::verification::check_equivalence(
+        &source, &reference, &VerificationOptions::default()
+    ).unwrap();
+    assert_eq!(result.status, EquivalenceStatus::NotEquivalent);
+    assert_eq!(result.equivalent(), "not_equivalent");
+    assert!(result.wmc_solver_invoked());
+}

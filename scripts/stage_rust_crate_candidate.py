@@ -44,12 +44,17 @@ def stage(destination: Path) -> None:
     (destination / "Cargo.toml").write_text(text)
     (destination / "Cargo.lock").unlink(missing_ok=True)
     shutil.copyfile(ROOT / "LICENSE.md", destination / "LICENSE.md")
-    # The original source is still published internally as pathsum. Adapt
-    # only public doctest/import names in this isolated naming prototype.
-    lib = destination / "src" / "lib.rs"
-    lib.write_text(replace_once(lib.read_text(),
-        "/// use pathsum::{VerificationMethod, VerificationOptions};",
-        "/// use quprs::{VerificationMethod, VerificationOptions};"))
+    # Rewrite only Rustdoc examples in the staged public-name candidate.
+    # Never rewrite executable code, which uses internal crate:: imports.
+    for source_file in (destination / "src").rglob("*.rs"):
+        original = source_file.read_text()
+        patched = "".join(
+            line.replace("pathsum::", "quprs::")
+            if line.lstrip().startswith(("///", "//!")) else line
+            for line in original.splitlines(keepends=True)
+        )
+        if patched != original:
+            source_file.write_text(patched)
     for test_file in (destination / "tests").rglob("*.rs"):
         test_file.write_text(test_file.read_text().replace("pathsum::", "quprs::"))
     manifest_source = ROOT / "src" / "QuPRS" / "utils" / "ganak-release.txt"

@@ -88,23 +88,40 @@ For the current source workspace, the crate is named `pathsum`:
 
 ```rust
 use pathsum::{
-    check_equivalence_with_options, EquivalenceStatus,
-    VerificationMethod, VerificationOptions,
+    EquivalenceStatus, QuantumCircuit, VerificationMethod, VerificationOptions,
 };
-use pathsum::ir::QuantumOp;
+use pathsum::verification::check_equivalence;
+
+let mut original = QuantumCircuit::new(1);
+original.h(0)?;
+let optimized = QuantumCircuit::new(1);
 
 let options = VerificationOptions {
     method: VerificationMethod::Hybrid,
     ..VerificationOptions::default()
 };
-let result = check_equivalence_with_options(
-    1, &[QuantumOp::H(0)], &[], &options,
-)?;
+let result = check_equivalence(&original, &optimized, &options)?;
 assert_eq!(result.status, EquivalenceStatus::NotEquivalent);
+assert_eq!(result.equivalent(), "not_equivalent");
+assert!(result.wmc_solver_invoked());
 ```
 
 The snippet assumes it is placed inside a Rust function returning
 `anyhow::Result<()>` and that a valid GPMC executable is available.
+`QuantumCircuit::from_qasm_str(source)` and
+`QuantumCircuit::from_qasm_file(path)` use the same strict unitary
+OpenQASM parser as the existing Rust CLI and preserve exact source angles.
+For more gate variants, use `QuantumCircuit::push(QuantumOp::...)`, which
+validates wire indices and preserves the native `Angle` representation.
+
+The Rust result provides Python-name compatibility methods:
+`equivalent()`, `wmc_solver_invoked()`, `final_pathsum()` and
+`gate_num()`. They are read-only accessors on the original typed result,
+with no duplicated status state or Path-sum copy. Unlike Python's Qiskit
+wrapper, which returns `not_equivalent` for differing register widths,
+the typed Rust façade rejects that invalid comparison before invoking
+a solver and does not fabricate a final symbolic residual.
+
 An independent consumer of the eventually released registry package
 will instead import `quprs::...`.
 

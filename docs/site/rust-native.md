@@ -8,7 +8,7 @@ explicitly. The crate does not silently switch solvers.
 
 **Current distribution:** the supported Rust core is built from the
 [QuPRS source workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust).
-The registry package name `quprs` is reserved as a proposed public name;
+The registry package name `quprs` is planned but not yet claimed;
 **a crates.io release has not been published**. Do not mistake a preview
 archive for an available crates.io package.
 
@@ -62,7 +62,7 @@ export QUPRS_GPMC_PATH="$(pwd)/GPMC/bin/gpmc"
 For Ganak, install a compatible executable from the
 [upstream Ganak releases](https://github.com/meelgroup/ganak/releases).
 QuPRS pins the supported Ganak 2.8.0 assets and their archive and
-executable SHA-256 checksums in
+executable SHA256 checksums in
 [`ganak-release.txt`](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/utils/ganak-release.txt).
 Choose the matching operating system and architecture, verify the
 download and executable checksums, then configure its absolute path:

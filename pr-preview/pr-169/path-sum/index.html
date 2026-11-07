@@ -1,0 +1,1116 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Quantum circuit equivalence checking with Path-sum reduction and weighted model counting">
+      
+      
+      
+        <link rel="canonical" href="https://physicsqoo.github.io/QuPRS/pr-preview/pr-169/path-sum/">
+      
+      
+      
+        <link rel="prev" href="../theory/">
+      
+      
+        <link rel="next" href="../weighted-model-counting/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.1.0">
+    
+    
+      
+        <title>Path-sum and reduction - QuPRS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="QuPRS" class="md-header__button md-logo" aria-label="QuPRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            QuPRS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Path-sum and reduction
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/PhysicsQoo/QuPRS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PhysicsQoo/QuPRS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="QuPRS" class="md-nav__button md-logo" aria-label="QuPRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    QuPRS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/PhysicsQoo/QuPRS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PhysicsQoo/QuPRS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  User guide
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  User guide
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Getting started
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Executable examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Verification methods
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Theory
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Theory
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../theory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path-sum and reduction
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path-sum and reduction
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#representation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Representation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-algebraic-identities-underlying-the-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Exact algebraic identities underlying the rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reduction-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reduction rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hand-checkable-applicability-and-counterexamples" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Hand-checkable applicability and counterexamples
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-source-expressions-versus-approximate-reduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Exact source expressions versus approximate reduction
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reduction-only-and-hybrid" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reduction-only and hybrid
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../weighted-model-counting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Weighted model counting
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  General Python API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pathsum-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Advanced Path-sum API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#representation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Representation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-algebraic-identities-underlying-the-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Exact algebraic identities underlying the rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reduction-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reduction rules
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hand-checkable-applicability-and-counterexamples" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Hand-checkable applicability and counterexamples
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-source-expressions-versus-approximate-reduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Exact source expressions versus approximate reduction
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reduction-only-and-hybrid" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reduction-only and hybrid
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="path-sum-representation-and-reduction">Path-sum representation and reduction</h1>
+<h2 id="representation">Representation</h2>
+<p>A Path-sum represents the action of a quantum circuit on a computational-basis state as a finite sum of amplitudes indexed by Boolean path variables:</p>
+<div class="arithmatex">\[
+U|x\rangle = \alpha\!\!\sum_{y\in\{0,1\}^{m}}
+ e^{2\pi i P(x,y)}\,|f(x,y)\rangle.
+\]</div>
+<p>Here, <span class="arithmatex">\(x\)</span> is the input bit string, <span class="arithmatex">\(y\)</span> is the path-variable string, <span class="arithmatex">\(P\)</span> is a real-valued phase polynomial measured in <strong>cycles</strong> (one cycle is <span class="arithmatex">\(2\pi\)</span> radians), <span class="arithmatex">\(f\)</span> gives the output bit string, and <span class="arithmatex">\(\alpha\)</span> accounts for normalization. The exact representation and allowed coefficient domains depend on the constructed PathSum; not every circuit is a sum with unit coefficients.</p>
+<p>For a comparison, QuPRS builds an expression reflecting the input and output circuit composition. The reduction engine rewrites the Path-sum while attempting to preserve the represented operation.</p>
+<h2 id="exact-algebraic-identities-underlying-the-rules">Exact algebraic identities underlying the rules</h2>
+<p>These identities hold for <strong>Boolean</strong> variables. They are algebraic checks on the rule families, not a claim that any approximate coefficient match is exact.</p>
+<p><strong>Elim.</strong> If an internal path variable <span class="arithmatex">\(y\)</span> occurs in neither the phase <span class="arithmatex">\(P\)</span> nor the output <span class="arithmatex">\(f\)</span>, then the two contributions are identical:</p>
+<div class="arithmatex">\[
+\sum_{y\in\{0,1\}} e^{2\pi iP}\,|f\rangle
+=2e^{2\pi iP}\,|f\rangle.
+\]</div>
+<p>Removing <span class="arithmatex">\(y\)</span> must also preserve the total amplitude, including the path-count normalization. QuPRS finds a reducible variable only after checking that it is absent from the output and the phase.</p>
+<p><strong>HH.</strong> Let the complete path-variable tuple be <span class="arithmatex">\(y=(y_0,y_1,z)\)</span>, with residual tuple <span class="arithmatex">\(y'=(y_1,z)\)</span> excluding <span class="arithmatex">\(y_0\)</span>. The integer-valued polynomial <span class="arithmatex">\(Q(x,z)\)</span> is independent of <span class="arithmatex">\(y_0,y_1\)</span>. The <strong>source phase</strong>, before applying the reduction, is</p>
+<div class="arithmatex">\[
+P(x,y)=\frac12 y_0\bigl(y_1+Q(x,z)\bigr)+R(x,y').
+\]</div>
+<p>Here the original <span class="arithmatex">\(Q\)</span> is <strong>not reduced modulo 2</strong>. The residual phase <span class="arithmatex">\(R(x,y')\)</span> and output ket <span class="arithmatex">\(|f(x,y')\rangle\)</span> are independent of the eliminated variable <span class="arithmatex">\(y_0\)</span>.</p>
+<p>Summing <span class="arithmatex">\(y_0\)</span> enforces the Boolean constraint <span class="arithmatex">\(y_1=\overline Q\)</span>, where <strong>only at substitution</strong> do we define <span class="arithmatex">\(\overline Q=Q(x,z)\bmod 2\)</span>. If <span class="arithmatex">\(y_0\)</span> and <span class="arithmatex">\(y_1\)</span> are both summed variables, HH acts on the complete amplitude and output ket:</p>
+<div class="arithmatex">\[
+\begin{aligned}
+&amp;\sum_{y_0,y_1\in\{0,1\}}
+ e^{2\pi iP(x,y)}\,|f(x,y')\rangle\\
+&amp;\qquad=2\,e^{2\pi iR_{\overline Q}(x,z)}
+ |f_{\overline Q}(x,z)\rangle.
+\end{aligned}
+\]</div>
+<p>Here <span class="arithmatex">\(R_{\overline Q}(x,z)=R(x,(\overline Q,z))\)</span> and <span class="arithmatex">\(f_{\overline Q}(x,z)=f(x,(\overline Q,z))\)</span>. Thus the <strong>original phase keeps <span class="arithmatex">\(Q\)</span></strong>, while the replacement <span class="arithmatex">\(y_1\leftarrow\overline Q\)</span> is performed in <strong>both the residual phase and the output ket</strong>. The factor <span class="arithmatex">\(2\)</span> must be combined with the Path-sum normalization.</p>
+<p>When <span class="arithmatex">\(y_1\)</span> is not a summed variable, summing over <span class="arithmatex">\(y_0\)</span> instead gives <span class="arithmatex">\(2\delta_{y_1,\overline Q}\)</span> times the residual amplitude and ket. Implementation matching additionally requires the supported half-cycle coefficient pattern and a target variable absent from its own replacement polynomial.</p>
+<p><strong>Omega.</strong> Let <span class="arithmatex">\(y_0\)</span> be a summed Boolean variable, with residual phase <span class="arithmatex">\(R\)</span>, integer-valued <span class="arithmatex">\(Q\)</span>, and output ket <span class="arithmatex">\(|f\rangle\)</span> all independent of <span class="arithmatex">\(y_0\)</span>. As in HH, the <strong>source</strong> keeps the unreduced <span class="arithmatex">\(Q\)</span>, while the reduced phase uses <span class="arithmatex">\(\overline Q=Q\bmod 2\)</span>. The quarter-cycle identities preserve the output ket:</p>
+<div class="arithmatex">\[
+\begin{aligned}
+&amp;\sum_{y_0=0}^{1}
+ e^{2\pi i[R+y_0(\frac14+\frac12Q)]}
+ |f\rangle\\
+&amp;\qquad=\sqrt{2}\,
+ e^{2\pi i[R+\frac18-\frac14\overline Q]}
+ |f\rangle,
+\end{aligned}
+\]</div>
+<div class="arithmatex">\[
+\begin{aligned}
+&amp;\sum_{y_0=0}^{1}
+ e^{2\pi i[R+y_0(\frac34+\frac12Q)]}
+ |f\rangle\\
+&amp;\qquad=\sqrt{2}\,
+ e^{2\pi i[R-\frac18+\frac14\overline Q]}
+ |f\rangle.
+\end{aligned}
+\]</div>
+<p>The output ket <span class="arithmatex">\(|f\rangle\)</span> is unchanged because it does not depend on <span class="arithmatex">\(y_0\)</span>. The <span class="arithmatex">\(\sqrt{2}\)</span> factor is accounted for by the Path-sum normalization when the path-variable count changes. These identities require the specified quarter-cycle singleton and half-cycle cross terms; they cannot be applied to arbitrary coefficients or a <span class="arithmatex">\(y_0\)</span>-dependent output.</p>
+<p>For implementation-level applicability, see <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py">Python matching and substitutions</a> and <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs">native Rust reduction matching</a>. The algebraic identities appear in the <a href="https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21">TACAS 2026 QuPRS paper</a> and earlier <a href="https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf">path-sum verification calculus</a>. </p>
+<h2 id="reduction-rules">Reduction rules</h2>
+<p>QuPRS implements the <strong>Elim</strong>, <strong>HH</strong>, and <strong>omega</strong> families of simplifications:</p>
+<table>
+<thead>
+<tr>
+<th>Rule family</th>
+<th>Purpose</th>
+<th>Essential applicability condition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Elim</td>
+<td>Remove a redundant path variable</td>
+<td>Its phase/output dependence must meet the rule's cancellation conditions</td>
+</tr>
+<tr>
+<td>HH</td>
+<td>Eliminate or constrain variables through Hadamard-related phase structure</td>
+<td>The required phase-polynomial and Boolean dependencies must match</td>
+</tr>
+<tr>
+<td>Omega</td>
+<td>Simplify a constrained root-of-unity phase sum</td>
+<td>Coefficients and variable occurrence must match the supported root-of-unity identity</td>
+</tr>
+</tbody>
+</table>
+<p>These descriptions are the rule <em>roles</em>, not substitutes for their algebraic side conditions. An arbitrary phase polynomial or path variable cannot be eliminated just because it resembles a pattern. See the public <a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/rust/pathsum/src">Rust reduction implementation</a> and <a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/src/QuPRS/pathsum">Python PathSum implementation</a> for the exact supported cases.</p>
+<h2 id="hand-checkable-applicability-and-counterexamples">Hand-checkable applicability and counterexamples</h2>
+<p>The identities above are sums of <strong>amplitudes attached to output kets</strong>,
+not merely identities between scalar phases. The following small cases
+make the preconditions explicit; the scalar factors are before applying
+the Path-sum's own normalization.</p>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Applicable example</th>
+<th>Counterexample (do not reduce)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Elim</td>
+<td>With <code>P=1/8</code> and a constant output <code>|0⟩</code>, summing an unused <code>y₀</code> gives <code>2 exp(iπ/4)|0⟩</code>.</td>
+<td>With <code>P=y₀/2</code>, the sum is zero, not twice either term. With an output <code>|y₀⟩</code>, the ket sum is <code>|0⟩+|1⟩</code>, not <code>2|0⟩</code>.</td>
+</tr>
+<tr>
+<td>HH</td>
+<td>Set <code>Q=3</code>, <code>R=y₁/8</code>, and <code>f(y₁)=y₁</code>. The source <code>P=y₀(y₁+3)/2+y₁/8</code> leaves only <code>y₁=1</code> after summing <code>y₀</code>, yielding <code>2 exp(iπ/4)|1⟩</code>.</td>
+<td>If the ket depends on the eliminated <code>y₀</code>, then for fixed <code>y₁=0, Q=3</code> the weighted sum is <code>|0⟩−|1⟩</code>, not the scalar constraint <code>0</code>. The eliminated variable must be absent from both <code>R</code> and <code>f</code>.</td>
+</tr>
+<tr>
+<td>Omega</td>
+<td>For <code>Q=2</code>, <code>R=1/16</code> and the <code>1/4</code> branch, summing <code>y₀</code> gives <code>√2 exp(2πi(1/16+1/8))</code> times the unchanged ket.</td>
+<td>With coefficient <code>y₀/3</code>, the sum has magnitude <code>1</code>, not <code>√2</code>; a near-looking coefficient is not an exact quarter-cycle match. If <code>f</code> depends on <code>y₀</code>, no scalar omega reduction applies.</td>
+</tr>
+</tbody>
+</table>
+<p>In HH, the <strong>source</strong> retains the full integer <code>Q=3</code> in the phase;
+only the replacement <code>y₁ ← 3 mod 2 = 1</code> uses parity. The same
+distinction holds for the source of Omega. In all three rules,
+<code>y₀</code> must be an eligible <em>summed</em> variable, and the output-map
+dependency check precedes coefficient matching. These hand calculations
+are checked independently by the documentation science smoke; matcher
+eligibility is checked against the actual Python implementation.</p>
+<h2 id="exact-source-expressions-versus-approximate-reduction">Exact source expressions versus approximate reduction</h2>
+<p>The per-call <code>rr_tolerance</code> controls numerical coefficient matching and approximate reduction in the supported implementations. The default is <code>1e-10</code>. Choosing <code>rr_tolerance=0</code> is useful when checking whether the reduction relies on numerical acceptance rather than a tolerance-matched coefficient.</p>
+<p>The original input angles must not be silently replaced by rounded source literals. Python's Qiskit-object path may already contain binary floating-point angles, while supported native Rust QASM literals can preserve their textual decimal provenance. Therefore equal-looking numerical results do not necessarily certify identical original sources.</p>
+<h2 id="reduction-only-and-hybrid">Reduction-only and hybrid</h2>
+<ul>
+<li><code>method="reduction_rules"</code> returns a classification when reduction establishes one; otherwise it can report <code>unknown</code>.</li>
+<li><code>method="hybrid"</code> passes the <strong>final configured reduction residual</strong> to WMC only when reduction remains inconclusive. It does not revert to the original unreduced circuit behind the user's back.</li>
+<li><code>method="wmc_only"</code> bypasses reduction-rule matching but still performs the representation/normalization required to form the WMC problem.</li>
+</ul>
+<p>An accepted reduction can depend on <code>rr_tolerance</code>. When a source-exact or independently certified claim matters, compare with an appropriate mathematical oracle or use controlled exact-source checks.</p>
+<p>See <a href="../examples/">worked examples</a>, <a href="../weighted-model-counting/">weighted model counting</a>, and <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/development/equivalence-semantics.md">equivalence and numerical semantics</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["navigation.sections","navigation.top","toc.follow"],"redirect":null,"search":"../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d31f0ffa.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

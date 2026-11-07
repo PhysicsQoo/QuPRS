@@ -3,6 +3,8 @@
 
 #[cfg(all(feature = "standalone-rr", feature = "high-precision-gpmc"))]
 compile_error!("standalone-rr and high-precision-gpmc are mutually exclusive");
+#[cfg(all(feature = "standalone-rr", feature = "external-wmc"))]
+compile_error!("standalone-rr and external-wmc are mutually exclusive");
 
 pub mod pathsum;
 pub mod gates;

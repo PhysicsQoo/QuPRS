@@ -41,3 +41,6 @@ proptest = "1.0"
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
 standalone-rr = []
+# Keep RR/Hybrid/WMC and the MPFR weight bridge; provision external solver
+# executables separately. The normal monorepo build remains unchanged.
+external-wmc = []

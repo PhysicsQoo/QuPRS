@@ -54,6 +54,13 @@ fn main() {
         println!("cargo:rustc-link-lib=gmp");
         println!("cargo:rerun-if-changed={}",input.display());
     }
+    // Registry builds must not access sibling GPMC/Python trees or download
+    // solver executables. The optional MPFR input-weight bridge above remains
+    // enabled for precise WMC requests when its feature is selected.
+    if env::var_os("CARGO_FEATURE_EXTERNAL_WMC").is_some() {
+        println!("cargo:rerun-if-changed=build.rs");
+        return;
+    }
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 

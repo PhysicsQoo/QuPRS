@@ -4,12 +4,13 @@ use std::path::Path;
 
 pub const VERSION: &str = "2.8.0";
 pub const UPSTREAM_SHA: &str = "b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281";
-// The pinned Ganak manifest remains maintained in the Python/source tree for
-// normal native and FFI builds. The standalone reduction-only crate neither
-// distributes nor executes Ganak, and its missing external manifest must not
-// prevent building an independent .crate archive.
-#[cfg(not(feature = "standalone-rr"))]
+// Production native builds use the pinned Python/source-tree manifest. An
+// external-solver archive bundles the exact same digest list inside the crate;
+// the packaging gate enforces byte-for-byte agreement with that source of truth.
+#[cfg(all(not(feature = "standalone-rr"), not(feature = "external-wmc")))]
 pub const MANIFEST: &str = include_str!("../../../src/QuPRS/utils/ganak-release.txt");
+#[cfg(feature = "external-wmc")]
+pub const MANIFEST: &str = include_str!("ganak-release.txt");
 #[cfg(feature = "standalone-rr")]
 pub const MANIFEST: &str = "";
 

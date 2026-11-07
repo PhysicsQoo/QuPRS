@@ -48,6 +48,8 @@ def compose() -> None:
     shutil.copytree(RUSTDOC_ROOT, RUST_API)
     # Preserve the previous development Rustdoc URL without duplicating API.
     old = RUST_API / "pathsum"
+    if old.exists():
+        shutil.rmtree(old)
     old.mkdir()
     (old / "index.html").write_text(
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'

@@ -120,6 +120,8 @@ def stage_native_reference(source_sha: str) -> None:
     shutil.copytree(native, destination)
     # Old development preview links remain valid after crate renaming.
     legacy = destination / "pathsum"
+    if legacy.exists():
+        shutil.rmtree(legacy)
     legacy.mkdir()
     (legacy / "index.html").write_text(
         '<!doctype html><html><meta charset="utf-8">'

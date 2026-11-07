@@ -3432,11 +3432,11 @@ modulo two when constructing this value.</p>
                 <code>pathvar</code>
             </td>
             <td>
-                  <code><span title="frozenset">frozenset</span> | <span title="set">set</span></code>
+                  <code><span title="frozenset">frozenset</span>[<span title="symengine.Symbol">Symbol</span>] | <span title="set">set</span>[<span title="symengine.Symbol">Symbol</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Set of internal summation variables.</p>
+                <p>Set or frozenset of internal SymEngine summation variables.</p>
               </div>
             </td>
             <td>
@@ -4042,11 +4042,11 @@ tooling can discover them without executing the package.</p>
                 <code>initial_state</code>
             </td>
             <td>
-                  <code><span title="bool">bool</span> | <span title="list">list</span> | <span title="tuple">tuple</span></code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Sequence">Sequence</span>[<span title="object">object</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Optional sequence of initial Boolean output values.</p>
+                <p>Optional indexable sequence of values converted with SymPy's to_anf; scalar bool is not accepted.</p>
               </div>
             </td>
             <td>
@@ -8269,6 +8269,8 @@ imply reducing phase-polynomial coefficients modulo two.</p>
           </tr>
       </tbody>
     </table>
+        <p>Values remain typed as object: update stores arbitrary objects without
+input validation, while substitution normalizes through SymPy.</p>
 
 
 
@@ -8518,7 +8520,7 @@ imply reducing phase-polynomial coefficients modulo two.</p>
 
     <div class="doc doc-contents ">
 
-        <p>Iterate output bit names and their corresponding Boolean expressions.</p>
+        <p>Return the live mapping view of output bit names and stored values.</p>
 
 
     </div>

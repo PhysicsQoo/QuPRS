@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PrintedVerdict"],"fn":["classify","classify_with_uncertainty","ganak_midpoint_verdict","ganak_print_resolution_distance","observed_distance_verdict","parse_line","parse_stdout","parse_stdout_optional"],"struct":["PrintedCount"]};

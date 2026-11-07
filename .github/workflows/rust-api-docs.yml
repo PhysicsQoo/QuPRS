@@ -260,6 +260,16 @@ jobs:
           cargo test --manifest-path "$unpacked/Cargo.toml" --no-default-features --test standalone_rr
           cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc -- --list | grep -F "wmc_only_x_uses_real_ganak: test"
           cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc
+          # Verify PATH discovery with both explicit solver overrides removed.
+          # Use the same proven executables; no download, rebuild or fallback.
+          path_bin="$RUNNER_TEMP/quprs-external-path-bin"
+          mkdir -p "$path_bin"
+          ln -s "$QUPRS_GPMC_PATH" "$path_bin/gpmc"
+          ln -s "$QUPRS_GANAK_PATH" "$path_bin/ganak"
+          env -u QUPRS_GPMC_PATH -u QUPRS_GANAK_PATH \
+            PATH="$path_bin:$PATH" \
+            cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc \
+            wmc_only_x_uses_real_ -- --test-threads=1
           cargo test --manifest-path "$unpacked/Cargo.toml" --test public_api_parity
           QUPRS_GPMC_PATH="$RUNNER_TEMP/absent-gpmc" cargo test \
             --manifest-path "$unpacked/Cargo.toml" --test external_wmc \

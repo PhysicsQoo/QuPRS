@@ -90,11 +90,15 @@ def test_macos_detached_solver_cleanup_real_kernel(tmp_path):
     mod = _module()
     pidfile = tmp_path / "solver.pid"
     script = (
-        "import subprocess,sys,time;"
+        "import os,subprocess,sys,time\n"
         "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(25)'],"
         "start_new_session=True,stdin=subprocess.DEVNULL,"
-        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
-        "open(sys.argv[1],'w').write(str(p.pid));time.sleep(25)"
+        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+        "temp_pidfile=sys.argv[1]+'.tmp'\n"
+        "with open(temp_pidfile,'w') as f:\n"
+        "    f.write(str(p.pid))\n"
+        "os.replace(temp_pidfile,sys.argv[1])\n"
+        "time.sleep(25)\n"
     )
     worker = subprocess.Popen(
         [sys.executable, "-c", script, str(pidfile)],

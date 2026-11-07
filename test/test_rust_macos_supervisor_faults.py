@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import select
 import subprocess
 import sys
 import time
@@ -26,8 +27,12 @@ child=subprocess.Popen(
     stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,start_new_session=True,
 )
-with open(sys.argv[1], 'w') as f:
+# Publish the PID only after the writer is closed; file existence must be
+# a complete PID witness even when the host polls concurrently.
+temp_pidfile = sys.argv[1] + '.tmp'
+with open(temp_pidfile, 'w') as f:
     f.write(str(child.pid))
+os.replace(temp_pidfile, sys.argv[1])
 time.sleep(30)
 """
 
@@ -110,11 +115,28 @@ def test_supervisor_real_ipc_detached_solver_cleanup(tmp_path, stop):
             p.wait(timeout=4)
 
 
+_SUPERVISOR_ARMED_BEFORE_ADMISSION = """
+import importlib.util,os,sys
+path=os.environ['QUPRS_TEST_SUPERVISOR_PATH']
+spec=importlib.util.spec_from_file_location('quprs_armed_supervisor',path)
+mod=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+try:
+    # Test the actual private supervisor after its control handlers are armed.
+    # A cold interpreter cannot translate signals received during import.
+    mod._set_supervisor_controls()
+    os.write(2, b'SUPERVISOR_CONTROLS_READY\\n')
+    sys.exit(mod.run())
+except mod.SupervisorInterrupted as exc:
+    sys.exit(128 + exc.signum)
+"""
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX cancellation contract")
 @pytest.mark.parametrize("signal_number,exit_code", [
     (signal.SIGINT, 130), (signal.SIGTERM, 143),
 ])
-def test_supervisor_signal_before_parent_admission_is_cli_typed(signal_number, exit_code):
+def test_supervisor_signal_after_controls_before_parent_admission_is_cli_typed(signal_number, exit_code):
     """Cancellation before admission must be 130/143, not resource exit 125.
 
     There is no Worker to reap in this phase. The process must not publish a
@@ -123,15 +145,20 @@ def test_supervisor_signal_before_parent_admission_is_cli_typed(signal_number, e
     supervisor = Path(rust_isolation.__file__).with_name("rust_supervisor.py")
     env = os.environ.copy()
     env["QUPRS_RUST_SUPERVISOR_PARENT_PID"] = str(os.getpid())
+    env["QUPRS_TEST_SUPERVISOR_PATH"] = str(supervisor)
     process = subprocess.Popen(
-        [sys.executable, "-I", str(supervisor)],
+        [sys.executable, "-I", "-c", _SUPERVISOR_ARMED_BEFORE_ADMISSION],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, env=env, start_new_session=True,
     )
     try:
-        # On the target CI interpreters only stdlib is imported before the
-        # Supervisor starts reading the inherited parent-admission pipe.
-        time.sleep(.6)
+        # A fixed sleep can send SIGTERM during CPython import, before any
+        # Python handler exists. Require a real controls-armed readiness witness
+        # while the Supervisor is still blocked on parent admission instead.
+        readable, _, _ = select.select([process.stderr], [], [], 6)
+        assert readable, "Supervisor never armed its cancellation controls"
+        marker = process.stderr.readline()
+        assert marker == b"SUPERVISOR_CONTROLS_READY\n", marker
         assert process.poll() is None, "Supervisor exited before admission"
         process.send_signal(signal_number)
         stdout, stderr = process.communicate(timeout=6)

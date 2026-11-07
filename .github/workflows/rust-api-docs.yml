@@ -5,6 +5,9 @@ on:
     branches: [dev]
     paths:
       - 'rust/pathsum/src/**'
+      - 'rust/pathsum/build.rs'
+      - 'rust/pathsum/native/**'
+      - 'rust/pathsum/tests/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/pathsum/core.py'
@@ -19,6 +22,7 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/stage_rust_crate_candidate.py'
       - 'scripts/check_docs_gate_stubs.py'
       - 'scripts/generate_stubs.py'
       - 'src/QuPRS/py.typed'
@@ -34,6 +38,9 @@ on:
     branches: [dev]
     paths:
       - 'rust/pathsum/src/**'
+      - 'rust/pathsum/build.rs'
+      - 'rust/pathsum/native/**'
+      - 'rust/pathsum/tests/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/pathsum/core.py'
@@ -48,6 +55,7 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/stage_rust_crate_candidate.py'
       - 'scripts/check_docs_gate_stubs.py'
       - 'scripts/generate_stubs.py'
       - 'src/QuPRS/py.typed'
@@ -214,7 +222,8 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --test standalone_rr
           cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --lib solver_adapter::standalone_tests
       - name: Package standalone Rust crate and test extracted consumer
-        if: github.event_name == 'pull_request'
+        # Existing source-identical Markdown reuse also skips costly packaging.
+        if: github.event_name == 'pull_request' && steps.reuse-rustdoc.outputs.used != 'true'
         shell: bash
         run: |
           set -euo pipefail

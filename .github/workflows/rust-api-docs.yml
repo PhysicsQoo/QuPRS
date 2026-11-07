@@ -113,6 +113,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
           set -euo pipefail
           # Reuse is safe only when *all* changed files are site Markdown or
@@ -155,6 +156,36 @@ jobs:
           fi
           mkdir -p rust/target/doc
           cp -a "$archive/rust-api/." rust/target/doc/
+          # GitHub Pages' cached dev Rustdoc sometimes contains canonical
+          # absolute links under /docs/dev/. They must point to this PR's
+          # preview subtree; otherwise the strict link audit correctly fails.
+          # Keep this a cache-only rewrite; original generated Rustdoc,
+          # source code and tagged release documents remain unchanged.
+          if ! python - <<'PY'
+          import os
+          from pathlib import Path
+
+          pr = os.environ["PR_NUMBER"]
+          if not pr.isdecimal():
+              raise ValueError("Invalid PR number for Rustdoc preview")
+          source = "https://physicsqoo.github.io/QuPRS/docs/dev/rust-api/"
+          target = f"https://physicsqoo.github.io/QuPRS/pr-preview/pr-{pr}/rust-api/"
+          root = Path("rust/target/doc")
+          if not (root / "pathsum" / "index.html").is_file():
+              raise ValueError("Reused Rustdoc entrypoint missing")
+          count = 0
+          for page in root.rglob("*.html"):
+              html = page.read_text(encoding="utf-8")
+              if source in html:
+                  page.write_text(html.replace(source, target), encoding="utf-8")
+                  count += 1
+          print(f"Rebased absolute dev Rustdoc references in {count} HTML files")
+          PY
+          then
+            rm -rf rust/target/doc
+            echo "Cached Rustdoc URL rewrite failed; rebuild native Rustdoc"
+            exit 0
+          fi
           echo "used=true" >> "$GITHUB_OUTPUT"
           echo "Reused source-verified Rustdoc for base $BASE_SHA (site-only PR)" >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Rust

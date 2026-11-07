@@ -208,6 +208,11 @@ jobs:
       - name: Run Rust documentation tests
         if: steps.reuse-rustdoc.outputs.used != 'true'
         run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
+      - name: Check solver-free Rust library build
+        run: |
+          cargo check --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --test standalone_rr
+          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --lib solver_adapter::standalone_tests
       - name: Compose and validate both API references
         run: python scripts/check_rust_api_docs.py --compose --check
       - name: Audit all internal links against deployment URL prefix

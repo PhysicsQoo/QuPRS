@@ -5,6 +5,10 @@ name = "pathsum"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+description = "Native path-sum reduction and equivalence checking for quantum circuits"
+license = "MIT"
+repository = "https://github.com/PhysicsQoo/QuPRS"
+keywords = ["quantum", "verification", "pathsum", "equivalence"]
 
 [dependencies]
 rustc-hash = "2.0"
@@ -32,5 +36,8 @@ sha2 = "0.10"
 proptest = "1.0"
 
 [features]
+# Preserve the original native/Python-enabled default. The independent
+# reduction-only package prototype is an explicit, solver-free opt-in.
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
+standalone-rr = []

@@ -40,6 +40,15 @@ static GPMC: GpmcAdapter = GpmcAdapter;
 static GANAK: GanakAdapter = GanakAdapter;
 static GPMC_DISTANCE_HIGH: GpmcDistanceHighPrecisionAdapter = GpmcDistanceHighPrecisionAdapter;
 pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
+    #[cfg(feature = "standalone-rr")]
+    {
+        return Err(anyhow!(crate::solver_result::SolverFailure::new(
+            crate::solver_result::SolverFailureKind::Unsupported,
+            id,
+            "External WMC solvers are unavailable in standalone-rr builds",
+        )));
+    }
+    #[cfg(not(feature = "standalone-rr"))]
     match id {
         "gpmc" => Ok(&GPMC),
         "ganak" => Ok(&GANAK),
@@ -52,6 +61,16 @@ pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
 }
 /// GPMC works at its effective 30-digit default unless 90 is requested.
 pub(crate) fn distance_adapter_for(id: &str, digits: u32) -> Result<&'static dyn SolverAdapter> {
+    #[cfg(feature = "standalone-rr")]
+    {
+        let _ = digits;
+        return Err(anyhow!(crate::solver_result::SolverFailure::new(
+            crate::solver_result::SolverFailureKind::Unsupported,
+            id,
+            "External WMC solvers are unavailable in standalone-rr builds",
+        )));
+    }
+    #[cfg(not(feature = "standalone-rr"))]
     match (id, digits) {
         ("gpmc", 30) => Ok(&GPMC),
         ("gpmc", 90) => Ok(&GPMC_DISTANCE_HIGH),
@@ -115,7 +134,7 @@ impl SolverAdapter for GanakAdapter {
          format!("c p weight -{} 1.0 + 0.0i 0\n", var))
     }
 }
-#[cfg(test)]
+#[cfg(all(test, not(feature = "standalone-rr")))]
 mod tests {
     use super::*;
     use crate::pathsum::PathSum;
@@ -185,5 +204,22 @@ mod tests {
         ).unwrap();
         assert_eq!(precise.real.to_string(), "3");
         assert_eq!(precise.imag.to_string(), "4");
+    }
+}
+
+#[cfg(all(test, feature = "standalone-rr"))]
+mod standalone_tests {
+    use super::*;
+
+    #[test]
+    fn external_solver_resolution_fails_closed() {
+        for id in ["gpmc", "ganak"] {
+            let err = match adapter_for(id) {
+                Ok(_) => panic!("standalone-rr unexpectedly enabled {id}"),
+                Err(err) => err,
+            };
+            assert!(err.to_string().contains("standalone-rr"));
+        }
+        assert!(distance_adapter_for("gpmc", 90).is_err());
     }
 }

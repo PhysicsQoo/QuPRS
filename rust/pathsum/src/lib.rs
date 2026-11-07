@@ -635,7 +635,7 @@ fn check_equivalence_with_distance_mode(
             // Serialize only when a solver actually needs CNF. Reuse precisely
             // these bytes for the subprocess, rather than rendering twice.
             let dimacs_start = Instant::now();
-            let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
+            let cnf_string = wmc_mgr.try_to_dimacs_string(tool_name)?;
             to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
             solver_invoked = true;

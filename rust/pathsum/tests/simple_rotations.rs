@@ -1,4 +1,4 @@
-use quprs::quprs::PathSum;
+use quprs::pathsum::PathSum;
 use quprs::gates::{QuantumGates, Side};
 use quprs::rational::{Angle, FreeRational};
 

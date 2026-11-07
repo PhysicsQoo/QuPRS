@@ -1,6 +1,6 @@
 # src/QuPRS/pathsum/core.py
 
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 import symengine as se
 import sympy as sp
@@ -26,7 +26,7 @@ class Register:
     """
 
     def __init__(
-        self, size: int | None = None, name: str | None = None, bits: Sequence[se.Symbol] | None = None
+        self, size: int | None = None, name: str | None = None, bits: Optional[Sequence[se.Symbol]] = None
     ) -> None:
         if bits is not None:
             size = len(bits)
@@ -71,7 +71,7 @@ class F:
         bits: Optional explicit output-bit order.
     """
 
-    def __init__(self, *regs: Register, data: dict[str, object] | None = None, bits: Sequence[str] | None = None) -> None:
+    def __init__(self, *regs: Register, data: dict[str, object] | None = None, bits: Optional[Sequence[str]] = None) -> None:
         self._regs = tuple(regs)
         self._bits = tuple(bits) if bits is not None else list()
         self._data = data if data is not None else dict()

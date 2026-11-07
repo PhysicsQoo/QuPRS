@@ -22,7 +22,7 @@ class Register:
         the Python Path-sum interface, not a Qiskit QuantumRegister.
     """
     def __init__(
-        self, size: int | None = None, name: str | None = None, bits: Sequence[se.Symbol] | None = None
+        self, size: int | None = None, name: str | None = None, bits: Optional[Sequence[se.Symbol]] = None
     ) -> None:
         """"""
         ...
@@ -62,7 +62,7 @@ class F:
         data: Optional mapping from bit names to Boolean expressions.
         bits: Optional explicit output-bit order.
     """
-    def __init__(self, *regs: Register, data: dict[str, object] | None = None, bits: Sequence[str] | None = None) -> None:
+    def __init__(self, *regs: Register, data: dict[str, object] | None = None, bits: Optional[Sequence[str]] = None) -> None:
         """"""
         ...
 

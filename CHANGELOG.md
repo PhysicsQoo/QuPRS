@@ -1,12 +1,12 @@
 # Changelog
 
-## v0.15.0 — Release candidate (unreleased)
+## v0.15.0 — Process supervision, public API typing and versioned docs
 
-**Release status:** The development source is prepared for v0.15.0; no
-v0.15.0 tag, GitHub Release, PyPI package, or versioned `stable`
-documentation has been published yet. Release availability and final
-supported-artifact claims depend on the protected `dev → main` Release-Ready
-checks and the official release process.
+This entry describes the v0.15.0 source and distribution contents. Confirm
+official availability using the matching [GitHub Release](https://github.com/PhysicsQoo/QuPRS/releases)
+and [PyPI distribution](https://pypi.org/project/QuPRS/); a development
+branch, preview site or release candidate is not itself a published release.
+Versioned documentation is published separately from the Python package.
 
 ### Python/Rust execution
 
@@ -65,7 +65,7 @@ checks and the official release process.
   are **not** production features of v0.15.0.
 
 See the [v0.15.0 upgrade guide](docs/development/v0150-migration.md)
-for the migration contract and release-status boundary.
+for supported-platform details and upgrade guidance.
 
 ## v0.14.1 — Rust CLI resource supervision and maintenance
 

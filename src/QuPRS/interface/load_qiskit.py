@@ -3,7 +3,7 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 from qiskit import QuantumCircuit, qasm2, qasm3
@@ -105,7 +105,9 @@ def _add_global_phase_cycles(pathsum_circuit: PathSum, cycles):
     )
 
 
-def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
+def build_circuit(
+    circuit: QuantumCircuit, initial_state: Optional[Sequence[object]] = None
+) -> PathSum:
     pathsum_circuit = initialize(circuit, initial_state)
     gate_list = get_gates(circuit)
     for gate in gate_list:
@@ -123,7 +125,9 @@ def build_circuit(circuit: QuantumCircuit, initial_state: bool | list | tuple = 
     )
 
 
-def initialize(circuit: QuantumCircuit, initial_state: bool | list | tuple = None):
+def initialize(
+    circuit: QuantumCircuit, initial_state: Optional[Sequence[object]] = None
+) -> PathSum:
     """
     Construct initial PathSum and the name mapping.
     """
@@ -269,7 +273,7 @@ def check_equivalence(
     rr_tolerance: float | None = None,
     phase_tolerance: float | None = None,
     gpmc_precision_digits: int = 30,
-):
+) -> "EquivalenceCheckResult":
     """
     Check whether two quantum circuits are equivalent using different verification
     methods.
@@ -297,14 +301,17 @@ def check_equivalence(
             - 'Straightforward': Uses a straightforward strategy.
         timeout (int, optional): Requested deadline in seconds (default 600).
             The external WMC subprocess consumes only the remaining monotonic
-            budget. This is NOT a strict end-to-end wall-clock timeout for Rust
-            in-process reduction/encoding or Python symbolic work on a
-            non-main POSIX thread. Timeout returns a distinct "Timeout" status;
-            solver process/parse failures raise exceptions and do not imply
-            circuit inequivalence. See README "Solver subprocess reliability
-            and timeout limits" for supported-platform and cleanup guarantees.
-        safe_mode (bool, optional): If True, enables safe mode with memory limits by
-            using multiple processes. Default is False.
+            budget. In-process Rust and Python symbolic work on a non-main
+            thread are NOT subject to a strict end-to-end hard timeout.
+            Rust safe_mode=True supervises a separate worker with a monotonic
+            deadline; parent-side Qiskit serialization remains non-preemptible.
+            Solver/process/parse failures do not imply circuit inequivalence.
+        safe_mode (bool, optional): For the Python backend, use the existing
+            strategy isolation; for the Rust backend, invoke PyO3 inside an
+            isolated child worker with bounded IPC and a supervised deadline.
+            Worker isolation alone does not guarantee a physical-memory cap
+            or cleanup of solver processes that detach from its process group.
+            Default is False.
         rr_tolerance (float | None): Per-call RR numerical coefficient matching.
             Defaults to 1e-10. Preserves small source phase terms.
         phase_tolerance (float | None): Phase zero classification in radians
@@ -374,67 +381,94 @@ def check_equivalence(
             c2_input = qasm3.dumps(circuit2) if "OPENQASM 3.0" in getattr(circuit2, 'qasm', lambda: '')() else qasm2.dumps(circuit2)
         else:
             c2_input = circuit2
-        import os
-        from QuPRS.utils import WMC, get_ganak_path
-        from QuPRS.utils.solver_process import SOLVER_ENV_LOCK
-        environment_key = f"QUPRS_{tool_name.upper()}_PATH"
-        # Account for time spent serializing QASM AND waiting on the global
-        # executable-override lock. A queued request must never get a fresh
-        # full timeout budget after another verification finishes.
-        acquired = SOLVER_ENV_LOCK.acquire(
-            timeout=max(0.0, request_deadline - time.monotonic())
-        )
-        if not acquired:
-            rust_res = {
-                "status": "Timeout",
-                "verification_time_sec": time.monotonic() - request_started,
-            }
+
+        if safe_mode:
+            from QuPRS.interface.rust_isolation import run_isolated
+            remaining = int(request_deadline - time.monotonic())
+            if remaining < 1:
+                rust_res = {
+                    "status": "Timeout",
+                    "verification_time_sec": time.monotonic() - request_started,
+                }
+            else:
+                rust_res = run_isolated(
+                    c1_input, c2_input,
+                    options={
+                        "method": method,
+                        "strategy": strategy,
+                        "tool_name": tool_name,
+                        "wmc_phase_tolerance": wmc_phase_tolerance,
+                        "approximate_distance_tolerance": approximate_distance_tolerance,
+                        "rr_tolerance": rr_tolerance,
+                        "gpmc_precision_digits": gpmc_precision_digits,
+                        "phase_tolerance": wmc_phase_tolerance,
+                        "timeout": remaining,
+                    },
+                    request_started=request_started,
+                    request_deadline=request_deadline,
+                )
         else:
-            try:
-                # Rust core accepts whole seconds. Floor rather than round up
-                # so that acquiring the lock does not extend the deadline.
-                remaining = int(request_deadline - time.monotonic())
-                if remaining < 1:
-                    rust_res = {
-                        "status": "Timeout",
-                        "verification_time_sec": time.monotonic() - request_started,
-                    }
-                else:
-                    previous_path = os.environ.get(environment_key)
-                    # Keep resource extraction alive and never leak a temporary
-                    # executable path into a later independent verification.
-                    resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
-                    with resource as exe_path:
-                        os.environ[environment_key] = str(exe_path)
-                        try:
-                            remaining = int(request_deadline - time.monotonic())
-                            if remaining < 1:
-                                rust_res = {
-                                    "status": "Timeout",
-                                    "verification_time_sec": time.monotonic() - request_started,
-                                }
-                            else:
-                                rust_res = _pathsum_rust.check_equivalence(
-                                    c1_input,
-                                    c2_input,
-                                    method=method,
-                                    strategy=strategy,
-                                    tool_name=tool_name,
-                                    timeout=remaining,
-                                    safe_mode=safe_mode,
-                                    wmc_phase_tolerance=wmc_phase_tolerance,
-                                    approximate_distance_tolerance=approximate_distance_tolerance,
-                                    rr_tolerance=rr_tolerance,
-                                    phase_tolerance=wmc_phase_tolerance,
-                                    gpmc_precision_digits=gpmc_precision_digits,
-                                )
-                        finally:
-                            if previous_path is None:
-                                os.environ.pop(environment_key, None)
-                            else:
-                                os.environ[environment_key] = previous_path
-            finally:
-                SOLVER_ENV_LOCK.release()
+            import os
+            from QuPRS.utils import WMC, get_ganak_path
+            from QuPRS.utils.solver_process import SOLVER_ENV_LOCK
+            environment_key = f"QUPRS_{tool_name.upper()}_PATH"
+            # Account for time spent serializing QASM AND waiting on the global
+            # executable-override lock. A queued request must never get a fresh
+            # full timeout budget after another verification finishes.
+            acquired = SOLVER_ENV_LOCK.acquire(
+                timeout=max(0.0, request_deadline - time.monotonic())
+            )
+            if not acquired:
+                rust_res = {
+                    "status": "Timeout",
+                    "verification_time_sec": time.monotonic() - request_started,
+                }
+            else:
+                try:
+                    # Rust core accepts whole seconds. Floor rather than round up
+                    # so that acquiring the lock does not extend the deadline.
+                    remaining = int(request_deadline - time.monotonic())
+                    if remaining < 1:
+                        rust_res = {
+                            "status": "Timeout",
+                            "verification_time_sec": time.monotonic() - request_started,
+                        }
+                    else:
+                        previous_path = os.environ.get(environment_key)
+                        # Keep resource extraction alive and never leak a temporary
+                        # executable path into a later independent verification.
+                        resource = get_ganak_path(verify=False) if tool_name == "ganak" else WMC(tool_name)
+                        with resource as exe_path:
+                            os.environ[environment_key] = str(exe_path)
+                            try:
+                                remaining = int(request_deadline - time.monotonic())
+                                if remaining < 1:
+                                    rust_res = {
+                                        "status": "Timeout",
+                                        "verification_time_sec": time.monotonic() - request_started,
+                                    }
+                                else:
+                                    rust_res = _pathsum_rust.check_equivalence(
+                                        c1_input,
+                                        c2_input,
+                                        method=method,
+                                        strategy=strategy,
+                                        tool_name=tool_name,
+                                        timeout=remaining,
+                                        safe_mode=safe_mode,
+                                        wmc_phase_tolerance=wmc_phase_tolerance,
+                                        approximate_distance_tolerance=approximate_distance_tolerance,
+                                        rr_tolerance=rr_tolerance,
+                                        phase_tolerance=wmc_phase_tolerance,
+                                        gpmc_precision_digits=gpmc_precision_digits,
+                                    )
+                            finally:
+                                if previous_path is None:
+                                    os.environ.pop(environment_key, None)
+                                else:
+                                    os.environ[environment_key] = previous_path
+                finally:
+                    SOLVER_ENV_LOCK.release()
         # Parse rust result dict into EquivalenceCheckResult
         # Handle string mappings
         equiv_map = {

@@ -1,0 +1,466 @@
+name: Rust API Documentation
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'rust/pathsum/src/**'
+      - 'src/QuPRS/__init__.py'
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/gates/**'
+      - 'rust/pathsum/Cargo.toml'
+      - 'rust/Cargo.lock'
+      - 'mkdocs.yml'
+      - 'docs/requirements-site.txt'
+      - 'docs/site/**'
+
+      - 'scripts/check_rust_api_docs.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'src/QuPRS/py.typed'
+      - 'scripts/check_docs_site.py'
+
+      - 'scripts/check_docs_science.py'
+      - 'scripts/check_docs_visual.py'
+      - 'scripts/check_docs_links.py'
+      - 'scripts/docs_versioning.py'
+      - 'docs/requirements-versioned.txt'
+      - '.github/workflows/rust-api-docs.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'rust/pathsum/src/**'
+      - 'src/QuPRS/__init__.py'
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/gates/**'
+      - 'rust/pathsum/Cargo.toml'
+      - 'rust/Cargo.lock'
+      - 'mkdocs.yml'
+      - 'docs/requirements-site.txt'
+      - 'docs/site/**'
+
+      - 'scripts/check_rust_api_docs.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'src/QuPRS/py.typed'
+      - 'scripts/check_docs_site.py'
+
+      - 'scripts/check_docs_science.py'
+      - 'scripts/check_docs_visual.py'
+      - 'scripts/check_docs_links.py'
+      - 'scripts/docs_versioning.py'
+      - 'docs/requirements-versioned.txt'
+      - '.github/workflows/rust-api-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-api-docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  generated-reference:
+    name: Rust API / Generated Reference
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out source and native dependencies
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install documentation dependencies
+        run: python -m pip install -r docs/requirements-site.txt
+      - name: Validate static source-derived Gate reference
+        run: python scripts/check_docs_gate_stubs.py --check
+      - name: Build Python reference and documentation site
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            cp mkdocs.yml mkdocs-preview.yml
+            printf '\nsite_url: https://physicsqoo.github.io/QuPRS/pr-preview/pr-${{ github.event.number }}/\n' >> mkdocs-preview.yml
+            zensical build --strict --clean -f mkdocs-preview.yml
+          else
+            cp mkdocs.yml mkdocs-dev-check.yml
+            printf '\nsite_url: https://physicsqoo.github.io/QuPRS/\n' >> mkdocs-dev-check.yml
+            zensical build --strict --clean -f mkdocs-dev-check.yml
+          fi
+      - name: Verify rendered dynamic Gate API members
+        run: python scripts/check_docs_gate_stubs.py --site
+      - name: Verify public mathematical identities
+        run: python scripts/check_docs_science.py
+      - name: Verify Python reference
+        run: python scripts/check_docs_site.py --site
+      - name: Reuse proven base Rustdoc for Markdown-only PR previews
+        id: reuse-rustdoc
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          # Reuse is safe only when *all* changed files are site Markdown or
+          # site assets. The PR therefore has the same native source as base.
+          if ! git fetch --quiet --no-tags --depth=1 origin "$BASE_SHA"; then
+            echo "Cannot retrieve exact PR base; build native Rustdoc"
+            exit 0
+          fi
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          if (( ${#changed[@]} == 0 )); then
+            echo "No reliable site-only diff; build native Rustdoc"
+            exit 0
+          fi
+          for path in "${changed[@]}"; do
+            if [[ "$path" != docs/site/* ]]; then
+              echo "Non-site change ($path); build native Rustdoc"
+              exit 0
+            fi
+          done
+
+          # Use the *git* gh-pages tree, not an eventually consistent public URL.
+          # Exact source-sha matching prevents mixing Rustdoc from a stale dev.
+          pages="$(mktemp -d)"
+          if ! git clone --quiet --depth=1 --single-branch --branch gh-pages \
+              "https://github.com/$GITHUB_REPOSITORY.git" "$pages/gh-pages"; then
+            echo "Could not retrieve dev Rustdoc; build native Rustdoc"
+            exit 0
+          fi
+          archive="$pages/gh-pages/docs/dev"
+          if [[ ! -f "$archive/source-sha.txt" ||
+                ! -f "$archive/rust-api/pathsum/index.html" ||
+                ! -d "$archive/rust-api/static.files" ]]; then
+            echo "Dev Rustdoc artifact incomplete; build native Rustdoc"
+            exit 0
+          fi
+          actual="$(tr -d '\r\n' < "$archive/source-sha.txt")"
+          if [[ "$actual" != "$BASE_SHA" ]]; then
+            echo "Dev Rustdoc SHA $actual != exact PR base $BASE_SHA; build native Rustdoc"
+            exit 0
+          fi
+          mkdir -p rust/target/doc
+          cp -a "$archive/rust-api/." rust/target/doc/
+          # GitHub Pages' cached dev Rustdoc sometimes contains canonical
+          # absolute links under /docs/dev/. They must point to this PR's
+          # preview subtree; otherwise the strict link audit correctly fails.
+          # Keep this a cache-only rewrite; original generated Rustdoc,
+          # source code and tagged release documents remain unchanged.
+          if ! python - <<'PY'
+          import os
+          from pathlib import Path
+
+          pr = os.environ["PR_NUMBER"]
+          if not pr.isdecimal():
+              raise ValueError("Invalid PR number for Rustdoc preview")
+          source = "https://physicsqoo.github.io/QuPRS/docs/dev/rust-api/"
+          target = f"https://physicsqoo.github.io/QuPRS/pr-preview/pr-{pr}/rust-api/"
+          root = Path("rust/target/doc")
+          if not (root / "pathsum" / "index.html").is_file():
+              raise ValueError("Reused Rustdoc entrypoint missing")
+          count = 0
+          for page in root.rglob("*.html"):
+              html = page.read_text(encoding="utf-8")
+              if source in html:
+                  page.write_text(html.replace(source, target), encoding="utf-8")
+                  count += 1
+          print(f"Rebased absolute dev Rustdoc references in {count} HTML files")
+          PY
+          then
+            rm -rf rust/target/doc
+            echo "Cached Rustdoc URL rewrite failed; rebuild native Rustdoc"
+            exit 0
+          fi
+          echo "used=true" >> "$GITHUB_OUTPUT"
+          echo "Reused source-verified Rustdoc for base $BASE_SHA (site-only PR)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Set up Rust
+        if: steps.reuse-rustdoc.outputs.used != 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build outputs
+        if: steps.reuse-rustdoc.outputs.used != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: rust-api-reference-v1
+      - name: Install native build dependencies
+        if: steps.reuse-rustdoc.outputs.used != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
+      - name: Build Rust library reference
+        if: steps.reuse-rustdoc.outputs.used != 'true'
+        run: cargo doc --locked --manifest-path rust/Cargo.toml -p pathsum --no-deps
+      - name: Run Rust documentation tests
+        if: steps.reuse-rustdoc.outputs.used != 'true'
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
+      - name: Compose and validate both API references
+        run: python scripts/check_rust_api_docs.py --compose --check
+      - name: Audit all internal links against deployment URL prefix
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/pr-preview/pr-${{ github.event.number }}/
+          else
+            python scripts/check_docs_links.py --site site --base-url https://physicsqoo.github.io/QuPRS/
+          fi
+
+      - name: Save source-built Rustdoc for versioned dev publication
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdoc-versioned-dev-${{ github.sha }}
+          path: rust/target/doc/
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Install browser for preview inspection
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m pip install 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+      - name: Inspect real browser rendering
+        if: github.event_name == 'pull_request'
+        run: python scripts/check_docs_visual.py --site site --output docs-preview-review --base-path /QuPRS/pr-preview/pr-${{ github.event.number }}/
+      - name: Upload preview website for review
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-preview-site-pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
+          path: site/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Upload desktop and mobile screenshots
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-visual-review-pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
+          path: docs-preview-review/
+          retention-days: 14
+          if-no-files-found: warn
+
+  preview-deploy:
+    name: Publish review-only preview subtree
+    needs: generated-reference
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Reject stale preview deployments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.number }}" --jq '.head.sha')"
+          test "$current" = "$EXPECTED_SHA"
+      - name: Retrieve reviewed static website
+        uses: actions/download-artifact@v4
+        with:
+          name: quprs-preview-site-pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }}
+          path: preview-site
+      - name: Validate deployed artifact boundaries
+        run: |
+          test -f preview-site/index.html
+          test -f preview-site/path-sum/index.html
+          test -f preview-site/weighted-model-counting/index.html
+          test -f preview-site/examples/index.html
+          test -f preview-site/python-api/index.html
+          test -f preview-site/rust-api/pathsum/index.html
+          test -d preview-site/rust-api/static.files
+          if find preview-site -type l | grep -q .; then
+            echo 'Symlinks are not supported in the preview tree' >&2
+            exit 1
+          fi
+      - name: Check out isolated preview branch
+        uses: actions/checkout@v5
+        with:
+          ref: gh-pages
+          path: preview-branch
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Update only this PR's preview directory
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="preview-branch/pr-preview/pr-${{ github.event.number }}"
+          mkdir -p "$(dirname "$destination")"
+          rm -rf "$destination"
+          mkdir -p "$destination"
+          cp -a preview-site/. "$destination/"
+          printf '%s\n' "$EXPECTED_SHA" > "$destination/source-sha.txt"
+          git -C preview-branch add -- pr-preview/pr-${{ github.event.number }}
+          if git -C preview-branch diff --cached --quiet; then
+            echo 'Preview subtree is already identical to the reviewed artifact'
+          else
+            git -C preview-branch -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit -m 'docs: refresh isolated pull-request preview'
+            git -C preview-branch push origin HEAD:gh-pages
+          fi
+      # The gh-pages tree is the source artifact; its remote provenance is a
+      # correctness gate. Public Pages propagation is asynchronous and cannot
+      # establish whether the source build itself is correct.
+      - name: Verify exact preview artifact on remote gh-pages
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          destination="pr-preview/pr-${{ github.event.number }}"
+          git -C preview-branch fetch --no-tags --depth=1 origin gh-pages
+          remote="$(git -C preview-branch rev-parse FETCH_HEAD)"
+          actual="$(git -C preview-branch show "$remote:$destination/source-sha.txt" | tr -d '\r\n')"
+          if [[ "$actual" != "$EXPECTED_SHA" ]]; then
+            echo "::error::Remote preview source is not the reviewed PR HEAD: $actual"
+            exit 1
+          fi
+          # Validate the exact committed content, not merely the SHA marker.
+          for page in index.html python-api/index.html rust-api/pathsum/index.html; do
+            git -C preview-branch show "$remote:$destination/$page" |
+              cmp - "preview-site/$page"
+          done
+          echo "Reviewed preview artifact matches remote gh-pages branch"
+          echo "### PR preview source" >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified the reviewed HEAD and HTML files in the remote gh-pages tree." >> "$GITHUB_STEP_SUMMARY"
+      - name: Observe public Pages preview (informational)
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base='https://physicsqoo.github.io/QuPRS/pr-preview/pr-${{ github.event.number }}'
+          observed=''
+          # GitHub Pages is eventually consistent. Branch provenance is the
+          # required gate; do not fail source correctness on CDN propagation.
+          for attempt in 1 2 3; do
+            echo "Checking public preview propagation ($attempt/3)"
+            if curl --fail --location --silent --show-error --max-time 10 \
+              -H 'Cache-Control: no-cache' \
+              -o preview-sha.txt "$base/source-sha.txt?v=$EXPECTED_SHA"; then
+              observed="$(tr -d '\r\n' < preview-sha.txt)"
+              if [[ "$observed" == "$EXPECTED_SHA" ]] &&
+                 curl --fail --location --silent --show-error --max-time 10 \
+                   -o preview-home.html "$base/?v=$EXPECTED_SHA" &&
+                 grep -q 'QuPRS' preview-home.html; then
+                echo "Public preview serves reviewed PR HEAD"
+                echo "Public URL: $base/" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          echo "::warning::Public GitHub Pages preview not yet verified for $EXPECTED_SHA (observed: ${observed:-unavailable}). Branch artifact verified; public deployment/propagation must be checked separately."
+          echo "Public URL: $base/ (not yet confirmed for this HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+  versioned-dev-deploy:
+    name: Publish isolated /docs/dev site from reviewed Rustdoc
+    needs: generated-reference
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact tested dev source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned Zensical versioning toolchain
+        run: python -m pip install -r docs/requirements-versioned.txt
+      - name: Retrieve exact-source native documentation
+        uses: actions/download-artifact@v4
+        with:
+          name: rustdoc-versioned-dev-${{ github.sha }}
+          path: rust/target/doc
+      - name: Prepare source-accurate versioned site
+        run: |
+          set -euo pipefail
+          python scripts/docs_versioning.py config --ref dev
+          python scripts/docs_versioning.py stage-native --source-sha "${{ github.sha }}"
+      - name: Stage dev docs in an isolated git branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin gh-pages:refs/heads/gh-pages
+          origin_pages="$(git rev-parse gh-pages)"
+          echo "$origin_pages" > "$RUNNER_TEMP/pages-base.txt"
+          before_root="$(git rev-parse gh-pages:index.html)"
+          before_preview="$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)"
+          was_versioned=false
+          if git cat-file -e gh-pages:docs/index.html 2>/dev/null; then
+            was_versioned=true
+          fi
+          mike deploy --branch gh-pages --config-file mkdocs.versioned.yml dev
+          if [[ "$was_versioned" == false ]]; then
+            mike set-default --branch gh-pages --config-file mkdocs.versioned.yml dev
+          fi
+          test "$(git show gh-pages:docs/dev/source-sha.txt | tr -d '\r\n')" = "${{ github.sha }}"
+          git cat-file -e gh-pages:docs/dev/rust-api/pathsum/index.html
+          test "$(git rev-parse gh-pages:index.html)" = "$before_root"
+          test "$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)" = "$before_preview"
+          git worktree add --detach "$RUNNER_TEMP/versioned-docs" gh-pages
+          python scripts/docs_versioning.py check-layout \
+            --pages "$RUNNER_TEMP/versioned-docs" --versions dev
+          python scripts/check_docs_links.py \
+            --site "$RUNNER_TEMP/versioned-docs/docs/dev" \
+            --base-url https://physicsqoo.github.io/QuPRS/docs/dev/
+      - name: Publish only the isolated docs subtree
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat "$RUNNER_TEMP/pages-base.txt")"
+          actual="$(git ls-remote origin refs/heads/gh-pages | cut -f1)"
+          if [[ "$expected" != "$actual" ]]; then
+            echo 'gh-pages changed since validation; stop without overwriting it' >&2
+            exit 1
+          fi
+          git push origin gh-pages:gh-pages
+      - name: Validate live dev docs provenance
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://physicsqoo.github.io/QuPRS/docs/dev/source-sha.txt'
+          matched=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --location --max-time 12 \
+              -o source-sha.txt "$url?v=$EXPECTED_SHA"; then
+              observed="$(tr -d '\r\n' < source-sha.txt)"
+              if [[ "$observed" == "$EXPECTED_SHA" ]]; then
+                matched=true
+                echo "Live versioned dev source SHA verified ($attempt/30)"
+                break
+              fi
+            fi
+            sleep 8
+          done
+          test "$matched" = true
+          curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
+            -o homepage.html 'https://physicsqoo.github.io/QuPRS/docs/dev/'
+          grep -q 'QuPRS' homepage.html

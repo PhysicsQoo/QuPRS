@@ -1,0 +1,77 @@
+name: Documentation Examples
+
+# Markdown-only theory edits are checked by docs-check.yml without a native
+# rebuild. Executable examples, matcher/adapter changes and CLI source still
+# require the source-built native smoke below.
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'docs/site/examples.md'
+      - 'scripts/check_docs_examples.py'
+      - 'scripts/check_docs_scoped_contract.py'
+      - 'src/QuPRS/pathsum/pattern_match.py'
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/utils/wmc_problem.py'
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'rust/cli/src/args.rs'
+      - '.github/workflows/docs-examples.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'docs/site/examples.md'
+      - 'scripts/check_docs_examples.py'
+      - 'scripts/check_docs_scoped_contract.py'
+      - 'src/QuPRS/pathsum/pattern_match.py'
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/utils/wmc_problem.py'
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'rust/cli/src/args.rs'
+      - '.github/workflows/docs-examples.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-examples-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  examples:
+    name: Public examples / Source-backed smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source and solvers
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify example syntax and public API parameters
+        run: python scripts/check_docs_examples.py --check
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache native build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: public-examples-v1
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
+      - name: Install Python source build
+        run: |
+          python -m pip install --upgrade pip maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Check source-matched rule and adapter contracts
+        run: python scripts/check_docs_scoped_contract.py --runtime
+      - name: Run published Python and native CLI examples
+        run: python scripts/check_docs_examples.py --run

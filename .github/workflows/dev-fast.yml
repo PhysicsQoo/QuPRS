@@ -12,6 +12,8 @@ on:
       - 'benchmarks/**'
       - 'scripts/paper_corpus_audit.py'
       - 'scripts/check_benchmark_evidence.py'
+      - 'scripts/generate_stubs.py'
+      - 'scripts/check_generated_stub.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'GPMC'
       - '.gitmodules'
@@ -113,6 +115,35 @@ jobs:
           python -m pip install maturin
           export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
           maturin develop --release -E dev
+
+      - name: Verify source-correct and deterministic core.pyi regeneration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The checked-in stub is formatted for review. Regeneration need not
+          # rewrite formatting, but must preserve the complete public API.
+          # Griffe/rendering are independently verified in Documentation CI.
+          original="$(mktemp)"
+          generated="$(mktemp)"
+          cp src/QuPRS/pathsum/core.pyi "$original"
+          python scripts/generate_stubs.py --write
+          PYTHONPATH=scripts python - <<'PY'
+          from check_docs_gate_stubs import check_core_stub, check_gate_stub
+          gates = check_gate_stub()
+          check_core_stub(gates)
+          print("Regenerated core.pyi source semantic parity PASS")
+          PY
+          # Compare every generated declaration, return annotation and docstring
+          # to the committed source, ignoring only formatting/import ordering.
+          python scripts/check_generated_stub.py "$original" src/QuPRS/pathsum/core.pyi
+          cp src/QuPRS/pathsum/core.pyi "$generated"
+          python scripts/generate_stubs.py --write
+          if ! cmp -s "$generated" src/QuPRS/pathsum/core.pyi; then
+            echo "::error::core.pyi generator is nondeterministic"
+            exit 1
+          fi
+          echo "Regenerated core.pyi deterministic output PASS"
+          cp "$original" src/QuPRS/pathsum/core.pyi
 
       - name: Verify bundled native solver distribution
         run: python -m QuPRS.utils.ganak_distribution

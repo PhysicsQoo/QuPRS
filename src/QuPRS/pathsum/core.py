@@ -1,5 +1,7 @@
 # src/QuPRS/pathsum/core.py
 
+from typing import ItemsView, Optional, Sequence
+
 import symengine as se
 import sympy as sp
 from sympy.logic.boolalg import to_anf
@@ -11,8 +13,20 @@ from .statistics import StatisticsManager
 
 
 class Register:
+    """Symbolic register identifying the input/output bit positions.
+
+    Args:
+        size: Register width. Ignored when `bits` is provided.
+        name: Prefix for generated symbols (defaults to `"x"`).
+        bits: Optional sequence of existing symbolic bits.
+
+    Notes:
+        Integer indexing returns the symbol at that register position. This is
+        the Python Path-sum interface, not a Qiskit QuantumRegister.
+    """
+
     def __init__(
-        self, size: int | None = None, name: str | None = None, bits=None
+        self, size: int | None = None, name: str | None = None, bits: Optional[Sequence[se.Symbol]] = None
     ) -> None:
         if bits is not None:
             size = len(bits)
@@ -36,15 +50,31 @@ class Register:
     def size(self) -> int:
         return self._size
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self._size
 
-    def __getitem__(self, key: int):
+    def __getitem__(self, key: int) -> se.Symbol:
         return self._bits[key]
 
 
 class F:
-    def __init__(self, *regs, data=None, bits=None) -> None:
+    """Boolean output-state map for a symbolic Path-sum.
+
+    `F[i]` identifies the Boolean expression used for output bit `i`.
+    Expressions are normalized to algebraic normal form (ANF) when calling
+    :meth:`sub`. Boolean substitution uses GF(2) semantics; this does not
+    imply reducing phase-polynomial coefficients modulo two.
+
+    Args:
+        *regs: Symbolic :class:`Register` objects.
+        data: Optional mapping from bit names to Boolean expressions.
+        bits: Optional explicit output-bit order.
+
+    Values remain typed as object: update stores arbitrary objects without
+    input validation, while substitution normalizes through SymPy.
+    """
+
+    def __init__(self, *regs: Register, data: dict[str, object] | None = None, bits: Optional[Sequence[str]] = None) -> None:
         self._regs = tuple(regs)
         self._bits = tuple(bits) if bits is not None else list()
         self._data = data if data is not None else dict()
@@ -76,21 +106,21 @@ class F:
         return self.data == other.data
 
     @property
-    def regs(self):
+    def regs(self) -> tuple[Register, ...]:
         return self._regs
 
     @property
-    def bits(self):
+    def bits(self) -> tuple[str, ...]:
         return self._bits
 
     @property
-    def data(self):
+    def data(self) -> dict[str, object]:
         return self._data
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._bits)
 
-    def __getitem__(self, key: int | se.Symbol | str):
+    def __getitem__(self, key: int | se.Symbol | str) -> object:
         key_name = (
             self._bits[key]
             if isinstance(key, int)
@@ -98,7 +128,16 @@ class F:
         )
         return self.data[key_name]
 
-    def sub(self, arg1, arg2):
+    def sub(self, arg1: object, arg2: object) -> "F":
+        """Substitute a Boolean variable or expression and normalize to ANF.
+
+        Args:
+            arg1: Symbol or expression being replaced.
+            arg2: Replacement Boolean expression.
+
+        Returns:
+            F: A new output map; the original object is not modified.
+        """
         # Only unchanged, already-normalized ANF expressions may bypass
         # SymPy substitution. A non-ANF expression must still run to_anf(),
         # even when the substituted variable is absent.
@@ -128,7 +167,8 @@ class F:
                 new_data[key] = to_anf(expr.subs(arg1, arg2))
         return self.update_data(new_data)
 
-    def update(self, key: int | se.Symbol | str, value):
+    def update(self, key: int | se.Symbol | str, value: object) -> "F":
+        """Return a new map with one output bit replaced by `value`."""
         key_name = (
             self._bits[key]
             if isinstance(key, int)
@@ -138,28 +178,47 @@ class F:
         new_data[key_name] = value
         return F(*self.regs, data=new_data, bits=self.bits)
 
-    def update_data(self, data):
+    def update_data(self, data: dict[str, object]) -> "F":
+        """Return a new map using `data` with the current bit ordering."""
         return F(*self.regs, data=data, bits=self.bits)
 
-    def items(self):
+    def items(self) -> ItemsView[str, object]:
+        """Return the live mapping view of output bit names and stored values."""
         return self.data.items()
 
 
 class PathSum:
-    """Core class for PathSum.
+    """Symbolic quantum-circuit Path-sum representation.
 
-    Includes initialization, basic properties, constructors, and the compose method. All
-    quantum gate, reduction, and statistics_manager functionalities are dynamically
-    added from external modules.
+    Stores the phase polynomial `P`, Boolean output-state mapping `f`,
+    summation variables `pathvar`, and reduction statistics `stats`.
+    See the Path-sum and reduction guide for the mathematical conventions,
+    including the distinction between Boolean substitutions and phase
+    coefficients.
+
+    Args:
+        P: SymEngine phase expression. Do not implicitly reduce coefficients
+            modulo two when constructing this value.
+        f: Boolean output-state map, with output-bit ordering defined by `F`.
+        pathvar: Set or frozenset of internal SymEngine summation variables.
+        stats: Optional :class:`StatisticsManager` shared across operations.
+
+    Notes:
+        Gate methods such as `h`, `cx`, `rz` and `mcx` are installed from
+        Gate subclasses by `attach_gate_methods` at import time. Their
+        source-derived signatures and docstrings are also recorded in the
+        generated `core.pyi` stub so that static API documentation and type
+        tooling can discover them without executing the package.
     """
 
     def __init__(
         self,
         P: se.Expr,
         f: F,
-        pathvar: frozenset | set = frozenset(),
+        pathvar: frozenset[se.Symbol] | set[se.Symbol] = frozenset(),
         stats: StatisticsManager | None = None,
     ) -> None:
+        """Initialize a Path-sum from its phase, output map and path variables."""
         self._P = P
         self._f = f
         self._pathvar = frozenset(pathvar) if isinstance(pathvar, set) else pathvar
@@ -183,11 +242,11 @@ class PathSum:
 
     # --- Properties ---
     @property
-    def regs(self) -> tuple:
+    def regs(self) -> tuple[Register, ...]:
         return self.f.regs
 
     @property
-    def bits(self) -> tuple:
+    def bits(self) -> tuple[str, ...]:
         return self.f.bits
 
     @property
@@ -199,7 +258,7 @@ class PathSum:
         return self._f
 
     @property
-    def pathvar(self) -> frozenset:
+    def pathvar(self) -> frozenset[se.Symbol]:
         return self._pathvar
 
     @property
@@ -215,7 +274,7 @@ class PathSum:
         return self._stats
         # --- Instance methods for statistics ---
 
-    def get_reduction_counts(self) -> dict:
+    def get_reduction_counts(self) -> dict[str, int]:
         """Get a copy of all reduction rule counts for this instance."""
         return self._stats.get_reduction_counts()
 
@@ -227,7 +286,7 @@ class PathSum:
         """Calculate the hit rate of reduction rules for this instance."""
         return self._stats.get_reduction_hitrate()
 
-    def reset_reduction_counts(self):
+    def reset_reduction_counts(self) -> None:
         """Reset all reduction rule counts for this instance to 0."""
         self._stats.reset_reduction_counts()
 
@@ -242,8 +301,17 @@ class PathSum:
     # --- Static Constructors ---
     @staticmethod
     def QuantumCircuit(
-        *regs: Register | int, initial_state: bool | list | tuple = None
+        *regs: Register | int, initial_state: Optional[Sequence[object]] = None
     ) -> "PathSum":
+        """Create the identity Path-sum for the supplied registers or width.
+
+        Args:
+            *regs: A width integer or one or more symbolic Register objects.
+            initial_state: Optional indexable sequence of values converted with SymPy's to_anf; scalar bool is not accepted.
+
+        Returns:
+            PathSum: New symbolic circuit, initially with zero phase.
+        """
         cache_manager.clear_all_caches()
         P = se.S.Zero
         if len(regs) == 1 and isinstance(regs[0], int):
@@ -256,7 +324,7 @@ class PathSum:
 
     @staticmethod
     def load_from_qasm_file(
-        filename: str, initial_state: bool | list | tuple = None
+        filename: str, initial_state: Optional[Sequence[object]] = None
     ) -> "PathSum":
         from qiskit import qasm2, qasm3
 
@@ -271,7 +339,7 @@ class PathSum:
 
     @staticmethod
     def load_from_qasm_str(
-        program: str, initial_state: bool | list | tuple = None
+        program: str, initial_state: Optional[Sequence[object]] = None
     ) -> "PathSum":
         from qiskit import qasm2, qasm3
 
@@ -283,6 +351,12 @@ class PathSum:
         return build_circuit(qiskit_circuit, initial_state)
 
     def compose(self, other_pathsum: "PathSum") -> "PathSum":
+        """Compose two Path-sums with compatible ordered input/output bits.
+
+        Returns a new simplified object, alpha-renaming overlapping summation
+        variables before substitution to avoid variable capture. Raises
+        AssertionError if the bit order does not match.
+        """
         assert (
             self.bits == other_pathsum.bits
         ), f"Bits mismatch: {self.bits} != {other_pathsum.bits}"

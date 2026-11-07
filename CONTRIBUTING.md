@@ -65,7 +65,68 @@ tests. Do not compare CodSpeed Simulation modeled CPU time with Walltime
 seconds as if they were the same metric. Preserve historical baselines when
 benchmark coverage, solver versions or measurement environments change.
 
+## User-facing changes and release notes
+
+A public pull request should describe the externally observable result, not
+only the implementation. For API, Rust/Python or solver changes, specify
+which entry points, parameters, defaults, verdicts, numerical thresholds,
+resource guarantees or supported platforms change, and which remain
+unchanged. Link the affected implementation and a small reproducible test;
+where a solver is inconclusive, do not report that as inequivalence.
+
+New or changed public examples must work in the environment they describe.
+A successful source build is not a substitute for an installed wheel/sdist
+check when packaging or supported-platform behavior changes. Conversely,
+documentation-only contributions should use the existing documentation CI
+without triggering a second platform release matrix.
+
+Record user-visible compatibility changes under the **Unreleased**
+CHANGELOG section until a release tag is actually published. Before an
+official version is announced, confirm that the Python package version,
+Rust workspace version, supported wheel targets and release notes agree.
+Only the protected `dev` to `main` Release-Ready gate admits the final
+source and installed-artifact matrices. Generated Python stubs and native
+Rustdoc must represent the exact matching source version.
+
+See [the current v0.15.0 upgrade preview](docs/development/v0150-migration.md)
+for planned compatibility boundaries; it is not a published release.
+
 ## Documentation
+
+### Python type stub synchronization
+
+The Python class definitions in `src/QuPRS/pathsum/core.py` and Gate subclasses
+in `src/QuPRS/pathsum/gates/` are authoritative. The committed
+`src/QuPRS/pathsum/core.pyi` is a **generated** typing/documentation artifact;
+do not change public signatures in the stub without updating the source.
+
+Check after source or gate changes (requires only the pinned documentation
+tooling, not a native Rust build):
+
+```console
+python -m pip install -r docs/requirements-site.txt
+python scripts/generate_stubs.py --check
+```
+
+If a stub needs regenerating, use a development environment with QuPRS and
+its native extension installed:
+
+```console
+python scripts/generate_stubs.py --write
+python scripts/generate_stubs.py --check
+```
+
+Commit the updated stub alongside the Python source and review the diff.
+The documentation CI runs the read-only check automatically on relevant PRs.
+It verifies regular class members, dynamically attached Gate signatures,
+docstrings and static Griffe resolution; the generated HTML is checked
+separately. After a native development build, Dev Fast CI additionally
+compares the **committed** stub with a fresh `--write` result using
+`scripts/check_generated_stub.py`: declaration signatures, annotations,
+return types and documentation must match, while cosmetic formatting is
+ignored. A second regeneration must produce identical output. CI does
+**not** commit or overwrite your generated stub.
+
 
 Keep public documentation focused on installation, supported interfaces,
 scientific behavior, configuration, reproducibility and contribution

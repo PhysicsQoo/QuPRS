@@ -37,6 +37,29 @@ def main() -> None:
     if not imported.is_relative_to(site) or not native_path.is_relative_to(site):
         raise AssertionError(f"Not an installed package: {imported}, {native_path}, site={site}")
 
+    # PEP 561 typing data must exist in the installed wheel or sdist
+    # (source-tree presence alone is not packaging evidence).
+    typing_marker = imported.parent / "py.typed"
+    pathsum_stub = imported.parent / "pathsum" / "core.pyi"
+    if not typing_marker.is_file() or typing_marker.read_bytes():
+        raise AssertionError(f"Installed QuPRS py.typed marker missing/invalid: {typing_marker}")
+    if not pathsum_stub.is_file() or not pathsum_stub.resolve().is_relative_to(site):
+        raise AssertionError(f"Installed PathSum typing stub missing: {pathsum_stub}")
+    import ast
+    stub = ast.parse(pathsum_stub.read_text(encoding="utf-8"), filename=str(pathsum_stub))
+    core_classes = {
+        node.name: node for node in stub.body if isinstance(node, ast.ClassDef)
+    }
+    for name in ("Register", "F", "PathSum"):
+        if name not in core_classes:
+            raise AssertionError(f"Installed typing stub is incomplete: {name}")
+    static_gates = {
+        node.name for node in core_classes["PathSum"].body
+        if isinstance(node, ast.FunctionDef)
+    }
+    if not {"h", "cx", "rz", "mcx", "CRk", "reduction"}.issubset(static_gates):
+        raise AssertionError("Installed typing stub omits representative PathSum methods")
+
     identity = QuantumCircuit(1)
     hh = QuantumCircuit(1)
     hh.h(0)
@@ -95,6 +118,40 @@ def main() -> None:
                 raise
         else:
             raise AssertionError(f"Rust QASM2 must reject unequal explicit scalar phases: {solver}")
+
+    # Exercise the *installed archive's* private Python/Rust isolation
+    # files. Source-tree editable installs can conceal packaging omissions.
+    isolated_files = (
+        "rust_isolation.py", "rust_supervisor.py", "rust_resources.py",
+        "rust_worker_bootstrap.py", "rust_worker_standalone.py",
+        "rust_macos_process.py",
+    )
+    interface_dir = imported.parent / "interface"
+    for filename in isolated_files:
+        helper = interface_dir / filename
+        if not helper.is_file() or not helper.resolve().is_relative_to(site):
+            raise AssertionError(f"Missing installed Rust Worker helper: {helper}")
+
+    isolated_cases = (
+        ("equivalent", identity, "equivalent"),
+        ("inequivalent", inequivalent, "not_equivalent"),
+    )
+    for label, circuit, expected_status in isolated_cases:
+        common = dict(
+            backend="rust", method="reduction_rules", timeout=60,
+        )
+        direct = check_equivalence(identity, circuit, safe_mode=False, **common)
+        isolated = check_equivalence(identity, circuit, safe_mode=True, **common)
+        if (direct.equivalent != expected_status
+                or isolated.equivalent != direct.equivalent):
+            raise AssertionError(
+                f"installed isolated Rust parity failed: {label}: "
+                f"direct={direct.equivalent}, isolated={isolated.equivalent}"
+            )
+        measurements.append({
+            "case": label, "backend": "rust_isolated",
+            "equivalent": isolated.equivalent,
+        })
 
     print(json.dumps({
         "version": expected, "python": sys.version.split()[0],

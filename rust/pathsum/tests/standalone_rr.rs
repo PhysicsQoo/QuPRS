@@ -26,3 +26,15 @@ fn standalone_rr_cannot_mislabel_an_x_gate_as_identity() {
     assert_ne!(result.status, EquivalenceStatus::EquivalentUpToGlobalPhase);
     assert!(!result.solver_invoked);
 }
+
+#[test]
+fn standalone_wmc_only_reports_error_instead_of_panicking() {
+    let options = VerificationOptions {
+        method: VerificationMethod::WmcOnly,
+        ..VerificationOptions::default()
+    };
+    // X versus I is not an unweighted tautology and must not call WMC.
+    let result = check_equivalence_with_options(1, &[QuantumOp::X(0)], &[], &options);
+    let err = result.expect_err("standalone-rr must not use a WMC solver");
+    assert!(err.to_string().contains("standalone-rr"));
+}

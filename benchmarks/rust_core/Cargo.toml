@@ -7,7 +7,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-pathsum = { path = "../../rust/pathsum" }
+pathsum = { package = "quprs", path = "../../rust/pathsum" }
 divan = { package = "codspeed-divan-compat", version = "=6.0.0" }
 
 [workspace]

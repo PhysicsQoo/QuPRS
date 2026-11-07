@@ -10,8 +10,8 @@ use anyhow::{bail, Result};
 /// # Examples
 ///
 /// ```rust
-/// use pathsum::{QuantumCircuit, VerificationOptions, EquivalenceStatus};
-/// use pathsum::verification::check_equivalence;
+/// use quprs::{QuantumCircuit, VerificationOptions, EquivalenceStatus};
+/// use quprs::verification::check_equivalence;
 /// let original = QuantumCircuit::new(1);
 /// let optimized = QuantumCircuit::new(1);
 /// let result = check_equivalence(&original, &optimized, &VerificationOptions::default())?;

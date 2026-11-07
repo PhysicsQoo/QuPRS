@@ -108,8 +108,8 @@ def stage_native_reference(source_sha: str) -> None:
     if git("rev-parse", "HEAD").stdout.strip() != source_sha:
         raise AssertionError("Native documentation source SHA differs from Zensical checkout")
     native = ROOT / "rust" / "target" / "doc"
-    if not (native / "pathsum" / "index.html").is_file():
-        raise AssertionError("Missing source-built rustdoc/pathsum/index.html")
+    if not (native / "quprs" / "index.html").is_file():
+        raise AssertionError("Missing source-built rustdoc/quprs/index.html")
     if not (native / "static.files").is_dir():
         raise AssertionError("Rustdoc static files are missing")
     destination = ROOT / "docs" / "site" / "rust-api"
@@ -118,10 +118,20 @@ def stage_native_reference(source_sha: str) -> None:
     if any(p.is_symlink() for p in native.rglob("*")):
         raise AssertionError("Rustdoc contains unsupported symlinks")
     shutil.copytree(native, destination)
+    # Old development preview links remain valid after crate renaming.
+    legacy = destination / "pathsum"
+    legacy.mkdir()
+    (legacy / "index.html").write_text(
+        '<!doctype html><html><meta charset="utf-8">'
+        '<meta http-equiv="refresh" content="0;url=../quprs/index.html">'
+        '<title>Rust API moved</title>'
+        '<a href="../quprs/index.html">quprs API</a></html>\n',
+        encoding="utf-8",
+    )
     (destination / "index.html").write_text(
         '<!doctype html><html><meta charset="utf-8">'
-        '<meta http-equiv="refresh" content="0;url=pathsum/index.html">'
-        '<title>Rust API</title><a href="pathsum/index.html">pathsum</a></html>\n',
+        '<meta http-equiv="refresh" content="0;url=quprs/index.html">'
+        '<title>Rust API</title><a href="quprs/index.html">quprs</a></html>\n',
         encoding="utf-8",
     )
     (ROOT / "docs" / "site" / "source-sha.txt").write_text(source_sha + "\n", encoding="ascii")
@@ -136,7 +146,7 @@ def check_local_layout(root: Path, expected: tuple[str, ...]) -> None:
         if not re.fullmatch(r"dev|v[0-9]+\.[0-9]+\.[0-9]+(?:-test)?|stable", version):
             raise AssertionError(f"Unsafe version: {version}")
         names = ("index.html", "python-api/index.html", "reference/index.html",
-                 "rust-api/pathsum/index.html")
+                 "rust-api/quprs/index.html", "rust-api/pathsum/index.html")
         # Redirect aliases expose HTML pages; the source stamp belongs to the
         # immutable version directory (or the separately updated dev directory).
         if version != "stable":

@@ -1,13 +1,13 @@
 #![cfg(feature = "external-wmc")]
 // Installed external solvers are passed via QUPRS_GPMC_PATH / QUPRS_GANAK_PATH.
 // All cases exercise the packaged Rust library, never the Python wheel.
-use pathsum::{
+use quprs::{
     check_equivalence_with_options, EquivalenceStatus, VerificationMethod,
     VerificationOptions,
 };
-use pathsum::ir::QuantumOp;
+use quprs::ir::QuantumOp;
 
-fn verify(method: VerificationMethod, tool: &str, digits: u32, gates: &[QuantumOp]) -> pathsum::EquivalenceCheckResult {
+fn verify(method: VerificationMethod, tool: &str, digits: u32, gates: &[QuantumOp]) -> quprs::EquivalenceCheckResult {
     let options = VerificationOptions {
         method,
         tool_name: tool.to_owned(),
@@ -72,10 +72,10 @@ fn missing_solver_fails_closed() {
 
 #[test]
 fn public_facade_hybrid_uses_real_gpmc_and_retains_python_result_names() {
-    let mut source = pathsum::QuantumCircuit::new(1);
+    let mut source = quprs::QuantumCircuit::new(1);
     source.h(0).unwrap();
-    let reference = pathsum::QuantumCircuit::new(1);
-    let result = pathsum::verification::check_equivalence(
+    let reference = quprs::QuantumCircuit::new(1);
+    let result = quprs::verification::check_equivalence(
         &source, &reference, &VerificationOptions::default()
     ).unwrap();
     assert_eq!(result.status, EquivalenceStatus::NotEquivalent);

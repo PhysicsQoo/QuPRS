@@ -152,7 +152,7 @@ jobs:
           fi
           archive="$pages/gh-pages/docs/dev"
           if [[ ! -f "$archive/source-sha.txt" ||
-                ! -f "$archive/rust-api/pathsum/index.html" ||
+                ! -f "$archive/rust-api/quprs/index.html" ||
                 ! -d "$archive/rust-api/static.files" ]]; then
             echo "Dev Rustdoc artifact incomplete; build native Rustdoc"
             exit 0
@@ -179,7 +179,7 @@ jobs:
           source = "https://physicsqoo.github.io/QuPRS/docs/dev/rust-api/"
           target = f"https://physicsqoo.github.io/QuPRS/pr-preview/pr-{pr}/rust-api/"
           root = Path("rust/target/doc")
-          if not (root / "pathsum" / "index.html").is_file():
+          if not (root / "quprs" / "index.html").is_file():
               raise ValueError("Reused Rustdoc entrypoint missing")
           count = 0
           for page in root.rglob("*.html"):
@@ -212,17 +212,18 @@ jobs:
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
       - name: Build Rust library reference
         if: steps.reuse-rustdoc.outputs.used != 'true'
-        run: cargo doc --locked --manifest-path rust/Cargo.toml -p pathsum --no-deps
+        run: cargo doc --locked --manifest-path rust/Cargo.toml -p quprs --no-deps
       - name: Run Rust documentation tests
         if: steps.reuse-rustdoc.outputs.used != 'true'
-        run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p quprs --doc
       - name: Check solver-free Rust library build
         run: |
-          cargo check --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --test standalone_rr
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --test public_api_parity
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features standalone-rr --lib solver_adapter::standalone_tests
-          cargo check --locked --manifest-path rust/Cargo.toml -p pathsum --no-default-features --features external-wmc,high-precision-gpmc
+          # Solver provisioning is a deliberate build-mode choice, not a Cargo
+          # feature. Every compiled feature combination retains Hybrid/WMC.
+          QUPRS_SOLVER_PROVISION=external cargo check --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features
+          QUPRS_SOLVER_PROVISION=external cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --test standalone_rr
+          QUPRS_SOLVER_PROVISION=external cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --test public_api_parity
+          QUPRS_SOLVER_PROVISION=external cargo check --locked --manifest-path rust/Cargo.toml -p quprs --all-features
       - name: Package complete Rust crate and test external GPMC/Ganak consumers
         # This extends the existing Rustdoc job; site-only PRs reuse native evidence.
         if: github.event_name == 'pull_request' && steps.reuse-rustdoc.outputs.used != 'true'
@@ -255,6 +256,8 @@ jobs:
           export QUPRS_GANAK_PATH="$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak"
           test -x "$QUPRS_GPMC_PATH"
           test -x "$QUPRS_GANAK_PATH"
+          cargo check --manifest-path "$unpacked/Cargo.toml" --all-features
+          cargo test --manifest-path "$unpacked/Cargo.toml" --no-default-features --test standalone_rr
           cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc
           cargo test --manifest-path "$unpacked/Cargo.toml" --test public_api_parity
           QUPRS_GPMC_PATH="$RUNNER_TEMP/absent-gpmc" cargo test \
@@ -364,7 +367,7 @@ jobs:
           test -f preview-site/weighted-model-counting/index.html
           test -f preview-site/examples/index.html
           test -f preview-site/python-api/index.html
-          test -f preview-site/rust-api/pathsum/index.html
+          test -f preview-site/rust-api/quprs/index.html
           test -d preview-site/rust-api/static.files
           if find preview-site -type l | grep -q .; then
             echo 'Symlinks are not supported in the preview tree' >&2
@@ -415,7 +418,7 @@ jobs:
             exit 1
           fi
           # Validate the exact committed content, not merely the SHA marker.
-          for page in index.html python-api/index.html rust-api/pathsum/index.html; do
+          for page in index.html python-api/index.html rust-api/quprs/index.html; do
             git -C preview-branch show "$remote:$destination/$page" |
               cmp - "preview-site/$page"
           done
@@ -502,7 +505,7 @@ jobs:
             mike set-default --branch gh-pages --config-file mkdocs.versioned.yml dev
           fi
           test "$(git show gh-pages:docs/dev/source-sha.txt | tr -d '\r\n')" = "${{ github.sha }}"
-          git cat-file -e gh-pages:docs/dev/rust-api/pathsum/index.html
+          git cat-file -e gh-pages:docs/dev/rust-api/quprs/index.html
           test "$(git rev-parse gh-pages:index.html)" = "$before_root"
           test "$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)" = "$before_preview"
           git worktree add --detach "$RUNNER_TEMP/versioned-docs" gh-pages

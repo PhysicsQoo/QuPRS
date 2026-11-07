@@ -26,7 +26,7 @@ Clone the repository and its native GPMC dependency:
 ```sh
 git clone --recurse-submodules https://github.com/PhysicsQoo/QuPRS.git
 cd QuPRS
-cargo test --manifest-path rust/Cargo.toml -p pathsum
+cargo test --manifest-path rust/Cargo.toml -p quprs
 ```
 
 The **default monorepo build** currently provisions the pinned GPMC/Ganak
@@ -34,11 +34,11 @@ executables and integrates with the Python wheel. It is not the isolated
 crate installation path.
 
 For a source-only Rust build that **does not download or build the
-WMC solvers**, use the `external-wmc` feature:
+WMC solvers**, set the explicit provisioning mode (not a Cargo feature):
 
 ```sh
-cargo check --manifest-path rust/Cargo.toml -p pathsum \
-  --no-default-features --features external-wmc,high-precision-gpmc
+QUPRS_SOLVER_PROVISION=external cargo check --manifest-path rust/Cargo.toml -p quprs \
+  --all-features
 ```
 
 This preserves the full verification API and the high-precision MPFR
@@ -71,7 +71,10 @@ download and executable checksums, then configure its absolute path:
 export QUPRS_GANAK_PATH="/absolute/path/to/ganak"
 ```
 
-Do not download binaries during `cargo build`. Using an explicit solver
+The source-checkout default can provision its pinned solvers for the
+existing Python/CLI build; the staged registry crate never downloads them.
+Use `QUPRS_SOLVER_PROVISION=external` in a source checkout to opt out.
+Do not download binaries during a registry consumer's `cargo build`. Using an explicit solver
 path is an **override**, not proof that the executable matches a
 pinned artifact. Only use binaries obtained from trusted sources and
 verified against the relevant release manifest. An override that cannot
@@ -84,13 +87,13 @@ A missing executable causes a solver execution error, **not**
 
 ## Use the Rust API
 
-For the current source workspace, the crate is named `pathsum`:
+The canonical source workspace crate and library are named `quprs`:
 
 ```rust
-use pathsum::{
+use quprs::{
     EquivalenceStatus, QuantumCircuit, VerificationMethod, VerificationOptions,
 };
-use pathsum::verification::check_equivalence;
+use quprs::verification::check_equivalence;
 
 let mut original = QuantumCircuit::new(1);
 original.h(0)?;
@@ -123,7 +126,8 @@ the typed Rust façade rejects that invalid comparison before invoking
 a solver and does not fabricate a final symbolic residual.
 
 An independent consumer of the eventually released registry package
-will instead import `quprs::...`.
+uses the same `quprs::...` imports as the source workspace. The package is
+not yet released on crates.io.
 
 `VerificationOptions::default()` selects Hybrid, GPMC, 30 solver
 decimal digits and the existing tolerance defaults. Explicit GPMC

@@ -1,6 +1,6 @@
 //! API parity tests for supported Rust-native input and Python result names.
 //! External WMC integration tests cover actual GPMC/Ganak execution.
-use pathsum::{
+use quprs::{
     ir::QuantumOp,
     rational::{Angle, FreeRational},
     verification,
@@ -22,7 +22,7 @@ fn facade_matches_low_level_rr_without_copying_source_operations() {
     let borrowed_ops = left.operations().as_ptr();
     let options = rr_options();
     let result = verification::check_equivalence(&left, &right, &options).unwrap();
-    let low_level = pathsum::check_equivalence_with_options(
+    let low_level = quprs::check_equivalence_with_options(
         1, left.operations(), right.operations(), &options
     ).unwrap();
     assert_eq!(left.operations().as_ptr(), borrowed_ops);
@@ -98,7 +98,7 @@ fn reduction_unknown_and_global_phase_have_python_spellings() {
     let rz = QuantumCircuit::from_ops(1, vec![QuantumOp::RZ(0, theta.clone())]).unwrap();
     let p = QuantumCircuit::from_ops(1, vec![QuantumOp::P(0, theta)]).unwrap();
     let options = VerificationOptions {
-        strategy: pathsum::VerificationStrategy::Naive,
+        strategy: quprs::VerificationStrategy::Naive,
         ..rr_options()
     };
     let result = verification::check_equivalence(&rz, &p, &options).unwrap();
@@ -166,7 +166,7 @@ fn from_ops_rejects_invalid_last_gate_without_exposing_partial_circuit() {
 #[test]
 fn qasm_parse_preserves_exact_angles_when_adopting_parsed_vec() {
     let source = "OPENQASM 3.0;\nqubit[2] q;\nrz(1.2345678901234567) q[0];\ncx q[0], q[1];\n";
-    let (ops, width) = pathsum::qasm::parse_qasm_str(source).unwrap();
+    let (ops, width) = quprs::qasm::parse_qasm_str(source).unwrap();
     let from_ops = QuantumCircuit::from_ops(width, ops).unwrap();
     let parsed = QuantumCircuit::from_qasm_str(source).unwrap();
     assert_eq!(from_ops, parsed);

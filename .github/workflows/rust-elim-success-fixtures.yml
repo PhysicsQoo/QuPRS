@@ -82,7 +82,7 @@ jobs:
           mkdir -p elim-fixture-results
           CPU="$(python -c 'import os; print(min(os.sched_getaffinity(0)))')"
           taskset -c "$CPU" cargo test --locked --release --manifest-path rust/Cargo.toml \
-            -p pathsum --lib diagnostics::tests::controlled_elim_success_failure_cost_matrix \
+            -p quprs --lib diagnostics::tests::controlled_elim_success_failure_cost_matrix \
             -- --exact --nocapture --test-threads=1 2>&1 |
             tee elim-fixture-results/rust-test.log
       - name: Validate every structural record, success and failed outcome

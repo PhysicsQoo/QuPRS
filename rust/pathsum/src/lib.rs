@@ -151,7 +151,7 @@ impl EquivalenceCheckResult {
 /// # Example
 ///
 /// ```rust
-/// use pathsum::{VerificationMethod, VerificationOptions};
+/// use quprs::{VerificationMethod, VerificationOptions};
 /// let options = VerificationOptions::default();
 /// assert_eq!(options.method, VerificationMethod::Hybrid);
 /// ```

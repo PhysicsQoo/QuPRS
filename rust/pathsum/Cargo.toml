@@ -1,7 +1,8 @@
 # rust/pathsum/Cargo.toml
 
 [package]
-name = "pathsum"
+name = "quprs"
+autobins = false
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -9,6 +10,10 @@ description = "Native path-sum reduction and equivalence checking for quantum ci
 license = "MIT"
 repository = "https://github.com/PhysicsQoo/QuPRS"
 keywords = ["quantum", "verification", "pathsum", "equivalence"]
+
+[lib]
+name = "quprs"
+path = "src/lib.rs"
 
 [dependencies]
 rustc-hash = "2.0"

@@ -13,7 +13,7 @@ dependencies = [
  "indicatif",
  "libc",
  "log",
- "pathsum",
+ "quprs",
  "tempfile",
 ]
 
@@ -1176,7 +1176,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pathsum"
+name = "quprs"
 version = "0.15.0"
 dependencies = [
  "anyhow",
@@ -1377,7 +1377,7 @@ dependencies = [
 name = "quprs_python"
 version = "0.15.0"
 dependencies = [
- "pathsum",
+ "quprs",
  "pyo3",
 ]
 

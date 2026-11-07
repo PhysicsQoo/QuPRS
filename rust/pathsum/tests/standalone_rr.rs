@@ -1,7 +1,7 @@
 // RR-only verification is selected by method, not a compile-time Cargo feature.
 // These tests intentionally require no installed WMC solver.
-use pathsum::{check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
-use pathsum::ir::QuantumOp;
+use quprs::{check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
+use quprs::ir::QuantumOp;
 
 #[test]
 fn standalone_rr_identity_has_no_solver_invocation() {

@@ -1,6 +1,6 @@
 //! Emit source-tagged native weighted-CNF fixtures and run each named solver.
 use std::{env, fs, path::Path};
-use pathsum::{qasm, wmc::WmcManager, PathSum, VerificationStrategy};
+use quprs::{qasm, wmc::WmcManager, PathSum, VerificationStrategy};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);

@@ -258,6 +258,7 @@ jobs:
           test -x "$QUPRS_GANAK_PATH"
           cargo check --manifest-path "$unpacked/Cargo.toml" --all-features
           cargo test --manifest-path "$unpacked/Cargo.toml" --no-default-features --test standalone_rr
+          cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc -- --list | grep -F "wmc_only_x_uses_real_ganak: test"
           cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc
           cargo test --manifest-path "$unpacked/Cargo.toml" --test public_api_parity
           QUPRS_GPMC_PATH="$RUNNER_TEMP/absent-gpmc" cargo test \

@@ -163,6 +163,7 @@ jobs:
           export QUPRS_GANAK_PATH="$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak"
           test -x "$QUPRS_GPMC_PATH"
           test -x "$QUPRS_GANAK_PATH"
+          cargo test --manifest-path "$crate/Cargo.toml" --test external_wmc -- --list | grep -F "wmc_only_x_uses_real_ganak: test"
           cargo test --manifest-path "$crate/Cargo.toml" --test external_wmc
           cargo test --manifest-path "$crate/Cargo.toml" --test public_api_parity
           QUPRS_GPMC_PATH="$RUNNER_TEMP/quprs-missing-gpmc" cargo test \

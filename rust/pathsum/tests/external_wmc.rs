@@ -1,4 +1,3 @@
-#![cfg(feature = "external-wmc")]
 // Installed external solvers are passed via QUPRS_GPMC_PATH / QUPRS_GANAK_PATH.
 // All cases exercise the packaged Rust library, never the Python wheel.
 use quprs::{

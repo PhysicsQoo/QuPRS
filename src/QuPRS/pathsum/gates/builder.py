@@ -86,7 +86,7 @@ def build_docstring(gate_cls: Type[Gate], signature: inspect.Signature) -> str:
         "theta": "The rotation angle theta in radians.",
         "phi": "The rotation angle phi in radians.",
         "lam": "The rotation angle lambda in radians.",
-        "gamma": "The global phase factor.",
+        "gamma": "The global phase angle in radians.",
         "k": "The integer parameter for the controlled rotation.",
     }
 

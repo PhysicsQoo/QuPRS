@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import symengine as se
 import sympy as sp
+from qiskit.circuit import ParameterExpression
 
 import QuPRS
 
@@ -364,7 +365,7 @@ class PathSum:
 
     def cp(
         self,
-        theta,
+        theta: "int | float | se.Expr | sp.Expr | ParameterExpression",
         control_qubit: "int | str | se.Symbol",
         target_qubit: "int | str | se.Symbol",
         is_bra: "bool" = False,
@@ -373,7 +374,7 @@ class PathSum:
         Applies the CP gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             control_qubit (int | str | se.Symbol): The control qubit.
             target_qubit (int | str | se.Symbol): The target qubit.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
@@ -385,7 +386,7 @@ class PathSum:
 
     def crx(
         self,
-        theta,
+        theta: "int | float | se.Expr | sp.Expr | ParameterExpression",
         control_qubit: "int | str | se.Symbol",
         target_qubit: "int | str | se.Symbol",
         is_bra: "bool" = False,
@@ -394,7 +395,7 @@ class PathSum:
         Applies the CRX gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             control_qubit (int | str | se.Symbol): The control qubit.
             target_qubit (int | str | se.Symbol): The target qubit.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
@@ -406,7 +407,7 @@ class PathSum:
 
     def cry(
         self,
-        theta,
+        theta: "int | float | se.Expr | sp.Expr | ParameterExpression",
         control_qubit: "int | str | se.Symbol",
         target_qubit: "int | str | se.Symbol",
         is_bra: "bool" = False,
@@ -415,7 +416,7 @@ class PathSum:
         Applies the CRY gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             control_qubit (int | str | se.Symbol): The control qubit.
             target_qubit (int | str | se.Symbol): The target qubit.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
@@ -427,7 +428,7 @@ class PathSum:
 
     def crz(
         self,
-        theta,
+        theta: "int | float | se.Expr | sp.Expr | ParameterExpression",
         control_qubit: "int | str | se.Symbol",
         target_qubit: "int | str | se.Symbol",
         is_bra: "bool" = False,
@@ -436,7 +437,7 @@ class PathSum:
         Applies the CRZ gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             control_qubit (int | str | se.Symbol): The control qubit.
             target_qubit (int | str | se.Symbol): The target qubit.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
@@ -448,10 +449,10 @@ class PathSum:
 
     def cu(
         self,
-        theta,
-        phi,
-        lam,
-        gamma,
+        theta: "int | float | se.Expr | sp.Expr | ParameterExpression",
+        phi: "int | float | se.Expr | sp.Expr | ParameterExpression",
+        lam: "int | float | se.Expr | sp.Expr | ParameterExpression",
+        gamma: "int | float | se.Expr | sp.Expr | ParameterExpression",
         control_qubit: "int | str | se.Symbol",
         target_qubit: "int | str | se.Symbol",
         is_bra: "bool" = False,
@@ -460,10 +461,10 @@ class PathSum:
         Applies the CU gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
-            phi (Any): The rotation angle phi in radians.
-            lam (Any): The rotation angle lambda in radians.
-            gamma (Any): The global phase factor.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
+            phi (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle phi in radians.
+            lam (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle lambda in radians.
+            gamma (int | float | se.Expr | sp.Expr | ParameterExpression): The global phase angle in radians.
             control_qubit (int | str | se.Symbol): The control qubit.
             target_qubit (int | str | se.Symbol): The target qubit.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
@@ -475,7 +476,7 @@ class PathSum:
 
     def cu1(
         self,
-        theta,
+        theta: "int | float | se.Expr | sp.Expr | ParameterExpression",
         control_qubit: "int | str | se.Symbol",
         target_qubit: "int | str | se.Symbol",
         is_bra: "bool" = False,
@@ -484,7 +485,7 @@ class PathSum:
         Applies the CU1 gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             control_qubit (int | str | se.Symbol): The control qubit.
             target_qubit (int | str | se.Symbol): The target qubit.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
@@ -496,9 +497,9 @@ class PathSum:
 
     def cu3(
         self,
-        theta,
-        phi,
-        lam,
+        theta: "int | float | se.Expr | sp.Expr | ParameterExpression",
+        phi: "int | float | se.Expr | sp.Expr | ParameterExpression",
+        lam: "int | float | se.Expr | sp.Expr | ParameterExpression",
         control_qubit: "int | str | se.Symbol",
         target_qubit: "int | str | se.Symbol",
         is_bra: "bool" = False,
@@ -507,9 +508,9 @@ class PathSum:
         Applies the CU3 gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
-            phi (Any): The rotation angle phi in radians.
-            lam (Any): The rotation angle lambda in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
+            phi (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle phi in radians.
+            lam (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle lambda in radians.
             control_qubit (int | str | se.Symbol): The control qubit.
             target_qubit (int | str | se.Symbol): The target qubit.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
@@ -618,13 +619,13 @@ class PathSum:
         ...
 
     def p(
-        self, theta, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, theta: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the P gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 
@@ -634,13 +635,13 @@ class PathSum:
         ...
 
     def rx(
-        self, theta, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, theta: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the RX gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 
@@ -650,13 +651,13 @@ class PathSum:
         ...
 
     def ry(
-        self, theta, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, theta: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the RY gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 
@@ -666,13 +667,13 @@ class PathSum:
         ...
 
     def rz(
-        self, theta, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, theta: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the RZ gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 
@@ -779,15 +780,15 @@ class PathSum:
         ...
 
     def u(
-        self, theta, phi, lam, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, theta: "int | float | se.Expr | sp.Expr | ParameterExpression", phi: "int | float | se.Expr | sp.Expr | ParameterExpression", lam: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the U gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
-            phi (Any): The rotation angle phi in radians.
-            lam (Any): The rotation angle lambda in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
+            phi (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle phi in radians.
+            lam (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle lambda in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 
@@ -797,13 +798,13 @@ class PathSum:
         ...
 
     def u1(
-        self, theta, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, theta: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the U1 gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 
@@ -813,14 +814,14 @@ class PathSum:
         ...
 
     def u2(
-        self, phi, lam, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, phi: "int | float | se.Expr | sp.Expr | ParameterExpression", lam: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the U2 gate to the specified qubit.
 
         Args:
-            phi (Any): The rotation angle phi in radians.
-            lam (Any): The rotation angle lambda in radians.
+            phi (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle phi in radians.
+            lam (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle lambda in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 
@@ -830,15 +831,15 @@ class PathSum:
         ...
 
     def u3(
-        self, theta, phi, lam, qubit: "int | str | se.Symbol", is_bra: "bool" = False
+        self, theta: "int | float | se.Expr | sp.Expr | ParameterExpression", phi: "int | float | se.Expr | sp.Expr | ParameterExpression", lam: "int | float | se.Expr | sp.Expr | ParameterExpression", qubit: "int | str | se.Symbol", is_bra: "bool" = False
     ) -> "PathSum":
         """
         Applies the U3 gate to the specified qubit.
 
         Args:
-            theta (Any): The rotation angle theta in radians.
-            phi (Any): The rotation angle phi in radians.
-            lam (Any): The rotation angle lambda in radians.
+            theta (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle theta in radians.
+            phi (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle phi in radians.
+            lam (int | float | se.Expr | sp.Expr | ParameterExpression): The rotation angle lambda in radians.
             qubit (int | str | se.Symbol): The qubit to which the gate is applied.
             is_bra (bool): Whether the input is a bra state. Defaults to False.
 

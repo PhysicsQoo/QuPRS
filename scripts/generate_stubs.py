@@ -135,6 +135,7 @@ def generate_stub_file():
         "import QuPRS",
         "import symengine as se",
         "import sympy as sp",
+        "from qiskit.circuit import ParameterExpression",
         "\n",
     ]
     classes_to_stub = [core_module.Register, core_module.F, core_module.PathSum]

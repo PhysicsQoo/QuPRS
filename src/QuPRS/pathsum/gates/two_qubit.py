@@ -5,6 +5,7 @@ import math
 
 import symengine as se
 import sympy as sp
+from qiskit.circuit import ParameterExpression
 from sympy.logic.boolalg import to_anf
 
 from QuPRS.utils.util import div_pi, logical_to_algebraic, reduce_expression
@@ -257,7 +258,7 @@ class CRkdgGate(TwoQubitGate):
 class CPGate(TwoQubitGate):
     gate_name = "cp"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.theta = div_pi(theta)
 
     def apply(
@@ -299,7 +300,7 @@ class CPGate(TwoQubitGate):
 class CRZGate(TwoQubitGate):
     gate_name = "crz"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.theta = div_pi(theta)
 
     def apply(
@@ -343,7 +344,7 @@ class CRZGate(TwoQubitGate):
 class CRYGate(TwoQubitGate):
     gate_name = "cry"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.ry_pos = RyGate(theta / 2)
         self.ry_neg = RyGate(-theta / 2)
         self.cx = CXGate()
@@ -365,7 +366,7 @@ class CRYGate(TwoQubitGate):
 class CRXGate(TwoQubitGate):
     gate_name = "crx"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.h = HGate()
         self.crz = CRZGate(theta)
 
@@ -388,14 +389,14 @@ class CRXGate(TwoQubitGate):
 class CU1Gate(CPGate):
     gate_name = "cu1"
 
-    def __init__(self, theta):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression):
         super().__init__(theta)
 
 
 class CU3Gate(TwoQubitGate):
     gate_name = "cu3"
 
-    def __init__(self, theta, phi, lam):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression, phi: int | float | se.Expr | sp.Expr | ParameterExpression, lam: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.crz_lam = CRZGate(lam)
         self.cry_theta = CRYGate(theta)
         self.crz_phi = CRZGate(phi)
@@ -418,7 +419,7 @@ class CU3Gate(TwoQubitGate):
 class CUGate(TwoQubitGate):
     gate_name = "cu"
 
-    def __init__(self, theta, phi, lam, gamma):
+    def __init__(self, theta: int | float | se.Expr | sp.Expr | ParameterExpression, phi: int | float | se.Expr | sp.Expr | ParameterExpression, lam: int | float | se.Expr | sp.Expr | ParameterExpression, gamma: int | float | se.Expr | sp.Expr | ParameterExpression):
         self.cu3 = CU3Gate(theta, phi, lam)
         self.cp_gamma = CPGate(gamma)
 

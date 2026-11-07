@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased (planned v0.15.0)
+
+These changes are integrated on the development branch but **v0.15.0 has not
+yet been released**. This section will be finalized against the protected
+release tag before publication.
+
+### Python/Rust execution and compatibility
+
+- Add optional process-supervised Rust verification to the existing
+  `check_equivalence(..., backend="rust", safe_mode=True)` interface. The
+  default `safe_mode=False` remains in-process PyO3. The isolated path uses
+  the same verifier and result type, **not** the standalone Rust CLI. POSIX
+  resource-control guarantees differ by platform; see
+  [Python Rust isolation](docs/python_rust_isolation.md).
+- Preserve the existing solver selection, RR/phase/projective-distance
+  numerical semantics, and supported Python 3.11–3.13, Qiskit 1.x–2.x and
+  Linux/macOS 15+ wheel families. This development release does not announce
+  d4 as a built-in solver, a new WMC proof certificate, Qiskit 3.x or
+  Python 3.14 support.
+
+### Public documentation and release quality
+
+- Provide Zensical user guides, source-derived Python class references and
+  native Rustdoc under one documentation site. Published versioned
+  documentation begins with **v0.15.0**; older tags will not be backfilled.
+- Synchronize the generated `core.pyi` interface and installable `py.typed`
+  metadata with the public Python source, including dynamically defined gate
+  members; verify with source, installed-wheel typing and documentation CI.
+- Add executable one-qubit EQ/NEQ/global-phase/solver/safe-mode examples and
+  source-backed Elim/HH/Omega theory witnesses. Keep tolerance-dependent
+  matcher acceptance separate from exact mathematical equivalence.
+- Verify `dev` and immutable release documentation publication separately,
+  including the `stable` alias, deployment source SHA, and live Pages checks.
+  Avoid re-running expensive artifact matrices for obsolete PR commits.
+
+See the [v0.15.0 candidate upgrade guide](docs/development/v0150-migration.md)
+for differences from v0.14.1 and the release-status boundary.
+
 ## v0.14.1 — Rust CLI resource supervision and maintenance
 
 ### Rust CLI reliability and resource controls

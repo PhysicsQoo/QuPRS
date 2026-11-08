@@ -97,3 +97,46 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   assert.doesNotMatch(pytest, /--require-complete/,
     "Strict performance completeness remains opt-in, not release correctness");
 }
+
+ 
+// Optional crates.io publishing must remain a separately authorized tag-only
+// successor to the successful PyPI + GitHub release job. Negative mutations
+// guard against weakening the opt-in / OIDC / isolated-package boundary.
+{
+  const publishYaml = fs.readFileSync(".github/workflows/python-publish.yml", "utf8");
+  assert.equal((publishYaml.match(/^  publish_crates_io:$/gm) || []).length, 1,
+    "Exactly one optional crates.io publish job is required");
+  const job = publishYaml.split(/^  publish_crates_io:\s*$/m)[1];
+  function requireCratesGate(yaml) {
+    assert.match(yaml, /needs: \[verify_release_ref, publish\]/,
+      "Rust publish must wait for verified successful PyPI/GitHub release");
+    assert.match(yaml, /github\.event_name == 'push'/,
+      "Rust publication must never run from workflow_dispatch or a PR");
+    assert.match(yaml, /github\.ref_type == 'tag'/);
+    assert.match(yaml, /startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+    assert.match(yaml, /vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'/,
+      "Rust publish must require an explicit repository-level opt-in");
+    assert.match(yaml, /environment: crates-io/,
+      "Rust publish needs a dedicated protected environment");
+    assert.match(yaml, /permissions:\n      contents: read\n      id-token: write/,
+      "Only the Rust publishing job may request an OIDC token");
+    assert.match(yaml, /scripts\/stage_rust_crate_candidate\.py/,
+      "Never publish the workspace directly");
+    assert.match(yaml, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --dry-run/);
+    assert.match(yaml, /uses: rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
+    assert.match(yaml, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
+    assert.match(yaml, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io/);
+    assert.match(yaml, /QUPRS_SOLVER_PROVISION: external/);
+  }
+  requireCratesGate(job);
+  for (const [name, mutated] of [
+    ["remove opt-in", job.replace("vars.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'", "true")],
+    ["enable manual publishing", job.replace("github.event_name == 'push'", "github.event_name == 'workflow_dispatch'")],
+    ["remove successful PyPI dependency", job.replace("needs: [verify_release_ref, publish]", "needs: verify_release_ref")],
+    ["remove OIDC permission", job.replace("id-token: write", "id-token: read")],
+    ["publish non-isolated package", job.replace('cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io', 'cargo publish --manifest-path rust/Cargo.toml --registry crates-io')],
+  ]) {
+    assert.throws(() => requireCratesGate(mutated), undefined, name);
+  }
+  console.log("Optional crates.io publish gate: positive and 5 negative source controls passed");
+}

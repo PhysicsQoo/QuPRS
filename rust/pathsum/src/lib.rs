@@ -58,7 +58,12 @@ use anyhow::Result;
 use std::time::Instant;
 use log::{info, debug};
 use num_traits::ToPrimitive;
-/// Verification Method Selection
+/// Select the native equivalence-verification pipeline.
+/// 
+/// `ReductionRules` uses symbolic reduction without an external WMC solver.
+/// `Hybrid` attempts reduction first, then may fall back to weighted counting.
+/// `WmcOnly` selects the counting path, which can still complete analytically
+/// without launching a solver process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationMethod {
     Hybrid,

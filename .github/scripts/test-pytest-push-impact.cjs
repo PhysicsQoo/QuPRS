@@ -134,6 +134,27 @@ async function tests(){
   assert.match(workflow, /test-pytest-push-impact\.cjs/);
   assert.match(workflow, /codspeed-pr-impact\.cjs/,
     'Shared Rustdoc lexer modification must trigger Pytest full source validation');
+  // A later Rustdoc-only push must not cancel the previous source-changing
+  // push before its 12-platform correctness matrix has finished.
+  const concurrency=workflow.match(/^concurrency:\n((?:  .*\n)+)\n/m);
+  assert.ok(concurrency,'Workflow-level concurrency exists');
+  assert.match(concurrency[1],/^  group: .*github\.workflow.*github\.ref.*github\.event_name == 'push' && github\.sha \|\| 'shared'/m,
+    'Push concurrency group must include exact github.sha');
+  assert.match(concurrency[1],/^  cancel-in-progress: .*github\.event_name != 'push'/m,
+    'Pushes may not cancel existing correctness runs');
+  const group=(eventName,sha,ref='refs/heads/dev',name='Python Pytest CI')=>
+    [name,ref,eventName==='push'?sha:'shared'].join('-');
+  const shouldCancel=eventName=>eventName!=='push';
+  const shaA='a'.repeat(40),shaB='b'.repeat(40);
+  assert.notEqual(group('push',shaA),group('push',shaB),'Different push SHAs do not share a group');
+  assert.equal(shouldCancel('push'),false,'A push does not cancel another push');
+  for(const event of ['pull_request','workflow_call','workflow_dispatch']){
+    assert.equal(group(event,shaA),group(event,shaB),'Same-ref group preserved for '+event);
+    assert.equal(shouldCancel(event),true,'Original cancellation retained for '+event);
+  }
+  assert.notEqual(group('push',shaA,'refs/heads/main'),group('push',shaA),
+    'Main and dev have separate groups');
+
   const m=workflow.match(/\n      - id: scope\n([\s\S]*?)\n  build:\n/);
   assert.ok(m,'source step must precede build');
   const embedded=m[1].split('          script: |\n')[1];

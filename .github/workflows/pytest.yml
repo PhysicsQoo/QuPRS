@@ -31,8 +31,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Distinct push SHAs cannot cancel one another, including docs-only pushes.
+  # Keep stale-run cancellation for non-push callers.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'shared' }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   source-admission:

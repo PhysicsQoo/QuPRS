@@ -29,6 +29,37 @@ for (const path of [
 ]) assert.equal(isMeasured(path), false, `CI/docs-only must not measure: ${path}`);
 assert.equal(isMeasured(undefined), false);
 
+
+// Rustdoc-only source changes must not consume new CodSpeed measurements.
+// The lexical check is deliberately conservative for uncertain/invalid input.
+const {isRustDocOnlyChange} = require('./codspeed-pr-impact.cjs');
+const rustOriginal = '/// Before\npub fn run() -> i32 { 2 }\n';
+assert.equal(isRustDocOnlyChange(rustOriginal, '/// After\npub fn run() -> i32 { 2 }\n'), true);
+assert.equal(isRustDocOnlyChange(rustOriginal, '//! Module\n'+rustOriginal), true);
+assert.equal(isRustDocOnlyChange(rustOriginal, '/// After\npub fn run() -> i32 { 3 }\n'), false);
+assert.equal(isRustDocOnlyChange(rustOriginal, '//// Ordinary comment\npub fn run() -> i32 { 2 }\n'), false);
+assert.equal(isRustDocOnlyChange('pub fn a() {}\n', 'pub fn a() {}\n'), false);
+assert.equal(isRustDocOnlyChange('pub fn a() {}\n', 'pub fn a() { }\n'), false);
+assert.equal(isRustDocOnlyChange('const S: &str = r#"\n/// Before\n"#;\n',
+  'const S: &str = r#"\n/// After\n"#;\n'), false, 'raw strings are data');
+assert.equal(isRustDocOnlyChange(
+  'const S = r'+'#'.repeat(40)+'"a " b\n/// Before\n"'+ '#'.repeat(40)+';\n',
+  'const S = r'+'#'.repeat(40)+'"a " b\n/// After\n"'+ '#'.repeat(40)+';\n'),
+  false, 'long-delimiter raw string with embedded quotes is data');
+assert.equal(isRustDocOnlyChange('const S: &str = "start\n/// Before\nend";\n',
+  'const S: &str = "start\n/// After\nend";\n'), false, 'multiline strings are data');
+assert.equal(isRustDocOnlyChange('/* outer /* nested */\n/// Before\n*/\npub fn a() {}\n',
+  '/* outer /* nested */\n/// After\n*/\npub fn a() {}\n'), false, 'block comments cannot masquerade as docs');
+assert.equal(isRustDocOnlyChange("let c = '/';\n/// Before\nfn f() {}\n",
+  "let c = '/';\n/// After\nfn f() {}\n"), true, 'char literal context');
+assert.equal(isRustDocOnlyChange('/// Before\n#[derive(Debug)]\nstruct A;\n',
+  '/// After\n#[derive(Debug)]\nstruct A;\n'), true, 'doctests remain a separate required gate');
+assert.equal(isRustDocOnlyChange('pub fn a() {}\n', '/// New doc\npub fn a() {}\n'), true);
+assert.equal(isRustDocOnlyChange('/// Old\npub fn a() {}\n', 'pub fn a() {}\n'), true);
+assert.equal(isRustDocOnlyChange('/// Old\n/* unterminated', '/// New\n/* unterminated'), false);
+assert.equal(isRustDocOnlyChange('/// Old\npub fn a() {}\n', '/// New\npub fn a() {}\n#[cfg(test)] mod extra {}'), false);
+assert.equal(isRustDocOnlyChange('/// Old\npub fn a() {}\n', '/// New\npub fn a() {}\n'+'.'.repeat(150001)), false);
+
 const workflow = fs.readFileSync('.github/workflows/codspeed.yml', 'utf8');
 const prEvents = workflow.match(/^  pull_request:\n    types: \[([^\]]+)\]/m)?.[1] || '';
 assert.match(prEvents, /opened/);
@@ -36,6 +67,17 @@ assert.match(prEvents, /synchronize/);
 assert.match(prEvents, /edited/, 'existing explicit PR-body pilot trigger must remain');
 assert.doesNotMatch(prEvents, /ready_for_review/, 'Ready transition must not rerun same source HEAD');
 assert.match(workflow, /^  workflow_dispatch:/m, 'manual pilot dispatch must remain');
+// The workflow embeds JavaScript in YAML: compile the real source_scope step,
+// not just the imported helper, to catch escaping corruption before CI admission.
+const admission = workflow.match(/\n      - id: source_scope\n([\s\S]*?)\n      - id: resolve\n/);
+assert.ok(admission, 'source_scope workflow step must exist');
+const script = admission[1].split('          script: |\n')[1];
+assert.ok(script, 'source_scope script body must exist');
+const dedented = script.split('\n').map(line =>
+  line.startsWith('            ') ? line.slice(12) : line).join('\n');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+assert.doesNotThrow(() => new AsyncFunction('context', 'github', 'core', 'Buffer', dedented),
+  'GitHub Actions source_scope must remain syntactically valid');
 assert.match(workflow, /id: source_scope/);
 assert.match(workflow, /if: \$\{\{ steps\.source_scope\.outputs\.run_source == 'true' \}\}/);
 process.stdout.write('codspeed-pr-impact: source relevance / ready / manual pilot contracts passed\n');

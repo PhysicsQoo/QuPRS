@@ -181,8 +181,49 @@ jobs:
               requiredJobs: [{"prefix":"Run benchmarks (3.12, ","count":5},{"name":"Same SHA native Rust CPU","count":1},{"name":"Paired Solver-inclusive CodSpeed WallTime","count":1},{"name":"Per-SHA CodSpeed cross-instrument evidence","count":1}]
             });
 
-  codspeed:
+  ganak-prefetch:
+    name: Pinned Ganak download once for parallel CodSpeed jobs
     needs: [ci-impact]
+    if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Restore pinned Ganak archive cache
+        uses: actions/cache@v4
+        with:
+          path: rust/target/ganak-release-cache
+          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+
+      - name: Download or verify the pinned upstream Ganak archive
+        run: |
+          set -euo pipefail
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          test -n "$filename" && test -n "$expected"
+          mkdir -p rust/target/ganak-release-cache
+          archive="rust/target/ganak-release-cache/$filename"
+          if ! echo "$expected  $archive" | sha256sum --check --status; then
+            tmp="$(mktemp)"
+            trap 'rm -f "$tmp"' EXIT
+            if ! curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --output "$tmp" "https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/$filename"; then
+              curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --header 'Accept: application/octet-stream' --output "$tmp" 'https://api.github.com/repos/meelgroup/ganak/releases/assets/626470725'
+            fi
+            echo "$expected  $tmp" | sha256sum --check
+            mv "$tmp" "$archive"
+          fi
+          echo "$expected  $archive" | sha256sum --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-ganak-2-8-0-linux-x64
+          path: rust/target/ganak-release-cache/
+          if-no-files-found: error
+          retention-days: 1
+
+  codspeed:
+    needs: [ci-impact, ganak-prefetch]
     if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Run benchmarks
     runs-on: ubuntu-latest
@@ -222,12 +263,15 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
 
-      - name: Cache verified Ganak release archive
-        uses: actions/cache@v4
+      - name: Restore this-run pinned Ganak archive
+        uses: actions/download-artifact@v4
         with:
+          name: quprs-ganak-2-8-0-linux-x64
           path: rust/target/ganak-release-cache
-          # Archive bytes are SHA256-validated by build.rs on every restore.
-          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+      - name: Fail closed on an invalid Ganak archive
+        run: |
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          echo "$expected  rust/target/ganak-release-cache/$filename" | sha256sum --check
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -278,7 +322,7 @@ jobs:
           retention-days: 14
 
   pr-solver-inclusive-walltime:
-    needs: [ci-impact]
+    needs: [ci-impact, ganak-prefetch]
     name: Paired Solver-inclusive CodSpeed WallTime
     # Unlike CPU Simulation, measure complete verifier + GPMC/Ganak elapsed time.
     if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.base_sha != '')) }}
@@ -302,6 +346,21 @@ jobs:
           submodules: recursive
           persist-credentials: false
           path: pr-walltime-base
+
+      - name: Restore this-run pinned Ganak archive
+        uses: actions/download-artifact@v4
+        with:
+          name: quprs-ganak-2-8-0-linux-x64
+          path: rust/target/ganak-release-cache
+      - name: Fail closed on an invalid Ganak archive
+        run: |
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          echo "$expected  rust/target/ganak-release-cache/$filename" | sha256sum --check
+
+      - name: Populate exact-base Ganak archive cache
+        run: |
+          mkdir -p pr-walltime-base/rust/target/ganak-release-cache
+          cp rust/target/ganak-release-cache/* pr-walltime-base/rust/target/ganak-release-cache/
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -411,7 +470,7 @@ jobs:
 
 
   native-core:
-    needs: [ci-impact]
+    needs: [ci-impact, ganak-prefetch]
     if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Same SHA native Rust CPU
     runs-on: ubuntu-24.04
@@ -425,12 +484,15 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - name: Cache verified Ganak release archive
-        uses: actions/cache@v4
+      - name: Restore this-run pinned Ganak archive
+        uses: actions/download-artifact@v4
         with:
+          name: quprs-ganak-2-8-0-linux-x64
           path: rust/target/ganak-release-cache
-          # Archive bytes are SHA256-validated by build.rs on every restore.
-          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+      - name: Fail closed on an invalid Ganak archive
+        run: |
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          echo "$expected  rust/target/ganak-release-cache/$filename" | sha256sum --check
 
       - name: Prepare source-pinned Cargo benchmark
         run: |

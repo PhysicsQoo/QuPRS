@@ -87,7 +87,16 @@ A missing executable causes a solver execution error, **not**
 
 ## Use the Rust API
 
-The canonical source workspace crate and library are named `quprs`:
+The canonical Rust package and library are `quprs`. The high-level
+`quprs::verification::check_equivalence` accepts two validated
+`QuantumCircuit` inputs and `VerificationOptions`.
+
+### Start with ReductionRules (no external WMC executable)
+
+This complete Rust example compares two Hadamard gates with the identity.
+`ReductionRules` never starts GPMC or Ganak. Build-time provisioning is a
+separate setting: `QUPRS_SOLVER_PROVISION=external` avoids installing
+solvers in a source checkout without removing any verification methods.
 
 ```rust
 use quprs::{
@@ -95,47 +104,141 @@ use quprs::{
 };
 use quprs::verification::check_equivalence;
 
-let mut original = QuantumCircuit::new(1);
-original.h(0)?;
-let optimized = QuantumCircuit::new(1);
+fn main() {
+    let mut original = QuantumCircuit::new(1);
+    original.h(0).expect("valid H");
+    original.h(0).expect("valid H");
+    let identity = QuantumCircuit::new(1);
 
-let options = VerificationOptions {
-    method: VerificationMethod::Hybrid,
-    ..VerificationOptions::default()
-};
-let result = check_equivalence(&original, &optimized, &options)?;
-assert_eq!(result.status, EquivalenceStatus::NotEquivalent);
-assert_eq!(result.equivalent(), "not_equivalent");
-assert!(result.wmc_solver_invoked());
+    let options = VerificationOptions {
+        method: VerificationMethod::ReductionRules,
+        ..VerificationOptions::default()
+    };
+    let result = check_equivalence(&original, &identity, &options)
+        .expect("valid comparison");
+    assert_eq!(result.status, EquivalenceStatus::Equivalent);
+    assert!(!result.wmc_solver_invoked());
+}
 ```
 
-The snippet assumes it is placed inside a Rust function returning
-`anyhow::Result<()>` and that a valid GPMC executable is available.
-`QuantumCircuit::from_qasm_str(source)` and
-`QuantumCircuit::from_qasm_file(path)` use the same strict unitary
-OpenQASM parser as the existing Rust CLI and preserve exact source angles.
-For more gate variants, use `QuantumCircuit::push(QuantumOp::...)`, which
-validates wire indices and preserves the native `Angle` representation.
+With a source checkout, use `rust/pathsum` as the local path dependency
+(whose Cargo package name is `quprs`). Irreducible RR-only comparisons
+can return `EquivalenceStatus::Unknown`, not a proof of inequality.
 
-The Rust result provides Python-name compatibility methods:
-`equivalent()`, `wmc_solver_invoked()`, `final_pathsum()` and
-`gate_num()`. They are read-only accessors on the original typed result,
-with no duplicated status state or Path-sum copy. Unlike Python's Qiskit
-wrapper, which returns `not_equivalent` for differing register widths,
-the typed Rust façade rejects that invalid comparison before invoking
-a solver and does not fabricate a final symbolic residual.
+### Extend to Hybrid and WmcOnly with external solvers
 
-An independent consumer of the eventually released registry package
-uses the same `quprs::...` imports as the source workspace. The package is
-not yet released on crates.io.
+To perform WMC, first install GPMC or Ganak as described above and provide
+its executable through `QUPRS_GPMC_PATH`, `QUPRS_GANAK_PATH`, or `PATH`.
+This example runs Hybrid with GPMC, followed by WMC-only with Ganak:
 
-`VerificationOptions::default()` selects Hybrid, GPMC, 30 solver
-decimal digits and the existing tolerance defaults. Explicit GPMC
-90-digit solver mode is supported, but **solver print precision is not
-a proof of exact or certified numerical error bounds**. Ganak's
-printed precision may be insufficient for tight thresholds.
-Use `solver_invoked` to distinguish a genuine external solver call
-from a reduction or exact analytic shortcut.
+```rust
+use quprs::{
+    EquivalenceStatus, QuantumCircuit, VerificationMethod, VerificationOptions,
+};
+use quprs::verification::check_equivalence;
+
+fn main() {
+    let identity = QuantumCircuit::new(1);
+    let mut h = QuantumCircuit::new(1);
+    h.h(0).expect("valid H");
+
+    let hybrid = check_equivalence(
+        &h, &identity, &VerificationOptions::default(),
+    ).expect("GPMC must be installed");
+    assert_eq!(hybrid.status, EquivalenceStatus::NotEquivalent);
+    assert!(hybrid.wmc_solver_invoked());
+
+    let mut x = QuantumCircuit::new(1);
+    x.x(0).expect("valid X");
+    let options = VerificationOptions {
+        method: VerificationMethod::WmcOnly,
+        tool_name: "ganak".to_owned(),
+        ..VerificationOptions::default()
+    };
+    let wmc = check_equivalence(&x, &identity, &options)
+        .expect("Ganak must be installed");
+    assert_eq!(wmc.status, EquivalenceStatus::NotEquivalent);
+    assert!(wmc.wmc_solver_invoked());
+}
+```
+
+These assertions are for the shown circuits, **not** a solver-arithmetic
+certificate for arbitrary inputs. Missing solvers, invalid inputs and solver
+failures return errors; there is no automatic solver fallback.
+
+### VerificationOptions: defaults, units and validation
+
+The native verifier validates these fields on each request:
+
+| Rust field | Default | Valid values or meaning |
+| --- | --- | --- |
+| `method` | `Hybrid` | `ReductionRules`, `Hybrid`, `WmcOnly`; runtime method, not a Cargo feature |
+| `strategy` | `Difference` | Also `Proportional`, `Naive`, `Straightforward` |
+| `tool_name` | `"gpmc"` | `"gpmc"` or `"ganak"`, no implicit fallback |
+| `timeout_secs` | `600` | Requested seconds; in-process symbolic work is not guaranteed a hard whole-call deadline |
+| `rr_tolerance` | `1e-10` | Finite, nonnegative matching threshold; not radians |
+| `phase_tolerance` | `1e-8` | Global-phase threshold in **radians**; finite and strictly between 0 and 1 |
+| `wmc_phase_tolerance` | `1e-8` | Compatibility alias of the same phase threshold, in **radians** |
+| `approximate_distance_tolerance` | `Some(1e-8)` | Projective Hilbert–Schmidt **distance**, finite `0 < x < 1`; `None` also selects the `1e-8` default, not “off” |
+| `gpmc_precision_digits` | `30` | `30` or `90`; `90` applies to GPMC only |
+
+Change **one** of `phase_tolerance` or `wmc_phase_tolerance` and
+leave the other at its default `1e-8`; if both are non-default and
+different, native validation returns an error. The fields do not create
+two independent phase classifications.
+
+The RR matching tolerance is not an angle threshold, and projective
+distance is not radians or raw trace-magnitude error. Solver printed
+30/90 digits are **not** a certified bound on numerical arithmetic error.
+
+### QuantumCircuit, PathSum, and source-preserving Angle
+
+`QuantumCircuit` holds an owned, validated sequence of `QuantumOp`
+gates and a register width. It is **not** a symbolic `PathSum`;
+the verifier constructs symbolic Path-sums and reduces them internally.
+Use `result.final_pathsum()` to borrow the remaining symbolic residual.
+
+`QuantumCircuit::from_qasm_str` and `from_qasm_file` accept the
+supported unitary OpenQASM 2/3 subset, rejecting unsupported operations.
+Supported decimal radian literals remain exact rational terms and `pi`
+factors remain symbolic in `Angle` rather than silently becoming `f64`.
+The Rust rotation helpers require `Angle`:
+
+```rust
+use quprs::{rational::Angle, QuantumCircuit};
+
+fn main() {
+    let angle = Angle::from_qasm_str("1.2345678901234567")
+        .expect("supported exact angle");
+    let mut direct = QuantumCircuit::new(1);
+    direct.rz(0, angle).expect("valid RZ");
+    let qasm = QuantumCircuit::from_qasm_str(
+        "OPENQASM 3.0;\nqubit[1] q;\nrz(1.2345678901234567) q[0];\n"
+    ).expect("supported QASM");
+    assert_eq!(direct, qasm);
+}
+```
+
+An unsupported QASM operation or arbitrary unbound Qiskit expression is
+not silently approximated by the native Rust circuit type.
+
+### Read the native result
+
+Rust keeps `result.status: EquivalenceStatus` as an enum;
+`result.equivalent()` returns the Python-compatible verdict spelling
+(`equivalent`, `equivalent*`, `not_equivalent`, `unknown`,
+`Timeout`, `MemoryOut`). `wmc_solver_invoked()`, `gate_num()`
+and `final_pathsum()` are read-only, non-copying accessors corresponding
+to Python attributes of those names.
+
+Unlike Python's Qiskit wrapper, which returns `not_equivalent` for
+unequal circuit widths, native Rust rejects mismatched widths as an
+**input-validation error** before solver invocation. `Unknown`,
+`Timeout`, `MemoryOut` and execution errors do not prove inequality.
+
+An independent consumer of an eventual registry release uses the same
+`quprs::` imports as the workspace. The crate is **not yet published**
+on crates.io.
 
 ## Build and runtime contracts
 

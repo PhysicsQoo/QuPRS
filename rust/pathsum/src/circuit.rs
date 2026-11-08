@@ -4,7 +4,28 @@ use crate::{ir::QuantumOp, qasm, rational::Angle};
 use anyhow::{bail, Result};
 use std::path::Path;
 
-/// Validated native quantum circuit; distinct from the symbolic PathSum.
+/// Validated native `QuantumOp` gate-list input, **not** a symbolic
+/// [`crate::PathSum`]. Verification converts gate lists to symbolic
+/// Path-sums internally and exposes the residual via the result.
+///
+/// Supported QASM 2/3 decimal angles are preserved as exact rational
+/// radian terms and supported `pi` factors remain symbolic in [`Angle`].
+/// Rotation helpers take `Angle` values, not silently rounded `f64`.
+/// Unsupported QASM operations cause parsing errors.
+///
+/// # Example
+///
+/// ```rust
+/// use quprs::{rational::Angle, QuantumCircuit};
+/// let angle = Angle::from_qasm_str("1.2345678901234567")?;
+/// let mut direct = QuantumCircuit::new(1);
+/// direct.rz(0, angle)?;
+/// let parsed = QuantumCircuit::from_qasm_str(
+///     "OPENQASM 3.0;\nqubit[1] q;\nrz(1.2345678901234567) q[0];\n"
+/// )?;
+/// assert_eq!(direct, parsed);
+/// # Ok::<(), anyhow::Error>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuantumCircuit {
     num_qubits: usize,

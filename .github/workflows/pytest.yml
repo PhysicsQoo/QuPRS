@@ -27,6 +27,7 @@ on:
       - '.github/workflows/pytest.yml'
       - '.github/scripts/ci-pytest-push-impact.cjs'
       - '.github/scripts/test-pytest-push-impact.cjs'
+      - '.github/scripts/codspeed-pr-impact.cjs'
   workflow_dispatch:
 
 concurrency:

@@ -132,6 +132,8 @@ async function tests(){
   assert.match(workflow, /python-version: \["3.11", "3.12", "3.13"\]/);
   assert.match(workflow, /os: \[ubuntu-latest, ubuntu-24\.04-arm, macos-15-intel, macos-15\]/);
   assert.match(workflow, /test-pytest-push-impact\.cjs/);
+  assert.match(workflow, /codspeed-pr-impact\.cjs/,
+    'Shared Rustdoc lexer modification must trigger Pytest full source validation');
   const m=workflow.match(/\n      - id: scope\n([\s\S]*?)\n  build:\n/);
   assert.ok(m,'source step must precede build');
   const embedded=m[1].split('          script: |\n')[1];

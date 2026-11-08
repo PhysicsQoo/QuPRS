@@ -106,8 +106,8 @@ async function tests(){
   await run({compareStatus:'diverged'},'divergent history');
   await run({behind:1},'behind base');
   await run({baseCommit:'c'.repeat(40)},'different base commit');
-  await run({total:101,commits:[after]},'truncated commit comparison');
-  await run({total:2,commits:[after]},'missing commits');
+  await run({total:101,commits:[newSHA]},'truncated commit comparison');
+  await run({total:2,commits:[newSHA]},'missing commits');
   await run({commits:['c'.repeat(40)]},'different last commit');
   await run({failCompare:true},'compare API failure');
   await run({failGet:true},'content API failure');

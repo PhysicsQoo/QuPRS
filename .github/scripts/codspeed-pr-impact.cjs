@@ -69,7 +69,7 @@ function rustWithoutDocLines(source) {
         i += 2;
         continue;
       }
-      const raw = /^(?:b|c)?r(#{0,32})"/.exec(line.slice(i));
+      const raw = /^(?:b|c)?r(#{0,255})"/.exec(line.slice(i));
       if (raw && (i === 0 || !/[a-zA-Z0-9_]/.test(line[i - 1]))) {
         mode = 'raw';
         hashes = raw[1].length;

@@ -42,6 +42,10 @@ assert.equal(isRustDocOnlyChange('pub fn a() {}\n', 'pub fn a() {}\n'), false);
 assert.equal(isRustDocOnlyChange('pub fn a() {}\n', 'pub fn a() { }\n'), false);
 assert.equal(isRustDocOnlyChange('const S: &str = r#"\n/// Before\n"#;\n',
   'const S: &str = r#"\n/// After\n"#;\n'), false, 'raw strings are data');
+assert.equal(isRustDocOnlyChange(
+  'const S = r'+'#'.repeat(40)+'"a " b\n/// Before\n"'+ '#'.repeat(40)+';\n',
+  'const S = r'+'#'.repeat(40)+'"a " b\n/// After\n"'+ '#'.repeat(40)+';\n'),
+  false, 'long-delimiter raw string with embedded quotes is data');
 assert.equal(isRustDocOnlyChange('const S: &str = "start\n/// Before\nend";\n',
   'const S: &str = "start\n/// After\nend";\n'), false, 'multiline strings are data');
 assert.equal(isRustDocOnlyChange('/* outer /* nested */\n/// Before\n*/\npub fn a() {}\n',

@@ -1,10 +1,10 @@
 //! End-to-end native regressions for exact source-decimal angle identities.
 //! These are production QASM -> IR -> gate -> PhasePolynomial -> reduction,
 //! not a standalone reference-model implementation.
-use pathsum::{check_equivalence, check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
-use pathsum::qasm::parse_qasm_str;
-use pathsum::rational::Angle;
-use pathsum::strategy::VerificationStrategy;
+use quprs::{check_equivalence, check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
+use quprs::qasm::parse_qasm_str;
+use quprs::rational::Angle;
+use quprs::strategy::VerificationStrategy;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::Zero;
@@ -224,9 +224,9 @@ fn small_rz_and_p_rotation_phase_label_is_controlled_by_tolerance() {
 
 #[test]
 fn wmc_boundary_rejects_unrepresentable_nonzero_source_radians() {
-    use pathsum::ir::QuantumOp;
-    use pathsum::wmc::WmcManager;
-    use pathsum::PathSum;
+    use quprs::ir::QuantumOp;
+    use quprs::wmc::WmcManager;
+    use quprs::PathSum;
 
     // Supported exact-rational source notation is not permission to
     // round a nonzero phase into a zero WMC complex weight.
@@ -252,7 +252,7 @@ fn wmc_boundary_rejects_unrepresentable_nonzero_source_radians() {
 }
 #[test]
 fn exact_angle_scalar_unit_fast_paths_preserve_source_and_clifford() {
-    use pathsum::rational::{PhaseCoeff, Rational};
+    use quprs::rational::{PhaseCoeff, Rational};
 
     for angle in ["0.0002", "-0.000199999", "1e-100", "pi/8"] {
         let source = Angle::from_qasm_str(angle).unwrap();
@@ -276,7 +276,7 @@ fn exact_angle_scalar_unit_fast_paths_preserve_source_and_clifford() {
 
 #[test]
 fn repeated_exact_radian_accumulation_is_order_and_sign_stable() {
-    use pathsum::rational::PhaseCoeff;
+    use quprs::rational::PhaseCoeff;
     let first = Angle::from_qasm_str("0.0002").unwrap().to_phase_coeff();
     let second = Angle::from_qasm_str("0.000199999").unwrap().to_phase_coeff();
     let tiny = Angle::from_qasm_str("0.000000001").unwrap().to_phase_coeff();

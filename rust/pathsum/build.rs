@@ -18,6 +18,23 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    // Compilation features never select a verification method or solver
+    // installation mode. Source checkout builds retain the existing pinned
+    // solver provisioning; an extracted registry crate requires external
+    // executables and never downloads or writes into a Python package.
+    println!("cargo:rerun-if-env-changed=QUPRS_SOLVER_PROVISION");
+    let repo_root = manifest_dir.parent().and_then(Path::parent);
+    let is_source_checkout = repo_root.is_some_and(|root|
+        root.join("src/QuPRS/__init__.py").is_file()
+    );
+    let mode = env::var("QUPRS_SOLVER_PROVISION").unwrap_or_else(|_| "auto".into());
+    let provision = match mode.as_str() {
+        "auto" => is_source_checkout,
+        "source" if is_source_checkout => true,
+        "source" => panic!("QUPRS_SOLVER_PROVISION=source requires a QuPRS source checkout"),
+        "external" => false,
+        _ => panic!("QUPRS_SOLVER_PROVISION must be auto, source or external"),
+    };
     if env::var_os("CARGO_FEATURE_HIGH_PRECISION_GPMC").is_some() {
         // No additional Cargo crate or solver patch. Keep the native bridge
         // behind an opt-in feature until static wheel portability is proven.
@@ -46,6 +63,12 @@ fn main() {
         println!("cargo:rustc-link-lib=mpfr");
         println!("cargo:rustc-link-lib=gmp");
         println!("cargo:rerun-if-changed={}",input.display());
+    }
+    // External provisioning remains compatible with full RR/Hybrid/WMC:
+    // only the solver executable discovery differs, not the verification API.
+    if !provision {
+        println!("cargo:rerun-if-changed=build.rs");
+        return;
     }
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();

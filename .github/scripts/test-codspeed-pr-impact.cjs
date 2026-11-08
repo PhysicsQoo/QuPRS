@@ -88,7 +88,7 @@ assert.notEqual(foreign, lock, 'negative fixture must modify third-party depende
 assert.equal(isVersionOnlyChange('rust/Cargo.lock', previous['rust/Cargo.lock'],
   foreign), null);
 assert.equal(isVersionOnlyChange('rust/Cargo.lock', previous['rust/Cargo.lock'],
-  lock.replace('name = "pathsum"', 'name = "unknown-pathsum"')), null);
+  lock.replace('name = "quprs"', 'name = "unknown-quprs"')), null);
 assert.equal(isVersionOnlyChange('rust/Cargo.lock', previous['rust/Cargo.lock'],
   lock.replace('name = "quprs_python"', 'name = "quprs_python-other"')), null);
 const inconsistent = lock.replace(

@@ -4,7 +4,9 @@ use std::path::Path;
 
 pub const VERSION: &str = "2.8.0";
 pub const UPSTREAM_SHA: &str = "b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281";
-pub const MANIFEST: &str = include_str!("../../../src/QuPRS/utils/ganak-release.txt");
+// The pinned distribution manifest is shipped inside the Rust crate for all
+// build modes. CI compares it byte-for-byte with the Python source manifest.
+pub const MANIFEST: &str = include_str!("ganak-release.txt");
 
 pub fn asset(os: &str, arch: &str) -> Result<Vec<&'static str>, String> {
     MANIFEST.lines().filter(|line| !line.starts_with('#'))

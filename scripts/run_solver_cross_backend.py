@@ -85,7 +85,7 @@ def main():
         env["QUPRS_GANAK_PATH"] = str(paths["ganak"])
         command = [
             "cargo", "run", "--locked", "--release", "--manifest-path",
-            str(ROOT / "rust" / "Cargo.toml"), "-p", "pathsum",
+            str(ROOT / "rust" / "Cargo.toml"), "-p", "quprs",
             "--example", "solver_conformance", "--", str(folder),
         ]
         result = subprocess.run(command, cwd=ROOT, env=env, text=True,

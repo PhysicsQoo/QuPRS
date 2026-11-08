@@ -41,25 +41,37 @@ class SilentHandler(SimpleHTTPRequestHandler):
 
 
 def compose() -> None:
-    if not (RUSTDOC_ROOT / "pathsum" / "index.html").is_file():
-        raise AssertionError("cargo doc did not generate pathsum/index.html")
+    if not (RUSTDOC_ROOT / "quprs" / "index.html").is_file():
+        raise AssertionError("cargo doc did not generate quprs/index.html")
     if RUST_API.exists():
         raise AssertionError("Rust API destination must be absent before composition")
     shutil.copytree(RUSTDOC_ROOT, RUST_API)
+    # Preserve the previous development Rustdoc URL without duplicating API.
+    old = RUST_API / "pathsum"
+    if old.exists():
+        shutil.rmtree(old)
+    old.mkdir()
+    (old / "index.html").write_text(
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta http-equiv="refresh" content="0;url=../quprs/index.html">'
+        '<title>Rust API moved to quprs</title></head>'
+        '<body><a href="../quprs/index.html">quprs API</a></body></html>\n',
+        encoding="utf-8",
+    )
     # Cargo may omit its top-level crate index for a single-package build.
     # Rustdoc's own Help/Settings navigation expects this landing page.
     (RUST_API / "index.html").write_text(
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="robots" content="noindex,nofollow">'
-        '<meta http-equiv="refresh" content="0;url=pathsum/index.html">'
+        '<meta http-equiv="refresh" content="0;url=quprs/index.html">'
         '<title>Rust API Reference</title></head>'
-        '<body><a href="pathsum/index.html">pathsum crate reference</a></body></html>\n',
+        '<body><a href="quprs/index.html">quprs crate reference</a></body></html>\n',
         encoding="utf-8",
     )
 
 
 def check_assets() -> None:
-    rust_index = RUST_API / "pathsum" / "index.html"
+    rust_index = RUST_API / "quprs" / "index.html"
     if not rust_index.is_file():
         raise AssertionError("Missing Rust API entry point")
     if not (RUST_API / "index.html").is_file():
@@ -91,7 +103,7 @@ def check_assets() -> None:
         raise AssertionError("Rustdoc asset validation did not check any resources")
 
     reference = (SITE_ROOT / "reference" / "index.html").read_text(encoding="utf-8")
-    if 'href="../rust-api/pathsum/index.html"' not in reference:
+    if 'href="../rust-api/quprs/index.html"' not in reference:
         raise AssertionError("The main site does not link to the Rust API")
 
 
@@ -107,6 +119,7 @@ def check_http() -> None:
             requests = [
                 "reference/index.html",
                 "python-api/index.html",
+                "rust-api/quprs/index.html",
                 "rust-api/pathsum/index.html",
                 static.relative_to(SITE_ROOT).as_posix(),
             ]

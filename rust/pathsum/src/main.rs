@@ -1,8 +1,8 @@
 // src/main.rs
 #![allow(dead_code)]
 
-use pathsum::PathSum;
-use pathsum::gates::{QuantumGates, Side}; 
+use quprs::PathSum;
+use quprs::gates::{QuantumGates, Side}; 
 
 fn main() {
     // Simulate circuit: H(0) -> CX(0, 1) -> T(1)
@@ -50,7 +50,7 @@ fn main() {
     "#;
 
     println!("Loading circuit from QASM...");    
-    match pathsum::qasm::parse_qasm_str(qasm_string) {
+    match quprs::qasm::parse_qasm_str(qasm_string) {
         Ok((ops, num_qubits)) => {
             let mut ps_qasm = PathSum::new(num_qubits);
             ps_qasm.set_auto_reduce(false);

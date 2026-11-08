@@ -1,6 +1,6 @@
-use pathsum::pathsum::PathSum;
-use pathsum::gates::{QuantumGates, Side};
-use pathsum::rational::{Angle, FreeRational};
+use quprs::pathsum::PathSum;
+use quprs::gates::{QuantumGates, Side};
+use quprs::rational::{Angle, FreeRational};
 
 // Helper function: create a PhaseCoeff as a fraction of PI
 fn pi_coeff(numer: i64, denom: i64) -> Angle {

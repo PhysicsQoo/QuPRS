@@ -1,7 +1,36 @@
 #![doc(html_no_source)]
-//! Native Path-sum verification types and operations.
+//! Native path-sum quantum circuit equivalence verification with optional WMC.
+//!
+//! Use [`QuantumCircuit`] for a validated native gate list, distinct from
+//! the symbolic [`PathSum`]. The high-level entry point
+//! [`verification::check_equivalence`] accepts borrowed circuits and
+//! [`VerificationOptions`] without requiring Python or Qiskit.
+//!
+//! # Solver-free reduction example
+//!
+//! ```rust
+//! use quprs::{QuantumCircuit, EquivalenceStatus, VerificationMethod, VerificationOptions};
+//! use quprs::verification::check_equivalence;
+//! let mut original = QuantumCircuit::new(1);
+//! original.h(0)?;
+//! original.h(0)?;
+//! let identity = QuantumCircuit::new(1);
+//! let options = VerificationOptions {
+//!     method: VerificationMethod::ReductionRules,
+//!     ..VerificationOptions::default()
+//! };
+//! let result = check_equivalence(&original, &identity, &options)?;
+//! assert_eq!(result.status, EquivalenceStatus::Equivalent);
+//! assert!(!result.wmc_solver_invoked());
+//! # Ok::<(), anyhow::Error>(())
+//! ```
+//!
+//! Hybrid and WMC-only methods use the same API. They require external
+//! GPMC/Ganak executables whenever a weighted count must be computed.
 
 pub mod pathsum;
+pub mod circuit;
+pub mod verification;
 pub mod gates;
 pub mod qasm;
 pub mod ir;
@@ -20,6 +49,7 @@ mod diagnostics;
 pub use diagnostics::ExclusiveLedger;
 
 pub use pathsum::PathSum;
+pub use circuit::QuantumCircuit;
 pub use rational::{Rational, PhaseCoeff};
 pub use strategy::VerificationStrategy;
 use ir::QuantumOp;
@@ -36,6 +66,23 @@ pub enum VerificationMethod {
     WmcOnly,
 }
 
+impl VerificationMethod {
+    /// Canonical public Python method name.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Hybrid => "hybrid",
+            Self::ReductionRules => "reduction_rules",
+            Self::WmcOnly => "wmc_only",
+        }
+    }
+}
+
+impl std::fmt::Display for VerificationMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// The result status of the equivalence check
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EquivalenceStatus {
@@ -47,21 +94,39 @@ pub enum EquivalenceStatus {
     MemoryOut,
 }
 
-impl std::fmt::Display for EquivalenceStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl EquivalenceStatus {
+    /// Return the Python-compatible verdict spelling without allocation.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
             Self::Equivalent => "equivalent",
             Self::EquivalentUpToGlobalPhase => "equivalent*",
             Self::NotEquivalent => "not_equivalent",
             Self::Unknown => "unknown",
             Self::Timeout => "Timeout",
             Self::MemoryOut => "MemoryOut",
-        };
-        write!(f, "{}", s)
+        }
     }
 }
 
-/// Comprehensive result object matching the Python Dataclass
+impl std::fmt::Display for EquivalenceStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Native Rust result with a typed [`EquivalenceStatus`] verdict.
+///
+/// This structure exposes the same *concepts* as Python's
+/// `EquivalenceCheckResult`, not an identical Python dataclass layout.
+/// Rust stores `status: EquivalenceStatus`; [`Self::equivalent`] returns the
+/// Python-compatible string spelling. Rust's [`Self::final_pathsum`]
+/// returns a borrowed symbolic residual and [`Self::gate_num`] is a
+/// read-only accessor for the first circuit count, whereas Python uses
+/// attributes `equivalent`, `final_pathsum`, and `gate_num`.
+/// [`Self::wmc_solver_invoked`] distinguishes a real external WMC process
+/// from an analytic shortcut; numerical solver output is not an exact
+/// equality certificate. Error or inconclusive outcomes must not be
+/// interpreted as circuit non-equivalence.
 #[derive(Debug)]
 pub struct EquivalenceCheckResult {
     pub qubit_num: usize,
@@ -95,29 +160,77 @@ pub struct EquivalenceCheckResult {
     pub stage_ledger: Option<ExclusiveLedger>,
 }
 
-/// Per-request verification configuration shared by native callers and the Python FFI.
+impl EquivalenceCheckResult {
+    /// Python-compatible verdict name; the typed status stays authoritative.
+    pub fn equivalent(&self) -> &'static str {
+        self.status.as_str()
+    }
+
+    /// Actual external WMC solver process invocation, not analytic shortcuts.
+    pub fn wmc_solver_invoked(&self) -> bool {
+        self.solver_invoked
+    }
+
+    /// Borrow the final symbolic PathSum without cloning it.
+    pub fn final_pathsum(&self) -> &PathSum {
+        &self.final_ps
+    }
+
+    /// Gate count for the first circuit, matching the Python result name.
+    pub fn gate_num(&self) -> usize {
+        self.gate_num1
+    }
+}
+
+/// Per-request verification settings for native callers.
 ///
-/// RR tolerance controls approximate non-global phase normalization and
-/// HH/Omega matching. Phase and projective-distance tolerances are separate.
+/// Defaults: Hybrid, Difference, GPMC, requested 600-second timeout,
+/// RR tolerance `1e-10`, phase tolerance `1e-8` **radians**,
+/// projective-distance tolerance `1e-8`, and GPMC 30 digits.
+///
+/// RR matching, global-phase classification, and projective distance are
+/// distinct numerical criteria; solver print precision certifies none of them.
 ///
 /// # Example
 ///
 /// ```rust
-/// use pathsum::{VerificationMethod, VerificationOptions};
-/// let options = VerificationOptions::default();
-/// assert_eq!(options.method, VerificationMethod::Hybrid);
+/// use quprs::{VerificationMethod, VerificationOptions};
+/// let options = VerificationOptions {
+///     method: VerificationMethod::ReductionRules,
+///     rr_tolerance: 0.0,
+///     ..VerificationOptions::default()
+/// };
+/// assert_eq!(options.phase_tolerance, 1e-8);
+/// assert_eq!(options.approximate_distance_tolerance, Some(1e-8));
 /// ```
 #[derive(Debug, Clone)]
 pub struct VerificationOptions {
+    /// `Hybrid` (default), `ReductionRules`, or `WmcOnly`; a runtime choice.
     pub method: VerificationMethod,
+    /// `Difference` by default; also `Proportional`, `Naive`, `Straightforward`.
     pub strategy: VerificationStrategy,
+    /// `"gpmc"` by default or `"ganak"`. No silent fallback.
     pub tool_name: String,
+    /// Requested seconds (default `600`), not a guaranteed hard deadline
+    /// for all in-process symbolic operations.
     pub timeout_secs: u64,
-    pub wmc_phase_tolerance: f64, // Compatibility alias for numerical WMC callers.
+    /// Compatibility alias of [`Self::phase_tolerance`] (default `1e-8`
+    /// radians). Leave one field at its default when changing the other.
+    /// Two non-default, different values are rejected.
+    pub wmc_phase_tolerance: f64,
+    /// RR coefficient-matching tolerance, default `1e-10`, finite and
+    /// nonnegative; **not** an angular threshold.
     pub rr_tolerance: f64,
+    /// Global-phase threshold, default `1e-8` **radians**, finite in
+    /// the strict range (0, 1). A non-default alias value is used when
+    /// this field stays at its default; conflicting non-defaults error.
     pub phase_tolerance: f64,
+    /// Projective Hilbert–Schmidt distance, not an angle. Default
+    /// `Some(1e-8)`; `Some(x)` requires finite `0 < x < 1`.
+    /// `None` uses the same `1e-8` default, **not** disabled checking.
     pub approximate_distance_tolerance: Option<f64>,
-    /// GPMC complex MPFR digits: 30 by default, explicitly 90 if requested.
+    /// GPMC complex working/output decimal digits: `30` (default) or
+    /// `90` (GPMC only, not Ganak). Neither certifies solver error bounds.
     pub gpmc_precision_digits: u32,
 }
 
@@ -635,7 +748,7 @@ fn check_equivalence_with_distance_mode(
             // Serialize only when a solver actually needs CNF. Reuse precisely
             // these bytes for the subprocess, rather than rendering twice.
             let dimacs_start = Instant::now();
-            let cnf_string = wmc_mgr.to_dimacs_string(tool_name);
+            let cnf_string = wmc_mgr.try_to_dimacs_string(tool_name)?;
             to_dimacs_time = Some(dimacs_start.elapsed().as_secs_f64());
 
             solver_invoked = true;

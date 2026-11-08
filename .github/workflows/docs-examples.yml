@@ -66,6 +66,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Install Python source build
         run: |
           python -m pip install --upgrade pip maturin

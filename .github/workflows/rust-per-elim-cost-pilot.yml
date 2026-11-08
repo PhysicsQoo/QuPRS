@@ -75,6 +75,8 @@ jobs:
           python-version: '3.12'
           cache: pip
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build Rust native FFI and install scientific dependencies
         run: |
           sudo apt-get update

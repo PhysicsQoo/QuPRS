@@ -39,6 +39,8 @@ jobs:
           rustc --version > adapter-ab-evidence/rust.txt
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
           git -C "$RUNNER_TEMP/base" submodule update --init --recursive
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Compile both environments on the same runner
         shell: bash
         run: |

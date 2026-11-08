@@ -64,6 +64,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev strace
 
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build and validate exact-source package
         run: |
           python -m pip install 'maturin>=1.5,<2'
@@ -150,6 +152,8 @@ jobs:
           git rev-parse HEAD > fixed-host-evidence/source-head.txt
           git rev-parse 'HEAD^{tree}' > fixed-host-evidence/source-tree.txt
 
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source in isolated Python environment
         run: |
           python3.12 -m venv .fixed-host-env

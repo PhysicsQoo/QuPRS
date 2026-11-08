@@ -126,6 +126,33 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Restore verified Ganak archive for Docker context
+        uses: actions/cache@v4
+        with:
+          path: rust/target/ganak-release-cache
+          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+      - name: Obtain pinned Ganak release before building Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          architecture='x86_64'
+          asset_id=626470725
+          if [[ '${{ matrix.arch }}' == 'arm64' ]]; then architecture='aarch64'; asset_id=626470723; fi
+          read -r filename expected <<<"$(awk -v arch="$architecture" '$1=="linux" && $2==arch {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          test -n "$filename" && test -n "$expected"
+          mkdir -p rust/target/ganak-release-cache
+          archive="rust/target/ganak-release-cache/$filename"
+          if ! echo "$expected  $archive" | sha256sum --check --status; then
+            tmp="$(mktemp)"
+            trap 'rm -f "$tmp"' EXIT
+            if ! curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --output "$tmp" "https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/$filename"; then
+              curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --header 'Accept: application/octet-stream' --output "$tmp" "https://api.github.com/repos/meelgroup/ganak/releases/assets/$asset_id"
+            fi
+            echo "$expected  $tmp" | sha256sum --check
+            mv "$tmp" "$archive"
+          fi
+          echo "$expected  $archive" | sha256sum --check
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
@@ -208,6 +235,33 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Restore verified Ganak archive for Docker context
+        uses: actions/cache@v4
+        with:
+          path: rust/target/ganak-release-cache
+          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+      - name: Obtain pinned Ganak release before building Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          architecture='x86_64'
+          asset_id=626470725
+          if [[ '${{ matrix.arch }}' == 'arm64' ]]; then architecture='aarch64'; asset_id=626470723; fi
+          read -r filename expected <<<"$(awk -v arch="$architecture" '$1=="linux" && $2==arch {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          test -n "$filename" && test -n "$expected"
+          mkdir -p rust/target/ganak-release-cache
+          archive="rust/target/ganak-release-cache/$filename"
+          if ! echo "$expected  $archive" | sha256sum --check --status; then
+            tmp="$(mktemp)"
+            trap 'rm -f "$tmp"' EXIT
+            if ! curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --output "$tmp" "https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/$filename"; then
+              curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --header 'Accept: application/octet-stream' --output "$tmp" "https://api.github.com/repos/meelgroup/ganak/releases/assets/$asset_id"
+            fi
+            echo "$expected  $tmp" | sha256sum --check
+            mv "$tmp" "$archive"
+          fi
+          echo "$expected  $archive" | sha256sum --check
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

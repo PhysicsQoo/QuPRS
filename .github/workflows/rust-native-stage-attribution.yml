@@ -27,6 +27,8 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build native Rust and scientific Python package
         run: |
           sudo apt-get update

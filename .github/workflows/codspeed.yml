@@ -181,8 +181,49 @@ jobs:
               requiredJobs: [{"prefix":"Run benchmarks (3.12, ","count":5},{"name":"Same SHA native Rust CPU","count":1},{"name":"Paired Solver-inclusive CodSpeed WallTime","count":1},{"name":"Per-SHA CodSpeed cross-instrument evidence","count":1}]
             });
 
-  codspeed:
+  ganak-prefetch:
+    name: Pinned Ganak download once for parallel CodSpeed jobs
     needs: [ci-impact]
+    if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Restore pinned Ganak archive cache
+        uses: actions/cache@v4
+        with:
+          path: rust/target/ganak-release-cache
+          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+
+      - name: Download or verify the pinned upstream Ganak archive
+        run: |
+          set -euo pipefail
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          test -n "$filename" && test -n "$expected"
+          mkdir -p rust/target/ganak-release-cache
+          archive="rust/target/ganak-release-cache/$filename"
+          if ! echo "$expected  $archive" | sha256sum --check --status; then
+            tmp="$(mktemp)"
+            trap 'rm -f "$tmp"' EXIT
+            if ! curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --output "$tmp" "https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/$filename"; then
+              curl --fail --location --silent --show-error --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 35 --header 'Accept: application/octet-stream' --output "$tmp" 'https://api.github.com/repos/meelgroup/ganak/releases/assets/626470725'
+            fi
+            echo "$expected  $tmp" | sha256sum --check
+            mv "$tmp" "$archive"
+          fi
+          echo "$expected  $archive" | sha256sum --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-ganak-2-8-0-linux-x64
+          path: rust/target/ganak-release-cache/
+          if-no-files-found: error
+          retention-days: 1
+
+  codspeed:
+    needs: [ci-impact, ganak-prefetch]
     if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Run benchmarks
     runs-on: ubuntu-latest
@@ -222,6 +263,16 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
 
+      - name: Restore this-run pinned Ganak archive
+        uses: actions/download-artifact@v4
+        with:
+          name: quprs-ganak-2-8-0-linux-x64
+          path: rust/target/ganak-release-cache
+      - name: Fail closed on an invalid Ganak archive
+        run: |
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          echo "$expected  rust/target/ganak-release-cache/$filename" | sha256sum --check
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -244,6 +295,9 @@ jobs:
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           # v5 estimates CPU cycles rather than the pre-v5 simulation metric.
@@ -268,7 +322,7 @@ jobs:
           retention-days: 14
 
   pr-solver-inclusive-walltime:
-    needs: [ci-impact]
+    needs: [ci-impact, ganak-prefetch]
     name: Paired Solver-inclusive CodSpeed WallTime
     # Unlike CPU Simulation, measure complete verifier + GPMC/Ganak elapsed time.
     if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.base_sha != '')) }}
@@ -292,6 +346,21 @@ jobs:
           submodules: recursive
           persist-credentials: false
           path: pr-walltime-base
+
+      - name: Restore this-run pinned Ganak archive
+        uses: actions/download-artifact@v4
+        with:
+          name: quprs-ganak-2-8-0-linux-x64
+          path: rust/target/ganak-release-cache
+      - name: Fail closed on an invalid Ganak archive
+        run: |
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          echo "$expected  rust/target/ganak-release-cache/$filename" | sha256sum --check
+
+      - name: Populate exact-base Ganak archive cache
+        run: |
+          mkdir -p pr-walltime-base/rust/target/ganak-release-cache
+          cp rust/target/ganak-release-cache/* pr-walltime-base/rust/target/ganak-release-cache/
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -345,6 +414,9 @@ jobs:
 
       - name: CodSpeed paired end-to-end GPMC/Ganak WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=10
@@ -398,7 +470,7 @@ jobs:
 
 
   native-core:
-    needs: [ci-impact]
+    needs: [ci-impact, ganak-prefetch]
     if: ${{ needs.ci-impact.outputs.run_heavy == 'true' && github.event.action != 'edited' && !(github.event_name == 'workflow_dispatch' && inputs.pilot_only) }}
     name: Same SHA native Rust CPU
     runs-on: ubuntu-24.04
@@ -412,6 +484,16 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore this-run pinned Ganak archive
+        uses: actions/download-artifact@v4
+        with:
+          name: quprs-ganak-2-8-0-linux-x64
+          path: rust/target/ganak-release-cache
+      - name: Fail closed on an invalid Ganak archive
+        run: |
+          read -r filename expected <<<"$(awk '$1=="linux" && $2=="x86_64" {print $3, $4}' src/QuPRS/utils/ganak-release.txt)"
+          echo "$expected  rust/target/ganak-release-cache/$filename" | sha256sum --check
+
       - name: Prepare source-pinned Cargo benchmark
         run: |
           set -euo pipefail
@@ -424,6 +506,9 @@ jobs:
           cargo codspeed build
       - name: CodSpeed Rust CPU
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           run: cd benchmarks/rust_core && cargo codspeed run
@@ -467,6 +552,9 @@ jobs:
           cargo codspeed build
       - name: CodSpeed Rust Memory
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: memory
           run: cd benchmarks/rust_core && cargo codspeed run
@@ -497,6 +585,8 @@ jobs:
           ref: ${{ github.sha }}
           submodules: recursive
           persist-credentials: false
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source and solver instrumentation
         run: |
           set -euo pipefail
@@ -508,6 +598,9 @@ jobs:
           maturin develop --release -E dev
       - name: Measure verifier plus Solver CPU
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           cycle-estimation: 'true'
@@ -654,6 +747,9 @@ jobs:
           "$RUNNER_TEMP/cross-method-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.3
       - name: Run same-source cross-method instrument
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: ${{ matrix.mode }}
           simulation-track-subprocess: 'true'
@@ -700,6 +796,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build same-SHA verifier
         shell: bash
         run: |
@@ -718,6 +816,9 @@ jobs:
           fi
       - name: Run bounded source-pinned candidates with CodSpeed WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: |
@@ -760,6 +861,8 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Install source-pinned Python core
         run: |
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
@@ -771,6 +874,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_python_core.py -q --collect-only
       - name: CodSpeed isolated Python algorithm CPU
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           cycle-estimation: 'true'
@@ -817,6 +923,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source and validate tolerance harness
         run: |
           set -euo pipefail
@@ -863,6 +971,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source for diagnostic only
         run: |
           set -euo pipefail
@@ -910,6 +1020,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source and preflight selection
         run: |
           set -euo pipefail
@@ -923,6 +1035,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_paper_gap_repeatability.py -q --collect-only
       - name: CodSpeed five measured rounds
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: python -m pytest benchmarks/codspeed/test_paper_gap_repeatability.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=200
@@ -973,6 +1088,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Exact SHA and scientific source preflight
         shell: bash
         run: |
@@ -991,6 +1108,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_codspeed_repeatability.py -q --collect-only
       - name: Source-pinned CodSpeed 5-round four-case WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: python -m pytest benchmarks/codspeed/test_codspeed_repeatability.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=120
@@ -1099,6 +1219,9 @@ jobs:
 
       - name: CodSpeed paired end-to-end GPMC/Ganak WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q -k 'qaoa7_gpmc or qft16_gpmc or vqe4_gpmc' --codspeed --codspeed-max-rounds=7 --codspeed-max-time=30
@@ -1217,6 +1340,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_qoo170_real_abba.py -q --collect-only
       - name: CodSpeed WallTime with true one-invocation-per-position ABBA/BAAB
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: |

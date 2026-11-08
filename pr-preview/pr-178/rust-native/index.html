@@ -395,6 +395,67 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Use the Rust API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-with-reductionrules-no-external-wmc-executable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start with ReductionRules (no external WMC executable)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extend-to-hybrid-and-wmconly-with-external-solvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Extend to Hybrid and WmcOnly with external solvers
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verificationoptions-defaults-units-and-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        VerificationOptions: defaults, units and validation
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantumcircuit-pathsum-and-source-preserving-angle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        QuantumCircuit, PathSum, and source-preserving Angle
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-the-native-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read the native result
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -857,6 +918,67 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Use the Rust API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-with-reductionrules-no-external-wmc-executable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start with ReductionRules (no external WMC executable)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extend-to-hybrid-and-wmconly-with-external-solvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Extend to Hybrid and WmcOnly with external solvers
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verificationoptions-defaults-units-and-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        VerificationOptions: defaults, units and validation
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantumcircuit-pathsum-and-source-preserving-angle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        QuantumCircuit, PathSum, and source-preserving Angle
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-the-native-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read the native result
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -954,49 +1076,178 @@ be verified must not be represented as a certified native solver build.</p>
 A missing executable causes a solver execution error, <strong>not</strong>
 <code>NotEquivalent</code>, and there is no automatic cross-solver fallback.</p>
 <h2 id="use-the-rust-api">Use the Rust API</h2>
-<p>The canonical source workspace crate and library are named <code>quprs</code>:</p>
+<p>The canonical Rust package and library are <code>quprs</code>. The high-level
+<code>quprs::verification::check_equivalence</code> accepts two validated
+<code>QuantumCircuit</code> inputs and <code>VerificationOptions</code>.</p>
+<h3 id="start-with-reductionrules-no-external-wmc-executable">Start with ReductionRules (no external WMC executable)</h3>
+<p>This complete Rust example compares two Hadamard gates with the identity.
+<code>ReductionRules</code> never starts GPMC or Ganak. Build-time provisioning is a
+separate setting: <code>QUPRS_SOLVER_PROVISION=external</code> avoids installing
+solvers in a source checkout without removing any verification methods.</p>
 <div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::{</span>
 <span class="w">    </span><span class="n">EquivalenceStatus</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationMethod</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="p">,</span>
 <span class="p">};</span>
 <span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::</span><span class="n">verification</span><span class="p">::</span><span class="n">check_equivalence</span><span class="p">;</span>
 
-<span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">original</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
-<span class="n">original</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">optimized</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">original</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">original</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid H"</span><span class="p">);</span>
+<span class="w">    </span><span class="n">original</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid H"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">identity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
 
-<span class="kd">let</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="nc">VerificationMethod</span><span class="p">::</span><span class="n">Hybrid</span><span class="p">,</span>
-<span class="w">    </span><span class="o">..</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
-<span class="p">};</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span><span class="o">&amp;</span><span class="n">original</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">optimized</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">options</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
-<span class="fm">assert_eq!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">NotEquivalent</span><span class="p">);</span>
-<span class="fm">assert_eq!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">equivalent</span><span class="p">(),</span><span class="w"> </span><span class="s">"not_equivalent"</span><span class="p">);</span>
-<span class="fm">assert!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="nc">VerificationMethod</span><span class="p">::</span><span class="n">ReductionRules</span><span class="p">,</span>
+<span class="w">        </span><span class="o">..</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span><span class="o">&amp;</span><span class="n">original</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">identity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">options</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid comparison"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">Equivalent</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert!</span><span class="p">(</span><span class="o">!</span><span class="n">result</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
+<span class="p">}</span>
 </code></pre></div>
-<p>The snippet assumes it is placed inside a Rust function returning
-<code>anyhow::Result&lt;()&gt;</code> and that a valid GPMC executable is available.
-<code>QuantumCircuit::from_qasm_str(source)</code> and
-<code>QuantumCircuit::from_qasm_file(path)</code> use the same strict unitary
-OpenQASM parser as the existing Rust CLI and preserve exact source angles.
-For more gate variants, use <code>QuantumCircuit::push(QuantumOp::...)</code>, which
-validates wire indices and preserves the native <code>Angle</code> representation.</p>
-<p>The Rust result provides Python-name compatibility methods:
-<code>equivalent()</code>, <code>wmc_solver_invoked()</code>, <code>final_pathsum()</code> and
-<code>gate_num()</code>. They are read-only accessors on the original typed result,
-with no duplicated status state or Path-sum copy. Unlike Python's Qiskit
-wrapper, which returns <code>not_equivalent</code> for differing register widths,
-the typed Rust façade rejects that invalid comparison before invoking
-a solver and does not fabricate a final symbolic residual.</p>
-<p>An independent consumer of the eventually released registry package
-uses the same <code>quprs::...</code> imports as the source workspace. The package is
-not yet released on crates.io.</p>
-<p><code>VerificationOptions::default()</code> selects Hybrid, GPMC, 30 solver
-decimal digits and the existing tolerance defaults. Explicit GPMC
-90-digit solver mode is supported, but <strong>solver print precision is not
-a proof of exact or certified numerical error bounds</strong>. Ganak's
-printed precision may be insufficient for tight thresholds.
-Use <code>solver_invoked</code> to distinguish a genuine external solver call
-from a reduction or exact analytic shortcut.</p>
+<p>With a source checkout, use <code>rust/pathsum</code> as the local path dependency
+(whose Cargo package name is <code>quprs</code>). Irreducible RR-only comparisons
+can return <code>EquivalenceStatus::Unknown</code>, not a proof of inequality.</p>
+<h3 id="extend-to-hybrid-and-wmconly-with-external-solvers">Extend to Hybrid and WmcOnly with external solvers</h3>
+<p>To perform WMC, first install GPMC or Ganak as described above and provide
+its executable through <code>QUPRS_GPMC_PATH</code>, <code>QUPRS_GANAK_PATH</code>, or <code>PATH</code>.
+This example runs Hybrid with GPMC, followed by WMC-only with Ganak:</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::{</span>
+<span class="w">    </span><span class="n">EquivalenceStatus</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationMethod</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="p">,</span>
+<span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::</span><span class="n">verification</span><span class="p">::</span><span class="n">check_equivalence</span><span class="p">;</span>
+
+<span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">identity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">h</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid H"</span><span class="p">);</span>
+
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">hybrid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span>
+<span class="w">        </span><span class="o">&amp;</span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">identity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">(),</span>
+<span class="w">    </span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"GPMC must be installed"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">hybrid</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">NotEquivalent</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert!</span><span class="p">(</span><span class="n">hybrid</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
+
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">x</span><span class="p">.</span><span class="n">x</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid X"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="nc">VerificationMethod</span><span class="p">::</span><span class="n">WmcOnly</span><span class="p">,</span>
+<span class="w">        </span><span class="n">tool_name</span><span class="p">:</span><span class="w"> </span><span class="s">"ganak"</span><span class="p">.</span><span class="n">to_owned</span><span class="p">(),</span>
+<span class="w">        </span><span class="o">..</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">wmc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span><span class="o">&amp;</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">identity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">options</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="n">expect</span><span class="p">(</span><span class="s">"Ganak must be installed"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">wmc</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">NotEquivalent</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert!</span><span class="p">(</span><span class="n">wmc</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>These assertions are for the shown circuits, <strong>not</strong> a solver-arithmetic
+certificate for arbitrary inputs. Missing solvers, invalid inputs and solver
+failures return errors; there is no automatic solver fallback.</p>
+<h3 id="verificationoptions-defaults-units-and-validation">VerificationOptions: defaults, units and validation</h3>
+<p>The native verifier validates these fields on each request:</p>
+<table>
+<thead>
+<tr>
+<th>Rust field</th>
+<th>Default</th>
+<th>Valid values or meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>method</code></td>
+<td><code>Hybrid</code></td>
+<td><code>ReductionRules</code>, <code>Hybrid</code>, <code>WmcOnly</code>; runtime method, not a Cargo feature</td>
+</tr>
+<tr>
+<td><code>strategy</code></td>
+<td><code>Difference</code></td>
+<td>Also <code>Proportional</code>, <code>Naive</code>, <code>Straightforward</code></td>
+</tr>
+<tr>
+<td><code>tool_name</code></td>
+<td><code>"gpmc"</code></td>
+<td><code>"gpmc"</code> or <code>"ganak"</code>, no implicit fallback</td>
+</tr>
+<tr>
+<td><code>timeout_secs</code></td>
+<td><code>600</code></td>
+<td>Requested seconds; in-process symbolic work is not guaranteed a hard whole-call deadline</td>
+</tr>
+<tr>
+<td><code>rr_tolerance</code></td>
+<td><code>1e-10</code></td>
+<td>Finite, nonnegative matching threshold; not radians</td>
+</tr>
+<tr>
+<td><code>phase_tolerance</code></td>
+<td><code>1e-8</code></td>
+<td>Global-phase threshold in <strong>radians</strong>; finite and strictly between 0 and 1</td>
+</tr>
+<tr>
+<td><code>wmc_phase_tolerance</code></td>
+<td><code>1e-8</code></td>
+<td>Compatibility alias of the same phase threshold, in <strong>radians</strong></td>
+</tr>
+<tr>
+<td><code>approximate_distance_tolerance</code></td>
+<td><code>Some(1e-8)</code></td>
+<td>Projective Hilbert–Schmidt <strong>distance</strong>, finite <code>0 &lt; x &lt; 1</code>; <code>None</code> also selects the <code>1e-8</code> default, not “off”</td>
+</tr>
+<tr>
+<td><code>gpmc_precision_digits</code></td>
+<td><code>30</code></td>
+<td><code>30</code> or <code>90</code>; <code>90</code> applies to GPMC only</td>
+</tr>
+</tbody>
+</table>
+<p>Change <strong>one</strong> of <code>phase_tolerance</code> or <code>wmc_phase_tolerance</code> and
+leave the other at its default <code>1e-8</code>; if both are non-default and
+different, native validation returns an error. The fields do not create
+two independent phase classifications.</p>
+<p>The RR matching tolerance is not an angle threshold, and projective
+distance is not radians or raw trace-magnitude error. Solver printed
+30/90 digits are <strong>not</strong> a certified bound on numerical arithmetic error.</p>
+<h3 id="quantumcircuit-pathsum-and-source-preserving-angle">QuantumCircuit, PathSum, and source-preserving Angle</h3>
+<p><code>QuantumCircuit</code> holds an owned, validated sequence of <code>QuantumOp</code>
+gates and a register width. It is <strong>not</strong> a symbolic <code>PathSum</code>;
+the verifier constructs symbolic Path-sums and reduces them internally.
+Use <code>result.final_pathsum()</code> to borrow the remaining symbolic residual.</p>
+<p><code>QuantumCircuit::from_qasm_str</code> and <code>from_qasm_file</code> accept the
+supported unitary OpenQASM 2/3 subset, rejecting unsupported operations.
+Supported decimal radian literals remain exact rational terms and <code>pi</code>
+factors remain symbolic in <code>Angle</code> rather than silently becoming <code>f64</code>.
+The Rust rotation helpers require <code>Angle</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::{</span><span class="n">rational</span><span class="p">::</span><span class="n">Angle</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">};</span>
+
+<span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">angle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Angle</span><span class="p">::</span><span class="n">from_qasm_str</span><span class="p">(</span><span class="s">"1.2345678901234567"</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="n">expect</span><span class="p">(</span><span class="s">"supported exact angle"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">direct</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">direct</span><span class="p">.</span><span class="n">rz</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">angle</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid RZ"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">qasm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">from_qasm_str</span><span class="p">(</span>
+<span class="w">        </span><span class="s">"OPENQASM 3.0;</span><span class="se">\n</span><span class="s">qubit[1] q;</span><span class="se">\n</span><span class="s">rz(1.2345678901234567) q[0];</span><span class="se">\n</span><span class="s">"</span>
+<span class="w">    </span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"supported QASM"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">direct</span><span class="p">,</span><span class="w"> </span><span class="n">qasm</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>An unsupported QASM operation or arbitrary unbound Qiskit expression is
+not silently approximated by the native Rust circuit type.</p>
+<h3 id="read-the-native-result">Read the native result</h3>
+<p>Rust keeps <code>result.status: EquivalenceStatus</code> as an enum;
+<code>result.equivalent()</code> returns the Python-compatible verdict spelling
+(<code>equivalent</code>, <code>equivalent*</code>, <code>not_equivalent</code>, <code>unknown</code>,
+<code>Timeout</code>, <code>MemoryOut</code>). <code>wmc_solver_invoked()</code>, <code>gate_num()</code>
+and <code>final_pathsum()</code> are read-only, non-copying accessors corresponding
+to Python attributes of those names.</p>
+<p>Unlike Python's Qiskit wrapper, which returns <code>not_equivalent</code> for
+unequal circuit widths, native Rust rejects mismatched widths as an
+<strong>input-validation error</strong> before solver invocation. <code>Unknown</code>,
+<code>Timeout</code>, <code>MemoryOut</code> and execution errors do not prove inequality.</p>
+<p>An independent consumer of an eventual registry release uses the same
+<code>quprs::</code> imports as the workspace. The crate is <strong>not yet published</strong>
+on crates.io.</p>
 <h2 id="build-and-runtime-contracts">Build and runtime contracts</h2>
 <ul>
 <li>The isolated full-verification crate does not package GPMC or Ganak

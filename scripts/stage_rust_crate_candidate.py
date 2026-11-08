@@ -34,6 +34,10 @@ def stage(destination: Path) -> None:
     text = replace_once(text, "edition.workspace = true", f'edition = "{package["edition"]}"')
     text = replace_once(text, "publish.workspace = true", "publish = true")
     parsed = tomllib.loads(text)
+    if parsed["package"].get("readme") != "README.md":
+        raise AssertionError("crate must declare README.md in its manifest")
+    if not (SOURCE / "README.md").is_file() or not (SOURCE / "README.md").read_text().strip():
+        raise AssertionError("native crate README.md is missing or empty")
     if (parsed["package"]["name"] != "quprs"
             or parsed["lib"]["name"] != "quprs"
             or parsed["package"]["publish"] is not True

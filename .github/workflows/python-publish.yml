@@ -458,7 +458,9 @@ jobs:
           set -euo pipefail
           python3 scripts/stage_rust_crate_candidate.py \
             --output "$RUNNER_TEMP/quprs-crate"
-          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --list
+          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --list \
+            | tee "$RUNNER_TEMP/quprs-crate-files.txt"
+          grep -Fx "README.md" "$RUNNER_TEMP/quprs-crate-files.txt"
           cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run
 
       - name: Obtain short-lived crates.io publishing token

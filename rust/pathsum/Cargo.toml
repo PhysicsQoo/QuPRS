@@ -8,6 +8,7 @@ edition.workspace = true
 publish.workspace = true
 description = "Native path-sum reduction and equivalence checking for quantum circuits"
 license = "MIT"
+readme = "README.md"
 repository = "https://github.com/PhysicsQoo/QuPRS"
 keywords = ["quantum", "verification", "pathsum", "equivalence"]
 

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "source_sha": "bc22a0ac21d0a42d4ff52d530808e0487e0d46b7",
-  "checkout_sha": "bc22a0ac21d0a42d4ff52d530808e0487e0d46b7",
+  "source_sha": "0b244c10edbb659d4a1e35f47178304823ff1212",
+  "checkout_sha": "0b244c10edbb659d4a1e35f47178304823ff1212",
   "ref": "refs/heads/main",
   "python_version": "3.12.16",
   "python_implementation": "CPython",
@@ -26,5 +26,5 @@
     }
   },
   "ganak_release_manifest_sha256": "ab9216a5357a752d8f6e721a446c665823c09c3eec16903a252e050729b317c2",
-  "ganak_build_script_sha256": "04c01a3e9e3414c44c9fc6e4e28fc5cacfbfa290757c2fa2f741e92c4bcec93b"
+  "ganak_build_script_sha256": "d76204e80b06b82500c02826e2eb708f93d0e304d938a3e99e3f2662ad245f31"
 }

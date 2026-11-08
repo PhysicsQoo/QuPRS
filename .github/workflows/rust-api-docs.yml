@@ -16,6 +16,7 @@ on:
       - 'src/QuPRS/pathsum/statistics.py'
       - 'src/QuPRS/pathsum/gates/**'
       - 'rust/pathsum/Cargo.toml'
+      - 'rust/pathsum/README.md'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
       - 'docs/requirements-site.txt'
@@ -49,6 +50,7 @@ on:
       - 'src/QuPRS/pathsum/statistics.py'
       - 'src/QuPRS/pathsum/gates/**'
       - 'rust/pathsum/Cargo.toml'
+      - 'rust/pathsum/README.md'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
       - 'docs/requirements-site.txt'
@@ -241,6 +243,7 @@ jobs:
             exit 1
           fi
           grep -Fx 'src/ganak-release.txt' "$RUNNER_TEMP/quprs-crate-file-list.txt"
+          grep -Fx 'README.md' "$RUNNER_TEMP/quprs-crate-file-list.txt"
           cargo package --manifest-path "$candidate/Cargo.toml"
           cargo publish --manifest-path "$candidate/Cargo.toml" --dry-run
           version="$(python -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$candidate/Cargo.toml")"
@@ -250,6 +253,7 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP/quprs-full-unpacked"
           unpacked="$RUNNER_TEMP/quprs-full-unpacked/quprs-$version"
           test -f "$unpacked/LICENSE.md"
+          test -s "$unpacked/README.md"
           test ! -e "$unpacked/GPMC"
           test ! -e "$unpacked/src/QuPRS"
           # The parent workspace's native build produced pinned executables.

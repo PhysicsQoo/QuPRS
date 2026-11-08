@@ -19,6 +19,8 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - '.github/scripts/ci-impact-reuse.cjs'
+      - '.github/scripts/codspeed-pr-impact.cjs'
+      - '.github/scripts/codspeed-metadata-only.cjs'
       - '.github/scripts/test-ci-impact-reuse.cjs'
       - 'scripts/check_codspeed_shards.py'
       - 'test/test_codspeed_qasm261_simulation_additive.py'
@@ -99,8 +101,14 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { isPerformanceBearingPath, isRustDocOnlyChange } = require('./.github/scripts/codspeed-pr-impact.cjs');
+            const { isPerformanceBearingPath, isRustDocOnlyChange, assessPushSourceImpact } = require('./.github/scripts/codspeed-pr-impact.cjs');
             const { VERSION_PATHS, isVersionOnlyChange } = require('./.github/scripts/codspeed-metadata-only.cjs');
+            if (context.eventName === 'push') {
+              const verdict = await assessPushSourceImpact({github, context});
+              core.setOutput('run_source', String(verdict.run));
+              core.info(verdict.reason);
+              return;
+            }
             if (context.eventName !== 'pull_request') {
               core.setOutput('run_source', 'true');
               return;

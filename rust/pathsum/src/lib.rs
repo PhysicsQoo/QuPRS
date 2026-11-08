@@ -104,6 +104,9 @@ pub enum EquivalenceStatus {
 
 impl EquivalenceStatus {
     /// Return the Python-compatible verdict spelling without allocation.
+    ///
+    /// `Timeout` and `MemoryOut` keep their capitalized public spellings;
+    /// callers should prefer the typed variant for status-based control flow.
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Equivalent => "equivalent",

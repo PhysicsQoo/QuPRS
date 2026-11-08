@@ -11,10 +11,12 @@ const direct = new Set([
   '.github/workflows/codspeed.yml',
   '.github/scripts/codspeed-pr-impact.cjs',
   '.github/scripts/codspeed-metadata-only.cjs',
+  '.github/scripts/ci-impact-reuse.cjs',
 ]);
 function isPerformanceBearingPath(path) {
   if (typeof path !== 'string' || !path) return false;
   if (direct.has(path)) return true;
+  if (path.startsWith('rust/') && path.endsWith('.md')) return false;
   if (/^(?:src|rust|benchmarks)\//.test(path)) return true;
   if (/^test\/(?:_?benchmark_.*|test_benchmark_.*)\.py$/.test(path)) return true;
   if (/^scripts\/.*(?:codspeed|benchmark|paper_corpus|solver_walltime|performance|profil).*/.test(path)) return true;
@@ -96,4 +98,84 @@ function isRustDocOnlyChange(before, after) {
   return Boolean(left && right && (left.docs || right.docs) && left.code === right.code);
 }
 
-module.exports = {isPerformanceBearingPath, isRustDocOnlyChange};
+
+// On pushes, compare the exact before/after commits. GitHub compare has
+// bounded file/commit pages; incomplete evidence is always RUN, never SKIP.
+// Manual dispatch and PR source decisions remain separate policies.
+async function assessPushSourceImpact({github, context}) {
+  const run = reason => ({run: true, reason});
+  const skip = reason => ({run: false, reason});
+  const valid = sha => typeof sha === 'string' && /^[0-9a-f]{40}$/.test(sha) &&
+    sha !== '0'.repeat(40);
+  if (!context || context.eventName !== 'push') return run('Not a push event.');
+  const payload = context.payload;
+  const {owner, repo} = context.repo || {};
+  if (!owner || !repo || !payload || !['refs/heads/dev', 'refs/heads/main'].includes(context.ref) ||
+      payload.ref !== context.ref || (payload.repository &&
+      payload.repository.full_name !== owner + '/' + repo)) return run('Untrusted push branch or repository metadata.');
+  const before = payload.before, after = payload.after;
+  if (!valid(before) || !valid(after) || before === after || context.sha !== after ||
+      payload.created !== false || payload.deleted !== false ||
+      payload.forced !== false) return run('Missing, forced, created, deleted or non-contiguous push evidence.');
+  try {
+    const response = await github.rest.repos.compareCommits({
+      owner, repo, base: before, head: after, per_page: 100
+    });
+    const diff = response && response.data;
+    if (!diff || diff.status !== 'ahead' || diff.behind_by !== 0 ||
+        diff.base_commit?.sha !== before ||
+        !Number.isInteger(diff.total_commits) || diff.total_commits < 1 ||
+        diff.total_commits > 100 || diff.ahead_by !== diff.total_commits ||
+        !Array.isArray(diff.commits) || diff.commits.length !== diff.total_commits ||
+        diff.commits[diff.commits.length - 1]?.sha !== after ||
+        !Array.isArray(diff.files) || diff.files.length === 0 ||
+        diff.files.length >= 300) return run('Unverifiable or truncated push ancestry/commit/file comparison.');
+    const {VERSION_PATHS, isVersionOnlyChange} = require('./codspeed-metadata-only.cjs');
+    const load = async (path, ref) => {
+      const content = await github.rest.repos.getContent({owner, repo, path, ref});
+      const file = content && content.data;
+      if (!file || Array.isArray(file) || file.type !== 'file' ||
+          file.encoding !== 'base64' || typeof file.content !== 'string' ||
+          !Number.isInteger(file.size) || file.size > 150000) throw new Error('Invalid full source file: ' + path);
+      const value = Buffer.from(file.content.replace(/\s/g, ''), 'base64');
+      if (value.length !== file.size) throw new Error('Incorrect source size: ' + path);
+      return value.toString('utf8');
+    };
+    let versions = [];
+    const seen = new Set();
+    for (const f of diff.files) {
+      const path = f.filename;
+      if (typeof path !== 'string' || !path || seen.has(path) ||
+          !['added', 'modified', 'removed', 'renamed'].includes(f.status))
+        return run('Unknown/duplicate push file metadata.');
+      seen.add(path);
+      // A renamed file may have moved out of a performance-bearing path.
+      if (!isPerformanceBearingPath(path) &&
+          !(f.previous_filename && isPerformanceBearingPath(f.previous_filename))) continue;
+      if (f.status !== 'modified' || f.previous_filename)
+        return run('Changed performance-bearing file status: ' + path);
+      if (path.startsWith('rust/') && path.endsWith('.rs')) {
+        if (isRustDocOnlyChange(await load(path, before), await load(path, after))) continue;
+        return run('Rust executable change or unverified Rustdoc: ' + path);
+      }
+      if (VERSION_PATHS.has(path)) {
+        const version = isVersionOnlyChange(path, await load(path, before),
+          await load(path, after));
+        if (!version) return run('Non-release-only metadata change: ' + path);
+        versions.push(version);
+        continue;
+      }
+      return run('Performance-bearing push change: ' + path);
+    }
+    if (versions.length && !versions.every(v =>
+      v.before === versions[0].before && v.after === versions[0].after))
+      return run('Inconsistent version-only metadata on push.');
+    return skip('Verified source-irrelevant push from ' + before.slice(0, 12) +
+      ' to ' + after.slice(0, 12) + '; no new performance measurement.');
+  } catch (error) {
+    return run('Push source evidence unavailable; fail closed: ' +
+      (error?.message || String(error)));
+  }
+}
+
+module.exports = {isPerformanceBearingPath, isRustDocOnlyChange, assessPushSourceImpact};

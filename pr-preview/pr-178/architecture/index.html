@@ -873,7 +873,7 @@
 <p>With <code>backend="rust"</code> and <code>safe_mode=False</code> (the default), Python calls the Rust extension in-process. With <code>backend="rust"</code> and <code>safe_mode=True</code>, Python instead supervises an isolated worker that loads the same PyO3 extension. Isolation bounds worker communication and enforces a worker deadline, but parent-side Qiskit serialization is not forcibly preemptible. Memory enforcement depends on operating-system support.</p>
 <p>For <code>backend="python"</code>, <code>safe_mode=True</code> uses the Python strategy's isolation mechanism; it does not run the standalone Rust CLI.</p>
 <h2 id="native-rust">Native Rust</h2>
-<p>The <code>pathsum</code> crate exposes a typed verification engine and public types for native callers. Its API is documented in the <a href="../reference/">Rust crate reference</a>. The separate Rust CLI provides command-line input and process execution.</p>
+<p>The <code>quprs</code> crate exposes a typed verification engine, <code>QuantumCircuit</code>, <code>VerificationOptions</code>, and symbolic <code>PathSum</code> types for native callers. The package name is <code>quprs</code>; <code>pathsum</code> remains the name of a Rust source directory and a compatibility namespace in older integrations. See the <a href="../reference/">Rust crate reference</a> and <a href="../rust-native/">native Rust usage guide</a>. The separate Rust CLI provides command-line input and process execution.</p>
 <h2 id="verification-paths">Verification paths</h2>
 <ul>
 <li><strong>Reduction rules:</strong> try to establish a verdict by simplifying Path-sum expressions.</li>

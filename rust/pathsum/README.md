@@ -37,19 +37,19 @@ use quprs::{
     VerificationMethod, VerificationOptions,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let mut original = QuantumCircuit::new(1);
-    original.h(0)?;
-    original.h(0)?;
+    original.h(0).expect("valid H gate");
+    original.h(0).expect("valid H gate");
     let identity = QuantumCircuit::new(1);
     let options = VerificationOptions {
         method: VerificationMethod::ReductionRules,
         ..VerificationOptions::default()
     };
-    let result = check_equivalence(&original, &identity, &options)?;
+    let result = check_equivalence(&original, &identity, &options)
+        .expect("RR verification");
     assert_eq!(result.status, EquivalenceStatus::Equivalent);
     assert!(!result.wmc_solver_invoked());
-    Ok(())
 }
 ```
 
@@ -81,7 +81,7 @@ use quprs::{
     EquivalenceStatus, VerificationMethod, VerificationOptions,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let options = VerificationOptions {
         method: VerificationMethod::WmcOnly,
         tool_name: "ganak".to_owned(),
@@ -89,10 +89,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let result = check_equivalence_with_options(
         1, &[QuantumOp::X(0)], &[], &options
-    )?;
+    ).expect("requires a working Ganak executable");
     assert_eq!(result.status, EquivalenceStatus::NotEquivalent);
     assert!(result.wmc_solver_invoked());
-    Ok(())
 }
 ```
 

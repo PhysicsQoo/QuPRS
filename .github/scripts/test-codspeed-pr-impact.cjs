@@ -63,6 +63,17 @@ assert.match(prEvents, /synchronize/);
 assert.match(prEvents, /edited/, 'existing explicit PR-body pilot trigger must remain');
 assert.doesNotMatch(prEvents, /ready_for_review/, 'Ready transition must not rerun same source HEAD');
 assert.match(workflow, /^  workflow_dispatch:/m, 'manual pilot dispatch must remain');
+// The workflow embeds JavaScript in YAML: compile the real source_scope step,
+// not just the imported helper, to catch escaping corruption before CI admission.
+const admission = workflow.match(/\n      - id: source_scope\n([\s\S]*?)\n      - id: resolve\n/);
+assert.ok(admission, 'source_scope workflow step must exist');
+const script = admission[1].split('          script: |\n')[1];
+assert.ok(script, 'source_scope script body must exist');
+const dedented = script.split('\n').map(line =>
+  line.startsWith('            ') ? line.slice(12) : line).join('\n');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+assert.doesNotThrow(() => new AsyncFunction('context', 'github', 'core', 'Buffer', dedented),
+  'GitHub Actions source_scope must remain syntactically valid');
 assert.match(workflow, /id: source_scope/);
 assert.match(workflow, /if: \$\{\{ steps\.source_scope\.outputs\.run_source == 'true' \}\}/);
 process.stdout.write('codspeed-pr-impact: source relevance / ready / manual pilot contracts passed\n');

@@ -132,7 +132,7 @@ jobs:
                 if (!isPerformanceBearingPath(f.filename) &&
                     !(f.previous_filename && isPerformanceBearingPath(f.previous_filename))) continue;
                 if (f.status !== 'modified' || f.previous_filename) {hit = f; break;}
-                if (/^rust/.*.rs$/.test(f.filename)) {
+                if (f.filename.startsWith('rust/') && f.filename.endsWith('.rs')) {
                   const before = await loadFile(f.filename, pull.base.sha);
                   const after = await loadFile(f.filename, pull.head.sha);
                   if (isRustDocOnlyChange(before, after)) continue;

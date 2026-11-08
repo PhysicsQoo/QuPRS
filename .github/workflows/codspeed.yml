@@ -222,6 +222,13 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
 
+      - name: Cache verified Ganak release archive
+        uses: actions/cache@v4
+        with:
+          path: rust/target/ganak-release-cache
+          # Archive bytes are SHA256-validated by build.rs on every restore.
+          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -244,6 +251,9 @@ jobs:
 
       - name: Run benchmarks
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           # v5 estimates CPU cycles rather than the pre-v5 simulation metric.
@@ -345,6 +355,9 @@ jobs:
 
       - name: CodSpeed paired end-to-end GPMC/Ganak WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q --codspeed --codspeed-max-rounds=3 --codspeed-max-time=10
@@ -412,6 +425,13 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      - name: Cache verified Ganak release archive
+        uses: actions/cache@v4
+        with:
+          path: rust/target/ganak-release-cache
+          # Archive bytes are SHA256-validated by build.rs on every restore.
+          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+
       - name: Prepare source-pinned Cargo benchmark
         run: |
           set -euo pipefail
@@ -424,6 +444,9 @@ jobs:
           cargo codspeed build
       - name: CodSpeed Rust CPU
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           run: cd benchmarks/rust_core && cargo codspeed run
@@ -467,6 +490,9 @@ jobs:
           cargo codspeed build
       - name: CodSpeed Rust Memory
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: memory
           run: cd benchmarks/rust_core && cargo codspeed run
@@ -508,6 +534,9 @@ jobs:
           maturin develop --release -E dev
       - name: Measure verifier plus Solver CPU
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           cycle-estimation: 'true'
@@ -654,6 +683,9 @@ jobs:
           "$RUNNER_TEMP/cross-method-head/bin/python" -m pip install --disable-pip-version-check pytest-codspeed==5.0.3
       - name: Run same-source cross-method instrument
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: ${{ matrix.mode }}
           simulation-track-subprocess: 'true'
@@ -718,6 +750,9 @@ jobs:
           fi
       - name: Run bounded source-pinned candidates with CodSpeed WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: |
@@ -771,6 +806,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_python_core.py -q --collect-only
       - name: CodSpeed isolated Python algorithm CPU
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: simulation
           cycle-estimation: 'true'
@@ -923,6 +961,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_paper_gap_repeatability.py -q --collect-only
       - name: CodSpeed five measured rounds
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: python -m pytest benchmarks/codspeed/test_paper_gap_repeatability.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=200
@@ -991,6 +1032,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_codspeed_repeatability.py -q --collect-only
       - name: Source-pinned CodSpeed 5-round four-case WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: python -m pytest benchmarks/codspeed/test_codspeed_repeatability.py -q --codspeed --codspeed-warmup-time=0 --codspeed-max-rounds=5 --codspeed-max-time=120
@@ -1099,6 +1143,9 @@ jobs:
 
       - name: CodSpeed paired end-to-end GPMC/Ganak WallTime
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: ${{ runner.temp }}/quprs-pr-walltime-head/bin/python -m pytest benchmarks/codspeed/test_pr_solver_walltime.py -q -k 'qaoa7_gpmc or qft16_gpmc or vqe4_gpmc' --codspeed --codspeed-max-rounds=7 --codspeed-max-time=30
@@ -1217,6 +1264,9 @@ jobs:
           python -m pytest benchmarks/codspeed/test_qoo170_real_abba.py -q --collect-only
       - name: CodSpeed WallTime with true one-invocation-per-position ABBA/BAAB
         uses: CodSpeedHQ/action@v5
+        env:
+          # Only this upstream action receives bounded curl retries.
+          CURL_HOME: ${{ github.workspace }}/.github/codspeed-download
         with:
           mode: walltime
           run: |

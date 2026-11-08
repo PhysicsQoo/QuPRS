@@ -86,6 +86,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Install native build requirements
         run: |
           sudo apt-get update

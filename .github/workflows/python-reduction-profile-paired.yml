@@ -34,6 +34,8 @@ jobs:
           python-version: '3.12'
           cache: pip
 
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Install scientific toolchain
         run: |
           sudo apt-get update

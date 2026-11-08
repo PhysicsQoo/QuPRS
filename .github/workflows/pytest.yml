@@ -161,6 +161,8 @@ jobs:
            path: ${{ env.BINARY_DIR }}/wmc_tools
            key: ${{ matrix.os }}-${{ matrix.arch }}-ganak-2.8.0-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
 
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Install and build (Unix)
         if: matrix.os != 'windows-latest'
         run: | 

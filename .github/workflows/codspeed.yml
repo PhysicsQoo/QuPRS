@@ -585,6 +585,8 @@ jobs:
           ref: ${{ github.sha }}
           submodules: recursive
           persist-credentials: false
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source and solver instrumentation
         run: |
           set -euo pipefail
@@ -794,6 +796,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build same-SHA verifier
         shell: bash
         run: |
@@ -857,6 +861,8 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Install source-pinned Python core
         run: |
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
@@ -917,6 +923,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source and validate tolerance harness
         run: |
           set -euo pipefail
@@ -963,6 +971,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source for diagnostic only
         run: |
           set -euo pipefail
@@ -1010,6 +1020,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build exact source and preflight selection
         run: |
           set -euo pipefail
@@ -1076,6 +1088,8 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-wmc-tools-v0
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Exact SHA and scientific source preflight
         shell: bash
         run: |

@@ -308,6 +308,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../rust-native/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Native Rust and external solvers
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../examples/" class="md-nav__link">
         
   
@@ -1708,6 +1735,45 @@ Default is "Difference".
           </tr>
           <tr class="doc-section-item">
             <td>
+                <code>tool_name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>External WMC solver selection: "gpmc"
+(default) or "ganak". This applies when a weighted count is
+required, including Hybrid fallback and WMC-only runs. QuPRS
+does not silently switch to another solver on failure.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;gpmc&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>backend</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>"python" (default) uses the Python
+symbolic implementation; "rust" invokes the native engine
+through the PyO3 extension. With safe_mode=True, the Rust
+backend is supervised in an isolated worker, not via the
+standalone Rust CLI.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;python&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                 <code>timeout</code>
             </td>
             <td>
@@ -1862,8 +1928,9 @@ raw printed uncertainty remains separately diagnostic.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>An object containing the result dictionary and the
-final PathSum circuit object.</p>
+                <p>A dataclass containing the verdict string
+in the equivalent field, timing/solver diagnostics, and the
+final symbolic PathSum. This is not a result dictionary.</p>
               </div>
             </td>
           </tr>

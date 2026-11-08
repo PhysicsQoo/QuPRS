@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["EquivalenceStatus","VerificationMethod"],"fn":["check_equivalence","check_equivalence_with_options"],"mod":["gates","ir","pathsum","precision_count","qasm","rational","reduction","solver_result","stats","strategy","wmc"],"struct":["EquivalenceCheckResult","ExclusiveLedger","VerificationOptions"]};

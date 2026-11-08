@@ -29,6 +29,33 @@ for (const path of [
 ]) assert.equal(isMeasured(path), false, `CI/docs-only must not measure: ${path}`);
 assert.equal(isMeasured(undefined), false);
 
+
+// Rustdoc-only source changes must not consume new CodSpeed measurements.
+// The lexical check is deliberately conservative for uncertain/invalid input.
+const {isRustDocOnlyChange} = require('./codspeed-pr-impact.cjs');
+const rustOriginal = '/// Before\npub fn run() -> i32 { 2 }\n';
+assert.equal(isRustDocOnlyChange(rustOriginal, '/// After\npub fn run() -> i32 { 2 }\n'), true);
+assert.equal(isRustDocOnlyChange(rustOriginal, '//! Module\n'+rustOriginal), true);
+assert.equal(isRustDocOnlyChange(rustOriginal, '/// After\npub fn run() -> i32 { 3 }\n'), false);
+assert.equal(isRustDocOnlyChange(rustOriginal, '//// Ordinary comment\npub fn run() -> i32 { 2 }\n'), false);
+assert.equal(isRustDocOnlyChange('pub fn a() {}\n', 'pub fn a() {}\n'), false);
+assert.equal(isRustDocOnlyChange('pub fn a() {}\n', 'pub fn a() { }\n'), false);
+assert.equal(isRustDocOnlyChange('const S: &str = r#"\n/// Before\n"#;\n',
+  'const S: &str = r#"\n/// After\n"#;\n'), false, 'raw strings are data');
+assert.equal(isRustDocOnlyChange('const S: &str = "start\n/// Before\nend";\n',
+  'const S: &str = "start\n/// After\nend";\n'), false, 'multiline strings are data');
+assert.equal(isRustDocOnlyChange('/* outer /* nested */\n/// Before\n*/\npub fn a() {}\n',
+  '/* outer /* nested */\n/// After\n*/\npub fn a() {}\n'), false, 'block comments cannot masquerade as docs');
+assert.equal(isRustDocOnlyChange("let c = '/';\n/// Before\nfn f() {}\n",
+  "let c = '/';\n/// After\nfn f() {}\n"), true, 'char literal context');
+assert.equal(isRustDocOnlyChange('/// Before\n#[derive(Debug)]\nstruct A;\n',
+  '/// After\n#[derive(Debug)]\nstruct A;\n'), true, 'doctests remain a separate required gate');
+assert.equal(isRustDocOnlyChange('pub fn a() {}\n', '/// New doc\npub fn a() {}\n'), true);
+assert.equal(isRustDocOnlyChange('/// Old\npub fn a() {}\n', 'pub fn a() {}\n'), true);
+assert.equal(isRustDocOnlyChange('/// Old\n/* unterminated', '/// New\n/* unterminated'), false);
+assert.equal(isRustDocOnlyChange('/// Old\npub fn a() {}\n', '/// New\npub fn a() {}\n#[cfg(test)] mod extra {}'), false);
+assert.equal(isRustDocOnlyChange('/// Old\npub fn a() {}\n', '/// New\npub fn a() {}\n'+'.'.repeat(150001)), false);
+
 const workflow = fs.readFileSync('.github/workflows/codspeed.yml', 'utf8');
 const prEvents = workflow.match(/^  pull_request:\n    types: \[([^\]]+)\]/m)?.[1] || '';
 assert.match(prEvents, /opened/);

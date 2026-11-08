@@ -1,4 +1,5 @@
 'use strict';
+const {isRustDocOnlyChange} = require('./codspeed-pr-impact.cjs');
 module.exports = async function resolver({ github, context, core, workflowFile, requiredJobs, baseBranch = 'dev' }) {
   const result = async (runHeavy, reason, evidence) => {
     core.setOutput('run_heavy', String(runHeavy));
@@ -50,13 +51,30 @@ module.exports = async function resolver({ github, context, core, workflowFile, 
         const documentation = /^(?:docs\/.*\.md|README\.md|CHANGELOG\.md|CONTRIBUTING\.md|\.github\/ISSUE_TEMPLATE\/.*\.md)$/;
         const workflowSource = /^\.github\/workflows\/([a-zA-Z0-9_-]+\.ya?ml)$/;
         const indirect = workflowFile === 'native-cross-platform-pr.yml' ? ['pytest.yml'] : [];
-        const isUnrelated = path => {
+        const loadSource = async (path, ref) => {
+          const response = await github.rest.repos.getContent({owner, repo, path, ref});
+          const file = response.data;
+          if (!file || Array.isArray(file) || file.type !== 'file' ||
+              file.encoding !== 'base64' || typeof file.content !== 'string' ||
+              file.size > 150000) throw new Error('Unverifiable Rustdoc input');
+          return Buffer.from(file.content, 'base64').toString('utf8');
+        };
+        const isUnrelated = async f => {
+          if (f.status !== 'modified' || f.previous_filename) return false;
+          const path = f.filename || '';
           if (documentation.test(path)) return true;
           const match = workflowSource.exec(path);
-          return Boolean(match && match[1] !== workflowFile && !indirect.includes(match[1]));
+          if (match) return match[1] !== workflowFile && !indirect.includes(match[1]);
+          if (workflowFile !== 'codspeed.yml' || !/^rust\/.*\.rs$/.test(path)) return false;
+          const before = await loadSource(path, candidate.head_sha);
+          const after = await loadSource(path, pull.head.sha);
+          return isRustDocOnlyChange(before, after);
         };
-        if (diff.files.some(f => !isUnrelated(f.filename || '') ||
-          (f.previous_filename && !isUnrelated(f.previous_filename)))) continue;
+        let sourceChanged = false;
+        for (const file of diff.files) {
+          if (!await isUnrelated(file)) { sourceChanged = true; break; }
+        }
+        if (sourceChanged) continue;
       }
       const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
         owner, repo, run_id: candidate.id, filter: 'latest', per_page: 100

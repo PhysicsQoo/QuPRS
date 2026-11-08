@@ -18,7 +18,10 @@ const before = (overrides = {}) => ({
 async function execute({files = [{filename: 'docs/development/notes.md'}], prior = before(),
   jobs = [{name: 'Named Bench', status: 'completed', conclusion: 'success'}],
   action = 'synchronize', eventName = 'pull_request', compareStatus = 'ahead',
-  compareBehind = 0, throwAPI = false, workflowFile = 'codspeed.yml',
+  compareBehind = 0, throwAPI = false, failSource = false,
+  sources = {before: '/// Before\npub fn run() {}\n',
+             after: '/// After\npub fn run() {}\n'},
+  workflowFile = 'codspeed.yml',
   requiredJobs = [{name: 'Named Bench', count: 1}]} = {}) {
   const outputs = {};
   const context = {
@@ -45,6 +48,12 @@ async function execute({files = [{filename: 'docs/development/notes.md'}], prior
       repos: {
         async compareCommits() {
           return {data: {status: compareStatus, behind_by: compareBehind, files}};
+        },
+        async getContent({ref}) {
+          if (failSource) throw new Error('source unavailable');
+          const content = ref === previous ? sources.before : sources.after;
+          return {data: {type: 'file', encoding: 'base64',
+            size: content.length, content: Buffer.from(content).toString('base64')}};
         }
       }
     },
@@ -59,6 +68,19 @@ async function execute({files = [{filename: 'docs/development/notes.md'}], prior
 
 (async () => {
   assert.equal(await execute(), false, 'docs-only can reuse prior success');
+  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}]}), false, 'only Rustdoc may reuse successful previous measurement');
+  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}],
+    sources: {before: '/// Before\npub fn run() {}\n',
+              after: '/// After\npub fn run() { println!("change"); }\n'}}), true, 'Rust code changes force measurement');
+  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}],
+    sources: {before: 'const S:&str=r#"\n/// Before\n"#;\n',
+              after: 'const S:&str=r#"\n/// After\n"#;\n'}}), true, 'raw string changes force measurement');
+  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}], failSource:true}), true, 'missing full source fails closed');
+  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'renamed', previous_filename:'rust/pathsum/src/circuit.rs'}]}), true, 'rename fails closed');
+  assert.equal(await execute({files: [{filename: '.github/workflows/codspeed.yml',status:'modified'}]}), true, 'own workflow changes force measurement');
+  assert.equal(await execute({files: [{filename: '.github/scripts/codspeed-pr-impact.cjs',status:'modified'}]}), true, 'routing changes invalidate evidence');
+  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs',status:'modified'}],
+    prior:before({conclusion:'failure'})}), true, 'failed prior Rustdoc evidence is not reusable');
   assert.equal(await execute({files: [{filename: 'src/QuPRS/core.py'}]}), true, 'code must run');
   assert.equal(await execute({files: [{filename: 'benchmarks/codspeed/suite_catalog.json'}]}), true, 'registry must run');
   assert.equal(await execute({prior: before({conclusion: 'failure'})}), true, 'failed run cannot reuse');

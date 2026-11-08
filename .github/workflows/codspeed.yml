@@ -99,7 +99,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { isPerformanceBearingPath } = require('./.github/scripts/codspeed-pr-impact.cjs');
+            const { isPerformanceBearingPath, isRustDocOnlyChange } = require('./.github/scripts/codspeed-pr-impact.cjs');
             const { VERSION_PATHS, isVersionOnlyChange } = require('./.github/scripts/codspeed-metadata-only.cjs');
             if (context.eventName !== 'pull_request') {
               core.setOutput('run_source', 'true');
@@ -131,8 +131,15 @@ jobs:
               for (const f of files) {
                 if (!isPerformanceBearingPath(f.filename) &&
                     !(f.previous_filename && isPerformanceBearingPath(f.previous_filename))) continue;
-                if (f.status !== 'modified' || f.previous_filename ||
-                    !VERSION_PATHS.has(f.filename)) {hit = f; break;}
+                if (f.status !== 'modified' || f.previous_filename) {hit = f; break;}
+                if (/^rust/.*.rs$/.test(f.filename)) {
+                  const before = await loadFile(f.filename, pull.base.sha);
+                  const after = await loadFile(f.filename, pull.head.sha);
+                  if (isRustDocOnlyChange(before, after)) continue;
+                  hit = f;
+                  break;
+                }
+                if (!VERSION_PATHS.has(f.filename)) {hit = f; break;}
                 const before = await loadFile(f.filename, pull.base.sha);
                 const after = await loadFile(f.filename, pull.head.sha);
                 const version = isVersionOnlyChange(f.filename, before, after);

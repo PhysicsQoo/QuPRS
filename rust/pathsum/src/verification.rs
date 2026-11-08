@@ -4,8 +4,10 @@ use crate::{check_equivalence_with_options, EquivalenceCheckResult, QuantumCircu
 use anyhow::{bail, Result};
 
 /// Compare two native Rust circuits using the same verification engine as
-/// the CLI and PyO3 extension. A circuit-width mismatch is a typed input
-/// error, not a fabricated final PathSum (Python's mismatch convention differs).
+/// the CLI and PyO3 extension. A circuit-width mismatch returns an
+/// `anyhow::Error` from input validation, not a fabricated final PathSum
+/// (Python's mismatch convention differs). This is not a dedicated
+/// typed error enum.
 ///
 /// # Examples
 ///

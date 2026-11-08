@@ -299,6 +299,15 @@ def check_equivalence(
             - 'Proportional': Uses a proportional strategy.
             - 'Naive': Uses a naive strategy.
             - 'Straightforward': Uses a straightforward strategy.
+        tool_name (str, optional): External WMC solver selection: "gpmc"
+            (default) or "ganak". This applies when a weighted count is
+            required, including Hybrid fallback and WMC-only runs. QuPRS
+            does not silently switch to another solver on failure.
+        backend (str, optional): "python" (default) uses the Python
+            symbolic implementation; "rust" invokes the native engine
+            through the PyO3 extension. With safe_mode=True, the Rust
+            backend is supervised in an isolated worker, not via the
+            standalone Rust CLI.
         timeout (int, optional): Requested deadline in seconds (default 600).
             The external WMC subprocess consumes only the remaining monotonic
             budget. In-process Rust and Python symbolic work on a non-main
@@ -328,8 +337,9 @@ def check_equivalence(
             30 by default or explicitly 90. Independent from distance tolerance.
 
     Returns:
-        EquivalenceCheckResult: An object containing the result dictionary and the
-            final PathSum circuit object.
+        EquivalenceCheckResult: A dataclass containing the verdict string
+            in the equivalent field, timing/solver diagnostics, and the
+            final symbolic PathSum. This is not a result dictionary.
     """
     rr_tolerance = validate_rr_tolerance(
         DEFAULT_RR_TOLERANCE if rr_tolerance is None else rr_tolerance

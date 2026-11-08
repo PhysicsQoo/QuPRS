@@ -114,7 +114,19 @@ impl std::fmt::Display for EquivalenceStatus {
     }
 }
 
-/// Comprehensive result object matching the Python Dataclass
+/// Native Rust result with a typed [`EquivalenceStatus`] verdict.
+///
+/// This structure exposes the same *concepts* as Python's
+/// `EquivalenceCheckResult`, not an identical Python dataclass layout.
+/// Rust stores `status: EquivalenceStatus`; [`Self::equivalent`] returns the
+/// Python-compatible string spelling. Rust's [`Self::final_pathsum`]
+/// returns a borrowed symbolic residual and [`Self::gate_num`] is a
+/// read-only accessor for the first circuit count, whereas Python uses
+/// attributes `equivalent`, `final_pathsum`, and `gate_num`.
+/// [`Self::wmc_solver_invoked`] distinguishes a real external WMC process
+/// from an analytic shortcut; numerical solver output is not an exact
+/// equality certificate. Error or inconclusive outcomes must not be
+/// interpreted as circuit non-equivalence.
 #[derive(Debug)]
 pub struct EquivalenceCheckResult {
     pub qubit_num: usize,

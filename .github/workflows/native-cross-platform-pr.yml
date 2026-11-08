@@ -19,6 +19,9 @@ on:
       - '.github/workflows/native-cross-platform-pr.yml'
       - '.github/scripts/ci-impact-reuse.cjs'
       - '.github/scripts/test-ci-impact-reuse.cjs'
+      - '.github/scripts/ci-docs-only-admission.cjs'
+      - '.github/scripts/test-ci-docs-only-admission.cjs'
+      - '.github/scripts/codspeed-pr-impact.cjs'
   workflow_dispatch:
 
 permissions:
@@ -37,8 +40,9 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     outputs:
-      run_heavy: ${{ steps.resolve.outputs.run_heavy }}
+      run_heavy: ${{ steps.source_scope.outputs.run_source == 'true' && steps.resolve.outputs.run_heavy == 'true' }}
       reused_run_id: ${{ steps.resolve.outputs.reused_run_id }}
       measured_head_sha: ${{ steps.resolve.outputs.measured_head_sha }}
     steps:
@@ -50,7 +54,18 @@ jobs:
         run: |
           node .github/scripts/test-ci-impact-reuse.cjs
           node .github/scripts/test-native-matrix-reuse-admission.cjs
+          node .github/scripts/test-ci-docs-only-admission.cjs
+      - id: source_scope
+        name: Exclude proven Rustdoc-only first-run PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const admit = require('./.github/scripts/ci-docs-only-admission.cjs');
+            const verdict = await admit({github, context, baseBranches: ["dev"]});
+            core.setOutput('run_source', String(verdict.run));
+            core.info(verdict.reason);
       - id: resolve
+        if: ${{ steps.source_scope.outputs.run_source == 'true' }}
         name: Validate source and successful previous CI evidence
         uses: actions/github-script@v7
         with:

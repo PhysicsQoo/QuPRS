@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::Path;
-use pathsum::{qasm, PathSum, VerificationStrategy, wmc::WmcManager};
+use quprs::{qasm, PathSum, VerificationStrategy, wmc::WmcManager};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);

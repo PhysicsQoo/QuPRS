@@ -33,6 +33,7 @@ nav:
   - Overview: index.md
   - User guide:
       - Getting started: getting-started.md
+      - Native Rust and external solvers: rust-native.md
       - Executable examples: examples.md
       - Verification methods: verification.md
   - Theory:

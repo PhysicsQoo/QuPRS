@@ -5,9 +5,9 @@
 //! complex amplitudes are a separate floating-point numerical cross-check.
 use num_complex::Complex64 as C;
 use num_traits::ToPrimitive;
-use pathsum::ir::QuantumOp;
-use pathsum::qasm::parse_qasm_str;
-use pathsum::PathSum;
+use quprs::ir::QuantumOp;
+use quprs::qasm::parse_qasm_str;
+use quprs::PathSum;
 use std::f64::consts::{PI, TAU};
 
 type M = [[C; 4]; 4];

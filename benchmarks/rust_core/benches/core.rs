@@ -3,7 +3,7 @@
 use std::sync::OnceLock;
 use std::collections::HashMap;
 use pathsum::wmc::WmcManager;
-use pathsum::{check_equivalence_with_options, PathSum, PhaseCoeff, Rational,
+use pathsum::{check_equivalence_with_options, PathSum, PhaseCoeff, QuantumCircuit, Rational,
               VerificationMethod, VerificationOptions, VerificationStrategy};
 use pathsum::gates::{QuantumGates, Side};
 use pathsum::ir::QuantumOp;
@@ -71,6 +71,36 @@ fn main() {
              wmc_fixture(true), wmc_fixture(false), preencoded_mpfr96());
     q261_preload_and_validate();
     divan::main();
+}
+
+
+// Paired, same-SHA native API construction attribution. The operations Vec
+// is prepared outside the timed region via divan::Bencher::with_inputs.
+// "preopt" reproduces the old append-and-reallocate implementation.
+// "owned" validates in place, then adopts the already allocated Vec.
+// Both run the exact same gate validation on an identical two-qubit input.
+#[divan::bench(args = [16_usize, 256_usize, 4096_usize])]
+fn circuit_from_ops_preopt(bencher: divan::Bencher, count: usize) {
+    bencher.with_inputs(|| {
+        (0..count).map(|i| QuantumOp::H(i % 2)).collect::<Vec<_>>()
+    }).bench_values(|ops| {
+        let mut circuit = QuantumCircuit::new(2);
+        for op in divan::black_box(ops) {
+            circuit.push(op).expect("valid fixed-width gate");
+        }
+        divan::black_box(circuit)
+    });
+}
+
+#[divan::bench(args = [16_usize, 256_usize, 4096_usize])]
+fn circuit_from_ops_owned(bencher: divan::Bencher, count: usize) {
+    bencher.with_inputs(|| {
+        (0..count).map(|i| QuantumOp::H(i % 2)).collect::<Vec<_>>()
+    }).bench_values(|ops| {
+        let circuit = QuantumCircuit::from_ops(2, divan::black_box(ops))
+            .expect("valid fixed-width gate");
+        divan::black_box(circuit)
+    });
 }
 
 #[divan::bench]

@@ -50,13 +50,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence dist
-          cargo test --manifest-path rust/Cargo.toml -p pathsum qasm::tests --lib --release -- --nocapture 2>&1 | tee evidence/rust-qasm3.log
+          cargo test --manifest-path rust/Cargo.toml -p quprs qasm::tests --lib --release -- --nocapture 2>&1 | tee evidence/rust-qasm3.log
       - name: Preserve native P and U1 phase-normalization unit proofs
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          cargo test --manifest-path rust/Cargo.toml -p pathsum gates::tests::test_apply_p --lib --release -- --nocapture 2>&1 | tee evidence/rust-p-phase.log
-          cargo test --manifest-path rust/Cargo.toml -p pathsum gates::tests::test_p_u1_relative_phase_unit_contract --lib --release -- --nocapture 2>&1 | tee evidence/rust-p-u1.log
+          cargo test --manifest-path rust/Cargo.toml -p quprs gates::tests::test_apply_p --lib --release -- --nocapture 2>&1 | tee evidence/rust-p-phase.log
+          cargo test --manifest-path rust/Cargo.toml -p quprs gates::tests::test_p_u1_relative_phase_unit_contract --lib --release -- --nocapture 2>&1 | tee evidence/rust-p-u1.log
       - name: Build public verifier wheel once
         run: |
           set -euo pipefail

@@ -12,7 +12,7 @@ For `backend="python"`, `safe_mode=True` uses the Python strategy's isolation me
 
 ## Native Rust
 
-The `pathsum` crate exposes a typed verification engine and public types for native callers. Its API is documented in the [Rust crate reference](reference.md). The separate Rust CLI provides command-line input and process execution.
+The `quprs` crate exposes a typed verification engine, `QuantumCircuit`, `VerificationOptions`, and symbolic `PathSum` types for native callers. The package name is `quprs`; `pathsum` remains the name of a Rust source directory and a compatibility namespace in older integrations. See the [Rust crate reference](reference.md) and [native Rust usage guide](rust-native.md). The separate Rust CLI provides command-line input and process execution.
 
 ## Verification paths
 

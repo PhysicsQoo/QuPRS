@@ -31,4 +31,4 @@ See the [fully tested examples](examples.md) for positive/negative controls, glo
 
 ## Rust users
 
-The native Rust crate and command-line tool are maintained in the [Rust workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust). The Python wheel does not install a standalone Rust CLI executable. See the [CLI example](examples.md#7-standalone-rust-cli) for a self-contained native source-checkout invocation.
+The native Rust crate and command-line tool are maintained in the [Rust workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust). The Python wheel does not install a standalone Rust CLI executable. For a complete source-build Rust verifier, including Hybrid and WMC-only execution with external solvers, see [Native Rust and external solvers](rust-native.md). See also the [CLI example](examples.md#7-standalone-rust-cli).

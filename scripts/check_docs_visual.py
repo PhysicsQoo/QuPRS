@@ -56,7 +56,7 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                             ("examples", "examples/", "Executable examples"),
                             ("python-api", "python-api/", "Python API"),
                             ("pathsum-api", "pathsum-api/", "Python API: Advanced Path-sum"),
-                            ("rustdoc", "rust-api/pathsum/index.html", "pathsum"),
+                            ("rustdoc", "rust-api/quprs/index.html", "quprs"),
                         ]
                         for name, suffix, heading in scenarios:
                             page = browser.new_page(viewport={"width": 1366, "height": 900}, device_scale_factor=1)

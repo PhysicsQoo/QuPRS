@@ -84,7 +84,7 @@ jobs:
           maturin develop --release -E dev
       - name: Confirm focused Rust Elim timing and native FFI tests
         run: |
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --lib diagnostics::tests
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --lib diagnostics::tests
           python -m pytest -q test/test_rust_structural_probe_ffi.py
       - name: Six-family same-CPU raw Elim cost collection
         run: |

@@ -5,6 +5,9 @@ on:
     branches: [dev]
     paths:
       - 'rust/pathsum/src/**'
+      - 'rust/pathsum/build.rs'
+      - 'rust/pathsum/native/**'
+      - 'rust/pathsum/tests/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/pathsum/core.py'
@@ -19,6 +22,7 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/stage_rust_crate_candidate.py'
       - 'scripts/check_docs_gate_stubs.py'
       - 'scripts/generate_stubs.py'
       - 'src/QuPRS/py.typed'
@@ -34,6 +38,9 @@ on:
     branches: [dev]
     paths:
       - 'rust/pathsum/src/**'
+      - 'rust/pathsum/build.rs'
+      - 'rust/pathsum/native/**'
+      - 'rust/pathsum/tests/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/pathsum/core.py'
@@ -48,6 +55,7 @@ on:
       - 'docs/site/**'
 
       - 'scripts/check_rust_api_docs.py'
+      - 'scripts/stage_rust_crate_candidate.py'
       - 'scripts/check_docs_gate_stubs.py'
       - 'scripts/generate_stubs.py'
       - 'src/QuPRS/py.typed'
@@ -144,7 +152,7 @@ jobs:
           fi
           archive="$pages/gh-pages/docs/dev"
           if [[ ! -f "$archive/source-sha.txt" ||
-                ! -f "$archive/rust-api/pathsum/index.html" ||
+                ! -f "$archive/rust-api/quprs/index.html" ||
                 ! -d "$archive/rust-api/static.files" ]]; then
             echo "Dev Rustdoc artifact incomplete; build native Rustdoc"
             exit 0
@@ -171,7 +179,7 @@ jobs:
           source = "https://physicsqoo.github.io/QuPRS/docs/dev/rust-api/"
           target = f"https://physicsqoo.github.io/QuPRS/pr-preview/pr-{pr}/rust-api/"
           root = Path("rust/target/doc")
-          if not (root / "pathsum" / "index.html").is_file():
+          if not (root / "quprs" / "index.html").is_file():
               raise ValueError("Reused Rustdoc entrypoint missing")
           count = 0
           for page in root.rglob("*.html"):
@@ -204,10 +212,98 @@ jobs:
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
       - name: Build Rust library reference
         if: steps.reuse-rustdoc.outputs.used != 'true'
-        run: cargo doc --locked --manifest-path rust/Cargo.toml -p pathsum --no-deps
+        run: cargo doc --locked --manifest-path rust/Cargo.toml -p quprs --no-deps
       - name: Run Rust documentation tests
         if: steps.reuse-rustdoc.outputs.used != 'true'
-        run: cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p quprs --doc
+      - name: Check solver-free Rust library build
+        run: |
+          # Solver provisioning is a deliberate build-mode choice, not a Cargo
+          # feature. Every compiled feature combination retains Hybrid/WMC.
+          QUPRS_SOLVER_PROVISION=external cargo check --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features
+          QUPRS_SOLVER_PROVISION=external cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --test standalone_rr
+          QUPRS_SOLVER_PROVISION=external cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --test public_api_parity
+          QUPRS_SOLVER_PROVISION=external cargo check --locked --manifest-path rust/Cargo.toml -p quprs --all-features
+      - name: Package complete Rust crate and test external GPMC/Ganak consumers
+        # This extends the existing Rustdoc job; site-only PRs reuse native evidence.
+        if: github.event_name == 'pull_request' && steps.reuse-rustdoc.outputs.used != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp src/QuPRS/utils/ganak-release.txt rust/pathsum/src/ganak-release.txt
+          candidate="$RUNNER_TEMP/quprs-complete-candidate"
+          python scripts/stage_rust_crate_candidate.py --output "$candidate"
+          cargo package --manifest-path "$candidate/Cargo.toml" --list > "$RUNNER_TEMP/quprs-crate-file-list.txt"
+          if grep -Ei '(GPMC/|QuPRS/utils/|\.git/)' "$RUNNER_TEMP/quprs-crate-file-list.txt"; then
+            echo 'Monorepo-only files unexpectedly included in .crate' >&2
+            exit 1
+          fi
+          grep -Fx 'src/ganak-release.txt' "$RUNNER_TEMP/quprs-crate-file-list.txt"
+          cargo package --manifest-path "$candidate/Cargo.toml"
+          cargo publish --manifest-path "$candidate/Cargo.toml" --dry-run
+          version="$(python -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$candidate/Cargo.toml")"
+          archive="$candidate/target/package/quprs-$version.crate"
+          test -s "$archive"
+          mkdir -p "$RUNNER_TEMP/quprs-full-unpacked" "$RUNNER_TEMP/quprs-full-consumer/src"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/quprs-full-unpacked"
+          unpacked="$RUNNER_TEMP/quprs-full-unpacked/quprs-$version"
+          test -f "$unpacked/LICENSE.md"
+          test ! -e "$unpacked/GPMC"
+          test ! -e "$unpacked/src/QuPRS"
+          # The parent workspace's native build produced pinned executables.
+          # The unpacked crate only executes them; it does not download/build them.
+          export QUPRS_GPMC_PATH="$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/gpmc"
+          export QUPRS_GANAK_PATH="$GITHUB_WORKSPACE/src/QuPRS/utils/wmc_tools/ganak"
+          test -x "$QUPRS_GPMC_PATH"
+          test -x "$QUPRS_GANAK_PATH"
+          cargo check --manifest-path "$unpacked/Cargo.toml" --all-features
+          cargo test --manifest-path "$unpacked/Cargo.toml" --no-default-features --test standalone_rr
+          cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc -- --list | grep -F "wmc_only_x_uses_real_ganak: test"
+          cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc
+          # Verify PATH discovery with both explicit solver overrides removed.
+          # Use the same proven executables; no download, rebuild or fallback.
+          path_bin="$RUNNER_TEMP/quprs-external-path-bin"
+          mkdir -p "$path_bin"
+          ln -s "$QUPRS_GPMC_PATH" "$path_bin/gpmc"
+          ln -s "$QUPRS_GANAK_PATH" "$path_bin/ganak"
+          env -u QUPRS_GPMC_PATH -u QUPRS_GANAK_PATH \
+            PATH="$path_bin:$PATH" \
+            cargo test --manifest-path "$unpacked/Cargo.toml" --test external_wmc \
+            wmc_only_x_uses_real_ -- --test-threads=1
+          cargo test --manifest-path "$unpacked/Cargo.toml" --test public_api_parity
+          QUPRS_GPMC_PATH="$RUNNER_TEMP/absent-gpmc" cargo test \
+            --manifest-path "$unpacked/Cargo.toml" --test external_wmc \
+            missing_solver_fails_closed -- --ignored
+          cargo test --manifest-path "$unpacked/Cargo.toml" --doc
+          printf '[package]\nname = "quprs_wmc_consumer"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nquprs = { path = "%s" }\n' "$unpacked" > "$RUNNER_TEMP/quprs-full-consumer/Cargo.toml"
+          cat > "$RUNNER_TEMP/quprs-full-consumer/src/lib.rs" <<'RUST'
+          #[cfg(test)]
+          mod tests {
+              use quprs::{check_equivalence_with_options, EquivalenceStatus, VerificationMethod, VerificationOptions};
+              use quprs::ir::QuantumOp;
+              #[test]
+              fn external_quprs_default_hybrid_and_explicit_wmc_work() {
+                  let default = VerificationOptions::default();
+                  assert_eq!(default.method, VerificationMethod::Hybrid);
+                  let eq = check_equivalence_with_options(1, &[], &[], &default).unwrap();
+                  assert_eq!(eq.status, EquivalenceStatus::Equivalent);
+                  assert!(!eq.solver_invoked);
+                  let neq = check_equivalence_with_options(
+                      1, &[QuantumOp::H(0)], &[], &default
+                  ).unwrap();
+                  assert_eq!(neq.status, EquivalenceStatus::NotEquivalent);
+                  assert!(neq.solver_invoked);
+                  let wmc = VerificationOptions {
+                      method: VerificationMethod::WmcOnly,
+                      ..default
+                  };
+                  let x = check_equivalence_with_options(1, &[QuantumOp::X(0)], &[], &wmc).unwrap();
+                  assert_eq!(x.status, EquivalenceStatus::NotEquivalent);
+                  assert!(x.solver_invoked);
+              }
+          }
+          RUST
+          cargo test --manifest-path "$RUNNER_TEMP/quprs-full-consumer/Cargo.toml"
       - name: Compose and validate both API references
         run: python scripts/check_rust_api_docs.py --compose --check
       - name: Audit all internal links against deployment URL prefix
@@ -282,7 +378,7 @@ jobs:
           test -f preview-site/weighted-model-counting/index.html
           test -f preview-site/examples/index.html
           test -f preview-site/python-api/index.html
-          test -f preview-site/rust-api/pathsum/index.html
+          test -f preview-site/rust-api/quprs/index.html
           test -d preview-site/rust-api/static.files
           if find preview-site -type l | grep -q .; then
             echo 'Symlinks are not supported in the preview tree' >&2
@@ -333,7 +429,7 @@ jobs:
             exit 1
           fi
           # Validate the exact committed content, not merely the SHA marker.
-          for page in index.html python-api/index.html rust-api/pathsum/index.html; do
+          for page in index.html python-api/index.html rust-api/quprs/index.html; do
             git -C preview-branch show "$remote:$destination/$page" |
               cmp - "preview-site/$page"
           done
@@ -420,7 +516,7 @@ jobs:
             mike set-default --branch gh-pages --config-file mkdocs.versioned.yml dev
           fi
           test "$(git show gh-pages:docs/dev/source-sha.txt | tr -d '\r\n')" = "${{ github.sha }}"
-          git cat-file -e gh-pages:docs/dev/rust-api/pathsum/index.html
+          git cat-file -e gh-pages:docs/dev/rust-api/quprs/index.html
           test "$(git rev-parse gh-pages:index.html)" = "$before_root"
           test "$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)" = "$before_preview"
           git worktree add --detach "$RUNNER_TEMP/versioned-docs" gh-pages

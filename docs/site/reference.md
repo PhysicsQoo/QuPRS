@@ -16,9 +16,9 @@ executing QuPRS during the documentation build.
 
 ## Rust library
 
-The native `pathsum` crate provides its own typed verification API. It is documented with Rust's `cargo doc` tool.
+The native `quprs` crate provides its own typed verification API. It is documented with Rust's `cargo doc` tool. Start with the [native Rust guide](rust-native.md) for a solver-free example, validated options, and the distinction between `QuantumCircuit` and `PathSum`.
 
-<a href="rust-api/pathsum/index.html">Rust crate API Reference</a>
+<a href="rust-api/quprs/index.html">Rust crate API Reference</a>
 
 Rustdoc is generated separately from the same source revision as this website. A local Zensical-only preview does not contain the Rustdoc subtree until the Rust documentation build has run.
 

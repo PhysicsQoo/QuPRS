@@ -18,7 +18,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.21.2", features = ["extension-module", "abi3-py38"] }
-pathsum = { path = "../pathsum", default-features = false }
+pathsum = { package = "quprs", path = "../pathsum", default-features = false }
 
 [features]
 default = ["high-precision-gpmc"]

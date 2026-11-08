@@ -81,8 +81,8 @@ jobs:
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
       - name: Generate Rustdoc from the same release SHA
         run: |
-          cargo doc --locked --manifest-path rust/Cargo.toml -p pathsum --no-deps
-          cargo test --locked --manifest-path rust/Cargo.toml -p pathsum --doc
+          cargo doc --locked --manifest-path rust/Cargo.toml -p quprs --no-deps
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --doc
           python scripts/docs_versioning.py stage-native --source-sha '${{ steps.resolve.outputs.source_sha }}'
           python scripts/docs_versioning.py config --ref '${{ steps.resolve.outputs.release_tag }}'
       - name: Stage versioned docs without publishing
@@ -107,7 +107,7 @@ jobs:
             --update-aliases "$TAG" stable
           mike set-default --branch gh-pages --config-file mkdocs.versioned.yml stable
           test "$(git show "gh-pages:docs/$TAG/source-sha.txt" | tr -d '\r\n')" = "$EXPECTED_SHA"
-          git cat-file -e "gh-pages:docs/$TAG/rust-api/pathsum/index.html"
+          git cat-file -e "gh-pages:docs/$TAG/rust-api/quprs/index.html"
           test "$(git rev-parse gh-pages:index.html)" = "$root_before"
           test "$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)" = "$preview_before"
           git worktree add --detach "$RUNNER_TEMP/version-pages" gh-pages
@@ -206,7 +206,7 @@ jobs:
             echo "::error::Published gh-pages revision does not contain the reviewed release source"
             exit 1
           fi
-          git -C pages show "$remote:docs/$TAG/rust-api/pathsum/index.html" > /dev/null
+          git -C pages show "$remote:docs/$TAG/rust-api/quprs/index.html" > /dev/null
           git -C pages show "$remote:docs/versions.json" |
             jq -e --arg tag "$TAG" '
               [.[] | select(.version == $tag and ((.aliases // []) | index("stable") != null))]

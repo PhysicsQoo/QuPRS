@@ -35,14 +35,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p cp-oracle-evidence
-          cargo test --manifest-path rust/Cargo.toml -p pathsum \
+          cargo test --manifest-path rust/Cargo.toml -p quprs \
             qasm::tests::cp_unreduced --lib --release -- --nocapture \
             2>&1 | tee cp-oracle-evidence/unreduced-oracle.log
       - name: Run existing native QASM parsing controls
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --manifest-path rust/Cargo.toml -p pathsum \
+          cargo test --manifest-path rust/Cargo.toml -p quprs \
             qasm::tests --lib --release -- --nocapture \
             2>&1 | tee cp-oracle-evidence/parser-regressions.log
       - name: Record checked source and repeatable environment

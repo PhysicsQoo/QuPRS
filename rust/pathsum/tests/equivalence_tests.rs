@@ -1,6 +1,6 @@
 // tests/equivalence_tests.rs
-use pathsum::ir::QuantumOp;
-use pathsum::{
+use quprs::ir::QuantumOp;
+use quprs::{
     check_equivalence, 
     VerificationMethod, 
     VerificationStrategy, 

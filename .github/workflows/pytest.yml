@@ -5,6 +5,12 @@ name: Python Pytest CI
 # Full cross-platform integration coverage for dev/main pushes and explicit reusable/manual invocations.
 on:
   workflow_call:
+    inputs:
+      require_full_matrix:
+        description: 'Reusable callers always retain the full 12-platform matrix'
+        type: boolean
+        required: false
+        default: true
   push:
     branches: [main, dev]
     paths:
@@ -19,6 +25,9 @@ on:
       - '.gitmodules' # Solver submodule URL/config affects native CI setup.
       - 'pyproject.toml'
       - '.github/workflows/pytest.yml'
+      - '.github/scripts/ci-pytest-push-impact.cjs'
+      - '.github/scripts/test-pytest-push-impact.cjs'
+      - '.github/scripts/codspeed-pr-impact.cjs'
   workflow_dispatch:
 
 concurrency:
@@ -26,7 +35,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-admission:
+    name: Pytest push source admission
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      run_heavy: ${{ steps.scope.outputs.run_heavy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Test Pytest source-routing safety contracts
+        run: node .github/scripts/test-pytest-push-impact.cjs
+      - id: scope
+        name: Verify exact push source before allocating 12-platform matrix
+        uses: actions/github-script@v7
+        env:
+          REQUIRE_FULL_MATRIX: ${{ inputs.require_full_matrix }}
+        with:
+          script: |
+            const decide = require('./.github/scripts/ci-pytest-push-impact.cjs');
+            const verdict = await decide({
+              github, context,
+              forceFullMatrix: process.env.REQUIRE_FULL_MATRIX === 'true'
+            });
+            core.setOutput('run_heavy', String(verdict.run));
+            core.info(verdict.reason);
   build:
+    needs: [source-admission]
+    if: ${{ needs.source-admission.outputs.run_heavy == 'true' }}
     # Specify the runner environment
     runs-on: ${{ matrix.os }}
 

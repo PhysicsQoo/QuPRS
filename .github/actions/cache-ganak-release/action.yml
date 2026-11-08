@@ -1,0 +1,10 @@
+name: Cache pinned Ganak release archive
+description: Restore SHA256-pinned Ganak archive before source builds; save after a successful cache miss.
+runs:
+  using: composite
+  steps:
+    - name: Cache pinned release archive
+      uses: actions/cache@v4
+      with:
+        path: rust/target/ganak-release-cache
+        key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}

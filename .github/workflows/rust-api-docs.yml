@@ -210,6 +210,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Build Rust library reference
         if: steps.reuse-rustdoc.outputs.used != 'true'
         run: cargo doc --locked --manifest-path rust/Cargo.toml -p quprs --no-deps

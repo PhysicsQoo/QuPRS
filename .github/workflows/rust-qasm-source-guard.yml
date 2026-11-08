@@ -79,6 +79,8 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Install native requirements and QuPRS with resolved dependencies
         shell: bash
         run: |

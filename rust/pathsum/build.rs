@@ -266,6 +266,40 @@ fn main() {
     println!("cargo:rerun-if-changed={}", gpmc_dest.display());
 }
 
+// Only transient network acquisition failures are retried. Checksum and
+// architecture mismatches remain fail-closed; no alternate sources are used.
+fn fetch_ganak_archive(url: &str) -> Vec<u8> {
+    use std::time::Duration;
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(45))
+        .build()
+        .expect("Failed to create Ganak HTTP client");
+    for attempt in 1u64..=3 {
+        let result = client.get(url).send()
+            .and_then(|response| response.error_for_status())
+            .and_then(|response| response.bytes());
+        match result {
+            Ok(bytes) => return bytes.to_vec(),
+            Err(error) => {
+                let transient = error.status().is_some_and(|status| {
+                    status.as_u16() == 429 || status.is_server_error()
+                }) || error.is_timeout() || error.is_connect();
+                if !transient || attempt == 3 {
+                    panic!("Pinned Ganak download failed after {attempt} attempt(s): {error}");
+                }
+                let delay = Duration::from_secs(1 << (attempt - 1));
+                eprintln!(
+                    "Transient Ganak download failure ({attempt}/3): {error}; retrying in {}s",
+                    delay.as_secs()
+                );
+                std::thread::sleep(delay);
+            }
+        }
+    }
+    unreachable!("Ganak download retries have a finite bound")
+}
+
 /// Verify the official archive before extracting only its executable.
 fn download_and_extract_ganak(target_os: &str, target_arch: &str, dest_path: &Path) {
     let fields = ganak_distribution::asset(target_os, target_arch).unwrap_or_else(|e| panic!("{e}"));
@@ -278,9 +312,7 @@ fn download_and_extract_ganak(target_os: &str, target_arch: &str, dest_path: &Pa
         Ok(b) if ganak_distribution::fingerprint(&b) == fields[3] => b,
         _ => {
             println!("cargo:warning=Downloading Ganak from {url}");
-            let b = reqwest::blocking::get(&url).expect("Ganak download failed")
-                .error_for_status().expect("Ganak HTTP error")
-                .bytes().expect("Failed to read Ganak archive").to_vec();
+            let b = fetch_ganak_archive(&url);
             assert_eq!(ganak_distribution::fingerprint(&b), fields[3], "Ganak archive SHA256 mismatch");
             fs::create_dir_all(cache.parent().unwrap()).unwrap();
             fs::write(&cache, &b).unwrap();

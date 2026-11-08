@@ -46,6 +46,8 @@ jobs:
           python -m pip install --upgrade pip 'maturin>=1.5,<2'
       - name: Guard consolidated QASM scientific coverage and manual fallback
         run: node .github/scripts/test-native-qasm-gate-unification.cjs
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Run exact source-native QASM parser unit controls
         run: |
           set -euo pipefail

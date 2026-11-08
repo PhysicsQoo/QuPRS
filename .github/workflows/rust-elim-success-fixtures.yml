@@ -76,6 +76,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Restore pinned Ganak archive when available
+        uses: ./.github/actions/cache-ganak-release
       - name: Collect 1728 release-mode matched Elim rule observations
         run: |
           set -euo pipefail

@@ -109,6 +109,12 @@ jobs:
           path: ${{ env.BINARY_DIR }}/wmc_tools
           key: ${{ runner.os }}-${{ runner.arch }}-dev-fast-ganak-2.8.0-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
 
+      - name: Restore pinned Ganak archive cache
+        uses: actions/cache@v4
+        with:
+          path: rust/target/ganak-release-cache
+          key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
+
       - name: Build Rust/Python package with existing development extras
         run: |
           python -m pip install --upgrade pip

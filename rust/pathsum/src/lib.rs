@@ -88,7 +88,10 @@ impl std::fmt::Display for VerificationMethod {
     }
 }
 
-/// The result status of the equivalence check
+/// Status returned by native circuit-equivalence verification.
+///
+/// `Unknown`, `Timeout`, and `MemoryOut` are inconclusive outcomes; callers
+/// must not interpret them as `NotEquivalent`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EquivalenceStatus {
     Equivalent,

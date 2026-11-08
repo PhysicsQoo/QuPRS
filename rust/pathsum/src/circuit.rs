@@ -17,7 +17,8 @@ use std::path::Path;
 ///
 /// ```rust
 /// use quprs::{rational::Angle, QuantumCircuit};
-/// let angle = Angle::from_qasm_str("1.2345678901234567")?;
+/// let angle = Angle::from_qasm_str("1.2345678901234567")
+///     .expect("supported exact angle");
 /// let mut direct = QuantumCircuit::new(1);
 /// direct.rz(0, angle)?;
 /// let parsed = QuantumCircuit::from_qasm_str(

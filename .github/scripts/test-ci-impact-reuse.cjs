@@ -47,7 +47,8 @@ async function execute({files = [{filename: 'docs/development/notes.md'}], prior
       },
       repos: {
         async compareCommits() {
-          return {data: {status: compareStatus, behind_by: compareBehind, files}};
+          return {data: {status: compareStatus, behind_by: compareBehind,
+            files: files.map(f => ({status: 'modified', ...f}))}};
         },
         async getContent({ref}) {
           if (failSource) throw new Error('source unavailable');

@@ -6,11 +6,12 @@ model counting. The Rust core supports three verification methods:
 `WmcOnly`. GPMC is the default external WMC solver; Ganak may be chosen
 explicitly. The crate does not silently switch solvers.
 
-**Current distribution:** the supported Rust core is built from the
+**Distribution:** the native [`quprs` crate](https://crates.io/crates/quprs)
+was first published as a `0.15.0-rc.1` release candidate. Check the
+[crates.io version list](https://crates.io/crates/quprs/versions) before
+installing: a release candidate does not imply that the matching stable
+version is already available. The native library is also maintained in the
 [QuPRS source workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust).
-The registry package name `quprs` is planned but not yet claimed;
-**a crates.io release has not been published**. Do not mistake a preview
-archive for an available crates.io package.
 
 ## Build with full verification capability
 
@@ -236,9 +237,17 @@ unequal circuit widths, native Rust rejects mismatched widths as an
 **input-validation error** before solver invocation. `Unknown`,
 `Timeout`, `MemoryOut` and execution errors do not prove inequality.
 
-An independent consumer of an eventual registry release uses the same
-`quprs::` imports as the workspace. The crate is **not yet published**
-on crates.io.
+A standalone Rust consumer uses the same `quprs::` imports as the source
+workspace. For the stable `0.15.0` release, once it appears on
+[crates.io](https://crates.io/crates/quprs), add this dependency:
+
+```toml
+[dependencies]
+quprs = "0.15.0"
+```
+
+The published crate contains the native verification API but does not bundle
+GPMC or Ganak executables for nontrivial weighted model counting.
 
 ## Build and runtime contracts
 

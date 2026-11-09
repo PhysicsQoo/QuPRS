@@ -47,49 +47,39 @@ In quantum computing, verifying whether an optimized or compiled quantum circuit
 
 ## Installation
 
-For v0.14.0, the declared Python support remains **3.11, 3.12 and 3.13**
-with `qiskit>=1.0.0,<3.0` (Qiskit **1.x and 2.x**). Qiskit 3.x and
-Python 3.14/3.14t are **not** part of the v0.14.0 release support claim.
-The Python package uses a native Rust extension and bundled GPMC/Ganak
-solver integration; the standard installation requires a supported
-platform wheel, or a separately prepared source-build environment.
+QuPRS is distributed on [PyPI](https://pypi.org/project/QuPRS/).
+Use a Python interpreter supported by the **currently published distribution**.
+Its PyPI metadata specifies supported Python and dependency requirements;
+[distribution files](https://pypi.org/project/QuPRS/#files) identify available
+wheel platforms, architectures and minimum macOS versions. The Python package
+uses a native Rust extension and GPMC/Ganak solver integration; source builds
+may require an appropriately prepared native build environment.
 
-QuPRS v0.14.0 was [released on 2026-11-04](https://github.com/PhysicsQoo/QuPRS/releases/tag/v0.14.0).
-`pip install QuPRS` installs the latest published package; a source checkout
-may contain newer changes. Review the [v0.14.0 migration guide](docs/development/v0140-migration.md)
-when updating existing pipelines.
+`pip install QuPRS` installs the latest published version. A source
+checkout may contain newer, unreleased changes. See the
+[latest GitHub Release](https://github.com/PhysicsQoo/QuPRS/releases/latest),
+[CHANGELOG](CHANGELOG.md) and
+[project documentation](https://physicsqoo.github.io/QuPRS/docs/)
+for release-specific compatibility and upgrade guidance.
 
-It is recommended to install `QuPRS` in a virtual environment.
+Create a virtual environment with a supported Python interpreter:
 
-1.  Create and activate a Conda virtual environment:
-    ```bash
-    conda create --name QuPRS python=3.12 # Or your preferred Python version
-    conda activate QuPRS
-    ```
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install QuPRS
+```
 
-2.  Install `QuPRS` using pip:
-    ```bash
-    pip install QuPRS
-    ```
 ### Platform Support
 
-QuPRS provides pre-built wheels for the following operating systems and architectures:
+Linux x86_64/ARM64 and macOS Intel/Apple Silicon are QuPRS's primary
+release targets, but the precise prebuilt-wheel coverage depends on the
+**published release**. Check [PyPI distribution files](https://pypi.org/project/QuPRS/#files)
+for your Python interpreter, OS and CPU architecture. On Windows, use
+[WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) with a
+supported Linux environment rather than assuming a native Windows wheel.
 
-| OS | Architecture | Status | Note |
-| :--- | :--- | :--- | :--- |
-| **Linux** | x86_64 | ✅ Supported | Tested on Ubuntu |
-| **Linux** | ARM64 (aarch64) | ✅ Supported | Tested on Ubuntu |
-| **macOS** | Intel (x86_64) | ✅ Supported | macOS 15+ |
-| **macOS** | Apple Silicon (M1/M2/M3) | ✅ Supported | macOS 15+ |
-| **Windows** | x86_64 / ARM64 | ⚠️ **WSL2 Only** | Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) |
-
-QuPRS v0.14.0 macOS wheels target **macOS 15 or later** on Intel and
-Apple Silicon. macOS 14 has no supported prebuilt-wheel claim for this
-release; an independently prepared source build may be possible but is not
-a substitute for a supported wheel. See the
-[v0.14.0 platform and upgrade guide](docs/development/v0140-migration.md).
-
-### v0.14.0 input and migration notes
+### Input formats and API compatibility
 
 The Rust verifier accepts a **restricted unitary OpenQASM 3.0 subset**
 directly as text or a file, including supported qubit declarations,
@@ -104,15 +94,13 @@ bridge still rejects relative explicit source phases it cannot
 preserve. Exact source-literal phase representation is different from
 Qiskit's floating-point operator semantics.
 
-**Breaking numerical/API migration:** `wmc_magnitude_tolerance` and
-`wmc_policy` were removed, along with mutable
-`config.TOLERANCE`/`set_tolerance()`/`get_tolerance()` and
-the old native `check_equivalence_with_tolerances` entry point.
-Use per-call `rr_tolerance`, `phase_tolerance` (or the legacy
-`wmc_phase_tolerance` alias) and `approximate_distance_tolerance`.
-For the full mapping, independent units, solver resolution warnings
-and error/Timeout semantics, see
-[v0.14.0 API migration](docs/development/v0140-migration.md).
+**Numerical/API controls:** Configure `rr_tolerance`, `phase_tolerance`
+(or the supported `wmc_phase_tolerance` alias), and
+`approximate_distance_tolerance` per call. Obsolete global tolerance
+settings and WMC-specific magnitude-policy controls are not part of
+the current API. See the [CHANGELOG](CHANGELOG.md) and
+[numerical tolerance policy](docs/development/wmc-numerical-tolerance.md)
+for migration details, units and solver-resolution warnings.
 
 ## Using QuPRS
 
@@ -168,7 +156,7 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 
 ## Equivalence Checking
 
-> **Numerical and source-semantic limits (v0.14.0):**
+> **Numerical and source-semantic limits:**
 > Rust preserves supported QASM2 literal decimal-radian angles separately from
 > symbolic multiples of pi through its PathSum/phase representation. Strict
 > source-literal comparison can therefore disagree with historical approximate
@@ -181,9 +169,9 @@ circuit = PathSum.load_from_qasm_str(qasm_str)
 > the solver-derived observation is available as `wmc_numerical_verdict`.
 > WMC uses **one projective Hilbert-Schmidt distance classifier** by default:
 > `approximate_distance_tolerance=1e-8` in Python, PyO3 and native Rust.
-> The legacy `wmc_magnitude_tolerance` argument and magnitude classifier
-> have been removed in v0.14.0; old callers must migrate to a physical
-> distance threshold. A normalized trace-magnitude defect of `1e-8` is
+> The unsupported `wmc_magnitude_tolerance` argument and magnitude classifier
+> are not an alternative to the projective distance threshold. A normalized
+> trace-magnitude defect of `1e-8` is
 > **not** a projective distance of `1e-8`.
 > Solver counts are processed from their original printed complex values;
 > For nontrivial CNFs, GPMC uses one call with its effective 30-decimal-digit
@@ -345,7 +333,7 @@ This is an engineering working-precision policy, **not** a certified Solver
 error bound. Clifford quarter-cycle weights remain exact special values.
 
 No extra Solver invocation is added. Ganak retains its own input format
-and numerical precision. Ganak 2.8.0 mode 6 prints complex MPFR counts with
+and numerical precision. The pinned Ganak mode 6 prints complex MPFR counts with
 approximately nine significant decimal digits (`%.8Re` for each component);
 raising its internal `--mpfrprec` does not increase this fixed output precision.
 At tight projective-distance tolerances, Ganak verdicts remain point estimates
@@ -508,7 +496,7 @@ You can also cite this software repository via Zenodo:
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.15705190-blue.svg)](https://doi.org/10.5281/zenodo.15705190)
 ## Floating weighted counts
 
-Ganak 2.8.0 uses `--mode=6`; GPMC uses `-mode=1`. Both operate on
+The pinned Ganak uses `--mode=6`; GPMC uses `-mode=1`. Both operate on
 floating-point encodings of the path sum. Ganak mode 6 prints rounded complex
 counts (nine significant digits in the pinned release). Neither solver is an
 exact-arithmetic certificate for the original circuit. Ganak's pinned version,
@@ -538,9 +526,8 @@ result = check_equivalence(
 print(result.equivalent, result.approximate_distance_tolerance)
 ```
 
-The old `wmc_magnitude_tolerance` parameter is removed (a breaking
-v0.14.0 change), rather than silently ignored or used as a second
-classification mode. `config.DEFAULT_DISTANCE_TOLERANCE=1e-8` specifies
+The unsupported `wmc_magnitude_tolerance` parameter is not silently
+ignored or used as a second classification mode. `config.DEFAULT_DISTANCE_TOLERANCE=1e-8` specifies
 the public distance default. `wmc_phase_tolerance` controls global-phase
 labels, while `rr_tolerance` independently controls Python and Rust RR matching.
 A printed solver count is not itself an exact mathematical certificate.

@@ -63,11 +63,14 @@ jobs:
           import tomllib
           from pathlib import Path
 
+          import sys
+          sys.path.insert(0, "scripts")
+          from release_version import python_from_cargo
           cargo = tomllib.loads(Path("rust/Cargo.toml").read_text())
           workspace_version = cargo["workspace"]["package"]["version"]
           version_module = Path("src/QuPRS/_version.py").read_text()
           match = re.search(r'^__version__\s*=\s*"([^"]+)"', version_module, re.MULTILINE)
-          if not match or match.group(1) != workspace_version:
+          if not match or match.group(1) != python_from_cargo(workspace_version):
               raise SystemExit(
                   f"Cargo version {workspace_version} != Python version "
                   f"{match.group(1) if match else '<missing>'}"
@@ -282,7 +285,7 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip packaging
           export WHEEL_DIR="$RUNNER_TEMP/candidate-wheels"
-          export QU_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          export QU_VERSION="$(python scripts/release_version.py --kind python)"
           export LOCAL_WHEEL="$(python - <<'PY'
           import os
           from pathlib import Path
@@ -355,7 +358,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          VERSION="$(python scripts/release_version.py --kind python)"
           SDIST_COUNT="$(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')"
           if [[ "$SDIST_COUNT" -ne 1 ]]; then
             echo "::error::Expected one release source archive, got $SDIST_COUNT"
@@ -542,10 +545,13 @@ jobs:
           import os
           import re
           import tomllib
+          import sys
+          sys.path.insert(0, "scripts")
+          from release_version import python_from_cargo
           cargo = tomllib.loads(Path("rust/Cargo.toml").read_text())
           version = cargo["workspace"]["package"]["version"]
           match = re.search(r'^__version__\s*=\s*"([^"]+)"', Path("src/QuPRS/_version.py").read_text(), re.M)
-          assert match and match.group(1) == version
+          assert match and match.group(1) == python_from_cargo(version)
           assert os.environ["GITHUB_REF_NAME"] == f"v{version}"
           assert cargo["workspace"]["package"]["publish"] is False
           PY
@@ -664,6 +670,10 @@ jobs:
           version="${{ github.ref_name }}"
           version="${version#v}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          python_version="${version/-beta./b}"
+          python_version="${python_version/-rc./rc}"
+          python_version="${python_version/-alpha./a}"
+          echo "python_version=$python_version" >> "$GITHUB_OUTPUT"
           crate="quprs-$version.crate"
           mkdir -p "$RUNNER_TEMP/release-assets"
           (cd "$RUNNER_TEMP/rust-dist" && sha256sum -c SHA256SUMS)
@@ -685,10 +695,12 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           body: |
             ## QuPRS ${{ github.ref_name }}
 
-            Python: [QuPRS on PyPI](https://pypi.org/project/QuPRS/${{ steps.prepare.outputs.version }}/) — install with `pip install QuPRS==${{ steps.prepare.outputs.version }}`.
+            Python: [QuPRS on PyPI](https://pypi.org/project/QuPRS/${{ steps.prepare.outputs.python_version }}/) — install with `pip install QuPRS==${{ steps.prepare.outputs.python_version }}`.
 
             Rust: [quprs on crates.io](https://crates.io/crates/quprs/${{ steps.prepare.outputs.version }}) — install with `cargo add quprs@${{ steps.prepare.outputs.version }}`. Native Hybrid/WMC execution requires an external GPMC or Ganak solver.
 

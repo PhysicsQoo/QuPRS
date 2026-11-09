@@ -552,19 +552,19 @@ jobs:
             # Check the registry's canonical checksum before skipping publication.
             python3 - "$version" "$RUNNER_TEMP/quprs-crate/target/package/$crate" \
               "$RUNNER_TEMP/registry-version.json" <<'PY'
-            import hashlib
-            import json
-            import pathlib
-            import sys
+          import hashlib
+          import json
+          import pathlib
+          import sys
 
-            expected_version, crate_file, response_file = sys.argv[1:]
-            record = json.loads(pathlib.Path(response_file).read_text()).get('version', {})
-            actual_checksum = hashlib.sha256(pathlib.Path(crate_file).read_bytes()).hexdigest()
-            if (record.get('num') != expected_version
-                    or record.get('yanked') is not False
-                    or record.get('checksum') != actual_checksum):
-                raise SystemExit('Existing registry version metadata or SHA-256 differs')
-            PY
+          expected_version, crate_file, response_file = sys.argv[1:]
+          record = json.loads(pathlib.Path(response_file).read_text()).get('version', {})
+          actual_checksum = hashlib.sha256(pathlib.Path(crate_file).read_bytes()).hexdigest()
+          if (record.get('num') != expected_version
+                  or record.get('yanked') is not False
+                  or record.get('checksum') != actual_checksum):
+              raise SystemExit('Existing registry version metadata or SHA-256 differs')
+          PY
             echo "already_published=true" >> "$GITHUB_OUTPUT"
           elif [[ "$http_code" == "404" ]]; then
             echo "already_published=false" >> "$GITHUB_OUTPUT"

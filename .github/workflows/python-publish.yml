@@ -442,6 +442,10 @@ jobs:
           grep -Fxq "README.md" "$RUNNER_TEMP/quprs-crate-files.txt"
           grep -Fxq "src/lib.rs" "$RUNNER_TEMP/quprs-crate-files.txt"
           cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run --locked
+          # A successful publish dry-run verifies the unpacked crate, but Cargo
+          # does not guarantee a persistent archive at the expected path.
+          # Explicitly package the same locked sources for upload hand-off.
+          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --locked --no-verify
           crate="$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate"
           test -s "$crate"
           mkdir -p "$RUNNER_TEMP/quprs-native-assets"

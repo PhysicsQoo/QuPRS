@@ -149,6 +149,18 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(rust, /vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'/);
     assert.match(rust, /scripts\/stage_rust_crate_candidate\.py/,
       "Rust publish must operate on isolated native crate");
+    assert.match(rust, /test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/,
+      "Post-PyPI Rust release must verify the admitted immutable tag commit");
+    assert.doesNotMatch(rust, /refs\/remotes\/origin\/main/,
+      "A later main advancement must not cause a partially published release");
+    assert.match(rust, /id: registry_state/,
+      "Rust retry must inspect existing published archive");
+    assert.match(rust, /already_published=true/);
+    assert.match(rust, /already_published=false/);
+    assert.match(rust, /cmp "\$RUNNER_TEMP\/quprs-crate\/target\/package\/\$crate"/,
+      "An existing archive is accepted only when bytes match");
+    assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
+      "Publishing and token minting must be skipped for already published identical crates");
     assert.match(rust, /sha256sum -c SHA256SUMS/,
       "Rust publisher must validate the preflight package digest");
     assert.equal((rust.match(/sha256sum -c SHA256SUMS/g) || []).length, 2,
@@ -192,6 +204,15 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["Rust publishes workspace directly", x => x.replace(
       'cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io',
       'cargo publish --manifest-path rust/Cargo.toml --registry crates-io')],
+    ["Rust rechecks mutable main after successful PyPI upload", x => x.replace(
+      'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+      'test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"')],
+    ["Rust retry skips registry archive verification", x => x.replace(
+      'cmp "$RUNNER_TEMP/quprs-crate/target/package/$crate"',
+      'echo no-archive-identity "$RUNNER_TEMP/quprs-crate/target/package/$crate"')],
+    ["Rust retries duplicate publication", x => x.replace(
+      "if: steps.registry_state.outputs.already_published == 'false'",
+      "if: always()")],
     ["GitHub Release created before Rust publish", x => x.replace(
       "needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]",
       "needs: [verify_release_ref, rust_preflight, publish]")],
@@ -205,7 +226,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
     assert.throws(() => checkDualReleasePolicy(changed), undefined, name);
   }
-  console.log("Dual-registry publication policy: positive and 11 negative source controls passed");
+  console.log("Dual-registry publication policy: positive and 14 negative source controls passed");
 }
 
 

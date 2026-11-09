@@ -120,14 +120,7 @@ jobs:
           for attempt in first second; do
             candidate="$RUNNER_TEMP/quprs-package-$attempt"
             python3 scripts/stage_rust_crate_candidate.py --output "$candidate"
-            if ! cargo package --manifest-path "$candidate/Cargo.toml" --locked --no-verify; then
-              cargo package --manifest-path "$candidate/Cargo.toml" --no-verify
-              echo "QUPRS_LOCKFILE_BASE64_BEGIN"
-              base64 -w0 "$candidate/Cargo.lock"
-              echo
-              echo "QUPRS_LOCKFILE_BASE64_END"
-              exit 1
-            fi
+            cargo package --manifest-path "$candidate/Cargo.toml" --locked --no-verify
             test -s "$candidate/target/package/quprs-$version.crate"
           done
           sha256sum "$RUNNER_TEMP"/quprs-package-{first,second}/target/package/"quprs-$version.crate"

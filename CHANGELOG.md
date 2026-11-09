@@ -40,6 +40,10 @@ Versioned documentation is published separately from the Python package.
 
 ### Numerical correctness, solver integration and release checks
 
+- Provide the native Rust `quprs` crate on crates.io alongside Python wheels
+  and source distributions on PyPI. Matching GitHub Release archives include
+  the published `.crate` and Python distributions with SHA-256 checksums;
+  nontrivial WMC execution still requires an external GPMC or Ganak solver.
 - Expand independent direct weighted-CNF regression coverage for GPMC and
   Ganak using exact rational-complex Boolean model enumeration, including
   satisfiable and unsatisfiable CNFs, conjunctions of clauses, signed complex

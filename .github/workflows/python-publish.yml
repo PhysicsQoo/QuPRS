@@ -361,9 +361,9 @@ jobs:
     name: Validate Rust crate and crates.io identity (no upload)
     needs: verify_release_ref
     if: >-
-      ${ github.event_name == 'push' &&
+      ${{ github.event_name == 'push' &&
           github.ref_type == 'tag' &&
-          startsWith(github.ref, 'refs/tags/v') }
+          startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     environment: crates-io
     permissions:
@@ -372,7 +372,7 @@ jobs:
     steps:
       - name: Require an explicitly enabled dual-registry release
         env:
-          CRATES_IO_PUBLISH_ENABLED: ${ vars.QUPRS_CRATES_IO_PUBLISH_ENABLED }
+          CRATES_IO_PUBLISH_ENABLED: ${{ vars.QUPRS_CRATES_IO_PUBLISH_ENABLED }}
         shell: bash
         run: |
           set -euo pipefail
@@ -408,7 +408,7 @@ jobs:
           QUPRS_SOLVER_PROVISION: external
         run: |
           set -euo pipefail
-          version="${ github.ref_name }"
+          version="${{ github.ref_name }}"
           version="${version#v}"
           python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-crate"
           cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --list \
@@ -425,8 +425,8 @@ jobs:
       - name: Save the reviewed Rust crate archive
         uses: actions/upload-artifact@v4
         with:
-          name: release-native-${ github.sha }
-          path: ${ runner.temp }/quprs-native-assets/*
+          name: release-native-${{ github.sha }}
+          path: ${{ runner.temp }}/quprs-native-assets/*
           if-no-files-found: error
           retention-days: 7
 
@@ -438,9 +438,9 @@ jobs:
     name: Publish verified Python artifacts to PyPI
     needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]
     if: >-
-      ${ github.event_name == 'push' &&
+      ${{ github.event_name == 'push' &&
           github.ref_type == 'tag' &&
-          startsWith(github.ref, 'refs/tags/v') }
+          startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -467,10 +467,10 @@ jobs:
     name: Publish matching Rust crate to crates.io
     needs: [verify_release_ref, rust_preflight, publish]
     if: >-
-      ${ github.event_name == 'push' &&
+      ${{ github.event_name == 'push' &&
           github.ref_type == 'tag' &&
           startsWith(github.ref, 'refs/tags/v') &&
-          vars.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true' }
+          vars.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true' }}
     runs-on: ubuntu-24.04
     environment: crates-io
     permissions:
@@ -513,8 +513,8 @@ jobs:
       - name: Download the preflight crate checksum
         uses: actions/download-artifact@v4
         with:
-          name: release-native-${ github.sha }
-          path: ${ runner.temp }/quprs-native-assets
+          name: release-native-${{ github.sha }}
+          path: ${{ runner.temp }}/quprs-native-assets
 
       - name: Rebuild staged crate and match preflight bytes before upload
         shell: bash
@@ -522,7 +522,7 @@ jobs:
           QUPRS_SOLVER_PROVISION: external
         run: |
           set -euo pipefail
-          version="${ github.ref_name }"
+          version="${{ github.ref_name }}"
           version="${version#v}"
           python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-crate"
           cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml"
@@ -538,7 +538,7 @@ jobs:
       - name: Publish the matching native crate
         shell: bash
         env:
-          CARGO_REGISTRY_TOKEN: ${ steps.crates_io_auth.outputs.token }
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
           QUPRS_SOLVER_PROVISION: external
         run: |
           set -euo pipefail
@@ -549,9 +549,9 @@ jobs:
     name: Create GitHub Release after both registries publish
     needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]
     if: >-
-      ${ github.event_name == 'push' &&
+      ${{ github.event_name == 'push' &&
           github.ref_type == 'tag' &&
-          startsWith(github.ref, 'refs/tags/v') }
+          startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -560,21 +560,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: pypi-release-*
-          path: ${ runner.temp }/python-dist
+          path: ${{ runner.temp }}/python-dist
           merge-multiple: true
 
       - name: Download verified native Rust archive
         uses: actions/download-artifact@v4
         with:
-          name: release-native-${ github.sha }
-          path: ${ runner.temp }/rust-dist
+          name: release-native-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-dist
 
       - name: Check registry archive matches and prepare release attachments
+        id: prepare
         shell: bash
         run: |
           set -euo pipefail
-          version="${ github.ref_name }"
+          version="${{ github.ref_name }}"
           version="${version#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           crate="quprs-$version.crate"
           mkdir -p "$RUNNER_TEMP/release-assets"
           (cd "$RUNNER_TEMP/rust-dist" && sha256sum -c SHA256SUMS)
@@ -594,17 +596,17 @@ jobs:
       - name: Create GitHub Release with Python and Rust artifacts
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${ github.ref_name }
-          name: Release ${ github.ref_name }
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           body: |
-            ## QuPRS ${ github.ref_name }
+            ## QuPRS ${{ github.ref_name }}
 
-            Python: [QuPRS on PyPI](https://pypi.org/project/QuPRS/${ github.ref_name }/) — install with \`pip install QuPRS==${ github.ref_name }\`.
+            Python: [QuPRS on PyPI](https://pypi.org/project/QuPRS/${{ steps.prepare.outputs.version }}/) — install with `pip install QuPRS==${{ steps.prepare.outputs.version }}`.
 
-            Rust: [quprs on crates.io](https://crates.io/crates/quprs/${ github.ref_name }) — install with \`cargo add quprs@${ github.ref_name }\`. Native Hybrid/WMC execution requires an external GPMC or Ganak solver.
+            Rust: [quprs on crates.io](https://crates.io/crates/quprs/${{ steps.prepare.outputs.version }}) — install with `cargo add quprs@${{ steps.prepare.outputs.version }}`. Native Hybrid/WMC execution requires an external GPMC or Ganak solver.
 
-            [Changelog](https://github.com/PhysicsQoo/QuPRS/blob/${ github.ref_name }/CHANGELOG.md).
+            [Changelog](https://github.com/PhysicsQoo/QuPRS/blob/${{ github.ref_name }}/CHANGELOG.md).
 
             This release includes Python wheels, Python source distribution, the matching published Rust .crate and SHA-256 checksums.
-          files: ${ runner.temp }/release-assets/*
+          files: ${{ runner.temp }}/release-assets/*
           fail_on_unmatched_files: true

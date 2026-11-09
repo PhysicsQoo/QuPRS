@@ -1028,7 +1028,7 @@ dependencies = [
 
 [[package]]
 name = "quprs"
-version = "0.15.0"
+version = "0.15.0-beta.1"
 dependencies = [
  "anyhow",
  "cmake",

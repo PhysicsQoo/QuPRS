@@ -170,7 +170,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   checkDualReleasePolicy(publishYaml);
   for (const [name, mutation] of [
     ["preflight accidentally dispatched", x => x.replace(
-      "github.event_name == 'push'", "github.event_name == 'workflow_dispatch'")],
+      /(  rust_preflight:[\s\S]*?github\.event_name == )'push'/,
+      "$1'workflow_dispatch'")],
     ["preflight skips Rust dry-run", x => x.replace(
       'cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run',
       'echo skipped-dry-run')],

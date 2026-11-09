@@ -16,10 +16,8 @@ SCRIPT = ROOT / "scripts" / "install_linux_deps.sh"
 @unittest.skipUnless(os.name == "posix" and shutil.which("sh"), "requires a POSIX shell")
 class RpmMetadataRetryTests(unittest.TestCase):
     def run_installer(self, always_fail: bool) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-        # The real installer is never allowed to run a package manager in this test.
-        # Skip machines with RPM: these are native installers, not mocked manylinux.
-        if shutil.which("rpm"):
-            self.skipTest("RPM host requires an isolated container for this test")
+        # Restrict PATH to fake RPM commands and explicitly selected harmless
+        # system utilities. No real package manager can be invoked.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             trace = root / "trace"
@@ -36,14 +34,19 @@ class RpmMetadataRetryTests(unittest.TestCase):
             fake_sleep.write_text("#!/bin/sh\nexit 0\n")
             for command in (fake_yum, fake_sleep):
                 command.chmod(0o755)
+            for utility in ("cat", "uname", "grep"):
+                executable = shutil.which(utility)
+                if executable is None:
+                    self.skipTest(f"Missing required test utility: {utility}")
+                (root / utility).symlink_to(executable)
             env = {
                 **os.environ,
-                "PATH": f"{root}{os.pathsep}{os.environ.get('PATH', '')}",
+                "PATH": str(root),
                 "YUM_TRACE": str(trace),
                 "YUM_ALWAYS_FAIL": "1" if always_fail else "0",
             }
             result = subprocess.run(
-                ["sh", str(SCRIPT)],
+                [shutil.which("sh") or "/bin/sh", str(SCRIPT)],
                 env=env,
                 text=True,
                 capture_output=True,

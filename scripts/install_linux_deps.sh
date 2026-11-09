@@ -10,10 +10,30 @@ uname -a || true
 # Determine the package manager and install dependencies
 if command -v yum >/dev/null 2>&1; then
     echo "Using yum (RHEL/CentOS/manylinux)..."
-    yum install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconfig
+    # Runner image mirrors can briefly return incomplete repomd.xml files.
+    # Retry only with fresh metadata; never skip dependency installation.
+    attempt=1
+    while ! yum install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconfig; do
+        if [ "$attempt" -ge 4 ]; then
+            echo "Error: yum dependency installation failed after four attempts."
+            exit 1
+        fi
+        yum clean metadata || true
+        sleep "$((attempt * 3))"
+        attempt=$((attempt + 1))
+    done
 elif command -v dnf >/dev/null 2>&1; then
     echo "Using dnf (Fedora/AlmaLinux)..."
-    dnf install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconf
+    attempt=1
+    while ! dnf install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconf; do
+        if [ "$attempt" -ge 4 ]; then
+            echo "Error: dnf dependency installation failed after four attempts."
+            exit 1
+        fi
+        dnf clean metadata || true
+        sleep "$((attempt * 3))"
+        attempt=$((attempt + 1))
+    done
 elif command -v microdnf >/dev/null 2>&1; then
     echo "Using microdnf (Oracle Linux/minimal images)..."
     microdnf install -y gmp-devel mpfr-devel zlib-devel openssl-devel cmake pkgconfig

@@ -151,6 +151,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "Rust publish must operate on isolated native crate");
     assert.match(rust, /sha256sum -c SHA256SUMS/,
       "Rust publisher must validate the preflight package digest");
+    assert.equal((rust.match(/sha256sum -c SHA256SUMS/g) || []).length, 2,
+      "Rust archive identity must be validated both before and after upload");
     assert.match(rust, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.match(rust, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
     assert.match(rust, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io/);

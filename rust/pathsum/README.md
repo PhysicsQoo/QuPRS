@@ -7,7 +7,10 @@ distribution, it has no dependency on Qiskit or the Python runtime.
 
 ## Installation
 
-After the crate is published, add it to `Cargo.toml`:
+The crate is listed on [crates.io](https://crates.io/crates/quprs).
+Check the available versions before installation: the initial release candidate
+does not imply that its corresponding stable version is already published.
+For the stable `0.15.0` release, once available, add it to `Cargo.toml`:
 
 ```toml
 [dependencies]

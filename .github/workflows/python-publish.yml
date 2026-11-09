@@ -105,7 +105,9 @@ jobs:
           fi
 
       - name: Verify release publication safety policy
-        run: node scripts/test_release_ready_policy.js
+        run: |
+          node scripts/test_release_ready_policy.js
+          python -m unittest discover -s test -p 'test_pypi_publish_recovery.py'
 
       - name: Check platform support statements against deployment policy
         run: |
@@ -449,6 +451,11 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Check out immutable source for PyPI artifact reconciliation
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Download verified Python distributions
         uses: actions/download-artifact@v4
         with:
@@ -463,8 +470,27 @@ jobs:
           compgen -G 'dist/*.whl' >/dev/null
           compgen -G 'dist/*.tar.gz' >/dev/null
 
-      - name: Publish package to PyPI
+      - name: Reconcile immutable PyPI files before any upload
+        id: pypi_plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reconcile_pypi_artifacts.py plan \
+            --version "${GITHUB_REF_NAME#v}" \
+            --dist-dir dist --upload-dir pypi-to-upload
+
+      - name: Publish only missing, preverified Python artifacts
+        if: steps.pypi_plan.outputs.publish_required == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi-to-upload/
+
+      - name: Verify all PyPI archive hashes after publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reconcile_pypi_artifacts.py verify \
+            --version "${GITHUB_REF_NAME#v}" --dist-dir dist
 
   publish_crates_io:
     name: Publish matching Rust crate to crates.io

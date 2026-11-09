@@ -68,7 +68,10 @@ COPY --from=builder /wheels /wheels
 COPY . /app
 
 # Install the built wheel along with development dependencies for testing
-RUN pip install --no-cache-dir --find-links=/wheels "QuPRS[dev]"
+RUN set -eu; \
+    set -- /wheels/quprs-*.whl; \
+    test "$#" -eq 1; \
+    pip install --no-cache-dir "${1}[dev]"
 RUN pytest /app/test -n auto
 
 # =================================================================
@@ -88,7 +91,10 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 # Install the package (without development dependencies)
 COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir --find-links=/wheels QuPRS && \
+RUN set -eu; \
+    set -- /wheels/quprs-*.whl; \
+    test "$#" -eq 1; \
+    pip install --no-cache-dir "$1"; \
     rm -rf /wheels
 
 # Copy documentation and license files

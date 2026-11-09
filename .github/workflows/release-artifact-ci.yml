@@ -34,11 +34,14 @@ jobs:
           import tomllib
           from pathlib import Path
 
+          import sys
+          sys.path.insert(0, "scripts")
+          from release_version import python_from_cargo
           cargo = tomllib.loads(Path("rust/Cargo.toml").read_text())
           workspace_version = cargo["workspace"]["package"]["version"]
           version_module = Path("src/QuPRS/_version.py").read_text()
           match = re.search(r'^__version__\s*=\s*"([^"]+)"', version_module, re.MULTILINE)
-          if not match or match.group(1) != workspace_version:
+          if not match or match.group(1) != python_from_cargo(workspace_version):
               raise SystemExit(
                   f"Cargo version {workspace_version} != Python version "
                   f"{match.group(1) if match else '<missing>'}"
@@ -253,7 +256,7 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip packaging
           export WHEEL_DIR="$RUNNER_TEMP/candidate-wheels"
-          export QU_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          export QU_VERSION="$(python scripts/release_version.py --kind python)"
           export LOCAL_WHEEL="$(python - <<'PY'
           import os
           from pathlib import Path
@@ -326,7 +329,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          VERSION="$(python scripts/release_version.py --kind python)"
           SDIST_COUNT="$(find "$RUNNER_TEMP/candidate-sdist" -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')"
           if [[ "$SDIST_COUNT" -ne 1 ]]; then
             echo "::error::Expected one release source archive, got $SDIST_COUNT"

@@ -109,6 +109,24 @@ jobs:
           node scripts/test_release_ready_policy.js
           python -m unittest discover -s test -p 'test_pypi_publish_recovery.py'
 
+      - name: Verify reproducible locked native crate archives without uploading
+        shell: bash
+        env:
+          QUPRS_SOLVER_PROVISION: external
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          cargo --version
+          for attempt in first second; do
+            candidate="$RUNNER_TEMP/quprs-package-$attempt"
+            python3 scripts/stage_rust_crate_candidate.py --output "$candidate"
+            cargo package --manifest-path "$candidate/Cargo.toml" --locked --no-verify
+            test -s "$candidate/target/package/quprs-$version.crate"
+          done
+          sha256sum "$RUNNER_TEMP"/quprs-package-{first,second}/target/package/"quprs-$version.crate"
+          cmp "$RUNNER_TEMP/quprs-package-first/target/package/quprs-$version.crate" \
+              "$RUNNER_TEMP/quprs-package-second/target/package/quprs-$version.crate"
+
       - name: Check platform support statements against deployment policy
         run: |
           python scripts/verify_macos_wheel_support.py
@@ -416,11 +434,11 @@ jobs:
           version="${{ github.ref_name }}"
           version="${version#v}"
           python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-crate"
-          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --list \
+          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --list --locked \
             | tee "$RUNNER_TEMP/quprs-crate-files.txt"
           grep -Fxq "README.md" "$RUNNER_TEMP/quprs-crate-files.txt"
           grep -Fxq "src/lib.rs" "$RUNNER_TEMP/quprs-crate-files.txt"
-          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run
+          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run --locked
           crate="$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate"
           test -s "$crate"
           mkdir -p "$RUNNER_TEMP/quprs-native-assets"
@@ -555,7 +573,7 @@ jobs:
           version="${{ github.ref_name }}"
           version="${version#v}"
           python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-crate"
-          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml"
+          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --locked
           cd "$RUNNER_TEMP/quprs-crate/target/package"
           cp "$RUNNER_TEMP/quprs-native-assets/SHA256SUMS" .
           sha256sum -c SHA256SUMS
@@ -611,7 +629,7 @@ jobs:
           QUPRS_SOLVER_PROVISION: external
         run: |
           set -euo pipefail
-          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io
+          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io --locked
           (cd "$RUNNER_TEMP/quprs-crate/target/package" && sha256sum -c SHA256SUMS)
 
   github_release:

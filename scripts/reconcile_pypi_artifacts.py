@@ -9,10 +9,14 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import time
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from release_version import python_from_cargo
 
 
 def local_inventory(dist: Path, version: str) -> dict[str, tuple[Path, str]]:
@@ -80,11 +84,11 @@ def main() -> None:
     parser.add_argument("--dist-dir", type=Path, default=Path("dist"))
     parser.add_argument("--upload-dir", type=Path, default=Path("pypi-to-upload"))
     args = parser.parse_args()
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version):
-        raise ValueError("Only stable numeric release versions may be published")
-    local = local_inventory(args.dist_dir, args.version)
+    # The immutable Cargo tag is SemVer; PyPI archive names use PEP 440.
+    python_version = python_from_cargo(args.version)
+    local = local_inventory(args.dist_dir, python_version)
     if args.mode == "plan":
-        missing = compare_inventory(local, registry_inventory(args.version))
+        missing = compare_inventory(local, registry_inventory(python_version))
         if args.upload_dir.exists():
             raise FileExistsError(args.upload_dir)
         args.upload_dir.mkdir(parents=True)
@@ -99,7 +103,7 @@ def main() -> None:
         return
 
     for attempt in range(12):
-        missing = compare_inventory(local, registry_inventory(args.version))
+        missing = compare_inventory(local, registry_inventory(python_version))
         if not missing:
             print(f"Verified {len(local)} published PyPI files by exact name and SHA-256")
             return

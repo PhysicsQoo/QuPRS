@@ -157,8 +157,13 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "Rust retry must inspect existing published archive");
     assert.match(rust, /already_published=true/);
     assert.match(rust, /already_published=false/);
-    assert.match(rust, /cmp "\$RUNNER_TEMP\/quprs-crate\/target\/package\/\$crate"/,
-      "An existing archive is accepted only when bytes match");
+    assert.match(rust, /https:\/\/crates\.io\/api\/v1\/crates\/quprs\/\$version/,
+      "A retry must check the registry version record, not only a CDN archive");
+    assert.match(rust, /hashlib\.sha256\(pathlib\.Path\(crate_file\)\.read_bytes\(\)\)\.hexdigest\(\)/);
+    assert.match(rust, /record\.get\('checksum'\) != actual_checksum/,
+      "A published version is accepted only if the authoritative SHA-256 matches");
+    assert.match(rust, /record\.get\('yanked'\) is not False/,
+      "A yanked version must not be treated as a successful published release");
     assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
       "Publishing and token minting must be skipped for already published identical crates");
     assert.match(rust, /sha256sum -c SHA256SUMS/,
@@ -207,9 +212,10 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["Rust rechecks mutable main after successful PyPI upload", x => x.replace(
       'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
       'test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"')],
-    ["Rust retry skips registry archive verification", x => x.replace(
-      'cmp "$RUNNER_TEMP/quprs-crate/target/package/$crate"',
-      'echo no-archive-identity "$RUNNER_TEMP/quprs-crate/target/package/$crate"')],
+    ["Rust retry skips published checksum verification", x => x.replace(
+      "record.get('checksum') != actual_checksum", "False")],
+    ["Rust retry accepts yanked versions", x => x.replace(
+      "record.get('yanked') is not False", "False")],
     ["Rust retries duplicate publication", x => x.replace(
       "if: steps.registry_state.outputs.already_published == 'false'",
       "if: always()")],
@@ -226,7 +232,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
     assert.throws(() => checkDualReleasePolicy(changed), undefined, name);
   }
-  console.log("Dual-registry publication policy: positive and 14 negative source controls passed");
+  console.log("Dual-registry publication policy: positive and 15 negative source controls passed");
 }
 
 

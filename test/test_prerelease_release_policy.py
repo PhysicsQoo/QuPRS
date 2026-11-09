@@ -24,6 +24,14 @@ class PrereleasePolicyTests(unittest.TestCase):
         self.assertIn("make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}", source)
         self.assertIn("needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]", source)
 
+    def test_docker_installs_exact_locally_built_wheel(self):
+        docker = (ROOT / "Dockerfile").read_text()
+        self.assertEqual(docker.count('set -- /wheels/quprs-*.whl;'), 2)
+        self.assertIn('pip install --no-cache-dir "${1}[dev]"', docker)
+        self.assertIn('pip install --no-cache-dir "$1"', docker)
+        self.assertNotIn('pip install --no-cache-dir --find-links=/wheels QuPRS', docker)
+        self.assertNotIn('pip install --no-cache-dir --find-links=/wheels "QuPRS[dev]"', docker)
+
     def test_python_registry_reconciliation_uses_normalized_cargo_version(self):
         source = RECONCILE.read_text()
         self.assertIn("python_version = python_from_cargo(args.version)", source)

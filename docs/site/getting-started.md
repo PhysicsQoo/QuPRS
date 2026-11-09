@@ -31,4 +31,4 @@ See the [fully tested examples](examples.md) for positive/negative controls, glo
 
 ## Rust users
 
-The native [`quprs` Rust crate](https://crates.io/crates/quprs) is distributed separately from the Python package; check the registry's stable and prerelease versions before installing. The standalone CLI remains a [Rust workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust) source build, not a Python wheel executable. For native RR, Hybrid and WMC-only use and external solver requirements, see [Native Rust and external solvers](rust-native.md), and for the CLI see its [example](examples.md#7-standalone-rust-cli).
+The native [`quprs` Rust crate](https://crates.io/crates/quprs) is distributed separately from the Python package, with available versions listed on crates.io. The standalone CLI is built from the [Rust workspace](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust), not installed by the Python wheel. For native RR, Hybrid and WMC-only use and external solver requirements, see [Native Rust and external solvers](rust-native.md); the standalone CLI has its own [example](examples.md#7-standalone-rust-cli).

@@ -129,6 +129,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(preflight, /scripts\/stage_rust_crate_candidate\.py/);
     assert.match(preflight, /cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --list --locked/);
     assert.match(preflight, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --dry-run --locked/);
+    assert.match(preflight, /cargo publish --manifest-path[^\n]*--dry-run --locked[\s\S]*cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --locked --no-verify[\s\S]*test -s "\$crate"/,
+      "The preflight must materialize a persistent locked .crate after dry-run");
     assert.match(preflight, /actions\/upload-artifact@v4/);
     assert.match(preflight, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.doesNotMatch(preflight, /cargo publish --manifest-path .* --registry crates-io/,
@@ -209,6 +211,9 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["preflight skips Rust dry-run", x => x.replace(
       'cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run',
       'echo skipped-dry-run')],
+    ["preflight does not materialize the Rust archive", x => x.replace(
+      'cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --locked --no-verify',
+      'echo missing-crate')],
     ["preflight skips crates.io OIDC", x => x.replace(
       /      - name: Verify crates\.io GitHub OIDC authorization without uploading\n        uses: rust-lang\/crates-io-auth-action@[a-f0-9]{40}/,
       "      - name: Verify crates.io GitHub OIDC authorization without uploading\n        run: true")],

@@ -3,9 +3,10 @@
 ## v0.15.0 — Process supervision, public API typing and versioned docs
 
 This entry describes the v0.15.0 source and distribution contents. Confirm
-official availability using the matching [GitHub Release](https://github.com/PhysicsQoo/QuPRS/releases)
-and [PyPI distribution](https://pypi.org/project/QuPRS/); a development
-branch, preview site or release candidate is not itself a published release.
+official availability using the matching [GitHub Release](https://github.com/PhysicsQoo/QuPRS/releases),
+[PyPI distribution](https://pypi.org/project/QuPRS/), and
+[Rust crate version](https://crates.io/crates/quprs/versions).
+A source checkout or preview is not a published package.
 Versioned documentation is published separately from the Python package.
 
 ### Python/Rust execution

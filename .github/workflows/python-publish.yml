@@ -104,6 +104,11 @@ jobs:
             fi
           fi
 
+      - name: Verify release publication safety policy
+        run: |
+          node scripts/test_release_ready_policy.js
+          python -m unittest discover -s test -p 'test_pypi_publish_recovery.py'
+
       - name: Check platform support statements against deployment policy
         run: |
           python scripts/verify_macos_wheel_support.py
@@ -354,59 +359,142 @@ jobs:
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 
-  # --- Job 3: Publish to PyPI and Create GitHub Release ---
-  # This job runs only when a 'v*' tag is pushed.
-  # It publishes all built artifacts to PyPI and creates a GitHub Release.
-  publish:
-    name: Publish to PyPI and Create Release
-    # 'needs' ensures this job runs only after all build jobs succeed.
-    needs: [build_wheels, build_sdist, artifact_install, sdist_install]
-    # Condition: Only run when a 'v*' tag is pushed.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-
-    # Uses PyPI Trusted Publishing (OIDC) for secure publishing.
+  # --- Job 3: Publish to PyPI only after native registry preflight ---
+  # No registry writes are permitted until the tagged source, both Python
+  # archives, the native crate, and crates.io Trusted Publishing are admitted.
+  rust_preflight:
+    name: Validate Rust crate and crates.io identity (no upload)
+    needs: verify_release_ref
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref_type == 'tag' &&
+          startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    environment: crates-io
     permissions:
-      # id-token: write is required for OIDC Trusted Publishing.
+      contents: read
       id-token: write
-      # contents: write is required to create a GitHub Release.
-      contents: write
-
     steps:
-      - name: Download all release artifacts
+      - name: Require an explicitly enabled dual-registry release
+        env:
+          CRATES_IO_PUBLISH_ENABLED: ${{ vars.QUPRS_CRATES_IO_PUBLISH_ENABLED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CRATES_IO_PUBLISH_ENABLED" != "true" ]]; then
+            echo "::error::Dual-registry release requires QUPRS_CRATES_IO_PUBLISH_ENABLED=true"
+            exit 1
+          fi
+
+      - name: Checkout immutable signed release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag still points at main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Stage, package and verify the exact native crate
+        shell: bash
+        env:
+          QUPRS_SOLVER_PROVISION: external
+        run: |
+          set -euo pipefail
+          version="${{ github.ref_name }}"
+          version="${version#v}"
+          python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-crate"
+          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --list \
+            | tee "$RUNNER_TEMP/quprs-crate-files.txt"
+          grep -Fxq "README.md" "$RUNNER_TEMP/quprs-crate-files.txt"
+          grep -Fxq "src/lib.rs" "$RUNNER_TEMP/quprs-crate-files.txt"
+          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run
+          crate="$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate"
+          test -s "$crate"
+          mkdir -p "$RUNNER_TEMP/quprs-native-assets"
+          cp "$crate" "$RUNNER_TEMP/quprs-native-assets/"
+          (cd "$RUNNER_TEMP/quprs-native-assets" && sha256sum "quprs-$version.crate" > SHA256SUMS)
+
+      - name: Save the reviewed Rust crate archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-native-${{ github.sha }}
+          path: ${{ runner.temp }}/quprs-native-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+      # The action mints and revokes a temporary token. This job never publishes.
+      - name: Verify crates.io GitHub OIDC authorization without uploading
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+  publish:
+    name: Publish verified Python artifacts to PyPI
+    needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref_type == 'tag' &&
+          startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Check out immutable source for PyPI artifact reconciliation
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download verified Python distributions
         uses: actions/download-artifact@v4
         with:
           pattern: pypi-release-*
           path: dist
           merge-multiple: true
-      - name: List files in dist directory (for debugging)
-        run: ls -R dist
 
-      - name: Publish package to PyPI
+      - name: Verify distribution inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          compgen -G 'dist/*.whl' >/dev/null
+          compgen -G 'dist/*.tar.gz' >/dev/null
+
+      - name: Reconcile immutable PyPI files before any upload
+        id: pypi_plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reconcile_pypi_artifacts.py plan \
+            --version "${GITHUB_REF_NAME#v}" \
+            --dist-dir dist --upload-dir pypi-to-upload
+
+      - name: Publish only missing, preverified Python artifacts
+        if: steps.pypi_plan.outputs.publish_required == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          body: |
-            ## QuPRS ${{ github.ref_name }}
+          packages-dir: pypi-to-upload/
 
-            See the [release changelog](https://github.com/PhysicsQoo/QuPRS/blob/${{ github.ref_name }}/CHANGELOG.md) for correctness fixes, compatibility notes and validation details.
+      - name: Verify all PyPI archive hashes after publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reconcile_pypi_artifacts.py verify \
+            --version "${GITHUB_REF_NAME#v}" --dist-dir dist
 
-            [QuPRS on PyPI](https://pypi.org/project/QuPRS/)
-
-            This GitHub Release was generated by GitHub Actions after the release archive checks passed.
-          files: dist/*
-
-  # Optional: normal Python/GitHub releases remain unchanged unless a maintainer
-  # explicitly enables Rust publishing after the initial manual crates.io release.
-  # The crate source workspace stays publish=false; only an isolated candidate
-  # from the exact release tag is eligible for the registry.
   publish_crates_io:
-    name: Publish full Rust crate to crates.io (opt-in)
-    needs: [verify_release_ref, publish]
+    name: Publish matching Rust crate to crates.io
+    needs: [verify_release_ref, rust_preflight, publish]
     if: >-
       ${{ github.event_name == 'push' &&
           github.ref_type == 'tag' &&
@@ -418,56 +506,105 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Checkout the signed release ref
+      - name: Checkout immutable release ref
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Recheck exact tag/main identity and release versions
+      - name: Verify approved immutable tag and Python/Rust versions
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"
+          # The prerelease gate already admitted the exact tag against main.
+          # Do not reject the same immutable source if main moves after PyPI upload.
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 - <<'PY'
           from pathlib import Path
           import os
           import re
           import tomllib
-          version = tomllib.loads(Path("rust/Cargo.toml").read_text())["workspace"]["package"]["version"]
-          python_version = re.search(r'^__version__\s*=\s*"([^"]+)"', Path("src/QuPRS/_version.py").read_text(), re.M)
-          assert python_version and python_version.group(1) == version
+          cargo = tomllib.loads(Path("rust/Cargo.toml").read_text())
+          version = cargo["workspace"]["package"]["version"]
+          match = re.search(r'^__version__\s*=\s*"([^"]+)"', Path("src/QuPRS/_version.py").read_text(), re.M)
+          assert match and match.group(1) == version
           assert os.environ["GITHUB_REF_NAME"] == f"v{version}"
-          assert tomllib.loads(Path("rust/Cargo.toml").read_text())["workspace"]["package"]["publish"] is False
+          assert cargo["workspace"]["package"]["publish"] is False
           PY
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install native build requirements
+      - name: Install native build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
 
-      - name: Stage and dry-run complete native crate
+      - name: Download the preflight crate checksum
+        uses: actions/download-artifact@v4
+        with:
+          name: release-native-${{ github.sha }}
+          path: ${{ runner.temp }}/quprs-native-assets
+
+      - name: Rebuild staged crate and match preflight bytes before upload
         shell: bash
         env:
           QUPRS_SOLVER_PROVISION: external
         run: |
           set -euo pipefail
-          python3 scripts/stage_rust_crate_candidate.py \
-            --output "$RUNNER_TEMP/quprs-crate"
-          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --list \
-            | tee "$RUNNER_TEMP/quprs-crate-files.txt"
-          grep -Fx "README.md" "$RUNNER_TEMP/quprs-crate-files.txt"
-          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run
+          version="${{ github.ref_name }}"
+          version="${version#v}"
+          python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-crate"
+          cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml"
+          cd "$RUNNER_TEMP/quprs-crate/target/package"
+          cp "$RUNNER_TEMP/quprs-native-assets/SHA256SUMS" .
+          sha256sum -c SHA256SUMS
+          test -s "quprs-$version.crate"
 
+      - name: Admit a previously published identical crate on safe retries
+        id: registry_state
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          crate="quprs-$version.crate"
+          url="https://crates.io/api/v1/crates/quprs/$version"
+          http_code="$(curl --silent --show-error --location \
+            --retry 4 --retry-delay 2 \
+            --output "$RUNNER_TEMP/registry-version.json" \
+            --write-out '%{http_code}' "$url")
+          if [[ "$http_code" == "200" ]]; then
+            # Cargo may time out waiting for index propagation after a successful upload.
+            # Check the registry's canonical checksum before skipping publication.
+            python3 - "$version" "$RUNNER_TEMP/quprs-crate/target/package/$crate" \
+              "$RUNNER_TEMP/registry-version.json" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          expected_version, crate_file, response_file = sys.argv[1:]
+          record = json.loads(pathlib.Path(response_file).read_text()).get('version', {})
+          actual_checksum = hashlib.sha256(pathlib.Path(crate_file).read_bytes()).hexdigest()
+          if (record.get('num') != expected_version
+                  or record.get('yanked') is not False
+                  or record.get('checksum') != actual_checksum):
+              raise SystemExit('Existing registry version metadata or SHA-256 differs')
+          PY
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$http_code" == "404" ]]; then
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Cannot verify crates.io version metadata (HTTP $http_code)"
+            exit 1
+          fi
       - name: Obtain short-lived crates.io publishing token
         id: crates_io_auth
+        if: steps.registry_state.outputs.already_published == 'false'
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
-      - name: Publish complete native crate
+      - name: Publish the matching native crate
+        if: steps.registry_state.outputs.already_published == 'false'
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
@@ -475,3 +612,70 @@ jobs:
         run: |
           set -euo pipefail
           cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io
+          (cd "$RUNNER_TEMP/quprs-crate/target/package" && sha256sum -c SHA256SUMS)
+
+  github_release:
+    name: Create GitHub Release after both registries publish
+    needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref_type == 'tag' &&
+          startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified Python release distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pypi-release-*
+          path: ${{ runner.temp }}/python-dist
+          merge-multiple: true
+
+      - name: Download verified native Rust archive
+        uses: actions/download-artifact@v4
+        with:
+          name: release-native-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-dist
+
+      - name: Check registry archive matches and prepare release attachments
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ github.ref_name }}"
+          version="${version#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          crate="quprs-$version.crate"
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          (cd "$RUNNER_TEMP/rust-dist" && sha256sum -c SHA256SUMS)
+          # crates.io stores the published .crate bytes. Check them, not just a
+          # independently repackaged source tree or the registry version name.
+          curl --fail --location --retry 8 --retry-delay 5 --retry-all-errors \
+            --silent --show-error \
+            "https://static.crates.io/crates/quprs/$crate" \
+            --output "$RUNNER_TEMP/registry-$crate"
+          cmp "$RUNNER_TEMP/rust-dist/$crate" "$RUNNER_TEMP/registry-$crate"
+          cp "$RUNNER_TEMP/python-dist"/* "$RUNNER_TEMP/release-assets/"
+          cp "$RUNNER_TEMP/registry-$crate" "$RUNNER_TEMP/release-assets/$crate"
+          compgen -G "$RUNNER_TEMP/release-assets/*.whl" >/dev/null
+          compgen -G "$RUNNER_TEMP/release-assets/*.tar.gz" >/dev/null
+          (cd "$RUNNER_TEMP/release-assets" && sha256sum -- *.whl *.tar.gz *.crate > SHA256SUMS.txt)
+
+      - name: Create GitHub Release with Python and Rust artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## QuPRS ${{ github.ref_name }}
+
+            Python: [QuPRS on PyPI](https://pypi.org/project/QuPRS/${{ steps.prepare.outputs.version }}/) — install with `pip install QuPRS==${{ steps.prepare.outputs.version }}`.
+
+            Rust: [quprs on crates.io](https://crates.io/crates/quprs/${{ steps.prepare.outputs.version }}) — install with `cargo add quprs@${{ steps.prepare.outputs.version }}`. Native Hybrid/WMC execution requires an external GPMC or Ganak solver.
+
+            [Changelog](https://github.com/PhysicsQoo/QuPRS/blob/${{ github.ref_name }}/CHANGELOG.md).
+
+            This release includes Python wheels, Python source distribution, the matching published Rust .crate and SHA-256 checksums.
+          files: ${{ runner.temp }}/release-assets/*
+          fail_on_unmatched_files: true

@@ -60,7 +60,10 @@ class MacOSWheelSupportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Intel and Apple Silicon"):
             release_architectures(self.WORKFLOW.replace("macos-15-intel", "ubuntu-latest"))
         with self.assertRaisesRegex(ValueError, "duplicate"):
-            release_architectures(self.WORKFLOW.replace('arch: "x86_64"', 'arch: "arm64"'))
+            release_architectures(self.WORKFLOW.replace(
+                '          - os: macos-15\n            arch: "arm64"',
+                '          - os: macos-15-intel\n            arch: "x86_64"',
+            ))
         with self.assertRaisesRegex(ValueError, "mismatches wheel arch"):
             release_architectures(self.WORKFLOW.replace("macos-15-intel", "macos-15"))
         with self.assertRaisesRegex(ValueError, "matrix.arch"):

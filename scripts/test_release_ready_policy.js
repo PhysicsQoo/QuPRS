@@ -140,3 +140,33 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   }
   console.log("Optional crates.io publish gate: positive and 5 negative source controls passed");
 }
+
+
+// The root README is version-neutral: release history belongs in CHANGELOG.
+{
+  const readme = fs.readFileSync("README.md", "utf8");
+  const check = source => {
+    assert.doesNotMatch(source, /\bv\d+\.\d+\.\d+\b/,
+      "Root README must not pin a QuPRS release version");
+    assert.doesNotMatch(source, /\bGanak \d+\.\d+\.\d+\b/,
+      "Pinned solver versions belong in manifests or reference documents");
+    assert.match(source, /https:\/\/github\.com\/PhysicsQoo\/QuPRS\/releases\/latest/,
+      "README must point at the latest published release");
+    assert.match(source, /https:\/\/pypi\.org\/project\/QuPRS\//,
+      "README must point at current PyPI metadata");
+    assert.match(source, /\(CHANGELOG\.md\)/,
+      "README must route historical version details to CHANGELOG");
+  };
+  check(readme);
+  for (const [name, mutation] of [
+    ["hardcoded QuPRS version", readme + "\nFor v0.99.0 only\n"],
+    ["pinned solver version", readme + "\nGanak 2.8.0 example\n"],
+    ["missing latest release link", readme.replace(
+      "https://github.com/PhysicsQoo/QuPRS/releases/latest",
+      "https://github.com/PhysicsQoo/QuPRS/releases"
+    )],
+  ]) {
+    assert.throws(() => check(mutation), undefined, name);
+  }
+  console.log("Evergreen root README and three negative controls passed");
+}

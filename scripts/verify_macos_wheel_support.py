@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check published macOS wheel tags against QuPRS' documented minimum OS.
+"""Check macOS wheels against actual release-build deployment policy.
 
-This is an *artifact compatibility* check, not a macOS 14 source-build test.
+The root README is version-neutral; release workflow and wheel metadata are authoritative.
 """
 
 import argparse
@@ -15,42 +15,49 @@ MACOS_TAG = re.compile(r"macosx_(\d+)_(\d+)_(arm64|x86_64|universal2)")
 DEPLOYMENT = re.compile(r"MACOSX_DEPLOYMENT_TARGET=(\d+)\.(\d+)")
 
 
-def documented_minimums(readme: str) -> dict[str, tuple[int, int]]:
-    found = {}
-    for line in readme.splitlines():
-        cells = [part.strip() for part in line.strip().strip("|").split("|")]
-        if len(cells) < 4 or cells[0] != "**macOS**":
+def release_architectures(workflow: str) -> set[str]:
+    """Check the actual cibuildwheel macOS runner/arch matrix (not README)."""
+    start, end = "\n  build_wheels:\n", "\n  build_sdist:\n"
+    if workflow.count(start) != 1 or workflow.count(end) != 1:
+        raise ValueError("Cannot uniquely locate release wheel matrix")
+    build = workflow.split(start, 1)[1].split(end, 1)[0]
+    if "CIBW_ARCHS: ${{ matrix.arch }}" not in build:
+        raise ValueError("Release builder must set CIBW_ARCHS from matrix.arch")
+    rows = build.splitlines()
+    found: set[str] = set()
+    count = 0
+    for i, line in enumerate(rows):
+        if not line.startswith("          - os: macos-"):
             continue
-        arch = "arm64" if "Apple Silicon" in cells[1] else (
-            "x86_64" if "Intel" in cells[1] else None
+        count += 1
+        runner_match = re.fullmatch(r" {10}- os: (macos-[0-9]+(?:-intel)?)(?:\s+#.*)?", line)
+        arch_match = (
+            re.match(r' {12}arch: ["\']?([a-z0-9_]+)', rows[i + 1])
+            if i + 1 < len(rows) else None
         )
-        if arch is None or arch in found:
-            raise ValueError(f"Unexpected or duplicate macOS platform: {line}")
-        match = re.fullmatch(r"macOS (\d+)\+", cells[3])
-        if not match:
-            raise ValueError(f"Invalid macOS support minimum: {cells[3]!r}")
-        found[arch] = (int(match.group(1)), 0)
-    if set(found) != {"arm64", "x86_64"}:
-        raise ValueError(f"Expected exactly Intel and Apple Silicon rows, got {found}")
+        if not runner_match or not arch_match:
+            raise ValueError(f"Invalid macOS wheel matrix entry: {line}")
+        runner, arch = runner_match.group(1), arch_match.group(1)
+        if arch not in {"x86_64", "arm64"} or arch in found:
+            raise ValueError(f"Invalid or duplicate macOS wheel architecture: {arch}")
+        if runner.endswith("-intel") != (arch == "x86_64"):
+            raise ValueError(f"macOS runner {runner} mismatches wheel arch {arch}")
+        found.add(arch)
+    if count != 2 or found != {"x86_64", "arm64"}:
+        raise ValueError(f"Expected Intel and Apple Silicon wheel builds, got {found}")
     return found
 
 
 def release_deployment(workflow: str) -> tuple[int, int]:
-    matches = {tuple(map(int, match)) for match in DEPLOYMENT.findall(workflow)}
+    matches = DEPLOYMENT.findall(workflow)
     if len(matches) != 1:
-        raise ValueError(f"Expected one macOS deployment target, got {matches}")
-    return next(iter(matches))
+        raise ValueError(f"Expected one release deployment target, got {matches}")
+    return tuple(map(int, matches[0]))
 
 
-def validate_policy(readme: str, workflow: str) -> dict[str, tuple[int, int]]:
-    documented = documented_minimums(readme)
-    deployment = release_deployment(workflow)
-    for arch, minimum in documented.items():
-        if minimum != deployment:
-            raise ValueError(
-                f"{arch} README minimum {minimum} != release deployment {deployment}"
-            )
-    return documented
+def validate_policy(workflow: str) -> dict[str, tuple[int, int]]:
+    minimum = release_deployment(workflow)
+    return {arch: minimum for arch in sorted(release_architectures(workflow))}
 
 
 def _platforms_from_filename(filename: str) -> set[str]:
@@ -98,7 +105,7 @@ def validate_wheels(paths: list[Path], minimums: dict[str, tuple[int, int]], arc
                 raise ValueError(f"{wheel.name}: unexpected arch: {tag_arch}")
             expected = minimums[arch]
             if (int(major), int(minor)) != expected:
-                raise ValueError(f"{wheel.name}: tag {tag} != documented minimum {expected}")
+                raise ValueError(f"{wheel.name}: tag {tag} != release deployment minimum {expected}")
             matching = True
         if not matching:
             raise ValueError(f"{wheel.name}: no suitable macOS tags")
@@ -110,15 +117,14 @@ def main() -> int:
     parser.add_argument("--wheel-dir", type=Path)
     parser.add_argument("--arch", choices=("arm64", "x86_64"))
     args = parser.parse_args()
-    documented = validate_policy(
-        (ROOT / "README.md").read_text(encoding="utf-8"),
-        (ROOT / ".github/workflows/python-publish.yml").read_text(encoding="utf-8"),
+    minimums = validate_policy(
+        (ROOT / ".github/workflows/python-publish.yml").read_text(encoding="utf-8")
     )
-    print(f"README and release deployment target agree: {documented}")
+    print(f"macOS release wheel policy: {minimums}")
     if args.wheel_dir is not None:
         if args.arch is None:
             parser.error("--arch is required with --wheel-dir")
-        validate_wheels(sorted(args.wheel_dir.glob("*.whl")), documented, args.arch)
+        validate_wheels(sorted(args.wheel_dir.glob("*.whl")), minimums, args.arch)
     elif args.arch is not None:
         parser.error("--arch requires --wheel-dir")
     return 0

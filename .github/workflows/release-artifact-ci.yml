@@ -75,6 +75,9 @@ jobs:
             fi
           fi
 
+      - name: Verify release publication safety policy
+        run: node scripts/test_release_ready_policy.js
+
       - name: Check platform support statements against deployment policy
         run: |
           python scripts/verify_macos_wheel_support.py

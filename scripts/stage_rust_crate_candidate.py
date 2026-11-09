@@ -45,9 +45,17 @@ def stage(destination: Path) -> None:
             or set(parsed["features"]) != {"default", "high-precision-gpmc"}):
         raise AssertionError("staged crate differs from the reviewed source manifest")
 
+    lockfile = SOURCE / "Cargo.lock"
+    if not lockfile.is_file():
+        raise AssertionError("standalone quprs Cargo.lock is missing")
+    locked = tomllib.loads(lockfile.read_text())
+    packages = [entry for entry in locked.get("package", [])
+                if entry.get("name") == "quprs" and entry.get("version") == package["version"]]
+    if len(packages) != 1:
+        raise AssertionError("standalone quprs Cargo.lock does not match the release version")
+
     shutil.copytree(SOURCE, destination, ignore=shutil.ignore_patterns("target", ".git", "__pycache__", "*.pyc"))
     (destination / "Cargo.toml").write_text(text)
-    (destination / "Cargo.lock").unlink(missing_ok=True)
     shutil.copyfile(ROOT / "LICENSE.md", destination / "LICENSE.md")
     manifest_source = ROOT / "src" / "QuPRS" / "utils" / "ganak-release.txt"
     if manifest_source.read_bytes() != (destination / "src" / "ganak-release.txt").read_bytes():

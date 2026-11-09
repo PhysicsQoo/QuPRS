@@ -542,27 +542,54 @@ jobs:
             exit 1
           fi
           git push origin gh-pages:gh-pages
-      - name: Validate live dev docs provenance
+      # The exact pushed gh-pages subtree is the release artifact for dev
+      # documentation. GitHub Pages deployment and CDN propagation run later
+      # and cannot be the required source-provenance gate.
+      - name: Verify reviewed dev documentation on remote gh-pages
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+          remote=refs/remotes/origin/gh-pages
+          observed="$(git show "$remote:docs/dev/source-sha.txt" | tr -d '\r\n')"
+          if [[ "$observed" != "$EXPECTED_SHA" ]]; then
+            echo "::error::Remote dev documentation source differs from the reviewed SHA: $observed"
+            exit 1
+          fi
+          git cat-file -e "$remote:docs/dev/rust-api/quprs/index.html"
+          for page in index.html rust-api/quprs/index.html; do
+            git show "$remote:docs/dev/$page" |
+              cmp - "$RUNNER_TEMP/versioned-docs/docs/dev/$page"
+          done
+          echo "Reviewed dev documentation and Rustdoc match remote gh-pages"
+          echo "Dev docs source: $EXPECTED_SHA (remote branch verified)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Observe live dev documentation propagation (informational)
         env:
           EXPECTED_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           url='https://physicsqoo.github.io/QuPRS/docs/dev/source-sha.txt'
-          matched=false
-          for attempt in $(seq 1 30); do
+          observed=''
+          for attempt in 1 2 3; do
+            echo "Checking public dev docs propagation ($attempt/3)"
             if curl --fail --silent --show-error --location --max-time 12 \
+              -H 'Cache-Control: no-cache' \
               -o source-sha.txt "$url?v=$EXPECTED_SHA"; then
               observed="$(tr -d '\r\n' < source-sha.txt)"
-              if [[ "$observed" == "$EXPECTED_SHA" ]]; then
-                matched=true
-                echo "Live versioned dev source SHA verified ($attempt/30)"
-                break
+              if [[ "$observed" == "$EXPECTED_SHA" ]] &&
+                 curl --fail --silent --show-error --location --max-time 12 \
+                   -o homepage.html 'https://physicsqoo.github.io/QuPRS/docs/dev/' &&
+                 grep -q 'QuPRS' homepage.html; then
+                echo "Public dev documentation serves reviewed SHA"
+                echo "Public dev docs: https://physicsqoo.github.io/QuPRS/docs/dev/ (verified)" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
               fi
             fi
-            sleep 8
+            sleep 5
           done
-          test "$matched" = true
-          curl --fail --silent --show-error --location --retry 4 --retry-all-errors \
-            -o homepage.html 'https://physicsqoo.github.io/QuPRS/docs/dev/'
-          grep -q 'QuPRS' homepage.html
+          echo "::warning::Public dev docs SHA not yet confirmed (observed: ${observed:-unavailable}). The remote gh-pages artifact is verified; GitHub Pages deployment must complete separately."
+          echo "Public dev docs: https://physicsqoo.github.io/QuPRS/docs/dev/ (propagation pending)" >> "$GITHUB_STEP_SUMMARY"

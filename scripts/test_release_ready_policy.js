@@ -127,7 +127,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(preflight, /CRATES_IO_PUBLISH_ENABLED: \$\{\{ vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED \}\}/);
     assert.match(preflight, /CRATES_IO_PUBLISH_ENABLED" != "true"/);
     assert.match(preflight, /scripts\/stage_rust_crate_candidate\.py/);
-    assert.match(preflight, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --dry-run/);
+    assert.match(preflight, /cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --list --locked/);
+    assert.match(preflight, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --dry-run --locked/);
     assert.match(preflight, /actions\/upload-artifact@v4/);
     assert.match(preflight, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.doesNotMatch(preflight, /cargo publish --manifest-path .* --registry crates-io/,
@@ -179,13 +180,14 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "The registry metadata verifier must close its own heredoc at shell column zero");
     assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
       "Publishing and token minting must be skipped for already published identical crates");
+    assert.match(rust, /cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --locked/);
     assert.match(rust, /sha256sum -c SHA256SUMS/,
       "Rust publisher must validate the preflight package digest");
     assert.equal((rust.match(/sha256sum -c SHA256SUMS/g) || []).length, 2,
       "Rust archive identity must be validated both before and after upload");
     assert.match(rust, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.match(rust, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
-    assert.match(rust, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io/);
+    assert.match(rust, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io --locked/);
 
     assert.match(release, /needs: \[verify_release_ref, rust_preflight, publish, publish_crates_io\]/,
       "GitHub Release must wait for successful publication to both registries");

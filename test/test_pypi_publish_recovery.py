@@ -61,6 +61,21 @@ class PyPIRecoveryTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 module.parse_registry_json(bad)
 
+    def test_beta_archive_names_normalize_and_reject_stable_files(self):
+        self.assertEqual(module.python_from_cargo("0.15.0-beta.1"), "0.15.0b1")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "quprs-0.15.0b1-py3-none-any.whl").write_bytes(b"wheel-beta")
+            (root / "QuPRS-0.15.0b1.tar.gz").write_bytes(b"sdist-beta")
+            inventory = module.local_inventory(root, "0.15.0b1")
+            self.assertEqual(len(inventory), 2)
+            with self.assertRaisesRegex(ValueError, "Unexpected Python"):
+                module.local_inventory(root, "0.15.0")
+
+    def test_invalid_prerelease_name_is_rejected(self):
+        with self.assertRaises(ValueError):
+            module.python_from_cargo("0.15.0-beta.01")
+
     def test_no_foreign_version_in_upload_inventory(self):
         root = Path(self.temp.name)
         (root / "quprs-0.14.1-py3-none-any.whl").write_bytes(b"old")

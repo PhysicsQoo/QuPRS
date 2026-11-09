@@ -1022,11 +1022,11 @@ model counting. The Rust core supports three verification methods:
 <code>ReductionRules</code>, <code>Hybrid</code> (reduction followed by WMC when needed), and
 <code>WmcOnly</code>. GPMC is the default external WMC solver; Ganak may be chosen
 explicitly. The crate does not silently switch solvers.</p>
-<p><strong>Current distribution:</strong> the supported Rust core is built from the
-<a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/rust">QuPRS source workspace</a>.
-The registry package name <code>quprs</code> is planned but not yet claimed;
-<strong>a crates.io release has not been published</strong>. Do not mistake a preview
-archive for an available crates.io package.</p>
+<p><strong>Distribution:</strong> the native <a href="https://crates.io/crates/quprs"><code>quprs</code> crate</a>
+is distributed separately from the Python package. The available versions
+are listed on <a href="https://crates.io/crates/quprs/versions">crates.io</a>. The native
+library is also maintained in the
+<a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/rust">QuPRS source workspace</a>.</p>
 <h2 id="build-with-full-verification-capability">Build with full verification capability</h2>
 <p>On Linux, install CMake, pkg-config, a C/C++ compiler, and GMP/MPFR development
 headers. On macOS, the corresponding dependencies are available with Homebrew:</p>
@@ -1249,9 +1249,13 @@ to Python attributes of those names.</p>
 unequal circuit widths, native Rust rejects mismatched widths as an
 <strong>input-validation error</strong> before solver invocation. <code>Unknown</code>,
 <code>Timeout</code>, <code>MemoryOut</code> and execution errors do not prove inequality.</p>
-<p>An independent consumer of an eventual registry release uses the same
-<code>quprs::</code> imports as the workspace. The crate is <strong>not yet published</strong>
-on crates.io.</p>
+<p>A standalone Rust consumer uses the same <code>quprs::</code> imports as the source
+workspace. Select a version listed on
+<a href="https://crates.io/crates/quprs">crates.io</a> and replace <code>VERSION</code> with it:</p>
+<div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>add<span class="w"> </span>quprs@VERSION
+</code></pre></div>
+<p>The published crate contains the native verification API but does not bundle
+GPMC or Ganak executables for nontrivial weighted model counting.</p>
 <h2 id="build-and-runtime-contracts">Build and runtime contracts</h2>
 <ul>
 <li>The isolated full-verification crate does not package GPMC or Ganak

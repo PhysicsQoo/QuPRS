@@ -16,40 +16,62 @@ assert _SPEC is not None and _SPEC.loader is not None
 _VALIDATOR = module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_VALIDATOR)
 
-documented_minimums = _VALIDATOR.documented_minimums
+release_architectures = _VALIDATOR.release_architectures
 release_deployment = _VALIDATOR.release_deployment
 validate_policy = _VALIDATOR.validate_policy
 validate_wheels = _VALIDATOR.validate_wheels
 
 
 class MacOSWheelSupportTests(unittest.TestCase):
-    README = (
-        "| **macOS** | Intel (x86_64) | Supported | macOS 15+ |\n"
-        "| **macOS** | Apple Silicon (M1/M2/M3) | Supported | macOS 15+ |\n"
+    WORKFLOW = (
+        "name: example\n"
+        "  build_wheels:\n"
+        "    strategy:\n"
+        "      matrix:\n"
+        "        include:\n"
+        "          - os: macos-15-intel\n"
+        '            arch: "x86_64"\n'
+        "          - os: macos-15\n"
+        '            arch: "arm64"\n'
+        "    steps:\n"
+        '      - run: echo "MACOSX_DEPLOYMENT_TARGET=15.0"\n'
+        "        env:\n"
+        "          CIBW_ARCHS: ${{ matrix.arch }}\n"
+        "  build_sdist:\n"
     )
-    WORKFLOW = 'echo "MACOSX_DEPLOYMENT_TARGET=15.0" >> $GITHUB_ENV'
 
     def test_current_source_policy(self):
         root = Path(__file__).resolve().parents[1]
         self.assertEqual(
             validate_policy(
-                (root / "README.md").read_text(encoding="utf-8"),
-                (root / ".github/workflows/python-publish.yml").read_text(encoding="utf-8"),
-            ),
-            {"arm64": (15, 0), "x86_64": (15, 0)},
+                (root / ".github/workflows/python-publish.yml").read_text(encoding="utf-8")
+            ), {"arm64": (15, 0), "x86_64": (15, 0)}
         )
 
-    def test_macos_14_claim_rejected(self):
-        readme = self.README.replace("Apple Silicon (M1/M2/M3) | Supported | macOS 15+",
-                                     "Apple Silicon (M1/M2/M3) | Supported | macOS 14+")
-        with self.assertRaisesRegex(ValueError, "README minimum"):
-            validate_policy(readme, self.WORKFLOW)
+    def test_release_workflow_is_source_of_truth(self):
+        self.assertEqual(validate_policy(self.WORKFLOW),
+                         {"arm64": (15, 0), "x86_64": (15, 0)})
+        shifted = self.WORKFLOW.replace("MACOSX_DEPLOYMENT_TARGET=15.0",
+                                        "MACOSX_DEPLOYMENT_TARGET=14.0")
+        self.assertEqual(validate_policy(shifted),
+                         {"arm64": (14, 0), "x86_64": (14, 0)})
 
     def test_missing_or_ambiguous_support_declaration_rejected(self):
-        with self.assertRaises(ValueError):
-            documented_minimums(self.README.replace("Intel (x86_64)", "Unknown"))
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "Intel and Apple Silicon"):
+            release_architectures(self.WORKFLOW.replace("macos-15-intel", "ubuntu-latest"))
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            release_architectures(self.WORKFLOW.replace('arch: "x86_64"', 'arch: "arm64"'))
+        with self.assertRaisesRegex(ValueError, "mismatches wheel arch"):
+            release_architectures(self.WORKFLOW.replace("macos-15-intel", "macos-15"))
+        with self.assertRaisesRegex(ValueError, "matrix.arch"):
+            release_architectures(self.WORKFLOW.replace("CIBW_ARCHS: ${{ matrix.arch }}",
+                                                        "CIBW_ARCHS: arm64"))
+        with self.assertRaisesRegex(ValueError, "one release deployment"):
             release_deployment(self.WORKFLOW + " MACOSX_DEPLOYMENT_TARGET=14.0")
+        with self.assertRaisesRegex(ValueError, "one release deployment"):
+            release_deployment(self.WORKFLOW.replace("MACOSX_DEPLOYMENT_TARGET=15.0", ""))
+        with self.assertRaisesRegex(ValueError, "uniquely locate"):
+            release_architectures(self.WORKFLOW.replace("  build_sdist:", "  bad_job:"))
 
     def _wheel(self, directory, tag, metadata_tag=None):
         filename = f"quprs-0.13.2-cp38-abi3-{tag}.whl"
@@ -75,7 +97,7 @@ class MacOSWheelSupportTests(unittest.TestCase):
     def test_old_and_mismatched_wheel_tags_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             wrong_min = self._wheel(directory, "macosx_14_0_arm64")
-            with self.assertRaisesRegex(ValueError, "documented minimum"):
+            with self.assertRaisesRegex(ValueError, "release deployment minimum"):
                 validate_wheels([wrong_min], {"arm64": (15, 0)}, "arm64")
             wrong_meta = self._wheel(directory, "macosx_15_0_arm64",
                                      "macosx_14_0_arm64")

@@ -164,8 +164,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "A published version is accepted only if the authoritative SHA-256 matches");
     assert.match(rust, /record\.get\('yanked'\) is not False/,
       "A yanked version must not be treated as a successful published release");
-    assert.match(rust, /\n          PY\n/,
-      "The embedded registry metadata checker heredoc must close at shell column zero");
+    assert.match(rust, /raise SystemExit\('Existing registry version metadata or SHA-256 differs'\)\n          PY\n            echo "already_published=true"/,
+      "The registry metadata verifier must close its own heredoc at shell column zero");
     assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
       "Publishing and token minting must be skipped for already published identical crates");
     assert.match(rust, /sha256sum -c SHA256SUMS/,
@@ -222,7 +222,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "if: steps.registry_state.outputs.already_published == 'false'",
       "if: always()")],
     ["Rust retry metadata heredoc delimiter is indented", x => x.replace(
-      "\n          PY\n", "\n            PY\n")],
+      "raise SystemExit('Existing registry version metadata or SHA-256 differs')\n          PY\n",
+      "raise SystemExit('Existing registry version metadata or SHA-256 differs')\n            PY\n")],
     ["GitHub Release created before Rust publish", x => x.replace(
       "needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]",
       "needs: [verify_release_ref, rust_preflight, publish]")],

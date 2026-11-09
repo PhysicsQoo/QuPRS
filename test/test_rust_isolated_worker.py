@@ -207,11 +207,18 @@ def test_private_supervisor_reaps_detached_solver_descendants(tmp_path):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         try:
+            pid_text = ""
             for _ in range(200):
-                if os.path.exists(sys.argv[2]):
+                try:
+                    with open(sys.argv[2]) as marker_file:
+                        pid_text = marker_file.read().strip()
+                except FileNotFoundError:
+                    pass
+                if pid_text.isdecimal():
                     break
                 time.sleep(0.01)
-            pid = int(open(sys.argv[2]).read())
+            assert pid_text.isdecimal(), "detached process PID was not written"
+            pid = int(pid_text)
             os.killpg(worker.pid, signal.SIGKILL)
             worker.wait(timeout=2)
             assert pid in module._children(), "detached process was not adopted"

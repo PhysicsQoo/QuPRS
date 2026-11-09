@@ -164,6 +164,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "A published version is accepted only if the authoritative SHA-256 matches");
     assert.match(rust, /record\.get\('yanked'\) is not False/,
       "A yanked version must not be treated as a successful published release");
+    assert.match(rust, /\n          PY\n/,
+      "The embedded registry metadata checker heredoc must close at shell column zero");
     assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
       "Publishing and token minting must be skipped for already published identical crates");
     assert.match(rust, /sha256sum -c SHA256SUMS/,
@@ -219,6 +221,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["Rust retries duplicate publication", x => x.replace(
       "if: steps.registry_state.outputs.already_published == 'false'",
       "if: always()")],
+    ["Rust retry metadata heredoc delimiter is indented", x => x.replace(
+      "\n          PY\n", "\n            PY\n")],
     ["GitHub Release created before Rust publish", x => x.replace(
       "needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]",
       "needs: [verify_release_ref, rust_preflight, publish]")],
@@ -232,7 +236,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
     assert.throws(() => checkDualReleasePolicy(changed), undefined, name);
   }
-  console.log("Dual-registry publication policy: positive and 15 negative source controls passed");
+  console.log("Dual-registry publication policy: positive and 16 negative source controls passed");
 }
 
 

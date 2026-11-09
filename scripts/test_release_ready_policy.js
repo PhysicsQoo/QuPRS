@@ -99,46 +99,145 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
 }
 
  
-// Optional crates.io publishing must remain a separately authorized tag-only
-// successor to the successful PyPI + GitHub release job. Negative mutations
-// guard against weakening the opt-in / OIDC / isolated-package boundary.
+// Dual-registry releases must fail closed before their first irreversible
+// upload. GitHub Release is public only after both registries publish, and
+// must carry the same Rust crate bytes as crates.io.
 {
   const publishYaml = fs.readFileSync(".github/workflows/python-publish.yml", "utf8");
-  assert.equal((publishYaml.match(/^  publish_crates_io:$/gm) || []).length, 1,
-    "Exactly one optional crates.io publish job is required");
-  const job = publishYaml.split(/^  publish_crates_io:\s*$/m)[1];
-  function requireCratesGate(yaml) {
-    assert.match(yaml, /needs: \[verify_release_ref, publish\]/,
-      "Rust publish must wait for verified successful PyPI/GitHub release");
-    assert.match(yaml, /github\.event_name == 'push'/,
-      "Rust publication must never run from workflow_dispatch or a PR");
-    assert.match(yaml, /github\.ref_type == 'tag'/);
-    assert.match(yaml, /startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-    assert.match(yaml, /vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'/,
-      "Rust publish must require an explicit repository-level opt-in");
-    assert.match(yaml, /environment: crates-io/,
-      "Rust publish needs a dedicated protected environment");
-    assert.match(yaml, /permissions:\n      contents: read\n      id-token: write/,
-      "Only the Rust publishing job may request an OIDC token");
-    assert.match(yaml, /scripts\/stage_rust_crate_candidate\.py/,
-      "Never publish the workspace directly");
-    assert.match(yaml, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --dry-run/);
-    assert.match(yaml, /uses: rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
-    assert.match(yaml, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
-    assert.match(yaml, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io/);
-    assert.match(yaml, /QUPRS_SOLVER_PROVISION: external/);
+  const getJob = (yaml, name) => {
+    const sections = yaml.split(new RegExp("^  " + name + ":\\s*$", "m"));
+    assert.equal(sections.length, 2, "Expected one release job: " + name);
+    return sections[1].split(/^  [a-z][a-z0-9_]*:\s*$/m)[0];
+  };
+  function checkDualReleasePolicy(yaml) {
+    const preflight = getJob(yaml, "rust_preflight");
+    const python = getJob(yaml, "publish");
+    const rust = getJob(yaml, "publish_crates_io");
+    const release = getJob(yaml, "github_release");
+    const tagOnly = block => {
+      assert.match(block, /github\.event_name == 'push'/);
+      assert.match(block, /github\.ref_type == 'tag'/);
+      assert.match(block, /startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+    };
+    for (const block of [preflight, python, rust, release]) tagOnly(block);
+
+    assert.match(preflight, /needs: verify_release_ref/);
+    assert.match(preflight, /environment: crates-io/);
+    assert.match(preflight, /id-token: write/);
+    assert.match(preflight, /CRATES_IO_PUBLISH_ENABLED: \$\{\{ vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED \}\}/);
+    assert.match(preflight, /CRATES_IO_PUBLISH_ENABLED" != "true"/);
+    assert.match(preflight, /scripts\/stage_rust_crate_candidate\.py/);
+    assert.match(preflight, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --dry-run/);
+    assert.match(preflight, /actions\/upload-artifact@v4/);
+    assert.match(preflight, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
+    assert.doesNotMatch(preflight, /cargo publish --manifest-path .* --registry crates-io/,
+      "Native preflight must never upload to crates.io");
+    assert.doesNotMatch(preflight, /action-gh-release|gh-action-pypi-publish/,
+      "Preflight must never publish either registry or GitHub Release");
+
+    assert.match(python, /needs: \[verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight\]/,
+      "Python publishing must depend on successful native preflight");
+    assert.match(python, /id-token: write/);
+    assert.match(python, /pypa\/gh-action-pypi-publish@release\/v1/);
+    assert.doesNotMatch(python, /action-gh-release/,
+      "Public GitHub Release must follow both registries");
+
+    assert.match(rust, /needs: \[verify_release_ref, rust_preflight, publish\]/,
+      "Rust publication must follow successful native preflight and PyPI");
+    assert.match(rust, /environment: crates-io/);
+    assert.match(rust, /id-token: write/);
+    assert.match(rust, /vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'/);
+    assert.match(rust, /scripts\/stage_rust_crate_candidate\.py/,
+      "Rust publish must operate on isolated native crate");
+    assert.match(rust, /test "\$\(git rev-parse HEAD\)" = "\$GITHUB_SHA"/,
+      "Post-PyPI Rust release must verify the admitted immutable tag commit");
+    assert.doesNotMatch(rust, /refs\/remotes\/origin\/main/,
+      "A later main advancement must not cause a partially published release");
+    assert.match(rust, /id: registry_state/,
+      "Rust retry must inspect existing published archive");
+    assert.match(rust, /already_published=true/);
+    assert.match(rust, /already_published=false/);
+    assert.match(rust, /https:\/\/crates\.io\/api\/v1\/crates\/quprs\/\$version/,
+      "A retry must check the registry version record, not only a CDN archive");
+    assert.match(rust, /hashlib\.sha256\(pathlib\.Path\(crate_file\)\.read_bytes\(\)\)\.hexdigest\(\)/);
+    assert.match(rust, /record\.get\('checksum'\) != actual_checksum/,
+      "A published version is accepted only if the authoritative SHA-256 matches");
+    assert.match(rust, /record\.get\('yanked'\) is not False/,
+      "A yanked version must not be treated as a successful published release");
+    assert.match(rust, /raise SystemExit\('Existing registry version metadata or SHA-256 differs'\)\n          PY\n            echo "already_published=true"/,
+      "The registry metadata verifier must close its own heredoc at shell column zero");
+    assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
+      "Publishing and token minting must be skipped for already published identical crates");
+    assert.match(rust, /sha256sum -c SHA256SUMS/,
+      "Rust publisher must validate the preflight package digest");
+    assert.equal((rust.match(/sha256sum -c SHA256SUMS/g) || []).length, 2,
+      "Rust archive identity must be validated both before and after upload");
+    assert.match(rust, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
+    assert.match(rust, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
+    assert.match(rust, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io/);
+
+    assert.match(release, /needs: \[verify_release_ref, rust_preflight, publish, publish_crates_io\]/,
+      "GitHub Release must wait for successful publication to both registries");
+    assert.match(release, /softprops\/action-gh-release@v2/);
+    assert.match(release, /pattern: pypi-release-\*/);
+    assert.match(release, /release-native-/);
+    assert.match(release, /https:\/\/static\.crates\.io\/crates\/quprs\//);
+    assert.match(release, /cmp "\$RUNNER_TEMP\/rust-dist\/\$crate" "\$RUNNER_TEMP\/registry-\$crate"/);
+    assert.match(release, /SHA256SUMS.txt/);
+    assert.match(release, /release-assets\/\*/);
+    assert.match(release, /https:\/\/pypi\.org\/project\/QuPRS\//);
+    assert.match(release, /https:\/\/crates\.io\/crates\/quprs\//);
   }
-  requireCratesGate(job);
-  for (const [name, mutated] of [
-    ["remove opt-in", job.replace("vars.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'", "true")],
-    ["enable manual publishing", job.replace("github.event_name == 'push'", "github.event_name == 'workflow_dispatch'")],
-    ["remove successful PyPI dependency", job.replace("needs: [verify_release_ref, publish]", "needs: verify_release_ref")],
-    ["remove OIDC permission", job.replace("id-token: write", "id-token: read")],
-    ["publish non-isolated package", job.replace('cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io', 'cargo publish --manifest-path rust/Cargo.toml --registry crates-io')],
+  checkDualReleasePolicy(publishYaml);
+  for (const [name, mutation] of [
+    ["preflight accidentally dispatched", x => x.replace(
+      /(  rust_preflight:[\s\S]*?github\.event_name == )'push'/,
+      "$1'workflow_dispatch'")],
+    ["preflight skips Rust dry-run", x => x.replace(
+      'cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run',
+      'echo skipped-dry-run')],
+    ["preflight skips crates.io OIDC", x => x.replace(
+      /      - name: Verify crates\.io GitHub OIDC authorization without uploading\n        uses: rust-lang\/crates-io-auth-action@[a-f0-9]{40}/,
+      "      - name: Verify crates.io GitHub OIDC authorization without uploading\n        run: true")],
+    ["Rust opt-in disabled by mutation", x => x.replace(
+      "vars.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'", "true")],
+    ["Python publishes before Rust preflight", x => x.replace(
+      "sdist_install, rust_preflight]", "sdist_install]")],
+    ["Rust publishes before PyPI", x => x.replace(
+      "needs: [verify_release_ref, rust_preflight, publish]",
+      "needs: [verify_release_ref, rust_preflight]")],
+    ["Rust package digest is not checked", x => x.replace(
+      "sha256sum -c SHA256SUMS", "echo skip-checksum")],
+    ["Rust publishes workspace directly", x => x.replace(
+      'cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io',
+      'cargo publish --manifest-path rust/Cargo.toml --registry crates-io')],
+    ["Rust rechecks mutable main after successful PyPI upload", x => x.replace(
+      'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+      'test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"')],
+    ["Rust retry skips published checksum verification", x => x.replace(
+      "record.get('checksum') != actual_checksum", "False")],
+    ["Rust retry accepts yanked versions", x => x.replace(
+      "record.get('yanked') is not False", "False")],
+    ["Rust retries duplicate publication", x => x.replace(
+      "if: steps.registry_state.outputs.already_published == 'false'",
+      "if: always()")],
+    ["Rust retry metadata heredoc delimiter is indented", x => x.replace(
+      "raise SystemExit('Existing registry version metadata or SHA-256 differs')\n          PY\n",
+      "raise SystemExit('Existing registry version metadata or SHA-256 differs')\n            PY\n")],
+    ["GitHub Release created before Rust publish", x => x.replace(
+      "needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]",
+      "needs: [verify_release_ref, rust_preflight, publish]")],
+    ["GitHub Release does not compare registry bytes", x => x.replace(
+      'cmp "$RUNNER_TEMP/rust-dist/$crate" "$RUNNER_TEMP/registry-$crate"',
+      "echo skip-archive-identity")],
+    ["GitHub Release omits Rust registry link", x => x.replace(
+      "https://crates.io/crates/quprs/", "https://example.invalid/crate/")],
   ]) {
-    assert.throws(() => requireCratesGate(mutated), undefined, name);
+    const changed = mutation(publishYaml);
+    assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
+    assert.throws(() => checkDualReleasePolicy(changed), undefined, name);
   }
-  console.log("Optional crates.io publish gate: positive and 5 negative source controls passed");
+  console.log("Dual-registry publication policy: positive and 16 negative source controls passed");
 }
 
 

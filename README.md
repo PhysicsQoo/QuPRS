@@ -5,6 +5,7 @@
 
 <!-- Release & License -->
 [![PyPI version](https://img.shields.io/pypi/v/QuPRS?style=flat-square)](https://pypi.org/project/QuPRS/)
+[![Rust crate](https://img.shields.io/crates/v/quprs?style=flat-square)](https://crates.io/crates/quprs)
 [![Python Version](https://img.shields.io/pypi/pyversions/QuPRS?style=flat-square&logo=python&logoColor=white)](https://pypi.org/project/QuPRS/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE.md)
 
@@ -61,6 +62,11 @@ checkout may contain newer, unreleased changes. See the
 [CHANGELOG](CHANGELOG.md) and
 [project documentation](https://physicsqoo.github.io/QuPRS/docs/)
 for release-specific compatibility and upgrade guidance.
+
+Native Rust users can obtain the separate [`quprs` crate](https://crates.io/crates/quprs)
+from crates.io. The Rust crate requires system build dependencies and external
+GPMC or Ganak executables for nontrivial WMC verification. See the
+[Rust crate usage guide](rust/pathsum/README.md) for installation and examples.
 
 Create a virtual environment with a supported Python interpreter:
 

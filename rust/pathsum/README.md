@@ -7,20 +7,19 @@ distribution, it has no dependency on Qiskit or the Python runtime.
 
 ## Installation
 
-After the crate is published, add it to `Cargo.toml`:
+Choose an available version of [`quprs` on crates.io](https://crates.io/crates/quprs)
+and add it to your Rust project (replace `VERSION` with the published version):
 
-```toml
-[dependencies]
-quprs = "0.15.0"
+```sh
+cargo add quprs@VERSION
 ```
 
 The default `high-precision-gpmc` Cargo feature requires a C compiler,
 `pkg-config` and installed GMP/MPFR development headers and libraries.
-To omit that optional native precision bridge:
+To omit that optional native precision bridge, select the same published version:
 
-```toml
-[dependencies]
-quprs = { version = "0.15.0", default-features = false }
+```sh
+cargo add quprs@VERSION --no-default-features
 ```
 
 Disabling this feature does not remove the Hybrid or WMC-only methods.

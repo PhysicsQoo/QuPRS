@@ -139,6 +139,17 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "Python publishing must depend on successful native preflight");
     assert.match(python, /id-token: write/);
     assert.match(python, /pypa\/gh-action-pypi-publish@release\/v1/);
+    assert.match(python, /scripts\/reconcile_pypi_artifacts\.py plan/,
+      "PyPI must compare existing files before irreversible upload");
+    assert.match(python, /scripts\/reconcile_pypi_artifacts\.py verify/,
+      "PyPI must verify all registry archive hashes after upload");
+    assert.match(python, /if: steps\.pypi_plan\.outputs\.publish_required == 'true'/,
+      "Publishing must be skipped if all immutable files are already identical");
+    assert.match(python, /packages-dir: pypi-to-upload\//,
+      "Publish only the preverified missing file subset");
+    assert.doesNotMatch(python, /skip-existing:\s*true/,
+      "Do not silently ignore an existing mismatched PyPI distribution");
+
     assert.doesNotMatch(python, /action-gh-release/,
       "Public GitHub Release must follow both registries");
 
@@ -203,6 +214,12 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "vars.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'", "true")],
     ["Python publishes before Rust preflight", x => x.replace(
       "sdist_install, rust_preflight]", "sdist_install]")],
+    ["PyPI retry skips source artifact reconciliation", x => x.replace(
+      "python3 scripts/reconcile_pypi_artifacts.py plan", "echo unchecked-artifacts")],
+    ["PyPI retry ignores published archive verification", x => x.replace(
+      "python3 scripts/reconcile_pypi_artifacts.py verify", "echo unchecked-registry")],
+    ["PyPI retry uploads the unfiltered distribution set", x => x.replace(
+      "packages-dir: pypi-to-upload/", "packages-dir: dist/")],
     ["Rust publishes before PyPI", x => x.replace(
       "needs: [verify_release_ref, rust_preflight, publish]",
       "needs: [verify_release_ref, rust_preflight]")],

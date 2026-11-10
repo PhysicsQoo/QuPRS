@@ -49,7 +49,10 @@ Versioned documentation is published separately from the Python package.
   an unconditional exact-equivalence certificate; no new solver fallback or
   default solver is introduced.
 - Check generated public API signatures, installed artifact behavior and
-  source/scientific-documentation consistency. The full cross-platform
+  source/scientific-documentation consistency. Native Rust release checks also
+  verify the published archive identity before and after registry upload and
+  test standalone solver-free consumers with optional native features disabled.
+  The full cross-platform
   source and wheel/sdist matrices remain mandatory at formal Release-Ready;
   ordinary documentation PRs do not repeat those expensive matrices.
 

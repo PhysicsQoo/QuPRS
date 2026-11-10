@@ -173,13 +173,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(rust, /already_published=false/);
     assert.match(rust, /https:\/\/crates\.io\/api\/v1\/crates\/quprs\/\$version/,
       "A retry must check the registry version record, not only a CDN archive");
-    assert.match(rust, /hashlib\.sha256\(pathlib\.Path\(crate_file\)\.read_bytes\(\)\)\.hexdigest\(\)/);
-    assert.match(rust, /record\.get\('checksum'\) != actual_checksum/,
-      "A published version is accepted only if the authoritative SHA-256 matches");
-    assert.match(rust, /record\.get\('yanked'\) is not False/,
-      "A yanked version must not be treated as a successful published release");
-    assert.match(rust, /raise SystemExit\('Existing registry version metadata or SHA-256 differs'\)\n          PY\n            echo "already_published=true"/,
-      "The registry metadata verifier must close its own heredoc at shell column zero");
+    assert.match(rust, /python3 scripts\/verify_crates_io_registry_state\.py/,
+      "A retry must run the independently tested registry SHA-256 verifier");
     assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
       "Publishing and token minting must be skipped for already published identical crates");
     assert.match(rust, /cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --locked/);
@@ -190,6 +185,9 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(rust, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.match(rust, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
     assert.match(rust, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io --locked/);
+    assert.match(rust, /\| tee "\$RUNNER_TEMP\/quprs-cargo-publish\.log" \|\| cargo_exit=\$\?/);
+    assert.match(rust, /python3 scripts\/reconcile_crates_io_publish\.py/,
+      "Post-upload confirmation must check the identical immutable registry archive");
 
     assert.match(release, /needs: \[verify_release_ref, rust_preflight, publish, publish_crates_io\]/,
       "GitHub Release must wait for successful publication to both registries");
@@ -238,16 +236,13 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["Rust rechecks mutable main after successful PyPI upload", x => x.replace(
       'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
       'test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"')],
-    ["Rust retry skips published checksum verification", x => x.replace(
-      "record.get('checksum') != actual_checksum", "False")],
-    ["Rust retry accepts yanked versions", x => x.replace(
-      "record.get('yanked') is not False", "False")],
+    ["Rust retry omits registry checksum verifier", x => x.replace(
+      "python3 scripts/verify_crates_io_registry_state.py", "true")],
+    ["Rust upload ignores post-publish registry confirmation", x => x.replace(
+      "python3 scripts/reconcile_crates_io_publish.py", "true")],
     ["Rust retries duplicate publication", x => x.replace(
       "if: steps.registry_state.outputs.already_published == 'false'",
       "if: always()")],
-    ["Rust retry metadata heredoc delimiter is indented", x => x.replace(
-      "raise SystemExit('Existing registry version metadata or SHA-256 differs')\n          PY\n",
-      "raise SystemExit('Existing registry version metadata or SHA-256 differs')\n            PY\n")],
     ["GitHub Release created before Rust publish", x => x.replace(
       "needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]",
       "needs: [verify_release_ref, rust_preflight, publish]")],
@@ -261,7 +256,27 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
     assert.throws(() => checkDualReleasePolicy(changed), undefined, name);
   }
-  console.log("Dual-registry publication policy: positive and 16 negative source controls passed");
+  const registryVerifier = fs.readFileSync("scripts/verify_crates_io_registry_state.py", "utf8");
+  function checkRegistryVerifier(source) {
+    assert.match(source, /hashlib\.sha256\(Path\(crate_file\)\.read_bytes\(\)\)\.hexdigest\(\)/);
+    assert.match(source, /record\.get\('checksum'\) != actual_checksum/,
+      "Published crate checksum must be checked");
+    assert.match(source, /record\.get\('yanked'\) is not False/,
+      "Yanked registry versions cannot be accepted");
+    assert.match(source, /record\.get\('num'\) != expected_version/,
+      "Registry version must match the source tag");
+  }
+  checkRegistryVerifier(registryVerifier);
+  for (const [name, mutation] of [
+    ["Reject checksum bypass", s => s.replace("record.get('checksum') != actual_checksum", "False")],
+    ["Reject yanked-version acceptance", s => s.replace("record.get('yanked') is not False", "False")],
+    ["Reject version mismatch acceptance", s => s.replace("record.get('num') != expected_version", "False")]
+  ]) {
+    const mutated = mutation(registryVerifier);
+    assert.notEqual(mutated, registryVerifier, "Mutation must change verifier: " + name);
+    assert.throws(() => checkRegistryVerifier(mutated), undefined, name);
+  }
+  console.log("Dual-registry publication policy and registry verifier negative controls passed");
 }
 
 

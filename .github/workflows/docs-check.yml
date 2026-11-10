@@ -23,6 +23,8 @@ on:
       - 'src/QuPRS/utils/solver_adapter.py'
       - 'src/QuPRS/utils/wmc_problem.py'
       - '.github/workflows/docs-check.yml'
+      - '.github/scripts/docs-render-admission.cjs'
+      - '.github/scripts/test-docs-render-admission.cjs'
   push:
     branches: [dev]
     paths:
@@ -45,10 +47,13 @@ on:
       - 'src/QuPRS/utils/solver_adapter.py'
       - 'src/QuPRS/utils/wmc_problem.py'
       - '.github/workflows/docs-check.yml'
+      - '.github/scripts/docs-render-admission.cjs'
+      - '.github/scripts/test-docs-render-admission.cjs'
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: docs-${{ github.event.pull_request.number || github.ref }}
@@ -63,6 +68,8 @@ jobs:
       - name: Check out documentation sources
         uses: actions/checkout@v5
         with:
+          # Fetch the PR merge parents to compare tested source trees.
+          fetch-depth: 2
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -82,11 +89,25 @@ jobs:
         run: python scripts/check_docs_examples.py --check
       - name: Check published rule witnesses and solver adapter source contracts
         run: python scripts/check_docs_scoped_contract.py
+      - name: Validate rendered-site ownership and fail-closed routing
+        run: node .github/scripts/test-docs-render-admission.cjs
+      - name: Resolve unique documentation site build
+        id: rendered_site
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const decide = require('./.github/scripts/docs-render-admission.cjs');
+            const verdict = await decide({github, context});
+            core.setOutput('build_site', String(verdict.buildSite));
+            core.info(verdict.reason);
       - name: Build documentation in strict mode
+        if: steps.rendered_site.outputs.build_site != 'false'
         run: zensical build --strict --clean
       - name: Validate generated documentation
+        if: steps.rendered_site.outputs.build_site != 'false'
         run: python scripts/check_docs_site.py --site
       - name: Check rendered dynamic Gate members
+        if: steps.rendered_site.outputs.build_site != 'false'
         run: python scripts/check_docs_gate_stubs.py --site
       - name: Reject broken internal links
         run: python scripts/check_docs_site.py --negative-link-test

@@ -839,6 +839,8 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
             > "$RUNNER_TEMP/recovery-source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" \
+            > "$RUNNER_TEMP/recovery-source-jobs.json"
 
       - name: Checkout original release tag
         uses: actions/checkout@v4
@@ -853,19 +855,43 @@ jobs:
         shell: bash
         env:
           RECOVERY_TAG: ${{ inputs.recover_tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag_commit="$(git -C release-source rev-parse HEAD)"
           test "$(git -C release-source cat-file -t "refs/tags/$RECOVERY_TAG")" = tag
-          python3 - "$RUNNER_TEMP/recovery-source-run.json" "$RECOVERY_TAG" "$tag_commit" <<'PY'
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RECOVERY_TAG" \
+            > "$RUNNER_TEMP/recovery-tag-ref.json"
+          tag_object_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["object"]["sha"])' "$RUNNER_TEMP/recovery-tag-ref.json")"
+          [[ "$tag_object_sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" \
+            > "$RUNNER_TEMP/recovery-tag-object.json"
+          python3 - "$RUNNER_TEMP/recovery-source-run.json" "$RECOVERY_TAG" "$tag_commit" \
+            "$RUNNER_TEMP/recovery-tag-ref.json" "$RUNNER_TEMP/recovery-tag-object.json" \
+            "$RUNNER_TEMP/recovery-source-jobs.json" <<'PY'
           import json
           import sys
-          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          def read(path):
+              with open(path, encoding="utf-8") as file:
+                  return json.load(file)
+          record = read(sys.argv[1])
           if (record.get("event") != "push"
                   or record.get("path") != ".github/workflows/python-publish.yml"
                   or record.get("head_branch") != sys.argv[2]
                   or record.get("head_sha") != sys.argv[3]):
               raise SystemExit("Source is not the original tag-triggered release")
+          ref = read(sys.argv[4]).get("object", {})
+          tag = read(sys.argv[5])
+          if (ref.get("type") != "tag"
+                  or tag.get("tag") != sys.argv[2]
+                  or tag.get("object", {}).get("type") != "commit"
+                  or tag.get("object", {}).get("sha") != sys.argv[3]
+                  or tag.get("verification", {}).get("verified") is not True):
+              raise SystemExit("Recovery tag is not a GitHub-verified signed tag for the original commit")
+          jobs = read(sys.argv[6]).get("jobs", [])
+          python_publish = [job for job in jobs if job.get("name") == "Publish verified Python artifacts to PyPI"]
+          if len(python_publish) != 1 or python_publish[0].get("conclusion") != "success":
+              raise SystemExit("Original Python registry publication did not succeed")
           PY
           (
             cd release-source

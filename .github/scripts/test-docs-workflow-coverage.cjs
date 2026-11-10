@@ -112,9 +112,21 @@ for (const nativeStep of [
     "if: steps.reuse-rustdoc.outputs.used != 'true'"),
     `Native step must skip when verified Rustdoc is reused: ${nativeStep}`);
 }
-assert.ok(stepBlock(rust, 'Package complete Rust crate and test external GPMC/Ganak consumers')
-  .includes("steps.reuse-rustdoc.outputs.used != 'true'"),
+const consumerStep = stepBlock(rust, 'Package complete Rust crate and test external GPMC/Ganak consumers');
+assert.ok(consumerStep.includes("steps.reuse-rustdoc.outputs.used != 'true'"),
   'Native external-solver package tests must skip on identical-site reuse');
+for (const essential of [
+  'quprs = { path = "%s", default-features = false }',
+  'VerificationMethod::ReductionRules',
+  'rr_only_needs_no_solver_executable',
+  'QUPRS_SOLVER_PROVISION=external',
+  'QUPRS_GPMC_PATH="$RUNNER_TEMP/nonexistent-gpmc"',
+  'QUPRS_GANAK_PATH="$RUNNER_TEMP/nonexistent-ganak"',
+  'cargo test --manifest-path "$RUNNER_TEMP/quprs-rr-consumer/Cargo.toml"'
+]) {
+  assert.ok(consumerStep.includes(essential),
+    `Missing isolated RR-only consumer requirement: ${essential}`);
+}
 for (const requiredSiteGate of [
   'Build Python reference and documentation site',
   'Verify rendered dynamic Gate API members',

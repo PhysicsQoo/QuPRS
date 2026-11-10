@@ -327,6 +327,36 @@ jobs:
           }
           RUST
           cargo test --manifest-path "$RUNNER_TEMP/quprs-full-consumer/Cargo.toml"
+          # An independent consuming package must work with default features
+          # disabled and no GPMC/Ganak executables present.
+          mkdir -p "$RUNNER_TEMP/quprs-rr-consumer/src"
+          printf '[package]\nname = "quprs_rr_consumer"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nquprs = { path = "%s", default-features = false }\n' \
+            "$unpacked" > "$RUNNER_TEMP/quprs-rr-consumer/Cargo.toml"
+          cat > "$RUNNER_TEMP/quprs-rr-consumer/src/lib.rs" <<'RUST'
+          #[cfg(test)]
+          mod tests {
+              use quprs::{EquivalenceStatus, QuantumCircuit, VerificationMethod, VerificationOptions};
+              use quprs::verification::check_equivalence;
+              #[test]
+              fn rr_only_needs_no_solver_executable() {
+                  let mut double_h = QuantumCircuit::new(1);
+                  double_h.h(0).unwrap();
+                  double_h.h(0).unwrap();
+                  let identity = QuantumCircuit::new(1);
+                  let rr = VerificationOptions {
+                      method: VerificationMethod::ReductionRules,
+                      ..VerificationOptions::default()
+                  };
+                  let result = check_equivalence(&double_h, &identity, &rr).unwrap();
+                  assert_eq!(result.status, EquivalenceStatus::Equivalent);
+                  assert!(!result.wmc_solver_invoked());
+              }
+          }
+          RUST
+          QUPRS_SOLVER_PROVISION=external \
+            QUPRS_GPMC_PATH="$RUNNER_TEMP/nonexistent-gpmc" \
+            QUPRS_GANAK_PATH="$RUNNER_TEMP/nonexistent-ganak" \
+            cargo test --manifest-path "$RUNNER_TEMP/quprs-rr-consumer/Cargo.toml"
       - name: Compose and validate both API references
         run: python scripts/check_rust_api_docs.py --compose --check
       - name: Audit all internal links against deployment URL prefix

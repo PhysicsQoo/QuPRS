@@ -123,7 +123,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
 
     assert.match(preflight, /needs: verify_release_ref/);
     assert.match(preflight, /environment: crates-io/);
-    assert.match(preflight, /id-token: write/);
+    assert.doesNotMatch(preflight, /id-token: write/, "Preflight must not request publishing credentials");
     assert.match(preflight, /CRATES_IO_PUBLISH_ENABLED: \$\{\{ vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED \}\}/);
     assert.match(preflight, /CRATES_IO_PUBLISH_ENABLED" != "true"/);
     assert.match(preflight, /scripts\/stage_rust_crate_candidate\.py/);
@@ -132,7 +132,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(preflight, /cargo publish --manifest-path[^\n]*--dry-run --locked[\s\S]*cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --locked --no-verify[\s\S]*test -s "\$crate"/,
       "The preflight must materialize a persistent locked .crate after dry-run");
     assert.match(preflight, /actions\/upload-artifact@v4/);
-    assert.match(preflight, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
+    assert.doesNotMatch(preflight, /crates-io-auth-action/, "OIDC token is obtained only for actual publish");
     assert.doesNotMatch(preflight, /cargo publish --manifest-path .* --registry crates-io/,
       "Native preflight must never upload to crates.io");
     assert.doesNotMatch(preflight, /action-gh-release|gh-action-pypi-publish/,
@@ -167,126 +167,30 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "Post-PyPI Rust release must verify the admitted immutable tag commit");
     assert.doesNotMatch(rust, /refs\/remotes\/origin\/main/,
       "A later main advancement must not cause a partially published release");
-    assert.match(rust, /id: registry_state/,
-      "Rust retry must inspect existing published archive");
-    assert.match(rust, /already_published=true/);
-    assert.match(rust, /already_published=false/);
-    assert.match(rust, /https:\/\/crates\.io\/api\/v1\/crates\/quprs\/\$version/,
-      "A retry must check the registry version record, not only a CDN archive");
-    assert.match(rust, /python3 scripts\/verify_crates_io_registry_state\.py/,
-      "A retry must run the independently tested registry SHA-256 verifier");
-    assert.equal((rust.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2,
-      "Publishing and token minting must be skipped for already published identical crates");
+    assert.doesNotMatch(rust, /registry_state|api\/v1\/crates|reconcile_crates_io_publish/,
+      "Normal publishing must use Cargo instead of custom registry API gates");
     assert.match(rust, /cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --locked/);
     assert.match(rust, /sha256sum -c SHA256SUMS/,
-      "Rust publisher must validate the preflight package digest");
-    assert.equal((rust.match(/sha256sum -c SHA256SUMS/g) || []).length, 2,
-      "Rust archive identity must be validated both before and after upload");
+      "The released crate must match the preflight archive");
     assert.match(rust, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.match(rust, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
     assert.match(rust, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io --locked/);
-    assert.match(rust, /\| tee "\$RUNNER_TEMP\/quprs-cargo-publish\.log" \|\| cargo_exit=\$\?/);
-    assert.match(rust, /python3 scripts\/reconcile_crates_io_publish\.py/,
-      "Post-upload confirmation must check the identical immutable registry archive");
-
     assert.match(release, /needs: \[verify_release_ref, rust_preflight, publish, publish_crates_io\]/,
       "GitHub Release must wait for successful publication to both registries");
     assert.match(release, /softprops\/action-gh-release@v2/);
     assert.match(release, /pattern: pypi-release-\*/);
     assert.match(release, /release-native-/);
-    assert.match(release, /https:\/\/static\.crates\.io\/crates\/quprs\//);
-    assert.match(release, /cmp "\$RUNNER_TEMP\/rust-dist\/\$crate" "\$RUNNER_TEMP\/registry-\$crate"/);
+    assert.match(release, /sha256sum -c SHA256SUMS/,
+      "GitHub release must attach the checked immutable crate");
+    assert.match(release, /cp "\$RUNNER_TEMP\/rust-dist\/\$crate" "\$RUNNER_TEMP\/release-assets\/\$crate"/);
+    assert.doesNotMatch(release, /static\.crates\.io/,
+      "GitHub release must not depend on a second registry CDN request");
     assert.match(release, /SHA256SUMS.txt/);
     assert.match(release, /release-assets\/\*/);
     assert.match(release, /https:\/\/pypi\.org\/project\/QuPRS\//);
     assert.match(release, /https:\/\/crates\.io\/crates\/quprs\//);
   }
   checkDualReleasePolicy(publishYaml);
-  // Recovery must remain Rust-only, source-locked, and linked to the original
-  // tag-triggered run. This is a manual repair path, never a second release.
-  function checkRustRecoveryPolicy(yaml) {
-    const verifier = getJob(yaml, "verify_release_ref");
-    const probe = getJob(yaml, "registry_probe");
-    const preflight = getJob(yaml, "rust_preflight");
-    const rust = getJob(yaml, "publish_crates_io");
-    const recovery = getJob(yaml, "recover_crates_io");
-    const recoveredRelease = getJob(yaml, "recover_github_release");
-    assert.match(verifier, /!inputs\.recover_tag/,
-      "Manual recovery cannot enter the full Python build and publish matrix");
-    assert.match(probe, /Check crates\.io API from this runner without publishing/);
-    assert.match(probe, /--user-agent 'QuPRS-release\/1\.0/);
-    assert.match(probe, /github\.event_name == 'pull_request'/);
-    for (const section of [preflight, rust, recovery]) {
-      assert.match(section, /--user-agent 'QuPRS-release\/1\.0/,
-        "Every prepublish metadata query must identify its client");
-    }
-    assert.match(preflight, /Verify crates\.io registry access before PyPI publication/);
-    assert.match(recovery, /github\.event_name == 'workflow_dispatch'/);
-    assert.match(recovery, /inputs\.recover_tag != ''/);
-    assert.match(recovery, /environment: crates-io/);
-    assert.match(recovery, /id-token: write/);
-    assert.match(recovery, /actions: read/);
-    assert.match(recovery, /SOURCE_RUN_ID: \$\{\{ inputs\.source_run_id \}\}/);
-    assert.match(recovery, /CRATES_IO_PUBLISH_ENABLED" != "true"/);
-    assert.match(recovery, /record\.get\("event"\) != "push"/);
-    assert.match(recovery, /record\.get\("head_sha"\) != sys\.argv\[3\]/);
-    assert.match(recovery, /record\.get\("path"\) != "\.github\/workflows\/python-publish\.yml"/);
-    assert.match(recovery, /cat-file -t "refs\/tags\/\$RECOVERY_TAG"/);
-    assert.match(recovery, /tag\.get\("verification", \{\}\)\.get\("verified"\) is not True/);
-    assert.match(recovery, /python_publish\[0\]\.get\("conclusion"\) != "success"/);
-    assert.match(recovery, /release-native-\$\{\{ steps\.source\.outputs\.tag_commit \}\}/);
-    assert.match(recovery, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
-    assert.match(recovery, /sha256sum -c SHA256SUMS/);
-    assert.equal((recovery.match(/cmp "\$RUNNER_TEMP\/recovery-native-assets\/quprs-\$version\.crate"/g) || []).length, 2,
-      "Native archive must be compared both before and after cargo publish");
-    assert.match(recovery, /python3 release-source\/scripts\/verify_crates_io_registry_state\.py/);
-    assert.equal((recovery.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2);
-    assert.match(recovery, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
-    assert.match(recovery, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
-    assert.match(recovery, /python3 scripts\/reconcile_crates_io_publish\.py/);
-    assert.match(recovery, /if: steps\.registry_state\.outputs\.already_published == 'false' && inputs\.perform_publish == true/,
-      "Recovery must remain a read-only OIDC preflight unless explicitly authorized");
-    assert.doesNotMatch(recovery, /gh-action-pypi-publish/,
-      "Rust-only recovery must never upload to PyPI");
-    assert.match(recoveredRelease, /needs: recover_crates_io/);
-    assert.match(recoveredRelease, /inputs\.perform_publish == true/,
-      "Recovery dry-run must never create GitHub Release");
-    assert.match(recoveredRelease, /contents: write/);
-    assert.match(recoveredRelease, /pattern: pypi-release-\*/);
-    assert.match(recoveredRelease, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
-    assert.match(recoveredRelease, /release-native-\$\{\{ needs\.recover_crates_io\.outputs\.tag_commit \}\}/);
-    assert.match(recoveredRelease, /reconcile_pypi_artifacts\.py verify/);
-    assert.match(recoveredRelease, /sha256sum -c SHA256SUMS/);
-    assert.match(recoveredRelease, /cmp "\$RUNNER_TEMP\/rust-dist\/\$crate"/);
-    assert.match(recoveredRelease, /refusing to overwrite/);
-    assert.match(recoveredRelease, /tag_name: \$\{\{ inputs\.recover_tag \}\}/);
-    assert.match(recoveredRelease, /softprops\/action-gh-release@v2/);
-  }
-  checkRustRecoveryPolicy(publishYaml);
-  for (const [name, mutation] of [
-    ["recovery ignores source-run provenance", x => x.replace(
-      'record.get("head_sha") != sys.argv[3]', 'False')],
-    ["recovery trusts unsigned tags", x => x.replace(
-      'tag.get("verification", {}).get("verified") is not True', 'False')],
-    ["recovery performs registry upload without opt-in", x => x.replace(
-      "if: steps.registry_state.outputs.already_published == 'false' && inputs.perform_publish == true",
-      "if: steps.registry_state.outputs.already_published == 'false'")],
-    ["recovery does not require completed PyPI publication", x => x.replace(
-      'python_publish[0].get("conclusion") != "success"', 'False')],
-    ["recovery skips source archive identity", x => x.replace(
-      'cmp "$RUNNER_TEMP/recovery-native-assets/quprs-$version.crate"', 'true #')],
-    ["recovery uploads without official token", x => x.replace(
-      /(  recover_crates_io:[\s\S]*?)CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/,
-      "$1CARGO_REGISTRY_TOKEN: invalid")],
-    ["recovery omits PyPI archive reconciliation", x => x.replace(
-      'python3 release-source/scripts/reconcile_pypi_artifacts.py verify', 'echo unverified-pypi')],
-    ["recovery permits GitHub Release overwrite", x => x.replace(
-      'echo "::error::GitHub Release already exists; refusing to overwrite"', 'echo overwrite')],
-  ]) {
-    const changed = mutation(publishYaml);
-    assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
-    assert.throws(() => checkRustRecoveryPolicy(changed), undefined, name);
-  }
   for (const [name, mutation] of [
     ["preflight accidentally dispatched", x => x.replace(
       /(  rust_preflight:[\s\S]*?github\.event_name == )'push'/,
@@ -297,9 +201,6 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["preflight does not materialize the Rust archive", x => x.replace(
       'cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --locked --no-verify',
       'echo missing-crate')],
-    ["preflight skips crates.io OIDC", x => x.replace(
-      /      - name: Verify crates\.io GitHub OIDC authorization without uploading\n        uses: rust-lang\/crates-io-auth-action@[a-f0-9]{40}/,
-      "      - name: Verify crates.io GitHub OIDC authorization without uploading\n        run: true")],
     ["Rust opt-in disabled by mutation", x => x.replace(
       "vars.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'", "true")],
     ["Python publishes before Rust preflight", x => x.replace(
@@ -321,19 +222,11 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["Rust rechecks mutable main after successful PyPI upload", x => x.replace(
       'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
       'test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"')],
-    ["Rust retry omits registry checksum verifier", x => x.replace(
-      /(  publish_crates_io:[\s\S]*?)python3 scripts\/verify_crates_io_registry_state\.py/,
-      "$1true")],
-    ["Rust upload ignores post-publish registry confirmation", x => x.replace(
-      "python3 scripts/reconcile_crates_io_publish.py", "true")],
-    ["Rust retries duplicate publication", x => x.replace(
-      "if: steps.registry_state.outputs.already_published == 'false'",
-      "if: always()")],
     ["GitHub Release created before Rust publish", x => x.replace(
       "needs: [verify_release_ref, rust_preflight, publish, publish_crates_io]",
       "needs: [verify_release_ref, rust_preflight, publish]")],
-    ["GitHub Release does not compare registry bytes", x => x.replace(
-      'cmp "$RUNNER_TEMP/rust-dist/$crate" "$RUNNER_TEMP/registry-$crate"',
+    ["GitHub Release uses unchecked native artifact", x => x.replace(
+      '(cd "$RUNNER_TEMP/rust-dist" && sha256sum -c SHA256SUMS)',
       "echo skip-archive-identity")],
     ["GitHub Release omits Rust registry link", x => x.replace(
       "https://crates.io/crates/quprs/", "https://example.invalid/crate/")],
@@ -342,27 +235,43 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
     assert.throws(() => checkDualReleasePolicy(changed), undefined, name);
   }
-  const registryVerifier = fs.readFileSync("scripts/verify_crates_io_registry_state.py", "utf8");
-  function checkRegistryVerifier(source) {
-    assert.match(source, /hashlib\.sha256\(Path\(crate_file\)\.read_bytes\(\)\)\.hexdigest\(\)/);
-    assert.match(source, /record\.get\('checksum'\) != actual_checksum/,
-      "Published crate checksum must be checked");
-    assert.match(source, /record\.get\('yanked'\) is not False/,
-      "Yanked registry versions cannot be accepted");
-    assert.match(source, /record\.get\('num'\) != expected_version/,
-      "Registry version must match the source tag");
+
+  function checkRecoveryPolicy(yaml) {
+    const ordinary = getJob(yaml, "verify_release_ref");
+    const recover = getJob(yaml, "recover_crates_io");
+    const gh = getJob(yaml, "recover_github_release");
+    assert.match(ordinary, /!inputs\.recover_tag/,
+      "Recovery must not run the full Python build/upload pipeline");
+    assert.match(recover, /github\.event_name == 'workflow_dispatch'/);
+    assert.match(recover, /environment: crates-io/);
+    assert.match(recover, /id-token: write/);
+    assert.match(recover, /SOURCE_RUN_ID: \$\{\{ inputs\.source_run_id \}\}/);
+    assert.match(recover, /gh api "repos\/\$GITHUB_REPOSITORY\/actions\/runs\/\$SOURCE_RUN_ID"/);
+    assert.match(recover, /git -C release-source cat-file -t/);
+    assert.match(recover, /git\/tags\/\$tag_obj/);
+    assert.match(recover, /sha256sum -c SHA256SUMS/);
+    assert.match(recover, /cmp "\$RUNNER_TEMP\/original-crate\//);
+    assert.match(recover, /if: inputs\.perform_publish == true/);
+    assert.match(recover, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
+    assert.match(recover, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io --locked/);
+    assert.doesNotMatch(recover, /gh-action-pypi-publish/);
+    assert.match(gh, /needs: recover_crates_io/);
+    assert.match(gh, /inputs\.perform_publish == true/);
+    assert.match(gh, /reconcile_pypi_artifacts\.py verify/);
+    assert.match(gh, /softprops\/action-gh-release@v2/);
   }
-  checkRegistryVerifier(registryVerifier);
-  for (const [name, mutation] of [
-    ["Reject checksum bypass", s => s.replace("record.get('checksum') != actual_checksum", "False")],
-    ["Reject yanked-version acceptance", s => s.replace("record.get('yanked') is not False", "False")],
-    ["Reject version mismatch acceptance", s => s.replace("record.get('num') != expected_version", "False")]
+  checkRecoveryPolicy(publishYaml);
+  for (const [name, replacement] of [
+    ["missing signed tag verification", ["git/tags/$tag_obj", "missing-tag-verification"]],
+    ["missing crate identity comparison", ['cmp "$RUNNER_TEMP/original-crate/', 'true # "$RUNNER_TEMP/original-crate/']],
+    ["missing explicit publish opt-in", ["if: inputs.perform_publish == true", "if: true"]],
   ]) {
-    const mutated = mutation(registryVerifier);
-    assert.notEqual(mutated, registryVerifier, "Mutation must change verifier: " + name);
-    assert.throws(() => checkRegistryVerifier(mutated), undefined, name);
+    const [needle, substitute] = replacement;
+    const changed = publishYaml.replace(needle, substitute);
+    assert.notEqual(changed, publishYaml, name + " did not mutate policy");
+    assert.throws(() => checkRecoveryPolicy(changed), undefined, name);
   }
-  console.log("Dual-registry publication policy and registry verifier negative controls passed");
+  console.log("Dual-registry publication and minimal recovery policy controls passed");
 }
 
 

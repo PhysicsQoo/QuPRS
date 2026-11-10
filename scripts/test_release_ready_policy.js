@@ -280,7 +280,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["missing signed tag verification", ["git/tags/$tag_obj", "missing-tag-verification"]],
     ["missing crate identity comparison", ['cmp "$RUNNER_TEMP/original-crate/', 'true # "$RUNNER_TEMP/original-crate/']],
     ["missing explicit publish opt-in", ["if: inputs.perform_publish == true", "if: true"]],
-    ["recovery release notes omit exact Python version", ["scripts/release_version.py --kind python", "echo missing-version"]],
+    ["recovery release notes omit exact Python version", ['echo "python_version=$(cd release-source && python3 scripts/release_version.py --kind python)" >> "$GITHUB_OUTPUT"', "echo missing-version"]],
   ]) {
     const [needle, substitute] = replacement;
     const changed = publishYaml.replace(needle, substitute);

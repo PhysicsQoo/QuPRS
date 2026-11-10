@@ -22,6 +22,8 @@ on:
     paths:
       - '.github/workflows/python-publish.yml'
       - 'scripts/verify_crates_io_registry_state.py'
+      - 'scripts/reconcile_crates_io_publish.py'
+      - 'test/test_crates_io_publish_recovery.py'
       - 'scripts/test_release_ready_policy.js'
       - 'test/test_crates_io_registry_state.py'
       - 'scripts/release_artifact_smoke.py'
@@ -115,6 +117,7 @@ jobs:
           node scripts/test_release_ready_policy.js
           python -m unittest discover -s test -p 'test_pypi_publish_recovery.py'
           python -m unittest discover -s test -p 'test_crates_io_registry_state.py'
+          python -m unittest discover -s test -p 'test_crates_io_publish_recovery.py'
 
       - name: Verify reproducible locked native crate archives without uploading
         shell: bash
@@ -630,7 +633,14 @@ jobs:
           QUPRS_SOLVER_PROVISION: external
         run: |
           set -euo pipefail
-          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io --locked
+          cargo_exit=0
+          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io --locked \
+            2>&1 | tee "$RUNNER_TEMP/quprs-cargo-publish.log" || cargo_exit=$?
+          # Never upload again to resolve an uncertain Cargo registry-index wait.
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/reconcile_crates_io_publish.py \
+            "$version" "$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate" \
+            "$RUNNER_TEMP/quprs-cargo-publish.log" "$cargo_exit"
           (cd "$RUNNER_TEMP/quprs-crate/target/package" && sha256sum -c SHA256SUMS)
 
   github_release:

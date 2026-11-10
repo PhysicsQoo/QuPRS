@@ -185,6 +185,9 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(rust, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.match(rust, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
     assert.match(rust, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io --locked/);
+    assert.match(rust, /\| tee "\$RUNNER_TEMP\/quprs-cargo-publish\.log" \|\| cargo_exit=\$\?/);
+    assert.match(rust, /python3 scripts\/reconcile_crates_io_publish\.py/,
+      "Post-upload confirmation must check the identical immutable registry archive");
 
     assert.match(release, /needs: \[verify_release_ref, rust_preflight, publish, publish_crates_io\]/,
       "GitHub Release must wait for successful publication to both registries");
@@ -235,6 +238,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       'test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"')],
     ["Rust retry omits registry checksum verifier", x => x.replace(
       "python3 scripts/verify_crates_io_registry_state.py", "true")],
+    ["Rust upload ignores post-publish registry confirmation", x => x.replace(
+      "python3 scripts/reconcile_crates_io_publish.py", "true")],
     ["Rust retries duplicate publication", x => x.replace(
       "if: steps.registry_state.outputs.already_published == 'false'",
       "if: always()")],

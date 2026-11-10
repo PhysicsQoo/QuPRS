@@ -96,6 +96,20 @@ jobs:
           python-version: '3.12'
       - name: Install documentation dependencies
         run: python -m pip install -r docs/requirements-site.txt
+      - name: Check documentation coverage and workflow ownership
+        run: node .github/scripts/test-docs-workflow-coverage.cjs
+      - name: Validate documentation source and Python stub consistency
+        run: |
+          python scripts/check_docs_site.py --sources
+          python scripts/generate_stubs.py --check
+          python -m unittest discover -s test -p 'test_generated_stub_parity.py'
+          python -m py_compile scripts/generate_stubs.py scripts/check_generated_stub.py scripts/release_artifact_smoke.py
+      - name: Validate published examples and documentation source contracts
+        run: |
+          python scripts/check_docs_examples.py --check
+          python scripts/check_docs_scoped_contract.py
+      - name: Reject broken-link negative fixtures
+        run: python scripts/check_docs_site.py --negative-link-test
       - name: Validate static source-derived Gate reference
         run: python scripts/check_docs_gate_stubs.py --check
       - name: Build Python reference and documentation site
@@ -213,6 +227,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev libssl-dev
       - name: Restore pinned Ganak archive when available
+        if: steps.reuse-rustdoc.outputs.used != 'true'
         uses: ./.github/actions/cache-ganak-release
       - name: Build Rust library reference
         if: steps.reuse-rustdoc.outputs.used != 'true'
@@ -221,6 +236,8 @@ jobs:
         if: steps.reuse-rustdoc.outputs.used != 'true'
         run: cargo test --locked --manifest-path rust/Cargo.toml -p quprs --doc
       - name: Check solver-free Rust library build
+        # Identical native source and SHA-verified Rustdoc need no native rebuild.
+        if: steps.reuse-rustdoc.outputs.used != 'true'
         run: |
           # Solver provisioning is a deliberate build-mode choice, not a Cargo
           # feature. Every compiled feature combination retains Hybrid/WMC.

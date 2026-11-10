@@ -1,10 +1,16 @@
 'use strict';
-// QOO-106: strictly classify release-version-only input changes.
+// Strictly classify release-version-only input changes.
 // Any missing source, unknown package stanza or dependency diff fails closed.
 const VERSION_PATHS = new Set(['rust/Cargo.toml','rust/Cargo.lock','src/QuPRS/_version.py']);
 const INTERNAL_CRATES = new Set(['QuPRS_cli','quprs','quprs_python']);
 const SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
+const PYTHON_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:(?:a|b|rc)(?:0|[1-9]\d*))?$/;
+function pythonToCargoVersion(version) {
+  if (!PYTHON_VERSION.test(version)) return null;
+  return version.replace(/(a|b|rc)([0-9]+)$/, (_all, kind, number) =>
+    '-' + ({a: 'alpha', b: 'beta', rc: 'rc'}[kind]) + '.' + number);
+}
 function canonicalVersion(path, source) {
   if (!VERSION_PATHS.has(path) || typeof source !== 'string' ||
       !source.length || source.length > 150000) return null;
@@ -24,12 +30,12 @@ function canonicalVersion(path, source) {
   }
   if (path === 'src/QuPRS/_version.py') {
     const matches = [...source.matchAll(/^__version__ = "([^"\r\n]+)"\r?$/gm)];
-    if (matches.length !== 1 || !SEMVER.test(matches[0][1])) return null;
+    if (matches.length !== 1 || !PYTHON_VERSION.test(matches[0][1])) return null;
     return {
       normalized: source.replace(
         /^__version__ = "[^"\r\n]+"(\r?)$/m, '__version__ = "<release-version>"$1'
       ),
-      version: matches[0][1],
+      version: pythonToCargoVersion(matches[0][1]),
     };
   }
   // Canonicalize complete Cargo.lock blocks, not untrusted truncated PR patches.

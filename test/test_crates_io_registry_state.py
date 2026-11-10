@@ -34,6 +34,25 @@ def workflow_step_script(name: str) -> str:
 def registry_step_script() -> str:
     return workflow_step_script("Admit a previously published identical crate on safe retries")
 
+
+def job_shell_scripts(name: str) -> list[str]:
+    source = WORKFLOW.read_text(encoding="utf-8")
+    section = "\n  " + name + ":\n"
+    if source.count(section) != 1:
+        raise AssertionError("Expected exactly one job named " + name)
+    job = source.split(section, 1)[1]
+    import re
+    job = re.split(r"\n  [a-z_]+:\n", job, maxsplit=1)[0]
+    scripts = []
+    for tail in job.split("        run: |\n")[1:]:
+        lines = []
+        for line in tail.splitlines():
+            if line.strip() and not line.startswith(" " * 10):
+                break
+            lines.append(line[10:] if line.startswith(" " * 10) else "")
+        scripts.append("\n".join(lines) + "\n")
+    return scripts
+
 class RegistryStateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -132,6 +151,20 @@ class RegistryStateTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-eo", "pipefail"], input=command,
                                         text=True, capture_output=True, cwd=ROOT, env=env, timeout=10)
                 self.assertEqual(result.returncode == 0, should_pass, result.stderr)
+
+    def test_manual_recovery_and_registry_probe_shell_syntax(self) -> None:
+        for job, minimum in (
+            ("registry_probe", 1),
+            ("recover_crates_io", 5),
+            ("recover_github_release", 1),
+        ):
+            scripts = job_shell_scripts(job)
+            self.assertGreaterEqual(len(scripts), minimum, job)
+            for index, script in enumerate(scripts):
+                with self.subTest(job=job, script=index):
+                    result = subprocess.run(["bash", "-n"], input=script, text=True,
+                                            capture_output=True, timeout=10, cwd=ROOT)
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,8 @@
 name: Build and Publish Python Package
 
 # Workflow Triggers:
-# 1. Push a v* tag: validate immutable source and both packages; publish to
-#    PyPI, then crates.io, then create GitHub Release after both succeed.
+# 1. Push a v* tag: validate immutable source and both packages, publish to
+#    PyPI and crates.io in parallel, then create GitHub Release after both succeed.
 # 2. workflow_dispatch without recover_tag: packaging dry-run, never publish.
 #    With recover_tag: recover a signed existing tag from original build assets;
 #    perform_publish defaults to false and must be explicitly enabled.
@@ -401,8 +401,8 @@ jobs:
           python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 
   # --- Job 3: Publish to PyPI after native crate preflight ---
-  # This job verifies the locked Cargo package and records its exact bytes.
-  # crates.io Trusted Publishing occurs only in the actual publishing job.
+  # The native preflight validates the locked crate and records its exact bytes.
+  # Both registries publish independently only after all artifact smoke gates pass.
   rust_preflight:
     name: Validate staged Rust crate (no upload)
     needs: verify_release_ref
@@ -534,7 +534,7 @@ jobs:
 
   publish_crates_io:
     name: Publish matching Rust crate to crates.io
-    needs: [verify_release_ref, rust_preflight, publish]
+    needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]
     if: >-
       ${{ github.event_name == 'push' &&
           github.ref_type == 'tag' &&
@@ -556,8 +556,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The prerelease gate already admitted the exact tag against main.
-          # Do not reject the same immutable source if main moves after PyPI upload.
+          # The common preflight admitted the exact tag against main.
+          # Both registries publish the same immutable tag independently.
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 - <<'PY'
           from pathlib import Path

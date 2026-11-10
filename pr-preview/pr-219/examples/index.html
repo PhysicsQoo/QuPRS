@@ -1,0 +1,1165 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Quantum circuit equivalence checking with Path-sum reduction and weighted model counting">
+      
+      
+      
+        <link rel="canonical" href="https://physicsqoo.github.io/QuPRS/pr-preview/pr-219/examples/">
+      
+      
+      
+        <link rel="prev" href="../rust-native/">
+      
+      
+        <link rel="next" href="../verification/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.1.0">
+    
+    
+      
+        <title>Executable examples - QuPRS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="QuPRS" class="md-header__button md-logo" aria-label="QuPRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            QuPRS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Executable examples
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/PhysicsQoo/QuPRS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PhysicsQoo/QuPRS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="QuPRS" class="md-nav__button md-logo" aria-label="QuPRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    QuPRS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/PhysicsQoo/QuPRS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PhysicsQoo/QuPRS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  User guide
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  User guide
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Getting started
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rust-native/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Native Rust and external solvers
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Executable examples
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Executable examples
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-exact-equivalence-control-reduction-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Exact-equivalence control (reduction rules)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-inequivalent-control-reduction-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Inequivalent control (reduction rules)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-global-phase-is-a-separate-classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Global phase is a separate classification
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-wmc-only-and-explicit-solver-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. WMC-only and explicit solver selection
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-python-interface-to-the-isolated-rust-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Python interface to the isolated Rust backend
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-fail-closed-on-inconclusive-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Fail closed on inconclusive results
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-standalone-rust-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Standalone Rust CLI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Verification methods
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Theory
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Theory
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../theory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../path-sum/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path-sum and reduction
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../weighted-model-counting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Weighted model counting
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  General Python API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pathsum-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Advanced Path-sum API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-exact-equivalence-control-reduction-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Exact-equivalence control (reduction rules)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-inequivalent-control-reduction-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Inequivalent control (reduction rules)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-global-phase-is-a-separate-classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Global phase is a separate classification
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-wmc-only-and-explicit-solver-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. WMC-only and explicit solver selection
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-python-interface-to-the-isolated-rust-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Python interface to the isolated Rust backend
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-fail-closed-on-inconclusive-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Fail closed on inconclusive results
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-standalone-rust-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Standalone Rust CLI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="executable-examples">Executable examples</h1>
+<p>These complete examples use the public interfaces. Each Python block is run independently by the documentation examples check using the current source build, and the shell block is checked against the native CLI. Start with <a href="../getting-started/">installation</a>.</p>
+<p>All examples use one qubit so that their expected classifications are easy to audit. A timeout, solver error or <code>unknown</code> status is <strong>not</strong> equivalent to a successful inequality result.</p>
+<h2 id="1-exact-equivalence-control-reduction-rules">1. Exact-equivalence control (reduction rules)</h2>
+<p>Two Hadamard gates cancel. This comparison needs no external model counter.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">qiskit</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantumCircuit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">original</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">optimized</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"reduction_rules"</span><span class="p">,</span>
+                           <span class="n">backend</span><span class="o">=</span><span class="s2">"python"</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span> <span class="o">==</span> <span class="s2">"equivalent"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span>
+<span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">wmc_solver_invoked</span> <span class="ow">is</span> <span class="kc">False</span>
+</code></pre></div>
+<h2 id="2-inequivalent-control-reduction-rules">2. Inequivalent control (reduction rules)</h2>
+<p>An X gate changes the basis-state mapping relative to the identity. This is not a global phase.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">qiskit</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantumCircuit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">original</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">different</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">different</span><span class="o">.</span><span class="n">x</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">different</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"reduction_rules"</span><span class="p">,</span>
+                           <span class="n">backend</span><span class="o">=</span><span class="s2">"python"</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span> <span class="o">==</span> <span class="s2">"not_equivalent"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span>
+</code></pre></div>
+<h2 id="3-global-phase-is-a-separate-classification">3. Global phase is a separate classification</h2>
+<p>A scalar phase changes the operator but not its action on measurement probabilities. <code>equivalent*</code> is distinct from exact <code>equivalent</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">math</span><span class="w"> </span><span class="kn">import</span> <span class="n">pi</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">qiskit</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantumCircuit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">original</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">phase_shifted</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">phase_shifted</span><span class="o">.</span><span class="n">global_phase</span> <span class="o">=</span> <span class="n">pi</span> <span class="o">/</span> <span class="mi">2</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">phase_shifted</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"reduction_rules"</span><span class="p">,</span>
+                           <span class="n">backend</span><span class="o">=</span><span class="s2">"python"</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span> <span class="o">==</span> <span class="s2">"equivalent*"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span>
+</code></pre></div>
+<h2 id="4-wmc-only-and-explicit-solver-selection">4. WMC-only and explicit solver selection</h2>
+<p>The gates below differ by a nontrivial relative phase. The projective distance between <code>I</code> and <code>RZ(0.2)</code> is <code>|sin(0.1)|</code>, much larger than the default numerical tolerance.</p>
+<p>Each selected solver is called explicitly; the program does not silently fall back from one to the other.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">qiskit</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantumCircuit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">original</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">different</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">different</span><span class="o">.</span><span class="n">rz</span><span class="p">(</span><span class="mf">0.2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">solver</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"gpmc"</span><span class="p">,</span> <span class="s2">"ganak"</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span>
+        <span class="n">original</span><span class="p">,</span> <span class="n">different</span><span class="p">,</span>
+        <span class="n">method</span><span class="o">=</span><span class="s2">"wmc_only"</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s2">"python"</span><span class="p">,</span> <span class="n">tool_name</span><span class="o">=</span><span class="n">solver</span><span class="p">,</span>
+        <span class="n">approximate_distance_tolerance</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span> <span class="o">==</span> <span class="s2">"not_equivalent"</span><span class="p">,</span> <span class="p">(</span><span class="n">solver</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">wmc_solver_invoked</span> <span class="ow">is</span> <span class="kc">True</span><span class="p">,</span> <span class="n">solver</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">wmc_numerical_verdict</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="n">solver</span>
+</code></pre></div>
+<p>A WMC verdict is a finite-precision <em>observation</em> rather than a certificate of source-exact equivalence. Inspect <code>wmc_solver_invoked</code> and <code>wmc_numerical_verdict</code> separately; a reached WMC stage may still use an analytic shortcut instead of spawning a solver.</p>
+<h2 id="5-python-interface-to-the-isolated-rust-backend">5. Python interface to the isolated Rust backend</h2>
+<p><code>backend="rust"</code> calls the Rust engine through PyO3. Enabling <code>safe_mode</code> executes that extension in a supervised child process, <strong>not</strong> through the standalone Rust CLI. Isolation does not make parent-side circuit serialization preemptible and is not a universal memory guarantee.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">qiskit</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantumCircuit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">original</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">x</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">x</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">optimized</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"reduction_rules"</span><span class="p">,</span>
+                           <span class="n">backend</span><span class="o">=</span><span class="s2">"rust"</span><span class="p">,</span> <span class="n">safe_mode</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span> <span class="o">==</span> <span class="s2">"equivalent"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span>
+</code></pre></div>
+<h2 id="6-fail-closed-on-inconclusive-results">6. Fail closed on inconclusive results</h2>
+<p>The example below tests the <strong>consumer's status-handling policy</strong>. The
+<code>SimpleNamespace</code> values simulate possible result statuses; they are not
+claims that the trivial test circuit can produce a real timeout or unknown
+solver result. Real timeout and resource supervision have separate runtime
+tests.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">SimpleNamespace</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">qiskit</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantumCircuit</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">QuPRS</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_equivalence</span>
+
+<span class="n">original</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span> <span class="o">=</span> <span class="n">QuantumCircuit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">optimized</span><span class="o">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">check_equivalence</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">optimized</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"reduction_rules"</span><span class="p">,</span>
+                           <span class="n">backend</span><span class="o">=</span><span class="s2">"python"</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">classify</span><span class="p">(</span><span class="n">result</span><span class="p">):</span>
+    <span class="n">status</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">equivalent</span>
+    <span class="k">if</span> <span class="n">status</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="s2">"Timeout"</span><span class="p">,</span> <span class="s2">"MemoryOut"</span><span class="p">}:</span>
+        <span class="k">return</span> <span class="s2">"inconclusive"</span>
+    <span class="k">if</span> <span class="n">status</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">"equivalent"</span><span class="p">,</span> <span class="s2">"equivalent*"</span><span class="p">}:</span>
+        <span class="k">return</span> <span class="s2">"equivalent"</span>
+    <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="s2">"not_equivalent"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">"not_equivalent"</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unsupported verification status: </span><span class="si">{</span><span class="n">status</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="k">assert</span> <span class="n">classify</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"equivalent"</span>
+<span class="k">for</span> <span class="n">status</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="s2">"Timeout"</span><span class="p">,</span> <span class="s2">"MemoryOut"</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="n">classify</span><span class="p">(</span><span class="n">SimpleNamespace</span><span class="p">(</span><span class="n">equivalent</span><span class="o">=</span><span class="n">status</span><span class="p">))</span> <span class="o">==</span> <span class="s2">"inconclusive"</span>
+<span class="k">assert</span> <span class="n">classify</span><span class="p">(</span><span class="n">SimpleNamespace</span><span class="p">(</span><span class="n">equivalent</span><span class="o">=</span><span class="s2">"not_equivalent"</span><span class="p">))</span> <span class="o">==</span> <span class="s2">"not_equivalent"</span>
+</code></pre></div>
+<h2 id="7-standalone-rust-cli">7. Standalone Rust CLI</h2>
+<p>For a source checkout with native dependencies installed, run the Rust CLI using QASM2 files. Its command-line options are not Python API arguments, and installing the Python wheel does not install a standalone CLI command.</p>
+<div class="highlight"><pre><span></span><code><span class="nb">set</span><span class="w"> </span>-eu
+<span class="nv">scratch</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span>-d<span class="k">)</span><span class="s2">"</span>
+<span class="nb">trap</span><span class="w"> </span><span class="s1">'rm -rf "$scratch"'</span><span class="w"> </span>EXIT
+cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$scratch</span><span class="s2">/identity.qasm"</span><span class="w"> </span><span class="s">&lt;&lt;'QASM'</span>
+<span class="s">OPENQASM</span><span class="w"> </span><span class="m">2</span>.0<span class="p">;</span>
+include<span class="w"> </span><span class="s2">"qelib1.inc"</span><span class="p">;</span>
+qreg<span class="w"> </span>q<span class="o">[</span><span class="m">1</span><span class="o">]</span><span class="p">;</span>
+QASM
+cat<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$scratch</span><span class="s2">/two-h.qasm"</span><span class="w"> </span><span class="s">&lt;&lt;'QASM'</span>
+<span class="s">OPENQASM</span><span class="w"> </span><span class="m">2</span>.0<span class="p">;</span>
+include<span class="w"> </span><span class="s2">"qelib1.inc"</span><span class="p">;</span>
+qreg<span class="w"> </span>q<span class="o">[</span><span class="m">1</span><span class="o">]</span><span class="p">;</span>
+h<span class="w"> </span>q<span class="o">[</span><span class="m">0</span><span class="o">]</span><span class="p">;</span>
+h<span class="w"> </span>q<span class="o">[</span><span class="m">0</span><span class="o">]</span><span class="p">;</span>
+QASM
+<span class="nv">status</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>cargo<span class="w"> </span>run<span class="w"> </span>--quiet<span class="w"> </span>--locked<span class="w"> </span>--manifest-path<span class="w"> </span>rust/Cargo.toml<span class="w"> </span>-p<span class="w"> </span>QuPRS_cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$scratch</span><span class="s2">/identity.qasm"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$scratch</span><span class="s2">/two-h.qasm"</span><span class="w"> </span>--method<span class="w"> </span>reduction-rules<span class="w"> </span>--quiet<span class="k">)</span><span class="s2">"</span>
+<span class="nb">test</span><span class="w"> </span><span class="s2">"</span><span class="nv">$status</span><span class="s2">"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"equivalent"</span>
+</code></pre></div>
+<p>For other supported inputs and options, see the <a href="../python-api/">Python API</a>, <a href="../verification/">verification methods</a>, <a href="../weighted-model-counting/">solver contract</a> and <a href="../architecture/">architecture</a>. Results may be <code>unknown</code> or resource-limited; callers must handle those states explicitly rather than treating them as <code>not_equivalent</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["navigation.sections","navigation.top","toc.follow"],"redirect":null,"search":"../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d31f0ffa.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

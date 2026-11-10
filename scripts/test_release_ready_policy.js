@@ -206,14 +206,16 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   // tag-triggered run. This is a manual repair path, never a second release.
   function checkRustRecoveryPolicy(yaml) {
     const verifier = getJob(yaml, "verify_release_ref");
+    const probe = getJob(yaml, "registry_probe");
     const preflight = getJob(yaml, "rust_preflight");
     const rust = getJob(yaml, "publish_crates_io");
     const recovery = getJob(yaml, "recover_crates_io");
     const recoveredRelease = getJob(yaml, "recover_github_release");
-    assert.match(verifier, /inputs\.recover_tag == ''/,
+    assert.match(verifier, /!inputs\.recover_tag/,
       "Manual recovery cannot enter the full Python build and publish matrix");
-    assert.match(verifier, /Check crates\.io API from this runner without publishing/);
-    assert.match(verifier, /--user-agent 'QuPRS-release\/1\.0/);
+    assert.match(probe, /Check crates\.io API from this runner without publishing/);
+    assert.match(probe, /--user-agent 'QuPRS-release\/1\.0/);
+    assert.match(probe, /github\.event_name == 'pull_request'/);
     for (const section of [preflight, rust, recovery]) {
       assert.match(section, /--user-agent 'QuPRS-release\/1\.0/,
         "Every prepublish metadata query must identify its client");

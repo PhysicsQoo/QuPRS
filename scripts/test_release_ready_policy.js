@@ -244,9 +244,13 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(recovery, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.match(recovery, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
     assert.match(recovery, /python3 scripts\/reconcile_crates_io_publish\.py/);
+    assert.match(recovery, /if: steps\.registry_state\.outputs\.already_published == 'false' && inputs\.perform_publish == true/,
+      "Recovery must remain a read-only OIDC preflight unless explicitly authorized");
     assert.doesNotMatch(recovery, /gh-action-pypi-publish/,
       "Rust-only recovery must never upload to PyPI");
     assert.match(recoveredRelease, /needs: recover_crates_io/);
+    assert.match(recoveredRelease, /inputs\.perform_publish == true/,
+      "Recovery dry-run must never create GitHub Release");
     assert.match(recoveredRelease, /contents: write/);
     assert.match(recoveredRelease, /pattern: pypi-release-\*/);
     assert.match(recoveredRelease, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
@@ -264,6 +268,9 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       'record.get("head_sha") != sys.argv[3]', 'False')],
     ["recovery trusts unsigned tags", x => x.replace(
       'tag.get("verification", {}).get("verified") is not True', 'False')],
+    ["recovery performs registry upload without opt-in", x => x.replace(
+      "if: steps.registry_state.outputs.already_published == 'false' && inputs.perform_publish == true",
+      "if: steps.registry_state.outputs.already_published == 'false'")],
     ["recovery does not require completed PyPI publication", x => x.replace(
       'python_publish[0].get("conclusion") != "success"', 'False')],
     ["recovery skips source archive identity", x => x.replace(

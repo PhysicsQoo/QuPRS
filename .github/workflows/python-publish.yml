@@ -56,7 +56,7 @@ concurrency:
 jobs:
   verify_release_ref:
     name: Verify version and release ref
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.recover_tag == '' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.recover_tag }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -123,26 +123,6 @@ jobs:
               exit 1
             fi
           fi
-
-      - name: Check crates.io API from this runner without publishing
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error --location \
-            --retry 4 --retry-delay 2 \
-            --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
-            --header 'Accept: application/json' \
-            --output "$RUNNER_TEMP/crates-api-probe.json" \
-            https://crates.io/api/v1/crates/quprs
-          python3 - "$RUNNER_TEMP/crates-api-probe.json" <<'PY'
-          import json
-          import sys
-          with open(sys.argv[1], encoding="utf-8") as file:
-              record = json.load(file)
-          if record.get("crate", {}).get("name") != "quprs":
-              raise SystemExit("crates.io did not return expected package metadata")
-          PY
 
       - name: Verify release publication safety policy
         run: |
@@ -421,6 +401,34 @@ jobs:
           python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 
   # --- Job 3: Publish to PyPI only after native registry preflight ---
+  registry_probe:
+    name: Verify crates.io registry API access (no upload)
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.recover_tag == '') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check crates.io API from this runner without publishing
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --retry 4 --retry-delay 2 \
+            --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
+            --header 'Accept: application/json' \
+            --output "$RUNNER_TEMP/crates-api-probe.json" \
+            https://crates.io/api/v1/crates/quprs
+          python3 - "$RUNNER_TEMP/crates-api-probe.json" <<'PY'
+          import json
+          import sys
+          with open(sys.argv[1], encoding="utf-8") as file:
+              record = json.load(file)
+          if record.get("crate", {}).get("name") != "quprs":
+              raise SystemExit("crates.io did not return expected package metadata")
+          PY
+
+
   # No registry writes are permitted until the tagged source, both Python
   # archives, the native crate, and crates.io Trusted Publishing are admitted.
   rust_preflight:

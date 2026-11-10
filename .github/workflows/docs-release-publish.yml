@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      actions: read
     outputs:
       release_tag: ${{ steps.gate.outputs.release_tag }}
       should_publish: ${{ steps.gate.outputs.should_publish }}
@@ -113,6 +114,20 @@ jobs:
           if [[ "$release_state" != '[false,false]' ]]; then
             echo "::error::Stable docs require a published non-prerelease GitHub Release"
             exit 1
+          fi
+          # Manual and backfill entrypoints must independently prove that the
+          # signed tag passed the original dual-registry publishing workflow.
+          if [[ "$EVENT_NAME" != workflow_run ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$tag_sha&per_page=100" |
+              jq -e --arg tag "$tag" --arg sha "$tag_sha" '
+                [.workflow_runs[] |
+                  select(.name == "Build and Publish Python Package"
+                    and .event == "push"
+                    and .path == ".github/workflows/python-publish.yml"
+                    and .head_branch == $tag and .head_sha == $sha
+                    and .conclusion == "success")]
+                | length >= 1
+              ' >/dev/null
           fi
           # Publication is immutable. A repeat event must never replace an
           # existing version or silently move the stable alias backward.

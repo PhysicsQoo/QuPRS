@@ -307,7 +307,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
       'test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"')],
     ["Rust retry omits registry checksum verifier", x => x.replace(
-      "python3 scripts/verify_crates_io_registry_state.py", "true")],
+      /(  publish_crates_io:[\s\S]*?)python3 scripts\/verify_crates_io_registry_state\.py/,
+      "$1true")],
     ["Rust upload ignores post-publish registry confirmation", x => x.replace(
       "python3 scripts/reconcile_crates_io_publish.py", "true")],
     ["Rust retries duplicate publication", x => x.replace(

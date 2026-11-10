@@ -115,6 +115,7 @@ jobs:
       - name: Verify release publication safety policy
         run: |
           node scripts/test_release_ready_policy.js
+          python3 scripts/verify_release_artifact_workflow_parity.py --self-test
           python -m unittest discover -s test -p 'test_pypi_publish_recovery.py'
           python -m unittest discover -s test -p 'test_crates_io_registry_state.py'
           python -m unittest discover -s test -p 'test_crates_io_publish_recovery.py'

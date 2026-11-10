@@ -11,6 +11,7 @@ permissions:
 jobs:
   verify_release_ref:
     name: Verify version and release ref
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.recover_tag }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

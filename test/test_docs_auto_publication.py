@@ -31,6 +31,8 @@ class StableDocumentationAutomationTests(unittest.TestCase):
         self.assertIn('"$tag_sha" != "$SOURCE_RUN_SHA"', src)
         self.assertIn('gh release view "$tag" --json isDraft,isPrerelease', src)
         self.assertIn("release_state\" != '[false,false]'", src)
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$tag_sha&per_page=100"', src)
+        self.assertIn('and .conclusion == "success"', src)
         self.assertIn('RELEASE_TAG: ${{ needs.admission.outputs.release_tag }}', src)
 
     def test_publishing_is_automatic_only_on_main(self):

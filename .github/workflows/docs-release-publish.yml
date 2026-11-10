@@ -1,6 +1,17 @@
 name: Documentation Stable Release
 
+# A successful tag publisher run is the authoritative dual-registry release gate.
+# The narrowly scoped main push also recovers releases completed before this
+# automatic trigger existed. Manual dispatch remains available for dry runs.
 on:
+  workflow_run:
+    workflows:
+      - Build and Publish Python Package
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/docs-release-publish.yml'
   workflow_dispatch:
     inputs:
       tag:
@@ -21,8 +32,125 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  admission:
+    name: Verify published stable release and Pages identity
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.event == 'push' &&
+           github.event.workflow_run.repository.full_name == github.repository &&
+           github.event.workflow_run.path == '.github/workflows/python-publish.yml' &&
+           startsWith(github.event.workflow_run.head_branch, 'v') &&
+           !contains(github.event.workflow_run.head_branch, '-')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      release_tag: ${{ steps.gate.outputs.release_tag }}
+      should_publish: ${{ steps.gate.outputs.should_publish }}
+    steps:
+      - name: Check out trusted release admission policy
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate signed release, source run and existing documentation
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_TAG: ${{ inputs.tag }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_RUN_REF: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_REPO: ${{ github.event.workflow_run.repository.full_name }}
+          SOURCE_RUN_PATH: ${{ github.event.workflow_run.path }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              test "$GITHUB_REF" = refs/heads/main
+              tag="$MANUAL_TAG"
+              ;;
+            workflow_run)
+              test "$SOURCE_EVENT" = push
+              test "$SOURCE_RUN_REPO" = "$GITHUB_REPOSITORY"
+              test "$SOURCE_RUN_PATH" = .github/workflows/python-publish.yml
+              tag="$SOURCE_RUN_REF"
+              ;;
+            push)
+              test "$GITHUB_REF" = refs/heads/main
+              # One-time automatic reconciliation of an already released
+              # stable version when this workflow is introduced on main.
+              tag="$(python3 scripts/release_version.py --kind tag)"
+              ;;
+            *)
+              echo "::error::Unsupported documentation publication event"
+              exit 1
+              ;;
+          esac
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Only signed stable SemVer releases can publish stable docs"
+            exit 1
+          fi
+          git fetch --tags origin
+          python3 scripts/docs_versioning.py check-release "$tag"
+          tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+          if [[ "$EVENT_NAME" == workflow_run && "$tag_sha" != "$SOURCE_RUN_SHA" ]]; then
+            echo "::error::Successful package workflow did not build this exact signed tag"
+            exit 1
+          fi
+          tag_type="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.type')"
+          test "$tag_type" = tag
+          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha')"
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object" \
+            --jq '.verification.verified' | grep -qx true
+          release_state="$(gh release view "$tag" --json isDraft,isPrerelease \
+            --jq '[.isDraft,.isPrerelease] | tostring')"
+          if [[ "$release_state" != '[false,false]' ]]; then
+            echo "::error::Stable docs require a published non-prerelease GitHub Release"
+            exit 1
+          fi
+          # Manual and backfill entrypoints must independently prove that the
+          # signed tag passed the original dual-registry publishing workflow.
+          if [[ "$EVENT_NAME" != workflow_run ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$tag_sha&per_page=100" |
+              jq -e --arg tag "$tag" --arg sha "$tag_sha" '
+                [.workflow_runs[] |
+                  select(.name == "Build and Publish Python Package"
+                    and .event == "push"
+                    and .path == ".github/workflows/python-publish.yml"
+                    and .head_branch == $tag and .head_sha == $sha
+                    and .conclusion == "success")]
+                | length >= 1
+              ' >/dev/null
+          fi
+          # Publication is immutable. A repeat event must never replace an
+          # existing version or silently move the stable alias backward.
+          git fetch --no-tags origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+          if git cat-file -e "refs/remotes/origin/gh-pages:docs/$tag/index.html" 2>/dev/null; then
+            existing_sha="$(git show "refs/remotes/origin/gh-pages:docs/$tag/source-sha.txt" | tr -d '\r\n')"
+            test "$existing_sha" = "$tag_sha"
+            git show refs/remotes/origin/gh-pages:docs/versions.json |
+              jq -e --arg tag "$tag" '
+                [.[] | select(.version == $tag and ((.aliases // []) | index("stable") != null))]
+                | length == 1
+              ' >/dev/null
+            echo "Already published from the correct signed source; skipping build"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
     name: Check release provenance and stage immutable docs
+    needs: admission
+    if: ${{ needs.admission.outputs.should_publish == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     outputs:
@@ -33,7 +161,7 @@ jobs:
       - name: Check out documentation tooling
         uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: main
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Python
@@ -43,7 +171,7 @@ jobs:
       - name: Resolve and admit immutable release source
         id: resolve
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.admission.outputs.release_tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -136,8 +264,11 @@ jobs:
 
   publish:
     name: Publish stable alias after every validation passes
-    needs: build
-    if: inputs.publish == true && github.ref == 'refs/heads/dev'
+    needs: [admission, build]
+    if: >-
+      ${{ needs.admission.outputs.should_publish == 'true' &&
+          github.ref == 'refs/heads/main' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish == true) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:

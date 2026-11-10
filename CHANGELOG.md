@@ -51,7 +51,8 @@ Versioned documentation is published separately from the Python package.
 - Check generated public API signatures, installed artifact behavior and
   source/scientific-documentation consistency. Native Rust release checks
   verify that the locked archive matches its preflight checksum before Cargo
-  publication; the GitHub Release follows successful Python and Rust uploads.
+  publication; Python and Rust publish independently after shared verification,
+  and the GitHub Release follows only after both succeed.
   They also test standalone solver-free consumers with optional native features disabled.
   The full cross-platform
   source and wheel/sdist matrices remain mandatory at formal Release-Ready;

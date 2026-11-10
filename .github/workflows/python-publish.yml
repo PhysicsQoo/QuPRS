@@ -413,25 +413,34 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check crates.io API from this runner without publishing
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location \
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          code="$(curl --silent --show-error --location \
             --retry 4 --retry-delay 2 \
             --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
             --header 'Accept: application/json' \
             --output "$RUNNER_TEMP/crates-api-probe.json" \
-            https://crates.io/api/v1/crates/quprs
-          python3 - "$RUNNER_TEMP/crates-api-probe.json" <<'PY'
+            --write-out '%{http_code}' "https://crates.io/api/v1/crates/quprs/$version")"
+          case "$code" in
+            200)
+              python3 - "$RUNNER_TEMP/crates-api-probe.json" "$version" <<'PY'
           import json
           import sys
           with open(sys.argv[1], encoding="utf-8") as file:
               record = json.load(file)
-          if record.get("crate", {}).get("name") != "quprs":
-              raise SystemExit("crates.io did not return expected package metadata")
+          if record.get("version", {}).get("num") != sys.argv[2]:
+              raise SystemExit("crates.io returned unexpected version metadata")
           PY
+              ;;
+            404) echo "Registry version is not published yet" ;;
+            *) printf '::error::crates.io registry probe returned HTTP %s\n' "$code"; exit 1 ;;
+          esac
 
 
   # No registry writes are permitted until the tagged source, both Python

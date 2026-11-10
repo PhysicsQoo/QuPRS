@@ -113,10 +113,16 @@ async function check() {
       'parse exact inline GitHub Actions JavaScript');
   }
   const docker=fs.readFileSync('.github/workflows/docker-build.yml','utf8');
-  assert.match(docker,/startsWith\(github\.ref, 'refs\/tags\/v'\)/,
-    'release image publication must remain unchanged');
-  assert.match(docker,/inputs\.run_build_push == true/,
-    'manual image publication must remain unchanged');
+  assert.ok(docker.includes('publish_allowed: ${{ steps.publish_scope.outputs.allowed }}'),
+    'Docker publish must be gated on reviewed admission output');
+  assert.ok(docker.includes("needs.ci-impact.outputs.publish_allowed == 'true'"),
+    'Registry publication must check the stable release policy');
+  assert.ok(docker.includes("needs.test.result == 'success'"),
+    'Registry publication must require both native architecture tests');
+  assert.ok(docker.includes('node .github/scripts/test-docker-release-admission.cjs'),
+    'Docker admission negative tests must run in CI');
+  assert.ok(docker.includes('node .github/scripts/docker-release-admission.cjs'),
+    'Policy output must come from tested Docker admission logic');
   process.stdout.write('ci-docs-only-admission: first-run and fail-closed contracts passed\n');
 }
 check().catch(e=>{console.error(e);process.exitCode=1;});

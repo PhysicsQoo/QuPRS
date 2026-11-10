@@ -162,8 +162,10 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.doesNotMatch(python, /action-gh-release/,
       "Public GitHub Release must follow both registries");
 
-    assert.match(rust, /needs: \[verify_release_ref, rust_preflight, publish\]/,
-      "Rust publication must follow successful native preflight and PyPI");
+    assert.match(rust, /needs: \[verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight\]/,
+      "Rust publishing must wait for the same completed artifact smoke and native preflight gates as PyPI");
+    assert.doesNotMatch(rust, /needs: \[[^\]]*\bpublish\b[^\]]*\]/,
+      "PyPI and crates.io must publish independently after their common safety gates");
     assert.match(rust, /environment: crates-io/);
     assert.match(rust, /id-token: write/);
     assert.match(rust, /vars\.QUPRS_CRATES_IO_PUBLISH_ENABLED == 'true'/);
@@ -219,9 +221,12 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "python3 scripts/reconcile_pypi_artifacts.py verify", "echo unchecked-registry")],
     ["PyPI retry uploads the unfiltered distribution set", x => x.replace(
       "packages-dir: pypi-to-upload/", "packages-dir: dist/")],
-    ["Rust publishes before PyPI", x => x.replace(
-      "needs: [verify_release_ref, rust_preflight, publish]",
+    ["Rust skips installed artifact safety gates", x => x.replace(
+      "needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]",
       "needs: [verify_release_ref, rust_preflight]")],
+    ["Rust waits for PyPI instead of publishing independently", x => x.replace(
+      "needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]",
+      "needs: [verify_release_ref, rust_preflight, publish]")],
     ["Rust package digest is not checked", x => x.replace(
       "sha256sum -c SHA256SUMS", "echo skip-checksum")],
     ["Rust publishes workspace directly", x => x.replace(

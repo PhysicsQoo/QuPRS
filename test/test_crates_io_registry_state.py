@@ -17,19 +17,22 @@ WORKFLOW = ROOT / ".github" / "workflows" / "python-publish.yml"
 VERSION = "0.15.0-beta.1"
 
 
-def registry_step_script() -> str:
+def workflow_step_script(name: str) -> str:
     source = WORKFLOW.read_text(encoding="utf-8")
-    step = "      - name: Admit a previously published identical crate on safe retries\n"
+    step = "      - name: " + name + "\n"
     if source.count(step) != 1:
-        raise AssertionError("Expected exactly one registry admission step")
+        raise AssertionError("Expected exactly one step named " + name)
     portion = source.split(step, 1)[1].split("\n      - name: ", 1)[0]
     if portion.count("        run: |\n") != 1:
-        raise AssertionError("Expected shell script in registry admission step")
+        raise AssertionError("Expected shell script in " + name)
     return "\n".join(
         line[10:] if line.startswith(" " * 10) else line
         for line in portion.split("        run: |\n", 1)[1].splitlines()
     ) + "\n"
 
+
+def registry_step_script() -> str:
+    return workflow_step_script("Admit a previously published identical crate on safe retries")
 
 class RegistryStateTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -39,6 +42,9 @@ class RegistryStateTests(unittest.TestCase):
         self.crate = self.root / "quprs-crate" / "target" / "package" / f"quprs-{VERSION}.crate"
         self.crate.parent.mkdir(parents=True)
         self.crate.write_bytes(b"reviewed immutable crate bytes")
+        self.native = self.root / "quprs-native-assets" / f"quprs-{VERSION}.crate"
+        self.native.parent.mkdir(parents=True)
+        self.native.write_bytes(self.crate.read_bytes())
         self.metadata = self.root / "registry-version.json"
         self.output = self.root / "github-output.txt"
         self.digest = hashlib.sha256(self.crate.read_bytes()).hexdigest()
@@ -72,6 +78,8 @@ class RegistryStateTests(unittest.TestCase):
 
     def test_workflow_bash_compiles_and_handles_http_statuses(self) -> None:
         script = registry_step_script()
+        self.assertIn("--user-agent 'QuPRS-release/1.0", script)
+        self.assertIn("Accept: application/json", script)
         self.assertEqual(subprocess.run(["bash", "-n"], input=script, text=True,
                                         capture_output=True, timeout=10).returncode, 0)
         self.record()
@@ -80,6 +88,7 @@ class RegistryStateTests(unittest.TestCase):
             ("200", True, "already_published=true"),
             ("200", False, None),
             ("503", True, None),
+            ("403", True, None),
         ):
             with self.subTest(status=status, valid=valid):
                 self.record(**({} if valid else {"checksum": "0" * 64}))
@@ -97,6 +106,32 @@ class RegistryStateTests(unittest.TestCase):
                 else:
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertIn(expected, self.output.read_text(encoding="utf-8"))
+
+    def test_registry_preflight_checks_http_and_exact_existing_crate(self) -> None:
+        script = workflow_step_script("Verify crates.io registry access before PyPI publication")
+        self.assertIn("--user-agent 'QuPRS-release/1.0", script)
+        self.assertIn("Accept: application/json", script)
+        self.assertNotIn("cargo publish", script)
+        self.assertEqual(subprocess.run(["bash", "-n"], input=script, text=True,
+                                        capture_output=True, timeout=10).returncode, 0)
+        for status, correct, should_pass in (
+            ("404", True, True),
+            ("200", True, True),
+            ("200", False, False),
+            ("403", True, False),
+            ("503", True, False),
+        ):
+            with self.subTest(status=status, correct=correct):
+                self.record(**({} if correct else {"checksum": "0" * 64}))
+                (self.root / "crates-io-preflight.json").write_text(
+                    self.metadata.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+                env = dict(os.environ, GITHUB_REF_NAME="v" + VERSION,
+                           RUNNER_TEMP=str(self.root), MOCK_HTTP_CODE=status)
+                command = 'curl() { printf "%s" "$MOCK_HTTP_CODE"; }\n' + script
+                result = subprocess.run(["bash", "-eo", "pipefail"], input=command,
+                                        text=True, capture_output=True, cwd=ROOT, env=env, timeout=10)
+                self.assertEqual(result.returncode == 0, should_pass, result.stderr)
 
 
 if __name__ == "__main__":

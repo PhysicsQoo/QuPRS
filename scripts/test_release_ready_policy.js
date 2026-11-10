@@ -261,7 +261,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["recovery skips source archive identity", x => x.replace(
       'cmp "$RUNNER_TEMP/recovery-native-assets/quprs-$version.crate"', 'true #')],
     ["recovery uploads without official token", x => x.replace(
-      /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/, "CARGO_REGISTRY_TOKEN: invalid")],
+      /(  recover_crates_io:[\s\S]*?)CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/,
+      "$1CARGO_REGISTRY_TOKEN: invalid")],
     ["recovery omits PyPI archive reconciliation", x => x.replace(
       'python3 release-source/scripts/reconcile_pypi_artifacts.py verify', 'echo unverified-pypi')],
     ["recovery permits GitHub Release overwrite", x => x.replace(

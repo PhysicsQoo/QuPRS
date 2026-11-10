@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Convert the shared Cargo release version to the corresponding PyPI version.
 
-Rust releases use SemVer (0.15.0-beta.1), while Python uses PEP 440
-(0.15.0b1). Only the supported release spellings are admitted.
+Rust releases use SemVer (for example 0.15.0-rc.2), while Python uses
+PEP 440 (0.15.0rc2). Only the supported release spellings are admitted.
 """
 from __future__ import annotations
 

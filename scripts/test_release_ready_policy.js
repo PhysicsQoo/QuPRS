@@ -251,7 +251,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(recover, /git\/tags\/\$tag_obj/);
     assert.match(recover, /sha256sum -c SHA256SUMS/);
     assert.match(recover, /cmp "\$RUNNER_TEMP\/original-crate\//);
-    assert.match(recover, /if: inputs\.perform_publish == true/);
+    assert.equal((recover.match(/if: inputs\.perform_publish == true/g) || []).length, 2,
+      "Recovery must gate both token acquisition and Cargo upload on explicit opt-in");
     assert.match(recover, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
     assert.match(recover, /cargo publish --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --registry crates-io --locked/);
     assert.doesNotMatch(recover, /gh-action-pypi-publish/);

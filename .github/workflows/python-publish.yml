@@ -21,6 +21,9 @@ on:
     branches: [dev]
     paths:
       - '.github/workflows/python-publish.yml'
+      - 'scripts/verify_crates_io_registry_state.py'
+      - 'scripts/test_release_ready_policy.js'
+      - 'test/test_crates_io_registry_state.py'
       - 'scripts/release_artifact_smoke.py'
       - 'scripts/check_installed_typing.py'
       - 'src/QuPRS/py.typed'
@@ -111,6 +114,7 @@ jobs:
         run: |
           node scripts/test_release_ready_policy.js
           python -m unittest discover -s test -p 'test_pypi_publish_recovery.py'
+          python -m unittest discover -s test -p 'test_crates_io_registry_state.py'
 
       - name: Verify reproducible locked native crate archives without uploading
         shell: bash
@@ -600,30 +604,17 @@ jobs:
           http_code="$(curl --silent --show-error --location \
             --retry 4 --retry-delay 2 \
             --output "$RUNNER_TEMP/registry-version.json" \
-            --write-out '%{http_code}' "$url")
+            --write-out '%{http_code}' "$url")"
           if [[ "$http_code" == "200" ]]; then
-            # Cargo may time out waiting for index propagation after a successful upload.
-            # Check the registry's canonical checksum before skipping publication.
-            python3 - "$version" "$RUNNER_TEMP/quprs-crate/target/package/$crate" \
-              "$RUNNER_TEMP/registry-version.json" <<'PY'
-          import hashlib
-          import json
-          import pathlib
-          import sys
-
-          expected_version, crate_file, response_file = sys.argv[1:]
-          record = json.loads(pathlib.Path(response_file).read_text()).get('version', {})
-          actual_checksum = hashlib.sha256(pathlib.Path(crate_file).read_bytes()).hexdigest()
-          if (record.get('num') != expected_version
-                  or record.get('yanked') is not False
-                  or record.get('checksum') != actual_checksum):
-              raise SystemExit('Existing registry version metadata or SHA-256 differs')
-          PY
+            # A retry is safe only when the published bytes match the reviewed archive.
+            python3 scripts/verify_crates_io_registry_state.py \
+              "$version" "$RUNNER_TEMP/quprs-crate/target/package/$crate" \
+              "$RUNNER_TEMP/registry-version.json"
             echo "already_published=true" >> "$GITHUB_OUTPUT"
           elif [[ "$http_code" == "404" ]]; then
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::Cannot verify crates.io version metadata (HTTP $http_code)"
+            printf '::error::Cannot verify crates.io version metadata (HTTP %s)\n' "$http_code"
             exit 1
           fi
       - name: Obtain short-lived crates.io publishing token

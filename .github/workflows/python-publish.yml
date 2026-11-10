@@ -3,12 +3,13 @@
 name: Build and Publish Python Package
 
 # Workflow Triggers:
-# 1. Push a v* tag: verify tag/version/main SHA, build wheels and sdist,
-#    then automatically publish to PyPI and create a public GitHub Release.
-# 2. workflow_dispatch: build and test the selected branch (packaging dry-run),
-#    upload artifacts, and never publish.
-# 3. PRs changing packaging/release gate inputs: build nonpublishing wheels and
-#    sdist and verify clean artifact installations on the supported matrix.
+# 1. Push a v* tag: validate immutable source and both packages, publish to
+#    PyPI and crates.io in parallel, then create GitHub Release after both succeed.
+# 2. workflow_dispatch without recover_tag: packaging dry-run, never publish.
+#    With recover_tag: recover a signed existing tag from original build assets;
+#    perform_publish defaults to false and must be explicitly enabled.
+# 3. PRs changing packaging/release gates: build without publishing and verify
+#    installed artifacts on supported platforms.
 #    Ordinary branch pushes do not run the release workflow.
 on:
   push:
@@ -48,10 +49,10 @@ on:
       - 'src/QuPRS/_version.py'
       - 'pyproject.toml'
 
-# Only a newer HEAD of the *same PR* may cancel its obsolete package matrix.
-# Manual dry runs and official tag publications have unique concurrency groups.
+# Serialize tag publication and exceptional recovery of the same version.
+# Only a newer HEAD of the same PR may cancel its obsolete package matrix.
 concurrency:
-  group: python-publish-${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' && format('recovery-{0}', inputs.recover_tag) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  group: python-publish-${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' && format('release-{0}', inputs.recover_tag) || github.event_name == 'push' && github.ref_type == 'tag' && format('release-{0}', github.ref_name) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -399,11 +400,11 @@ jobs:
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 
-  # --- Job 3: Publish to PyPI only after native registry preflight ---
-  # No registry writes are permitted until the tagged source, both Python
-  # archives, the native crate, and crates.io Trusted Publishing are admitted.
+  # --- Job 3: Publish to PyPI after native crate preflight ---
+  # The native preflight validates the locked crate and records its exact bytes.
+  # Both registries publish independently only after all artifact smoke gates pass.
   rust_preflight:
-    name: Validate Rust crate and crates.io identity (no upload)
+    name: Validate staged Rust crate (no upload)
     needs: verify_release_ref
     if: >-
       ${{ github.event_name == 'push' &&
@@ -476,7 +477,7 @@ jobs:
           name: release-native-${{ github.sha }}
           path: ${{ runner.temp }}/quprs-native-assets/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
 
   publish:
     name: Publish verified Python artifacts to PyPI
@@ -533,7 +534,7 @@ jobs:
 
   publish_crates_io:
     name: Publish matching Rust crate to crates.io
-    needs: [verify_release_ref, rust_preflight, publish]
+    needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]
     if: >-
       ${{ github.event_name == 'push' &&
           github.ref_type == 'tag' &&
@@ -555,8 +556,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The prerelease gate already admitted the exact tag against main.
-          # Do not reject the same immutable source if main moves after PyPI upload.
+          # The common preflight admitted the exact tag against main.
+          # Both registries publish the same immutable tag independently.
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 - <<'PY'
           from pathlib import Path
@@ -640,7 +641,7 @@ jobs:
           name: release-native-${{ github.sha }}
           path: ${{ runner.temp }}/rust-dist
 
-      - name: Check registry archive matches and prepare release attachments
+      - name: Verify staged release archives and prepare attachments
         id: prepare
         shell: bash
         run: |
@@ -682,8 +683,10 @@ jobs:
           fail_on_unmatched_files: true
 
 
-  # Exceptional recovery: reuse the same crates.io trusted publisher identity.
-  # The ordinary tag-triggered pipeline remains the only routine release path.
+  # Exceptional recovery uses the same crates.io Trusted Publishing identity.
+  # The crates-io Environment must admit version tags for normal releases and
+  # the main branch for manual recovery. Keep those deployment rules restricted.
+  # No recovery job publishes Python distributions or alters an existing tag.
   recover_crates_io:
     name: Recover Rust crate from an existing signed release
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' }}
@@ -822,6 +825,7 @@ jobs:
           cp "$RUNNER_TEMP/rust-dist/quprs-$version.crate" "$RUNNER_TEMP/release-assets/"
           (cd "$RUNNER_TEMP/release-assets" && sha256sum -- *.whl *.tar.gz *.crate > SHA256SUMS.txt)
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "python_version=$(cd release-source && python3 scripts/release_version.py --kind python)" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -831,8 +835,14 @@ jobs:
           prerelease: ${{ contains(inputs.recover_tag, '-') }}
           make_latest: ${{ contains(inputs.recover_tag, '-') && 'false' || 'true' }}
           body: |
-            QuPRS ${{ inputs.recover_tag }}
-            Python: https://pypi.org/project/QuPRS/
-            Rust: https://crates.io/crates/quprs/${{ steps.prepare.outputs.version }}
+            ## QuPRS ${{ inputs.recover_tag }}
+
+            Python: [QuPRS on PyPI](https://pypi.org/project/QuPRS/${{ steps.prepare.outputs.python_version }}/) — install with `pip install QuPRS==${{ steps.prepare.outputs.python_version }}`.
+
+            Rust: [quprs on crates.io](https://crates.io/crates/quprs/${{ steps.prepare.outputs.version }}) — install with `cargo add quprs@${{ steps.prepare.outputs.version }}`. Native Hybrid/WMC execution requires an external GPMC or Ganak solver.
+
+            [Changelog](https://github.com/PhysicsQoo/QuPRS/blob/${{ inputs.recover_tag }}/CHANGELOG.md).
+
+            This release includes Python wheels, Python source distribution, the matching published Rust .crate and SHA-256 checksums.
           files: ${{ runner.temp }}/release-assets/*
           fail_on_unmatched_files: true

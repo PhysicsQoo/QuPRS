@@ -26,6 +26,11 @@ on:
         required: false
         type: string
         default: ''
+      perform_publish:
+        description: 'Explicitly publish missing Rust crate and complete GitHub Release'
+        required: false
+        type: boolean
+        default: false
   # dev PRs get packaging preflight; main PRs use Release-Ready Main's
   # reusable artifact matrix exactly once. Tag publication is unchanged.
   pull_request:
@@ -50,7 +55,7 @@ on:
 # Only a newer HEAD of the *same PR* may cancel its obsolete package matrix.
 # Manual dry runs and official tag publications have unique concurrency groups.
 concurrency:
-  group: python-publish-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  group: python-publish-${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' && format('recover-{0}', inputs.recover_tag) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -974,7 +979,7 @@ jobs:
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
       - name: Publish original matching crate and confirm registry state
-        if: steps.registry_state.outputs.already_published == 'false'
+        if: steps.registry_state.outputs.already_published == 'false' && inputs.perform_publish == true
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
@@ -996,7 +1001,7 @@ jobs:
   recover_github_release:
     name: Create GitHub Release after Rust-only recovery
     needs: recover_crates_io
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' && inputs.perform_publish == true }}
     runs-on: ubuntu-latest
     permissions:
       actions: read

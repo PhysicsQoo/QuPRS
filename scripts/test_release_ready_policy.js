@@ -114,6 +114,10 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     const python = getJob(yaml, "publish");
     const rust = getJob(yaml, "publish_crates_io");
     const release = getJob(yaml, "github_release");
+    assert.match(yaml, /format\('release-\{0\}', inputs\.recover_tag\)/,
+      "Recovery of an immutable tag must share the normal tag publishing lock");
+    assert.match(yaml, /format\('release-\{0\}', github\.ref_name\)/,
+      "Normal tag publication must share the recovery publishing lock");
     const tagOnly = block => {
       assert.match(block, /github\.event_name == 'push'/);
       assert.match(block, /github\.ref_type == 'tag'/);
@@ -132,6 +136,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(preflight, /cargo publish --manifest-path[^\n]*--dry-run --locked[\s\S]*cargo package --manifest-path "\$RUNNER_TEMP\/quprs-crate\/Cargo\.toml" --locked --no-verify[\s\S]*test -s "\$crate"/,
       "The preflight must materialize a persistent locked .crate after dry-run");
     assert.match(preflight, /actions\/upload-artifact@v4/);
+    assert.match(preflight, /retention-days: 90/,
+      "Reviewed Rust crate archive must survive a later partial-release recovery");
     assert.doesNotMatch(preflight, /crates-io-auth-action/, "OIDC token is obtained only for actual publish");
     assert.doesNotMatch(preflight, /cargo publish --manifest-path .* --registry crates-io/,
       "Native preflight must never upload to crates.io");
@@ -195,6 +201,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["preflight accidentally dispatched", x => x.replace(
       /(  rust_preflight:[\s\S]*?github\.event_name == )'push'/,
       "$1'workflow_dispatch'")],
+    ["shorten original Rust archive retention", x => x.replace(
+      "retention-days: 90", "retention-days: 7")],
     ["preflight skips Rust dry-run", x => x.replace(
       'cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --dry-run',
       'echo skipped-dry-run')],
@@ -259,6 +267,12 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(gh, /needs: recover_crates_io/);
     assert.match(gh, /inputs\.perform_publish == true/);
     assert.match(gh, /reconcile_pypi_artifacts\.py verify/);
+    assert.match(gh, /scripts\/release_version\.py --kind python/,
+      "Recovery must publish versioned Python release links");
+    assert.match(gh, /https:\/\/pypi\.org\/project\/QuPRS\/\$\{\{ steps\.prepare\.outputs\.python_version \}\}/,
+      "Recovery release notes must link the exact Python version");
+    assert.match(gh, /\[Changelog\]/,
+      "Recovered GitHub Release must preserve the public changelog link");
     assert.match(gh, /softprops\/action-gh-release@v2/);
   }
   checkRecoveryPolicy(publishYaml);
@@ -266,6 +280,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["missing signed tag verification", ["git/tags/$tag_obj", "missing-tag-verification"]],
     ["missing crate identity comparison", ['cmp "$RUNNER_TEMP/original-crate/', 'true # "$RUNNER_TEMP/original-crate/']],
     ["missing explicit publish opt-in", ["if: inputs.perform_publish == true", "if: true"]],
+    ["recovery release notes omit exact Python version", ["scripts/release_version.py --kind python", "echo missing-version"]],
   ]) {
     const [needle, substitute] = replacement;
     const changed = publishYaml.replace(needle, substitute);

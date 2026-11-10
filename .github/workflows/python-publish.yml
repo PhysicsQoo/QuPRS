@@ -400,7 +400,7 @@ jobs:
           cd "$RUNNER_TEMP"
           python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 
-  # --- Job 3: Stage and validate the native crate before any registry upload ---
+  # --- Job 3: Publish to PyPI after native crate preflight ---
   # This job verifies the locked Cargo package and records its exact bytes.
   # crates.io Trusted Publishing occurs only in the actual publishing job.
   rust_preflight:

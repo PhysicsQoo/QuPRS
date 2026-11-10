@@ -202,6 +202,74 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(release, /https:\/\/crates\.io\/crates\/quprs\//);
   }
   checkDualReleasePolicy(publishYaml);
+  // Recovery must remain Rust-only, source-locked, and linked to the original
+  // tag-triggered run. This is a manual repair path, never a second release.
+  function checkRustRecoveryPolicy(yaml) {
+    const verifier = getJob(yaml, "verify_release_ref");
+    const preflight = getJob(yaml, "rust_preflight");
+    const rust = getJob(yaml, "publish_crates_io");
+    const recovery = getJob(yaml, "recover_crates_io");
+    const recoveredRelease = getJob(yaml, "recover_github_release");
+    assert.match(verifier, /inputs\.recover_tag == ''/,
+      "Manual recovery cannot enter the full Python build and publish matrix");
+    assert.match(verifier, /Check crates\.io API from this runner without publishing/);
+    assert.match(verifier, /--user-agent 'QuPRS-release\/1\.0/);
+    for (const section of [preflight, rust, recovery]) {
+      assert.match(section, /--user-agent 'QuPRS-release\/1\.0/,
+        "Every prepublish metadata query must identify its client");
+    }
+    assert.match(preflight, /Verify crates\.io registry access before PyPI publication/);
+    assert.match(recovery, /github\.event_name == 'workflow_dispatch'/);
+    assert.match(recovery, /inputs\.recover_tag != ''/);
+    assert.match(recovery, /environment: crates-io/);
+    assert.match(recovery, /id-token: write/);
+    assert.match(recovery, /actions: read/);
+    assert.match(recovery, /SOURCE_RUN_ID: \$\{\{ inputs\.source_run_id \}\}/);
+    assert.match(recovery, /CRATES_IO_PUBLISH_ENABLED" != "true"/);
+    assert.match(recovery, /record\.get\("event"\) != "push"/);
+    assert.match(recovery, /record\.get\("head_sha"\) != sys\.argv\[3\]/);
+    assert.match(recovery, /record\.get\("path"\) != "\.github\/workflows\/python-publish\.yml"/);
+    assert.match(recovery, /cat-file -t "refs\/tags\/\$RECOVERY_TAG"/);
+    assert.match(recovery, /release-native-\$\{\{ steps\.source\.outputs\.tag_commit \}\}/);
+    assert.match(recovery, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
+    assert.match(recovery, /sha256sum -c SHA256SUMS/);
+    assert.match(recovery, /cmp "\$RUNNER_TEMP\/recovery-native-assets\/quprs-\$version\.crate"/);
+    assert.match(recovery, /python3 release-source\/scripts\/verify_crates_io_registry_state\.py/);
+    assert.equal((recovery.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2);
+    assert.match(recovery, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);
+    assert.match(recovery, /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/);
+    assert.match(recovery, /python3 scripts\/reconcile_crates_io_publish\.py/);
+    assert.doesNotMatch(recovery, /gh-action-pypi-publish/,
+      "Rust-only recovery must never upload to PyPI");
+    assert.match(recoveredRelease, /needs: recover_crates_io/);
+    assert.match(recoveredRelease, /contents: write/);
+    assert.match(recoveredRelease, /pattern: pypi-release-\*/);
+    assert.match(recoveredRelease, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
+    assert.match(recoveredRelease, /release-native-\$\{\{ needs\.recover_crates_io\.outputs\.tag_commit \}\}/);
+    assert.match(recoveredRelease, /reconcile_pypi_artifacts\.py verify/);
+    assert.match(recoveredRelease, /sha256sum -c SHA256SUMS/);
+    assert.match(recoveredRelease, /cmp "\$RUNNER_TEMP\/rust-dist\/\$crate"/);
+    assert.match(recoveredRelease, /refusing to overwrite/);
+    assert.match(recoveredRelease, /tag_name: \$\{\{ inputs\.recover_tag \}\}/);
+    assert.match(recoveredRelease, /softprops\/action-gh-release@v2/);
+  }
+  checkRustRecoveryPolicy(publishYaml);
+  for (const [name, mutation] of [
+    ["recovery ignores source-run provenance", x => x.replace(
+      'record.get("head_sha") != sys.argv[3]', 'False')],
+    ["recovery skips source archive identity", x => x.replace(
+      'cmp "$RUNNER_TEMP/recovery-native-assets/quprs-$version.crate"', 'true #')],
+    ["recovery uploads without official token", x => x.replace(
+      /CARGO_REGISTRY_TOKEN: \$\{\{ steps\.crates_io_auth\.outputs\.token \}\}/, "CARGO_REGISTRY_TOKEN: invalid")],
+    ["recovery omits PyPI archive reconciliation", x => x.replace(
+      'python3 release-source/scripts/reconcile_pypi_artifacts.py verify', 'echo unverified-pypi')],
+    ["recovery permits GitHub Release overwrite", x => x.replace(
+      'echo "::error::GitHub Release already exists; refusing to overwrite"', 'echo overwrite')],
+  ]) {
+    const changed = mutation(publishYaml);
+    assert.notEqual(changed, publishYaml, "Mutation must change source: " + name);
+    assert.throws(() => checkRustRecoveryPolicy(changed), undefined, name);
+  }
   for (const [name, mutation] of [
     ["preflight accidentally dispatched", x => x.replace(
       /(  rust_preflight:[\s\S]*?github\.event_name == )'push'/,

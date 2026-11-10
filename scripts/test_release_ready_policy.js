@@ -232,6 +232,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(recovery, /record\.get\("head_sha"\) != sys\.argv\[3\]/);
     assert.match(recovery, /record\.get\("path"\) != "\.github\/workflows\/python-publish\.yml"/);
     assert.match(recovery, /cat-file -t "refs\/tags\/\$RECOVERY_TAG"/);
+    assert.match(recovery, /tag\.get\("verification", \{\}\)\.get\("verified"\) is not True/);
+    assert.match(recovery, /python_publish\[0\]\.get\("conclusion"\) != "success"/);
     assert.match(recovery, /release-native-\$\{\{ steps\.source\.outputs\.tag_commit \}\}/);
     assert.match(recovery, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
     assert.match(recovery, /sha256sum -c SHA256SUMS/);
@@ -260,6 +262,10 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   for (const [name, mutation] of [
     ["recovery ignores source-run provenance", x => x.replace(
       'record.get("head_sha") != sys.argv[3]', 'False')],
+    ["recovery trusts unsigned tags", x => x.replace(
+      'tag.get("verification", {}).get("verified") is not True', 'False')],
+    ["recovery does not require completed PyPI publication", x => x.replace(
+      'python_publish[0].get("conclusion") != "success"', 'False')],
     ["recovery skips source archive identity", x => x.replace(
       'cmp "$RUNNER_TEMP/recovery-native-assets/quprs-$version.crate"', 'true #')],
     ["recovery uploads without official token", x => x.replace(

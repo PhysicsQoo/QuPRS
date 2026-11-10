@@ -233,7 +233,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(recovery, /release-native-\$\{\{ steps\.source\.outputs\.tag_commit \}\}/);
     assert.match(recovery, /run-id: \$\{\{ inputs\.source_run_id \}\}/);
     assert.match(recovery, /sha256sum -c SHA256SUMS/);
-    assert.match(recovery, /cmp "\$RUNNER_TEMP\/recovery-native-assets\/quprs-\$version\.crate"/);
+    assert.equal((recovery.match(/cmp "\$RUNNER_TEMP\/recovery-native-assets\/quprs-\$version\.crate"/g) || []).length, 2,
+      "Native archive must be compared both before and after cargo publish");
     assert.match(recovery, /python3 release-source\/scripts\/verify_crates_io_registry_state\.py/);
     assert.equal((recovery.match(/if: steps\.registry_state\.outputs\.already_published == 'false'/g) || []).length, 2);
     assert.match(recovery, /rust-lang\/crates-io-auth-action@[a-f0-9]{40}/);

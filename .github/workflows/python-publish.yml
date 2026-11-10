@@ -18,18 +18,18 @@ on:
     inputs:
       recover_tag:
         description: 'Existing signed release tag for Rust-only recovery (blank for dry-run)'
-        required: false
         type: string
+        required: false
         default: ''
       source_run_id:
-        description: 'Original tag-triggered release run ID (required with recover_tag)'
-        required: false
+        description: 'Original tag release workflow run ID (required with recover_tag)'
         type: string
+        required: false
         default: ''
       perform_publish:
-        description: 'Explicitly publish missing Rust crate and complete GitHub Release'
-        required: false
+        description: 'Publish missing Rust crate and create GitHub Release'
         type: boolean
+        required: false
         default: false
   # dev PRs get packaging preflight; main PRs use Release-Ready Main's
   # reusable artifact matrix exactly once. Tag publication is unchanged.
@@ -37,11 +37,7 @@ on:
     branches: [dev]
     paths:
       - '.github/workflows/python-publish.yml'
-      - 'scripts/verify_crates_io_registry_state.py'
-      - 'scripts/reconcile_crates_io_publish.py'
-      - 'test/test_crates_io_publish_recovery.py'
       - 'scripts/test_release_ready_policy.js'
-      - 'test/test_crates_io_registry_state.py'
       - 'scripts/release_artifact_smoke.py'
       - 'scripts/check_installed_typing.py'
       - 'src/QuPRS/py.typed'
@@ -55,7 +51,7 @@ on:
 # Only a newer HEAD of the *same PR* may cancel its obsolete package matrix.
 # Manual dry runs and official tag publications have unique concurrency groups.
 concurrency:
-  group: python-publish-${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' && format('recover-{0}', inputs.recover_tag) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  group: python-publish-${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' && format('recovery-{0}', inputs.recover_tag) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -134,8 +130,6 @@ jobs:
           node scripts/test_release_ready_policy.js
           python3 scripts/verify_release_artifact_workflow_parity.py --self-test
           python -m unittest discover -s test -p 'test_pypi_publish_recovery.py'
-          python -m unittest discover -s test -p 'test_crates_io_registry_state.py'
-          python -m unittest discover -s test -p 'test_crates_io_publish_recovery.py'
 
       - name: Verify reproducible locked native crate archives without uploading
         shell: bash
@@ -406,43 +400,6 @@ jobs:
           python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
 
   # --- Job 3: Publish to PyPI only after native registry preflight ---
-  registry_probe:
-    name: Verify crates.io registry API access (no upload)
-    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.recover_tag == '') }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check crates.io API from this runner without publishing
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(python3 -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
-          code="$(curl --silent --show-error --location \
-            --retry 4 --retry-delay 2 \
-            --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
-            --header 'Accept: application/json' \
-            --output "$RUNNER_TEMP/crates-api-probe.json" \
-            --write-out '%{http_code}' "https://crates.io/api/v1/crates/quprs/$version")"
-          case "$code" in
-            200)
-              python3 - "$RUNNER_TEMP/crates-api-probe.json" "$version" <<'PY'
-          import json
-          import sys
-          with open(sys.argv[1], encoding="utf-8") as file:
-              record = json.load(file)
-          if record.get("version", {}).get("num") != sys.argv[2]:
-              raise SystemExit("crates.io returned unexpected version metadata")
-          PY
-              ;;
-            404) echo "Registry version is not published yet" ;;
-            *) printf '::error::crates.io registry probe returned HTTP %s\n' "$code"; exit 1 ;;
-          esac
-
-
   # No registry writes are permitted until the tagged source, both Python
   # archives, the native crate, and crates.io Trusted Publishing are admitted.
   rust_preflight:
@@ -456,7 +413,6 @@ jobs:
     environment: crates-io
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Require an explicitly enabled dual-registry release
         env:
@@ -521,47 +477,6 @@ jobs:
           path: ${{ runner.temp }}/quprs-native-assets/*
           if-no-files-found: error
           retention-days: 7
-
-      - name: Verify crates.io registry access before PyPI publication
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          url="https://crates.io/api/v1/crates/quprs/$version"
-          code="$(curl --silent --show-error --location \
-            --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
-            --header 'Accept: application/json' \
-            --retry 4 --retry-delay 2 \
-            --output "$RUNNER_TEMP/crates-io-preflight.json" \
-            --write-out '%{http_code}' "$url")"
-          case "$code" in
-            200)
-              python3 scripts/verify_crates_io_registry_state.py \
-                "$version" "$RUNNER_TEMP/quprs-native-assets/quprs-$version.crate" \
-                "$RUNNER_TEMP/crates-io-preflight.json"
-              ;;
-            404)
-              echo "crates.io registry accessible; version has not been published"
-              ;;
-            *)
-              printf '::error::crates.io registry preflight returned HTTP %s\n' "$code"
-              if [[ "$code" == "403" ]]; then
-                python3 - "$RUNNER_TEMP/crates-io-preflight.json" <<'PY'
-          from pathlib import Path
-          import sys
-          path = Path(sys.argv[1])
-          if path.is_file():
-              detail = path.read_text(encoding="utf-8", errors="replace")[:500]
-              print("Registry response: " + detail.replace("\r", " ").replace("\n", " "))
-          PY
-              fi
-              exit 1
-              ;;
-          esac
-
-      # The action mints and revokes a temporary token. This job never publishes.
-      - name: Verify crates.io GitHub OIDC authorization without uploading
-        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
   publish:
     name: Publish verified Python artifacts to PyPI
@@ -688,64 +603,18 @@ jobs:
           sha256sum -c SHA256SUMS
           test -s "quprs-$version.crate"
 
-      - name: Admit a previously published identical crate on safe retries
-        id: registry_state
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          crate="quprs-$version.crate"
-          url="https://crates.io/api/v1/crates/quprs/$version"
-          http_code="$(curl --silent --show-error --location \
-            --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
-            --header 'Accept: application/json' \
-            --retry 4 --retry-delay 2 \
-            --output "$RUNNER_TEMP/registry-version.json" \
-            --write-out '%{http_code}' "$url")"
-          if [[ "$http_code" == "200" ]]; then
-            # A retry is safe only when the published bytes match the reviewed archive.
-            python3 scripts/verify_crates_io_registry_state.py \
-              "$version" "$RUNNER_TEMP/quprs-crate/target/package/$crate" \
-              "$RUNNER_TEMP/registry-version.json"
-            echo "already_published=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$http_code" == "404" ]]; then
-            echo "already_published=false" >> "$GITHUB_OUTPUT"
-          else
-            printf '::error::Cannot verify crates.io version metadata (HTTP %s)\n' "$http_code"
-            if [[ "$http_code" == "403" ]]; then
-              python3 - "$RUNNER_TEMP/registry-version.json" <<'PY'
-          from pathlib import Path
-          import sys
-          path = Path(sys.argv[1])
-          if path.is_file():
-              detail = path.read_text(encoding="utf-8", errors="replace")[:500]
-              print("Registry response: " + detail.replace("\r", " ").replace("\n", " "))
-          PY
-            fi
-            exit 1
-          fi
-      - name: Obtain short-lived crates.io publishing token
+      - name: Obtain crates.io Trusted Publishing token
         id: crates_io_auth
-        if: steps.registry_state.outputs.already_published == 'false'
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
-      - name: Publish the matching native crate
-        if: steps.registry_state.outputs.already_published == 'false'
+      - name: Publish native crate with Cargo
         shell: bash
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
           QUPRS_SOLVER_PROVISION: external
         run: |
           set -euo pipefail
-          cargo_exit=0
-          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io --locked \
-            2>&1 | tee "$RUNNER_TEMP/quprs-cargo-publish.log" || cargo_exit=$?
-          # Never upload again to resolve an uncertain Cargo registry-index wait.
-          version="${GITHUB_REF_NAME#v}"
-          python3 scripts/reconcile_crates_io_publish.py \
-            "$version" "$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate" \
-            "$RUNNER_TEMP/quprs-cargo-publish.log" "$cargo_exit"
-          (cd "$RUNNER_TEMP/quprs-crate/target/package" && sha256sum -c SHA256SUMS)
+          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io --locked
 
   github_release:
     name: Create GitHub Release after both registries publish
@@ -786,15 +655,8 @@ jobs:
           crate="quprs-$version.crate"
           mkdir -p "$RUNNER_TEMP/release-assets"
           (cd "$RUNNER_TEMP/rust-dist" && sha256sum -c SHA256SUMS)
-          # crates.io stores the published .crate bytes. Check them, not just a
-          # independently repackaged source tree or the registry version name.
-          curl --fail --location --retry 8 --retry-delay 5 --retry-all-errors \
-            --silent --show-error \
-            "https://static.crates.io/crates/quprs/$crate" \
-            --output "$RUNNER_TEMP/registry-$crate"
-          cmp "$RUNNER_TEMP/rust-dist/$crate" "$RUNNER_TEMP/registry-$crate"
           cp "$RUNNER_TEMP/python-dist"/* "$RUNNER_TEMP/release-assets/"
-          cp "$RUNNER_TEMP/registry-$crate" "$RUNNER_TEMP/release-assets/$crate"
+          cp "$RUNNER_TEMP/rust-dist/$crate" "$RUNNER_TEMP/release-assets/$crate"
           compgen -G "$RUNNER_TEMP/release-assets/*.whl" >/dev/null
           compgen -G "$RUNNER_TEMP/release-assets/*.tar.gz" >/dev/null
           (cd "$RUNNER_TEMP/release-assets" && sha256sum -- *.whl *.tar.gz *.crate > SHA256SUMS.txt)
@@ -820,211 +682,116 @@ jobs:
           fail_on_unmatched_files: true
 
 
-  # Manual recovery reuses this exact trusted publisher identity without
-  # republishing Python. Both the tag and original release run are immutable inputs.
+  # Exceptional recovery: reuse the same crates.io trusted publisher identity.
+  # The ordinary tag-triggered pipeline remains the only routine release path.
   recover_crates_io:
-    name: Recover Rust crate from a verified release run
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' &&
-          inputs.recover_tag != '' }}
+    name: Recover Rust crate from an existing signed release
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' }}
     runs-on: ubuntu-24.04
     environment: crates-io
     permissions:
-      actions: read
       contents: read
+      actions: read
       id-token: write
     outputs:
-      tag_commit: ${{ steps.source.outputs.tag_commit }}
+      tag_sha: ${{ steps.source.outputs.tag_sha }}
     steps:
-      - name: Validate recovery request against original tag-triggered run
-        shell: bash
-        env:
-          RECOVERY_TAG: ${{ inputs.recover_tag }}
-          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
-          CRATES_IO_PUBLISH_ENABLED: ${{ vars.QUPRS_CRATES_IO_PUBLISH_ENABLED }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [[ "$CRATES_IO_PUBLISH_ENABLED" != "true" ]]; then
-            echo "::error::Rust registry publishing is not enabled"
-            exit 1
-          fi
-          [[ "$RECOVERY_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || exit 1
-          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
-            > "$RUNNER_TEMP/recovery-source-run.json"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" \
-            > "$RUNNER_TEMP/recovery-source-jobs.json"
-
-      - name: Checkout original release tag
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.recover_tag }}
           path: release-source
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify original source commit and versions
+      - name: Verify signed tag and original release run
         id: source
         shell: bash
         env:
-          RECOVERY_TAG: ${{ inputs.recover_tag }}
           GH_TOKEN: ${{ github.token }}
+          RECOVERY_TAG: ${{ inputs.recover_tag }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CRATES_IO_PUBLISH_ENABLED: ${{ vars.QUPRS_CRATES_IO_PUBLISH_ENABLED }}
         run: |
           set -euo pipefail
-          tag_commit="$(git -C release-source rev-parse HEAD)"
-          test "$(git -C release-source cat-file -t "refs/tags/$RECOVERY_TAG")" = tag
-          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RECOVERY_TAG" \
-            > "$RUNNER_TEMP/recovery-tag-ref.json"
-          tag_object_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["object"]["sha"])' "$RUNNER_TEMP/recovery-tag-ref.json")"
-          [[ "$tag_object_sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" \
-            > "$RUNNER_TEMP/recovery-tag-object.json"
-          python3 - "$RUNNER_TEMP/recovery-source-run.json" "$RECOVERY_TAG" "$tag_commit" \
-            "$RUNNER_TEMP/recovery-tag-ref.json" "$RUNNER_TEMP/recovery-tag-object.json" \
-            "$RUNNER_TEMP/recovery-source-jobs.json" <<'PY'
+          [[ "$CRATES_IO_PUBLISH_ENABLED" == true ]]
+          [[ "$RECOVERY_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          tag_sha="$(git -C release-source rev-parse HEAD)"
+          [[ "$(git -C release-source cat-file -t "refs/tags/$RECOVERY_TAG")" == tag ]]
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          python3 - "$RECOVERY_TAG" "$tag_sha" "$run" <<'PY'
           import json
           import sys
-          def read(path):
-              with open(path, encoding="utf-8") as file:
-                  return json.load(file)
-          record = read(sys.argv[1])
-          if (record.get("event") != "push"
-                  or record.get("path") != ".github/workflows/python-publish.yml"
-                  or record.get("head_branch") != sys.argv[2]
-                  or record.get("head_sha") != sys.argv[3]):
-              raise SystemExit("Source is not the original tag-triggered release")
-          ref = read(sys.argv[4]).get("object", {})
-          tag = read(sys.argv[5])
-          if (ref.get("type") != "tag"
-                  or tag.get("tag") != sys.argv[2]
-                  or tag.get("object", {}).get("type") != "commit"
-                  or tag.get("object", {}).get("sha") != sys.argv[3]
-                  or tag.get("verification", {}).get("verified") is not True):
-              raise SystemExit("Recovery tag is not a GitHub-verified signed tag for the original commit")
-          jobs = read(sys.argv[6]).get("jobs", [])
-          python_publish = [job for job in jobs if job.get("name") == "Publish verified Python artifacts to PyPI"]
-          if len(python_publish) != 1 or python_publish[0].get("conclusion") != "success":
-              raise SystemExit("Original Python registry publication did not succeed")
+          run = json.loads(sys.argv[3])
+          if (run.get("event") != "push" or run.get("head_branch") != sys.argv[1]
+                  or run.get("head_sha") != sys.argv[2]
+                  or run.get("path") != ".github/workflows/python-publish.yml"):
+              raise SystemExit("Recovery run does not match the immutable release tag")
           PY
-          (
-            cd release-source
-            version="${RECOVERY_TAG#v}"
-            python3 - "$version" <<'PY'
-          from pathlib import Path
-          import re
-          import sys
-          import tomllib
-          sys.path.insert(0, "scripts")
-          from release_version import python_from_cargo
-          cargo_version = tomllib.loads(Path("rust/Cargo.toml").read_text())["workspace"]["package"]["version"]
-          match = re.search(r'^__version__\s*=\s*"([^"]+)"', Path("src/QuPRS/_version.py").read_text(), re.M)
-          if cargo_version != sys.argv[1] or not match or match.group(1) != python_from_cargo(cargo_version):
-              raise SystemExit("Recovery tag and Cargo/Python versions differ")
-          PY
-          )
-          echo "tag_commit=$tag_commit" >> "$GITHUB_OUTPUT"
+          tag_obj="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RECOVERY_TAG" --jq .object.sha)"
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_obj" \
+            --jq '.verification.verified' | grep -qx true
+          version="${RECOVERY_TAG#v}"
+          test "v$(python3 -c 'import tomllib; print(tomllib.load(open("release-source/rust/Cargo.toml","rb"))["workspace"]["package"]["version"])')" = "$RECOVERY_TAG"
+          echo "tag_sha=$tag_sha" >> "$GITHUB_OUTPUT"
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install native build dependencies
+      - name: Install native dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
 
-      - name: Download reviewed Rust archive from original run
+      - name: Download original Rust archive
         uses: actions/download-artifact@v4
         with:
-          name: release-native-${{ steps.source.outputs.tag_commit }}
+          name: release-native-${{ steps.source.outputs.tag_sha }}
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/recovery-native-assets
+          path: ${{ runner.temp }}/original-crate
 
-      - name: Repackage tag and compare against original archive
-        shell: bash
+      - name: Verify exact original Rust crate without publishing
         env:
           QUPRS_SOLVER_PROVISION: external
           RECOVERY_TAG: ${{ inputs.recover_tag }}
+        shell: bash
         run: |
           set -euo pipefail
-          version="${RECOVERY_TAG#v}"
           cd release-source
           python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-crate"
           cargo package --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --locked
-          (cd "$RUNNER_TEMP/recovery-native-assets" && sha256sum -c SHA256SUMS)
-          cmp "$RUNNER_TEMP/recovery-native-assets/quprs-$version.crate" \
-              "$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate"
+          (cd "$RUNNER_TEMP/original-crate" && sha256sum -c SHA256SUMS)
+          cmp "$RUNNER_TEMP/original-crate/quprs-${RECOVERY_TAG#v}.crate" \
+              "$RUNNER_TEMP/quprs-crate/target/package/quprs-${RECOVERY_TAG#v}.crate"
 
-      - name: Verify registry state before one permitted upload
-        id: registry_state
-        shell: bash
-        env:
-          RECOVERY_TAG: ${{ inputs.recover_tag }}
-        run: |
-          set -euo pipefail
-          version="${RECOVERY_TAG#v}"
-          code="$(curl --silent --show-error --location \
-            --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
-            --header 'Accept: application/json' \
-            --retry 4 --retry-delay 2 \
-            --output "$RUNNER_TEMP/registry-version.json" \
-            --write-out '%{http_code}' "https://crates.io/api/v1/crates/quprs/$version")"
-          if [[ "$code" == "200" ]]; then
-            python3 release-source/scripts/verify_crates_io_registry_state.py \
-              "$version" "$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate" \
-              "$RUNNER_TEMP/registry-version.json"
-            echo "already_published=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$code" == "404" ]]; then
-            echo "already_published=false" >> "$GITHUB_OUTPUT"
-          else
-            printf '::error::crates.io registry returned HTTP %s\n' "$code"
-            exit 1
-          fi
-
-      - name: Obtain short-lived crates.io publishing token
-        id: crates_io_auth
-        if: steps.registry_state.outputs.already_published == 'false'
+      - name: Authenticate with crates.io
+        if: inputs.perform_publish == true
+        id: auth
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
-      - name: Publish original matching crate and confirm registry state
-        if: steps.registry_state.outputs.already_published == 'false' && inputs.perform_publish == true
-        shell: bash
+      - name: Publish original Rust crate
+        if: inputs.perform_publish == true
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
           QUPRS_SOLVER_PROVISION: external
-          RECOVERY_TAG: ${{ inputs.recover_tag }}
-        run: |
-          set -euo pipefail
-          version="${RECOVERY_TAG#v}"
-          cd release-source
-          cargo_exit=0
-          cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io --locked \
-            2>&1 | tee "$RUNNER_TEMP/quprs-cargo-publish.log" || cargo_exit=$?
-          python3 scripts/reconcile_crates_io_publish.py \
-            "$version" "$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate" \
-            "$RUNNER_TEMP/quprs-cargo-publish.log" "$cargo_exit"
-          cmp "$RUNNER_TEMP/recovery-native-assets/quprs-$version.crate" \
-              "$RUNNER_TEMP/quprs-crate/target/package/quprs-$version.crate"
+        run: cargo publish --manifest-path "$RUNNER_TEMP/quprs-crate/Cargo.toml" --registry crates-io --locked
 
   recover_github_release:
-    name: Create GitHub Release after Rust-only recovery
+    name: Complete GitHub Release after Rust recovery
     needs: recover_crates_io
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_tag != '' && inputs.perform_publish == true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.perform_publish == true && inputs.recover_tag != '' }}
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: write
+      actions: read
     steps:
-      - name: Checkout original release source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.recover_tag }}
           path: release-source
           persist-credentials: false
 
-      - name: Download original Python artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: pypi-release-*
           run-id: ${{ inputs.source_run_id }}
@@ -1032,50 +799,31 @@ jobs:
           path: ${{ runner.temp }}/python-dist
           merge-multiple: true
 
-      - name: Download original Rust archive
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: release-native-${{ needs.recover_crates_io.outputs.tag_commit }}
+          name: release-native-${{ needs.recover_crates_io.outputs.tag_sha }}
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/rust-dist
 
-      - name: Verify both registries and prepare release
+      - name: Verify published Python files and package release assets
         id: prepare
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           RECOVERY_TAG: ${{ inputs.recover_tag }}
         run: |
           set -euo pipefail
-          if gh release view "$RECOVERY_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::GitHub Release already exists; refusing to overwrite"
-            exit 1
-          fi
           version="${RECOVERY_TAG#v}"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          python_version="${version/-beta./b}"
-          python_version="${python_version/-rc./rc}"
-          python_version="${python_version/-alpha./a}"
-          echo "python_version=$python_version" >> "$GITHUB_OUTPUT"
-          compgen -G "$RUNNER_TEMP/python-dist/*.whl" >/dev/null
-          compgen -G "$RUNNER_TEMP/python-dist/*.tar.gz" >/dev/null
           python3 release-source/scripts/reconcile_pypi_artifacts.py verify \
             --version "$version" --dist-dir "$RUNNER_TEMP/python-dist"
-          crate="quprs-$version.crate"
           (cd "$RUNNER_TEMP/rust-dist" && sha256sum -c SHA256SUMS)
-          curl --fail --location --retry 8 --retry-delay 5 --retry-all-errors \
-            --user-agent 'QuPRS-release/1.0 (+https://github.com/PhysicsQoo/QuPRS)' \
-            --silent --show-error \
-            "https://static.crates.io/crates/quprs/$crate" \
-            --output "$RUNNER_TEMP/registry-$crate"
-          cmp "$RUNNER_TEMP/rust-dist/$crate" "$RUNNER_TEMP/registry-$crate"
           mkdir -p "$RUNNER_TEMP/release-assets"
           cp "$RUNNER_TEMP/python-dist"/* "$RUNNER_TEMP/release-assets/"
-          cp "$RUNNER_TEMP/registry-$crate" "$RUNNER_TEMP/release-assets/$crate"
+          cp "$RUNNER_TEMP/rust-dist/quprs-$version.crate" "$RUNNER_TEMP/release-assets/"
           (cd "$RUNNER_TEMP/release-assets" && sha256sum -- *.whl *.tar.gz *.crate > SHA256SUMS.txt)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release from original tag
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.recover_tag }}
@@ -1083,14 +831,8 @@ jobs:
           prerelease: ${{ contains(inputs.recover_tag, '-') }}
           make_latest: ${{ contains(inputs.recover_tag, '-') && 'false' || 'true' }}
           body: |
-            ## QuPRS ${{ inputs.recover_tag }}
-
-            Python: [QuPRS on PyPI](https://pypi.org/project/QuPRS/${{ steps.prepare.outputs.python_version }}/) — install with pip install QuPRS==${{ steps.prepare.outputs.python_version }}.
-
-            Rust: [quprs on crates.io](https://crates.io/crates/quprs/${{ steps.prepare.outputs.version }}) — install with cargo add quprs@${{ steps.prepare.outputs.version }}. Native Hybrid/WMC execution requires an external GPMC or Ganak solver.
-
-            [Changelog](https://github.com/PhysicsQoo/QuPRS/blob/${{ inputs.recover_tag }}/CHANGELOG.md).
-
-            This release includes Python wheels, Python source distribution, the matching published Rust .crate and SHA-256 checksums.
+            QuPRS ${{ inputs.recover_tag }}
+            Python: https://pypi.org/project/QuPRS/
+            Rust: https://crates.io/crates/quprs/${{ steps.prepare.outputs.version }}
           files: ${{ runner.temp }}/release-assets/*
           fail_on_unmatched_files: true

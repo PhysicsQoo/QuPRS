@@ -21,6 +21,9 @@ on:
     branches: [dev]
     paths:
       - '.github/workflows/python-publish.yml'
+      - 'scripts/verify_crates_io_registry_state.py'
+      - 'scripts/test_release_ready_policy.js'
+      - 'test/test_crates_io_registry_state.py'
       - 'scripts/release_artifact_smoke.py'
       - 'scripts/check_installed_typing.py'
       - 'src/QuPRS/py.typed'
@@ -601,7 +604,7 @@ jobs:
           http_code="$(curl --silent --show-error --location \
             --retry 4 --retry-delay 2 \
             --output "$RUNNER_TEMP/registry-version.json" \
-            --write-out '%{http_code}' "$url")
+            --write-out '%{http_code}' "$url")"
           if [[ "$http_code" == "200" ]]; then
             # A retry is safe only when the published bytes match the reviewed archive.
             python3 scripts/verify_crates_io_registry_state.py \

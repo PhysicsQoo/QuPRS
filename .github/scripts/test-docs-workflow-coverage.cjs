@@ -94,6 +94,40 @@ for(const statement of [
 ]){
   assert.ok(docs.includes(statement), `Fast docs lost fallback gate: ${statement}`);
 }
+// A site-only PR can reuse the exact base Rustdoc without provisioning
+// native dependencies. Every native build/test step must respect that gate.
+function stepBlock(workflow, name) {
+  const marker = `      - name: ${name}\n`;
+  const begin = workflow.indexOf(marker);
+  assert.notEqual(begin, -1, `Missing native step: ${name}`);
+  const end = workflow.indexOf('\n      - name: ', begin + marker.length);
+  return workflow.slice(begin, end === -1 ? undefined : end);
+}
+for (const nativeStep of [
+  'Set up Rust', 'Cache Rust build outputs', 'Install native build dependencies',
+  'Restore pinned Ganak archive when available', 'Build Rust library reference',
+  'Run Rust documentation tests', 'Check solver-free Rust library build'
+]) {
+  assert.ok(stepBlock(rust, nativeStep).includes(
+    "if: steps.reuse-rustdoc.outputs.used != 'true'"),
+    `Native step must skip when verified Rustdoc is reused: ${nativeStep}`);
+}
+assert.ok(stepBlock(rust, 'Package complete Rust crate and test external GPMC/Ganak consumers')
+  .includes("steps.reuse-rustdoc.outputs.used != 'true'"),
+  'Native external-solver package tests must skip on identical-site reuse');
+for (const requiredSiteGate of [
+  'Build Python reference and documentation site',
+  'Verify rendered dynamic Gate API members',
+  'Verify public mathematical identities',
+  'Verify Python reference',
+  'Compose and validate both API references',
+  'Audit all internal links against deployment URL prefix'
+]) {
+  assert.ok(!stepBlock(rust, requiredSiteGate).includes(
+    "if: steps.reuse-rustdoc.outputs.used != 'true'"),
+    `Site verification must run even when native Rustdoc is reused: ${requiredSiteGate}`);
+}
+
 assert.ok(!docs.includes('rendered_site.outputs'),
   'The fast docs job must not infer success from a separate workflow');
 assert.ok(!docs.includes('actions/github-script'),

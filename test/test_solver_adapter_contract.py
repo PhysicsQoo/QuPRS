@@ -21,6 +21,20 @@ def test_independent_solver_contracts():
     assert not b.capabilities.exact_count_certificate
 
 
+def test_explicit_gpmc_override_is_selected_without_packaged_fallback(monkeypatch, tmp_path):
+    from QuPRS.utils import WMC, get_gpmc_path
+    from QuPRS.utils.solver_process import SolverProcessError
+
+    missing_override = tmp_path / "deliberately-missing-gpmc"
+    monkeypatch.setenv("QUPRS_GPMC_PATH", str(missing_override))
+    with get_gpmc_path() as path:
+        assert path == missing_override
+    with WMC("gpmc") as path:
+        assert path == missing_override
+    with pytest.raises(SolverProcessError, match="SolverUnavailable"):
+        run_wmc("input.cnf", "gpmc", timeout=3)
+
+
 def test_unsupported_solver_fails_closed():
     with pytest.raises(ValueError, match="Unsupported solver"):
         wlogi_to_clauses([], {}, tool_name="third")

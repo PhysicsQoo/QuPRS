@@ -1,0 +1,93 @@
+name: Experimental Path-sum IR Semantics
+
+on:
+  push:
+    branches:
+      - research/solver-ir-conformance
+    paths:
+      - 'test/test_pathsum_ir_small_semantics.py'
+      - 'test/fixtures/pathsum_ir_small_semantics.tsv'
+      - 'rust/pathsum/tests/qasm_unreduced_matrix_semantics.rs'
+      - '.github/workflows/pathsum-ir-experiment.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pathsum-ir-experiment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-amplitudes:
+    name: Python full-amplitude witness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: src
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Python source-test dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'pytest>=8,<9' numpy sympy symengine psutil 'qiskit>=1,<3' 'qiskit-qasm3-import>=0.5.1'
+      - name: Evaluate bounded Python IR witness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/tree.txt
+          sha256sum test/test_pathsum_ir_small_semantics.py test/fixtures/pathsum_ir_small_semantics.tsv > evidence/source-sha256.txt
+          python -m pytest -q -ra test/test_pathsum_ir_small_semantics.py --junitxml=evidence/python-junit.xml 2>&1 | tee evidence/python.log
+      - name: Preserve reproducible test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ir-python-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: warn
+
+  rust-amplitudes:
+    name: Rust full-amplitude witness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      RUST_BACKTRACE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: pathsum-ir-experiment
+      - name: Evaluate bounded native IR witness without solver provisioning
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/tree.txt
+          rustc --version > evidence/rust-version.txt
+          sha256sum rust/pathsum/tests/qasm_unreduced_matrix_semantics.rs test/fixtures/pathsum_ir_small_semantics.tsv > evidence/source-sha256.txt
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --test qasm_unreduced_matrix_semantics -- --nocapture 2>&1 | tee evidence/rust.log
+      - name: Preserve reproducible test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ir-rust-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: warn

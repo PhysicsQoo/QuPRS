@@ -73,8 +73,10 @@ jobs:
     if: ${{ needs.source-admission.outputs.run_heavy == 'true' }}
     # Specify the runner environment
     runs-on: ${{ matrix.os }}
-    # Bound stuck native/Python jobs; default GitHub Actions limit is 360m.
-    timeout-minutes: 35
+    # Resource safety ceiling, not a software-correctness assertion. An exhausted
+    # runner leaves this matrix slot INCONCLUSIVE until the exact slot is retried.
+    # Avoid turning a short runner stall into a false application regression.
+    timeout-minutes: 60
 
     # Test matrix for multiple operating systems
     strategy:
@@ -230,8 +232,8 @@ jobs:
 
       - name: Run tests (Unix)
         if: matrix.os != 'windows-latest'
-        # Keep xdist deadlocks from occupying macOS Intel runners for hours.
-        timeout-minutes: 15
+        # faulthandler below emits stacks after 180 s, but does NOT fail tests.
+        # Do not impose a short pytest-only timeout on potentially slow runners.
         run: |
           pytest -n auto -v -ra \
           -o faulthandler_timeout=180 \

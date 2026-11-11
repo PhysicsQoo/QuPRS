@@ -1,0 +1,78 @@
+name: Experimental Native Ganak Precision
+
+on:
+  push:
+    branches:
+      - research/complex-wmc-oracle
+    paths:
+      - 'test/test_projected_complex_wmc_oracle.py'
+      - 'test/test_ganak_native_projection_precision.py'
+      - '.github/workflows/ganak-precision-experiment.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ganak-precision-experiment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-complex-weighted-count:
+    name: Pinned Ganak scientific conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONHASHSEED: '0'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install published release and bounded test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'QuPRS==0.15.0' 'pytest>=8,<9'
+          python -m pip check
+      - name: Verify released package and signed-source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import QuPRS
+          from QuPRS.utils import WMC
+          from QuPRS.utils.ganak_distribution import binary_diagnostics
+          package = Path(QuPRS.__file__).resolve()
+          checkout = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          assert checkout not in package.parents, "Must test published wheel, not checkout source"
+          assert QuPRS.__version__ == "0.15.0"
+          with WMC("ganak") as binary:
+              metadata = binary_diagnostics(binary)
+          assert metadata["pinned"] and not metadata["override"]
+          print("Pinned packaged Ganak verified:", metadata["sha256"])
+          PY
+      - name: Run exact-reference and native precision controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/source-head.txt
+          git rev-parse 'HEAD^{tree}' > evidence/source-tree.txt
+          python --version > evidence/python-version.txt
+          sha256sum test/test_projected_complex_wmc_oracle.py test/test_ganak_native_projection_precision.py > evidence/source-sha256.txt
+          python -m pytest -q -ra test/test_projected_complex_wmc_oracle.py test/test_ganak_native_projection_precision.py --junitxml=evidence/results.xml 2>&1 | tee evidence/science.log
+      - name: Archive bounded scientific evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-precision-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: warn

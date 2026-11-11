@@ -272,12 +272,37 @@ jobs:
           name: coverage-report-xml-${{ matrix.os }}-${{ matrix.python-version }}
           path: coverage.xml
 
+      # Keep a diagnostic XML artifact when tests fail, but only publish valid
+      # coverage from a successful matrix job to the Codecov dashboard.
+      - name: Validate coverage XML for reporting
+        id: validate-coverage
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          path = Path("coverage.xml")
+          if not path.is_file() or path.stat().st_size == 0:
+              raise SystemExit("Missing or empty coverage.xml")
+          try:
+              root = ET.parse(path).getroot()
+              valid = int(root.attrib.get("lines-valid", "0"))
+          except (ET.ParseError, ValueError) as exc:
+              raise SystemExit(f"Invalid coverage.xml: {exc}") from exc
+          if root.tag != "coverage" or valid <= 0 or root.find(".//class") is None:
+              raise SystemExit("coverage.xml contains no valid Python source coverage")
+          print(f"Validated coverage.xml: {valid} source lines")
+          PY
+
       - name: Upload coverage to Codecov
-        if: always()
+        if: ${{ success() && steps.validate-coverage.outcome == 'success' }}
         uses: codecov/codecov-action@v5
         with:
           name: codecov-${{ matrix.os }}-${{ matrix.python-version }}
-          flags: ${{ matrix.os }} 
+          flags: ${{ matrix.os }}
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
+          disable_search: true
           fail_ci_if_error: true

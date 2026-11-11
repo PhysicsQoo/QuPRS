@@ -24,6 +24,7 @@ on:
       - 'GPMC'        # Solver submodule pointer affects native CI coverage.
       - '.gitmodules' # Solver submodule URL/config affects native CI setup.
       - 'pyproject.toml'
+      - 'scripts/check_coverage_xml.py'
       - '.github/workflows/pytest.yml'
       - '.github/scripts/ci-pytest-push-impact.cjs'
       - '.github/scripts/test-pytest-push-impact.cjs'
@@ -51,6 +52,8 @@ jobs:
           persist-credentials: false
       - name: Test Pytest source-routing safety contracts
         run: node .github/scripts/test-pytest-push-impact.cjs
+      - name: Test coverage XML positive and failure contracts
+        run: python3 -m unittest discover -s test -p 'test_coverage_xml_validation.py'
       - id: scope
         name: Verify exact push source before allocating 12-platform matrix
         uses: actions/github-script@v7
@@ -286,24 +289,7 @@ jobs:
       - name: Validate coverage XML for reporting
         id: validate-coverage
         if: ${{ always() && !cancelled() }}
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-
-          path = Path("coverage.xml")
-          if not path.is_file() or path.stat().st_size == 0:
-              raise SystemExit("Missing or empty coverage.xml")
-          try:
-              root = ET.parse(path).getroot()
-              valid = int(root.attrib.get("lines-valid", "0"))
-          except (ET.ParseError, ValueError) as exc:
-              raise SystemExit(f"Invalid coverage.xml: {exc}") from exc
-          if root.tag != "coverage" or valid <= 0 or root.find(".//class") is None:
-              raise SystemExit("coverage.xml contains no valid Python source coverage")
-          print(f"Validated coverage.xml: {valid} source lines")
-          PY
+        run: python scripts/check_coverage_xml.py coverage.xml
 
       - name: Upload coverage to Codecov
         if: ${{ success() && steps.validate-coverage.outcome == 'success' }}

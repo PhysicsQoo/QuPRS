@@ -23,6 +23,7 @@ on:
       - '.github/workflows/dev-fast.yml'
       - '.github/scripts/ci-impact-reuse.cjs'
       - '.github/scripts/test-ci-impact-reuse.cjs'
+      - 'scripts/check_coverage_xml.py'
       - '.github/workflows/pytest.yml'
       - '.github/workflows/native-cross-platform-pr.yml'
   workflow_dispatch:

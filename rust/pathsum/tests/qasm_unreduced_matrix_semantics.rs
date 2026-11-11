@@ -153,3 +153,63 @@ fn source_qasm_decimal_pathsum_complete_ket_and_bra_matrix() {
     compare(&pathsum_matrix(&a,&b),&matmul(&ua,&conjugate_transpose(&ub)),
         "QASM source → two-qubit miter PathSum");
 }
+
+
+// Shared small two-qubit operator witnesses exercise the full Path-sum IR
+// before and after reduction, preserving output maps and global phase.
+// The Rust and Python suites consume the same independent numerical fixtures.
+#[test]
+fn reduced_and_unreduced_ir_match_shared_operator_witnesses() {
+    use std::collections::BTreeMap;
+
+    let mut references: BTreeMap<String, [[C; 2]; 2]> = BTreeMap::new();
+    for line in include_str!("../../../test/fixtures/pathsum_ir_small_semantics.tsv").lines() {
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        assert_eq!(fields.len(), 5, "Malformed operator fixture");
+        let row: usize = fields[1].parse().expect("Fixture output bit");
+        let column: usize = fields[2].parse().expect("Fixture input bit");
+        assert!(row < 2 && column < 2);
+        let real: f64 = fields[3].parse().expect("Fixture real");
+        let imag: f64 = fields[4].parse().expect("Fixture imaginary");
+        let matrix = references.entry(fields[0].to_string())
+            .or_insert([[C::new(f64::NAN, f64::NAN); 2]; 2]);
+        assert!(matrix[row][column].re.is_nan(), "Duplicate fixture entry");
+        matrix[row][column] = C::new(real, imag);
+    }
+    assert_eq!(references.len(), 4);
+    for (name, oracle) in references {
+        for row in oracle {
+            for value in row { assert!(value.re.is_finite() && value.im.is_finite()); }
+        }
+        let gates: Vec<QuantumOp> = match name.as_str() {
+            "h" => vec![QuantumOp::H(0)],
+            "hh" => vec![QuantumOp::H(0), QuantumOp::H(0)],
+            "hsh" => vec![QuantumOp::H(0), QuantumOp::S(0), QuantumOp::H(0)],
+            "xzxz" => vec![QuantumOp::X(0), QuantumOp::Z(0),
+                           QuantumOp::X(0), QuantumOp::Z(0)],
+            _ => panic!("Unknown operator witness: {name}"),
+        };
+        for reduced in [false, true] {
+            let mut ps = PathSum::new(2);
+            ps.set_auto_reduce(reduced);
+            for gate in &gates { gate.apply(&mut ps, false); }
+            if reduced { ps.full_reduce(); }
+            // Reuse the source-independent full path enumeration above, not
+            // the reducer verdict or the IR textual formatting.
+            let actual = matrix_from_unreduced(&ps);
+            for output in 0..4 {
+                for input in 0..4 {
+                    let expected = if (output & 2) == (input & 2) {
+                        oracle[output & 1][input & 1]
+                    } else { C::new(0.0, 0.0) };
+                    assert!(
+                        (actual[output][input] - expected).norm() < 2e-11,
+                        "{name} reduced={reduced}: output={output} input={input}, actual={} expected={expected}",
+                        actual[output][input],
+                    );
+                }
+            }
+        }
+    }
+}

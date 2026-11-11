@@ -41,3 +41,25 @@ documented projective-distance classifier to finite counts; printed
 precision diagnostics remain separate from the operational verdict.
 See [WMC numerical tolerance](wmc-numerical-tolerance.md) and
 [WMC evidence policy](wmc-evidence-policy.md).
+
+## Opt-in pinned GPMC CLI release for source builds
+
+QuPRS source builds ordinarily compile GPMC from the checked-out source.
+To test the independently published PhysicsQoo GPMC v1.0.0 CLI without a
+GPMC source checkout, set `QUPRS_GPMC_RELEASE=v1.0.0` before `maturin develop`.
+The build downloads and verifies a fixed per-platform archive SHA-256, source
+commit, embedded executable checksum, platform and provenance. A verified
+archive is cached for repeat/offline builds. This is a **build-time** option;
+installed QuPRS does not fetch solver executables during verification.
+
+Alternatively, run `python scripts/install_gpmc_release.py` and pass the
+printed executable location through `QUPRS_GPMC_PATH` when using an existing
+installation. Explicit overrides remain authoritative and must not silently
+fall back to another solver.
+
+These CLI artifacts require compatible system-provided GMP/GMPXX, MPFR and
+other shared libraries. Linux targets use an AlmaLinux 8 / glibc 2.28 baseline
+and specific library sonames; macOS binaries are not notarized or independently
+certified on clean macOS 15 hosts; Windows binaries require matching MSYS2
+runtime DLLs. Release SHA verification does not by itself prove runtime
+portability. The existing bundled source-build path remains the default.

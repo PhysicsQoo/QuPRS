@@ -111,6 +111,30 @@ fn main() {
     println!("cargo:rustc-env=GANAK_BIN_PATH={}", ganak_dest.display());
     println!("cargo:rerun-if-changed={}", ganak_dest.display());
 
+    // Opt-in, content-pinned binary provisioning. The source-build default is
+    // unchanged until native runtime compatibility has been verified in CI.
+    println!("cargo:rerun-if-env-changed=QUPRS_GPMC_RELEASE");
+    if let Ok(selected) = env::var("QUPRS_GPMC_RELEASE") {
+        assert_eq!(selected, "v1.0.0", "Unsupported GPMC release selection");
+        let root = manifest_dir.parent().unwrap().parent().unwrap();
+        let installer = root.join("scripts/install_gpmc_release.py");
+        let pinned = root.join("src/QuPRS/utils/gpmc-release.txt");
+        println!("cargo:rerun-if-changed={}", installer.display());
+        println!("cargo:rerun-if-changed={}", pinned.display());
+        let binary = dest_tools_dir.join(if target_os == "windows" { "gpmc.exe" } else { "gpmc" });
+        let python = env::var("QUPRS_PYTHON_EXECUTABLE").unwrap_or_else(|_| {
+            if target_os == "windows" { "python" } else { "python3" }.into()
+        });
+        println!("cargo:rerun-if-env-changed=QUPRS_PYTHON_EXECUTABLE");
+        let status = std::process::Command::new(python)
+            .arg(installer).arg("--dest").arg(&binary)
+            .status().expect("Python required for opt-in GPMC release provisioning");
+        assert!(status.success(), "Pinned GPMC release provisioning failed");
+        println!("cargo:rustc-env=GPMC_BIN_PATH={}", binary.display());
+        println!("cargo:rerun-if-changed={}", binary.display());
+        return;
+    }
+
     // ==========================================
     // 2. Compile GPMC
     // ==========================================

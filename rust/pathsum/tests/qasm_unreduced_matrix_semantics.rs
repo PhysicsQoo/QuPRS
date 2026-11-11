@@ -153,3 +153,65 @@ fn source_qasm_decimal_pathsum_complete_ket_and_bra_matrix() {
     compare(&pathsum_matrix(&a,&b),&matmul(&ua,&conjugate_transpose(&ub)),
         "QASM source → two-qubit miter PathSum");
 }
+
+
+#[test]
+fn renaming_internal_sum_variables_preserves_operator_and_reduction() {
+    use rustc_hash::FxHashSet;
+
+    // Alpha-equivalent Path-sums must have the same operator, regardless
+    // of internal variable IDs. Check both unreduced and reduced forms.
+    let cases = [
+        vec![QuantumOp::H(0), QuantumOp::H(0)],
+        vec![QuantumOp::H(0), QuantumOp::Z(0), QuantumOp::H(0)],
+        vec![QuantumOp::H(0), QuantumOp::T(0), QuantumOp::H(0)],
+    ];
+    for gates in cases {
+        let mut original = PathSum::new(2);
+        original.set_auto_reduce(false);
+        for op in &gates {
+            op.apply(&mut original, false);
+        }
+
+        let mut renamed = original.clone();
+        let mut internal: Vec<u32> = original.v.path_vars.iter()
+            .copied()
+            .filter(|&v| (v as usize) >= original.v.num_qubits)
+            .collect();
+        internal.sort_unstable();
+        assert!(!internal.is_empty(), "Case must contain summed variables");
+
+        for (index, old) in internal.into_iter().enumerate() {
+            let fresh = 20 + index as u32;
+            assert!(!renamed.v.path_vars.contains(&fresh));
+            let mut replacement = FxHashSet::default();
+            replacement.insert(vec![fresh]);
+            renamed.p.substitute_var_with_poly(old, &replacement);
+            renamed.f.substitute_var_with_poly(old, &replacement);
+            assert!(renamed.v.path_vars.remove(&old));
+            assert!(renamed.v.path_vars.insert(fresh));
+            renamed.v.next_id = renamed.v.next_id.max(fresh + 1);
+        }
+
+        let same_operator = |left: &PathSum, right: &PathSum| {
+            let before = matrix_from_unreduced(left);
+            let after = matrix_from_unreduced(right);
+            for output in 0..4 {
+                for input in 0..4 {
+                    assert!(
+                        (before[output][input] - after[output][input]).norm() < 2e-11,
+                        "Bound-variable renaming changed amplitude ({output}, {input}): {} vs {}",
+                        before[output][input], after[output][input]
+                    );
+                }
+            }
+        };
+
+        same_operator(&original, &renamed);
+        original.set_auto_reduce(true);
+        renamed.set_auto_reduce(true);
+        original.full_reduce();
+        renamed.full_reduce();
+        same_operator(&original, &renamed);
+    }
+}

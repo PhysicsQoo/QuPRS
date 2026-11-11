@@ -154,8 +154,67 @@ def test_native_precision_boundary_avoids_false_zero_count(tmp_path):
     assert observations[256][:2] == (Fraction(1), Fraction(0))
     assert "s SATISFIABLE" in observations[127][2]
     assert "s SATISFIABLE" in observations[256][2]
-    # Under binary53, source-weight rounding produces zero and the pinned
-    # binary reports UNSAT despite a satisfiable Boolean formula. This is
-    # intentionally a bounded negative witness, not a production verdict.
+    # Under binary53, source-weight rounding produces zero; the native
+    # status label follows the numerical weighted count, not an independent
+    # Boolean SAT check. This is a bounded negative numerical witness.
     assert observations[53][:2] == (Fraction(0), Fraction(0))
     assert "s UNSATISFIABLE" in observations[53][2]
+
+
+def test_exact_complex_cancellation_does_not_certify_boolean_unsat(tmp_path):
+    # Both assignments satisfy the empty CNF, even though their complex
+    # weights cancel exactly. Ganak's status label is based on weighted
+    # count == 0, so it is not an independent Boolean SAT certificate.
+    cnf = tmp_path / "exact_zero.cnf"
+    cnf.write_text(
+        "p cnf 1 0\n"
+        "c t wmc\n"
+        "c p weight 1 1+0i 0\n"
+        "c p weight -1 -1+0i 0\n",
+        encoding="utf-8",
+    )
+    with WMC("ganak") as executable:
+        metadata = binary_diagnostics(executable)
+        assert metadata["pinned"] and not metadata["override"]
+        run = run_solver([
+            str(executable), "--mode=6", "--mpfrprec=127",
+            "--arjun=0", "--puura=0", str(cnf),
+        ], timeout=30)
+    assert run.returncode == 0, (run.stdout, run.stderr)
+    count = parse_printed_solver_output(run.stdout)
+    assert (count.real, count.imag) == (Fraction(0), Fraction(0))
+    assert "s UNSATISFIABLE" in run.stdout
+    # This is a Boolean SAT fact independent of weighted cancellation:
+    # both literal assignments satisfy a conjunction of zero clauses.
+    models = [bit for bit in (False, True)]
+    assert len(models) == 2
+
+
+@pytest.mark.parametrize("arjun", (0, 1), ids=("no-arjun", "with-arjun"))
+def test_forced_complex_weight_survives_preprocessing_once(arjun, tmp_path):
+    # x1 must be true, giving weight (2+i); x2 is unconstrained and
+    # contributes (3+0i)+(1+0i). The exact weighted count is 8+4i.
+    # Test both preprocessing paths, never multiplying the returned count
+    # by a separately reconstructed multiplier a second time.
+    cnf = tmp_path / "forced_weight.cnf"
+    cnf.write_text(
+        "p cnf 2 1\n"
+        "c t wmc\n"
+        "c p weight 1 2+1i 0\n"
+        "c p weight -1 3-1i 0\n"
+        "c p weight 2 3+0i 0\n"
+        "c p weight -2 1+0i 0\n"
+        "1 0\n",
+        encoding="utf-8",
+    )
+    with WMC("ganak") as executable:
+        metadata = binary_diagnostics(executable)
+        assert metadata["pinned"] and not metadata["override"]
+        run = run_solver([
+            str(executable), "--mode=6", "--mpfrprec=127",
+            f"--arjun={arjun}", "--puura=0", str(cnf),
+        ], timeout=30)
+    assert run.returncode == 0, (arjun, run.stdout, run.stderr)
+    result = parse_printed_solver_output(run.stdout)
+    assert (result.real, result.imag) == (Fraction(8), Fraction(4))
+    assert "s SATISFIABLE" in run.stdout

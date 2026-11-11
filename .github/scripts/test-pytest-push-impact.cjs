@@ -174,6 +174,14 @@ async function tests(){
   assert.ok(pythonStep, 'Every Unix matrix slot retains full Python pytest');
   assert.match(pythonStep[1], /if: matrix\.os != 'windows-latest'/);
   assert.match(pythonStep[1], /pytest -n auto -v -ra/);
+  assert.match(pythonStep[1], /timeout-minutes: 15/,
+    'An indefinitely blocked pytest step must fail within 15 minutes');
+  assert.match(pythonStep[1], /-o faulthandler_timeout=180/,
+    'Report stuck Python test tracebacks before the CI step times out');
+  assert.match(pythonStep[1], /--durations=20/,
+    'Retain the slowest-test diagnosis after successful pytest runs');
+  assert.match(workflow, /\n  build:\n[\s\S]*?\n    timeout-minutes: 35\n/,
+    'The native matrix job needs an independent hard limit');
   assert.match(pythonStep[1], /--cov=src\/QuPRS --cov-report=xml --cov-report=html/);
   assert.doesNotMatch(pythonStep[1], /matrix\.python-version == '3\.12'/,
     'Python test/coverage must never be reduced to the Rust canonical slot');

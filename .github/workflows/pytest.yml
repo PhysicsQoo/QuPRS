@@ -73,6 +73,8 @@ jobs:
     if: ${{ needs.source-admission.outputs.run_heavy == 'true' }}
     # Specify the runner environment
     runs-on: ${{ matrix.os }}
+    # Bound stuck native/Python jobs; default GitHub Actions limit is 360m.
+    timeout-minutes: 35
 
     # Test matrix for multiple operating systems
     strategy:
@@ -228,8 +230,12 @@ jobs:
 
       - name: Run tests (Unix)
         if: matrix.os != 'windows-latest'
+        # Keep xdist deadlocks from occupying macOS Intel runners for hours.
+        timeout-minutes: 15
         run: |
           pytest -n auto -v -ra \
+          -o faulthandler_timeout=180 \
+          --durations=20 \
           --junitxml=pytest-results.xml \
           --html=pytest-results.html --self-contained-html \
           --cov=src/QuPRS --cov-report=xml --cov-report=html

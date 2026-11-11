@@ -49,6 +49,7 @@ def test_all_six_pins_match_release_platforms():
                          for os_name in ("linux", "macos", "windows")
                          for arch in ("x86_64", "aarch64")}
     assert release.target_for("Darwin", "arm64") == ("macos", "aarch64")
+    assert release.target_for("macos", "aarch64") == ("macos", "aarch64")
     assert release.target_for("Windows", "AMD64") == ("windows", "x86_64")
     with pytest.raises(ValueError, match="Unsupported"):
         release.target_for("Linux", "i686")

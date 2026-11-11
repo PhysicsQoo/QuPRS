@@ -33,7 +33,7 @@ def sha256(data: bytes) -> str:
 def target_for(system: str | None = None, machine: str | None = None) -> tuple[str, str]:
     system = (system or platform.system()).lower()
     machine = (machine or platform.machine()).lower()
-    os_name = {"linux": "linux", "darwin": "macos", "windows": "windows"}.get(system)
+    os_name = {"linux": "linux", "darwin": "macos", "macos": "macos", "windows": "windows"}.get(system)
     arch = {"x86_64": "x86_64", "amd64": "x86_64",
             "arm64": "aarch64", "aarch64": "aarch64"}.get(machine)
     if not os_name or not arch:
@@ -174,14 +174,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dest", type=Path, help="Destination executable path")
     parser.add_argument("--archive", type=Path, help="Local archive for offline verification")
+    parser.add_argument("--system", help="Rust build target operating system")
+    parser.add_argument("--machine", help="Rust build target architecture")
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
-    os_name, _ = target_for()
+    os_name, _ = target_for(args.system, args.machine)
     dest = args.dest or ROOT / "src/QuPRS/utils/wmc_tools" / (
         "gpmc.exe" if os_name == "windows" else "gpmc")
     result = install(dest=dest, archive_path=args.archive,
-                     cache_dir=args.cache_dir, verify_only=args.verify_only)
+                     cache_dir=args.cache_dir, system=args.system,
+                     machine=args.machine, verify_only=args.verify_only)
     print(json.dumps(result, sort_keys=True))
 
 

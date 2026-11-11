@@ -123,11 +123,12 @@ fn main() {
         println!("cargo:rerun-if-changed={}", pinned.display());
         let binary = dest_tools_dir.join(if target_os == "windows" { "gpmc.exe" } else { "gpmc" });
         let python = env::var("QUPRS_PYTHON_EXECUTABLE").unwrap_or_else(|_| {
-            if target_os == "windows" { "python" } else { "python3" }.into()
+            if cfg!(windows) { "python" } else { "python3" }.into()
         });
         println!("cargo:rerun-if-env-changed=QUPRS_PYTHON_EXECUTABLE");
         let status = std::process::Command::new(python)
             .arg(installer).arg("--dest").arg(&binary)
+            .arg("--system").arg(&target_os).arg("--machine").arg(&target_arch)
             .status().expect("Python required for opt-in GPMC release provisioning");
         assert!(status.success(), "Pinned GPMC release provisioning failed");
         println!("cargo:rustc-env=GPMC_BIN_PATH={}", binary.display());

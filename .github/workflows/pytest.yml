@@ -212,11 +212,20 @@ jobs:
           QUPRS_GPMC_PATH="$RUNNER_TEMP/quprs-missing-gpmc" cargo test \
             --manifest-path "$crate/Cargo.toml" --test external_wmc \
             missing_solver_fails_closed -- --ignored
+      - name: Verify pinned solver distribution (Unix)
+        if: matrix.os != 'windows-latest'
+        run: python -m QuPRS.utils.ganak_distribution
+
+      # quprs is a Python-independent Rust crate; its default features and
+      # source-tested solvers are identical across Python interpreter versions.
+      # Keep one locked Rust correctness run on every OS/architecture.
+      - name: Run Rust source tests (once per OS)
+        if: matrix.os != 'windows-latest' && matrix.python-version == '3.12'
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p quprs
+
       - name: Run tests (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          python -m QuPRS.utils.ganak_distribution
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs
           pytest -n auto -v -ra \
           --junitxml=pytest-results.xml \
           --html=pytest-results.html --self-contained-html \

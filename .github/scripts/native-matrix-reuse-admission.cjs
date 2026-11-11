@@ -21,7 +21,7 @@ function decideNativeMatrixReuse(pr, merged) {
       if (!/^[0-9a-f]{40}$/.test(s.tree || '') ||
           !/^[0-9a-f]{64}$/.test(s.contract_sha256 || '') ||
           !/^[0-9a-f]{64}$/.test(s.submodule_sha256 || '') ||
-          s.command_contract !== 'native-12-pytest-rust-source-v1' ||
+          s.command_contract !== 'native-12-python-4-rust-source-v2' ||
           !e.image_version || !e.image_os ||
           !e.runner_os || !e.runner_arch || !e.python ||
           !/^[0-9a-f]{64}$/.test(e.rustc_sha256 || '') ||

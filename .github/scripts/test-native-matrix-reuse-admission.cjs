@@ -6,7 +6,7 @@ function fixture() {
   return expectedSlots.map(slot=>({
     schema:1, slot, complete:true, job_step_status:'success',
     source:{tree:hex('a',40),submodule_sha256:hex('b',64),
-      contract_sha256:hex('c',64),command_contract:'native-12-pytest-rust-source-v1'},
+      contract_sha256:hex('c',64),command_contract:'native-12-python-4-rust-source-v2'},
     environment:{image_os:'Ubuntu',image_version:'20261025.179',
       runner_os:'Linux',runner_arch:'X64',python:slot.slice(0,4)+'.0',
       rustc_sha256:hex('d',64),pip_sha256:hex('e',64),
@@ -21,6 +21,7 @@ assert.equal(decide(p,mutate(m,q=>q[0].environment.pip_sha256=hex('f',64))).cert
 assert.equal(decide(p,mutate(m,q=>q[0].source.tree=hex('f',40))).certified,false,'different tree blocks reuse');
 assert.equal(decide(p,mutate(m,q=>q[0].source.submodule_sha256=hex('f',64))).certified,false,'submodule drift blocks reuse');
 assert.equal(decide(p,mutate(m,q=>q[0].source.contract_sha256=hex('f',64))).certified,false,'workflow definition drift blocks reuse');
+assert.equal(decide(p,mutate(m,q=>q[0].source.command_contract='native-12-pytest-rust-source-v1')).certified,false,'old all-Rust-slots contract cannot attest new run');
 assert.equal(decide(p,mutate(m,q=>q[0].job_step_status='failure')).certified,false,'scientific test failure blocks reuse');
 assert.equal(decide(p,mutate(m,q=>q[0].complete=false)).certified,false,'unattested fingerprint blocks reuse');
 assert.equal(decide(p,mutate(m,q=>q[0].environment.image_version='')).certified,false,'unknown runner image blocks reuse');

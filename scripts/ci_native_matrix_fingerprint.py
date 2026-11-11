@@ -47,7 +47,7 @@ def witness() -> dict:
         "tree": command("git", "rev-parse", "HEAD^{tree}"),
         "submodule_sha256": digest(submodules) if submodules else "",
         "contract_sha256": contract_digest,
-        "command_contract": "native-12-pytest-rust-source-v1",
+        "command_contract": "native-12-python-4-rust-source-v2",
     }
     environment = {
         "image_os": os_image,

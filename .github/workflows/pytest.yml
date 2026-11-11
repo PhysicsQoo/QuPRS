@@ -114,6 +114,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           
+      # Verify the actual published archive once per native OS/architecture,
+      # without replacing the default source-built solver or spawning it.
+      - name: Cache pinned GPMC CLI release
+        if: matrix.python-version == '3.12'
+        uses: actions/cache@v4
+        with:
+          path: rust/target/gpmc-release-cache
+          key: gpmc-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/gpmc-release.txt') }}
+      - name: Verify pinned GPMC release archive and provenance
+        if: matrix.python-version == '3.12'
+        run: python scripts/install_gpmc_release.py --verify-only
+
       # ==========================================
       # Rust env and cache
       # ==========================================

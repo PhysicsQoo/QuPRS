@@ -155,6 +155,29 @@ async function tests(){
   assert.notEqual(group('push',shaA,'refs/heads/main'),group('push',shaA),
     'Main and dev have separate groups');
 
+  // Every supported OS/architecture keeps a Rust correctness run on the
+  // canonical Python 3.12 slot, while full Python + coverage runs on all 12.
+  const solverStep = workflow.match(
+    /\n      - name: Verify pinned solver distribution \(Unix\)\n([\s\S]*?)\n      - name: Run Rust source tests \(once per OS\)\n/
+  );
+  assert.ok(solverStep, 'Pinned solver validation must remain on every Unix slot');
+  assert.match(solverStep[1], /python -m QuPRS\.utils\.ganak_distribution/);
+  const rustStep = workflow.match(
+    /\n      - name: Run Rust source tests \(once per OS\)\n([\s\S]*?)\n      - name: Run tests \(Unix\)\n/
+  );
+  assert.ok(rustStep, 'Rust source tests must have their own fail-closed step');
+  assert.match(rustStep[1], /if: matrix\.os != 'windows-latest' && matrix\.python-version == '3\.12'/);
+  assert.match(rustStep[1], /cargo test --locked --manifest-path rust\/Cargo\.toml -p quprs/);
+  const pythonStep = workflow.match(
+    /\n      - name: Run tests \(Unix\)\n([\s\S]*?)\n      - name: Run tests \(Windows\)\n/
+  );
+  assert.ok(pythonStep, 'Every Unix matrix slot retains full Python pytest');
+  assert.match(pythonStep[1], /if: matrix\.os != 'windows-latest'/);
+  assert.match(pythonStep[1], /pytest -n auto -v -ra/);
+  assert.match(pythonStep[1], /--cov=src\/QuPRS --cov-report=xml --cov-report=html/);
+  assert.doesNotMatch(pythonStep[1], /matrix\.python-version == '3\.12'/,
+    'Python test/coverage must never be reduced to the Rust canonical slot');
+
   const m=workflow.match(/\n      - id: scope\n([\s\S]*?)\n  build:\n/);
   assert.ok(m,'source step must precede build');
   const embedded=m[1].split('          script: |\n')[1];

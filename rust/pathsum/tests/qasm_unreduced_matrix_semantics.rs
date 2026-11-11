@@ -177,7 +177,7 @@ fn reduced_and_unreduced_ir_match_shared_operator_witnesses() {
         assert!(matrix[row][column].re.is_nan(), "Duplicate fixture entry");
         matrix[row][column] = C::new(real, imag);
     }
-    assert_eq!(references.len(), 4);
+    assert_eq!(references.len(), 8);
     for (name, oracle) in references {
         for row in oracle {
             for value in row { assert!(value.re.is_finite() && value.im.is_finite()); }
@@ -188,6 +188,10 @@ fn reduced_and_unreduced_ir_match_shared_operator_witnesses() {
             "hsh" => vec![QuantumOp::H(0), QuantumOp::S(0), QuantumOp::H(0)],
             "xzxz" => vec![QuantumOp::X(0), QuantumOp::Z(0),
                            QuantumOp::X(0), QuantumOp::Z(0)],
+            "hzh" => vec![QuantumOp::H(0), QuantumOp::Z(0), QuantumOp::H(0)],
+            "hxh" => vec![QuantumOp::H(0), QuantumOp::X(0), QuantumOp::H(0)],
+            "t" => vec![QuantumOp::T(0)],
+            "hth" => vec![QuantumOp::H(0), QuantumOp::T(0), QuantumOp::H(0)],
             _ => panic!("Unknown operator witness: {name}"),
         };
         for reduced in [false, true] {
@@ -211,5 +215,57 @@ fn reduced_and_unreduced_ir_match_shared_operator_witnesses() {
                 }
             }
         }
+    }
+}
+
+
+#[test]
+fn alpha_renaming_internal_paths_preserves_operator_and_reduction() {
+    use rustc_hash::FxHashSet;
+    let cases: [Vec<QuantumOp>; 3] = [
+        vec![QuantumOp::H(0), QuantumOp::H(0)],
+        vec![QuantumOp::H(0), QuantumOp::Z(0), QuantumOp::H(0)],
+        vec![QuantumOp::H(0), QuantumOp::T(0), QuantumOp::H(0)],
+    ];
+    for gates in cases {
+        let mut original = PathSum::new(2);
+        original.set_auto_reduce(false);
+        for op in &gates { op.apply(&mut original, false); }
+        let mut renamed = original.clone();
+
+        let mut old_variables: Vec<u32> = original.v.path_vars.iter()
+            .copied().filter(|&v| (v as usize) >= original.v.num_qubits).collect();
+        old_variables.sort_unstable();
+        assert!(!old_variables.is_empty(), "Expected summed variables");
+        for (index, old) in old_variables.into_iter().enumerate() {
+            let new_id = 20 + index as u32;
+            let mut replacement = FxHashSet::default();
+            replacement.insert(vec![new_id]);
+            renamed.p.substitute_var_with_poly(old, &replacement);
+            renamed.f.substitute_var_with_poly(old, &replacement);
+            assert!(renamed.v.path_vars.remove(&old));
+            assert!(renamed.v.path_vars.insert(new_id));
+            renamed.v.next_id = renamed.v.next_id.max(new_id + 1);
+        }
+
+        let check = |left: &PathSum, right: &PathSum| {
+            let a = matrix_from_unreduced(left);
+            let b = matrix_from_unreduced(right);
+            for row in 0..4 {
+                for col in 0..4 {
+                    assert!(
+                        (a[row][col] - b[row][col]).norm() < 2e-11,
+                        "Alpha-renaming changed amplitude row={row} col={col}: {} vs {}",
+                        a[row][col], b[row][col]
+                    );
+                }
+            }
+        };
+        check(&original, &renamed);
+        original.set_auto_reduce(true);
+        renamed.set_auto_reduce(true);
+        original.full_reduce();
+        renamed.full_reduce();
+        check(&original, &renamed);
     }
 }

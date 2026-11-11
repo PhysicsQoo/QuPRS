@@ -22,6 +22,10 @@ CASES = {
     "hh": ("h", "h"),
     "hsh": ("h", "s", "h"),
     "xzxz": ("x", "z", "x", "z"),
+    "hzh": ("h", "z", "h"),
+    "hxh": ("h", "x", "h"),
+    "t": ("t",),
+    "hth": ("h", "t", "h"),
 }
 
 
@@ -100,3 +104,54 @@ def test_pathsum_semantics_match_shared_operator_reference(name, reduced):
                 name, reduced, output, input_state,
                 actual[output][input_state], expected,
             )
+
+
+@pytest.mark.parametrize("name", ("h", "hh", "hzh", "hth"))
+def test_alpha_renaming_preserves_full_matrix_before_and_after_reduction(name):
+    original = PathSum.QuantumCircuit(2)
+    original.set_reduction_switch(False)
+    for gate in CASES[name]:
+        original = getattr(original, gate)(0)
+    old_variables = sorted(original.pathvar, key=str)
+    assert old_variables, "Fixture must actually contain summed variables"
+    replacement = {
+        old: se.Symbol(f"renamed_path_{index + 10}")
+        for index, old in enumerate(old_variables)
+    }
+    assert not set(replacement.values()).intersection(original.pathvar)
+
+    new_phase = original.P
+    new_outputs = original.f
+    for old, fresh in replacement.items():
+        new_phase = new_phase.subs({old: fresh})
+        new_outputs = new_outputs.sub(old, fresh)
+    renamed = PathSum(new_phase, new_outputs, frozenset(replacement.values()))
+
+    def same_matrix(left, right):
+        actual_left = _matrix_from_ir(left)
+        actual_right = _matrix_from_ir(right)
+        for row in range(4):
+            for col in range(4):
+                assert abs(actual_left[row][col] - actual_right[row][col]) < 2e-11, (
+                    name, row, col, actual_left[row][col], actual_right[row][col]
+                )
+
+    same_matrix(original, renamed)
+    original.set_reduction_switch(True)
+    renamed.set_reduction_switch(True)
+    same_matrix(original.reduction(), renamed.reduction())
+
+
+def test_hzh_eliminates_internal_paths_and_substitutes_output_bit():
+    ps = PathSum.QuantumCircuit(2)
+    ps.set_reduction_switch(True)
+    for gate in CASES["hzh"]:
+        ps = getattr(ps, gate)(0)
+    ps = ps.reduction()
+    assert ps.get_reduction_count("HH") >= 1
+    assert not ps.pathvar, "The H-Z-H operator must have no residual path sums"
+    matrix = _matrix_from_ir(ps)
+    assert abs(matrix[1][0] - 1) < 2e-11
+    assert abs(matrix[0][1] - 1) < 2e-11
+    assert abs(matrix[0][0]) < 2e-11
+    assert abs(matrix[1][1]) < 2e-11

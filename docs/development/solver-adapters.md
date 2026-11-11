@@ -16,6 +16,18 @@ malformed output or nonfinite count cannot silently produce a valid
 equivalence result. A failure never causes an implicit retry with
 the other solver.
 
+The Python and native Rust backends both honor an explicit
+`QUPRS_GPMC_PATH` executable override. With an override, that path is
+used as requested; a missing or failing executable is an error, not a
+request to retry the packaged GPMC or Ganak. The packaged executable
+comes from the GPMC source pinned by the repository submodule Gitlink;
+`branch` in `.gitmodules` is a checkout preference, not an immutable
+version identifier. An override is not thereby certified as the pinned
+binary. For source and artifact attribution, record the actual executable
+SHA-256, platform/architecture, selected command arguments and source
+commit separately. An upstream/source commit alone does not prove an
+installed binary has identical bytes or numerical behavior.
+
 Python uses `QuPRS.utils.solver_adapter` for typed solver capabilities,
 result parsing, and scoped optional adapter registration. Native Rust uses
 a separate solver-adapter interface; neither backend automatically routes

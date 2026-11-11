@@ -124,3 +124,38 @@ def test_exact_complex_factor_is_separate_from_native_output():
     )
     assert has_model
     assert count == (Fraction(19, 12), Fraction(17, 6))
+
+
+def test_native_precision_boundary_avoids_false_zero_count(tmp_path):
+    # The Boolean CNF is trivially satisfiable. Its exact complex weighted
+    # sum is (10**25 + 1) - 10**25 == 1.
+    cnf = tmp_path / "source_precision_boundary.cnf"
+    cnf.write_text(
+        "p cnf 1 0\n"
+        "c t wmc\n"
+        "c p weight 1 10000000000000000000000001+0i 0\n"
+        "c p weight -1 -10000000000000000000000000+0i 0\n",
+        encoding="utf-8",
+    )
+    observations = {}
+    with WMC("ganak") as executable:
+        metadata = binary_diagnostics(executable)
+        assert metadata["pinned"] and not metadata["override"]
+        for bits in (53, 127, 256):
+            run = run_solver([
+                str(executable), "--mode=6", f"--mpfrprec={bits}",
+                "--arjun=0", "--puura=0", str(cnf),
+            ], timeout=30)
+            assert run.returncode == 0, (bits, run.stdout, run.stderr)
+            parsed = parse_printed_solver_output(run.stdout)
+            observations[bits] = (parsed.real, parsed.imag, run.stdout)
+
+    assert observations[127][:2] == (Fraction(1), Fraction(0))
+    assert observations[256][:2] == (Fraction(1), Fraction(0))
+    assert "s SATISFIABLE" in observations[127][2]
+    assert "s SATISFIABLE" in observations[256][2]
+    # Under binary53, source-weight rounding produces zero and the pinned
+    # binary reports UNSAT despite a satisfiable Boolean formula. This is
+    # intentionally a bounded negative witness, not a production verdict.
+    assert observations[53][:2] == (Fraction(0), Fraction(0))
+    assert "s UNSATISFIABLE" in observations[53][2]

@@ -6,6 +6,7 @@ on:
       - research/solver-ir-conformance
     paths:
       - 'test/test_pathsum_ir_small_semantics.py'
+      - 'test/fixtures/ir_source_*.qasm'
       - 'test/fixtures/pathsum_ir_small_semantics.tsv'
       - 'rust/pathsum/tests/qasm_unreduced_matrix_semantics.rs'
       - '.github/workflows/pathsum-ir-experiment.yml'
@@ -46,7 +47,7 @@ jobs:
           mkdir -p evidence
           git rev-parse HEAD > evidence/head.txt
           git rev-parse 'HEAD^{tree}' > evidence/tree.txt
-          sha256sum test/test_pathsum_ir_small_semantics.py test/fixtures/pathsum_ir_small_semantics.tsv > evidence/source-sha256.txt
+          sha256sum test/test_pathsum_ir_small_semantics.py test/fixtures/pathsum_ir_small_semantics.tsv test/fixtures/ir_source_*.qasm > evidence/source-sha256.txt
           python -m pytest -q -ra test/test_pathsum_ir_small_semantics.py --junitxml=evidence/python-junit.xml 2>&1 | tee evidence/python.log
       - name: Preserve reproducible test evidence
         if: always()
@@ -81,7 +82,7 @@ jobs:
           git rev-parse HEAD > evidence/head.txt
           git rev-parse 'HEAD^{tree}' > evidence/tree.txt
           rustc --version > evidence/rust-version.txt
-          sha256sum rust/pathsum/tests/qasm_unreduced_matrix_semantics.rs test/fixtures/pathsum_ir_small_semantics.tsv > evidence/source-sha256.txt
+          sha256sum rust/pathsum/tests/qasm_unreduced_matrix_semantics.rs test/fixtures/pathsum_ir_small_semantics.tsv test/fixtures/ir_source_*.qasm > evidence/source-sha256.txt
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --test qasm_unreduced_matrix_semantics -- --nocapture 2>&1 | tee evidence/rust.log
       - name: Preserve reproducible test evidence
         if: always()

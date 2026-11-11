@@ -72,12 +72,38 @@ fn pathsum_matrix(a: &[QuantumOp], b: &[QuantumOp]) -> M {
     matrix_from_unreduced(&ps)
 }
 #[derive(Clone,Copy)]
-enum Gate { RY(usize,f64), RZ(usize,f64), CX(usize,usize) }
+enum Gate { H(usize), T(usize), RY(usize,f64), RZ(usize,f64), CX(usize,usize), Phase(f64) }
 fn direct_operator(ops: &[Gate]) -> M {
     let mut m=[[C::new(0.0,0.0);4];4];
     for i in 0..4 { m[i][i]=C::new(1.0,0.0); }
     for op in ops {
         match *op {
+            Gate::H(q) => {
+                let scale = std::f64::consts::FRAC_1_SQRT_2;
+                for input in 0..4 {
+                    for row in 0..4 {
+                        if (row >> q) & 1 == 0 {
+                            let other = row ^ (1 << q);
+                            let a = m[row][input];
+                            let b = m[other][input];
+                            m[row][input] = (a + b) * scale;
+                            m[other][input] = (a - b) * scale;
+                        }
+                    }
+                }
+            }
+            Gate::T(q) => {
+                let phase = C::from_polar(1.0, PI / 4.0);
+                for row in 0..4 {
+                    if (row >> q) & 1 == 1 {
+                        for input in 0..4 { m[row][input] *= phase; }
+                    }
+                }
+            }
+            Gate::Phase(theta) => {
+                let phase = C::from_polar(1.0, theta);
+                for row in 0..4 { for input in 0..4 { m[row][input] *= phase; } }
+            }
             Gate::RZ(q,theta) => {
                 for input in 0..4 {
                     for output in 0..4 {
@@ -267,5 +293,42 @@ fn alpha_renaming_internal_paths_preserves_operator_and_reduction() {
         original.full_reduce();
         renamed.full_reduce();
         check(&original, &renamed);
+    }
+}
+
+// Parse original QASM sources independently in Rust, then compare the
+// complete Path-sum operator to a separately reconstructed direct gate model.
+#[test]
+fn qasm_source_to_native_pathsum_preserves_full_operator() {
+    let cases: [(&str, Vec<Gate>); 3] = [
+        (
+            include_str!("../../../test/fixtures/ir_source_qasm2.qasm"),
+            vec![Gate::H(0), Gate::CX(0, 1), Gate::T(1), Gate::RZ(0, PI/2.0)],
+        ),
+        (
+            include_str!("../../../test/fixtures/ir_source_decimal.qasm"),
+            vec![
+                Gate::RY(1, 0.2815705644039938),
+                Gate::RZ(0, 1.1085093551371514),
+                Gate::CX(0, 1),
+            ],
+        ),
+        (
+            include_str!("../../../test/fixtures/ir_source_qasm3.qasm"),
+            vec![Gate::Phase(PI/2.0), Gate::H(0), Gate::T(0)],
+        ),
+    ];
+    for (source, expected_gates) in cases {
+        let (parsed, n) = parse_qasm_str(source).expect("Supported QASM source");
+        assert_eq!(n, 2);
+        let expected = direct_operator(&expected_gates);
+        for reduced in [false, true] {
+            let mut ps = PathSum::new(n);
+            ps.set_auto_reduce(reduced);
+            for op in &parsed { op.apply(&mut ps, false); }
+            if reduced { ps.full_reduce(); }
+            compare(&matrix_from_unreduced(&ps), &expected,
+                    if reduced {"QASM→reduced native"} else {"QASM→unreduced native"});
+        }
     }
 }

@@ -155,3 +155,29 @@ def test_hzh_eliminates_internal_paths_and_substitutes_output_bit():
     assert abs(matrix[0][1] - 1) < 2e-11
     assert abs(matrix[0][0]) < 2e-11
     assert abs(matrix[1][1]) < 2e-11
+
+
+# A second source boundary: independent QASM parsers must preserve the
+# complete unitary, including scalar phase and decimal source angles.
+@pytest.mark.parametrize("source_file", (
+    "ir_source_qasm2.qasm", "ir_source_decimal.qasm", "ir_source_qasm3.qasm",
+))
+def test_qasm_source_to_python_pathsum_full_matrix(source_file):
+    from qiskit import qasm2, qasm3
+    from qiskit.quantum_info import Operator
+
+    source = (Path(__file__).parent / "fixtures" / source_file).read_text(
+        encoding="utf-8"
+    )
+    circuit = (qasm3.loads(source) if source_file.endswith("qasm3.qasm")
+               else qasm2.loads(source))
+    assert circuit.num_qubits == 2
+    expected = Operator(circuit).data
+    derived = PathSum.load_from_qasm_str(source)
+    actual = _matrix_from_ir(derived)
+    for row in range(4):
+        for column in range(4):
+            assert abs(actual[row][column] - expected[row, column]) < 8e-11, (
+                source_file, row, column,
+                actual[row][column], expected[row, column],
+            )

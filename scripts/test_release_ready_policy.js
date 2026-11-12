@@ -18,12 +18,15 @@ for (let i = start + 1; i < lines.length; i += 1) {
 assert(body.length > 20, "Gate script unexpectedly small");
 const evaluate = new AsyncFunction("github", "context", "core", "process", body.join("\n"));
 const job = name => ({ name, status: "completed", conclusion: "success" });
+const platforms = ["ubuntu-latest", "ubuntu-24.04-arm", "macos-15-intel", "macos-15"];
+const versions = ["3.11", "3.12", "3.13"];
+const prefix = os => "Installed artifacts / Platform wheels ("+os+") / ";
 const matrix = () => [
   ...Array.from({length:12}, (_,i) => job("Source correctness / build ("+i+")")),
   job("Installed artifacts / Verify version and release ref"),
-  ...Array.from({length:4}, (_,i) => job("Installed artifacts / Build wheels on "+i)),
+  ...platforms.map(os => job(prefix(os)+"Build wheels on "+os)),
   job("Installed artifacts / Build source distribution"),
-  ...Array.from({length:12}, (_,i) => job("Installed artifacts / Wheel smoke ("+i+")")),
+  ...platforms.flatMap(os => versions.map(py => job(prefix(os)+"Wheel smoke ("+os+", py"+py+")"))),
   ...Array.from({length:2}, (_,i) => job("Installed artifacts / Sdist smoke ("+i+")")),
 ];
 async function simulate(scenario) {
@@ -56,10 +59,11 @@ async function main() {
     ["reject feature-to-main",{source:"feat/unreviewed"},true],
     ["reject forked dev-to-main",{fullName:"DifferentOrg/QuPRS"},true],
     ["reject missing source shard",{jobs:base.filter(x=>x.name!=="Source correctness / build (4)")},true],
-    ["reject missing wheel smoke",{jobs:base.filter(x=>x.name!=="Installed artifacts / Wheel smoke (6)")},true],
+    ["reject missing wheel smoke",{jobs:base.filter(x=>x.name!==prefix("macos-15-intel")+"Wheel smoke (macos-15-intel, py3.11)")},true],
     ["reject skipped sdist smoke",{jobs:base.map(x=>x.name==="Installed artifacts / Sdist smoke (1)"?{...x,conclusion:"skipped"}:x)},true],
-    ["reject incomplete job",{jobs:base.map(x=>x.name==="Installed artifacts / Wheel smoke (1)"?{...x,status:"in_progress",conclusion:null}:x)},true],
-    ["reject failure in a smoke job",{jobs:base.map(x=>x.name==="Installed artifacts / Wheel smoke (1)"?{...x,conclusion:"failure"}:x)},true],
+    ["reject incomplete job",{jobs:base.map(x=>x.name===prefix("ubuntu-latest")+"Wheel smoke (ubuntu-latest, py3.12)"?{...x,status:"in_progress",conclusion:null}:x)},true],
+    ["reject failure in a smoke job",{jobs:base.map(x=>x.name===prefix("ubuntu-latest")+"Wheel smoke (ubuntu-latest, py3.12)"?{...x,conclusion:"failure"}:x)},true],
+    ["reject duplicated smoke masking a missing OS/Python pair",{jobs:base.map(x=>x.name===prefix("macos-15")+"Wheel smoke (macos-15, py3.13)"?{...x,name:prefix("ubuntu-latest")+"Wheel smoke (ubuntu-latest, py3.13)"}:x)},true],
     ["reject cancelled source matrix",{sourceResult:"cancelled"},true],
     ["reject missing installed matrix",{artifactResult:"skipped"},true],
     ["reject builder/publisher drift",{parityResult:"failure"},true],
@@ -70,7 +74,7 @@ async function main() {
     assert.equal(errors.length>0,shouldFail, name+" produced "+errors.length+" error(s)");
     console.log("PASS "+name+": "+(shouldFail?"rejected":"accepted"));
   }
-  console.log("Release policy 13 positive/negative scenarios passed");
+  console.log("Release policy 14 positive/negative scenarios passed");
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
 
@@ -99,6 +103,32 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
 }
 
  
+// Platform-local smoke must not wait for unrelated wheel builders.
+{
+  const common = fs.readFileSync(".github/workflows/platform-wheel-ci.yml", "utf8");
+  const candidate = fs.readFileSync(".github/workflows/release-artifact-ci.yml", "utf8");
+  const publisher = fs.readFileSync(".github/workflows/python-publish.yml", "utf8");
+  const check = text => {
+    assert.match(text, /\n  artifact_install:\n[\s\S]*?    needs: build_wheels\n/);
+    assert.match(text, /name: all-builds-dist-wheels-\$\{\{ inputs\.os \}\}/);
+    assert.doesNotMatch(text, /pattern: all-builds-dist-wheels-\*/);
+    assert.match(text, /CIBW_ARCHS: \$\{\{ inputs\.arch \}\}/);
+    assert.match(text, /python-version: \["3\.11", "3\.12", "3\.13"\]/);
+  };
+  check(common);
+  for (const text of [candidate, publisher]) {
+    assert.match(text, /uses: \.\/\.github\/workflows\/platform-wheel-ci\.yml/);
+    assert.doesNotMatch(text, /needs: \[verify_release_ref, build_wheels\]/);
+  }
+  for (const [name, mutate] of [
+    ["lost local build dependency", x => x.replace("needs: build_wheels", "needs: build_sdist")],
+    ["cross-platform wheel download", x => x.replace("name: all-builds-dist-wheels-${{ inputs.os }}", "pattern: all-builds-dist-wheels-*")],
+  ]) {
+    const changed = mutate(common);
+    assert.notEqual(changed, common, name);
+    assert.throws(() => check(changed), undefined, name);
+  }
+}
 // Dual-registry releases must fail closed before their first irreversible
 // upload. GitHub Release is public only after both registries publish, and
 // must carry the same Rust crate bytes as crates.io.
@@ -144,7 +174,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.doesNotMatch(preflight, /action-gh-release|gh-action-pypi-publish/,
       "Preflight must never publish either registry or GitHub Release");
 
-    assert.match(python, /needs: \[verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight\]/,
+    assert.match(python, /needs: \[verify_release_ref, platform_wheels, build_sdist, sdist_install, rust_preflight\]/,
       "Python publishing must depend on successful native preflight");
     assert.match(python, /id-token: write/);
     assert.match(python, /pypa\/gh-action-pypi-publish@release\/v1/);
@@ -162,7 +192,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.doesNotMatch(python, /action-gh-release/,
       "Public GitHub Release must follow both registries");
 
-    assert.match(rust, /needs: \[verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight\]/,
+    assert.match(rust, /needs: \[verify_release_ref, platform_wheels, build_sdist, sdist_install, rust_preflight\]/,
       "Rust publishing must wait for the same completed artifact smoke and native preflight gates as PyPI");
     assert.doesNotMatch(rust, /needs: \[[^\]]*\bpublish\b[^\]]*\]/,
       "PyPI and crates.io must publish independently after their common safety gates");
@@ -222,10 +252,10 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     ["PyPI retry uploads the unfiltered distribution set", x => x.replace(
       "packages-dir: pypi-to-upload/", "packages-dir: dist/")],
     ["Rust skips installed artifact safety gates", x => x.replace(
-      "needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]",
+      "needs: [verify_release_ref, platform_wheels, build_sdist, sdist_install, rust_preflight]",
       "needs: [verify_release_ref, rust_preflight]")],
     ["Rust waits for PyPI instead of publishing independently", x => x.replace(
-      "needs: [verify_release_ref, build_wheels, build_sdist, artifact_install, sdist_install, rust_preflight]",
+      "needs: [verify_release_ref, platform_wheels, build_sdist, sdist_install, rust_preflight]",
       "needs: [verify_release_ref, rust_preflight, publish]")],
     ["Rust package digest is not checked", x => x.replace(
       "sha256sum -c SHA256SUMS", "echo skip-checksum")],

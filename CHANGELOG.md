@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased — v0.16.0 candidate: Python 3.14 and native Rust modernization
+
+This is an in-development release candidate. The changelog entry and source
+version do not establish a published Python package, Rust crate or GitHub
+Release.
+
+### Supported Python versions and packaging
+
+- Qualify standard CPython 3.11–3.14 across Linux x86-64/ARM64 and
+  macOS 15+ Intel/Apple Silicon, with full source and installed-wheel smoke
+  coverage. Python 3.14 uses Qiskit 2.x; Qiskit 1.x is not claimed for
+  Python 3.14. Free-threaded Python 3.14t is not supported.
+- Modernize the native extension to PyO3 0.30.1 and the CPython 3.11 stable
+  ABI (`cp311-abi3`) while retaining the public
+  `QuPRS._pathsum_rust` module.
+- Move the Rust core source directory from `rust/pathsum` to
+  `rust/quprs`, preserving the published `quprs` crate name and Rust
+  API, existing Python entry points and native verification methods.
+- Maintain independently resolved Rust workspace and standalone crate
+  lockfiles, reproducible packaging and native GMP/MPFR build qualification.
+
+### Compatibility and scientific correctness
+
+- Preserve the TACAS-oriented Path-sum reduction and residual WMC methods,
+  independent GPMC/Ganak adapters, source-angle provenance, existing
+  per-call numerical tolerance contracts and distinct
+  Equivalent/Not Equivalent/Unknown/Error outcomes.
+- Do not introduce a third production WMC solver, change the default solver,
+  or claim certified performance gains from hosted-runner measurements.
+- Continue publishing supported-platform wheels, an sdist and the Rust
+  crate through verified independent registry workflows.
+
 ## v0.15.1 — Solver distribution and release reliability
 
 This entry describes the v0.15.1 maintenance-release source and distribution

@@ -94,11 +94,11 @@ jobs:
               per_page: 100
             });
             const requirements = [
-              ['Source correctness / build (', 12],
+              ['Source correctness / build (', 16],
               ['Installed artifacts / Verify version and release ref', 1],
               ['Build wheels on ', 4],
               ['Installed artifacts / Build source distribution', 1],
-              ['Wheel smoke (', 12],
+              ['Wheel smoke (', 16],
               ['Installed artifacts / Sdist smoke (', 2]
             ];
             for (const [token, expected] of requirements) {
@@ -116,7 +116,7 @@ jobs:
             }
             // Reject missing platform/version jobs masked by duplicates.
             const platforms = ['ubuntu-latest', 'ubuntu-24.04-arm', 'macos-15-intel', 'macos-15'];
-            const pyVersions = ['3.11', '3.12', '3.13'];
+            const pyVersions = ['3.11', '3.12', '3.13', '3.14'];
             const requireExactlyOne = suffix => {
               const found = jobs.filter(job => job.name.endsWith(suffix));
               if (found.length !== 1) {

@@ -129,13 +129,13 @@ async function tests(){
   assert.match(workflow, /needs: \[source-admission\]/);
   assert.match(workflow, /needs\.source-admission\.outputs\.run_heavy == 'true'/);
   assert.match(workflow, /inputs\.require_full_matrix/);
-  assert.match(workflow, /python-version: \["3.11", "3.12", "3.13"\]/);
+  assert.match(workflow, /python-version: \["3.11", "3.12", "3.13", "3.14"\]/);
   assert.match(workflow, /os: \[ubuntu-latest, ubuntu-24\.04-arm, macos-15-intel, macos-15\]/);
   assert.match(workflow, /test-pytest-push-impact\.cjs/);
   assert.match(workflow, /codspeed-pr-impact\.cjs/,
     'Shared Rustdoc lexer modification must trigger Pytest full source validation');
   // A later Rustdoc-only push must not cancel the previous source-changing
-  // push before its 12-platform correctness matrix has finished.
+  // push before its 16-platform correctness matrix has finished.
   const concurrency=workflow.match(/^concurrency:\n((?:  .*\n)+)\n/m);
   assert.ok(concurrency,'Workflow-level concurrency exists');
   assert.match(concurrency[1],/^  group: .*github\.workflow.*github\.ref.*github\.event_name == 'push' && github\.sha \|\| 'shared'/m,

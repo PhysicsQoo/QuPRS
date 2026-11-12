@@ -19,10 +19,10 @@ assert(body.length > 20, "Gate script unexpectedly small");
 const evaluate = new AsyncFunction("github", "context", "core", "process", body.join("\n"));
 const job = name => ({ name, status: "completed", conclusion: "success" });
 const platforms = ["ubuntu-latest", "ubuntu-24.04-arm", "macos-15-intel", "macos-15"];
-const versions = ["3.11", "3.12", "3.13"];
+const versions = ["3.11", "3.12", "3.13", "3.14"];
 const prefix = os => "Installed artifacts / Platform wheels ("+os+") / ";
 const matrix = () => [
-  ...Array.from({length:12}, (_,i) => job("Source correctness / build ("+i+")")),
+  ...Array.from({length:16}, (_,i) => job("Source correctness / build ("+i+")")),
   job("Installed artifacts / Verify version and release ref"),
   ...platforms.map(os => job(prefix(os)+"Build wheels on "+os)),
   job("Installed artifacts / Build source distribution"),
@@ -113,7 +113,7 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(text, /name: all-builds-dist-wheels-\$\{\{ inputs\.os \}\}/);
     assert.doesNotMatch(text, /pattern: all-builds-dist-wheels-\*/);
     assert.match(text, /CIBW_ARCHS: \$\{\{ inputs\.arch \}\}/);
-    assert.match(text, /python-version: \["3\.11", "3\.12", "3\.13"\]/);
+    assert.match(text, /python-version: \["3\.11", "3\.12", "3\.13", "3\.14"\]/);
   };
   check(common);
   for (const text of [candidate, publisher]) {

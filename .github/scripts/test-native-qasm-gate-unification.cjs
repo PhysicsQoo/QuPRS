@@ -5,8 +5,8 @@ const active=fs.readFileSync('.github/workflows/native-qasm3-contract.yml','utf8
 const optin=fs.readFileSync('.github/workflows/rust-qasm-source-guard.yml','utf8');
 const manifest=active.split('  workflow_dispatch:')[0];
 for(const path of [
-  'rust/pathsum/src/qasm.rs','rust/pathsum/src/ir.rs',
-  'rust/pathsum/src/rational.rs','rust/pathsum/src/gates.rs',
+  'rust/quprs/src/qasm.rs','rust/quprs/src/ir.rs',
+  'rust/quprs/src/rational.rs','rust/quprs/src/gates.rs',
   'src/QuPRS/interface/load_qiskit.py',
   'test/test_qasm3_python_global_phase.py','test/test_rust_qasm3_subset.py',
   'test/test_rust_qasm_fail_closed.py','test/test_rust_p_phase_semantics.py',

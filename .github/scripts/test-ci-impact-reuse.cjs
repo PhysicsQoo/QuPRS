@@ -69,18 +69,18 @@ async function execute({files = [{filename: 'docs/development/notes.md'}], prior
 
 (async () => {
   assert.equal(await execute(), false, 'docs-only can reuse prior success');
-  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}]}), false, 'only Rustdoc may reuse successful previous measurement');
-  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}],
+  assert.equal(await execute({files: [{filename: 'rust/quprs/src/lib.rs', status: 'modified'}]}), false, 'only Rustdoc may reuse successful previous measurement');
+  assert.equal(await execute({files: [{filename: 'rust/quprs/src/lib.rs', status: 'modified'}],
     sources: {before: '/// Before\npub fn run() {}\n',
               after: '/// After\npub fn run() { println!("change"); }\n'}}), true, 'Rust code changes force measurement');
-  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}],
+  assert.equal(await execute({files: [{filename: 'rust/quprs/src/lib.rs', status: 'modified'}],
     sources: {before: 'const S:&str=r#"\n/// Before\n"#;\n',
               after: 'const S:&str=r#"\n/// After\n"#;\n'}}), true, 'raw string changes force measurement');
-  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'modified'}], failSource:true}), true, 'missing full source fails closed');
-  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs', status: 'renamed', previous_filename:'rust/pathsum/src/circuit.rs'}]}), true, 'rename fails closed');
+  assert.equal(await execute({files: [{filename: 'rust/quprs/src/lib.rs', status: 'modified'}], failSource:true}), true, 'missing full source fails closed');
+  assert.equal(await execute({files: [{filename: 'rust/quprs/src/lib.rs', status: 'renamed', previous_filename:'rust/quprs/src/circuit.rs'}]}), true, 'rename fails closed');
   assert.equal(await execute({files: [{filename: '.github/workflows/codspeed.yml',status:'modified'}]}), true, 'own workflow changes force measurement');
   assert.equal(await execute({files: [{filename: '.github/scripts/codspeed-pr-impact.cjs',status:'modified'}]}), true, 'routing changes invalidate evidence');
-  assert.equal(await execute({files: [{filename: 'rust/pathsum/src/lib.rs',status:'modified'}],
+  assert.equal(await execute({files: [{filename: 'rust/quprs/src/lib.rs',status:'modified'}],
     prior:before({conclusion:'failure'})}), true, 'failed prior Rustdoc evidence is not reusable');
   assert.equal(await execute({files: [{filename: 'src/QuPRS/core.py'}]}), true, 'code must run');
   assert.equal(await execute({files: [{filename: 'benchmarks/codspeed/suite_catalog.json'}]}), true, 'registry must run');

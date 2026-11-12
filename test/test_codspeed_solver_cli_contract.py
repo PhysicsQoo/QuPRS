@@ -131,7 +131,7 @@ def test_legacy_dev_api_uses_verified_90_digits_not_unsupported_args(harness, mo
         sys.modules["QuPRS"], "config",
         types.SimpleNamespace(TOLERANCE=1e-10), raising=False,
     )
-    rust_src = tmp_path / "rust/pathsum/src/solver_adapter.rs"
+    rust_src = tmp_path / "rust/quprs/src/solver_adapter.rs"
     rust_src.parent.mkdir(parents=True)
     rust_src.write_text(
         """impl SolverAdapter for GpmcDistanceAdapter {

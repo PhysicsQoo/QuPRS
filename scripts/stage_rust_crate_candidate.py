@@ -12,7 +12,7 @@ import shutil
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "rust" / "pathsum"
+SOURCE = ROOT / "rust" / "quprs"
 
 
 def replace_once(text: str, old: str, new: str) -> str:

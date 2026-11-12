@@ -30,7 +30,7 @@ NECESSARY_SOURCES = (
     "docs/site/python-api.md",
     "docs/site/reference.md",
     "scripts/check_rust_api_docs.py",
-    "rust/pathsum/Cargo.toml",
+    "rust/quprs/Cargo.toml",
 )
 
 

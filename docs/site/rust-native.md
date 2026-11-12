@@ -134,7 +134,7 @@ fn main() {
 }
 ```
 
-With a source checkout, use `rust/pathsum` as the local path dependency
+With a source checkout, use `rust/quprs` as the local path dependency
 (whose Cargo package name is `quprs`). Irreducible RR-only comparisons
 can return `EquivalenceStatus::Unknown`, not a proof of inequality.
 

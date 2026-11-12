@@ -1,0 +1,187 @@
+# Scoped Ubuntu 26.04 ARM64 consumer qualification.
+# This is observational and must not alter the existing release-ready matrix.
+name: Ubuntu 26 ARM64 qualification
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/ubuntu26-arm64-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ubuntu26-arm64-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-source:
+    name: Source/solver (Python ${{ matrix.python-version }}, Ubuntu 26 ARM64)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PhysicsQoo/QuPRS' }}
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.14']
+    env:
+      QUPRS_GPMC_RELEASE: v1.0.2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/cache-ganak-release
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: ubuntu26-arm64-scoped-${{ matrix.python-version }}
+      - name: Assert actual Ubuntu image, architecture and GMP/MPFR runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ARCH" = ARM64
+          test "$(uname -m)" = aarch64
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 26.04
+          echo "ImageOS=${ImageOS:-missing}"
+          echo "ImageVersion=${ImageVersion:-missing}"
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          pkg-config --modversion gmp
+          pkg-config --modversion mpfr
+          ldconfig -p | grep -F 'libmpfr.so.6'
+          ldconfig -p | grep -F 'libgmp.so.'
+          python scripts/install_gpmc_release.py --dest "$RUNNER_TEMP/gpmc-cli"
+          ldd "$RUNNER_TEMP/gpmc-cli" | tee "$RUNNER_TEMP/gpmc-ldd.txt"
+          if grep -Fq 'not found' "$RUNNER_TEMP/gpmc-ldd.txt"; then
+            echo "::error::Pinned GPMC has an unresolved shared dependency"
+            exit 1
+          fi
+          python scripts/check_gpmc_release_runtime.py --binary "$RUNNER_TEMP/gpmc-cli"
+      - name: Build source extension and exercise both real native solvers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/quprs-venv"
+          source "$RUNNER_TEMP/quprs-venv/bin/activate"
+          python -m pip install --disable-pip-version-check 'maturin>=1.5,<2' 'pytest>=8,<9'
+          maturin develop --release
+          python -m pip check
+          python scripts/check_gpmc_release_runtime.py --binary "$RUNNER_TEMP/gpmc-cli" --adapter
+          python -m pytest -q -ra             test/test_pyo3_bound_api.py             test/test_wmc_solver_adapters.py             test/test_ganak_distribution.py             test/test_solver_adapter_contract.py             test/test_gpmc_release_consumer.py
+      - name: Save exact-runner and native dependency provenance
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p ubuntu26-arm64-evidence
+          python - <<'PY'
+          import hashlib, json, os, platform, subprocess
+          from pathlib import Path
+          def command(*args):
+              try:
+                  return subprocess.run(args, check=True, capture_output=True, text=True, timeout=15).stdout.strip()
+              except (OSError, subprocess.SubprocessError):
+                  return ""
+          info = {
+              "schema": 1,
+              "source_sha": command("git", "rev-parse", "HEAD"),
+              "source_tree": command("git", "rev-parse", "HEAD^{tree}"),
+              "runner_label": "ubuntu-26.04-arm",
+              "image_os": os.environ.get("ImageOS"),
+              "image_version": os.environ.get("ImageVersion"),
+              "runner_arch": os.environ.get("RUNNER_ARCH"),
+              "machine": platform.machine(),
+              "os_release": Path("/etc/os-release").read_text(),
+              "python_matrix": os.environ.get("MATRIX_PYTHON"),
+              "gmp": command("pkg-config", "--modversion", "gmp"),
+              "mpfr": command("pkg-config", "--modversion", "mpfr"),
+              "gpmc_release_manifest_sha256": hashlib.sha256(Path("src/QuPRS/utils/gpmc-release.txt").read_bytes()).hexdigest(),
+              "ganak_release_manifest_sha256": hashlib.sha256(Path("src/QuPRS/utils/ganak-release.txt").read_bytes()).hexdigest(),
+              "scope": "Ubuntu 26.04 ARM64 host qualification only; release 16-slot matrix unchanged",
+          }
+          print(json.dumps(info, indent=2, sort_keys=True))
+          Path("ubuntu26-arm64-evidence/source-runner.json").write_text(json.dumps(info, indent=2, sort_keys=True) + "\n")
+          PY
+        env:
+          MATRIX_PYTHON: ${{ matrix.python-version }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubuntu26-arm64-source-py${{ matrix.python-version }}
+          path: ubuntu26-arm64-evidence/source-runner.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  released-wheel-workflow:
+    name: Reuse actual release wheel builder and installed smoke
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PhysicsQoo/QuPRS' }}
+    uses: ./.github/workflows/platform-wheel-ci.yml
+    with:
+      os: ubuntu-26.04-arm
+      arch: aarch64
+
+  verify-wheel-abi:
+    name: Guard manylinux_2_28 and cp311-abi3 wheel identity
+    needs: [released-wheel-workflow]
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: all-builds-dist-wheels-ubuntu-26.04-arm
+          path: ${{ runner.temp }}/candidate-wheels
+      - name: Verify exactly one matching wheel with the original manylinux floor
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'packaging>=24,<27'
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          from packaging.tags import Tag
+          from packaging.utils import parse_wheel_filename
+          version = subprocess.check_output(["python", "scripts/release_version.py", "--kind", "python"], text=True).strip()
+          checkout_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          checkout_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
+          assert checkout_sha == os.environ["EXPECTED_SOURCE_SHA"], (
+              f"ABI evidence checkout mismatch: {checkout_sha} != {os.environ['EXPECTED_SOURCE_SHA']}"
+          )
+          wheels = list((Path(os.environ["RUNNER_TEMP"]) / "candidate-wheels").glob("*.whl"))
+          assert len(wheels) == 1, f"Expected one wheel, got {wheels}"
+          wheel = wheels[0]
+          name, observed_version, _build, tags = parse_wheel_filename(wheel.name)
+          assert name == "quprs", name
+          assert str(observed_version) == version, (observed_version, version)
+          required_tag = Tag("cp311", "abi3", "manylinux_2_28_aarch64")
+          assert required_tag in tags, f"Baseline or ABI unexpectedly changed: {sorted(str(t) for t in tags)}"
+          print(json.dumps({
+              "source_sha": checkout_sha,
+              "source_tree": checkout_tree,
+              "event_sha": os.environ.get("GITHUB_SHA"),
+              "image_os": os.environ.get("ImageOS"),
+              "image_version": os.environ.get("ImageVersion"),
+              "wheel": wheel.name,
+              "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "required_tag": str(required_tag),
+              "verdict": "UNCHANGED_MANYLINUX_ABI_PASS",
+          }, sort_keys=True))
+          PY

@@ -57,7 +57,7 @@ def main():
                 "rustc":proc("rustc","--version"), "cargo":proc("cargo","--version"),
                 "cpu":proc("lscpu"), "python":platform.python_version(),
                 "affinity":sorted(os.sched_getaffinity(0)),
-                "rust_source_sha256":sha("rust/pathsum/src/diagnostics.rs"),
+                "rust_source_sha256":sha("rust/quprs/src/diagnostics.rs"),
                 "analyzer_sha256":sha(__file__),
                 "rust_log_sha256":sha(logfile),
                 "factors":{"k":K,"d":D,"degree":DEG,"v":64,"rounds":ROUNDS},

@@ -4,10 +4,10 @@ on:
   pull_request:
     branches: [dev]
     paths:
-      - 'rust/pathsum/src/**'
-      - 'rust/pathsum/build.rs'
-      - 'rust/pathsum/native/**'
-      - 'rust/pathsum/tests/**'
+      - 'rust/quprs/src/**'
+      - 'rust/quprs/build.rs'
+      - 'rust/quprs/native/**'
+      - 'rust/quprs/tests/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/pathsum/core.py'
@@ -15,8 +15,8 @@ on:
       - 'src/QuPRS/pathsum/__init__.py'
       - 'src/QuPRS/pathsum/statistics.py'
       - 'src/QuPRS/pathsum/gates/**'
-      - 'rust/pathsum/Cargo.toml'
-      - 'rust/pathsum/README.md'
+      - 'rust/quprs/Cargo.toml'
+      - 'rust/quprs/README.md'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
       - 'docs/requirements-site.txt'
@@ -38,10 +38,10 @@ on:
   push:
     branches: [dev]
     paths:
-      - 'rust/pathsum/src/**'
-      - 'rust/pathsum/build.rs'
-      - 'rust/pathsum/native/**'
-      - 'rust/pathsum/tests/**'
+      - 'rust/quprs/src/**'
+      - 'rust/quprs/build.rs'
+      - 'rust/quprs/native/**'
+      - 'rust/quprs/tests/**'
       - 'src/QuPRS/__init__.py'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/pathsum/core.py'
@@ -49,8 +49,8 @@ on:
       - 'src/QuPRS/pathsum/__init__.py'
       - 'src/QuPRS/pathsum/statistics.py'
       - 'src/QuPRS/pathsum/gates/**'
-      - 'rust/pathsum/Cargo.toml'
-      - 'rust/pathsum/README.md'
+      - 'rust/quprs/Cargo.toml'
+      - 'rust/quprs/README.md'
       - 'rust/Cargo.lock'
       - 'mkdocs.yml'
       - 'docs/requirements-site.txt'
@@ -251,7 +251,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmp src/QuPRS/utils/ganak-release.txt rust/pathsum/src/ganak-release.txt
+          cmp src/QuPRS/utils/ganak-release.txt rust/quprs/src/ganak-release.txt
           candidate="$RUNNER_TEMP/quprs-complete-candidate"
           python scripts/stage_rust_crate_candidate.py --output "$candidate"
           cargo package --manifest-path "$candidate/Cargo.toml" --list > "$RUNNER_TEMP/quprs-crate-file-list.txt"

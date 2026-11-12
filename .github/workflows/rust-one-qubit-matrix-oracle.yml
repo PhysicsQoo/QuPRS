@@ -5,7 +5,7 @@ on:
     branches:
       - research/rust-one-qubit-matrix-oracle-20261023
     paths:
-      - 'rust/pathsum/src/gates.rs'
+      - 'rust/quprs/src/gates.rs'
       - 'test/test_rust_u2_semantics.py'
       - 'test/test_rust_p_phase_semantics.py'
       - '.github/workflows/rust-one-qubit-matrix-oracle.yml'
@@ -119,7 +119,7 @@ jobs:
           set -euo pipefail
           mkdir -p evidence
           sha256sum \
-            rust/pathsum/src/gates.rs \
+            rust/quprs/src/gates.rs \
             test/test_rust_u2_semantics.py \
             test/test_rust_p_phase_semantics.py \
             .github/workflows/rust-one-qubit-matrix-oracle.yml > evidence/source-sha256.txt

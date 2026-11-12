@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       require_full_matrix:
-        description: 'Reusable callers always retain the full 12-platform matrix'
+        description: 'Reusable callers always retain the full 16-platform matrix'
         type: boolean
         required: false
         default: true
@@ -53,7 +53,7 @@ jobs:
       - name: Test coverage XML positive and failure contracts
         run: python3 -m unittest discover -s test -p 'test_coverage_xml_validation.py'
       - id: scope
-        name: Verify exact push source before allocating 12-platform matrix
+        name: Verify exact push source before allocating 16-platform matrix
         uses: actions/github-script@v7
         env:
           REQUIRE_FULL_MATRIX: ${{ inputs.require_full_matrix }}
@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
         include:
           - os: ubuntu-latest

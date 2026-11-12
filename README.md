@@ -66,7 +66,7 @@ for release-specific compatibility and upgrade guidance.
 Native Rust users can obtain the separate [`quprs` crate](https://crates.io/crates/quprs)
 from crates.io. The Rust crate requires system build dependencies and external
 GPMC or Ganak executables for nontrivial WMC verification. See the
-[Rust crate usage guide](rust/pathsum/README.md) for installation and examples.
+[Rust crate usage guide](rust/quprs/README.md) for installation and examples.
 
 Create a virtual environment with a supported Python interpreter:
 

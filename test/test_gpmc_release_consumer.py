@@ -18,9 +18,9 @@ spec.loader.exec_module(release)
 def fake_archive(*, source=None, binary=None, extra=None):
     source = source or release.SOURCE_COMMIT
     binary = binary or (b"\x7fELF\x02\x01" + b"\0" * 12 + struct.pack("<H", 62))
-    deps = b"libmpfr.so.4\n"
-    manifest = dict(project="PhysicsQoo/GPMC", release_version="v1.0.0",
-                    source_commit=source, platform="linux-almalinux8-x86_64",
+    deps = b"libmpfr.so.6\n"
+    manifest = dict(project="PhysicsQoo/GPMC", release_version="v1.0.2",
+                    source_commit=source, platform="linux-ubuntu22-x86_64",
                     executable_sha256=release.sha256(binary),
                     dependencies_sha256=release.sha256(deps),
                     runtime_mode="external-system-shared-libraries",
@@ -53,6 +53,21 @@ def test_all_six_pins_match_release_platforms():
     assert release.target_for("Windows", "AMD64") == ("windows", "x86_64")
     with pytest.raises(ValueError, match="Unsupported"):
         release.target_for("Linux", "i686")
+
+
+def test_pinned_release_identity_is_unified_across_all_six_platforms():
+    assert release.VERSION == "v1.0.2"
+    assert release.SOURCE_COMMIT == "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0"
+    assert all(release.release_for(os_name) == (
+        release.VERSION, release.SOURCE_COMMIT
+    ) for os_name in ("linux", "macos", "windows"))
+    pins = release.read_pins()
+    assert len(pins) == 6
+    assert all(filename.startswith("gpmc-cli-v1.0.2-")
+               for filename, _sha in pins.values())
+    assert all(len(sha) == 64 for _filename, sha in pins.values())
+    with pytest.raises(ValueError, match="Unsupported"):
+        release.release_for("unknown")
 
 
 def test_archive_verifies_executable_and_source():

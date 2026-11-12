@@ -1,8 +1,10 @@
-# PhysicsQoo/GPMC v1.0.0; source 54d76042df6bfcf4366a8c8a6d689753618a3148
-# system architecture release-asset archive-sha256 (GitHub Release asset digests)
-linux x86_64 gpmc-cli-v1.0.0-linux-almalinux8-x86_64.tar.gz 27f14b15de2332d941248257d5cbd5a7adca554edc9873e81b9dbcf5660b3d43
-linux aarch64 gpmc-cli-v1.0.0-linux-almalinux8-aarch64.tar.gz 5e72c675c1f288cec7e71d8433f21190680f2bb7ca3caaf207fb4b81f5282962
-macos x86_64 gpmc-cli-v1.0.0-macos15-x86_64.tar.gz 9311cc3890a924e50e0736c92a304a8fbcf846c5c2256cc89ff840e89ab920b1
-macos aarch64 gpmc-cli-v1.0.0-macos15-arm64.tar.gz 08cbfccfe759977baf2bdf030bf09268ed2143d0ce2f7c62d78f50e10e847409
-windows x86_64 gpmc-cli-v1.0.0-windows-ucrt64-x86_64.tar.gz e0c54c7b14ea04c6a1aa4263311e557e8f113d29d930c8153d8b7c2daf76bed4
-windows aarch64 gpmc-cli-v1.0.0-windows-clangarm64-aarch64.tar.gz fb2d3e92f40b77679e2b093bc622e07d52ac01356a4d22163efa594e2ebf8e45
+# PhysicsQoo/GPMC v1.0.2, unified six-platform source commit:
+# 93cae8dbf2da967e34fea8b7f40bc8f98362e2e0
+# OS architecture release-asset archive-sha256 (GitHub Release asset digests)
+# Linux baseline: Ubuntu 22.04 / glibc 2.35, libmpfr.so.6.
+linux x86_64 gpmc-cli-v1.0.2-linux-ubuntu22-x86_64.tar.gz 993a01601bf8841295e93cbf005c1d21ca849554bb964d398d59bf195b42b707
+linux aarch64 gpmc-cli-v1.0.2-linux-ubuntu22-aarch64.tar.gz 8aa0b31c3645a8885e185445efd644f878c4fcb37ffa0e30fe983ea1ebf6857e
+macos x86_64 gpmc-cli-v1.0.2-macos15-x86_64.tar.gz de761a01f4bebd8c9c4183dbb058d1fb20c7e66484f3c330a2acfdea0c7bb69b
+macos aarch64 gpmc-cli-v1.0.2-macos15-arm64.tar.gz 6d2e1a725e8b3c6b95a76f64d3a1bd7f016cd8e4f75564b3feb030581cfdcab3
+windows x86_64 gpmc-cli-v1.0.2-windows-ucrt64-x86_64.tar.gz 6bd044eb025c3f0d5b3929a7f8274592b54d597b52e2c91f56bca848e81d955c
+windows aarch64 gpmc-cli-v1.0.2-windows-clangarm64-aarch64.tar.gz 0eebb2db97beb26aeea171b9aae6b94ca68c82b2c11a30cd9d6beb7851e2a392

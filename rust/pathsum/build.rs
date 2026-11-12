@@ -115,7 +115,8 @@ fn main() {
     // unchanged until native runtime compatibility has been verified in CI.
     println!("cargo:rerun-if-env-changed=QUPRS_GPMC_RELEASE");
     if let Ok(selected) = env::var("QUPRS_GPMC_RELEASE") {
-        assert_eq!(selected, "v1.0.0", "Unsupported GPMC release selection");
+        // All six native solver archives share one v1.0.2 source identity.
+        assert_eq!(selected, "v1.0.2", "Unsupported GPMC release selection");
         let root = manifest_dir.parent().unwrap().parent().unwrap();
         let installer = root.join("scripts/install_gpmc_release.py");
         let pinned = root.join("src/QuPRS/utils/gpmc-release.txt");

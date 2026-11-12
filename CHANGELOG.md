@@ -1,12 +1,13 @@
 # Changelog
 
-## v0.15.1-rc.1 — Solver distribution and release reliability (release candidate)
+## v0.15.1 — Solver distribution and release reliability
 
-This is a release candidate for the planned **v0.15.1** maintenance release,
-not evidence that v0.15.1 has been published. Check official
+This entry describes the v0.15.1 maintenance-release source and distribution
+contents. Confirm availability from the official
 [GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases),
 [PyPI](https://pypi.org/project/QuPRS/), and
-[crates.io](https://crates.io/crates/quprs/versions) for available artifacts.
+[crates.io](https://crates.io/crates/quprs/versions). A changelog entry in a
+source checkout is not proof that a distribution has been published.
 
 ### Solver distribution and installation
 

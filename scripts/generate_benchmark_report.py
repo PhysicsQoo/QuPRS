@@ -81,8 +81,21 @@ def assess_provenance(baseline_file: Path, pr_file: Path, expected_main_sha: str
         elif old_sha != new_sha:
             problems.append(f"{solver} binary SHA256 differs between baseline and PR")
 
+    def gpmc_provider(record):
+        if record.get("gpmc_release_source_sha"):
+            return ("release", record["gpmc_release_source_sha"])
+        if record.get("gpmc_submodule_sha"):
+            return ("submodule", record["gpmc_submodule_sha"])
+        return None
+
+    old_provider = gpmc_provider(baseline)
+    new_provider = gpmc_provider(current)
+    if old_provider is None or new_provider is None:
+        problems.append("GPMC provider identity missing")
+    elif old_provider != new_provider:
+        problems.append("GPMC provider differs between baseline and PR")
+
     for field, label in (
-        ("gpmc_submodule_sha", "GPMC submodule"),
         ("cpu_model", "CPU model"),
         ("runner_os", "Runner OS"),
         ("runner_arch", "Runner architecture"),

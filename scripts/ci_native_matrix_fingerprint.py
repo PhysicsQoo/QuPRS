@@ -45,7 +45,7 @@ def witness() -> dict:
     }
     source = {
         "tree": command("git", "rev-parse", "HEAD^{tree}"),
-        "submodule_sha256": digest(submodules) if submodules else "",
+        "submodule_sha256": digest(submodules),  # Empty submodule set is a valid fingerprint.
         "contract_sha256": contract_digest,
         "command_contract": "native-12-python-4-rust-source-v2",
     }

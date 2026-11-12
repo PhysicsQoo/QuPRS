@@ -11,6 +11,7 @@ from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
 from benchmarks.codspeed.case_registry import NATIVE_IDS
 from benchmarks.codspeed.suite_compat import (
     load_catalog, normalize_manifest, suite_spec_digest,
@@ -39,7 +40,8 @@ def write_manifest(path, *, expected_sha, family, instrument, shard=None,
     document = {
         "schema": "quprs-codspeed-sha-v2", "sha": actual_sha,
         "tree_sha": git("rev-parse", "HEAD^{tree}"),
-        "gpmc_submodule_sha": git("rev-parse", "HEAD:GPMC"),
+        "gpmc_submodule_sha": None,  # Preserved for legacy manifest readers.
+        "gpmc_release_source_sha": pinned_gpmc_source_commit(),
         "family": family, "instrument": instrument,
         "shard": shard, "num_shards": 5 if shard is not None else None,
         "runner_os": os.getenv("RUNNER_OS"), "runner_arch": os.getenv("RUNNER_ARCH"),

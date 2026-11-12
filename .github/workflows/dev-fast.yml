@@ -15,8 +15,6 @@ on:
       - 'scripts/generate_stubs.py'
       - 'scripts/check_generated_stub.py'
       - 'docs/development/paper-corpus-manifest.json'
-      - 'GPMC'
-      - '.gitmodules'
       - 'pyproject.toml'
       - 'MANIFEST.in'
       - 'scripts/install_linux_deps.sh'

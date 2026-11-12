@@ -114,6 +114,19 @@ class ReportIntegrityTests(unittest.TestCase):
         self.expected = ""
         self.assert_unverified()
 
+    def test_legacy_submodule_and_release_are_not_same_provider(self):
+        self.current["gpmc_submodule_sha"] = None
+        self.current["gpmc_release_source_sha"] = "9" * 40
+        self.assertIn("GPMC provider differs", self.assert_unverified())
+
+    def test_matching_pinned_release_provenance_is_accepted(self):
+        for record in (self.baseline, self.current):
+            record["gpmc_submodule_sha"] = None
+            record["gpmc_release_source_sha"] = "9" * 40
+        text = self.render()
+        self.assertIn("Performance interpretation: report-only", text)
+        self.assertNotIn("GPMC provider identity missing", text)
+
     def test_multiple_identity_mismatches_reported_independently(self):
         for record in [self.current]:
             for field in ["cpu_model", "runner_os", "runner_arch", "runner_image",
@@ -123,7 +136,7 @@ class ReportIntegrityTests(unittest.TestCase):
                 record["solver_binaries"][solver]["sha256"] = "e" * 64
         text = self.assert_unverified()
         for label in ["CPU model", "Runner OS", "Runner architecture", "Runner image",
-                      "Runner image version", "Python version", "Rust compiler", "GPMC submodule",
+                      "Runner image version", "Python version", "Rust compiler", "GPMC provider",
                       "ganak binary SHA256", "gpmc binary SHA256"]:
             self.assertIn(label, text)
 

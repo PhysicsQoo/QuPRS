@@ -73,10 +73,9 @@ manifest-path = "rust/python_ffi/Cargo.toml"
 # Directory where the Python package source resides
 python-source = "src"
 module-name = "QuPRS._pathsum_rust"
-# List of patterns to include in the Source Distribution (Sdist)
-# Essential for users building from source who need C++ code and build scripts
+# Source distributions keep the content-pinned GPMC release installer,
+# not a duplicate GPMC source checkout or third-party C++ tree.
 include = [
-    "GPMC/**/*",                   # C++ source for GPMC
     "scripts/install_linux_deps.sh", # Environment setup script
     "scripts/install_gpmc_release.py", # Opt-in release provisioning in source distributions
     "src/QuPRS/utils/gpmc-release.txt", # SHA256-pinned GPMC release manifest

@@ -21,8 +21,6 @@ on:
       - 'scripts/check_benchmark_evidence.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'rust/**'
-      - 'GPMC'        # Solver submodule pointer affects native CI coverage.
-      - '.gitmodules' # Solver submodule URL/config affects native CI setup.
       - 'pyproject.toml'
       - 'scripts/check_coverage_xml.py'
       - '.github/workflows/pytest.yml'

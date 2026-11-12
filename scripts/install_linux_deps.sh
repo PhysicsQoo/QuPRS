@@ -68,7 +68,7 @@ if command -v rpm >/dev/null 2>&1; then
             mkdir -p "$pc_dir"
             version=$(rpm -q --queryformat '%{VERSION}' "${dep}-devel")
             # Keep the descriptor scoped to the already-installed system RPM.
-            # QuPRS pathsum/build.rs separately probes GMP and MPFR.
+            # QuPRS quprs/build.rs separately probes GMP and MPFR.
             cat > "$pc_dir/${dep}.pc" <<EOF
 prefix=/usr
 exec_prefix=\${prefix}

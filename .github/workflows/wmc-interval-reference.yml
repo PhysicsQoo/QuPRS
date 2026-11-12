@@ -223,7 +223,7 @@ jobs:
           python --version > rust-wmc-phase-results/python-version.txt 2>&1
           uname -a > rust-wmc-phase-results/kernel.txt
           sha256sum \
-            rust/pathsum/examples/interval_cnf_reference.rs \
+            rust/quprs/examples/interval_cnf_reference.rs \
             .diagnostics/wmc_interval_reference/phase_coeff_reference.py \
             .diagnostics/wmc_interval_reference/run_rust_bridge.py \
             .diagnostics/wmc_interval_reference/qasm_rz_source_reference.py \

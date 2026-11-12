@@ -1,11 +1,11 @@
-// rust/pathsum/tests/test_wmc_tools.rs
+// rust/quprs/tests/test_wmc_tools.rs
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
 /// Get the absolute path of the expected tools directory.
 fn get_tools_dir() -> PathBuf {
-    // In integration tests, CARGO_MANIFEST_DIR points to rust/pathsum/
+    // In integration tests, CARGO_MANIFEST_DIR points to rust/quprs/
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .parent().unwrap() // Up to rust/

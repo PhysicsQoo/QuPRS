@@ -83,7 +83,7 @@ def run():
         "solver_binaries": tools,
         "ganak_release_manifest_sha256": sha256(
             ROOT / "src/QuPRS/utils/ganak-release.txt"),
-        "ganak_build_script_sha256": sha256(ROOT / "rust/pathsum/build.rs"),
+        "ganak_build_script_sha256": sha256(ROOT / "rust/quprs/build.rs"),
     }
     args.output.write_text(json.dumps(record, indent=2) + "\n")
     print("Current benchmark provenance:\n" + json.dumps(record, indent=2))

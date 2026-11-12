@@ -53,7 +53,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$QOO156_HEAD_SHA"
           test "$(git -C qoo156-base rev-parse HEAD)" = "$QOO156_BASE_SHA"
-          test "$(git rev-parse HEAD:rust/pathsum)" = \
+          test "$(git rev-parse HEAD:rust/quprs)" = \
                "$(git -C qoo156-base rev-parse HEAD:rust/pathsum)"
           python3 -m py_compile scripts/qoo156_cli_abba.py
           python3 scripts/qoo156_cli_abba.py --help >/dev/null
@@ -61,7 +61,7 @@ jobs:
           {
             echo "base=$QOO156_BASE_SHA"
             echo "head=$QOO156_HEAD_SHA"
-            echo "pathsum_tree=$(git rev-parse HEAD:rust/pathsum)"
+            echo "pathsum_tree=$(git rev-parse HEAD:rust/quprs)"
             echo "runner=$RUNNER_NAME"
             echo "runner_arch=$RUNNER_ARCH"
             echo "uname=$(uname -a)"

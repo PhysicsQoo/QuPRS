@@ -141,10 +141,20 @@ jobs:
           set -euo pipefail
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
           cargo --version
+          # The default published crate requires the system GMP/MPFR headers.
+          # Validate the real default feature set rather than disabling it.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pkg-config libgmp-dev libmpfr-dev
           for attempt in first second; do
             candidate="$RUNNER_TEMP/quprs-package-$attempt"
             python3 scripts/stage_rust_crate_candidate.py --output "$candidate"
-            cargo package --manifest-path "$candidate/Cargo.toml" --locked --no-verify
+            if [[ "$attempt" == "first" ]]; then
+              # Verify that the actual standalone crate builds, without publishing.
+              cargo package --manifest-path "$candidate/Cargo.toml" --locked
+            else
+              # The second archive is a byte-for-byte reproducibility witness.
+              cargo package --manifest-path "$candidate/Cargo.toml" --locked --no-verify
+            fi
             test -s "$candidate/target/package/quprs-$version.crate"
           done
           sha256sum "$RUNNER_TEMP"/quprs-package-{first,second}/target/package/"quprs-$version.crate"

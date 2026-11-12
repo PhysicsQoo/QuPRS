@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const decide = require('./ci-pytest-push-impact.cjs');
 const oldSHA='a'.repeat(40), newSHA='b'.repeat(40);
-const rust='rust/pathsum/src/lib.rs';
+const rust='rust/quprs/src/lib.rs';
 const oldText='/// Before\npub fn f() -> i32 { 1 }\n';
 const newText='/// After\npub fn f() -> i32 { 1 }\n';
 function fixture(o={}) {
@@ -54,9 +54,9 @@ async function tests(){
   await skip({sources:{[rust]:['/// Old\npub fn f() -> i32 { 1 }\n',
     'pub fn f() -> i32 { 1 }\n']}},'removed Rustdoc');
   await skip({files:[{filename:rust,status:'modified'},
-    {filename:'rust/pathsum/src/circuit.rs',status:'modified'}],
+    {filename:'rust/quprs/src/circuit.rs',status:'modified'}],
     sources:{[rust]:[oldText,newText],
-      'rust/pathsum/src/circuit.rs':['//! Old\npub mod circuit;\n',
+      'rust/quprs/src/circuit.rs':['//! Old\npub mod circuit;\n',
         '//! New\npub mod circuit;\n']}},'multiple Rustdoc source files');
   await run({sources:{[rust]:[oldText,'/// Updated\npub fn f() -> i32 { 2 }\n']}},'actual logic change');
   await run({sources:{[rust]:['const S: &str = r#"\n/// Old\n"#;\n',
@@ -70,8 +70,8 @@ async function tests(){
   const sensitive=[
     'test/test_Feynman.py','test/test_solver_process_lifecycle.py',
     'src/QuPRS/pathsum/core.py','src/QuPRS/__init__.py',
-    'rust/pathsum/Cargo.toml','rust/Cargo.lock',
-    'rust/pathsum/README.md','rust/pathsum/build.rs',
+    'rust/quprs/Cargo.toml','rust/Cargo.lock',
+    'rust/quprs/README.md','rust/quprs/build.rs',
     'GPMC','.gitmodules','pyproject.toml',
     '.github/workflows/pytest.yml',
     '.github/scripts/ci-pytest-push-impact.cjs',
@@ -84,7 +84,7 @@ async function tests(){
     await run({files:[{filename:path,status:'modified'}]},'non-Rustdoc-only: '+path);
   }
   await run({files:[{filename:rust,status:'renamed',
-    previous_filename:'rust/pathsum/src/old.rs'}]},'rename');
+    previous_filename:'rust/quprs/src/old.rs'}]},'rename');
   await run({files:[{filename:rust,status:'added'}]},'added Rust');
   await run({files:[{filename:rust,status:'removed'}]},'deleted Rust');
   await run({files:[{filename:rust,status:'modified'},
@@ -129,13 +129,13 @@ async function tests(){
   assert.match(workflow, /needs: \[source-admission\]/);
   assert.match(workflow, /needs\.source-admission\.outputs\.run_heavy == 'true'/);
   assert.match(workflow, /inputs\.require_full_matrix/);
-  assert.match(workflow, /python-version: \["3.11", "3.12", "3.13"\]/);
+  assert.match(workflow, /python-version: \["3.11", "3.12", "3.13", "3.14"\]/);
   assert.match(workflow, /os: \[ubuntu-latest, ubuntu-24\.04-arm, macos-15-intel, macos-15\]/);
   assert.match(workflow, /test-pytest-push-impact\.cjs/);
   assert.match(workflow, /codspeed-pr-impact\.cjs/,
     'Shared Rustdoc lexer modification must trigger Pytest full source validation');
   // A later Rustdoc-only push must not cancel the previous source-changing
-  // push before its 12-platform correctness matrix has finished.
+  // push before its 16-platform correctness matrix has finished.
   const concurrency=workflow.match(/^concurrency:\n((?:  .*\n)+)\n/m);
   assert.ok(concurrency,'Workflow-level concurrency exists');
   assert.match(concurrency[1],/^  group: .*github\.workflow.*github\.ref.*github\.event_name == 'push' && github\.sha \|\| 'shared'/m,

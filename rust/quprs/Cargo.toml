@@ -1,4 +1,4 @@
-# rust/pathsum/Cargo.toml
+# rust/quprs/Cargo.toml
 
 [package]
 name = "quprs"

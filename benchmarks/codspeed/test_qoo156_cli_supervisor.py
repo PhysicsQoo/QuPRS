@@ -1,7 +1,7 @@
 """Source-pinned CLI-process overhead, measured ONLY by CodSpeed WallTime.
 
 Comparisons are paired in one GitHub job with identical QASM and toolchain.
-The same source code in rust/pathsum is used in base and HEAD. The internal
+The same source code in rust/quprs is used in base and HEAD. The internal
 worker bypass is intentionally excluded from the release benchmark. These
 CLI end-to-end observations, NOT Rust algorithmic CPU-cycle benchmarks.
 """

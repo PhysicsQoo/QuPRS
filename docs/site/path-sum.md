@@ -75,7 +75,7 @@ $$
 
 The output ket \(|f\rangle\) is unchanged because it does not depend on \(y_0\). The \(\sqrt{2}\) factor is accounted for by the Path-sum normalization when the path-variable count changes. These identities require the specified quarter-cycle singleton and half-cycle cross terms; they cannot be applied to arbitrary coefficients or a \(y_0\)-dependent output.
 
-For implementation-level applicability, see [Python matching and substitutions](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py) and [native Rust reduction matching](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs). The algebraic identities appear in the [TACAS 2026 QuPRS paper](https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21) and earlier [path-sum verification calculus](https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf). 
+For implementation-level applicability, see [Python matching and substitutions](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py) and [native Rust reduction matching](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/quprs/src/reduction.rs). The algebraic identities appear in the [TACAS 2026 QuPRS paper](https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21) and earlier [path-sum verification calculus](https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf). 
 
 ## Reduction rules
 
@@ -87,7 +87,7 @@ QuPRS implements the **Elim**, **HH**, and **omega** families of simplifications
 | HH | Eliminate or constrain variables through Hadamard-related phase structure | The required phase-polynomial and Boolean dependencies must match |
 | Omega | Simplify a constrained root-of-unity phase sum | Coefficients and variable occurrence must match the supported root-of-unity identity |
 
-These descriptions are the rule *roles*, not substitutes for their algebraic side conditions. An arbitrary phase polynomial or path variable cannot be eliminated just because it resembles a pattern. See the public [Rust reduction implementation](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust/pathsum/src) and [Python PathSum implementation](https://github.com/PhysicsQoo/QuPRS/tree/dev/src/QuPRS/pathsum) for the exact supported cases.
+These descriptions are the rule *roles*, not substitutes for their algebraic side conditions. An arbitrary phase polynomial or path variable cannot be eliminated just because it resembles a pattern. See the public [Rust reduction implementation](https://github.com/PhysicsQoo/QuPRS/tree/dev/rust/quprs/src) and [Python PathSum implementation](https://github.com/PhysicsQoo/QuPRS/tree/dev/src/QuPRS/pathsum) for the exact supported cases.
 
 ## Hand-checkable applicability and counterexamples
 
@@ -123,7 +123,7 @@ summation variable `y₀` from `pathvar`:
 
 Consequently, that invocation can make at most its *initial* number of
 successful eliminations before returning a residual Path-sum. Rust's
-[`full_reduce`](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs)
+[`full_reduce`](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/quprs/src/reduction.rs)
 likewise reduces a finite set of path variables under its own supported
 matching and numerical policies. This **termination argument is not a
 completeness claim**: no rule may apply even when two circuits are
@@ -163,7 +163,7 @@ verify eligible/invalid phase patterns and output dependence. The
 [Python/Rust reduction-result parity tests](https://github.com/PhysicsQoo/QuPRS/blob/dev/test/test_rr_backend_tolerance_parity.py)
 exercise pinned QASM inputs with `rr_tolerance=0` and nonzero tolerance,
 check classifications and final RR-to-Hybrid residual handoff.
-Native [Rust rule tests](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs)
+Native [Rust rule tests](https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/quprs/src/reduction.rs)
 cover Elim, HH and Omega reduction examples. These are independently scoped
 checks; they do **not** assert that Python's symbolic object serialization
 and Rust's internal IR representation are byte-for-byte identical or prove

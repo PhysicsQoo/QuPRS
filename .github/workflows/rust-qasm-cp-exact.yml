@@ -5,8 +5,8 @@ on:
     branches:
       - research/rust-qasm-cp-exact-20261023
     paths:
-      - 'rust/pathsum/src/qasm.rs'
-      - 'rust/pathsum/src/gates.rs'
+      - 'rust/quprs/src/qasm.rs'
+      - 'rust/quprs/src/gates.rs'
       - 'test/test_rust_qasm_fail_closed.py'
       - 'test/test_rust_qasm_cp_exact.py'
       - 'test/test_rust_p_phase_semantics.py'
@@ -106,8 +106,8 @@ jobs:
           set -euo pipefail
           mkdir -p evidence
           sha256sum \
-            rust/pathsum/src/qasm.rs \
-            rust/pathsum/src/gates.rs \
+            rust/quprs/src/qasm.rs \
+            rust/quprs/src/gates.rs \
             test/test_rust_qasm_fail_closed.py \
             test/test_rust_qasm_cp_exact.py \
             test/test_rust_p_phase_semantics.py \

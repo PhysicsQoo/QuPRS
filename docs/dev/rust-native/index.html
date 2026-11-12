@@ -1049,15 +1049,25 @@ WMC solvers</strong>, set the explicit provisioning mode (not a Cargo feature):<
 weight bridge while delegating solver installation to the user.
 It does not reduce QuPRS to RR-only.</p>
 <h2 id="provide-external-gpmc-and-ganak-executables">Provide external GPMC and Ganak executables</h2>
-<p>To build GPMC separately, use the versioned
-<a href="https://github.com/PhysicsQoo/GPMC">GPMC source repository</a> and its
-<a href="https://github.com/PhysicsQoo/GPMC/blob/master/INSTALL.md">installation instructions</a>.
-The normal QuPRS source checkout pins the GPMC submodule revision. A
-release build of that checked-out submodule typically produces
-<code>GPMC/bin/gpmc</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="o">(</span><span class="nb">cd</span><span class="w"> </span>GPMC<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>./build.sh<span class="w"> </span>r<span class="o">)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">QUPRS_GPMC_PATH</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span><span class="s2">/GPMC/bin/gpmc"</span>
+<p>The QuPRS source checkout uses the <strong>GPMC v1.0.2 public CLI Release</strong>,
+pinned by exact archive SHA256 and producer source commit in
+<a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/utils/gpmc-release.txt"><code>gpmc-release.txt</code></a>.
+It does not need a nested GPMC source checkout. The installed binary is
+written to <code>src/QuPRS/utils/wmc_tools/gpmc</code> (or <code>gpmc.exe</code> on Windows).</p>
+<p>The published CLI has <strong>external runtime dependencies</strong>. On Ubuntu 22.04+
+it uses <code>libmpfr.so.6</code> and a glibc 2.35 minimum; macOS requires the
+matching Homebrew GMP/MPFR libraries. These requirements also apply when
+building Python source wheels that embed the executable. A Linux wheel
+targeting an older glibc baseline must not be described as end-to-end
+solver-compatible merely because the Python extension loads.</p>
+<p>To verify the official archive and install its CLI explicitly:</p>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>scripts/install_gpmc_release.py<span class="w"> </span>--verify-only
+python3<span class="w"> </span>scripts/install_gpmc_release.py<span class="w"> </span>--dest<span class="w"> </span>/absolute/path/to/gpmc
+<span class="nb">export</span><span class="w"> </span><span class="nv">QUPRS_GPMC_PATH</span><span class="o">=</span><span class="s2">"/absolute/path/to/gpmc"</span>
 </code></pre></div>
+<p>The original GPMC code remains available in its
+<a href="https://github.com/PhysicsQoo/GPMC">independent source repository</a>
+for users who need to compile against an older system ABI.</p>
 <p>For Ganak, install a compatible executable from the
 <a href="https://github.com/meelgroup/ganak/releases">upstream Ganak releases</a>.
 QuPRS pins the supported Ganak 2.8.0 assets and their archive and

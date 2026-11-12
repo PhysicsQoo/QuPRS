@@ -1015,7 +1015,7 @@ P(x,y)=\frac12 y_0\bigl(y_1+Q(x,z)\bigr)+R(x,y').
 \end{aligned}
 \]</div>
 <p>The output ket <span class="arithmatex">\(|f\rangle\)</span> is unchanged because it does not depend on <span class="arithmatex">\(y_0\)</span>. The <span class="arithmatex">\(\sqrt{2}\)</span> factor is accounted for by the Path-sum normalization when the path-variable count changes. These identities require the specified quarter-cycle singleton and half-cycle cross terms; they cannot be applied to arbitrary coefficients or a <span class="arithmatex">\(y_0\)</span>-dependent output.</p>
-<p>For implementation-level applicability, see <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py">Python matching and substitutions</a> and <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs">native Rust reduction matching</a>. The algebraic identities appear in the <a href="https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21">TACAS 2026 QuPRS paper</a> and earlier <a href="https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf">path-sum verification calculus</a>. </p>
+<p>For implementation-level applicability, see <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/pathsum/pattern_match.py">Python matching and substitutions</a> and <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/quprs/src/reduction.rs">native Rust reduction matching</a>. The algebraic identities appear in the <a href="https://link.springer.com/chapter/10.1007/978-3-032-22749-2_21">TACAS 2026 QuPRS paper</a> and earlier <a href="https://www.mathstat.dal.ca/~mamy/Papers/pathsum.pdf">path-sum verification calculus</a>. </p>
 <h2 id="reduction-rules">Reduction rules</h2>
 <p>QuPRS implements the <strong>Elim</strong>, <strong>HH</strong>, and <strong>omega</strong> families of simplifications:</p>
 <table>
@@ -1044,7 +1044,7 @@ P(x,y)=\frac12 y_0\bigl(y_1+Q(x,z)\bigr)+R(x,y').
 </tr>
 </tbody>
 </table>
-<p>These descriptions are the rule <em>roles</em>, not substitutes for their algebraic side conditions. An arbitrary phase polynomial or path variable cannot be eliminated just because it resembles a pattern. See the public <a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/rust/pathsum/src">Rust reduction implementation</a> and <a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/src/QuPRS/pathsum">Python PathSum implementation</a> for the exact supported cases.</p>
+<p>These descriptions are the rule <em>roles</em>, not substitutes for their algebraic side conditions. An arbitrary phase polynomial or path variable cannot be eliminated just because it resembles a pattern. See the public <a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/rust/quprs/src">Rust reduction implementation</a> and <a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/src/QuPRS/pathsum">Python PathSum implementation</a> for the exact supported cases.</p>
 <h2 id="hand-checkable-applicability-and-counterexamples">Hand-checkable applicability and counterexamples</h2>
 <p>The identities above are sums of <strong>amplitudes attached to output kets</strong>,
 not merely identities between scalar phases. The following small cases
@@ -1093,7 +1093,7 @@ summation variable <code>y₀</code> from <code>pathvar</code>:</p>
 <p><code>len(pathvar_after) = len(pathvar_before) - 1</code>.</p>
 <p>Consequently, that invocation can make at most its <em>initial</em> number of
 successful eliminations before returning a residual Path-sum. Rust's
-<a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs"><code>full_reduce</code></a>
+<a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/quprs/src/reduction.rs"><code>full_reduce</code></a>
 likewise reduces a finite set of path variables under its own supported
 matching and numerical policies. This <strong>termination argument is not a
 completeness claim</strong>: no rule may apply even when two circuits are
@@ -1154,7 +1154,7 @@ verify eligible/invalid phase patterns and output dependence. The
 <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/test/test_rr_backend_tolerance_parity.py">Python/Rust reduction-result parity tests</a>
 exercise pinned QASM inputs with <code>rr_tolerance=0</code> and nonzero tolerance,
 check classifications and final RR-to-Hybrid residual handoff.
-Native <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/pathsum/src/reduction.rs">Rust rule tests</a>
+Native <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/rust/quprs/src/reduction.rs">Rust rule tests</a>
 cover Elim, HH and Omega reduction examples. These are independently scoped
 checks; they do <strong>not</strong> assert that Python's symbolic object serialization
 and Rust's internal IR representation are byte-for-byte identical or prove

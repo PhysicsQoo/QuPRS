@@ -32,9 +32,9 @@ def release_architectures(workflow: str) -> set[str]:
         if not line.startswith("          - os: macos-"):
             continue
         count += 1
-        runner_match = re.fullmatch(r" {10}- os: (macos-[0-9]+(?:-intel)?)(?:\\s+#.*)?", line)
+        runner_match = re.fullmatch(r" {10}- os: (macos-[0-9]+(?:-intel)?)(?:\s+#.*)?", line)
         arch_match = (
-            re.match(r' {12}arch: ["\\']?([a-z0-9_]+)', rows[i + 1])
+            re.match(r' {12}arch: ["\']?([a-z0-9_]+)', rows[i + 1])
             if i + 1 < len(rows) else None
         )
         if not runner_match or not arch_match:

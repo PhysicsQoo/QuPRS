@@ -24,29 +24,29 @@ validate_wheels = _VALIDATOR.validate_wheels
 
 class MacOSWheelSupportTests(unittest.TestCase):
     WORKFLOW = (
-        "name: example\\n"
-        "  platform_wheels:\\n"
-        "    strategy:\\n"
-        "      matrix:\\n"
-        "        include:\\n"
-        "          - os: macos-15-intel\\n"
-        '            arch: "x86_64"\\n'
-        "          - os: macos-15\\n"
-        '            arch: "arm64"\\n'
-        "    uses: ./.github/workflows/platform-wheel-ci.yml\\n"
-        "    with:\\n"
-        "      os: ${{ matrix.os }}\\n"
-        "      arch: ${{ matrix.arch }}\\n"
-        "  build_sdist:\\n"
+        "name: example\n"
+        "  platform_wheels:\n"
+        "    strategy:\n"
+        "      matrix:\n"
+        "        include:\n"
+        "          - os: macos-15-intel\n"
+        '            arch: "x86_64"\n'
+        "          - os: macos-15\n"
+        '            arch: "arm64"\n'
+        "    uses: ./.github/workflows/platform-wheel-ci.yml\n"
+        "    with:\n"
+        "      os: ${{ matrix.os }}\n"
+        "      arch: ${{ matrix.arch }}\n"
+        "  build_sdist:\n"
     )
     PLATFORM_WORKFLOW = (
-        "name: example\\n"
-        "jobs:\\n"
-        "  build_wheels:\\n"
-        "    steps:\\n"
-        '      - run: echo "MACOSX_DEPLOYMENT_TARGET=15.0"\\n'
-        "        env:\\n"
-        "          CIBW_ARCHS: ${{ inputs.arch }}\\n"
+        "name: example\n"
+        "jobs:\n"
+        "  build_wheels:\n"
+        "    steps:\n"
+        '      - run: echo "MACOSX_DEPLOYMENT_TARGET=15.0"\n'
+        "        env:\n"
+        "          CIBW_ARCHS: ${{ inputs.arch }}\n"
     )
 
     def test_current_source_policy(self):

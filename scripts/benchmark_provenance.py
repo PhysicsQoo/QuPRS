@@ -8,10 +8,12 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
-from gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
+
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
 
 
 def git(*args):

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
+from scripts.gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
 from benchmarks.codspeed.case_registry import NATIVE_IDS
 from benchmarks.codspeed.suite_compat import (
     load_catalog, normalize_manifest, suite_spec_digest,

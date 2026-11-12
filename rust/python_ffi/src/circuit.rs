@@ -5,7 +5,7 @@ use pathsum::{ir::QuantumOp, PathSum, rational::{Angle, FreeRational}};
 
 const PI: f64 = std::f64::consts::PI;
 /// A Python-facing class to build quantum circuits programmatically.
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone)]
 pub struct QuantumCircuit {
     #[pyo3(get)]

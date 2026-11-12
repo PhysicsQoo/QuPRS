@@ -1,19 +1,20 @@
 {
   "schema": 1,
-  "source_sha": "b48e3efc86eb5ab4925272d5724c71fd09f04867",
-  "checkout_sha": "b48e3efc86eb5ab4925272d5724c71fd09f04867",
+  "source_sha": "f0f5e0f5c9023606cad1abda44c8fd7d42788eaf",
+  "checkout_sha": "f0f5e0f5c9023606cad1abda44c8fd7d42788eaf",
   "ref": "refs/heads/main",
   "python_version": "3.12.16",
   "python_implementation": "CPython",
   "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.43",
   "machine": "x86_64",
-  "cpu_model": "AMD EPYC 7763 64-Core Processor",
+  "cpu_model": "AMD EPYC 9V45 96-Core Processor",
   "cpu_count": 4,
   "runner_os": "Linux",
   "runner_arch": "X64",
   "runner_image": "ubuntu26",
   "runner_image_version": "20261101.186.1",
-  "gpmc_submodule_sha": "a1bda3489e959d3695b6798d327c5a1fc1bed305",
+  "gpmc_submodule_sha": null,
+  "gpmc_release_source_sha": "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0",
   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
   "solver_binaries": {
     "ganak": {
@@ -21,10 +22,10 @@
       "version_output": "c o Ganak SHA1: b4ca02f78301aadeb7fa9acb5ed1524dc3fa0281\nc o Arjun SHA1: 3485f8d3c448b05baa6ce4eda4f0ecafee3dd9f8\nc o SBVA SHA1: bf157b1fea71c155251d2991b5fe0de37c57efba\nc o CMS SHA1: 03954f7f7815ea3984774c95a66e7c224cd25952\nc o CaDiCaL SHA1: 818c9562f114b315a9246ced943b66b60b38e8fb\nc o CadiBack SHA1: 445ddc2f2b5e54421af64e0652c2eb8444175322\nc o ApproxMC SHA1: ccbadb1cc2a365d98b6844dcbb1c00efa2f81470\nc o TreeDecomp SHA1: 0495b40c220b0b97a0d7c8e8d86480b4060476a8\nc o Using ideas by JM Lagniez, and Pierre Marquis\nc o     from paper: Improving Model Counting [..] IJCAI 2016\nc o Using VMTF, picosat"
     },
     "gpmc": {
-      "sha256": "6b39a67fcad783adeca57bc5a7cb0b0a9da681acb930d56f50f875280c7cb6b2",
+      "sha256": "840f72c4cba7b3893f20064e9eb67c0c686a625dbdc8edc6c50331f80b3c608c",
       "version_output": "c o WARNING: for repeatability, setting FPU to use double precision"
     }
   },
   "ganak_release_manifest_sha256": "ab9216a5357a752d8f6e721a446c665823c09c3eec16903a252e050729b317c2",
-  "ganak_build_script_sha256": "d76204e80b06b82500c02826e2eb708f93d0e304d938a3e99e3f2662ad245f31"
+  "ganak_build_script_sha256": "a1c7f9178d6e616d4683f8467cde9584590d59d15be7b339df47638288c9397c"
 }

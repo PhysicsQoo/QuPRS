@@ -149,6 +149,8 @@ jobs:
           path: ${{ runner.temp }}/candidate-wheels
       - name: Verify exactly one matching wheel with the original manylinux floor
         shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check 'packaging>=24,<27'
@@ -158,6 +160,11 @@ jobs:
           from packaging.tags import Tag
           from packaging.utils import parse_wheel_filename
           version = subprocess.check_output(["python", "scripts/release_version.py", "--kind", "python"], text=True).strip()
+          checkout_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          checkout_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
+          assert checkout_sha == os.environ["EXPECTED_SOURCE_SHA"], (
+              f"ABI evidence checkout mismatch: {checkout_sha} != {os.environ['EXPECTED_SOURCE_SHA']}"
+          )
           wheels = list((Path(os.environ["RUNNER_TEMP"]) / "candidate-wheels").glob("*.whl"))
           assert len(wheels) == 1, f"Expected one wheel, got {wheels}"
           wheel = wheels[0]
@@ -167,7 +174,9 @@ jobs:
           required_tag = Tag("cp311", "abi3", "manylinux_2_28_aarch64")
           assert required_tag in tags, f"Baseline or ABI unexpectedly changed: {sorted(str(t) for t in tags)}"
           print(json.dumps({
-              "source_sha": os.environ.get("GITHUB_SHA"),
+              "source_sha": checkout_sha,
+              "source_tree": checkout_tree,
+              "event_sha": os.environ.get("GITHUB_SHA"),
               "image_os": os.environ.get("ImageOS"),
               "image_version": os.environ.get("ImageVersion"),
               "wheel": wheel.name,

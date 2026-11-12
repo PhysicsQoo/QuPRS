@@ -14,6 +14,8 @@ import random
 import statistics
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
 import time
 
 from QuPRS import _pathsum_rust
@@ -136,7 +138,8 @@ def pilot():
         os.environ["QUPRS_GPMC_PATH"] = str(binary)
         manifest = {
             "schema": "quprs-six-family-elim-cost-v1", "git": run_cmd(["git","rev-parse","HEAD"]),
-            "gpmc_gitlink": run_cmd(["git","rev-parse","HEAD:GPMC"]),
+            "gpmc_gitlink": None,  # Legacy schema field; release-only checkout has no gitlink.
+        "gpmc_release_source_sha": pinned_gpmc_source_commit(),
             "platform": platform.platform(), "python": sys.version,
             "dependencies": run_cmd([sys.executable,"-m","pip","freeze"]),
             "cpu": run_cmd(["lscpu"]), "affinity_original": affinities,

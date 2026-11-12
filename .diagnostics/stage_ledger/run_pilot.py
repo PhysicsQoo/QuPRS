@@ -12,6 +12,8 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
 import time
 
 CASES = ("qaoa7", "ghz4_wmc_only")
@@ -51,7 +53,8 @@ def main():
         "schema": "quprs-exclusive-stage-ledger-v0",
         "datetime_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source": capture("git", "rev-parse", "HEAD"),
-        "gpmc_gitlink": capture("git", "rev-parse", "HEAD:GPMC"),
+        "gpmc_gitlink": None,  # Legacy schema field; release-only checkout has no gitlink.
+        "gpmc_release_source_sha": pinned_gpmc_source_commit(),
         "python_version": sys.version,
         "platform": platform.platform(),
         "cpu_affinity_original": cpu_original,

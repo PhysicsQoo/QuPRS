@@ -16,10 +16,10 @@ jobs:
       OPENBLAS_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
     steps:
-      - name: Checkout pinned Rust/Python source and GPMC
+      - name: Checkout pinned Rust/Python source and published solver manifest
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Python 3.12
@@ -48,7 +48,7 @@ jobs:
         run: |
           mkdir -p rust-native-stage-results
           git rev-parse HEAD > rust-native-stage-results/checked-out-sha.txt
-          git rev-parse HEAD:GPMC > rust-native-stage-results/gpmc-gitlink.txt
+          python3 -c 'from scripts.gpmc_release_source_identity import source_commit; print(source_commit())' > rust-native-stage-results/gpmc-release-source.txt
           find rust-native-stage-results -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > rust-native-stage-results/SHA256SUMS
       - name: Upload original native result and failure evidence
         if: always()

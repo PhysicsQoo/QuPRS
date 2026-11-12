@@ -7,6 +7,8 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
 import time
 
 CASES = ("qaoa7", "ghz4")
@@ -39,7 +41,8 @@ def main():
         "schema": "native-exclusive-stage-diagnostic-v0",
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "git": process(["git", "rev-parse", "HEAD"]),
-        "gpmc_gitlink": process(["git", "rev-parse", "HEAD:GPMC"]),
+        "gpmc_gitlink": None,  # Legacy schema field; release-only checkout has no gitlink.
+        "gpmc_release_source_sha": pinned_gpmc_source_commit(),
         "python": sys.version, "platform": platform.platform(),
         "affinity_before": affinity, "affinity_used": affinity[0],
         "pip_freeze": process([sys.executable, "-m", "pip", "freeze"]),

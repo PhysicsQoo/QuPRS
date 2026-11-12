@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["mul_boolean_polys","mul_monomials"],"mod":["boolean_state","phase_poly","var_manager"],"struct":["PathSum"]};

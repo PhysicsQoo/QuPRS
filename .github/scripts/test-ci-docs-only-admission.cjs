@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const admit = require('./ci-docs-only-admission.cjs');
 const beforeSha='a'.repeat(40), afterSha='b'.repeat(40);
-const file='rust/pathsum/src/lib.rs';
+const file='rust/quprs/src/lib.rs';
 const before='/// Before\npub fn check() -> bool { true }\n';
 const after='/// After\npub fn check() -> bool { true }\n';
 function simulate(settings={}) {
@@ -55,8 +55,8 @@ async function check() {
   await run({texts:{[file]:['// Old\npub fn f(){}\n',
       '// New\npub fn f(){}\n']}},'ordinary comment not Rustdoc');
   for(const path of [
-    'rust/Cargo.toml','rust/Cargo.lock','rust/pathsum/build.rs',
-    'rust/pathsum/README.md','Dockerfile','pyproject.toml','GPMC',
+    'rust/Cargo.toml','rust/Cargo.lock','rust/quprs/build.rs',
+    'rust/quprs/README.md','Dockerfile','pyproject.toml','GPMC',
     'MANIFEST.in','.gitmodules','src/QuPRS/pathsum/core.py',
     '.github/workflows/native-cross-platform-pr.yml',
     '.github/workflows/docker-build.yml','.github/workflows/pytest.yml',
@@ -65,7 +65,7 @@ async function check() {
   ])await run({files:[{filename:file,status:'modified'},
     {filename:path,status:'modified'}]},'unsafe input: '+path);
   await run({files:[{filename:file,status:'renamed',
-    previous_filename:'rust/pathsum/src/old.rs'}]},'rename');
+    previous_filename:'rust/quprs/src/old.rs'}]},'rename');
   await run({files:[{filename:file,status:'added'}]},'added source');
   await run({files:[{filename:'docs/help.md',status:'removed'}]},'removed docs');
   await run({files:[{filename:file,status:'mystery'}]},'unknown status');

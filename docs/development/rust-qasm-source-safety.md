@@ -9,7 +9,7 @@ checks and direct native circuit loading.
 
 - OpenQASM 2.0 accepts supported `qreg` declarations, `qelib1.inc`,
   optional legacy `creg` metadata, and the unitary gate whitelist in
-  [the native parser](../../rust/pathsum/src/qasm.rs).
+  [the native parser](../../rust/quprs/src/qasm.rs).
 - OpenQASM 3.0 accepts the separately documented
   [unitary subset](rust-qasm3-supported-subset.md): `qubit` declarations,
   optional `stdgates.inc`, static unitary gates and standalone

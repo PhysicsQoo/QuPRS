@@ -1,4 +1,4 @@
-// rust/pathsum/build.rs
+// rust/quprs/build.rs
 use std::env;
 use std::fs;
 use std::io::{Cursor, Read};

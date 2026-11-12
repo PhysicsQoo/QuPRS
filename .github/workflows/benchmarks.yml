@@ -140,7 +140,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt', 'src/QuPRS/utils/gpmc-release.txt') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/quprs/build.rs', 'src/QuPRS/utils/ganak-release.txt', 'src/QuPRS/utils/gpmc-release.txt') }}
 
       - name: Cache verified Ganak release archive
         uses: actions/cache@v4
@@ -307,7 +307,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt', 'src/QuPRS/utils/gpmc-release.txt') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/quprs/build.rs', 'src/QuPRS/utils/ganak-release.txt', 'src/QuPRS/utils/gpmc-release.txt') }}
       - name: Restore pinned Ganak archive when available
         uses: ./.github/actions/cache-ganak-release
       - name: Install Python dependencies

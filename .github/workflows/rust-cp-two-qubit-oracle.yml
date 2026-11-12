@@ -5,7 +5,7 @@ on:
     branches:
       - research/rust-cp-two-qubit-matrix-oracle-20261024
     paths:
-      - 'rust/pathsum/src/qasm.rs'
+      - 'rust/quprs/src/qasm.rs'
       - '.github/workflows/rust-cp-two-qubit-oracle.yml'
   workflow_dispatch:
 
@@ -59,9 +59,9 @@ jobs:
           cargo --version > cp-oracle-evidence/cargo-version.txt 2>&1
           uname -a > cp-oracle-evidence/kernel.txt
           sha256sum \
-            rust/pathsum/src/qasm.rs \
-            rust/pathsum/src/gates.rs \
-            rust/pathsum/src/rational.rs \
+            rust/quprs/src/qasm.rs \
+            rust/quprs/src/gates.rs \
+            rust/quprs/src/rational.rs \
             .github/workflows/rust-cp-two-qubit-oracle.yml > cp-oracle-evidence/source-file-sha256.txt
           (
             cd cp-oracle-evidence

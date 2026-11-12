@@ -6,7 +6,7 @@ const {VERSION_PATHS, canonicalVersion, isVersionOnlyChange} =
   require('./codspeed-metadata-only.cjs');
 
 for (const path of [
-  'src/QuPRS/interface/load_qiskit.py', 'rust/pathsum/src/ir.rs',
+  'src/QuPRS/interface/load_qiskit.py', 'rust/quprs/src/ir.rs',
   'GPMC', '.gitmodules', 'pyproject.toml',
   'benchmarks/codspeed/test_pr_solver_walltime.py',
   'test/test_MQT.py', 'test/test_Feynman.py', 'test/conftest.py',
@@ -20,7 +20,7 @@ for (const path of [
 
 for (const path of [
   'docs/development/notes.md', 'README.md',
-  'rust/pathsum/README.md', 'rust/pathsum/docs/reduction.md',
+  'rust/quprs/README.md', 'rust/quprs/docs/reduction.md',
   '.github/workflows/qiskit-dual-major-api.yml',
   '.github/workflows/python-publish.yml',
   '.github/workflows/native-qasm3-contract.yml',
@@ -114,7 +114,7 @@ for (const path of VERSION_PATHS) {
 }
 assert.equal(versions.every(v => v.before === versions[0].before &&
                                  v.after === versions[0].after), true);
-assert.equal(isVersionOnlyChange('rust/pathsum/src/solver_adapter.rs', '', ''), null);
+assert.equal(isVersionOnlyChange('rust/quprs/src/solver_adapter.rs', '', ''), null);
 assert.equal(isVersionOnlyChange('pyproject.toml', '', ''), null);
 
 // Package metadata is safe; compiler/dependencies/features/third-party lock
@@ -149,7 +149,7 @@ assert.equal(isVersionOnlyChange('src/QuPRS/_version.py',
   previous['src/QuPRS/_version.py'],
   actual['src/QuPRS/_version.py']+'\nfrom os import environ'), null);
 for (const path of [
-  'src/QuPRS/interface/load_qiskit.py', 'rust/pathsum/build.rs', 'GPMC',
+  'src/QuPRS/interface/load_qiskit.py', 'rust/quprs/build.rs', 'GPMC',
   '.github/workflows/codspeed.yml', 'benchmarks/codspeed/solver_case.py'
 ]) assert.equal(isMeasured(path), true, `source changes must measure: ${path}`);
 assert.match(workflow, /isVersionOnlyChange/);
@@ -162,7 +162,7 @@ process.stdout.write('codspeed-pr-impact: strict metadata-only truth table passe
 // Do not use abbreviated SHA or GitHub diff hunks as evidence.
 const {assessPushSourceImpact} = require('./codspeed-pr-impact.cjs');
 const shaBefore = 'a'.repeat(40), shaAfter = 'b'.repeat(40);
-const docPath = 'rust/pathsum/src/lib.rs';
+const docPath = 'rust/quprs/src/lib.rs';
 const oldDoc = '/// Before\npub fn verify() -> bool { true }\n';
 const newDoc = '/// After\npub fn verify() -> bool { true }\n';
 function makePush(options = {}) {
@@ -209,7 +209,7 @@ async function pushContracts() {
     assert.equal((await makePush(o)).run, true, label);
   await skip({}, 'single-file Rustdoc-only push');
   await skip({ref:'refs/heads/main'}, 'main push is protected');
-  await skip({files:[{filename:'rust/pathsum/README.md',status:'modified'}]},
+  await skip({files:[{filename:'rust/quprs/README.md',status:'modified'}]},
     'Rust markdown is documentation');
   await skip({files:[{filename:'README.md',status:'modified'},
     {filename:docPath,status:'modified'}]}, 'mixed non-executable docs');
@@ -224,10 +224,10 @@ async function pushContracts() {
     'const S: &str = r#"\n/// After\n"#;\n'
   ]}}, 'raw string contents not documentation');
   await run({files:[{filename:docPath,status:'modified'},
-    {filename:'rust/pathsum/Cargo.toml',status:'modified'}]},
+    {filename:'rust/quprs/Cargo.toml',status:'modified'}]},
     'mixed Rustdoc and Cargo feature changes must measure');
-  await run({files:[{filename:'rust/pathsum/src/lib.rs',status:'renamed',
-    previous_filename:'rust/pathsum/src/circuit.rs'}]}, 'renamed source');
+  await run({files:[{filename:'rust/quprs/src/lib.rs',status:'renamed',
+    previous_filename:'rust/quprs/src/circuit.rs'}]}, 'renamed source');
   await run({files:[{filename:'GPMC',status:'modified'}]}, 'solver revision');
   await run({files:[{filename:'benchmarks/codspeed/foo.py',status:'added'}]}, 'benchmark added');
   await run({files:[{filename:'.github/workflows/codspeed.yml',status:'modified'}]}, 'workflow change');

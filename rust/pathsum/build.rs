@@ -111,185 +111,30 @@ fn main() {
     println!("cargo:rustc-env=GANAK_BIN_PATH={}", ganak_dest.display());
     println!("cargo:rerun-if-changed={}", ganak_dest.display());
 
-    // Opt-in, content-pinned binary provisioning. The source-build default is
-    // unchanged until native runtime compatibility has been verified in CI.
+    // Source checkout default: use the exact SHA-256 pinned GPMC v1.0.2
+    // executable, exactly like the independently pinned Ganak release.
+    // Registry crates remain external and never fetch a solver.
     println!("cargo:rerun-if-env-changed=QUPRS_GPMC_RELEASE");
-    if let Ok(selected) = env::var("QUPRS_GPMC_RELEASE") {
-        // All six native solver archives share one v1.0.2 source identity.
-        assert_eq!(selected, "v1.0.2", "Unsupported GPMC release selection");
-        let root = manifest_dir.parent().unwrap().parent().unwrap();
-        let installer = root.join("scripts/install_gpmc_release.py");
-        let pinned = root.join("src/QuPRS/utils/gpmc-release.txt");
-        println!("cargo:rerun-if-changed={}", installer.display());
-        println!("cargo:rerun-if-changed={}", pinned.display());
-        let binary = dest_tools_dir.join(if target_os == "windows" { "gpmc.exe" } else { "gpmc" });
-        let python = env::var("QUPRS_PYTHON_EXECUTABLE").unwrap_or_else(|_| {
-            if cfg!(windows) { "python" } else { "python3" }.into()
-        });
-        println!("cargo:rerun-if-env-changed=QUPRS_PYTHON_EXECUTABLE");
-        let status = std::process::Command::new(python)
-            .arg(installer).arg("--dest").arg(&binary)
-            .arg("--system").arg(&target_os).arg("--machine").arg(&target_arch)
-            .status().expect("Python required for opt-in GPMC release provisioning");
-        assert!(status.success(), "Pinned GPMC release provisioning failed");
-        println!("cargo:rustc-env=GPMC_BIN_PATH={}", binary.display());
-        println!("cargo:rerun-if-changed={}", binary.display());
-        return;
-    }
-
-    // ==========================================
-    // 2. Compile GPMC
-    // ==========================================
-    let gpmc_src = manifest_dir
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("GPMC");
-        
-    if !gpmc_src.exists() {
-        panic!(
-            "FATAL: GPMC source directory not found at: {}",
-            gpmc_src.display()
-        );
-    }
-
-    println!(
-        "cargo:rerun-if-changed={}/CMakeLists.txt",
-        gpmc_src.display()
-    );
-
-    // --- Handle dependencies (GMP/MPFR) ---
-    // Collect include paths from pkg_config so we can forward them to cmake.
-    // These libraries are required to compile GPMC from source.
-    let mut extra_include_dirs: Vec<String> = Vec::new();
-    if target_os != "windows" {
-        // macOS Homebrew has keg-only libraries that NEED pkg-config to be found.
-        // Linux (especially RHEL/CentOS based manylinux) might not ship with .pc files,
-        // so we don't panic on Linux; CMake will just find them in /usr/include native paths.
-        let gmp_res = pkg_config::probe_library("gmp");
-        let mpfr_res = pkg_config::probe_library("mpfr");
-
-        if target_os == "macos" {
-            gmp_res.unwrap_or_else(|_| panic!(
-                "\n\
-                ╔════════════════════════════════════════════════════════╗\n\
-                ║  Missing dependency: GMP (GNU Multiple Precision)      ║\n\
-                ╠════════════════════════════════════════════════════════╣\n\
-                ║  macOS (Homebrew):                                     ║\n\
-                ║    brew install gmp                                    ║\n\
-                ║                                                        ║\n\
-                ║  After installing, retry: cargo build                  ║\n\
-                ╚════════════════════════════════════════════════════════╝"
-            ));
-            mpfr_res.unwrap_or_else(|_| panic!(
-                "\n\
-                ╔════════════════════════════════════════════════════════╗\n\
-                ║  Missing dependency: MPFR (Multiple Precision Float)   ║\n\
-                ╠════════════════════════════════════════════════════════╣\n\
-                ║  macOS (Homebrew):                                     ║\n\
-                ║    brew install mpfr                                   ║\n\
-                ║                                                        ║\n\
-                ║  After installing, retry: cargo build                  ║\n\
-                ╚════════════════════════════════════════════════════════╝"
-            ));
-        }
-
-        // If pkg-config succeeded (either on macOS or Linux), collect the paths
-        if let Ok(gmp) = pkg_config::probe_library("gmp") {
-            for path in gmp.include_paths {
-                extra_include_dirs.push(path.to_string_lossy().into_owned());
-            }
-        }
-        if let Ok(mpfr) = pkg_config::probe_library("mpfr") {
-            for path in mpfr.include_paths {
-                extra_include_dirs.push(path.to_string_lossy().into_owned());
-            }
-        }
-    }
-
-    // --- Execute CMake ---
-    println!("cargo:warning=Building GPMC from: {}", gpmc_src.display());
-    
-    // Provide a helpful hint for Linux users in case CMake fails due to missing headers
-    if target_os == "linux" {
-        println!("cargo:warning=---------------------------------------------------------");
-        println!("cargo:warning=If the C++ build fails on Linux, you likely need to install system dependencies:");
-        println!("cargo:warning=  Ubuntu/Debian: sudo apt install libgmp-dev libmpfr-dev zlib1g-dev libssl-dev cmake");
-        println!("cargo:warning=  Fedora/RHEL:   sudo dnf install gmp-devel mpfr-devel zlib-devel openssl-devel cmake");
-        println!("cargo:warning=  Or run:        sh scripts/install_linux_deps.sh");
-        println!("cargo:warning=---------------------------------------------------------");
-    }
-
-    let mut config = cmake::Config::new(&gpmc_src);
-    config
-        .define("CMAKE_BUILD_TYPE", "Release")
-        .define("CMAKE_CXX_STANDARD", "11");
-
-    // Forward GMP/MPFR include paths to cmake so Homebrew keg-only headers are found
-    if !extra_include_dirs.is_empty() {
-        config.define(
-            "CMAKE_CXX_FLAGS",
-            extra_include_dirs
-                .iter()
-                .map(|d| format!("-I{}", d))
-                .collect::<Vec<_>>()
-                .join(" "),
-        );
-    }
-
-    if target_os == "macos" {
-        config.define("GPMC_STATIC_BUILD", "ON");
-    }
-
-    // If cross-compiling on macOS (e.g., x86_64 host compiling for aarch64 target)
-    if target_os == "macos" {
-        config.define(
-            "CMAKE_OSX_ARCHITECTURES",
-            if target_arch == "aarch64" {
-                "arm64"
-            } else {
-                "x86_64"
-            },
-        );
-    }
-
-    let dst = config.build_target("all").build();
-
-
-    // --- Locate and copy the compiled GPMC executable ---
-    let bin_name = if target_os == "windows" {
-        "gpmc.exe"
-    } else {
-        "gpmc"
-    };
-    let possible_paths = vec![
-        dst.join("build").join(bin_name),
-        dst.join("build").join("bin").join(bin_name),
-        dst.join("build").join("Release").join(bin_name),
-    ];
-
-    let gpmc_bin_path = possible_paths
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| {
-            panic!(
-                "FATAL: GPMC binary not found! CMake output: {}",
-                dst.display()
-            )
-        });
-
-    let gpmc_dest = dest_tools_dir.join(bin_name);
-    fs::copy(&gpmc_bin_path, &gpmc_dest)
-        .expect("Failed to copy GPMC binary to target directory");
-    println!(
-        "cargo:warning=Successfully compiled and copied GPMC to {}",
-        gpmc_dest.display()
-    );
-
-    // Inject environment variable for Rust code to use during development/testing
-    println!("cargo:rustc-env=GPMC_BIN_PATH={}", gpmc_dest.display());
-    println!("cargo:rerun-if-changed={}", gpmc_dest.display());
+    let selected = env::var("QUPRS_GPMC_RELEASE")
+        .unwrap_or_else(|_| "v1.0.2".to_string());
+    assert_eq!(selected, "v1.0.2", "Unsupported GPMC release selection");
+    let root = manifest_dir.parent().unwrap().parent().unwrap();
+    let installer = root.join("scripts/install_gpmc_release.py");
+    let pinned = root.join("src/QuPRS/utils/gpmc-release.txt");
+    println!("cargo:rerun-if-changed={}", installer.display());
+    println!("cargo:rerun-if-changed={}", pinned.display());
+    let binary = dest_tools_dir.join(if target_os == "windows" { "gpmc.exe" } else { "gpmc" });
+    let python = env::var("QUPRS_PYTHON_EXECUTABLE").unwrap_or_else(|_| {
+        if cfg!(windows) { "python" } else { "python3" }.into()
+    });
+    println!("cargo:rerun-if-env-changed=QUPRS_PYTHON_EXECUTABLE");
+    let status = std::process::Command::new(python)
+        .arg(installer).arg("--dest").arg(&binary)
+        .arg("--system").arg(&target_os).arg("--machine").arg(&target_arch)
+        .status().expect("Python required for pinned GPMC release provisioning");
+    assert!(status.success(), "Pinned GPMC release provisioning failed");
+    println!("cargo:rustc-env=GPMC_BIN_PATH={}", binary.display());
+    println!("cargo:rerun-if-changed={}", binary.display());
 }
 
 // Only transient network acquisition failures are retried. Checksum and

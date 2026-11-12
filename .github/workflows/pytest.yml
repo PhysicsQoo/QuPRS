@@ -104,8 +104,10 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 0
+      - name: Enforce submodule-free source checkout for default Python/Rust builds
+        run: test ! -f GPMC/CMakeLists.txt
 
       # Step 2: Set up Python environment
       - name: Set up Python ${{ matrix.python-version }}
@@ -231,6 +233,14 @@ jobs:
           QUPRS_GPMC_PATH="$RUNNER_TEMP/quprs-missing-gpmc" cargo test \
             --manifest-path "$crate/Cargo.toml" --test external_wmc \
             missing_solver_fails_closed -- --ignored
+      - name: Verify source default GPMC release executes and matches Python SolverAdapter
+        if: matrix.os != 'windows-latest' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          test ! -f GPMC/CMakeLists.txt
+          test -x src/QuPRS/utils/wmc_tools/gpmc
+          python scripts/check_gpmc_release_runtime.py \
+            --binary src/QuPRS/utils/wmc_tools/gpmc --adapter
       - name: Verify pinned solver distribution (Unix)
         if: matrix.os != 'windows-latest'
         run: python -m QuPRS.utils.ganak_distribution

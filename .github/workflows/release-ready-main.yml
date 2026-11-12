@@ -96,9 +96,9 @@ jobs:
             const requirements = [
               ['Source correctness / build (', 12],
               ['Installed artifacts / Verify version and release ref', 1],
-              ['Installed artifacts / Build wheels on ', 4],
+              ['Build wheels on ', 4],
               ['Installed artifacts / Build source distribution', 1],
-              ['Installed artifacts / Wheel smoke (', 12],
+              ['Wheel smoke (', 12],
               ['Installed artifacts / Sdist smoke (', 2]
             ];
             for (const [token, expected] of requirements) {

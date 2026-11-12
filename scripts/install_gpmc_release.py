@@ -20,8 +20,21 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN_FILE = ROOT / "src/QuPRS/utils/gpmc-release.txt"
+# macOS/Windows retain their already-qualified v1.0.0 executable bytes.
 VERSION = "v1.0.0"
 SOURCE_COMMIT = "54d76042df6bfcf4366a8c8a6d689753618a3148"
+# Linux runtime compatibility repair: new MPFR SONAME and glibc baseline.
+LINUX_VERSION = "v1.0.1"
+LINUX_SOURCE_COMMIT = "8b494feb59e26e74d2b4d5b1f8bb33100d248400"
+
+
+def release_for(system: str) -> tuple[str, str]:
+    """Resolve one immutable producer version and source SHA per OS."""
+    if system == "linux":
+        return LINUX_VERSION, LINUX_SOURCE_COMMIT
+    if system in ("macos", "windows"):
+        return VERSION, SOURCE_COMMIT
+    raise ValueError(f"Unsupported GPMC release operating system: {system}")
 RELEASE_URL = "https://github.com/PhysicsQoo/GPMC/releases/download"
 MAX_ARCHIVE_BYTES = 20_000_000
 
@@ -50,7 +63,10 @@ def read_pins(path: Path = PIN_FILE) -> dict[tuple[str, str], tuple[str, str]]:
         if len(cols) != 4 or not re.fullmatch("[a-f0-9]{64}", cols[3]):
             raise ValueError("Invalid GPMC release pin record")
         key = (cols[0], cols[1])
-        if key in entries or not re.fullmatch(r"gpmc-cli-v1\.0\.0-[a-z0-9_-]+\.tar\.gz", cols[2]):
+        expected_version, _source = release_for(cols[0])
+        valid_name = re.fullmatch(r"gpmc-cli-v[0-9]+\.[0-9]+\.[0-9]+-[a-z0-9_-]+\.tar\.gz", cols[2])
+        if (key in entries or valid_name is None or
+                not cols[2].startswith(f"gpmc-cli-{expected_version}-")):
             raise ValueError("Duplicate or invalid GPMC release pin")
         entries[key] = (cols[2], cols[3])
     if len(entries) != 6:
@@ -97,13 +113,14 @@ def verify_archive(data: bytes, system: str, arch: str, expected_sha: str) -> tu
             return f.read()
         exe = read(exe_name)
         manifest = json.loads(read("provenance.json"))
-        label = {"linux": "linux-almalinux8", "macos": "macos15",
+        label = {"linux": "linux-ubuntu22", "macos": "macos15",
                  "windows": "windows-ucrt64" if arch == "x86_64" else "windows-clangarm64"}[system]
+        version, source_commit = release_for(system)
         native_arch = "arm64" if system == "macos" and arch == "aarch64" else arch
         target = f"{label}-{native_arch}"
         if (manifest.get("project") != "PhysicsQoo/GPMC"
-                or manifest.get("release_version") != VERSION
-                or manifest.get("source_commit") != SOURCE_COMMIT
+                or manifest.get("release_version") != version
+                or manifest.get("source_commit") != source_commit
                 or manifest.get("platform") != target
                 or manifest.get("executable_sha256") != sha256(exe)
                 or manifest.get("dependencies_sha256") != sha256(read("dependencies.txt"))
@@ -137,6 +154,7 @@ def install(*, dest: Path, archive_path: Path | None = None,
             cache_dir: Path | None = None, system: str | None = None,
             machine: str | None = None, verify_only: bool = False) -> dict:
     os_name, arch = target_for(system, machine)
+    version, source_commit = release_for(os_name)
     name, expected_sha = read_pins()[(os_name, arch)]
     cache_dir = cache_dir or ROOT / "rust/target/gpmc-release-cache"
     cached = cache_dir / name
@@ -145,7 +163,7 @@ def install(*, dest: Path, archive_path: Path | None = None,
     elif cached.is_file() and sha256(cached.read_bytes()) == expected_sha:
         data = cached.read_bytes()
     else:
-        data = download(f"{RELEASE_URL}/{VERSION}/{name}")
+        data = download(f"{RELEASE_URL}/{version}/{name}")
     exe, executable_sha = verify_archive(data, os_name, arch, expected_sha)
     if archive_path is None and not cached.is_file() or (
         archive_path is None and sha256(cached.read_bytes()) != expected_sha
@@ -164,7 +182,7 @@ def install(*, dest: Path, archive_path: Path | None = None,
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
-    return {"version": VERSION, "source": SOURCE_COMMIT,
+    return {"version": version, "source": source_commit,
             "platform": f"{os_name}/{arch}", "archive_sha256": expected_sha,
             "executable_sha256": executable_sha,
             "path": str(dest), "installed": not verify_only}

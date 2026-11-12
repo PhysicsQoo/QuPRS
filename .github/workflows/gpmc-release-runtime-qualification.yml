@@ -6,6 +6,10 @@ on:
     paths:
       - '.github/workflows/gpmc-release-runtime-qualification.yml'
       - 'scripts/check_gpmc_release_runtime.py'
+      - 'scripts/install_gpmc_release.py'
+      - 'src/QuPRS/utils/gpmc-release.txt'
+      - 'rust/pathsum/build.rs'
+      - 'test/test_gpmc_release_consumer.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,7 +18,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runtime:
-    name: GPMC v1.0.0 runtime + adapter (${{ matrix.os }})
+    name: GPMC pinned release runtime + adapter (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     strategy:
@@ -49,7 +53,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: rust/target/gpmc-release-cache
-          key: gpmc-v100-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/gpmc-release.txt') }}
+          key: gpmc-v101-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/gpmc-release.txt') }}
       - name: Verify and extract pinned release executable
         shell: bash
         run: |
@@ -66,10 +70,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'rust -> target'
-          key: gpmc-v100-source-${{ runner.os }}
+          key: gpmc-v101-source-${{ runner.os }}
       - name: Build QuPRS from source without the gitlink's contents
         env:
-          QUPRS_GPMC_RELEASE: v1.0.0
+          QUPRS_GPMC_RELEASE: v1.0.1
         shell: bash
         run: |
           set -euo pipefail
@@ -81,7 +85,7 @@ jobs:
           python -m pytest -q test/test_gpmc_release_consumer.py test/test_solver_adapter_contract.py test/test_wmc_solver_adapters.py
       - name: Rust real GPMC WMC-only and hybrid cases
         env:
-          QUPRS_GPMC_RELEASE: v1.0.0
+          QUPRS_GPMC_RELEASE: v1.0.1
         shell: bash
         run: |
           set -euo pipefail

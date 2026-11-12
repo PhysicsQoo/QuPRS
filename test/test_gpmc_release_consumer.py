@@ -16,10 +16,10 @@ spec.loader.exec_module(release)
 
 
 def fake_archive(*, source=None, binary=None, extra=None):
-    source = source or release.LINUX_SOURCE_COMMIT
+    source = source or release.SOURCE_COMMIT
     binary = binary or (b"\x7fELF\x02\x01" + b"\0" * 12 + struct.pack("<H", 62))
     deps = b"libmpfr.so.6\n"
-    manifest = dict(project="PhysicsQoo/GPMC", release_version="v1.0.1",
+    manifest = dict(project="PhysicsQoo/GPMC", release_version="v1.0.2",
                     source_commit=source, platform="linux-ubuntu22-x86_64",
                     executable_sha256=release.sha256(binary),
                     dependencies_sha256=release.sha256(deps),
@@ -55,19 +55,19 @@ def test_all_six_pins_match_release_platforms():
         release.target_for("Linux", "i686")
 
 
-def test_pinned_linux_patch_and_unchanged_other_platforms():
-    assert release.release_for("linux") == (
-        "v1.0.1", "8b494feb59e26e74d2b4d5b1f8bb33100d248400"
-    )
-    assert release.release_for("macos") == (
-        "v1.0.0", "54d76042df6bfcf4366a8c8a6d689753618a3148"
-    )
-    assert release.release_for("windows") == release.release_for("macos")
+def test_pinned_release_identity_is_unified_across_all_six_platforms():
+    assert release.VERSION == "v1.0.2"
+    assert release.SOURCE_COMMIT == "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0"
+    assert all(release.release_for(os_name) == (
+        release.VERSION, release.SOURCE_COMMIT
+    ) for os_name in ("linux", "macos", "windows"))
     pins = release.read_pins()
-    assert pins[("linux", "x86_64")][0].startswith("gpmc-cli-v1.0.1-")
-    assert pins[("linux", "aarch64")][0].startswith("gpmc-cli-v1.0.1-")
-    assert all(pins[(system, "x86_64")][0].startswith("gpmc-cli-v1.0.0-")
-               for system in ("macos", "windows"))
+    assert len(pins) == 6
+    assert all(filename.startswith("gpmc-cli-v1.0.2-")
+               for filename, _sha in pins.values())
+    assert all(len(sha) == 64 for _filename, sha in pins.values())
+    with pytest.raises(ValueError, match="Unsupported"):
+        release.release_for("unknown")
 
 
 def test_archive_verifies_executable_and_source():

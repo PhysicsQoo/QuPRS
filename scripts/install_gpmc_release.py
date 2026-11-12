@@ -20,21 +20,16 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN_FILE = ROOT / "src/QuPRS/utils/gpmc-release.txt"
-# macOS/Windows retain their already-qualified v1.0.0 executable bytes.
-VERSION = "v1.0.0"
-SOURCE_COMMIT = "54d76042df6bfcf4366a8c8a6d689753618a3148"
-# Linux runtime compatibility repair: new MPFR SONAME and glibc baseline.
-LINUX_VERSION = "v1.0.1"
-LINUX_SOURCE_COMMIT = "8b494feb59e26e74d2b4d5b1f8bb33100d248400"
+# One immutable release identity across all six native platforms.
+VERSION = "v1.0.2"
+SOURCE_COMMIT = "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0"
 
 
 def release_for(system: str) -> tuple[str, str]:
-    """Resolve one immutable producer version and source SHA per OS."""
-    if system == "linux":
-        return LINUX_VERSION, LINUX_SOURCE_COMMIT
-    if system in ("macos", "windows"):
-        return VERSION, SOURCE_COMMIT
-    raise ValueError(f"Unsupported GPMC release operating system: {system}")
+    """Resolve the same pinned producer identity for every supported OS."""
+    if system not in ("linux", "macos", "windows"):
+        raise ValueError(f"Unsupported GPMC release operating system: {system}")
+    return VERSION, SOURCE_COMMIT
 RELEASE_URL = "https://github.com/PhysicsQoo/GPMC/releases/download"
 MAX_ARCHIVE_BYTES = 20_000_000
 

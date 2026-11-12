@@ -66,7 +66,7 @@ const workflow = fs.readFileSync('.github/workflows/codspeed.yml', 'utf8');
 const prEvents = workflow.match(/^  pull_request:\n    types: \[([^\]]+)\]/m)?.[1] || '';
 assert.match(prEvents, /opened/);
 assert.match(prEvents, /synchronize/);
-assert.match(prEvents, /edited/, 'existing explicit PR-body pilot trigger must remain');
+assert.doesNotMatch(prEvents, /edited/, 'editing PR metadata must not retrigger CodSpeed');
 assert.doesNotMatch(prEvents, /ready_for_review/, 'Ready transition must not rerun same source HEAD');
 assert.match(workflow, /^  workflow_dispatch:/m, 'manual pilot dispatch must remain');
 // The workflow embeds JavaScript in YAML: compile the real source_scope step,

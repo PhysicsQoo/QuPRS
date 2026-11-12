@@ -25,11 +25,11 @@ on:
       - 'scripts/check_codspeed_shards.py'
       - 'test/test_codspeed_qasm261_simulation_additive.py'
   # Cheap source-impact admission protects the complete CodSpeed suite from
-  # CI-only/docs-only PRs. Keep edited for explicit PR-body scientific pilots;
-  # workflow_dispatch remains the general manual pilot entrypoint.
+  # CI-only/docs-only PRs. PR metadata edits do not trigger another run;
+  # workflow_dispatch remains the explicit opt-in scientific pilot entrypoint.
   # Do NOT re-trigger the same SHA merely because a draft PR becomes ready.
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       pilot_only:

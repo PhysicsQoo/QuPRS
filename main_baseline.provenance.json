@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "source_sha": "9be384e65438098f18493178111fe6a3aad742c4",
-  "checkout_sha": "9be384e65438098f18493178111fe6a3aad742c4",
+  "source_sha": "2441563e90a3de9f753e7c8d679999a338ffca87",
+  "checkout_sha": "2441563e90a3de9f753e7c8d679999a338ffca87",
   "ref": "refs/heads/main",
   "python_version": "3.12.16",
   "python_implementation": "CPython",
   "platform": "Linux-7.0.0-1019-azure-x86_64-with-glibc2.43",
   "machine": "x86_64",
-  "cpu_model": "AMD EPYC 9V45 96-Core Processor",
+  "cpu_model": "AMD EPYC 7763 64-Core Processor",
   "cpu_count": 4,
   "runner_os": "Linux",
   "runner_arch": "X64",
@@ -27,5 +27,5 @@
     }
   },
   "ganak_release_manifest_sha256": "ab9216a5357a752d8f6e721a446c665823c09c3eec16903a252e050729b317c2",
-  "ganak_build_script_sha256": "a1c7f9178d6e616d4683f8467cde9584590d59d15be7b339df47638288c9397c"
+  "ganak_build_script_sha256": "7bbfa937ef38e6c933878859ffdfb6783175032a89cdfe50378a494f6726eb2c"
 }

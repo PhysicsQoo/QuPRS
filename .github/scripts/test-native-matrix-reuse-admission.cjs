@@ -6,7 +6,7 @@ function fixture() {
   return expectedSlots.map(slot=>({
     schema:1, slot, complete:true, job_step_status:'success',
     source:{tree:hex('a',40),submodule_sha256:hex('b',64),
-      contract_sha256:hex('c',64),command_contract:'native-12-python-4-rust-source-v2'},
+      contract_sha256:hex('c',64),command_contract:'native-16-python-4-rust-source-v3'},
     environment:{image_os:'Ubuntu',image_version:'20261025.179',
       runner_os:'Linux',runner_arch:'X64',python:slot.slice(0,4)+'.0',
       rustc_sha256:hex('d',64),pip_sha256:hex('e',64),
@@ -26,6 +26,8 @@ assert.equal(decide(p,mutate(m,q=>q[0].job_step_status='failure')).certified,fal
 assert.equal(decide(p,mutate(m,q=>q[0].complete=false)).certified,false,'unattested fingerprint blocks reuse');
 assert.equal(decide(p,mutate(m,q=>q[0].environment.image_version='')).certified,false,'unknown runner image blocks reuse');
 assert.equal(decide(p,m.slice(1)).certified,false,'partial matrix cannot qualify');
+assert.equal(decide(p.filter(r=>!r.slot.startsWith('3.14|')),m).certified,false,'legacy 12-slot matrix cannot qualify');
+assert.equal(decide(p,mutate(m,q=>q[0].source.command_contract='native-12-python-4-rust-source-v2')).certified,false,'legacy contract cannot qualify');
 assert.equal(decide(p,mutate(m,q=>q[0].slot=q[1].slot)).certified,false,'duplicate slot blocks reuse');
 assert.equal(decide(p,[]).certified,false);
-process.stdout.write('native-matrix-reuse: 12-slot positive and 11 fail-closed contracts passed\n');
+process.stdout.write('native-matrix-reuse: 16-slot positive and 14 fail-closed contracts passed\n');

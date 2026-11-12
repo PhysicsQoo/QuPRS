@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: POSIX :: Linux",   
     "Operating System :: MacOS :: MacOS X", 
     "Topic :: Scientific/Engineering :: Physics",
@@ -88,7 +89,9 @@ include = [
 # cibuildwheel Configuration for Cross-Platform Builds
 # ==========================================
 [tool.cibuildwheel]
-# Skip specific platforms to save CI time
+# Build cp311-abi3 wheels once per platform and test-install on Python 3.11–3.14.
+# Skip redundant CPython 3.14-specific builds; this does not exclude 3.14 users.
+# Other skips retain the supported platform policy.
 skip = ["pp*", "*i686*", "*musllinux*", "cp314*"]
 build-frontend = "build"
 

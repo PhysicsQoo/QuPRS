@@ -96,7 +96,13 @@ jobs:
           for attempt in first second; do
             candidate="$RUNNER_TEMP/quprs-package-$attempt"
             python3 scripts/stage_rust_crate_candidate.py --output "$candidate"
-            cargo package --manifest-path "$candidate/Cargo.toml" --locked --no-verify
+            if [[ "$attempt" == "first" ]]; then
+              # Verify that the actual standalone crate builds, without publishing.
+              cargo package --manifest-path "$candidate/Cargo.toml" --locked
+            else
+              # The second archive is a byte-for-byte reproducibility witness.
+              cargo package --manifest-path "$candidate/Cargo.toml" --locked --no-verify
+            fi
             test -s "$candidate/target/package/quprs-$version.crate"
           done
           sha256sum "$RUNNER_TEMP"/quprs-package-{first,second}/target/package/"quprs-$version.crate"

@@ -3,7 +3,7 @@
 
 This witness is not a permission to skip scientific tests. For future reuse
 a trusted CI controller must independently verify successful GitHub jobs,
-artifact source/identity and the same 12-slot contract.
+artifact source/identity and the same 16-slot contract.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def witness() -> dict:
         "tree": command("git", "rev-parse", "HEAD^{tree}"),
         "submodule_sha256": digest(submodules),  # Empty submodule set is a valid fingerprint.
         "contract_sha256": contract_digest,
-        "command_contract": "native-12-python-4-rust-source-v2",
+        "command_contract": "native-16-python-4-rust-source-v3",
     }
     environment = {
         "image_os": os_image,

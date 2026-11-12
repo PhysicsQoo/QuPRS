@@ -4,12 +4,12 @@
 // first be authenticated with GitHub run/job metadata before any future
 // automation is allowed to use a positive comparison.
 const platforms = ['ubuntu-latest', 'ubuntu-24.04-arm', 'macos-15-intel', 'macos-15'];
-const py = ['3.11', '3.12', '3.13'];
+const py = ['3.11', '3.12', '3.13', '3.14'];
 const expectedSlots = py.flatMap(version => platforms.map(os => version + '|' + os));
 const refuse = reason => ({certified:false, reason});
 function decideNativeMatrixReuse(pr, merged) {
   if (!Array.isArray(pr) || !Array.isArray(merged)) return refuse('MISSING_MATRIX');
-  if (pr.length !== 12 || merged.length !== 12) return refuse('INCOMPLETE_MATRIX');
+  if (pr.length !== expectedSlots.length || merged.length !== expectedSlots.length) return refuse('INCOMPLETE_MATRIX');
   const a = new Map(), b = new Map();
   for (const [samples, index] of [[pr, a], [merged, b]]) {
     for (const r of samples) {
@@ -21,7 +21,7 @@ function decideNativeMatrixReuse(pr, merged) {
       if (!/^[0-9a-f]{40}$/.test(s.tree || '') ||
           !/^[0-9a-f]{64}$/.test(s.contract_sha256 || '') ||
           !/^[0-9a-f]{64}$/.test(s.submodule_sha256 || '') ||
-          s.command_contract !== 'native-12-python-4-rust-source-v2' ||
+          s.command_contract !== 'native-16-python-4-rust-source-v3' ||
           !e.image_version || !e.image_os ||
           !e.runner_os || !e.runner_arch || !e.python ||
           !/^[0-9a-f]{64}$/.test(e.rustc_sha256 || '') ||

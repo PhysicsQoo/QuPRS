@@ -96,9 +96,9 @@ jobs:
             const requirements = [
               ['Source correctness / build (', 12],
               ['Installed artifacts / Verify version and release ref', 1],
-              ['Installed artifacts / Build wheels on ', 4],
+              ['Build wheels on ', 4],
               ['Installed artifacts / Build source distribution', 1],
-              ['Installed artifacts / Wheel smoke (', 12],
+              ['Wheel smoke (', 12],
               ['Installed artifacts / Sdist smoke (', 2]
             ];
             for (const [token, expected] of requirements) {
@@ -114,6 +114,22 @@ jobs:
                 failures.push(`${job.name}: ${job.status}/${job.conclusion}`);
               }
             }
+            // Reject missing platform/version jobs masked by duplicates.
+            const platforms = ['ubuntu-latest', 'ubuntu-24.04-arm', 'macos-15-intel', 'macos-15'];
+            const pyVersions = ['3.11', '3.12', '3.13'];
+            const requireExactlyOne = suffix => {
+              const found = jobs.filter(job => job.name.endsWith(suffix));
+              if (found.length !== 1) {
+                failures.push(`Expected exactly one job ending in "${suffix}", got ${found.length}`);
+              }
+            };
+            for (const os of platforms) {
+              requireExactlyOne(`Build wheels on ${os}`);
+              for (const py of pyVersions) {
+                requireExactlyOne(`Wheel smoke (${os}, py${py})`);
+              }
+            }
+
             if (failures.length) {
               core.setFailed('Release-Ready FAIL-CLOSED:\n' + failures.join('\n'));
             } else {

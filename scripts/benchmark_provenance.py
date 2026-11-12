@@ -10,7 +10,10 @@ import subprocess
 import sys
 
 
+
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.gpmc_release_source_identity import source_commit as pinned_gpmc_source_commit
 
 
 def git(*args):
@@ -74,7 +77,8 @@ def run():
         "runner_arch": os.environ.get("RUNNER_ARCH"),
         "runner_image": os.environ.get("ImageOS"),
         "runner_image_version": os.environ.get("ImageVersion"),
-        "gpmc_submodule_sha": git("rev-parse", "HEAD:GPMC"),
+        "gpmc_submodule_sha": None,  # Legacy field; no longer tracked as a gitlink.
+        "gpmc_release_source_sha": pinned_gpmc_source_commit(),
         "rustc": version("rustc", "--version"),
         "solver_binaries": tools,
         "ganak_release_manifest_sha256": sha256(
@@ -119,8 +123,18 @@ def run():
                       "compare using matched binary and input CNF before "
                       "attributing a runtime difference.")
 
+        previous_identity = (
+            ("release", previous.get("gpmc_release_source_sha"))
+            if previous.get("gpmc_release_source_sha")
+            else ("submodule", previous.get("gpmc_submodule_sha"))
+        )
+        current_identity = ("release", record["gpmc_release_source_sha"])
+        if not previous_identity[1]:
+            print("::warning::GPMC provider identity missing in baseline.")
+        elif previous_identity != current_identity:
+            print(f"::warning::GPMC provider changed: "
+                  f"baseline={previous_identity!r}, current={current_identity!r}.")
         for field, label in (
-            ("gpmc_submodule_sha", "GPMC submodule"),
             ("cpu_model", "CPU model"),
             ("runner_image", "Runner image"),
             ("runner_image_version", "Runner image version"),

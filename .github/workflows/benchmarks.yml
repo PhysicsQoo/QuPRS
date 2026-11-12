@@ -130,17 +130,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
 
-      - name: Identify pinned GPMC submodule revision
+      - name: Identify pinned GPMC release source revision
         id: gpmc_commit
         run: |
-          echo "sha=$(git rev-parse HEAD:GPMC)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(python3 -c 'from scripts.gpmc_release_source_identity import source_commit; print(source_commit())')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Compiled Binaries (GPMC/Ganak)
         id: cache-wmc-tools
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt', 'src/QuPRS/utils/gpmc-release.txt') }}
 
       - name: Cache verified Ganak release archive
         uses: actions/cache@v4
@@ -297,17 +297,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
 
-      - name: Identify pinned GPMC submodule revision
+      - name: Identify pinned GPMC release source revision
         id: gpmc_commit
         run: |
-          echo "sha=$(git rev-parse HEAD:GPMC)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(python3 -c 'from scripts.gpmc_release_source_identity import source_commit; print(source_commit())')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Compiled Binaries (GPMC/Ganak)
         id: cache-wmc-tools
         uses: actions/cache@v4
         with:
           path: ${{ env.BINARY_DIR }}/wmc_tools
-          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-gpmc-${{ steps.gpmc_commit.outputs.sha }}-wmc-${{ hashFiles('rust/pathsum/build.rs', 'src/QuPRS/utils/ganak-release.txt', 'src/QuPRS/utils/gpmc-release.txt') }}
       - name: Restore pinned Ganak archive when available
         uses: ./.github/actions/cache-ganak-release
       - name: Install Python dependencies

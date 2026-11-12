@@ -40,9 +40,9 @@ WORKDIR /app/rust
 RUN cargo chef cook --release --recipe-path /app/recipe.json
 
 WORKDIR /app
-# Copy the rest of the source code and initialize git submodules
+# The source build provisions independently versioned, checksum-pinned solvers.
+# No nested source checkout or Git submodule initialization is required.
 COPY . .
-RUN git submodule update --init --recursive
 
 ARG SETUPTOOLS_SCM_PRETEND_VERSION
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}

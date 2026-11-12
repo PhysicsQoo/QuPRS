@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check macOS wheels against actual release-build deployment policy.
 
-The root README is version-neutral; release workflow and wheel metadata are authoritative.
+The root README is version-neutral; release workflows and wheel metadata are authoritative.
 """
 
 import argparse
@@ -16,13 +16,15 @@ DEPLOYMENT = re.compile(r"MACOSX_DEPLOYMENT_TARGET=(\d+)\.(\d+)")
 
 
 def release_architectures(workflow: str) -> set[str]:
-    """Check the actual cibuildwheel macOS runner/arch matrix (not README)."""
-    start, end = "\n  build_wheels:\n", "\n  build_sdist:\n"
+    """Check the caller's actual cibuildwheel macOS runner/arch matrix."""
+    start, end = "\n  platform_wheels:\n", "\n  build_sdist:\n"
     if workflow.count(start) != 1 or workflow.count(end) != 1:
         raise ValueError("Cannot uniquely locate release wheel matrix")
     build = workflow.split(start, 1)[1].split(end, 1)[0]
-    if "CIBW_ARCHS: ${{ matrix.arch }}" not in build:
-        raise ValueError("Release builder must set CIBW_ARCHS from matrix.arch")
+    if "uses: ./.github/workflows/platform-wheel-ci.yml" not in build:
+        raise ValueError("Release builder must invoke the shared platform wheel workflow")
+    if "arch: ${{ matrix.arch }}" not in build:
+        raise ValueError("Release builder must pass matrix.arch to its platform workflow")
     rows = build.splitlines()
     found: set[str] = set()
     count = 0
@@ -55,8 +57,11 @@ def release_deployment(workflow: str) -> tuple[int, int]:
     return tuple(map(int, matches[0]))
 
 
-def validate_policy(workflow: str) -> dict[str, tuple[int, int]]:
-    minimum = release_deployment(workflow)
+def validate_policy(workflow: str, platform_workflow: str) -> dict[str, tuple[int, int]]:
+    # A single platform workflow owns the actual compiler and deployment policy.
+    if "CIBW_ARCHS: ${{ inputs.arch }}" not in platform_workflow:
+        raise ValueError("Shared wheel builder must set CIBW_ARCHS from inputs.arch")
+    minimum = release_deployment(platform_workflow)
     return {arch: minimum for arch in sorted(release_architectures(workflow))}
 
 
@@ -118,7 +123,8 @@ def main() -> int:
     parser.add_argument("--arch", choices=("arm64", "x86_64"))
     args = parser.parse_args()
     minimums = validate_policy(
-        (ROOT / ".github/workflows/python-publish.yml").read_text(encoding="utf-8")
+        (ROOT / ".github/workflows/python-publish.yml").read_text(encoding="utf-8"),
+        (ROOT / ".github/workflows/platform-wheel-ci.yml").read_text(encoding="utf-8"),
     )
     print(f"macOS release wheel policy: {minimums}")
     if args.wheel_dir is not None:

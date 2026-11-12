@@ -15,14 +15,13 @@ on:
       - 'scripts/generate_stubs.py'
       - 'scripts/check_generated_stub.py'
       - 'docs/development/paper-corpus-manifest.json'
-      - 'GPMC'
-      - '.gitmodules'
       - 'pyproject.toml'
       - 'MANIFEST.in'
       - 'scripts/install_linux_deps.sh'
       - '.github/workflows/dev-fast.yml'
       - '.github/scripts/ci-impact-reuse.cjs'
       - '.github/scripts/test-ci-impact-reuse.cjs'
+      - 'scripts/check_coverage_xml.py'
       - '.github/workflows/pytest.yml'
       - '.github/workflows/native-cross-platform-pr.yml'
   workflow_dispatch:
@@ -73,12 +72,14 @@ jobs:
     env:
       BINARY_DIR: src/QuPRS/utils
     steps:
-      - name: Check out exact source with solvers
+      - name: Check out exact source (no native solver submodules)
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 0
           persist-credentials: false
+      - name: Assert submodule-free GPMC build
+        run: test ! -f GPMC/CMakeLists.txt
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -150,6 +151,12 @@ jobs:
           fi
           echo "Regenerated core.pyi deterministic output PASS"
           cp "$original" src/QuPRS/pathsum/core.pyi
+
+      - name: Verify default pinned GPMC release and Python adapter
+        run: |
+          test -x src/QuPRS/utils/wmc_tools/gpmc
+          python scripts/check_gpmc_release_runtime.py \
+            --binary src/QuPRS/utils/wmc_tools/gpmc --adapter
 
       - name: Verify bundled native solver distribution
         run: python -m QuPRS.utils.ganak_distribution

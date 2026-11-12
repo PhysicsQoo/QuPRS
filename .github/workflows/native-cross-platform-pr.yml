@@ -8,13 +8,12 @@ on:
     branches: [dev]
     paths:
       - 'rust/**'
-      - 'GPMC'
-      - '.gitmodules'
       - 'src/QuPRS/utils/**'
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'src/QuPRS/interface/rust_*.py'
       - 'pyproject.toml'
       - 'scripts/install_linux_deps.sh'
+      - 'scripts/check_coverage_xml.py'
       - '.github/workflows/pytest.yml'
       - '.github/workflows/native-cross-platform-pr.yml'
       - '.github/scripts/ci-impact-reuse.cjs'

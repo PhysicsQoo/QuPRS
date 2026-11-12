@@ -16,6 +16,13 @@ def get_gpmc_path() -> Iterator[Path]:
     """
     Context manager to safely obtain the path to the packaged GPMC binary.
     """
+    # Match the native Rust adapter: an explicit path is authoritative.
+    # A missing or failing override must never fall back to the packaged solver.
+    override = os.environ.get("QUPRS_GPMC_PATH")
+    if override:
+        yield Path(override)
+        return
+
     # Standardized binary name regardless of OS
     binary_name = _get_binary_name("gpmc")
 

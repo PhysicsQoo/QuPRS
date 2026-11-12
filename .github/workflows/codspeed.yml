@@ -25,11 +25,11 @@ on:
       - 'scripts/check_codspeed_shards.py'
       - 'test/test_codspeed_qasm261_simulation_additive.py'
   # Cheap source-impact admission protects the complete CodSpeed suite from
-  # CI-only/docs-only PRs. Keep edited for explicit PR-body scientific pilots;
-  # workflow_dispatch remains the general manual pilot entrypoint.
+  # CI-only/docs-only PRs. PR metadata edits do not trigger another run;
+  # workflow_dispatch remains the explicit opt-in scientific pilot entrypoint.
   # Do NOT re-trigger the same SHA merely because a draft PR becomes ready.
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       pilot_only:
@@ -402,8 +402,8 @@ jobs:
             echo "### PR CodSpeed WallTime provenance"
             echo "- Base SHA: $BASE_SHA"
             echo "- Head SHA: $HEAD_SHA"
-            echo "- Base GPMC submodule: $(git -C pr-walltime-base rev-parse HEAD:GPMC)"
-            echo "- Head GPMC submodule: $(git rev-parse HEAD:GPMC)"
+            echo "- Base GPMC gitlink (historical, if any): $(git -C pr-walltime-base rev-parse HEAD:GPMC 2>/dev/null || printf none)"
+            echo "- Head GPMC release source pin: $(python3 -c 'from scripts.gpmc_release_source_identity import source_commit; print(source_commit())')"
             echo "- Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1207,8 +1207,8 @@ jobs:
             echo "### PR CodSpeed WallTime provenance"
             echo "- Base SHA: $BASE_SHA"
             echo "- Head SHA: $HEAD_SHA"
-            echo "- Base GPMC submodule: $(git -C pr-walltime-base rev-parse HEAD:GPMC)"
-            echo "- Head GPMC submodule: $(git rev-parse HEAD:GPMC)"
+            echo "- Base GPMC gitlink (historical, if any): $(git -C pr-walltime-base rev-parse HEAD:GPMC 2>/dev/null || printf none)"
+            echo "- Head GPMC release source pin: $(python3 -c 'from scripts.gpmc_release_source_identity import source_commit; print(source_commit())')"
             echo "- Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
           } >> "$GITHUB_STEP_SUMMARY"
 

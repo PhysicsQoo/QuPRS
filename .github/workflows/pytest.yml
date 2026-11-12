@@ -21,9 +21,8 @@ on:
       - 'scripts/check_benchmark_evidence.py'
       - 'docs/development/paper-corpus-manifest.json'
       - 'rust/**'
-      - 'GPMC'        # Solver submodule pointer affects native CI coverage.
-      - '.gitmodules' # Solver submodule URL/config affects native CI setup.
       - 'pyproject.toml'
+      - 'scripts/check_coverage_xml.py'
       - '.github/workflows/pytest.yml'
       - '.github/scripts/ci-pytest-push-impact.cjs'
       - '.github/scripts/test-pytest-push-impact.cjs'
@@ -51,6 +50,8 @@ jobs:
           persist-credentials: false
       - name: Test Pytest source-routing safety contracts
         run: node .github/scripts/test-pytest-push-impact.cjs
+      - name: Test coverage XML positive and failure contracts
+        run: python3 -m unittest discover -s test -p 'test_coverage_xml_validation.py'
       - id: scope
         name: Verify exact push source before allocating 12-platform matrix
         uses: actions/github-script@v7
@@ -70,6 +71,10 @@ jobs:
     if: ${{ needs.source-admission.outputs.run_heavy == 'true' }}
     # Specify the runner environment
     runs-on: ${{ matrix.os }}
+    # Resource safety ceiling, not a software-correctness assertion. An exhausted
+    # runner leaves this matrix slot INCONCLUSIVE until the exact slot is retried.
+    # Avoid turning a short runner stall into a false application regression.
+    timeout-minutes: 60
 
     # Test matrix for multiple operating systems
     strategy:
@@ -97,8 +102,10 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           fetch-depth: 0
+      - name: Enforce submodule-free source checkout for default Python/Rust builds
+        run: test ! -f GPMC/CMakeLists.txt
 
       # Step 2: Set up Python environment
       - name: Set up Python ${{ matrix.python-version }}
@@ -107,6 +114,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
           
+      # Verify the actual published archive once per native OS/architecture,
+      # without replacing the default source-built solver or spawning it.
+      - name: Cache pinned GPMC CLI release
+        if: matrix.python-version == '3.12'
+        uses: actions/cache@v4
+        with:
+          path: rust/target/gpmc-release-cache
+          key: gpmc-cli-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/gpmc-release.txt') }}
+      - name: Verify pinned GPMC release archive and provenance
+        if: matrix.python-version == '3.12'
+        run: python scripts/install_gpmc_release.py --verify-only
+
       # ==========================================
       # Rust env and cache
       # ==========================================
@@ -212,12 +231,33 @@ jobs:
           QUPRS_GPMC_PATH="$RUNNER_TEMP/quprs-missing-gpmc" cargo test \
             --manifest-path "$crate/Cargo.toml" --test external_wmc \
             missing_solver_fails_closed -- --ignored
+      - name: Verify source default GPMC release executes and matches Python SolverAdapter
+        if: matrix.os != 'windows-latest' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          test ! -f GPMC/CMakeLists.txt
+          test -x src/QuPRS/utils/wmc_tools/gpmc
+          python scripts/check_gpmc_release_runtime.py \
+            --binary src/QuPRS/utils/wmc_tools/gpmc --adapter
+      - name: Verify pinned solver distribution (Unix)
+        if: matrix.os != 'windows-latest'
+        run: python -m QuPRS.utils.ganak_distribution
+
+      # quprs is a Python-independent Rust crate; its default features and
+      # source-tested solvers are identical across Python interpreter versions.
+      # Keep one locked Rust correctness run on every OS/architecture.
+      - name: Run Rust source tests (once per OS)
+        if: matrix.os != 'windows-latest' && matrix.python-version == '3.12'
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p quprs
+
       - name: Run tests (Unix)
         if: matrix.os != 'windows-latest'
+        # faulthandler below emits stacks after 180 s, but does NOT fail tests.
+        # Do not impose a short pytest-only timeout on potentially slow runners.
         run: |
-          python -m QuPRS.utils.ganak_distribution
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs
           pytest -n auto -v -ra \
+          -o faulthandler_timeout=180 \
+          --durations=20 \
           --junitxml=pytest-results.xml \
           --html=pytest-results.html --self-contained-html \
           --cov=src/QuPRS --cov-report=xml --cov-report=html
@@ -272,12 +312,20 @@ jobs:
           name: coverage-report-xml-${{ matrix.os }}-${{ matrix.python-version }}
           path: coverage.xml
 
+      # Keep a diagnostic XML artifact when tests fail, but only publish valid
+      # coverage from a successful matrix job to the Codecov dashboard.
+      - name: Validate coverage XML for reporting
+        id: validate-coverage
+        if: ${{ always() && !cancelled() }}
+        run: python scripts/check_coverage_xml.py coverage.xml
+
       - name: Upload coverage to Codecov
-        if: always()
+        if: ${{ success() && steps.validate-coverage.outcome == 'success' }}
         uses: codecov/codecov-action@v5
         with:
           name: codecov-${{ matrix.os }}-${{ matrix.python-version }}
-          flags: ${{ matrix.os }} 
+          flags: ${{ matrix.os }}
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
+          disable_search: true
           fail_ci_if_error: true

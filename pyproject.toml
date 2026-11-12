@@ -73,11 +73,13 @@ manifest-path = "rust/python_ffi/Cargo.toml"
 # Directory where the Python package source resides
 python-source = "src"
 module-name = "QuPRS._pathsum_rust"
-# List of patterns to include in the Source Distribution (Sdist)
-# Essential for users building from source who need C++ code and build scripts
+# Source distributions keep the content-pinned GPMC release installer,
+# not a duplicate GPMC source checkout or third-party C++ tree.
 include = [
-    "GPMC/**/*",                   # C++ source for GPMC
     "scripts/install_linux_deps.sh", # Environment setup script
+    "scripts/fetch_gpmc_wheel_source.sh", # manylinux-only pinned source build
+    "scripts/install_gpmc_release.py", # Opt-in release provisioning in source distributions
+    "src/QuPRS/utils/gpmc-release.txt", # SHA256-pinned GPMC release manifest
     "src/QuPRS/utils/ganak-release.txt",
     "src/QuPRS/utils/wmc_tools/*", # Compiled binaries from build.rs
 ]
@@ -92,7 +94,8 @@ build-frontend = "build"
 
 [tool.cibuildwheel.linux]
 # Ensure system libraries (GMP/MPFR) are installed in the Docker container before building
-before-all = "sh scripts/install_linux_deps.sh"
+before-all = "sh scripts/install_linux_deps.sh && sh scripts/fetch_gpmc_wheel_source.sh"
+environment = "QUPRS_GPMC_WHEEL_SOURCE=1"
 
 [tool.cibuildwheel.macos]
 # Install dependencies using Homebrew on macOS Runners

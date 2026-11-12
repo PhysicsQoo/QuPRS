@@ -108,80 +108,26 @@ jobs:
           python scripts/verify_macos_wheel_support.py
           python -m unittest discover -s test -p 'test_macos_wheel_support.py'
 
-  # --- Job 1: Build Cross-Platform Wheels ---
-  # This job runs on all triggers and builds binary wheels for multiple platforms.
-  build_wheels:
-    name: Build wheels on ${{ matrix.os }}
+  # Parallel platform pipelines; each smoke depends only on its own wheel build.
+  platform_wheels:
+    name: Platform wheels (${{ matrix.os }})
     needs: verify_release_ref
-    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             arch: x86_64
-            name: "Linux x86_64"
-          - os: ubuntu-24.04-arm   # ARM64 Linux
+          - os: ubuntu-24.04-arm
             arch: aarch64
-            name: "Linux ARM64"
-          - os: macos-15-intel    # Intel Mac (x86_64)
-            arch: "x86_64"  # Build only x86_64
-            name: "macOS Intel"
-          - os: macos-15    # ARM64 release wheels target macOS 15+; source smoke is separate
-            arch: "arm64"   # Build only arm64
-            name: "macOS Silicon"
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-          fetch-depth: 0
-
-      - name: Export Compiler Paths (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          GMP=$(brew --prefix gmp)
-          MPFR=$(brew --prefix mpfr)
-          
-          # Release wheel deployment minimum is macOS 15.0.
-          # A macOS 14 sdist smoke is not evidence of macOS 14 wheel compatibility.
-            echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=15.0 CFLAGS=\"-I$GMP/include -I$MPFR/include\" LDFLAGS=\"-L$GMP/lib -Wl,-rpath,$GMP/lib -L$MPFR/lib -Wl,-rpath,$MPFR/lib\" CMAKE_PREFIX_PATH=\"$GMP;$MPFR\"" >> $GITHUB_ENV          
-
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v3.3.1
-        env:
-          CIBW_ARCHS: ${{ matrix.arch }}
-
-          # Install the built wheel with its dev extras, not the source tree.
-          CIBW_TEST_EXTRAS: dev
-          CIBW_TEST_COMMAND: >-
-            python -c "from pathlib import Path; from importlib.metadata import distribution, version;
-            import QuPRS; import QuPRS._pathsum_rust as ext; from QuPRS._version import __version__;
-            root = Path(distribution('QuPRS').locate_file('')).resolve();
-            assert Path(QuPRS.__file__).resolve().is_relative_to(root), QuPRS.__file__;
-            assert Path(ext.__file__).resolve().is_relative_to(root), ext.__file__;
-            assert version('QuPRS') == __version__"
-            && pytest -n auto -k "not (Feynman or MQT)" {project}/test
-
-      - name: Validate built macOS wheel tags and metadata
-        if: runner.os == 'macOS'
-        run: python scripts/verify_macos_wheel_support.py --wheel-dir wheelhouse --arch "${{ matrix.arch }}"
-
-      - name: Upload wheel artifacts (for all builds - general purpose)
-        uses: actions/upload-artifact@v4
-        with:
-          name: all-builds-dist-wheels-${{ matrix.os }}
-          path: ./wheelhouse/*.whl
-          if-no-files-found: error
-
-      - name: Upload wheel artifacts (for PyPI release - only on tags)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
-        with:
-          name: pypi-release-wheels-${{ matrix.os }}
-          path: ./wheelhouse/*.whl
-          if-no-files-found: error
+          - os: macos-15-intel
+            arch: x86_64
+          - os: macos-15
+            arch: arm64
+    uses: ./.github/workflows/platform-wheel-ci.yml
+    with:
+      os: ${{ matrix.os }}
+      arch: ${{ matrix.arch }}
   # --- Job 2: Build Source Distribution (Sdist) ---
   # This job runs on all triggers and builds the source distribution.
   build_sdist:
@@ -192,7 +138,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
+          submodules: false
           fetch-depth: 0
 
       - name: Install build tool
@@ -220,83 +166,7 @@ jobs:
           if-no-files-found: error
 
 
-  # --- Release candidate gate: install actual archives, not a source editable build. ---
-  artifact_install:
-    name: Wheel smoke (${{ matrix.os }}, py${{ matrix.python-version }})
-    needs: [verify_release_ref, build_wheels]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
-        python-version: ["3.11", "3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install native runtime dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install gmp mpfr zlib
-          else
-            sudo apt-get update
-            sudo apt-get install -y libgmp10 libmpfr6 zlib1g
-          fi
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: all-builds-dist-wheels-*
-          path: ${{ runner.temp }}/candidate-wheels
-          merge-multiple: true
-      - name: Install compatible wheel from this run, never PyPI QuPRS
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip packaging
-          export WHEEL_DIR="$RUNNER_TEMP/candidate-wheels"
-          export QU_VERSION="$(python scripts/release_version.py --kind python)"
-          export LOCAL_WHEEL="$(python - <<'PY'
-          import os
-          from pathlib import Path
-          from packaging.tags import sys_tags
-          from packaging.utils import parse_wheel_filename
-          candidates = []
-          supported = set(sys_tags())
-          for wheel in sorted(Path(os.environ["WHEEL_DIR"]).glob("*.whl")):
-              name, version, _, tags = parse_wheel_filename(wheel.name)
-              if str(name) == "quprs" and str(version) == os.environ["QU_VERSION"] and (tags & supported):
-                  candidates.append(wheel)
-          if len(candidates) != 1:
-              raise SystemExit(f"Expected one compatible current-build QuPRS wheel, got {candidates}")
-          print(candidates[0])
-          PY
-          )"
-          python -m pip install "$LOCAL_WHEEL"
-          cd "$RUNNER_TEMP"
-          python "$GITHUB_WORKSPACE/scripts/release_artifact_smoke.py" --expected-version "$QU_VERSION"
-
-      # The PR and tag workflow has its own artifact-install jobs; keep the
-      # same representative consumer typing gate as release-artifact-ci.yml.
-      - name: Check wheel typing from outside source with mypy
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install 'mypy==1.18.2'
-          cd "$RUNNER_TEMP"
-          python "$GITHUB_WORKSPACE/scripts/check_installed_typing.py" --mypy
-      - name: Run published Python examples against the installed wheel
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          python "$GITHUB_WORKSPACE/scripts/check_docs_examples.py" --installed
-
+  # Wheel smoke is platform-local in platform-wheel-ci.yml.
   sdist_install:
     name: Sdist smoke (${{ matrix.os }}, py3.12)
     needs: [verify_release_ref, build_sdist]
@@ -308,7 +178,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

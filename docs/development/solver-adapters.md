@@ -16,6 +16,18 @@ malformed output or nonfinite count cannot silently produce a valid
 equivalence result. A failure never causes an implicit retry with
 the other solver.
 
+The Python and native Rust backends both honor an explicit
+`QUPRS_GPMC_PATH` executable override. With an override, that path is
+used as requested; a missing or failing executable is an error, not a
+request to retry the packaged GPMC or Ganak. The packaged executable
+comes from the GPMC source pinned by the repository submodule Gitlink;
+`branch` in `.gitmodules` is a checkout preference, not an immutable
+version identifier. An override is not thereby certified as the pinned
+binary. For source and artifact attribution, record the actual executable
+SHA-256, platform/architecture, selected command arguments and source
+commit separately. An upstream/source commit alone does not prove an
+installed binary has identical bytes or numerical behavior.
+
 Python uses `QuPRS.utils.solver_adapter` for typed solver capabilities,
 result parsing, and scoped optional adapter registration. Native Rust uses
 a separate solver-adapter interface; neither backend automatically routes
@@ -29,3 +41,25 @@ documented projective-distance classifier to finite counts; printed
 precision diagnostics remain separate from the operational verdict.
 See [WMC numerical tolerance](wmc-numerical-tolerance.md) and
 [WMC evidence policy](wmc-evidence-policy.md).
+
+## Opt-in pinned GPMC CLI release for source builds
+
+QuPRS source builds ordinarily compile GPMC from the checked-out source.
+To test the independently published PhysicsQoo GPMC v1.0.0 CLI without a
+GPMC source checkout, set `QUPRS_GPMC_RELEASE=v1.0.0` before `maturin develop`.
+The build downloads and verifies a fixed per-platform archive SHA-256, source
+commit, embedded executable checksum, platform and provenance. A verified
+archive is cached for repeat/offline builds. This is a **build-time** option;
+installed QuPRS does not fetch solver executables during verification.
+
+Alternatively, run `python scripts/install_gpmc_release.py` and pass the
+printed executable location through `QUPRS_GPMC_PATH` when using an existing
+installation. Explicit overrides remain authoritative and must not silently
+fall back to another solver.
+
+These CLI artifacts require compatible system-provided GMP/GMPXX, MPFR and
+other shared libraries. Linux targets use an AlmaLinux 8 / glibc 2.28 baseline
+and specific library sonames; macOS binaries are not notarized or independently
+certified on clean macOS 15 hosts; Windows binaries require matching MSYS2
+runtime DLLs. Release SHA verification does not by itself prove runtime
+portability. The existing bundled source-build path remains the default.

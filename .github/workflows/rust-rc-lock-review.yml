@@ -1,0 +1,83 @@
+# Temporary resolver witness. This workflow never publishes or writes to Git.
+# Remove after the independent Cargo-generated lockfiles have been reviewed.
+name: Rust RC dependency lock review
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/rust-rc-lock-review.yml'
+permissions:
+  contents: read
+jobs:
+  resolve-candidate-lockfiles:
+    if: ${{ github.event.pull_request.head.repo.full_name == 'PhysicsQoo/QuPRS' && github.head_ref == 'release/v0.16.0-rc1-preparation' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          submodules: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare independent native package outside the workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import shutil
+          import tomllib
+          root = Path.cwd()
+          version = tomllib.loads((root / "rust/Cargo.toml").read_text())["workspace"]["package"]["version"]
+          python_version = (root / "src/QuPRS/_version.py").read_text()
+          assert version == "0.16.0-rc.1", version
+          assert '__version__ = "0.16.0rc1"' in python_version
+          source = root / "rust/quprs"
+          destination = Path(os.environ["RUNNER_TEMP"]) / "quprs-standalone-lock"
+          shutil.copytree(source, destination, ignore=shutil.ignore_patterns("target", ".git", "__pycache__"))
+          manifest = (destination / "Cargo.toml").read_text()
+          for old, new in (
+              ("version.workspace = true", f'version = "{version}"'),
+              ("edition.workspace = true", 'edition = "2021"'),
+              ("publish.workspace = true", "publish = true"),
+          ):
+              assert manifest.count(old) == 1, old
+              manifest = manifest.replace(old, new, 1)
+          (destination / "Cargo.toml").write_text(manifest)
+          print("Candidate manifest version and standalone source: PASS")
+          PY
+      - name: Reconcile workspace and standalone lockfiles with Cargo
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo --version
+          cargo metadata --manifest-path rust/Cargo.toml --format-version 1 > /dev/null
+          cargo metadata --manifest-path "$RUNNER_TEMP/quprs-standalone-lock/Cargo.toml" --format-version 1 > /dev/null
+          cargo metadata --manifest-path rust/Cargo.toml --locked --format-version 1 > /dev/null
+          cargo metadata --manifest-path "$RUNNER_TEMP/quprs-standalone-lock/Cargo.toml" --locked --format-version 1 > /dev/null
+      - name: Record both exact resolver-produced lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import os
+          from pathlib import Path
+          paths = {
+              "WORKSPACE": Path("rust/Cargo.lock"),
+              "STANDALONE": Path(os.environ["RUNNER_TEMP"]) / "quprs-standalone-lock/Cargo.lock",
+          }
+          for key, path in paths.items():
+              contents = path.read_bytes()
+              data = base64.b64encode(contents).decode("ascii")
+              print(f"LOCK_BEGIN {key} {len(contents)} {hashlib.sha256(contents).hexdigest()}")
+              for pos in range(0, len(data), 2048):
+                  print(f"LOCK_DATA {key} {data[pos:pos+2048]}")
+              print(f"LOCK_END {key}")
+          PY

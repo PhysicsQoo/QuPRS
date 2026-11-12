@@ -1,21 +1,14 @@
-# Scoped qualification; not an alternate release or full native CI pipeline.
-name: GPMC release runtime qualification
+# GPMC owns native release ABI/loader/scientific qualification.
+# This is only a manual QuPRS consumer integration check for intentional
+# solver release upgrades. Daily PRs use the normal QuPRS adapter tests.
+name: GPMC pinned release consumer integration (manual)
 on:
-  pull_request:
-    branches: [dev]
-    paths:
-      - '.github/workflows/gpmc-release-runtime-qualification.yml'
-      - 'scripts/check_gpmc_release_runtime.py'
-      - 'scripts/install_gpmc_release.py'
-      - 'src/QuPRS/utils/gpmc-release.txt'
-      - 'rust/pathsum/build.rs'
-      - 'test/test_gpmc_release_consumer.py'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: gpmc-consumer-manual-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   runtime:
     name: GPMC pinned release runtime + adapter (${{ matrix.os }})

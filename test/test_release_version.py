@@ -22,6 +22,7 @@ class ReleaseVersionTests(unittest.TestCase):
             "0.15.0-rc.1": "0.15.0rc1",
             "0.15.0-rc.2": "0.15.0rc2",
             "0.16.0-rc.1": "0.16.0rc1",
+            "0.16.0": "0.16.0",
         }
         for cargo, expected in cases.items():
             with self.subTest(cargo=cargo):

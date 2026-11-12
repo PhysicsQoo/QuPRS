@@ -1,0 +1,43 @@
+# Nonpublishing Cargo lockfile verification for version changes.
+# Run Cargo's workspace-only resolver independently for the workspace and
+# the staged, workspace-independent crate. Fail on any third-party drift.
+name: Release lockfile parity
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'rust/Cargo.toml'
+      - 'rust/Cargo.lock'
+      - 'rust/quprs/Cargo.toml'
+      - 'rust/quprs/Cargo.lock'
+      - '.github/workflows/release-lockfile-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-lockfile-parity:
+    name: Cargo workspace and staged crate lockfile parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify workspace lock under Cargo's own resolver
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo update --workspace --manifest-path rust/Cargo.toml
+          git diff --exit-code -- rust/Cargo.lock
+          cargo metadata --locked --manifest-path rust/Cargo.toml --format-version 1 --no-deps >/dev/null
+          sha256sum rust/Cargo.lock
+      - name: Verify independent staged crate lock under Cargo's resolver
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/stage_rust_crate_candidate.py --output "$RUNNER_TEMP/quprs-parity"
+          cargo update --workspace --manifest-path "$RUNNER_TEMP/quprs-parity/Cargo.toml"
+          cmp rust/quprs/Cargo.lock "$RUNNER_TEMP/quprs-parity/Cargo.lock"
+          cargo metadata --locked --manifest-path "$RUNNER_TEMP/quprs-parity/Cargo.toml" --format-version 1 --no-deps >/dev/null
+          sha256sum rust/quprs/Cargo.lock "$RUNNER_TEMP/quprs-parity/Cargo.lock"

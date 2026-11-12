@@ -48,7 +48,7 @@ It does not reduce QuPRS to RR-only.
 ## Provide external GPMC and Ganak executables
 
 The QuPRS source checkout uses the **GPMC v1.0.2 public CLI Release**,
-pinned by exact archive SHA-256 and producer source commit in
+pinned by exact archive SHA256 and producer source commit in
 [`gpmc-release.txt`](https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/utils/gpmc-release.txt).
 It does not need a nested GPMC source checkout. The installed binary is
 written to `src/QuPRS/utils/wmc_tools/gpmc` (or `gpmc.exe` on Windows).

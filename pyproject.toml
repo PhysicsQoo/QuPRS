@@ -77,6 +77,7 @@ module-name = "QuPRS._pathsum_rust"
 # not a duplicate GPMC source checkout or third-party C++ tree.
 include = [
     "scripts/install_linux_deps.sh", # Environment setup script
+    "scripts/fetch_gpmc_wheel_source.sh", # manylinux-only pinned source build
     "scripts/install_gpmc_release.py", # Opt-in release provisioning in source distributions
     "src/QuPRS/utils/gpmc-release.txt", # SHA256-pinned GPMC release manifest
     "src/QuPRS/utils/ganak-release.txt",
@@ -93,7 +94,8 @@ build-frontend = "build"
 
 [tool.cibuildwheel.linux]
 # Ensure system libraries (GMP/MPFR) are installed in the Docker container before building
-before-all = "sh scripts/install_linux_deps.sh"
+before-all = "sh scripts/install_linux_deps.sh && sh scripts/fetch_gpmc_wheel_source.sh"
+environment = "QUPRS_GPMC_WHEEL_SOURCE=1"
 
 [tool.cibuildwheel.macos]
 # Install dependencies using Homebrew on macOS Runners

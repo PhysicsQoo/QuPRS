@@ -163,7 +163,7 @@ def identity_case(field, label):
 
 for field, label in [("cpu_model", "CPU model"), ("runner_image", "Runner image"),
                      ("runner_image_version", "Runner image version"),
-                     ("python_version", "Python version"), ("gpmc_submodule_sha", "GPMC submodule")]:
+                     ("python_version", "Python version"), ("gpmc_submodule_sha", "GPMC provider")]:
     setattr(ReportIntegrityTests, f"test_equal_means_but_{field}_differs", identity_case(field, label))
 
 

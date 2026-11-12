@@ -111,6 +111,42 @@ fn main() {
     println!("cargo:rustc-env=GANAK_BIN_PATH={}", ganak_dest.display());
     println!("cargo:rerun-if-changed={}", ganak_dest.display());
 
+    // The manylinux_2_28 wheel ABI is older than the Ubuntu 22.04 CLI's
+    // glibc 2.35 floor. Compile the SAME pinned GPMC v1.0.2 source against
+    // the manylinux native toolchain, never repackage newer ELF symbols.
+    // This is an explicitly scoped wheel build, not the source default.
+    println!("cargo:rerun-if-env-changed=QUPRS_GPMC_WHEEL_SOURCE");
+    if let Ok(wheel_source) = env::var("QUPRS_GPMC_WHEEL_SOURCE") {
+        assert_eq!(wheel_source, "1", "Unsupported GPMC wheel source-build mode");
+        assert_eq!(target_os, "linux", "GPMC source-build mode is Linux wheel-only");
+        let source = manifest_dir.parent().unwrap().join("target/gpmc-wheel-source");
+        assert!(source.join("CMakeLists.txt").is_file(),
+                "GPMC wheel source must be fetched and SHA-pinned first");
+        let actual = std::process::Command::new("git").args(["rev-parse", "HEAD"])
+            .current_dir(&source).output()
+            .expect("git required for GPMC wheel source provenance");
+        assert!(actual.status.success(), "GPMC wheel source git identity unavailable");
+        assert_eq!(String::from_utf8(actual.stdout).unwrap().trim(),
+                   "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0",
+                   "GPMC wheel source identity mismatch");
+        let mut config = cmake::Config::new(&source);
+        config.define("CMAKE_BUILD_TYPE", "Release")
+              .define("CMAKE_CXX_STANDARD", "11");
+        let built = config.build_target("all").build();
+        let executable = [
+            built.join("build/gpmc"), built.join("build/bin/gpmc"),
+            built.join("build/Release/gpmc"),
+        ].into_iter().find(|p| p.is_file())
+            .expect("Pinned GPMC source build produced no executable");
+        let target = dest_tools_dir.join("gpmc");
+        fs::copy(&executable, &target).expect("Copy wheel-built GPMC into Python resources");
+        println!("cargo:rustc-env=GPMC_BIN_PATH={}", target.display());
+        println!("cargo:rerun-if-changed={}", source.join("CMakeLists.txt").display());
+        println!("cargo:rerun-if-changed={}", target.display());
+        println!("cargo:warning=GPMC manylinux native source build verified v1.0.2 source SHA");
+        return;
+    }
+
     // Source checkout default: use the exact SHA-256 pinned GPMC v1.0.2
     // executable, exactly like the independently pinned Ganak release.
     // Registry crates remain external and never fetch a solver.

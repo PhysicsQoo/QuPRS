@@ -1,0 +1,1354 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Quantum circuit equivalence checking with Path-sum reduction and weighted model counting">
+      
+      
+      
+        <link rel="canonical" href="https://physicsqoo.github.io/QuPRS/pr-preview/pr-248/rust-native/">
+      
+      
+      
+        <link rel="prev" href="../getting-started/">
+      
+      
+        <link rel="next" href="../examples/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.1.0">
+    
+    
+      
+        <title>Native Rust and external solvers - QuPRS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="QuPRS" class="md-header__button md-logo" aria-label="QuPRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            QuPRS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Native Rust and external solvers
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/PhysicsQoo/QuPRS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PhysicsQoo/QuPRS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="QuPRS" class="md-nav__button md-logo" aria-label="QuPRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    QuPRS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/PhysicsQoo/QuPRS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    PhysicsQoo/QuPRS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  User guide
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  User guide
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Getting started
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Native Rust and external solvers
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Native Rust and external solvers
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#build-with-full-verification-capability" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Build with full verification capability
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provide-external-gpmc-and-ganak-executables" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Provide external GPMC and Ganak executables
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-the-rust-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Use the Rust API
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Use the Rust API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-with-reductionrules-no-external-wmc-executable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start with ReductionRules (no external WMC executable)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extend-to-hybrid-and-wmconly-with-external-solvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Extend to Hybrid and WmcOnly with external solvers
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verificationoptions-defaults-units-and-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        VerificationOptions: defaults, units and validation
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantumcircuit-pathsum-and-source-preserving-angle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        QuantumCircuit, PathSum, and source-preserving Angle
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-the-native-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read the native result
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-and-runtime-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Build and runtime contracts
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Executable examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Verification methods
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Theory
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Theory
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../theory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../path-sum/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path-sum and reduction
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../weighted-model-counting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Weighted model counting
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  API Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Overview
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  General Python API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pathsum-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Advanced Path-sum API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#build-with-full-verification-capability" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Build with full verification capability
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provide-external-gpmc-and-ganak-executables" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Provide external GPMC and Ganak executables
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-the-rust-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Use the Rust API
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Use the Rust API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-with-reductionrules-no-external-wmc-executable" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start with ReductionRules (no external WMC executable)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extend-to-hybrid-and-wmconly-with-external-solvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Extend to Hybrid and WmcOnly with external solvers
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verificationoptions-defaults-units-and-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        VerificationOptions: defaults, units and validation
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantumcircuit-pathsum-and-source-preserving-angle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        QuantumCircuit, PathSum, and source-preserving Angle
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-the-native-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read the native result
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-and-runtime-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Build and runtime contracts
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="native-rust-verification-and-external-wmc-solvers">Native Rust verification and external WMC solvers</h1>
+<p>QuPRS provides a native Rust API for Path-sum reduction and complex weighted
+model counting. The Rust core supports three verification methods:
+<code>ReductionRules</code>, <code>Hybrid</code> (reduction followed by WMC when needed), and
+<code>WmcOnly</code>. GPMC is the default external WMC solver; Ganak may be chosen
+explicitly. The crate does not silently switch solvers.</p>
+<p><strong>Distribution:</strong> the native <a href="https://crates.io/crates/quprs"><code>quprs</code> crate</a>
+is distributed separately from the Python package. The available versions
+are listed on <a href="https://crates.io/crates/quprs/versions">crates.io</a>. The native
+library is also maintained in the
+<a href="https://github.com/PhysicsQoo/QuPRS/tree/dev/rust">QuPRS source workspace</a>.</p>
+<h2 id="build-with-full-verification-capability">Build with full verification capability</h2>
+<p>On Linux, install CMake, pkg-config, a C/C++ compiler, and GMP/MPFR development
+headers. On macOS, the corresponding dependencies are available with Homebrew:</p>
+<div class="highlight"><pre><span></span><code>brew<span class="w"> </span>install<span class="w"> </span>cmake<span class="w"> </span>pkg-config<span class="w"> </span>gmp<span class="w"> </span>mpfr<span class="w"> </span>zlib
+</code></pre></div>
+<p>Clone the repository and its native GPMC dependency:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--recurse-submodules<span class="w"> </span>https://github.com/PhysicsQoo/QuPRS.git
+<span class="nb">cd</span><span class="w"> </span>QuPRS
+cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--manifest-path<span class="w"> </span>rust/Cargo.toml<span class="w"> </span>-p<span class="w"> </span>quprs
+</code></pre></div>
+<p>The <strong>default monorepo build</strong> currently provisions the pinned GPMC/Ganak
+executables and integrates with the Python wheel. It is not the isolated
+crate installation path.</p>
+<p>For a source-only Rust build that <strong>does not download or build the
+WMC solvers</strong>, set the explicit provisioning mode (not a Cargo feature):</p>
+<div class="highlight"><pre><span></span><code><span class="nv">QUPRS_SOLVER_PROVISION</span><span class="o">=</span>external<span class="w"> </span>cargo<span class="w"> </span>check<span class="w"> </span>--manifest-path<span class="w"> </span>rust/Cargo.toml<span class="w"> </span>-p<span class="w"> </span>quprs<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--all-features
+</code></pre></div>
+<p>This preserves the full verification API and the high-precision MPFR
+weight bridge while delegating solver installation to the user.
+It does not reduce QuPRS to RR-only.</p>
+<h2 id="provide-external-gpmc-and-ganak-executables">Provide external GPMC and Ganak executables</h2>
+<p>The QuPRS source checkout uses the <strong>GPMC v1.0.2 public CLI Release</strong>,
+pinned by exact archive SHA256 and producer source commit in
+<a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/utils/gpmc-release.txt"><code>gpmc-release.txt</code></a>.
+It does not need a nested GPMC source checkout. The installed binary is
+written to <code>src/QuPRS/utils/wmc_tools/gpmc</code> (or <code>gpmc.exe</code> on Windows).</p>
+<p>The published CLI has <strong>external runtime dependencies</strong>. On Ubuntu 22.04+
+it uses <code>libmpfr.so.6</code> and a glibc 2.35 minimum; macOS requires the
+matching Homebrew GMP/MPFR libraries. These requirements also apply when
+building Python source wheels that embed the executable. A Linux wheel
+targeting an older glibc baseline must not be described as end-to-end
+solver-compatible merely because the Python extension loads.</p>
+<p>To verify the official archive and install its CLI explicitly:</p>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>scripts/install_gpmc_release.py<span class="w"> </span>--verify-only
+python3<span class="w"> </span>scripts/install_gpmc_release.py<span class="w"> </span>--dest<span class="w"> </span>/absolute/path/to/gpmc
+<span class="nb">export</span><span class="w"> </span><span class="nv">QUPRS_GPMC_PATH</span><span class="o">=</span><span class="s2">"/absolute/path/to/gpmc"</span>
+</code></pre></div>
+<p>The original GPMC code remains available in its
+<a href="https://github.com/PhysicsQoo/GPMC">independent source repository</a>
+for users who need to compile against an older system ABI.</p>
+<p>For Ganak, install a compatible executable from the
+<a href="https://github.com/meelgroup/ganak/releases">upstream Ganak releases</a>.
+QuPRS pins the supported Ganak 2.8.0 assets and their archive and
+executable SHA256 checksums in
+<a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/src/QuPRS/utils/ganak-release.txt"><code>ganak-release.txt</code></a>.
+Choose the matching operating system and architecture, verify the
+download and executable checksums, then configure its absolute path:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">QUPRS_GANAK_PATH</span><span class="o">=</span><span class="s2">"/absolute/path/to/ganak"</span>
+</code></pre></div>
+<p>The source-checkout default can provision its pinned solvers for the
+existing Python/CLI build; the staged registry crate never downloads them.
+Use <code>QUPRS_SOLVER_PROVISION=external</code> in a source checkout to opt out.
+Do not download binaries during a registry consumer's <code>cargo build</code>. Using an explicit solver
+path is an <strong>override</strong>, not proof that the executable matches a
+pinned artifact. Only use binaries obtained from trusted sources and
+verified against the relevant release manifest. An override that cannot
+be verified must not be represented as a certified native solver build.</p>
+<p>The external-solver Rust implementation also supports resolving
+<code>gpmc</code> or <code>ganak</code> from <code>PATH</code> when no explicit path is supplied.
+A missing executable causes a solver execution error, <strong>not</strong>
+<code>NotEquivalent</code>, and there is no automatic cross-solver fallback.</p>
+<h2 id="use-the-rust-api">Use the Rust API</h2>
+<p>The canonical Rust package and library are <code>quprs</code>. The high-level
+<code>quprs::verification::check_equivalence</code> accepts two validated
+<code>QuantumCircuit</code> inputs and <code>VerificationOptions</code>.</p>
+<h3 id="start-with-reductionrules-no-external-wmc-executable">Start with ReductionRules (no external WMC executable)</h3>
+<p>This complete Rust example compares two Hadamard gates with the identity.
+<code>ReductionRules</code> never starts GPMC or Ganak. Build-time provisioning is a
+separate setting: <code>QUPRS_SOLVER_PROVISION=external</code> avoids installing
+solvers in a source checkout without removing any verification methods.</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::{</span>
+<span class="w">    </span><span class="n">EquivalenceStatus</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationMethod</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="p">,</span>
+<span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::</span><span class="n">verification</span><span class="p">::</span><span class="n">check_equivalence</span><span class="p">;</span>
+
+<span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">original</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">original</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid H"</span><span class="p">);</span>
+<span class="w">    </span><span class="n">original</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid H"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">identity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="nc">VerificationMethod</span><span class="p">::</span><span class="n">ReductionRules</span><span class="p">,</span>
+<span class="w">        </span><span class="o">..</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span><span class="o">&amp;</span><span class="n">original</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">identity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">options</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid comparison"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">Equivalent</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert!</span><span class="p">(</span><span class="o">!</span><span class="n">result</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>With a source checkout, use <code>rust/quprs</code> as the local path dependency
+(whose Cargo package name is <code>quprs</code>). Irreducible RR-only comparisons
+can return <code>EquivalenceStatus::Unknown</code>, not a proof of inequality.</p>
+<h3 id="extend-to-hybrid-and-wmconly-with-external-solvers">Extend to Hybrid and WmcOnly with external solvers</h3>
+<p>To perform WMC, first install GPMC or Ganak as described above and provide
+its executable through <code>QUPRS_GPMC_PATH</code>, <code>QUPRS_GANAK_PATH</code>, or <code>PATH</code>.
+This example runs Hybrid with GPMC, followed by WMC-only with Ganak:</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::{</span>
+<span class="w">    </span><span class="n">EquivalenceStatus</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationMethod</span><span class="p">,</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="p">,</span>
+<span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::</span><span class="n">verification</span><span class="p">::</span><span class="n">check_equivalence</span><span class="p">;</span>
+
+<span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">identity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">h</span><span class="p">.</span><span class="n">h</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid H"</span><span class="p">);</span>
+
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">hybrid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span>
+<span class="w">        </span><span class="o">&amp;</span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">identity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">(),</span>
+<span class="w">    </span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"GPMC must be installed"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">hybrid</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">NotEquivalent</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert!</span><span class="p">(</span><span class="n">hybrid</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
+
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">x</span><span class="p">.</span><span class="n">x</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid X"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">options</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VerificationOptions</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="nc">VerificationMethod</span><span class="p">::</span><span class="n">WmcOnly</span><span class="p">,</span>
+<span class="w">        </span><span class="n">tool_name</span><span class="p">:</span><span class="w"> </span><span class="s">"ganak"</span><span class="p">.</span><span class="n">to_owned</span><span class="p">(),</span>
+<span class="w">        </span><span class="o">..</span><span class="n">VerificationOptions</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">wmc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">check_equivalence</span><span class="p">(</span><span class="o">&amp;</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">identity</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">options</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="n">expect</span><span class="p">(</span><span class="s">"Ganak must be installed"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">wmc</span><span class="p">.</span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">EquivalenceStatus</span><span class="p">::</span><span class="n">NotEquivalent</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert!</span><span class="p">(</span><span class="n">wmc</span><span class="p">.</span><span class="n">wmc_solver_invoked</span><span class="p">());</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>These assertions are for the shown circuits, <strong>not</strong> a solver-arithmetic
+certificate for arbitrary inputs. Missing solvers, invalid inputs and solver
+failures return errors; there is no automatic solver fallback.</p>
+<h3 id="verificationoptions-defaults-units-and-validation">VerificationOptions: defaults, units and validation</h3>
+<p>The native verifier validates these fields on each request:</p>
+<table>
+<thead>
+<tr>
+<th>Rust field</th>
+<th>Default</th>
+<th>Valid values or meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>method</code></td>
+<td><code>Hybrid</code></td>
+<td><code>ReductionRules</code>, <code>Hybrid</code>, <code>WmcOnly</code>; runtime method, not a Cargo feature</td>
+</tr>
+<tr>
+<td><code>strategy</code></td>
+<td><code>Difference</code></td>
+<td>Also <code>Proportional</code>, <code>Naive</code>, <code>Straightforward</code></td>
+</tr>
+<tr>
+<td><code>tool_name</code></td>
+<td><code>"gpmc"</code></td>
+<td><code>"gpmc"</code> or <code>"ganak"</code>, no implicit fallback</td>
+</tr>
+<tr>
+<td><code>timeout_secs</code></td>
+<td><code>600</code></td>
+<td>Requested seconds; in-process symbolic work is not guaranteed a hard whole-call deadline</td>
+</tr>
+<tr>
+<td><code>rr_tolerance</code></td>
+<td><code>1e-10</code></td>
+<td>Finite, nonnegative matching threshold; not radians</td>
+</tr>
+<tr>
+<td><code>phase_tolerance</code></td>
+<td><code>1e-8</code></td>
+<td>Global-phase threshold in <strong>radians</strong>; finite and strictly between 0 and 1</td>
+</tr>
+<tr>
+<td><code>wmc_phase_tolerance</code></td>
+<td><code>1e-8</code></td>
+<td>Compatibility alias of the same phase threshold, in <strong>radians</strong></td>
+</tr>
+<tr>
+<td><code>approximate_distance_tolerance</code></td>
+<td><code>Some(1e-8)</code></td>
+<td>Projective Hilbert–Schmidt <strong>distance</strong>, finite <code>0 &lt; x &lt; 1</code>; <code>None</code> also selects the <code>1e-8</code> default, not “off”</td>
+</tr>
+<tr>
+<td><code>gpmc_precision_digits</code></td>
+<td><code>30</code></td>
+<td><code>30</code> or <code>90</code>; <code>90</code> applies to GPMC only</td>
+</tr>
+</tbody>
+</table>
+<p>Change <strong>one</strong> of <code>phase_tolerance</code> or <code>wmc_phase_tolerance</code> and
+leave the other at its default <code>1e-8</code>; if both are non-default and
+different, native validation returns an error. The fields do not create
+two independent phase classifications.</p>
+<p>The RR matching tolerance is not an angle threshold, and projective
+distance is not radians or raw trace-magnitude error. Solver printed
+30/90 digits are <strong>not</strong> a certified bound on numerical arithmetic error.</p>
+<h3 id="quantumcircuit-pathsum-and-source-preserving-angle">QuantumCircuit, PathSum, and source-preserving Angle</h3>
+<p><code>QuantumCircuit</code> holds an owned, validated sequence of <code>QuantumOp</code>
+gates and a register width. It is <strong>not</strong> a symbolic <code>PathSum</code>;
+the verifier constructs symbolic Path-sums and reduces them internally.
+Use <code>result.final_pathsum()</code> to borrow the remaining symbolic residual.</p>
+<p><code>QuantumCircuit::from_qasm_str</code> and <code>from_qasm_file</code> accept the
+supported unitary OpenQASM 2/3 subset, rejecting unsupported operations.
+Supported decimal radian literals remain exact rational terms and <code>pi</code>
+factors remain symbolic in <code>Angle</code> rather than silently becoming <code>f64</code>.
+The Rust rotation helpers require <code>Angle</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">quprs</span><span class="p">::{</span><span class="n">rational</span><span class="p">::</span><span class="n">Angle</span><span class="p">,</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">};</span>
+
+<span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">angle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Angle</span><span class="p">::</span><span class="n">from_qasm_str</span><span class="p">(</span><span class="s">"1.2345678901234567"</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="n">expect</span><span class="p">(</span><span class="s">"supported exact angle"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">direct</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">    </span><span class="n">direct</span><span class="p">.</span><span class="n">rz</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">angle</span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"valid RZ"</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">qasm</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">QuantumCircuit</span><span class="p">::</span><span class="n">from_qasm_str</span><span class="p">(</span>
+<span class="w">        </span><span class="s">"OPENQASM 3.0;</span><span class="se">\n</span><span class="s">qubit[1] q;</span><span class="se">\n</span><span class="s">rz(1.2345678901234567) q[0];</span><span class="se">\n</span><span class="s">"</span>
+<span class="w">    </span><span class="p">).</span><span class="n">expect</span><span class="p">(</span><span class="s">"supported QASM"</span><span class="p">);</span>
+<span class="w">    </span><span class="fm">assert_eq!</span><span class="p">(</span><span class="n">direct</span><span class="p">,</span><span class="w"> </span><span class="n">qasm</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>An unsupported QASM operation or arbitrary unbound Qiskit expression is
+not silently approximated by the native Rust circuit type.</p>
+<h3 id="read-the-native-result">Read the native result</h3>
+<p>Rust keeps <code>result.status: EquivalenceStatus</code> as an enum;
+<code>result.equivalent()</code> returns the Python-compatible verdict spelling
+(<code>equivalent</code>, <code>equivalent*</code>, <code>not_equivalent</code>, <code>unknown</code>,
+<code>Timeout</code>, <code>MemoryOut</code>). <code>wmc_solver_invoked()</code>, <code>gate_num()</code>
+and <code>final_pathsum()</code> are read-only, non-copying accessors corresponding
+to Python attributes of those names.</p>
+<p>Unlike Python's Qiskit wrapper, which returns <code>not_equivalent</code> for
+unequal circuit widths, native Rust rejects mismatched widths as an
+<strong>input-validation error</strong> before solver invocation. <code>Unknown</code>,
+<code>Timeout</code>, <code>MemoryOut</code> and execution errors do not prove inequality.</p>
+<p>A standalone Rust consumer uses the same <code>quprs::</code> imports as the source
+workspace. Select a version listed on
+<a href="https://crates.io/crates/quprs">crates.io</a> and replace <code>VERSION</code> with it:</p>
+<div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>add<span class="w"> </span>quprs@VERSION
+</code></pre></div>
+<p>The published crate contains the native verification API but does not bundle
+GPMC or Ganak executables for nontrivial weighted model counting.</p>
+<h2 id="build-and-runtime-contracts">Build and runtime contracts</h2>
+<ul>
+<li>The isolated full-verification crate does not package GPMC or Ganak
+  executables or install them automatically.</li>
+<li>The high-precision MPFR feature requires system GMP/MPFR libraries and
+  headers; disabling it changes the available source-weight precision
+  behavior and is not equivalent to the full high-precision configuration.</li>
+<li>Timeouts, memory protection and error reporting follow the native
+  Rust solver process contracts, subject to the documented platform
+  limitations. A timeout or inconclusive count is not a non-equivalence
+  proof.</li>
+<li>Windows is not part of QuPRS's current supported native release
+  matrix. Use a supported Linux environment such as WSL2.</li>
+</ul>
+<p>See <a href="../weighted-model-counting/">weighted model counting</a> for
+numerical-verdict limitations and <a href="../verification/">verification methods</a>
+for the algorithmic distinction between RR, Hybrid and WMC-only.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["navigation.sections","navigation.top","toc.follow"],"redirect":null,"search":"../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d31f0ffa.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

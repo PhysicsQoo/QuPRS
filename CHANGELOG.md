@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased — v0.16.0 candidate: Python 3.14 and native Rust modernization
+## v0.16.0 — Python 3.14 and native Rust modernization
 
-This is an in-development release candidate. The changelog entry and source
-version do not establish a published Python package, Rust crate or GitHub
-Release.
+This entry describes the v0.16.0 release source and its intended distribution
+contents. Verify published availability using the official GitHub Releases,
+PyPI and crates.io version pages; a source checkout or changelog entry alone
+does not establish that this stable version has been published.
 
 ### Supported Python versions and packaging
 

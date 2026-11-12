@@ -24,36 +24,46 @@ validate_wheels = _VALIDATOR.validate_wheels
 
 class MacOSWheelSupportTests(unittest.TestCase):
     WORKFLOW = (
-        "name: example\n"
-        "  build_wheels:\n"
-        "    strategy:\n"
-        "      matrix:\n"
-        "        include:\n"
-        "          - os: macos-15-intel\n"
-        '            arch: "x86_64"\n'
-        "          - os: macos-15\n"
-        '            arch: "arm64"\n'
-        "    steps:\n"
-        '      - run: echo "MACOSX_DEPLOYMENT_TARGET=15.0"\n'
-        "        env:\n"
-        "          CIBW_ARCHS: ${{ matrix.arch }}\n"
-        "  build_sdist:\n"
+        "name: example\\n"
+        "  platform_wheels:\\n"
+        "    strategy:\\n"
+        "      matrix:\\n"
+        "        include:\\n"
+        "          - os: macos-15-intel\\n"
+        '            arch: "x86_64"\\n'
+        "          - os: macos-15\\n"
+        '            arch: "arm64"\\n'
+        "    uses: ./.github/workflows/platform-wheel-ci.yml\\n"
+        "    with:\\n"
+        "      os: ${{ matrix.os }}\\n"
+        "      arch: ${{ matrix.arch }}\\n"
+        "  build_sdist:\\n"
+    )
+    PLATFORM_WORKFLOW = (
+        "name: example\\n"
+        "jobs:\\n"
+        "  build_wheels:\\n"
+        "    steps:\\n"
+        '      - run: echo "MACOSX_DEPLOYMENT_TARGET=15.0"\\n'
+        "        env:\\n"
+        "          CIBW_ARCHS: ${{ inputs.arch }}\\n"
     )
 
     def test_current_source_policy(self):
         root = Path(__file__).resolve().parents[1]
         self.assertEqual(
             validate_policy(
-                (root / ".github/workflows/python-publish.yml").read_text(encoding="utf-8")
+                (root / ".github/workflows/python-publish.yml").read_text(encoding="utf-8"),
+                (root / ".github/workflows/platform-wheel-ci.yml").read_text(encoding="utf-8"),
             ), {"arm64": (15, 0), "x86_64": (15, 0)}
         )
 
     def test_release_workflow_is_source_of_truth(self):
-        self.assertEqual(validate_policy(self.WORKFLOW),
+        self.assertEqual(validate_policy(self.WORKFLOW, self.PLATFORM_WORKFLOW),
                          {"arm64": (15, 0), "x86_64": (15, 0)})
-        shifted = self.WORKFLOW.replace("MACOSX_DEPLOYMENT_TARGET=15.0",
-                                        "MACOSX_DEPLOYMENT_TARGET=14.0")
-        self.assertEqual(validate_policy(shifted),
+        shifted = self.PLATFORM_WORKFLOW.replace("MACOSX_DEPLOYMENT_TARGET=15.0",
+                                                 "MACOSX_DEPLOYMENT_TARGET=14.0")
+        self.assertEqual(validate_policy(self.WORKFLOW, shifted),
                          {"arm64": (14, 0), "x86_64": (14, 0)})
 
     def test_missing_or_ambiguous_support_declaration_rejected(self):
@@ -67,12 +77,15 @@ class MacOSWheelSupportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mismatches wheel arch"):
             release_architectures(self.WORKFLOW.replace("macos-15-intel", "macos-15"))
         with self.assertRaisesRegex(ValueError, "matrix.arch"):
-            release_architectures(self.WORKFLOW.replace("CIBW_ARCHS: ${{ matrix.arch }}",
-                                                        "CIBW_ARCHS: arm64"))
+            release_architectures(self.WORKFLOW.replace("arch: ${{ matrix.arch }}",
+                                                        "arch: arm64"))
+        with self.assertRaisesRegex(ValueError, "inputs.arch"):
+            validate_policy(self.WORKFLOW, self.PLATFORM_WORKFLOW.replace(
+                "CIBW_ARCHS: ${{ inputs.arch }}", "CIBW_ARCHS: arm64"))
         with self.assertRaisesRegex(ValueError, "one release deployment"):
-            release_deployment(self.WORKFLOW + " MACOSX_DEPLOYMENT_TARGET=14.0")
+            release_deployment(self.PLATFORM_WORKFLOW + " MACOSX_DEPLOYMENT_TARGET=14.0")
         with self.assertRaisesRegex(ValueError, "one release deployment"):
-            release_deployment(self.WORKFLOW.replace("MACOSX_DEPLOYMENT_TARGET=15.0", ""))
+            release_deployment(self.PLATFORM_WORKFLOW.replace("MACOSX_DEPLOYMENT_TARGET=15.0", ""))
         with self.assertRaisesRegex(ValueError, "uniquely locate"):
             release_architectures(self.WORKFLOW.replace("  build_sdist:", "  bad_job:"))
 

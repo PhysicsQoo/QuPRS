@@ -1,5 +1,60 @@
 # Changelog
 
+## v0.15.1-rc.1 — Solver distribution and release reliability (release candidate)
+
+This is a release candidate for the planned **v0.15.1** maintenance release,
+not evidence that v0.15.1 has been published. Check official
+[GitHub Releases](https://github.com/PhysicsQoo/QuPRS/releases),
+[PyPI](https://pypi.org/project/QuPRS/), and
+[crates.io](https://crates.io/crates/quprs/versions) for available artifacts.
+
+### Solver distribution and installation
+
+- Remove the GPMC Git submodule and bundled third-party source checkout.
+  QuPRS source checkouts now provision the pinned **GPMC v1.0.2** CLI release
+  using a source-identity, platform, archive and executable digest check.
+  Provisioning uses an authenticated release artifact or a verified local cache;
+  the installed Rust crate still relies on explicitly available external solvers.
+- Pin GPMC v1.0.2 across Linux, macOS and Windows x86-64/ARM64 artifacts to
+  one upstream source commit. An explicit `QUPRS_GPMC_PATH` override remains
+  authoritative, with missing overrides failing rather than silently falling back.
+- Preserve the existing `manylinux_2_28` wheel portability contract by
+  building GPMC from the *same pinned upstream source* against the wheel's
+  native toolchain. The published Ubuntu 22.04 GPMC CLI has a newer glibc
+  baseline and is **not** repackaged directly into older manylinux wheels.
+  Source builds using the released native CLI require compatible GMP/MPFR
+  runtime libraries; the platform pin is not a promise of universal portability.
+
+### Verification and release engineering
+
+- Build and smoke-test release wheels as independent per-platform pipelines
+  rather than waiting for all platforms' wheel builds to finish. Retain the
+  full four-platform, three-Python-version installed-wheel smoke requirement,
+  source-distribution smokes, Rust crate preflight and fail-closed Release-Ready.
+- Eliminate obsolete recursive submodule checkout from the shared release
+  builder and its paired read-only validation/publishing workflows.
+- Validate generated Codecov XML before upload, reduce redundant Rust-core
+  execution across Python versions, and avoid duplicate CodSpeed runs on PR
+  description edits.
+- Add Path-sum operator-level regressions for internal variable capture
+  during composition and bound-variable renaming under native reduction.
+- Keep GPMC's native release and ABI qualification in its own repository.
+  QuPRS retains opt-in consumer integration checks plus routine adapter
+  correctness tests; it does not rerun upstream release qualification on
+  every PR.
+
+### Compatibility
+
+- No intentional changes to public Python/Rust verification API contracts,
+  default solver selection, tolerance semantics or Path-sum algorithms.
+- The **source-build solver provisioning path changes**: users who relied on
+  the removed GPMC git submodule must use the pinned release provisioning or
+  supply an explicitly selected solver executable.
+- As in v0.15.0, Python 3.11–3.13 and Qiskit 1.x–2.x remain the stated Python
+  compatibility range. Windows release-asset pins do not imply a new Windows
+  Python-wheel support commitment.
+
+
 ## v0.15.0 — Process supervision, public API typing and versioned docs
 
 This entry describes the v0.15.0 source and distribution contents. Confirm

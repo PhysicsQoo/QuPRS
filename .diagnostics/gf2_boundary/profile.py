@@ -12,7 +12,6 @@ this microprofile; the official CodSpeed case identities remain unchanged.
 
 import argparse
 import gc
-import importlib
 import importlib.util
 import json
 import platform
@@ -106,7 +105,7 @@ def _case(name, fixture, candidate_bridge, rounds, iterations):
         # Paired ABBA / BAAB balance to mitigate monotonic machine drift.
         order = ("baseline", "gf2_boundary", "gf2_boundary", "baseline")
         if round_index % 2:
-            order = tuple(reversed(order))
+            order = ("gf2_boundary", "baseline", "baseline", "gf2_boundary")
         for method in order:
             times[method].append(_measure(operations[method], iterations))
 

@@ -1030,27 +1030,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quprs"
-version = "0.15.0"
-dependencies = [
- "anyhow",
- "cmake",
- "log",
- "num-bigint",
- "num-complex",
- "num-integer",
- "num-rational",
- "num-traits",
- "pkg-config",
- "rand",
- "reqwest",
- "rustc-hash",
- "sha2",
- "similar",
- "zip",
-]
-
-[[package]]
 name = "pbkdf2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1129,6 +1108,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "quprs"
+version = "0.16.0"
+dependencies = [
+ "anyhow",
+ "cmake",
+ "log",
+ "num-bigint",
+ "num-complex",
+ "num-integer",
+ "num-rational",
+ "num-traits",
+ "pkg-config",
+ "rand",
+ "reqwest",
+ "rustc-hash",
+ "sha2",
+ "similar",
+ "web-time",
+ "zip",
 ]
 
 [[package]]
@@ -1820,6 +1821,16 @@ name = "web-sys"
 version = "0.3.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7d179596ff5ec0f6de4db64d54011bde6289cc49603d3a6e4ce3f329207ab88"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

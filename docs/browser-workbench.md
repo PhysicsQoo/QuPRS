@@ -14,7 +14,7 @@ For a local source build, install Rust with the wasm32-unknown-unknown target, w
 
 After this workflow is present on the default branch, an owner can run **Actions → Browser workbench → Run workflow** and select **publish=true**. The default is a validation-only run. Publishing is limited to manual runs on main/dev and passes through the `github-pages` environment and all build/test jobs first.
 
-The existing repository Pages source must be the `gh-pages` branch, root directory, as used by the documentation publisher. The publication job stages **only `playground/`**. It preserves root index, `docs/`, previews, CNAME and every other existing Pages path. A concurrent docs update makes the ordinary push fail rather than overwrite that update; rerun after it finishes. There is no force push or change to package/release workflows.
+The existing repository Pages source must be the `gh-pages` branch, root directory, as used by the documentation publisher. The publication job stages **only `playground/`**. It preserves root index, `docs/`, previews, CNAME and every other existing Pages path. A concurrent docs update makes the ordinary push fail rather than overwrite that update; rerun after it finishes. The workflow explicitly requests a Pages build using its narrowly scoped Pages permission, waits for completion and verifies the public source SHA and key JS/WASM hashes. A GITHUB_TOKEN branch push alone does not trigger a Pages build. There is no force push or change to package/release workflows.
 
 For PhysicsQoo/QuPRS, the resulting URL is:
 

@@ -102,6 +102,8 @@ jobs:
         with:
           name: quprs-gpmc
           path: ${{ runner.temp }}/counter
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= -pyflakes= .github/workflows/browser-workbench.yml
       - name: Assemble exact tested binaries and sources
         run: |
           set -euo pipefail
@@ -110,6 +112,10 @@ jobs:
           chmod +x "$RUNNER_TEMP/core/build-evidence/native-check" "$RUNNER_TEMP/counter/native-gpmc"
           printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > "$RUNNER_TEMP/site/source-sha.txt"
           python3 scripts/web/test-stage-pages.py
+          git clone --filter=blob:none --no-checkout --depth=1 --single-branch --branch gh-pages https://github.com/PhysicsQoo/QuPRS.git "$RUNNER_TEMP/pages-fixture"
+          git -C "$RUNNER_TEMP/pages-fixture" read-tree HEAD
+          python3 scripts/web/stage-pages.py "$RUNNER_TEMP/site" "$RUNNER_TEMP/pages-fixture"
+          git -C "$RUNNER_TEMP/pages-fixture" diff --cached --stat > "$RUNNER_TEMP/pages-staging.txt"
       - name: Native upstream unit suite in the default numerical profile
         env:
           QUPRS_GPMC_PATH: ${{ runner.temp }}/counter/native-gpmc
@@ -162,6 +168,10 @@ jobs:
     permissions:
       contents: write
       actions: read
+      pages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -174,6 +184,16 @@ jobs:
         with:
           name: tested-browser-site
           path: browser-site
+      - name: Verify existing Pages configuration
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pages" > "$RUNNER_TEMP/pages-config.json"
+          python3 - "$RUNNER_TEMP/pages-config.json" <<'PYCODE'
+          import json,sys
+          p=json.load(open(sys.argv[1]))
+          assert p['build_type']=='legacy' and p['source']=={'branch':'gh-pages','path':'/'}, 'Expected existing gh-pages root publishing; no settings were changed'
+          PYCODE
+          echo "PAGES_BASE=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url)" >> "$GITHUB_ENV"
       - name: Publish only the reviewed playground subtree
         run: |
           set -euo pipefail
@@ -181,8 +201,34 @@ jobs:
           python3 source/scripts/web/stage-pages.py browser-site pages
           git -C pages config user.name 'github-actions[bot]'
           git -C pages config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if git -C pages diff --cached --quiet; then exit 0; fi
-          git -C pages commit -m 'Deploy validated browser workbench'
-          # A concurrent docs publication causes a normal non-fast-forward rejection.
-          git -C pages push origin HEAD:gh-pages
+          if ! git -C pages diff --cached --quiet; then
+            git -C pages commit -m 'Deploy validated browser workbench'
+            # A concurrent docs publication causes a normal non-fast-forward rejection.
+            git -C pages push origin HEAD:gh-pages
+          fi
           echo 'Published playground/; existing root, docs and previews preserved.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Request and verify the actual Pages build
+        run: |
+          set -euo pipefail
+          # GITHUB_TOKEN branch pushes alone do not trigger Pages builds.
+          build_url=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)
+          built=false
+          for attempt in $(seq 1 40); do
+            status=$(gh api "$build_url" --jq .status)
+            if [ "$status" = built ]; then built=true; break; fi
+            if [ "$status" = errored ]; then gh api "$build_url"; exit 1; fi
+            sleep 15
+          done
+          test "$built" = true
+          base="${PAGES_BASE%/}/playground"
+          matched=false
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 10 "$base/source-sha.txt?verify=${{ github.sha }}" -o "$RUNNER_TEMP/public-sha.txt" && test "$(cat "$RUNNER_TEMP/public-sha.txt")" = '${{ github.sha }}'; then matched=true; break; fi
+            sleep 10
+          done
+          test "$matched" = true
+          for file in index.html app.js worker.js pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
+            curl --fail --silent --show-error --max-time 30 "$base/$file?verify=${{ github.sha }}" -o "$RUNNER_TEMP/public-asset"
+            test "$(sha256sum "$RUNNER_TEMP/public-asset" | cut -d' ' -f1)" = "$(sha256sum "browser-site/$file" | cut -d' ' -f1)"
+          done
+          echo "Verified published workbench: $base/" >> "$GITHUB_STEP_SUMMARY"

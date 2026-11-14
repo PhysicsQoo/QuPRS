@@ -30,6 +30,10 @@ In quantum computing, verifying whether an optimized or compiled quantum circuit
   3. **WMC only**: A powerful SAT-based method for more complex circuit structures.
 - **Seamless integration with Qiskit ecosystem**: Circuits can be directly loaded from Qiskit `QuantumCircuit` objects or QASM files.
 
+## Browser workbench
+
+A local WebAssembly interface is available in `web/`. It uses the Rust verifier and MPFR GPMC to compare unitary QASM2/3 circuits. Distances are numerical estimates. See [build and GitHub Pages deployment](docs/browser-workbench.md) for the optional `/playground/` site.
+
 ## Contents
 
 - [QuPRS: Quantum Path-sum Reduction and Solver](#quprs-quantum-path-sum-reduction-and-solver)

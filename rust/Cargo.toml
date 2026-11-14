@@ -2,6 +2,7 @@
 [workspace]
 members = [
     "quprs",
+    "web",
     "cli",
     "python_ffi",
 ]

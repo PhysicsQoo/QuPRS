@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Result};
 use num_complex::Complex;
 use std::path::Path;
-use std::time::Instant;
+use crate::clock::Instant;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WeightGrammar { Pair, ComplexI }
@@ -120,7 +120,7 @@ mod tests {
     use super::*;
     use crate::pathsum::PathSum;
     use crate::wmc::WmcManager;
-    use std::time::Duration;
+    use crate::clock::Duration;
     #[test]
     fn independent_dialects_and_unknown_solver() {
         let a = adapter_for("gpmc").unwrap();

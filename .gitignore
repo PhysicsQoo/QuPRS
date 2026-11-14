@@ -42,3 +42,14 @@ build_cpp/
 rust/target
 rust/**/*.rs.bk
 site/
+
+# Browser builds (binaries are distributed as validated static release assets).
+.browser-build/
+.browser-prefix/
+web/pkg/
+web/engines/gpmc.js
+web/engines/gpmc.wasm
+web/engines/native-gpmc
+web/engines/sources/
+web/engines/PROVENANCE.json
+build-evidence/

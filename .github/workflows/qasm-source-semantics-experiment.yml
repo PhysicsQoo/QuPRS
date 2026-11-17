@@ -9,6 +9,7 @@ on:
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs
       - rust/quprs/tests/qasm_two_qubit_source_contract.rs
+      - rust/quprs/tests/qasm_source_ir_certificate_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
 permissions:
@@ -62,6 +63,7 @@ jobs:
             rust/quprs/src/ir.rs rust/quprs/tests/qasm_source_semantics_experiment.rs \
             rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs \
             rust/quprs/tests/qasm_two_qubit_source_contract.rs \
+            rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             > evidence/source-sha256.txt
 
       - name: Observe native parser, CX and U/U3 phase behavior
@@ -84,6 +86,13 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test qasm_two_qubit_source_contract observed_ -- --nocapture \
             2>&1 | tee evidence/two-qubit-observed.log
+
+      - name: Check bounded source IR certificates and Z4 normal forms
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_source_ir_certificate_experiment observed_ -- --nocapture \
+            2>&1 | tee evidence/source-ir-certificate.log
 
       - name: Check strict two-qubit source matrices (diagnostic, may fail)
         id: two_qubit

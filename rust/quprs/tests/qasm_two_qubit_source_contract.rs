@@ -316,3 +316,221 @@ fn observed_typed_source_miter_property_and_attack_guards() {
         &blank,&minus_one.replace("stdgates.inc","missing.inc"),&reference_miter,PropertyTag::PhaseEq));
     println!("TWOQ_TYPED_MITER phase_eq=true strict_eq=false forged_miter_rejected=true unsupported_risk_rejected=true");
 }
+
+
+// Bounded proof-carrying control-source experiment. The native QASM front end
+// deliberately does not parse ctrl @. This independent tiny source checker
+// checks an exact, versioned, literal subset, then cross-checks an equivalent
+// supported native source decomposition. No general parser is claimed.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum ControlledSourceGate {BuiltinU,StdlibU3,GlobalPhase}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum ControlledProperty {StrictEq,PhaseEq,UnitaryChannelEq,EffectRiskUpperBound}
+struct CheckedControlledSource<'a> {
+    original_source: &'a str,
+    gate:ControlledSourceGate,
+    control:usize,
+    target:Option<usize>,
+    scalar:Q8,
+    expected:M4,
+    native_decomposition:M4,
+}
+struct ClaimedControlledCertificate<'a> {
+    original_source:&'a str,
+    claimed_gate:ControlledSourceGate,
+    claimed_control:usize,
+    claimed_target:Option<usize>,
+    claimed_scalar:Q8,
+    claimed_matrix:M4,
+}
+fn control_diagonal(control:usize,scalar:&Q8)->M4 {
+    std::array::from_fn(|row|std::array::from_fn(|col| {
+        if row!=col {Q8::zero()}
+        else if row&(1usize<<control)!=0 {scalar.clone()}
+        else {Q8::one()}
+    }))
+}
+fn checked_controlled_source(source:&str)->Result<CheckedControlledSource<'_>,String>{
+    let raw:Vec<&str>=source.lines().map(str::trim)
+        .filter(|line|!line.is_empty()).collect();
+    if raw.len()<3 || raw.len()>4 || raw[0]!="OPENQASM 3.0;"{
+        return Err("unsupported or missing source version".into());
+    }
+    let mut pos=1;
+    let imported=if raw.get(pos)==Some(&"include \"stdgates.inc\";"){
+        pos+=1;true
+    }else{false};
+    if raw.get(pos)!=Some(&"qubit[2] q;") {
+        return Err("only a single explicit qubit[2] q register".into());
+    }
+    pos+=1;
+    if raw.len()!=pos+1{return Err("exactly one controlled operation required".into());}
+    let literal=raw[pos];
+    let (gate,control,target,scalar)=match literal{
+        "ctrl @ U(2*pi,0,0) q[1],q[0];"=>
+            (ControlledSourceGate::BuiltinU,1,Some(0),Q8::one()),
+        "ctrl @ U(2*pi,0,0) q[0],q[1];"=>
+            (ControlledSourceGate::BuiltinU,0,Some(1),Q8::one()),
+        "ctrl @ u3(2*pi,0,0) q[1],q[0];" if imported=>
+            (ControlledSourceGate::StdlibU3,1,Some(0),Q8::integer(-1)),
+        "ctrl @ u3(2*pi,0,0) q[0],q[1];" if imported=>
+            (ControlledSourceGate::StdlibU3,0,Some(1),Q8::integer(-1)),
+        "ctrl @ gphase(pi) q[1];"=>
+            (ControlledSourceGate::GlobalPhase,1,None,Q8::integer(-1)),
+        "ctrl @ gphase(pi) q[0];"=>
+            (ControlledSourceGate::GlobalPhase,0,None,Q8::integer(-1)),
+        _=>return Err("source gate outside pinned controlled subset".into())
+    };
+    // The controlled gate is exact diagonal for these specified sources.
+    let expected=control_diagonal(control,&scalar);
+    let native_gate=if scalar==Q8::one(){None}
+        else if control==1 {Some("p(pi) q[1];")}
+        else {Some("p(pi) q[0];")};
+    let decomposition=match native_gate{
+        None=>narrow_source(&[]),
+        Some(g)=>narrow_source(&[g])
+    };
+    let native_decomposition=actual_source_matrix(&decomposition)
+        .map_err(|e|format!("native decomposition unavailable: {e}"))?;
+    if native_decomposition!=expected {
+        return Err("independent standard and native decomposition disagree".into());
+    }
+    Ok(CheckedControlledSource{
+        original_source:source,gate,control,target,scalar,expected,native_decomposition
+    })
+}
+fn check_controlled_certificate(claim:&ClaimedControlledCertificate<'_>)->bool{
+    let Ok(checked)=checked_controlled_source(claim.original_source)else{
+        println!("CTRL_CERT_REJECT=source_admission");
+        return false;
+    };
+    if checked.original_source!=claim.original_source
+        || checked.gate!=claim.claimed_gate
+        || checked.control!=claim.claimed_control
+        || checked.target!=claim.claimed_target {
+        println!("CTRL_CERT_REJECT=source_binding");
+        return false;
+    }
+    if checked.scalar!=claim.claimed_scalar{
+        println!("CTRL_CERT_REJECT=source_scalar");
+        return false;
+    }
+    if claim.claimed_matrix!=checked.expected ||
+        claim.claimed_matrix!=checked.native_decomposition{
+        println!("CTRL_CERT_REJECT=claimed_controlled_matrix");
+        return false;
+    }
+    true
+}
+fn checked_controlled_miter(
+    left:&ClaimedControlledCertificate<'_>,
+    right:&ClaimedControlledCertificate<'_>,
+    claimed_miter:&M4,
+    property:ControlledProperty,
+)->bool{
+    if !check_controlled_certificate(left)||!check_controlled_certificate(right){
+        println!("CTRL_MITER_REJECT=unverified_source");
+        return false;
+    }
+    let computed=product(&dagger(&left.claimed_matrix),&right.claimed_matrix);
+    if &computed!=claimed_miter {
+        println!("CTRL_MITER_REJECT=claimed_miter");
+        return false;
+    }
+    match property{
+        ControlledProperty::StrictEq=>computed==identity(),
+        ControlledProperty::PhaseEq|ControlledProperty::UnitaryChannelEq=>{
+            // For unitaries, channel equality is equivalent to scalar miter.
+            let scalar=&computed[0][0];
+            for row in 0..4{
+                for col in 0..4{
+                    let expected=if row==col {scalar.clone()}else{Q8::zero()};
+                    if computed[row][col]!=expected{return false;}
+                }
+            }
+            scalar.times(&scalar.conjugate())==Q8::one()
+        }
+        // No typed input subspace, observable and rational delta contract.
+        ControlledProperty::EffectRiskUpperBound=>false
+    }
+}
+fn controlled_certificate<'a>(source:&'a str)->ClaimedControlledCertificate<'a>{
+    let checked=checked_controlled_source(source).expect("valid narrowed controlled source");
+    ClaimedControlledCertificate{
+        original_source:source,claimed_gate:checked.gate,
+        claimed_control:checked.control,claimed_target:checked.target,
+        claimed_scalar:checked.scalar,claimed_matrix:checked.expected
+    }
+}
+#[test]
+fn observed_checked_controlled_source_certificates_with_native_oracle(){
+    for (label,source) in [
+        ("builtin_u_control_1","OPENQASM 3.0;\nqubit[2] q;\nctrl @ U(2*pi,0,0) q[1],q[0];"),
+        ("stdlib_u3_control_1","OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nctrl @ u3(2*pi,0,0) q[1],q[0];"),
+        ("stdlib_u3_control_0","OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nctrl @ u3(2*pi,0,0) q[0],q[1];"),
+        ("global_phase_control_1","OPENQASM 3.0;\nqubit[2] q;\nctrl @ gphase(pi) q[1];"),
+        ("global_phase_control_0","OPENQASM 3.0;\nqubit[2] q;\nctrl @ gphase(pi) q[0];"),
+    ]{
+        let claim=controlled_certificate(source);
+        assert!(check_controlled_certificate(&claim));
+        assert_eq!(
+            checked_controlled_source(source).unwrap().native_decomposition,
+            claim.claimed_matrix
+        );
+        println!("CTRL_CERT_SOURCE case={label} exact=true native_equivalent=true");
+    }
+    println!("CTRL_CERT_ADMITTED_EXACT_CASES=5");
+}
+#[test]
+fn observed_controlled_certificates_reject_forged_provenance(){
+    let good="OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nctrl @ u3(2*pi,0,0) q[1],q[0];";
+    let mut claim=controlled_certificate(good);
+    assert!(check_controlled_certificate(&claim));
+    claim.claimed_scalar=Q8::one();
+    assert!(!check_controlled_certificate(&claim),"forged relative phase accepted");
+    claim.claimed_scalar=Q8::integer(-1);
+    claim.claimed_control=0;
+    assert!(!check_controlled_certificate(&claim),"forged wire index accepted");
+    claim.claimed_control=1;
+    claim.claimed_target=Some(1);
+    assert!(!check_controlled_certificate(&claim),"overlapping target accepted");
+    claim.claimed_target=Some(0);
+    claim.claimed_matrix=identity();
+    assert!(!check_controlled_certificate(&claim),"forged unitary matrix accepted");
+    let rejected=[
+        good.replace("stdgates.inc","other.inc"),
+        good.replace("OPENQASM 3.0;","OPENQASM 3.1;"),
+        good.replace("ctrl @ u3","ctrl @ U3"),
+        good.replace("ctrl @ u3","negctrl @ u3"),
+        good.replace("q[1],q[0]","q[1],q[1]"),
+        good.replace("2*pi","pi"),
+        good.replace("include \"stdgates.inc\";\n",""),
+        format!("{good}\nctrl @ gphase(pi) q[1];"),
+    ];
+    for (idx,source) in rejected.iter().enumerate(){
+        assert!(checked_controlled_source(source).is_err(),
+            "invalid or unsupported source allowed: {idx}");
+        println!("CTRL_CERT_NEGATIVE_ADMISSION case={idx} refused=true");
+    }
+    println!("CTRL_CERT_FORGED_FIELDS_REJECTED=4");
+    println!("CTRL_CERT_INVALID_SOURCES_REJECTED={}",rejected.len());
+}
+#[test]
+fn observed_controlled_miter_property_typing_and_forgery(){
+    let u_source="OPENQASM 3.0;\nqubit[2] q;\nctrl @ U(2*pi,0,0) q[1],q[0];";
+    let u3_source="OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nctrl @ u3(2*pi,0,0) q[1],q[0];";
+    let a=controlled_certificate(u_source);
+    let b=controlled_certificate(u3_source);
+    let exact_miter=product(&dagger(&a.claimed_matrix),&b.claimed_matrix);
+    assert_eq!(exact_miter,control_diagonal(1,&Q8::integer(-1)));
+    for property in [ControlledProperty::StrictEq,ControlledProperty::PhaseEq,
+        ControlledProperty::UnitaryChannelEq,ControlledProperty::EffectRiskUpperBound]{
+        assert!(!checked_controlled_miter(&a,&b,&exact_miter,property));
+        println!("CTRL_CERT_UNSOUND_PROPERTY_DENIED kind={property:?}");
+    }
+    assert!(checked_controlled_miter(&a,&a,&identity(),ControlledProperty::StrictEq));
+    assert!(checked_controlled_miter(&b,&b,&identity(),ControlledProperty::PhaseEq));
+    assert!(checked_controlled_miter(&b,&b,&identity(),ControlledProperty::UnitaryChannelEq));
+    assert!(!checked_controlled_miter(&a,&b,&identity(),ControlledProperty::PhaseEq));
+    println!("CTRL_CERT_MITER_FORGERY_REJECTED=true");
+}

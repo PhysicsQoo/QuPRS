@@ -109,7 +109,7 @@ fn actual_source_matrix(source:&str)->Result<M4,String> {
                     phase+=r(coeff.constant.numer as i128,coeff.constant.denom as i128);
                 }
             }
-            out[output][input].sum(normalized(eighth_root(phase),fresh.len()));
+            out[output][input as usize].sum(normalized(eighth_root(phase),fresh.len()));
         }
     }
     Ok(out)

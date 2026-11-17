@@ -5,7 +5,7 @@
  //! It does not call reduction, an external solver, or an equivalence verdict.
 
 use num_rational::Ratio;
-use quprs::{qasm::parse_qasm_str, PathSum};
+use quprs::{qasm::parse_qasm_str, ir::QuantumOp, rational::Angle, PathSum};
 
 type R = Ratio<i128>;
 
@@ -77,6 +77,9 @@ fn source_matrix(source: &str) -> [[Q8;2];2] {
     let mut ps=PathSum::new(1);
     ps.set_auto_reduce(false);
     ops[0].apply(&mut ps,false);
+    matrix_from_pathsum(&ps)
+}
+fn matrix_from_pathsum(ps: &PathSum) -> [[Q8;2];2] {
     let mut fresh: Vec<u32> = ps.v.path_vars.iter().copied().filter(|v| *v>=1).collect();
     fresh.sort_unstable();
     assert!(fresh.len()<12);
@@ -219,4 +222,165 @@ fn observed_exact_versioned_phase_bridge_oracle() {
         count+=1;
     }
     println!("VERSIONED_PHASE_BRIDGE_EXACT_CASES={count}");
+}
+
+
+// A research-only, strictly bounded source gate admission layer. This is
+// NOT an implementation of the complete QASM grammar and is not a
+// production-facing source parser. It deliberately refuses general source.
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+enum SourceKind { Qasm2BuiltinU, Qasm3BuiltinU, Qasm3StdlibU2, Qasm3StdlibU3 }
+
+struct SourcePhaseRecord {
+    source_kind: SourceKind,
+    operation: QuantumOp,
+    phase_correction: Angle,
+}
+fn admit_source_phase_record(raw: &str) -> Result<SourcePhaseRecord,String> {
+    let lines:Vec<&str>=raw.lines().map(str::trim)
+        .filter(|line|!line.is_empty()).collect();
+    if lines.len()<3 {return Err("incomplete narrow source".into());}
+    let version=match lines[0] {
+        "OPENQASM 2.0;" => 2,
+        "OPENQASM 3.0;" => 3,
+        _=>return Err("unsupported source version".into()),
+    };
+    let mut cursor=1;
+    let include=if lines.get(cursor)==Some(&"include \"qelib1.inc\";")&&version==2 {
+        cursor+=1;true
+    } else if lines.get(cursor)==Some(&"include \"stdgates.inc\";")&&version==3 {
+        cursor+=1;true
+    } else {false};
+    let expected_decl=if version==2 {"qreg q[1];"}else{"qubit[1] q;"};
+    if lines.get(cursor).copied()!=Some(expected_decl) {
+        return Err("only a single explicit one-qubit register is admitted".into());
+    }
+    cursor+=1;
+    if lines.len()!=cursor+1 {return Err("unexpected statement in bounded source".into());}
+    let gate=lines[cursor];
+    let (literal_name,remaining)=gate.split_once('(')
+        .ok_or("missing gate arguments")?;
+    let body=remaining.strip_suffix(") q[0];")
+        .ok_or("only indexed source gate q[0] is admitted")?;
+    let args:Vec<&str>=body.split(',').map(str::trim).collect();
+    // A deliberately finite exact source-angle grammar, not a generic QASM parser.
+    if args.iter().any(|a| !matches!(*a,"0"|"pi"|"2*pi"|"pi/2"|"pi/4"|"-pi/2")) {
+        return Err("unsupported source angle literal".into());
+    }
+    let kind=match (version,literal_name,include,args.len()) {
+        (2,"U",_,3)=>SourceKind::Qasm2BuiltinU,
+        (3,"U",_,3)=>SourceKind::Qasm3BuiltinU,
+        (3,"u3",true,3)=>SourceKind::Qasm3StdlibU3,
+        (3,"u2",true,2)=>SourceKind::Qasm3StdlibU2,
+        _=>return Err("unbound or unsupported source gate".into()),
+    };
+    let (ops,n)=parse_qasm_str(raw).map_err(|e|format!("native parse: {e}"))?;
+    if n!=1||ops.len()!=1{return Err("unexpected native operation structure".into())}
+    let operation=ops.into_iter().next().unwrap();
+    let phase_correction=match (&kind,&operation) {
+        (SourceKind::Qasm2BuiltinU,QuantumOp::U(0,_,phi,lambda))
+        | (SourceKind::Qasm3StdlibU3,QuantumOp::U3(0,_,phi,lambda))
+            => (Angle::ZERO-phi.clone()-lambda.clone())/2,
+        (SourceKind::Qasm3BuiltinU,QuantumOp::U(0,theta,_,_))
+            => theta.clone()/2,
+        (SourceKind::Qasm3StdlibU2,QuantumOp::U2(0,phi,lambda))
+            => (Angle::ZERO-phi.clone()-lambda.clone())/2,
+        _=>return Err("source gate-to-native IR mismatch".into()),
+    };
+    Ok(SourcePhaseRecord{source_kind:kind,operation,phase_correction})
+}
+fn source_case(version:u8, gate:&str, args:&str, include:bool)->String {
+    let header=if version==2 {"OPENQASM 2.0;"} else {"OPENQASM 3.0;"};
+    let inc=if include {
+        if version==2 {"include \"qelib1.inc\";\n"}
+        else {"include \"stdgates.inc\";\n"}
+    }else{""};
+    let decl=if version==2 {"qreg q[1];"} else {"qubit[1] q;"};
+    format!("{header}\n{inc}{decl}\n{gate}({args}) q[0];\n")
+}
+fn versioned_source_matrix(record:&SourcePhaseRecord,is_bra:bool)->[[Q8;2];2]{
+    let mut ps=PathSum::new(1);
+    ps.set_auto_reduce(false);
+    record.operation.apply(&mut ps,is_bra);
+    // Existing public GlobalPhase is the test-only carrier of the exact
+    // source-kind-specific scalar. Bra automatically conjugates that scalar.
+    QuantumOp::GlobalPhase(record.phase_correction.clone()).apply(&mut ps,is_bra);
+    matrix_from_pathsum(&ps)
+}
+fn dag_q8(matrix:&[[Q8;2];2])->[[Q8;2];2]{
+    std::array::from_fn(|r|std::array::from_fn(|c|{
+        let z=&matrix[c][r];
+        Q8::new(z.a.clone(),z.b.clone(),-z.c.clone(),-z.d.clone())
+    }))
+}
+fn phase_by_reference(phase_pi: R)->Q8 {
+    root_of_unity(phase_pi/rat(2,1))
+}
+fn multiply_matrix_scalar(matrix:&[[Q8;2];2],scalar:&Q8)->[[Q8;2];2] {
+    std::array::from_fn(|r|std::array::from_fn(|c|
+        matrix[r][c].multiplied_by(scalar)
+    ))
+}
+#[test]
+fn observed_versioned_source_phase_records_and_bra_conjugation() {
+    struct T {
+        version:u8,gate:&'static str,args:&'static str,include:bool,
+        kind:SourceKind,reference:[[Q8;2];2],
+    }
+    let examples=vec![
+        T{version:2,gate:"U",args:"0,pi,0",include:false,
+          kind:SourceKind::Qasm2BuiltinU,reference:negative_i_z()},
+        T{version:2,gate:"U",args:"2*pi,0,0",include:false,
+          kind:SourceKind::Qasm2BuiltinU,reference:negative_identity()},
+        T{version:3,gate:"U",args:"pi/2,0,0",include:false,
+          kind:SourceKind::Qasm3BuiltinU,reference:qasm3_builtin_u_half_pi()},
+        T{version:3,gate:"U",args:"2*pi,0,0",include:false,
+          kind:SourceKind::Qasm3BuiltinU,reference:identity()},
+        T{version:3,gate:"u3",args:"0,pi,0",include:true,
+          kind:SourceKind::Qasm3StdlibU3,reference:negative_i_z()},
+        T{version:3,gate:"u3",args:"pi/2,0,0",include:true,
+          kind:SourceKind::Qasm3StdlibU3,reference:qasm3_u3_half_pi()},
+        T{version:3,gate:"u2",args:"0,0",include:true,
+          kind:SourceKind::Qasm3StdlibU2,reference:qasm3_u3_half_pi()},
+        T{version:3,gate:"u2",args:"pi,0",include:true,
+          kind:SourceKind::Qasm3StdlibU2,
+          reference:{
+            let k=Q8::new(rat(0,1),rat(0,1),rat(0,1),rat(1,2));
+            [[k.clone().neg(),k.clone()],[k.clone(),k]]
+          }},
+    ];
+    let mut checks=0;
+    for item in examples {
+        let src=source_case(item.version,item.gate,item.args,item.include);
+        let record=admit_source_phase_record(&src).expect("independent source gate must admit");
+        assert_eq!(record.source_kind,item.kind);
+        let ket=versioned_source_matrix(&record,false);
+        assert_eq!(ket,item.reference,"source strict ket mismatch: {src}");
+        let bra=versioned_source_matrix(&record,true);
+        assert_eq!(bra,dag_q8(&item.reference),
+            "source strict bra mismatch: {src}");
+        println!("VERSIONED_SOURCE_MATRIX kind={:?} args={} ket=true bra=true",
+            record.source_kind,item.args);
+        checks+=2;
+    }
+    println!("VERSIONED_SOURCE_KET_BRA_EXACT_COMPARISONS={checks}");
+}
+#[test]
+fn observed_narrow_source_rejects_unbound_gates_and_versions() {
+    let cases=[
+        source_case(3,"u3","pi/2,0,0",false),
+        source_case(3,"u2","0,0",false),
+        source_case(3,"u","0,0,0",false),
+        source_case(3,"U3","pi/2,0,0",true),
+        source_case(2,"u","0,0,0",true),
+        source_case(3,"H","0,0,0",true),
+        "OPENQASM 3.1;\nqubit[1] q;\nU(0,0,0) q[0];".into(),
+        "OPENQASM 3.0;\nqubit[1] q;\nU(0,0,0) q[0];\nU(0,0,0) q[0];".into(),
+    ];
+    for (idx,src) in cases.iter().enumerate() {
+        assert!(admit_source_phase_record(src).is_err(),
+            "invalid or unsupported narrow source admitted at {idx}");
+        println!("NARROW_VERSIONED_SOURCE_REJECT index={idx} true");
+    }
+    println!("NARROW_VERSIONED_SOURCE_REJECTIONS={}",cases.len());
 }

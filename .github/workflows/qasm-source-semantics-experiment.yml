@@ -32,7 +32,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
-          fetch-depth: 5
+          fetch-depth: 0
 
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable

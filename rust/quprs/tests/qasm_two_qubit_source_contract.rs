@@ -171,7 +171,8 @@ fn narrow_source(lines:&[&str])->String {
     format!("OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\n{}\n",lines.join("\n"))
 }
 fn checked_reference(source:&str)->Result<M4,String> {
-    let lines:Vec<&str>=source.lines().collect();
+    // Empty or whitespace-only source lines are not gate operations.
+    let lines:Vec<&str>=source.lines().filter(|line|!line.trim().is_empty()).collect();
     if lines.len()<3 || lines[0]!="OPENQASM 3.0;"
         || lines[1]!="include \"stdgates.inc\";" || lines[2]!="qubit[2] q;" {
         return Err("outside versioned source admission".into());

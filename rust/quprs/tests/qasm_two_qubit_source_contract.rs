@@ -270,14 +270,14 @@ fn strict_contract_twoqubit_source_matrix() {
 #[derive(Clone,Copy,Debug)]
 enum PropertyTag {StrictOperatorEq,PhaseEq,EffectRiskBound}
 fn source_claim_admitted(a:&str,b:&str,claim:&M4,property:PropertyTag)->bool {
-    let Ok(reference_a)=checked_reference(a)else{return false};
-    let Ok(reference_b)=checked_reference(b)else{return false};
-    let Ok(native_a)=actual_source_matrix(a)else{return false};
-    let Ok(native_b)=actual_source_matrix(b)else{return false};
+    let Ok(reference_a)=checked_reference(a)else{println!("SOURCE_CLAIM_REJECT=reference_a");return false};
+    let Ok(reference_b)=checked_reference(b)else{println!("SOURCE_CLAIM_REJECT=reference_b");return false};
+    let Ok(native_a)=actual_source_matrix(a)else{println!("SOURCE_CLAIM_REJECT=native_a");return false};
+    let Ok(native_b)=actual_source_matrix(b)else{println!("SOURCE_CLAIM_REJECT=native_b");return false};
     // Never mint a source-linked certificate from an unchecked producer matrix.
-    if reference_a!=native_a || reference_b!=native_b {return false;}
+    if reference_a!=native_a || reference_b!=native_b {println!("SOURCE_CLAIM_REJECT=source_replay reference_a_equal={} reference_b_equal={}",reference_a==native_a,reference_b==native_b);return false;}
     let computed=product(&dagger(&native_a),&native_b);
-    if claim!=&computed {return false;}
+    if claim!=&computed {println!("SOURCE_CLAIM_REJECT=claimed_miter computed={computed:?} claim={claim:?}");return false;}
     match property {
         PropertyTag::StrictOperatorEq=>computed==identity(),
         PropertyTag::PhaseEq=>{
@@ -285,10 +285,12 @@ fn source_claim_admitted(a:&str,b:&str,claim:&M4,property:PropertyTag)->bool {
             for row in 0..4 {
                 for col in 0..4 {
                     let target=if row==col {z.clone()}else{Q8::zero()};
-                    if computed[row][col]!=target {return false;}
+                    if computed[row][col]!=target {println!("SOURCE_CLAIM_REJECT=not_scalar row={row} col={col}");return false;}
                 }
             }
-            z.times(&z.conjugate())==Q8::one()
+            let phase_norm=z.times(&z.conjugate());
+            println!("SOURCE_CLAIM_PHASE scalar={z:?} norm={phase_norm:?}");
+            phase_norm==Q8::one()
         }
         // This proof rule lacks P/B/delta typing and must deny by default.
         PropertyTag::EffectRiskBound=>false,

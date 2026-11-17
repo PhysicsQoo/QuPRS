@@ -1,0 +1,102 @@
+name: QASM source semantics experiment
+
+# A branch-scoped diagnostic workflow. No release or deployment privileges.
+on:
+  push:
+    branches:
+      - experiment/qasm-source-semantics-ci
+    paths:
+      - rust/quprs/tests/qasm_source_semantics_experiment.rs
+      - .github/workflows/qasm-source-semantics-experiment.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qasm-source-semantics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-source-probe:
+    name: Native source admission and phase diagnostics (Ubuntu)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      CARGO_TERM_COLOR: never
+      RUST_BACKTRACE: '1'
+    steps:
+      - name: Check out exact experiment revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: qasm-source-semantics-experiment
+
+      - name: Install native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Record source and toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD | tee evidence/source-head.txt
+          git rev-parse 'HEAD^' | tee evidence/base-commit.txt
+          rustc --version | tee evidence/rustc-version.txt
+          cargo --version | tee evidence/cargo-version.txt
+          sha256sum rust/quprs/src/qasm.rs rust/quprs/src/gates.rs \
+            rust/quprs/src/ir.rs rust/quprs/tests/qasm_source_semantics_experiment.rs \
+            > evidence/source-sha256.txt
+
+      - name: Observe native parser, CX and U/U3 phase behavior
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_source_semantics_experiment observed_ -- --nocapture \
+            2>&1 | tee evidence/observed-native.log
+
+      - name: Compare against strict source contract (diagnostic, may fail)
+        id: strict
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_source_semantics_experiment strict_contract_ -- --nocapture \
+            2>&1 | tee evidence/strict-source-contract.log
+
+      - name: Report diagnostic outcome
+        if: always()
+        env:
+          STRICT_RESULT: ${{ steps.strict.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          printf 'strict_source_contract=%s\n' "$STRICT_RESULT" > evidence/summary.txt
+          {
+            echo '## QASM source semantics — research-only diagnostic'
+            echo
+            echo "Strict conformance test outcome: **$STRICT_RESULT**"
+            echo
+            echo 'A failed strict test identifies a source semantic discrepancy.'
+            echo 'It is **not** a failure of unrelated production CI, nor a verified correction.'
+            echo 'A successful observed-behavior test does not certify OpenQASM conformance.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qasm-source-semantics-diagnostics
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 7

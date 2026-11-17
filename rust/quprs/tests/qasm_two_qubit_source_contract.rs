@@ -1417,7 +1417,7 @@ struct AmpObligation{
     source_digest:[u8;32],spec_digest:[u8;32],
     column:u8,bad:u8,path_variables:u8,root:AmpNode,
 }
-#[derive(Default)]
+#[derive(Default,Debug)]
 struct AmpProofStats {nodes:usize,leaves:usize,zero_prunes:usize}
 fn digest_rank_two_spec(s:&RankTwoPropertySpec)->[u8;32]{
     use sha2::{Digest,Sha256};

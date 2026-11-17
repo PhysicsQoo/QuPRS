@@ -2004,6 +2004,52 @@ fn observed_symbolic_phase_cancel_zero_subtree_certificate() {
 // QuantumOp, the native parser or the gate_matrix helper above.
 // The tiny source decoder remains shared, so this is a cross-implementation
 // gate/matrix check, not an independent OpenQASM frontend or formal proof.
+// A second, deliberately independent source decoder. It shares neither
+// parse_h_frame_source nor FrameStep with the producer-side certificate
+// translator, and independently checks source scope/case/arity/wire order.
+#[derive(Clone,Copy)]
+struct IsolatedDiagonalRule {
+    ctrl:u8,target:Option<u8>,quarter:u8,z_target:bool
+}
+fn isolated_hdh_source_decoder(source:&str)
+    ->Result<(u8,Vec<IsolatedDiagonalRule>),String>{
+    let lines=source.lines().map(str::trim)
+        .filter(|s|!s.is_empty()).collect::<Vec<_>>();
+    if lines.len()<6 || lines.len()>18 {
+        return Err("unsupported source instruction count".into());
+    }
+    if lines[0]!="OPENQASM 3.0;"
+       || lines[1]!="include \"stdgates.inc\";"
+       || lines[2]!="qubit[2] q;" {
+        return Err("invalid source header/import/register".into());
+    }
+    let axis=if lines[3]=="h q[0];" {0u8}
+        else if lines[3]=="h q[1];" {1u8}
+        else {return Err("unsupported leading frame".into())};
+    if lines[lines.len()-1]!=lines[3]{
+        return Err("source frames do not match".into());
+    }
+    let mut sequence=Vec::new();
+    for &text in &lines[4..lines.len()-1]{
+        let x=match text{
+            "ctrl @ U(0,pi,0) q[1],q[0];"=>(1,Some(0),0,true),
+            "ctrl @ U(0,pi,0) q[0],q[1];"=>(0,Some(1),0,true),
+            "ctrl @ u3(0,pi,0) q[1],q[0];"=>(1,Some(0),3,true),
+            "ctrl @ u3(0,pi,0) q[0],q[1];"=>(0,Some(1),3,true),
+            "ctrl @ gphase(pi/2) q[1];"=>(1,None,1,false),
+            "ctrl @ gphase(pi/2) q[0];"=>(0,None,1,false),
+            "ctrl @ gphase(-pi/2) q[1];"=>(1,None,3,false),
+            "ctrl @ gphase(pi) q[1];"=>(1,None,2,false),
+            "ctrl @ u3(2*pi,0,0) q[1],q[0];"=>(1,Some(0),2,false),
+            "ctrl @ U(2*pi,0,0) q[1],q[0];"=>(1,Some(0),0,false),
+            _=>return Err("source outside isolated strict phase grammar".into())
+        };
+        sequence.push(IsolatedDiagonalRule{
+            ctrl:x.0,target:x.1,quarter:x.2,z_target:x.3
+        });
+    }
+    Ok((axis,sequence))
+}
 fn independent_h_element(wire:u8,output:usize,input:usize)->Q8 {
     let bit=1usize<<wire;
     if output&!bit!=input&!bit {return Q8::zero();}
@@ -2019,19 +2065,25 @@ fn independent_quarter_phase(k:u8)->Q8 {
 fn independent_source_hdh_matrix(
     source:&str,source_proof:&[u8]
 )->Result<M4,String>{
-    let record=replay_h_frame_cert(source,source_proof)?;
+    // Certificate replay is a separate admission obligation, then
+    // source meaning is independently reconstructed from the source bytes.
+    let claimed=replay_h_frame_cert(source,source_proof)?;
+    let (wire,sequence)=isolated_hdh_source_decoder(source)?;
+    if claimed.hadamard_wire!=wire{
+        return Err("source decoders disagree on the H frame".into());
+    }
     let mut out=zero();
     for output in 0..4 {
         for input in 0..4 {
             let mut total=Q8::zero();
             for mid in 0..4 {
-                let left=independent_h_element(record.hadamard_wire,output,mid);
-                let right=independent_h_element(record.hadamard_wire,mid,input);
+                let left=independent_h_element(wire,output,mid);
+                let right=independent_h_element(wire,mid,input);
                 let mut quarter=0u8;
-                for step in &record.steps {
-                    if mid&(1usize<<step.control)!=0 {
-                        quarter=(quarter+step.quarters)%4;
-                        if step.z&&step.target.is_some_and(
+                for step in &sequence {
+                    if mid&(1usize<<step.ctrl)!=0 {
+                        quarter=(quarter+step.quarter)%4;
+                        if step.z_target&&step.target.is_some_and(
                             |target|mid&(1usize<<target)!=0){
                             quarter=(quarter+2)%4;
                         }
@@ -2176,4 +2228,9 @@ fn observed_source_separated_oracle_rejects_semantic_and_proof_mutations(){
         independent_source_hdh_matrix(&modified_source,&modified_cert).unwrap());
     println!("SOURCE_SEPARATED_ORACLE_FAULT_INJECTION_CAUGHT=true");
     println!("SOURCE_SEPARATED_ORACLE_MUTATIONS_REJECTED=4");
+    assert!(isolated_hdh_source_decoder(
+        &source.replace("U(0,pi,0)","U(0,pi,0)")).is_ok());
+    assert!(isolated_hdh_source_decoder(
+        &source.replace("u3(0,pi,0)","U3(0,pi,0)")).is_err());
+    println!("SOURCE_SEPARATED_INDEPENDENT_DECODER_CASE_SENSITIVITY=true");
 }

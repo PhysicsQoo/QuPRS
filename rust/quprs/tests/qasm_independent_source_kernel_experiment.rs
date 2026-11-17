@@ -437,3 +437,211 @@ fn observed_independent_source_vs_native_pathsum_strict_diagnostics(){
     println!("INDEPENDENT_NATIVE_SAFE_EXACT=5 STRICT_COUNTEREXAMPLES=3");
     println!("INDEPENDENT_NATIVE_SOURCE_ADMISSION_GAPS=2");
 }
+
+
+// Restricted rank-2 property checking is now driven by the independently
+// replayed source matrix, NOT by production PathSum/QuantumOp. Native PathSum
+// is only a cross-checked observed implementation on safe gate sequences.
+type Ket4=[Exact;4];
+type Vec2=[Exact;2];
+#[derive(Clone)]
+struct TrustedRankTwoSpec {
+    inputs:[usize;2],
+    bad:[Ket4;2],
+    delta:Rat,
+}
+#[derive(Clone)]
+struct PropertyClaim{
+    source_trace:ClaimedSourceTrace,
+    spec_digest:[u8;32],
+    claimed_gram:M2,
+}
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+enum TypedVerdict{Proved,Refuted,Unknown}
+fn conj(z:&Exact)->Exact{
+    Exact::new(z.a.clone(),z.b.clone(),-z.c.clone(),-z.d.clone())
+}
+fn dot4(a:&Ket4,b:&Ket4)->Exact{
+    let mut v=Exact::zero();
+    for i in 0..4{v.add(&conj(&a[i]).times(&b[i]));}
+    v
+}
+fn spec_digest(s:&TrustedRankTwoSpec)->[u8;32]{
+    let mut h=Sha256::new();
+    for &input in &s.inputs{h.update((input as u32).to_le_bytes());}
+    for vector in &s.bad {for x in vector{
+        for q in [&x.a,&x.b,&x.c,&x.d] {
+            h.update(q.numer().to_le_bytes());
+            h.update(q.denom().to_le_bytes());
+        }
+    }}
+    h.update(s.delta.numer().to_le_bytes());
+    h.update(s.delta.denom().to_le_bytes());
+    let z=h.finalize();
+    let mut out=[0u8;32];out.copy_from_slice(&z);out
+}
+fn valid_spec(s:&TrustedRankTwoSpec)->Result<(),String>{
+    if s.inputs[0]>=4||s.inputs[1]>=4||s.inputs[0]==s.inputs[1]{
+        return Err("invalid input support basis".into());
+    }
+    if s.delta<r(0,1)||s.delta>r(1,1){
+        return Err("invalid threshold".into());
+    }
+    if dot4(&s.bad[0],&s.bad[0])!=Exact::one()||
+       dot4(&s.bad[1],&s.bad[1])!=Exact::one()||
+       dot4(&s.bad[0],&s.bad[1])!=Exact::zero(){
+        return Err("effect basis not orthonormal".into());
+    }
+    Ok(())
+}
+fn rank2_source_gram(u:&M4,s:&TrustedRankTwoSpec)->Result<M2,String>{
+    valid_spec(s)?;
+    let mut f:[[Exact;2];2]=std::array::from_fn(|_|
+        std::array::from_fn(|_|Exact::zero()));
+    for k in 0..2 {for j in 0..2 {
+        for row in 0..4 {
+            f[k][j].add(&conj(&s.bad[k][row]).times(&u[row][s.inputs[j]]));
+        }
+    }}
+    let mut gram:M2=std::array::from_fn(|_|
+        std::array::from_fn(|_|Exact::zero()));
+    for i in 0..2{for j in 0..2 {
+        for k in 0..2{gram[i][j].add(&conj(&f[k][i]).times(&f[k][j]));}
+    }}
+    if gram[0][1]!=conj(&gram[1][0]) {
+        return Err("restricted Gram is not Hermitian".into());
+    }
+    Ok(gram)
+}
+fn exact_diff(a:&Exact,b:&Exact)->Exact{
+    let mut out=a.clone();out.add(&b.neg());out
+}
+fn exact_real_rational(z:&Exact)->Result<Rat,String>{
+    if z.b!=r(0,1)||z.c!=r(0,1)||z.d!=r(0,1) {
+        return Err("unsupported exact ordering outside rational subfield".into());
+    }
+    Ok(z.a.clone())
+}
+fn verified_rank2_psd(gram:&M2,delta:&Rat)->Result<bool,String>{
+    if gram[0][1]!=conj(&gram[1][0]){
+        return Err("non-Hermitian claimed restricted risk".into());
+    }
+    let a=exact_diff(&Exact::new(delta.clone(),r(0,1),r(0,1),r(0,1)),&gram[0][0]);
+    let d=exact_diff(&Exact::new(delta.clone(),r(0,1),r(0,1),r(0,1)),&gram[1][1]);
+    let b=gram[0][1].neg();
+    let det=exact_diff(&a.times(&d),&b.times(&conj(&b)));
+    Ok(exact_real_rational(&a)?>=r(0,1)&&
+       exact_real_rational(&d)?>=r(0,1)&&
+       exact_real_rational(&det)?>=r(0,1))
+}
+fn verified_witness(gram:&M2,delta:&Rat,v:&Vec2)->Result<bool,String>{
+    let mut norm=Exact::zero();
+    let mut risk=Exact::zero();
+    for i in 0..2 {
+        norm.add(&conj(&v[i]).times(&v[i]));
+        for j in 0..2{
+            risk.add(&conj(&v[i]).times(&gram[i][j].times(&v[j])));
+        }
+    }
+    if exact_real_rational(&norm)?<=r(0,1){return Err("zero witness".into());}
+    let violation=exact_diff(&risk,&norm.times(&Exact::new(
+        delta.clone(),r(0,1),r(0,1),r(0,1))));
+    Ok(exact_real_rational(&violation)?>r(0,1))
+}
+fn checked_rank2_source_property(
+    source:&str,claim:&PropertyClaim,external_spec:&TrustedRankTwoSpec,
+    witness:Option<&Vec2>
+)->Result<TypedVerdict,String>{
+    valid_spec(external_spec)?;
+    if claim.spec_digest!=spec_digest(external_spec){
+        return Err("trusted property specification digest mismatch".into());
+    }
+    let u=checked_source_trace(source,&claim.source_trace)?;
+    let gram=rank2_source_gram(&u,external_spec)?;
+    if gram!=claim.claimed_gram {
+        return Err("producer Gram differs from independent source semantics".into());
+    }
+    if verified_rank2_psd(&gram,&external_spec.delta)?{
+        if witness.is_some(){return Err("witness claimed for established PSD".into());}
+        return Ok(TypedVerdict::Proved);
+    }
+    match witness{
+        None=>Ok(TypedVerdict::Unknown),
+        Some(w) if verified_witness(&gram,&external_spec.delta,w)?=>
+            Ok(TypedVerdict::Refuted),
+        Some(_)=>Err("invalid or non-violating refutation witness".into())
+    }
+}
+fn produce_claim_for_test(src:&str,s:&TrustedRankTwoSpec)->PropertyClaim{
+    PropertyClaim{
+        source_trace:emit_source_trace(src).unwrap(),
+        spec_digest:spec_digest(s),
+        claimed_gram:rank2_source_gram(
+            &independently_checked_matrix(src).unwrap(),s).unwrap()
+    }
+}
+fn rank2_spec(delta:Rat)->TrustedRankTwoSpec{
+    let half=Exact::one().scaled(1,2);
+    let sq=Exact::halfsqrt2();
+    TrustedRankTwoSpec{
+        inputs:[0,2],
+        bad:[
+            [half.clone(),half.clone(),half.clone(),half],
+            [sq.clone(),sq.neg(),Exact::zero(),Exact::zero()]
+        ],
+        delta,
+    }
+}
+#[test]
+fn observed_independent_rank2_property_agrees_with_native_not_relying_on_it(){
+    for (name,src,expected,witness) in [
+        ("real",source(&["h q[0];","cz q[0],q[1];","h q[0];"],
+            true,"OPENQASM 3.0;"),Exact::one().scaled(1,4),
+            [Exact::real(2),Exact::one()]),
+        ("complex",source(&["h q[0];","s q[1];","cz q[0],q[1];","h q[0];"],
+            true,"OPENQASM 3.0;"),Exact::imag(1).scaled(1,4),
+            [Exact::real(2),Exact::imag(-1)])
+    ]{
+        let m=independently_checked_matrix(&src).unwrap();
+        assert_eq!(m,native_matrix(&src).unwrap(),
+            "safe source must agree with observed native PathSum");
+        let proved_spec=rank2_spec(r(7,8));
+        let proved=produce_claim_for_test(&src,&proved_spec);
+        assert_eq!(proved.claimed_gram[0][0],Exact::one().scaled(3,4));
+        assert_eq!(proved.claimed_gram[1][1],Exact::one().scaled(1,4));
+        assert_eq!(proved.claimed_gram[0][1],expected);
+        assert_eq!(checked_rank2_source_property(&src,&proved,&proved_spec,None).unwrap(),
+            TypedVerdict::Proved);
+        let refuted_spec=rank2_spec(r(3,4));
+        let refuted=produce_claim_for_test(&src,&refuted_spec);
+        assert_eq!(checked_rank2_source_property(&src,&refuted,&refuted_spec,None).unwrap(),
+            TypedVerdict::Unknown);
+        assert_eq!(checked_rank2_source_property(&src,&refuted,&refuted_spec,Some(&witness)).unwrap(),
+            TypedVerdict::Refuted);
+        let mut forged=proved.clone();
+        forged.claimed_gram[0][1]=Exact::zero();
+        assert!(checked_rank2_source_property(&src,&forged,&proved_spec,None).is_err());
+        assert!(checked_rank2_source_property(&src,&proved,&refuted_spec,None).is_err());
+        assert!(checked_rank2_source_property(&src,&refuted,&refuted_spec,
+            Some(&[Exact::zero(),Exact::zero()])).is_err());
+        let altered=src.replace("cz q[0],q[1];","cx q[0],q[1];");
+        assert!(checked_rank2_source_property(&altered,&refuted,&refuted_spec,Some(&witness)).is_err());
+        let risk=Exact::one().scaled(17,20);
+        let mut wnorm=Exact::zero();
+        for z in &witness{wnorm.add(&conj(z).times(z));}
+        assert_eq!(wnorm,Exact::real(5));
+        let gap=Exact::one().scaled(1,2);
+        let mut q=Exact::zero();
+        for i in 0..2{for j in 0..2{
+            q.add(&conj(&witness[i]).times(&refuted.claimed_gram[i][j].times(&witness[j])));
+        }}
+        let actual=exact_diff(&q,&Exact::one().scaled(3,4).times(&wnorm));
+        assert_eq!(actual,gap);
+        assert_eq!(q.scaled(1,5),risk);
+        println!("INDEPENDENT_SOURCE_RANK2_PROPERTY case={name} \
+           native_strict_matrix_equal=true proved_delta=7/8 \
+           refuted_delta=3/4 witness_risk=17/20 \
+           forged_source_spec_gram_rejected=true");
+    }
+    println!("INDEPENDENT_SOURCE_RANK2_PROPERTY_CASES=2");
+}

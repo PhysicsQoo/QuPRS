@@ -7,6 +7,7 @@ on:
       - experiment/qasm-source-semantics-ci
     paths:
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
+      - rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
 permissions:
@@ -58,6 +59,7 @@ jobs:
           cargo --version | tee evidence/cargo-version.txt
           sha256sum rust/quprs/src/qasm.rs rust/quprs/src/gates.rs \
             rust/quprs/src/ir.rs rust/quprs/tests/qasm_source_semantics_experiment.rs \
+            rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs \
             > evidence/source-sha256.txt
 
       - name: Observe native parser, CX and U/U3 phase behavior
@@ -66,6 +68,22 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test qasm_source_semantics_experiment observed_ -- --nocapture \
             2>&1 | tee evidence/observed-native.log
+
+      - name: Reconstruct exact native unitary matrices independently
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_strict_unitary_matrix_oracle observed_ -- --nocapture \
+            2>&1 | tee evidence/exact-unitary-matrices.log
+
+      - name: Check official strict unitary matrices (diagnostic, may fail)
+        id: exact_matrix
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_strict_unitary_matrix_oracle strict_contract_ -- --nocapture \
+            2>&1 | tee evidence/exact-unitary-conformance.log
 
       - name: Compare against strict source contract (diagnostic, may fail)
         id: strict
@@ -80,14 +98,16 @@ jobs:
         if: always()
         env:
           STRICT_RESULT: ${{ steps.strict.outcome }}
+          MATRIX_RESULT: ${{ steps.exact_matrix.outcome }}
         run: |
           set -euo pipefail
           mkdir -p evidence
-          printf 'strict_source_contract=%s\n' "$STRICT_RESULT" > evidence/summary.txt
+          printf 'strict_source_contract=%s\nstrict_matrix_contract=%s\n' "$STRICT_RESULT" "$MATRIX_RESULT" > evidence/summary.txt
           {
             echo '## QASM source semantics — research-only diagnostic'
             echo
             echo "Strict conformance test outcome: **$STRICT_RESULT**"
+            echo "Strict full-matrix outcome: **$MATRIX_RESULT**"
             echo
             echo 'A failed strict test identifies a source semantic discrepancy.'
             echo 'It is **not** a failure of unrelated production CI, nor a verified correction.'

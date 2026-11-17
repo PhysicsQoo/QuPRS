@@ -1722,3 +1722,120 @@ fn observed_exact_amplitude_proof_attacks_fail_closed(){
     println!("AMPLITUDE_PROOF_ATTACKS_REJECTED=10");
     println!("AMPLITUDE_PROOF_RESOURCE_LIMIT_UNKNOWN=true");
 }
+
+
+// Property-level admission is all-or-nothing: no partial set of verified
+// amplitudes may authorize PROVED or REFUTED. UNKNOWN is separate from a
+// malformed or untrusted certificate (Err).
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum CertifiedRankTwoOutcome {Proved,Refuted,Unknown}
+fn emit_four_amplitude_proofs(
+    source:&str,source_cert:&[u8],spec:&RankTwoPropertySpec
+)->Result<Vec<AmpObligation>,String>{
+    let mut out=Vec::with_capacity(4);
+    for column in 0..2 {for bad in 0..2 {
+        out.push(construct_amplitude_obligation(
+            source,source_cert,spec,column,bad)?);
+    }}
+    Ok(out)
+}
+fn checked_rank_two_from_amplitudes(
+    source:&str,source_cert:&[u8],
+    trusted_spec:&RankTwoPropertySpec,proofs:&[AmpObligation],
+    per_entry_budget:usize,
+    refutation_witness:Option<&Vec2>,
+)->Result<CertifiedRankTwoOutcome,String>{
+    replay_h_frame_cert(source,source_cert)?;
+    validate_rank_two_spec(trusted_spec)?;
+    if proofs.len()!=4 {return Ok(CertifiedRankTwoOutcome::Unknown);}
+    let mut overlaps:[[Q8;2];2]=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for column in 0..2{for bad in 0..2{
+        let claim=&proofs[column*2+bad];
+        if claim.column!=column as u8||claim.bad!=bad as u8{
+            return Err("wrong source-linked amplitude obligation position".into());
+        }
+        let verified=verify_amplitude_obligation(
+            source,source_cert,trusted_spec,claim,per_entry_budget);
+        match verified{
+            Ok((actual,_))=>overlaps[bad][column]=actual,
+            Err(e) if e=="UNKNOWN_RESOURCE_LIMIT"=>
+                return Ok(CertifiedRankTwoOutcome::Unknown),
+            Err(e)=>return Err(e),
+        }
+    }}
+    let gram=exact_gram_from_overlap(&overlaps);
+    let residual=delta_minus_gram(&gram,&trusted_spec.threshold);
+    if exact_two_by_two_psd(&residual)?{
+        return Ok(CertifiedRankTwoOutcome::Proved);
+    }
+    let Some(v)=refutation_witness else{
+        return Ok(CertifiedRankTwoOutcome::Unknown);
+    };
+    let mut norm=v[0].conjugate().times(&v[0]);
+    norm.sum(v[1].conjugate().times(&v[1]));
+    if q8_real_sign(&norm)?<=0{return Err("empty input witness".into());}
+    let gap=witness_quadratic(&gram,v);
+    let gap=q8_minus(&gap,&Q8::new(
+        trusted_spec.threshold.clone(),r(0,1),r(0,1),r(0,1)).times(&norm));
+    if q8_real_sign(&gap)?>0{
+        Ok(CertifiedRankTwoOutcome::Refuted)
+    }else{
+        Err("claimed refutation witness has no positive violation".into())
+    }
+}
+#[test]
+fn observed_end_to_end_typed_amplitude_certificate_gram_psd_and_unknown(){
+    for (name,source) in [
+        ("real",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+            "ctrl @ gphase(pi/2) q[1];",
+        ],0)),
+        ("complex",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+        ],0)),
+    ]{
+        let source_cert=encode_h_frame_cert(&parse_h_frame_source(&source).unwrap());
+        let high=rank_two_effect_example(r(7,8));
+        let high_proofs=emit_four_amplitude_proofs(&source,&source_cert,&high).unwrap();
+        assert_eq!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&high,&high_proofs,8192,None).unwrap(),
+            CertifiedRankTwoOutcome::Proved);
+        let low=rank_two_effect_example(r(3,4));
+        let low_proofs=emit_four_amplitude_proofs(&source,&source_cert,&low).unwrap();
+        let physical=if name=="real"{
+            [Q8::integer(2),Q8::one()]
+        }else{[Q8::integer(2),Q8::imaginary(1)]};
+        assert_eq!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&low,&low_proofs,8192,Some(&physical)).unwrap(),
+            CertifiedRankTwoOutcome::Refuted);
+        assert_eq!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&low,&low_proofs,8192,None).unwrap(),
+            CertifiedRankTwoOutcome::Unknown);
+        assert_eq!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&high,&high_proofs,0,None).unwrap(),
+            CertifiedRankTwoOutcome::Unknown);
+        assert_eq!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&high,&high_proofs[..3],8192,None).unwrap(),
+            CertifiedRankTwoOutcome::Unknown);
+        assert!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&low,&high_proofs,8192,Some(&physical)).is_err());
+        let mut forged=high_proofs.clone();
+        forged[0].root.claimed.sum(Q8::one());
+        assert!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&high,&forged,8192,None).is_err());
+        forged=high_proofs.clone();
+        forged.swap(0,1);
+        assert!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&high,&forged,8192,None).is_err());
+        assert!(checked_rank_two_from_amplitudes(
+            &source,&source_cert,&low,&low_proofs,8192,
+            Some(&[Q8::zero(),Q8::zero()])).is_err());
+        println!("CERTIFIED_RANK2_PIPELINE case={name} \
+            exact_amplitude_entries=4 proved_delta=7/8 \
+            refuted_delta=3/4 unknown_no_witness=true \
+            unknown_resource=true unknown_missing_proof=true \
+            forged_amplitude_rejected=true");
+    }
+    println!("CERTIFIED_RANK2_PIPELINE_CASES=2");
+}

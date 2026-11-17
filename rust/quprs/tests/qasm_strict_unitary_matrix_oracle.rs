@@ -394,3 +394,180 @@ fn observed_narrow_source_rejects_unbound_gates_and_versions() {
     }
     println!("NARROW_VERSIONED_SOURCE_REJECTIONS={}",cases.len());
 }
+
+
+// The following composition checks stay inside a deliberately bounded,
+// version-pinned source grammar. They do not claim general QASM3 support.
+type M2 = [[Q8;2];2];
+
+fn product_q8(left:&M2,right:&M2)->M2 {
+    std::array::from_fn(|r|std::array::from_fn(|c|{
+        let mut total=Q8::zero();
+        for k in 0..2 { total.sum_with(left[r][k].multiplied_by(&right[k][c])); }
+        total
+    }))
+}
+fn conjugate_q8(value:&Q8)->Q8 {
+    Q8::new(value.a.clone(),value.b.clone(),-value.c.clone(),-value.d.clone())
+}
+fn bounded_sequence_source(version:u8,gates:&[&str])->String {
+    let header=if version==2 {"OPENQASM 2.0;"} else {"OPENQASM 3.0;"};
+    let inc=if version==2 {"include \"qelib1.inc\";"} else {"include \"stdgates.inc\";"};
+    let decl=if version==2 {"qreg q[1];"} else {"qubit[1] q;"};
+    format!("{header}\n{inc}\n{decl}\n{}\n",gates.join("\n"))
+}
+fn admit_bounded_sequence(raw:&str)->Result<Vec<SourcePhaseRecord>,String> {
+    let lines:Vec<&str>=raw.lines().map(str::trim)
+        .filter(|line|!line.is_empty()).collect();
+    if lines.len()<5 {return Err("short bounded source sequence".into());}
+    let version=match lines[0] {
+        "OPENQASM 2.0;"=>2,
+        "OPENQASM 3.0;"=>3,
+        _=>return Err("unsupported source version".into())
+    };
+    let inc=if version==2 {"include \"qelib1.inc\";"}
+        else {"include \"stdgates.inc\";"};
+    let decl=if version==2 {"qreg q[1];"}
+        else {"qubit[1] q;"};
+    if lines[1]!=inc||lines[2]!=decl {
+        return Err("unbound or unexpected source declaration".into())
+    }
+    let gate_lines=&lines[3..];
+    if !(2..=3).contains(&gate_lines.len()) {
+        return Err("only 2 or 3 explicit source gates are admitted".into());
+    }
+    let mut records=Vec::new();
+    for &literal_gate in gate_lines {
+        // Reuse one-instruction checked gate provenance, while requiring
+        // a complete, identical sequence at the actual Rust parse boundary.
+        let single=format!("{}\n{}\n{}\n{}\n",
+            lines[0],lines[1],lines[2],literal_gate);
+        records.push(admit_source_phase_record(&single)?);
+    }
+    let (ops,n)=parse_qasm_str(raw).map_err(|e|format!("native parse: {e}"))?;
+    if n!=1||ops.len()!=records.len()||
+       !ops.iter().zip(records.iter()).all(|(op,rec)|op==&rec.operation) {
+        return Err("ordered native source-to-IR replay is incomplete".into())
+    }
+    Ok(records)
+}
+fn composed_native_matrix(records:&[SourcePhaseRecord],bra:bool)->M2 {
+    let mut ps=PathSum::new(1);
+    ps.set_auto_reduce(false);
+    if bra {
+        // To evaluate (G_m ... G_1)^dagger by left multiplication,
+        // apply adjoints in reversed chronological source order.
+        for rec in records.iter().rev() {
+            rec.operation.apply(&mut ps,true);
+            QuantumOp::GlobalPhase(rec.phase_correction.clone())
+                .apply(&mut ps,true);
+        }
+    } else {
+        for rec in records {
+            rec.operation.apply(&mut ps,false);
+            QuantumOp::GlobalPhase(rec.phase_correction.clone())
+                .apply(&mut ps,false);
+        }
+    }
+    matrix_from_pathsum(&ps)
+}
+fn seq_expected(matrices:&[M2])->M2 {
+    let mut acc=identity();
+    for matrix in matrices {
+        acc=product_q8(matrix,&acc);
+    }
+    acc
+}
+#[test]
+fn observed_exact_multigate_source_composition_and_bra() {
+    let uhalf=qasm3_builtin_u_half_pi();
+    let minusiz=negative_i_z();
+    let cases: Vec<(&str,u8,Vec<&str>,Vec<M2>)> = vec![
+        ("h_then_z_source",3,
+            vec!["U(pi/2,0,0) q[0];","u3(0,pi,0) q[0];"],
+            vec![uhalf.clone(),minusiz.clone()]),
+        ("z_then_h_source",3,
+            vec!["u3(0,pi,0) q[0];","U(pi/2,0,0) q[0];"],
+            vec![minusiz.clone(),uhalf.clone()]),
+        ("strict_minus_identity",3,
+            vec!["U(2*pi,0,0) q[0];","u3(2*pi,0,0) q[0];"],
+            vec![identity(),negative_identity()]),
+        ("strict_plus_identity",3,
+            vec!["u3(2*pi,0,0) q[0];","u3(2*pi,0,0) q[0];"],
+            vec![negative_identity(),negative_identity()]),
+        ("three_gates_keep_phase",3,
+            vec!["u2(0,0) q[0];","U(pi/2,0,0) q[0];","u3(2*pi,0,0) q[0];"],
+            vec![qasm3_u3_half_pi(),uhalf.clone(),negative_identity()]),
+        ("qasm2_mixed_library",2,
+            vec!["U(0,pi,0) q[0];","u2(0,0) q[0];","u3(2*pi,0,0) q[0];"],
+            vec![minusiz,qasm3_u3_half_pi(),negative_identity()]),
+    ];
+    let mut exact_checks=0;
+    let mut first:Option<M2>=None;
+    let mut second:Option<M2>=None;
+    for (label,version,gate_lines,reference_matrices) in cases {
+        let raw=bounded_sequence_source(version,&gate_lines);
+        let records=admit_bounded_sequence(&raw)
+            .unwrap_or_else(|e|panic!("sequence admission {label}: {e}"));
+        let expectation=seq_expected(&reference_matrices);
+        let actual=composed_native_matrix(&records,false);
+        assert_eq!(actual,expectation,"source-ordered ket mismatch: {label}");
+        let bra=composed_native_matrix(&records,true);
+        assert_eq!(bra,dag_q8(&expectation),"source-reversed bra mismatch: {label}");
+        if label=="h_then_z_source" {first=Some(actual.clone())}
+        if label=="z_then_h_source" {second=Some(actual.clone())}
+        println!("EXACT_SOURCE_COMPOSITION case={label} ket=true bra=true");
+        exact_checks+=2;
+    }
+    // Noncommutative source order must not be silently canonicalized.
+    assert_ne!(first.unwrap(),second.unwrap());
+    println!("EXACT_SOURCE_NONCOMMUTING_ORDER_DIFFERENT=true");
+    println!("EXACT_SOURCE_COMPOSITION_KET_BRA_CHECKS={exact_checks}");
+}
+#[test]
+fn observed_exact_strict_source_miter_and_controlled_phase_witness() {
+    // These two sources have the same quantum channel but different strict
+    // source unitaries. Their uncorrected QuPRS PathSums were identical
+    // before the source-phase ledger, giving a false strict-equivalence risk.
+    let source_u=source_case(3,"U","2*pi,0,0",false);
+    let source_u3=source_case(3,"u3","2*pi,0,0",true);
+    let u=admit_source_phase_record(&source_u).unwrap();
+    let u3=admit_source_phase_record(&source_u3).unwrap();
+    let correct_u=versioned_source_matrix(&u,false);
+    let correct_u3=versioned_source_matrix(&u3,false);
+    assert_eq!(correct_u,identity());
+    assert_eq!(correct_u3,negative_identity());
+    let strict_miter=product_q8(&dag_q8(&correct_u),&correct_u3);
+    assert_eq!(strict_miter,negative_identity());
+    assert_ne!(strict_miter,identity());
+
+    let mut raw_u=PathSum::new(1);raw_u.set_auto_reduce(false);
+    u.operation.apply(&mut raw_u,false);
+    let mut raw_u3=PathSum::new(1);raw_u3.set_auto_reduce(false);
+    u3.operation.apply(&mut raw_u3,false);
+    let uncorrected_miter=product_q8(
+        &dag_q8(&matrix_from_pathsum(&raw_u)),&matrix_from_pathsum(&raw_u3)
+    );
+    assert_eq!(uncorrected_miter,identity());
+    println!("SOURCE_MITER_UNCORRECTED_STRICT_EQ=true CORRECTED_STRICT_EQ=false");
+    println!("SOURCE_MITER_CORRECTED_PROJECTIVE_EQ=true");
+
+    // Only a mathematical controlled-context witness is tested here:
+    // ctrl@ syntax is not claimed to be supported by the native QASM parser.
+    // Start |+>_control |0>_target and postselect |- >_control |0>_target.
+    // For a strictly diagonal miter, risk = |(1 - miter[0][0])/2|^2.
+    assert_eq!(strict_miter[1][0],Q8::zero());
+    let negative_amp=Q8::one();
+    let mut b=negative_amp;
+    b.sum_with(strict_miter[0][0].clone().neg());
+    let amp=b.scaled(1,2);
+    let risk=amp.multiplied_by(&conjugate_q8(&amp));
+    assert_eq!(risk,Q8::one());
+    // With a phase-erased identity miter the same risk is exactly zero.
+    let mut b_identity=Q8::one();
+    b_identity.sum_with(uncorrected_miter[0][0].clone().neg());
+    let identity_amp=b_identity.scaled(1,2);
+    assert_eq!(identity_amp.multiplied_by(&conjugate_q8(&identity_amp)),
+        Q8::zero());
+    println!("SOURCE_MITER_CONTROLLED_WITNESS corrected_bad_risk=1 phase_erased_bad_risk=0");
+}

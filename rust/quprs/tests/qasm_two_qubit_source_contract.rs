@@ -589,3 +589,320 @@ fn observed_controlled_miter_property_typing_and_forgery(){
     println!("CTRL_CERT_NONTRIVIAL_TARGET_MITER_PHASE=-i verified=true");
     println!("CTRL_CERT_MITER_FORGERY_REJECTED=true");
 }
+
+
+// Test-only, source-bound non-diagonal proof rule: H_c D H_c.
+// This does not parse general OpenQASM modifiers. It validates a small
+// independent grammar, replays all source operations, and cross-checks a
+// supported native decomposition using unreduced PathSum and exact Q8.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum FrameGate { UZ=1,U3Z=2,CtrlPhase=3,U3MinusI=4,UGate=5 }
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+struct FrameStep{
+    gate:FrameGate,control:u8,target:Option<u8>,quarters:u8,z:bool,
+}
+#[derive(Clone,Debug,PartialEq,Eq)]
+struct FrameClaim{
+    source_digest:[u8;32],hadamard_wire:u8,
+    steps:Vec<FrameStep>,phase_singles:[u8;2],phase_pair:u8,
+}
+fn sha_source(src:&str)->[u8;32]{
+    use sha2::{Digest,Sha256};
+    let value=Sha256::digest(src.as_bytes());
+    let mut d=[0u8;32];d.copy_from_slice(&value);d
+}
+fn frame_step(line:&str)->Result<FrameStep,String>{
+    let (gate,control,target,quarters,z)=match line {
+        "ctrl @ U(0,pi,0) q[1],q[0];"=>
+            (FrameGate::UZ,1,Some(0),0,true),
+        "ctrl @ U(0,pi,0) q[0],q[1];"=>
+            (FrameGate::UZ,0,Some(1),0,true),
+        "ctrl @ u3(0,pi,0) q[1],q[0];"=>
+            (FrameGate::U3Z,1,Some(0),3,true),
+        "ctrl @ u3(0,pi,0) q[0],q[1];"=>
+            (FrameGate::U3Z,0,Some(1),3,true),
+        "ctrl @ gphase(pi/2) q[1];"=>
+            (FrameGate::CtrlPhase,1,None,1,false),
+        "ctrl @ gphase(pi/2) q[0];"=>
+            (FrameGate::CtrlPhase,0,None,1,false),
+        "ctrl @ gphase(-pi/2) q[1];"=>
+            (FrameGate::CtrlPhase,1,None,3,false),
+        "ctrl @ gphase(pi) q[1];"=>
+            (FrameGate::CtrlPhase,1,None,2,false),
+        "ctrl @ u3(2*pi,0,0) q[1],q[0];"=>
+            (FrameGate::U3MinusI,1,Some(0),2,false),
+        "ctrl @ U(2*pi,0,0) q[1],q[0];"=>
+            (FrameGate::UGate,1,Some(0),0,false),
+        _=>return Err("unsupported exact controlled diagonal source literal".into()),
+    };
+    Ok(FrameStep{gate,control,target,quarters,z})
+}
+fn frame_polynomial(steps:&[FrameStep])->([u8;2],u8){
+    let mut singles=[0u8;2];
+    let mut pair=0u8;
+    for step in steps{
+        singles[step.control as usize]=(singles[step.control as usize]+step.quarters)%4;
+        if step.z{pair=(pair+2)%4;}
+    }
+    (singles,pair)
+}
+fn parse_h_frame_source(src:&str)->Result<FrameClaim,String>{
+    if src.len()>8192 {return Err("source too large".into());}
+    let lines=src.lines().map(str::trim).filter(|line|!line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len()<6 ||lines.len()>18
+       ||lines[0]!="OPENQASM 3.0;"
+       ||lines[1]!="include \"stdgates.inc\";"
+       ||lines[2]!="qubit[2] q;"{
+        return Err("invalid or unsupported source frame".into());
+    }
+    let wire=match lines[3]{
+        "h q[0];"=>0u8,
+        "h q[1];"=>1u8,
+        _=>return Err("missing exact leading H".into()),
+    };
+    if lines.last()!=Some(&lines[3]){
+        return Err("source H frame mismatched or open".into());
+    }
+    let mut steps=Vec::new();
+    for line in &lines[4..lines.len()-1]{
+        steps.push(frame_step(line)?);
+    }
+    if steps.is_empty()||steps.len()>12{
+        return Err("empty or oversized source frame".into());
+    }
+    let (phase_singles,phase_pair)=frame_polynomial(&steps);
+    Ok(FrameClaim{
+        source_digest:sha_source(src),hadamard_wire:wire,
+        steps,phase_singles,phase_pair
+    })
+}
+fn encode_h_frame_cert(c:&FrameClaim)->Vec<u8>{
+    let mut output=Vec::with_capacity(41+5*c.steps.len());
+    output.extend_from_slice(b"HFC1");
+    output.extend_from_slice(&c.source_digest);
+    output.push(c.hadamard_wire);
+    output.push(c.steps.len() as u8);
+    for s in &c.steps{
+        output.push(s.gate as u8);
+        output.push(s.control);
+        output.push(s.target.unwrap_or(255));
+        output.push(s.quarters);
+        output.push(u8::from(s.z));
+    }
+    output.extend_from_slice(&c.phase_singles);
+    output.push(c.phase_pair);
+    output
+}
+fn decode_h_frame_cert(bytes:&[u8])->Result<FrameClaim,String>{
+    if bytes.len()<46||bytes.get(..4)!=Some(b"HFC1".as_slice()){
+        return Err("invalid certificate envelope".into());
+    }
+    let wire=bytes[36];
+    let count=bytes[37] as usize;
+    if wire>1||count==0||count>12||bytes.len()!=41+5*count{
+        return Err("invalid frame wire/length".into());
+    }
+    let mut digest=[0u8;32];digest.copy_from_slice(&bytes[4..36]);
+    let mut steps=Vec::with_capacity(count);
+    for b in bytes[38..38+5*count].chunks_exact(5){
+        let gate=match b[0]{
+            1=>FrameGate::UZ,2=>FrameGate::U3Z,3=>FrameGate::CtrlPhase,
+            4=>FrameGate::U3MinusI,5=>FrameGate::UGate,
+            _=>return Err("unknown source gate kind".into())
+        };
+        let target=if b[2]==255{None}else{Some(b[2])};
+        if b[1]>1||target.is_some_and(|t|t>1||t==b[1])
+            ||b[3]>3||b[4]>1{
+            return Err("invalid phase/control/target/boolean fields".into());
+        }
+        if (gate==FrameGate::CtrlPhase)!=target.is_none(){
+            return Err("wrong number of source operands".into());
+        }
+        steps.push(FrameStep{gate,control:b[1],target,quarters:b[3],z:b[4]==1});
+    }
+    let singles=[bytes[38+5*count],bytes[39+5*count]];
+    let pair=bytes[40+5*count];
+    if singles.iter().any(|&x|x>3)||!matches!(pair,0|2){
+        return Err("illegal polynomial coefficient".into());
+    }
+    if (singles,pair)!=frame_polynomial(&steps){
+        return Err("forged phase normal form".into());
+    }
+    Ok(FrameClaim{source_digest:digest,hadamard_wire:wire,steps,
+        phase_singles:singles,phase_pair:pair})
+}
+fn replay_h_frame_cert(src:&str,bytes:&[u8])->Result<FrameClaim,String>{
+    let claimed=decode_h_frame_cert(bytes)?;
+    if claimed.source_digest!=sha_source(src){
+        return Err("claimed source bytes differ".into());
+    }
+    let replayed=parse_h_frame_source(src)?;
+    if claimed!=replayed {return Err("source IR certificate replay mismatch".into());}
+    Ok(replayed)
+}
+fn h_frame_source(lines:&[&str],h_wire:usize)->String{
+    format!(
+        "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[{h_wire}];\n{}\nh q[{h_wire}];\n",
+        lines.join("\n")
+    )
+}
+fn native_h_frame_lowering(c:&FrameClaim)->String{
+    let mut lines=vec![format!("h q[{}];",c.hadamard_wire)];
+    for s in &c.steps{
+        let wire=s.control;
+        match s.quarters {
+            0=>(),
+            1=>lines.push(format!("p(pi/2) q[{wire}];")),
+            2=>lines.push(format!("p(pi) q[{wire}];")),
+            3=>lines.push(format!("p(-pi/2) q[{wire}];")),
+            _=>unreachable!()
+        }
+        if s.z {
+            lines.push("cz q[0],q[1];".to_owned());
+        }
+    }
+    lines.push(format!("h q[{}];",c.hadamard_wire));
+    let texts=lines.iter().map(String::as_str).collect::<Vec<_>>();
+    narrow_source(&texts)
+}
+fn diagonal_quarter(c:&FrameClaim,basis:usize)->u8 {
+    let x0=u8::from(basis&1!=0);
+    let x1=u8::from(basis&2!=0);
+    (c.phase_singles[0]*x0+c.phase_singles[1]*x1
+        +c.phase_pair*x0*x1)%4
+}
+fn reference_h_frame_matrix(c:&FrameClaim)->M4 {
+    let mut diag=zero();
+    for basis in 0..4{
+        let phase=diagonal_quarter(c,basis);
+        diag[basis][basis]=match phase {
+            0=>Q8::one(),1=>Q8::imaginary(1),
+            2=>Q8::integer(-1),3=>Q8::imaginary(-1),
+            _=>unreachable!()
+        };
+    }
+    let h=gate_matrix(if c.hadamard_wire==0{"h q[0];"}
+        else{"h q[1];"}).unwrap();
+    product(&h,&product(&diag,&h))
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum FrameProperty {StrictEq,PhaseEq,UnitaryChannelEq,EffectRisk}
+fn checked_h_frame_pair(
+    source_a:&str,proof_a:&[u8],source_b:&str,proof_b:&[u8],
+    property:FrameProperty,
+)->Result<bool,String>{
+    let a=replay_h_frame_cert(source_a,proof_a)?;
+    let b=replay_h_frame_cert(source_b,proof_b)?;
+    if a.hadamard_wire!=b.hadamard_wire{
+        return Err("different H frames need a different proof rule".into());
+    }
+    if property==FrameProperty::EffectRisk{return Ok(false);}
+    // All admitted cores fix |00> with scalar 1. An identical H frame
+    // preserves both global scalar and strict-equality invariants.
+    Ok((a.phase_singles,a.phase_pair)==(b.phase_singles,b.phase_pair))
+}
+fn strict_inequality_witness_basis(a:&FrameClaim,b:&FrameClaim)->Option<usize>{
+    if a.hadamard_wire!=b.hadamard_wire {return None;}
+    (0..4).find(|&basis|diagonal_quarter(a,basis)!=diagonal_quarter(b,basis))
+}
+#[test]
+fn observed_source_bound_non_diagonal_h_frame_oracle(){
+    let a=h_frame_source(&[
+        "ctrl @ u3(0,pi,0) q[1],q[0];",
+        "ctrl @ gphase(pi/2) q[1];",
+    ],0);
+    let b=h_frame_source(&["ctrl @ U(0,pi,0) q[1],q[0];"],0);
+    let c=h_frame_source(&["ctrl @ u3(0,pi,0) q[1],q[0];"],0);
+    let d=h_frame_source(&["ctrl @ U(0,pi,0) q[0],q[1];"],1);
+    let ca=parse_h_frame_source(&a).unwrap();
+    let cb=parse_h_frame_source(&b).unwrap();
+    let cc=parse_h_frame_source(&c).unwrap();
+    let cd=parse_h_frame_source(&d).unwrap();
+    let claims=[
+        ("phase_cancelled_source_a",&ca),
+        ("strict_builtin_u_source_b",&cb),
+        ("phase_sensitive_source_c",&cc),
+        ("opposite_h_wire_source_d",&cd),
+    ];
+    for (name,claim) in claims{
+        let lowered=native_h_frame_lowering(claim);
+        let native=actual_source_matrix(&lowered)
+            .expect("native PathSum must accept exact supported decomposition");
+        let independent=reference_h_frame_matrix(claim);
+        assert_eq!(native,independent,
+            "native PathSum and independent H-D-H matrices disagree: {name}");
+        println!("HFRAME_NATIVE_EXACT_MATRIX case={name} equal=true");
+    }
+    let cx_1to0=gate_matrix("cx q[1],q[0];").unwrap();
+    assert_eq!(reference_h_frame_matrix(&ca),cx_1to0);
+    assert_eq!(reference_h_frame_matrix(&cb),cx_1to0);
+    assert_ne!(reference_h_frame_matrix(&cc),cx_1to0);
+    let cx_0to1=gate_matrix("cx q[0],q[1];").unwrap();
+    assert_eq!(reference_h_frame_matrix(&cd),cx_0to1);
+    println!("HFRAME_NONDIAGONAL_CX_WITNESS=true");
+
+    let pa=encode_h_frame_cert(&ca);
+    let pb=encode_h_frame_cert(&cb);
+    let pc=encode_h_frame_cert(&cc);
+    let pd=encode_h_frame_cert(&cd);
+    assert!(checked_h_frame_pair(&a,&pa,&b,&pb,FrameProperty::StrictEq).unwrap());
+    assert!(checked_h_frame_pair(&a,&pa,&b,&pb,FrameProperty::PhaseEq).unwrap());
+    assert!(checked_h_frame_pair(&a,&pa,&b,&pb,FrameProperty::UnitaryChannelEq).unwrap());
+    assert!(!checked_h_frame_pair(&a,&pa,&c,&pc,FrameProperty::StrictEq).unwrap());
+    assert!(!checked_h_frame_pair(&a,&pa,&c,&pc,FrameProperty::PhaseEq).unwrap());
+    assert!(!checked_h_frame_pair(&a,&pa,&c,&pc,FrameProperty::UnitaryChannelEq).unwrap());
+    assert!(!checked_h_frame_pair(&a,&pa,&b,&pb,FrameProperty::EffectRisk).unwrap());
+    assert!(checked_h_frame_pair(&a,&pa,&d,&pd,FrameProperty::StrictEq).is_err());
+    let witness=strict_inequality_witness_basis(&ca,&cc).unwrap();
+    assert_eq!(witness,2);
+    // The exact strict-inequality input state is H_c |10>; it is not
+    // necessarily a computational basis vector of the full circuit.
+    println!("HFRAME_TYPED_MITER strict_equal=true phase_sensitive_refuted=true witness_basis={witness}");
+    println!("HFRAME_CERT_BYTES first={} second={} source_bytes_first={}",
+        pa.len(),pb.len(),a.len());
+}
+#[test]
+fn observed_source_bound_non_diagonal_certificate_attacks(){
+    let src=h_frame_source(&[
+        "ctrl @ u3(0,pi,0) q[1],q[0];",
+        "ctrl @ gphase(pi/2) q[1];",
+    ],0);
+    let c=parse_h_frame_source(&src).unwrap();
+    let bytes=encode_h_frame_cert(&c);
+    assert_eq!(decode_h_frame_cert(&bytes).unwrap(),c);
+    assert_eq!(replay_h_frame_cert(&src,&bytes).unwrap(),c);
+    assert_eq!(bytes.len(),41+5*c.steps.len());
+    let mutants=[
+        src.replace("h q[0];\nctrl @","h q[1];\nctrl @"),
+        src.replace("ctrl @ u3","ctrl @ U3"),
+        src.replace("include \"stdgates.inc\";","include \"other.inc\";"),
+        src.replace("OPENQASM 3.0;","OPENQASM 3.1;"),
+        src.replace("ctrl @ u3","negctrl @ u3"),
+        src.replace("q[1],q[0]","q[1],q[1]"),
+        src.replace("gphase(pi/2)","gphase(pi)"),
+        src.replace("h q[0];\n", "h q[1];\n"),
+        format!("{src}ctrl @ gphase(pi) q[1];\n"),
+    ];
+    for (index,item) in mutants.iter().enumerate(){
+        assert!(replay_h_frame_cert(item,&bytes).is_err(),
+            "source mutation accepted: {index}");
+    }
+    let mut tampered=bytes.clone();
+    tampered[36]=1;
+    assert!(replay_h_frame_cert(&src,&tampered).is_err());
+    tampered=bytes.clone();tampered[38+3]=2;
+    assert!(replay_h_frame_cert(&src,&tampered).is_err());
+    tampered=bytes.clone();tampered[38+4]=0;
+    assert!(replay_h_frame_cert(&src,&tampered).is_err());
+    tampered=bytes.clone();tampered[tampered.len()-1]=0;
+    assert!(replay_h_frame_cert(&src,&tampered).is_err());
+    tampered=bytes.clone();tampered.push(0);
+    assert!(replay_h_frame_cert(&src,&tampered).is_err());
+    tampered=bytes.clone();tampered.pop();
+    assert!(replay_h_frame_cert(&src,&tampered).is_err());
+    tampered=bytes.clone();tampered[0]=b'X';
+    assert!(replay_h_frame_cert(&src,&tampered).is_err());
+    println!("HFRAME_SOURCE_MUTATIONS_REJECTED={}",mutants.len());
+    println!("HFRAME_CERT_MUTATIONS_REJECTED=7");
+}

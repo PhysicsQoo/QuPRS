@@ -1954,7 +1954,26 @@ fn observed_symbolic_phase_cancel_zero_subtree_certificate() {
         0,0,&tree,&mut stats,&mut remaining).unwrap();
     assert_eq!(amplitude,Q8::zero());
     assert!(stats.phase_cancels>=1);
+    // With 2 path variables, a complete binary proof has 7 nodes.
+    // Here the checked proof has a split, one safe output prune,
+    // and one symbolic phase-pair cancellation: 3 total nodes.
+    assert_eq!(stats.nodes,3);
+    assert_eq!(stats.leaves,0);
+    assert_eq!(stats.phase_cancels,1);
+    assert_eq!(stats.zero_prunes,1);
     assert_eq!(actual_source_matrix(source).unwrap()[1][0],Q8::zero());
+    // A wrong path-variable order cannot justify the same local rule:
+    // the phase flip would still depend on the unresolved suffix.
+    let mut wrong_order=vars.clone();
+    wrong_order.reverse();
+    assert!(!exact_phase_cancel_for_prefix(&ps,&wrong_order,0,0,0));
+    // A sourced S phase between the Hadamards breaks the required
+    // exact pi flip, even after fixing the terminal output branch.
+    let changed_source="OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ns q[0];\nh q[0];\n";
+    let (changed_ps,mut changed_vars)=native_restricted_pathsum(changed_source).unwrap();
+    changed_vars.reverse();
+    assert_eq!(changed_vars.len(),2);
+    assert!(!exact_phase_cancel_for_prefix(&changed_ps,&changed_vars,0,1,1));
     // A forged certificate cannot replace an active non-cancelling root
     // with a global PhaseCancel, even when a different branch truly cancels.
     let bogus=AmpNode{claimed:Q8::zero(),kind:AmpNodeKind::PhaseCancel};
@@ -1975,4 +1994,6 @@ fn observed_symbolic_phase_cancel_zero_subtree_certificate() {
     println!("AMPLITUDE_PHASE_CANCEL_CERT=PASS path_vars=2 exact_zero=true");
     println!("AMPLITUDE_PHASE_CANCEL_FORGED_REJECTED=2");
     println!("AMPLITUDE_PHASE_CANCEL_CHECKED_SUBTREES={}",stats.phase_cancels);
+    println!("AMPLITUDE_PHASE_CANCEL_PROOF_NODES=3 FULL_BINARY_NODES=7");
+    println!("AMPLITUDE_PHASE_CANCEL_NONUNIFORM_REJECTED=2");
 }

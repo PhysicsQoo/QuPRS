@@ -645,3 +645,88 @@ fn observed_independent_rank2_property_agrees_with_native_not_relying_on_it(){
     }
     println!("INDEPENDENT_SOURCE_RANK2_PROPERTY_CASES=2");
 }
+
+
+// A prefix-locked semantic admission gate.  A whole-circuit equality can
+// conceal two mutually cancelling compiler mistakes.  The verifier checks
+// every source prefix against independently decoded strict source matrices.
+// This is bounded exact n=2 matrix semantics, NOT a scalable symbolic
+// PathSum transition kernel; it is a soundness counterexample/diagnostic.
+fn source_prefixes(src:&str)->Result<Vec<String>,String>{
+    let ir=independent_parse(src)?;
+    let lines=src.lines().map(str::trim).filter(|x|!x.is_empty())
+        .collect::<Vec<_>>();
+    let mut first=1usize;
+    if lines.get(first)==Some(&"include \"stdgates.inc\";"){first+=1;}
+    first+=1; // canonical qubit[2] q declaration
+    if lines.len()-first!=ir.steps.len(){
+        return Err("source prefix/step arity mismatch".into());
+    }
+    let mut result=Vec::with_capacity(ir.steps.len());
+    for end in (first+1)..=lines.len(){
+        let mut text=lines[..end].join("\n");text.push('\n');
+        result.push(text);
+    }
+    Ok(result)
+}
+fn first_native_prefix_mismatch(src:&str)
+    ->Result<Option<(usize,M4,M4)>,String>{
+    let claim=emit_source_trace(src)?;
+    let independently_replayed=checked_source_trace(src,&claim)?;
+    assert_eq!(independently_replayed,
+        independently_checked_matrix(src)?);
+    let prefixes=source_prefixes(src)?;
+    for (index,prefix) in prefixes.iter().enumerate(){
+        let observed=native_matrix(prefix)?;
+        if observed!=claim.prefix_matrices[index]{
+            return Ok(Some((
+                index,claim.prefix_matrices[index].clone(),observed
+            )));
+        }
+    }
+    Ok(None)
+}
+#[test]
+fn observed_source_prefix_lock_catches_cancelled_strict_phase_defect(){
+    // Source U(2pi,0,0)=+I while native lowering implements -I.
+    // Two copies can cancel to +I: final-matrix comparison alone would
+    // miss the erroneous intermediate gate semantics.
+    let src=source(&[
+        "U(2*pi,0,0) q[0];",
+        "U(2*pi,0,0) q[0];",
+    ],false,"OPENQASM 3.0;");
+    let expected=independently_checked_matrix(&src).unwrap();
+    let actual=native_matrix(&src).unwrap();
+    assert_eq!(expected,eye());
+    assert_eq!(actual,expected,
+        "fixture requires errors to cancel in the final matrix");
+    let (step,correct,incorrect)=
+        first_native_prefix_mismatch(&src).unwrap().unwrap();
+    assert_eq!(step,0);
+    assert_eq!(correct,eye());
+    assert_ne!(incorrect,correct);
+    println!("PREFIX_LOCK_HIDDEN_FINAL_ERROR_DETECTED=true");
+    println!("PREFIX_LOCK_FIRST_MISMATCH_GATE_INDEX=0");
+}
+#[test]
+fn observed_source_prefix_lock_accepts_safe_gates_and_locates_mismatch(){
+    let cases=[
+        ("bell",source(&["h q[0];","cx q[0],q[1];"],
+            true,"OPENQASM 3.0;")),
+        ("non_clifford",source(&["h q[0];","t q[0];",
+            "cx q[0],q[1];"],true,"OPENQASM 3.0;")),
+        ("strict_safe",source(&["s q[1];","cx q[1],q[0];",
+            "t q[0];"],true,"OPENQASM 3.0;")),
+    ];
+    for (name,src) in cases{
+        assert!(first_native_prefix_mismatch(&src).unwrap().is_none(),
+            "unexpected prefix strict mismatch in {name}");
+        println!("PREFIX_LOCK_SAFE_CASE={name}");
+    }
+    let late=source(&[
+        "h q[0];","U(2*pi,0,0) q[0];","h q[0];"
+    ],true,"OPENQASM 3.0;");
+    let mismatch=first_native_prefix_mismatch(&late).unwrap().unwrap();
+    assert_eq!(mismatch.0,1,"must locate first incorrect gate prefix");
+    println!("PREFIX_LOCK_LATE_DEFECT_INDEX=1");
+}

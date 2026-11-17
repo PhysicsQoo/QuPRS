@@ -416,3 +416,80 @@ fn observed_source_ir_certificate_cost_profile(){
         );
     }
 }
+
+
+fn reversed_source_with_same_diagonal_semantics(source:&str)->String {
+    let lines=source.lines().collect::<Vec<_>>();
+    assert!(lines.len()>=4);
+    let mut out=lines[..3].join("\n");
+    out.push('\n');
+    for &line in lines[3..].iter().rev() {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+fn median_ns(mut samples:Vec<u128>)->u128{
+    samples.sort_unstable();
+    samples[samples.len()/2]
+}
+#[test]
+fn observed_source_ir_same_task_equivalence_cost_comparison(){
+    // Both paths solve the same strict *source-circuit equality* question:
+    // (A) replay two source-bound certificates, normalize each and compare;
+    // (B) parse two sources and compare exact action on every basis input.
+    //
+    // B does not verify signed source certificate envelopes, while A does:
+    // therefore the numbers are not fully matched TCBs or an end-to-end
+    // benchmark, and no solver speedup claim follows. All operations are
+    // diagonal, so reverse source order preserves exact operator semantics.
+    for (n,steps) in [(2,32usize),(4,128),(8,256),(12,512),(16,512)]{
+        let source_a=make_source(n,steps);
+        let source_b=reversed_source_with_same_diagonal_semantics(&source_a);
+        assert_ne!(source_a,source_b);
+        let cert_a=encode_certificate(&parse_source(&source_a).unwrap());
+        let cert_b=encode_certificate(&parse_source(&source_b).unwrap());
+        assert!(verify_source_miter(&source_a,&cert_a,&source_b,&cert_b,
+            Property::StrictEq).unwrap());
+        let repeats=if n==12 {5}else{9};
+        let mut compact_samples=Vec::with_capacity(repeats);
+        let mut diagonal_samples=Vec::with_capacity(repeats);
+        for _ in 0..repeats{
+            let begin=Instant::now();
+            let checked_a=verify_certificate(
+                black_box(&source_a),black_box(&cert_a)).unwrap();
+            let checked_b=verify_certificate(
+                black_box(&source_b),black_box(&cert_b)).unwrap();
+            let equality=normal_form(&checked_a)==normal_form(&checked_b);
+            black_box(equality);
+            assert!(equality);
+            compact_samples.push(begin.elapsed().as_nanos());
+            if n<=12{
+                let begin=Instant::now();
+                let checked_a=parse_source(black_box(&source_a)).unwrap();
+                let checked_b=parse_source(black_box(&source_b)).unwrap();
+                let equal=(0..(1usize<<n)).all(|basis|
+                    direct_basis_oracle(&checked_a,basis)
+                      == direct_basis_oracle(&checked_b,basis)
+                );
+                black_box(equal);
+                assert!(equal);
+                diagonal_samples.push(begin.elapsed().as_nanos());
+            }
+        }
+        let normalized_ns=median_ns(compact_samples);
+        let enumeration_ns=if diagonal_samples.is_empty(){None}
+            else{Some(median_ns(diagonal_samples))};
+        println!(
+            "SOURCE_IR_EQUIVALENCE_BENCH n={n} steps={steps} \
+              source_a_bytes={} source_b_bytes={} \
+              cert_a_bytes={} cert_b_bytes={} \
+              source_bound_normal_form_median_ns={normalized_ns} \
+              source_parsed_basis_enumeration_median_ns={} \
+              basis_tested={} semantically_equal=true",
+            source_a.len(),source_b.len(),cert_a.len(),cert_b.len(),
+            enumeration_ns.map_or("SKIPPED".to_owned(),|x|x.to_string()),
+            if n<=12 {(1usize<<n).to_string()}else{"NOT_ENUMERATED".into()},
+        );
+    }
+}

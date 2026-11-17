@@ -31,6 +31,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          fetch-depth: 5
 
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
@@ -51,7 +52,8 @@ jobs:
           set -euo pipefail
           mkdir -p evidence
           git rev-parse HEAD | tee evidence/source-head.txt
-          git rev-parse 'HEAD^' | tee evidence/base-commit.txt
+          git merge-base --is-ancestor 0b28736651b3740ed3b201edd2efdef3da541e0d HEAD
+          printf '%s\n' 0b28736651b3740ed3b201edd2efdef3da541e0d | tee evidence/base-commit.txt
           rustc --version | tee evidence/rustc-version.txt
           cargo --version | tee evidence/cargo-version.txt
           sha256sum rust/quprs/src/qasm.rs rust/quprs/src/gates.rs \

@@ -1997,3 +1997,183 @@ fn observed_symbolic_phase_cancel_zero_subtree_certificate() {
     println!("AMPLITUDE_PHASE_CANCEL_PROOF_NODES=3 FULL_BINARY_NODES=7");
     println!("AMPLITUDE_PHASE_CANCEL_NONUNIFORM_REJECTED=2");
 }
+
+
+// A separate, literal-source 2q semantics oracle. Unlike the native
+// amplitude-tree checker, these functions NEVER invoke quprs PathSum,
+// QuantumOp, the native parser or the gate_matrix helper above.
+// The tiny source decoder remains shared, so this is a cross-implementation
+// gate/matrix check, not an independent OpenQASM frontend or formal proof.
+fn independent_h_element(wire:u8,output:usize,input:usize)->Q8 {
+    let bit=1usize<<wire;
+    if output&!bit!=input&!bit {return Q8::zero();}
+    if output&bit!=0&&input&bit!=0 {Q8::sqrt2_half().neg()}
+    else {Q8::sqrt2_half()}
+}
+fn independent_quarter_phase(k:u8)->Q8 {
+    match k%4{
+        0=>Q8::one(),1=>Q8::imaginary(1),
+        2=>Q8::integer(-1),3=>Q8::imaginary(-1),_=>unreachable!()
+    }
+}
+fn independent_source_hdh_matrix(
+    source:&str,source_proof:&[u8]
+)->Result<M4,String>{
+    let record=replay_h_frame_cert(source,source_proof)?;
+    let mut out=zero();
+    for output in 0..4 {
+        for input in 0..4 {
+            let mut total=Q8::zero();
+            for mid in 0..4 {
+                let left=independent_h_element(record.hadamard_wire,output,mid);
+                let right=independent_h_element(record.hadamard_wire,mid,input);
+                let mut quarter=0u8;
+                for step in &record.steps {
+                    if mid&(1usize<<step.control)!=0 {
+                        quarter=(quarter+step.quarters)%4;
+                        if step.z&&step.target.is_some_and(
+                            |target|mid&(1usize<<target)!=0){
+                            quarter=(quarter+2)%4;
+                        }
+                    }
+                }
+                total.sum(left.times(&independent_quarter_phase(quarter))
+                    .times(&right));
+            }
+            out[output][input]=total;
+        }
+    }
+    Ok(out)
+}
+fn independent_source_spec_overlap(
+    source:&str,source_proof:&[u8],spec:&RankTwoPropertySpec
+)->Result<[[Q8;2];2],String>{
+    validate_rank_two_spec(spec)?;
+    let matrix=independent_source_hdh_matrix(source,source_proof)?;
+    let mut out:[[Q8;2];2]=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for bad in 0..2{
+        for col in 0..2{
+            for output in 0..4{
+                out[bad][col].sum(
+                    spec.bad_orthonormal[bad][output].conjugate().times(
+                        &matrix[output][spec.input_basis[col]]));
+            }
+        }
+    }
+    Ok(out)
+}
+// The producer's certificates are checked twice: first via native PathSum
+// full-coverage leaf/split/phase checks, then by source-exact non-PathSum
+// gate semantics. This additional gate-level oracle catches systematic
+// errors shared by the producer and the native path-tree verifier at n=2.
+fn verify_source_separated_amplitude_bundle(
+    source:&str,source_proof:&[u8],spec:&RankTwoPropertySpec,
+    proofs:&[AmpObligation],budget:usize
+)->Result<Option<[[Q8;2];2]>,String>{
+    if proofs.len()!=4{return Ok(None);}
+    let oracle=independent_source_spec_overlap(source,source_proof,spec)?;
+    let mut bundle:[[Q8;2];2]=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for col in 0..2{for bad in 0..2{
+        let item=&proofs[col*2+bad];
+        if item.column!=col as u8||item.bad!=bad as u8{
+            return Err("wrong obligation arrangement".into());
+        }
+        match verify_amplitude_obligation(
+            source,source_proof,spec,item,budget){
+            Ok((value,_))=>{
+                if oracle[bad][col]!=value{
+                    return Err("independent gate semantics disagree with pathsum amplitude".into());
+                }
+                bundle[bad][col]=value;
+            }
+            Err(error) if error=="UNKNOWN_RESOURCE_LIMIT"=>return Ok(None),
+            Err(error)=>return Err(error)
+        }
+    }}
+    Ok(Some(bundle))
+}
+#[test]
+fn observed_source_separated_exact_gate_semantics_and_amplitude_claims(){
+    for (name,source) in [
+        ("real",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+            "ctrl @ gphase(pi/2) q[1];",
+        ],0)),
+        ("complex",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+        ],0)),
+    ]{
+        let record=parse_h_frame_source(&source).unwrap();
+        let cert=encode_h_frame_cert(&record);
+        let exact=independent_source_hdh_matrix(&source,&cert).unwrap();
+        let native=actual_source_matrix(&native_h_frame_lowering(&record)).unwrap();
+        assert_eq!(exact,native,"gate semantics disagree: {name}");
+        let high=rank_two_effect_example(r(7,8));
+        let proof=emit_four_amplitude_proofs(&source,&cert,&high).unwrap();
+        let verified=verify_source_separated_amplitude_bundle(
+            &source,&cert,&high,&proof,8192).unwrap().unwrap();
+        let independent=independent_source_spec_overlap(&source,&cert,&high).unwrap();
+        assert_eq!(verified,independent);
+        let gram=exact_gram_from_overlap(&verified);
+        assert!(exact_two_by_two_psd(
+            &delta_minus_gram(&gram,&r(7,8))).unwrap());
+        let low=rank_two_effect_example(r(3,4));
+        let low_proof=emit_four_amplitude_proofs(&source,&cert,&low).unwrap();
+        let low_f=verify_source_separated_amplitude_bundle(
+            &source,&cert,&low,&low_proof,8192).unwrap().unwrap();
+        let bad_gram=exact_gram_from_overlap(&low_f);
+        assert!(!exact_two_by_two_psd(
+            &delta_minus_gram(&bad_gram,&r(3,4))).unwrap());
+        assert!(verify_source_separated_amplitude_bundle(
+            &source,&cert,&high,&proof,0).unwrap().is_none());
+        assert!(verify_source_separated_amplitude_bundle(
+            &source,&cert,&high,&proof[..3],8192).unwrap().is_none());
+        println!("SOURCE_SEPARATED_GATE_ORACLE case={name} exact_4x4=true \
+            verified_F_entries=4 proved_delta=7/8 refuted_delta=3/4 \
+            unknown_resource=true unknown_missing=true");
+    }
+    println!("SOURCE_SEPARATED_GATE_ORACLE_CASES=2");
+}
+#[test]
+fn observed_source_separated_oracle_rejects_semantic_and_proof_mutations(){
+    let source=h_frame_source(&[
+        "ctrl @ u3(0,pi,0) q[1],q[0];",
+        "ctrl @ gphase(pi/2) q[1];",
+    ],0);
+    let record=parse_h_frame_source(&source).unwrap();
+    let proof=encode_h_frame_cert(&record);
+    let spec=rank_two_effect_example(r(7,8));
+    let correct=independent_source_hdh_matrix(&source,&proof).unwrap();
+    let native=actual_source_matrix(&native_h_frame_lowering(&record)).unwrap();
+    assert_eq!(correct,native);
+    // Simulate a faulty gate->PathSum compiler that drops the source
+    // compensation phase: both producer and native checker could then
+    // agree on the WRONG lowered circuit. The separate gate oracle catches it.
+    let mut faulty=record.clone();
+    faulty.steps.pop();
+    let bad_native=actual_source_matrix(&native_h_frame_lowering(&faulty)).unwrap();
+    assert_ne!(correct,bad_native);
+    let bad_f=exact_rank_two_gram(&bad_native,&spec).unwrap();
+    let true_f=exact_rank_two_gram(&correct,&spec).unwrap();
+    assert_ne!(bad_f,true_f);
+    let certs=emit_four_amplitude_proofs(&source,&proof,&spec).unwrap();
+    let mut forged=certs.clone();
+    forged[0].root.claimed.sum(Q8::one());
+    assert!(verify_source_separated_amplitude_bundle(
+        &source,&proof,&spec,&forged,8192).is_err());
+    forged=certs.clone();forged.swap(0,1);
+    assert!(verify_source_separated_amplitude_bundle(
+        &source,&proof,&spec,&forged,8192).is_err());
+    let modified_source=source.replace("gphase(pi/2)","gphase(pi)");
+    assert!(independent_source_hdh_matrix(&modified_source,&proof).is_err());
+    // A syntactically valid source change produces a different matrix,
+    // and cannot be authenticated using the old source certificate.
+    let modified_record=parse_h_frame_source(&modified_source).unwrap();
+    let modified_cert=encode_h_frame_cert(&modified_record);
+    assert_ne!(correct,
+        independent_source_hdh_matrix(&modified_source,&modified_cert).unwrap());
+    println!("SOURCE_SEPARATED_ORACLE_FAULT_INJECTION_CAUGHT=true");
+    println!("SOURCE_SEPARATED_ORACLE_MUTATIONS_REJECTED=4");
+}

@@ -257,9 +257,10 @@ fn observed_native_twoqubit_effect_risks() {
         match actual_source_matrix(&source){
             Ok(native)=>{
                 let native_risk=if projector==0 {bell_risk(&native)}else{plus_risk(&native)};
-                println!("TWOQ_EFFECT_RISK case={name} native_equals_reference={}",native_risk==expected);
+                assert_eq!(native_risk,expected,"native two-qubit effect risk: {name}");
+                println!("TWOQ_EFFECT_RISK case={name} native_equals_reference=true");
             }
-            Err(e)=>println!("TWOQ_EFFECT_RISK case={name} native_error={e}")
+            Err(e)=>panic!("native two-qubit source risk parse failed for {name}: {e}")
         }
     }
 }
@@ -278,7 +279,7 @@ fn source_claim_admitted(a:&str,b:&str,claim:&M4,property:PropertyTag)->bool {
     // Never mint a source-linked certificate from an unchecked producer matrix.
     if reference_a!=native_a || reference_b!=native_b {println!("SOURCE_CLAIM_REJECT=source_replay reference_a_equal={} reference_b_equal={}",reference_a==native_a,reference_b==native_b);return false;}
     let computed=product(&dagger(&native_a),&native_b);
-    if claim!=&computed {println!("SOURCE_CLAIM_REJECT=claimed_miter computed={computed:?} claim={claim:?}");return false;}
+    if claim!=&computed {println!("SOURCE_CLAIM_REJECT=claimed_miter");return false;}
     match property {
         PropertyTag::StrictOperatorEq=>computed==identity(),
         PropertyTag::PhaseEq=>{

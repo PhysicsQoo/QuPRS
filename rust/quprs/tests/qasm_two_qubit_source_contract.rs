@@ -1396,3 +1396,329 @@ fn observed_native_source_to_effect_overlap_gram_without_full_unitary(){
     }
     println!("RANK2_SUPPORT_EFFECT_GRAM_CASES=2");
 }
+
+
+// Experimental path-amplitude obligation tree. The prover may freely assert
+// sums; the checker independently evaluates every covered path leaf from the
+// native unreduced PathSum and checks both branches of every split.
+// A ZeroPrune is valid only if all outputs in that subtree are fixed to a
+// computational state orthogonal to the specified bad-effect generator.
+// This is NOT a WMC or optimized knowledge-compilation proof.
+#[derive(Clone)]
+enum AmpNodeKind{
+    Leaf{mask:u64},
+    Split{left:Box<AmpNode>,right:Box<AmpNode>},
+    ZeroPrune,
+}
+#[derive(Clone)]
+struct AmpNode {claimed:Q8,kind:AmpNodeKind}
+#[derive(Clone)]
+struct AmpObligation{
+    source_digest:[u8;32],spec_digest:[u8;32],
+    column:u8,bad:u8,path_variables:u8,root:AmpNode,
+}
+#[derive(Default)]
+struct AmpProofStats {nodes:usize,leaves:usize,zero_prunes:usize}
+fn digest_rank_two_spec(s:&RankTwoPropertySpec)->[u8;32]{
+    use sha2::{Digest,Sha256};
+    let mut h=Sha256::new();
+    for &q in &s.input_basis{h.update((q as u64).to_le_bytes());}
+    for v in &s.bad_orthonormal{for z in v{
+        for k in [&z.a,&z.b,&z.c,&z.d]{
+            h.update(k.numer().to_le_bytes());
+            h.update(k.denom().to_le_bytes());
+        }
+    }}
+    h.update(s.threshold.numer().to_le_bytes());
+    h.update(s.threshold.denom().to_le_bytes());
+    let digest=h.finalize();
+    let mut out=[0u8;32];out.copy_from_slice(&digest);out
+}
+fn native_restricted_pathsum(
+    source:&str
+)->Result<(PathSum,Vec<u32>),String>{
+    let (ops,n)=parse_qasm_str(source)?;
+    if n!=2{return Err("amplitude checker only supports two qubits".into());}
+    let mut ps=PathSum::new(2);
+    ps.set_auto_reduce(false);
+    for op in ops{op.apply(&mut ps,false);}
+    let mut vars:Vec<u32>=ps.v.path_vars.iter().copied()
+        .filter(|&v|v>=2).collect();
+    vars.sort_unstable();
+    if vars.len()>10 ||vars.iter().any(|&v|v>=62){
+        return Err("path-variable resource cap / unsupported indices".into());
+    }
+    Ok((ps,vars))
+}
+fn native_amplitude_leaf(
+    ps:&PathSum,vars:&[u32],input:usize,bad:&Ket4,mask:u64
+)->Result<Q8,String>{
+    if mask>=1u64<<vars.len() {return Err("leaf path out of range".into());}
+    let mut assignment=input as u64;
+    for (idx,&var) in vars.iter().enumerate(){
+        if mask&(1u64<<idx)!=0 {assignment|=1u64<<var;}
+    }
+    let mut out=0usize;
+    for q in 0..2 {
+        let bit=ps.f.functions[q].iter()
+            .fold(false,|sum,monomial|sum^mono_true(monomial,assignment));
+        if bit {out|=1usize<<q;}
+    }
+    let mut phase=r(0,1);
+    for (monomial,coefficient) in &ps.p.terms{
+        if coefficient.radians.is_some()||!coefficient.symbols.is_empty(){
+            return Err("unsupported source symbolic angle".into());
+        }
+        if mono_true(monomial,assignment){
+            phase+=r(coefficient.constant.numer as i128,
+                coefficient.constant.denom as i128);
+        }
+    }
+    Ok(bad[out].conjugate().times(
+        &normalized(eighth_root(phase),vars.len())))
+}
+fn fixed_source_output_for_prefix(
+    ps:&PathSum,vars:&[u32],input:usize,depth:usize,prefix:u64
+)->Option<usize>{
+    let mut output=0usize;
+    for (q,terms) in ps.f.functions.iter().enumerate(){
+        let mut parity=false;
+        for monomial in terms {
+            let mut is_zero=false;
+            let mut unknown=false;
+            for &var in monomial {
+                let value=if var<2 {
+                    Some((input as u64)&(1u64<<var)!=0)
+                }else {
+                    vars.iter().position(|&v|v==var).and_then(|index|
+                        if index<depth {Some(prefix&(1u64<<index)!=0)}
+                        else {None})
+                };
+                match value {
+                    Some(false)=>{is_zero=true;break;}
+                    Some(true)=>{},
+                    None=>unknown=true,
+                }
+            }
+            if is_zero {continue;}
+            if unknown {return None;}
+            parity=!parity;
+        }
+        if parity {output|=1usize<<q;}
+    }
+    Some(output)
+}
+fn amplitude_zero_prune_valid(
+    ps:&PathSum,vars:&[u32],input:usize,bad:&Ket4,
+    depth:usize,prefix:u64,
+)->bool{
+    fixed_source_output_for_prefix(ps,vars,input,depth,prefix)
+        .is_some_and(|output|bad[output]==Q8::zero())
+}
+fn emit_amplitude_tree(
+    ps:&PathSum,vars:&[u32],input:usize,bad:&Ket4,
+    depth:usize,prefix:u64,
+)->Result<AmpNode,String>{
+    if amplitude_zero_prune_valid(ps,vars,input,bad,depth,prefix){
+        return Ok(AmpNode{claimed:Q8::zero(),kind:AmpNodeKind::ZeroPrune});
+    }
+    if depth==vars.len(){
+        let claimed=native_amplitude_leaf(ps,vars,input,bad,prefix)?;
+        return Ok(AmpNode{claimed,kind:AmpNodeKind::Leaf{mask:prefix}});
+    }
+    let left=emit_amplitude_tree(ps,vars,input,bad,depth+1,prefix)?;
+    let right=emit_amplitude_tree(ps,vars,input,bad,
+        depth+1,prefix|(1u64<<depth))?;
+    let mut claimed=left.claimed.clone();
+    claimed.sum(right.claimed.clone());
+    Ok(AmpNode{claimed,kind:AmpNodeKind::Split{
+        left:Box::new(left),right:Box::new(right)}})
+}
+fn checked_amplitude_tree(
+    ps:&PathSum,vars:&[u32],input:usize,bad:&Ket4,
+    depth:usize,prefix:u64,node:&AmpNode,stats:&mut AmpProofStats,
+    remaining:&mut usize,
+)->Result<Q8,String>{
+    if *remaining==0 {return Err("UNKNOWN_RESOURCE_LIMIT".into());}
+    *remaining-=1;
+    stats.nodes+=1;
+    let actual=match &node.kind{
+        AmpNodeKind::ZeroPrune=>{
+            if !amplitude_zero_prune_valid(ps,vars,input,bad,depth,prefix){
+                return Err("forged or incomplete zero-prune reasoning".into());
+            }
+            stats.zero_prunes+=1;
+            Q8::zero()
+        }
+        AmpNodeKind::Leaf{mask}=>{
+            if depth!=vars.len() || *mask!=prefix {
+                return Err("leaf does not cover expected unique path".into());
+            }
+            stats.leaves+=1;
+            native_amplitude_leaf(ps,vars,input,bad,*mask)?
+        }
+        AmpNodeKind::Split{left,right}=>{
+            if depth>=vars.len(){return Err("split below path-variable leaf".into());}
+            let a=checked_amplitude_tree(ps,vars,input,bad,
+                depth+1,prefix,left,stats,remaining)?;
+            let b=checked_amplitude_tree(ps,vars,input,bad,
+                depth+1,prefix|(1u64<<depth),right,stats,remaining)?;
+            let mut sum=a;sum.sum(b);sum
+        }
+    };
+    if actual!=node.claimed{
+        return Err("producer path-amplitude claim disagrees with checked sum".into());
+    }
+    Ok(actual)
+}
+fn construct_amplitude_obligation(
+    source:&str,source_proof:&[u8],spec:&RankTwoPropertySpec,
+    column:usize,bad:usize,
+)->Result<AmpObligation,String>{
+    let source_ir=replay_h_frame_cert(source,source_proof)?;
+    validate_rank_two_spec(spec)?;
+    if column>=2||bad>=2{return Err("invalid obligation indices".into());}
+    let native_source=native_h_frame_lowering(&source_ir);
+    let (ps,vars)=native_restricted_pathsum(&native_source)?;
+    let root=emit_amplitude_tree(&ps,&vars,spec.input_basis[column],
+        &spec.bad_orthonormal[bad],0,0)?;
+    Ok(AmpObligation{
+        source_digest:sha_source(source),spec_digest:digest_rank_two_spec(spec),
+        column:column as u8,bad:bad as u8,
+        path_variables:vars.len() as u8,root,
+    })
+}
+fn verify_amplitude_obligation(
+    source:&str,source_proof:&[u8],spec:&RankTwoPropertySpec,
+    obligation:&AmpObligation,budget:usize,
+)->Result<(Q8,AmpProofStats),String>{
+    let source_ir=replay_h_frame_cert(source,source_proof)?;
+    validate_rank_two_spec(spec)?;
+    if obligation.source_digest!=sha_source(source)
+      ||obligation.spec_digest!=digest_rank_two_spec(spec){
+        return Err("source or property digest mismatch".into());
+    }
+    let col=obligation.column as usize;
+    let bad=obligation.bad as usize;
+    if col>=2||bad>=2 {return Err("invalid obligation index".into());}
+    let lowered=native_h_frame_lowering(&source_ir);
+    let (ps,vars)=native_restricted_pathsum(&lowered)?;
+    if obligation.path_variables as usize!=vars.len(){
+        return Err("wrong source path variable count".into());
+    }
+    let mut stats=AmpProofStats::default();
+    let mut remaining=budget;
+    let verified=checked_amplitude_tree(&ps,&vars,
+        spec.input_basis[col],&spec.bad_orthonormal[bad],0,0,
+        &obligation.root,&mut stats,&mut remaining)?;
+    Ok((verified,stats))
+}
+#[test]
+fn observed_source_bound_exact_amplitude_coverage_and_property_proof(){
+    for (name,source) in [
+        ("real",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+            "ctrl @ gphase(pi/2) q[1];",
+        ],0)),
+        ("complex",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+        ],0)),
+    ]{
+        let source_ir=parse_h_frame_source(&source).unwrap();
+        let source_proof=encode_h_frame_cert(&source_ir);
+        let spec=rank_two_effect_example(r(3,4));
+        let lowered=native_h_frame_lowering(&source_ir);
+        let (pathsum,vars)=native_restricted_pathsum(&lowered).unwrap();
+        let expected=native_restricted_overlap(&lowered,&spec).unwrap();
+        let mut actual:[[Q8;2];2]=std::array::from_fn(|_|
+            std::array::from_fn(|_|Q8::zero()));
+        let mut total_leaves=0usize;
+        let mut total_prunes=0usize;
+        for column in 0..2{
+            for bad in 0..2 {
+                let proof=construct_amplitude_obligation(
+                    &source,&source_proof,&spec,column,bad).unwrap();
+                let (value,stats)=verify_amplitude_obligation(
+                    &source,&source_proof,&spec,&proof,8192).unwrap();
+                assert_eq!(value,expected[bad][column]);
+                actual[bad][column]=value;
+                total_leaves+=stats.leaves;
+                total_prunes+=stats.zero_prunes;
+            }
+        }
+        assert_eq!(actual,expected);
+        let gram=exact_gram_from_overlap(&actual);
+        let independent=exact_rank_two_gram(
+            &reference_h_frame_matrix(&source_ir),&spec).unwrap();
+        assert_eq!(gram,independent);
+        let residual=delta_minus_gram(&gram,&spec.threshold);
+        assert!(!exact_two_by_two_psd(&residual).unwrap());
+        let witness=if name=="real"{
+            [Q8::integer(2),Q8::one()]
+        }else{[Q8::integer(2),Q8::imaginary(1)]};
+        let gap=witness_quadratic(&gram,&witness);
+        assert_eq!(q8_minus(&gap,
+            &Q8::new(r(15,4),r(0,1),r(0,1),r(0,1))),
+            Q8::one().scale(1,2));
+        println!("AMPLITUDE_PROOF_N2 case={name} entries=4 \
+            exact_source=true full_coverage=true path_vars={} \
+            checked_leaves={total_leaves} zero_prunes={total_prunes} \
+            psd=false verified_refutation=true",
+            vars.len());
+        let _=pathsum;
+    }
+    println!("AMPLITUDE_PROOF_TOTAL_VERIFIED_ENTRIES=8");
+}
+#[test]
+fn observed_exact_amplitude_proof_attacks_fail_closed(){
+    let source=h_frame_source(&[
+        "ctrl @ u3(0,pi,0) q[1],q[0];",
+        "ctrl @ gphase(pi/2) q[1];",
+    ],0);
+    let ir=parse_h_frame_source(&source).unwrap();
+    let source_proof=encode_h_frame_cert(&ir);
+    let spec=rank_two_effect_example(r(3,4));
+    let base=construct_amplitude_obligation(&source,&source_proof,&spec,0,0).unwrap();
+    let mut proof=base.clone();
+    proof.root.claimed.sum(Q8::one());
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    proof=base.clone();proof.column=1;
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    proof=base.clone();proof.bad=1;
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    proof=base.clone();proof.path_variables=0;
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    proof=base.clone();proof.spec_digest[0]^=1;
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    proof=base.clone();proof.source_digest[0]^=1;
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    proof=base.clone();
+    proof.root.kind=AmpNodeKind::ZeroPrune;
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    proof=base.clone();
+    // Replace a genuine covered node with a wrong single-path leaf.
+    proof.root.kind=AmpNodeKind::Leaf{mask:0};
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&proof,8192).is_err());
+    // The checker does not issue a proof verdict when its own path-node
+    // budget is insufficient; this is UNKNOWN, not a false PROVED.
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&spec,&base,0)
+        .unwrap_err().contains("UNKNOWN_RESOURCE_LIMIT"));
+    // The source certificate cannot be silently reused after source rewrite.
+    let modified=source.replace("gphase(pi/2)","gphase(pi)");
+    assert!(verify_amplitude_obligation(
+        &modified,&source_proof,&spec,&base,8192).is_err());
+    let changed_spec=rank_two_effect_example(r(7,8));
+    assert!(verify_amplitude_obligation(
+        &source,&source_proof,&changed_spec,&base,8192).is_err());
+    println!("AMPLITUDE_PROOF_ATTACKS_REJECTED=10");
+    println!("AMPLITUDE_PROOF_RESOURCE_LIMIT_UNKNOWN=true");
+}

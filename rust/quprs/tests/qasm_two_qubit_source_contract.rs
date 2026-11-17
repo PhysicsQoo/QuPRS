@@ -1409,6 +1409,7 @@ enum AmpNodeKind{
     Leaf{mask:u64},
     Split{left:Box<AmpNode>,right:Box<AmpNode>},
     ZeroPrune,
+    PhaseCancel,
 }
 #[derive(Clone)]
 struct AmpNode {claimed:Q8,kind:AmpNodeKind}
@@ -1418,7 +1419,7 @@ struct AmpObligation{
     column:u8,bad:u8,path_variables:u8,root:AmpNode,
 }
 #[derive(Default,Debug)]
-struct AmpProofStats {nodes:usize,leaves:usize,zero_prunes:usize}
+struct AmpProofStats {nodes:usize,leaves:usize,zero_prunes:usize,phase_cancels:usize}
 fn digest_rank_two_spec(s:&RankTwoPropertySpec)->[u8;32]{
     use sha2::{Digest,Sha256};
     let mut h=Sha256::new();
@@ -1515,12 +1516,99 @@ fn amplitude_zero_prune_valid(
     fixed_source_output_for_prefix(ps,vars,input,depth,prefix)
         .is_some_and(|output|bad[output]==Q8::zero())
 }
+// A local HH-style cancellation certificate: the next y variable can be
+// summed out without visiting either child if (i) every output ANF is
+// independent of y after prior assignments and (ii) the phase contribution
+// gained by y=1 is exactly 1/2 cycle modulo 1, uniformly in every
+// unassigned suffix variable. The checker derives this from PathSum syntax.
+fn exact_phase_cancel_for_prefix(
+    ps:&PathSum,vars:&[u32],input:usize,depth:usize,prefix:u64
+)->bool{
+    use std::collections::{BTreeMap,BTreeSet};
+    if depth>=vars.len(){return false;}
+    let pivot=vars[depth];
+    // Canonical Boolean ANF for output dependence on the pivot.
+    for terms in &ps.f.functions {
+        let mut pivot_terms:BTreeSet<Vec<u32>>=BTreeSet::new();
+        for monomial in terms{
+            let mut active=Vec::new();
+            let mut false_term=false;
+            for &var in monomial{
+                let known=if var<2 {
+                    Some((input as u64)&(1u64<<var)!=0)
+                }else{
+                    vars.iter().position(|&v|v==var).and_then(|i|
+                        if i<depth {Some((prefix&(1u64<<i))!=0)}
+                        else{None})
+                };
+                match known {
+                    Some(false)=>{false_term=true;break;},
+                    Some(true)=>(),
+                    None=>{
+                        if !vars.contains(&var){return false;}
+                        active.push(var)
+                    }
+                }
+            }
+            if false_term{continue;}
+            active.sort_unstable();
+            if active.contains(&pivot) && !pivot_terms.insert(active.clone()){
+                pivot_terms.remove(&active);
+            }
+        }
+        if !pivot_terms.is_empty(){return false;}
+    }
+    // Exact difference phase(y=1)-phase(y=0) for all remaining paths.
+    let mut coefficients:BTreeMap<Vec<u32>,Rat>=BTreeMap::new();
+    for (monomial,coefficient) in &ps.p.terms{
+        if coefficient.radians.is_some()||!coefficient.symbols.is_empty(){
+            return false;
+        }
+        let mut active=Vec::new();
+        let mut false_term=false;
+        for &var in monomial{
+            let known=if var<2{
+                Some((input as u64)&(1u64<<var)!=0)
+            }else{
+                vars.iter().position(|&v|v==var).and_then(|i|
+                    if i<depth {Some((prefix&(1u64<<i))!=0)}
+                    else{None})
+            };
+            match known{
+                Some(false)=>{false_term=true;break;},
+                Some(true)=>(),
+                None=>{
+                    if !vars.contains(&var){return false;}
+                    active.push(var)
+                }
+            }
+        }
+        if false_term||!active.contains(&pivot){continue;}
+        active.retain(|&v|v!=pivot);
+        active.sort_unstable();
+        *coefficients.entry(active).or_insert_with(||r(0,1))+=
+            r(coefficient.constant.numer as i128,
+              coefficient.constant.denom as i128);
+    }
+    let half=r(1,2);
+    for (monomial,coeff) in &coefficients{
+        let difference=if monomial.is_empty(){coeff.clone()-half.clone()}
+            else{coeff.clone()};
+        // Under exp(2 pi i * phase), integer cycles are identity.
+        if difference.denom()!=&1 {return false;}
+    }
+    // Missing constant term cannot accidentally certify half a cycle.
+    coefficients.contains_key(&Vec::<u32>::new())
+}
 fn emit_amplitude_tree(
     ps:&PathSum,vars:&[u32],input:usize,bad:&Ket4,
     depth:usize,prefix:u64,
 )->Result<AmpNode,String>{
     if amplitude_zero_prune_valid(ps,vars,input,bad,depth,prefix){
         return Ok(AmpNode{claimed:Q8::zero(),kind:AmpNodeKind::ZeroPrune});
+    }
+    if exact_phase_cancel_for_prefix(ps,vars,input,depth,prefix){
+        return Ok(AmpNode{claimed:Q8::zero(),kind:AmpNodeKind::PhaseCancel});
     }
     if depth==vars.len(){
         let claimed=native_amplitude_leaf(ps,vars,input,bad,prefix)?;
@@ -1548,6 +1636,13 @@ fn checked_amplitude_tree(
                 return Err("forged or incomplete zero-prune reasoning".into());
             }
             stats.zero_prunes+=1;
+            Q8::zero()
+        }
+        AmpNodeKind::PhaseCancel=>{
+            if !exact_phase_cancel_for_prefix(ps,vars,input,depth,prefix){
+                return Err("forged phase-pair cancellation".into());
+            }
+            stats.phase_cancels+=1;
             Q8::zero()
         }
         AmpNodeKind::Leaf{mask}=>{
@@ -1838,4 +1933,46 @@ fn observed_end_to_end_typed_amplitude_certificate_gram_psd_and_unknown(){
             forged_amplitude_rejected=true");
     }
     println!("CERTIFIED_RANK2_PIPELINE_CASES=2");
+}
+
+
+#[test]
+fn observed_symbolic_phase_cancel_zero_subtree_certificate() {
+    // Two Hadamards on the same wire are identity. The intermediate path
+    // cancellation on a nonmatching final output is algebraically exact.
+    // Reverse the path-variable ordering in both prover and checker so the
+    // output wire's final value is fixed before eliminating the earlier path.
+    let source="OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nh q[0];\n";
+    let (ps,mut vars)=native_restricted_pathsum(source).unwrap();
+    assert_eq!(vars.len(),2);
+    vars.reverse();
+    let mut bad=[Q8::zero(),Q8::one(),Q8::zero(),Q8::zero()];
+    let tree=emit_amplitude_tree(&ps,&vars,0,&bad,0,0).unwrap();
+    let mut stats=AmpProofStats::default();
+    let mut remaining=100usize;
+    let amplitude=checked_amplitude_tree(&ps,&vars,0,&bad,
+        0,0,&tree,&mut stats,&mut remaining).unwrap();
+    assert_eq!(amplitude,Q8::zero());
+    assert!(stats.phase_cancels>=1);
+    assert_eq!(actual_source_matrix(source).unwrap()[1][0],Q8::zero());
+    // A forged certificate cannot replace an active non-cancelling root
+    // with a global PhaseCancel, even when a different branch truly cancels.
+    let bogus=AmpNode{claimed:Q8::zero(),kind:AmpNodeKind::PhaseCancel};
+    assert!(checked_amplitude_tree(&ps,&vars,0,&bad,
+        0,0,&bogus,&mut AmpProofStats::default(),&mut 100).is_err());
+    // For matching source output, the entire amplitude is 1.
+    bad=[Q8::one(),Q8::zero(),Q8::zero(),Q8::zero()];
+    let identity_tree=emit_amplitude_tree(&ps,&vars,0,&bad,0,0).unwrap();
+    let check=checked_amplitude_tree(&ps,&vars,0,&bad,0,0,
+        &identity_tree,&mut AmpProofStats::default(),&mut 100).unwrap();
+    assert_eq!(check,Q8::one());
+    // Corrupting the claimed cancellation sum is refused.
+    let mut forged=tree.clone();
+    forged.claimed=Q8::one();
+    assert!(checked_amplitude_tree(&ps,&vars,0,
+        &[Q8::zero(),Q8::one(),Q8::zero(),Q8::zero()],
+        0,0,&forged,&mut AmpProofStats::default(),&mut 100).is_err());
+    println!("AMPLITUDE_PHASE_CANCEL_CERT=PASS path_vars=2 exact_zero=true");
+    println!("AMPLITUDE_PHASE_CANCEL_FORGED_REJECTED=2");
+    println!("AMPLITUDE_PHASE_CANCEL_CHECKED_SUBTREES={}",stats.phase_cancels);
 }

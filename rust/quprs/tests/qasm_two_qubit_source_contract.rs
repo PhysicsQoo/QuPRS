@@ -895,7 +895,7 @@ fn observed_source_bound_non_diagonal_certificate_attacks(){
     assert!(replay_h_frame_cert(&src,&tampered).is_err());
     tampered=bytes.clone();tampered[38+4]=0;
     assert!(replay_h_frame_cert(&src,&tampered).is_err());
-    tampered=bytes.clone();tampered[tampered.len()-1]=0;
+    tampered=bytes.clone();let end=tampered.len()-1;tampered[end]=0;
     assert!(replay_h_frame_cert(&src,&tampered).is_err());
     tampered=bytes.clone();tampered.push(0);
     assert!(replay_h_frame_cert(&src,&tampered).is_err());

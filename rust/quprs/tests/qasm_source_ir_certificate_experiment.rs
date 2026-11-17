@@ -493,3 +493,120 @@ fn observed_source_ir_same_task_equivalence_cost_comparison(){
         );
     }
 }
+
+
+// An independently replayed *symbolic* local step checker for the bounded
+// diagonal Z4 fragment. No 2^n dense matrix, no native PathSum builder.
+// A claimed transition is checked against the source-derived operation,
+// not against another producer-supplied operation list.
+#[derive(Clone)]
+struct ClaimedZ4StepTrace {
+    source_digest:[u8;32],
+    prefixes:Vec<DiagonalNormalForm>,
+}
+fn independent_z4_step(
+    before:&DiagonalNormalForm,gate:&SourceOp
+)->Result<DiagonalNormalForm,String>{
+    let n=before.n;
+    let c=gate.control as usize;
+    if c>=n{return Err("control outside symbolic normal form".into());}
+    let mut after=before.clone();
+    after.singles[c]=(after.singles[c]+gate.phase_quarters)%4;
+    if gate.target_z{
+        let t=gate.target.ok_or("Z phase without target")? as usize;
+        if t>=n||t==c{return Err("invalid target for controlled phase".into());}
+        let lo=c.min(t);let hi=c.max(t);
+        after.pairs[lo*n+hi]=(after.pairs[lo*n+hi]+2)%4;
+    }else if gate.target.is_none() && gate.kind!=OpKind::GPhase{
+        return Err("missing target for source gate".into());
+    }
+    Ok(after)
+}
+fn emit_z4_step_trace(source:&str)->Result<ClaimedZ4StepTrace,String>{
+    let cert=parse_source(source)?;
+    let n=cert.qubits as usize;
+    let mut form=DiagonalNormalForm{
+        n,singles:vec![0;n],pairs:vec![0;n*n]
+    };
+    let mut prefixes=Vec::with_capacity(cert.steps.len());
+    for gate in &cert.steps{
+        form=independent_z4_step(&form,gate)?;
+        prefixes.push(form.clone());
+    }
+    Ok(ClaimedZ4StepTrace{
+        source_digest:cert.digest,prefixes
+    })
+}
+fn verify_z4_step_trace(
+    source:&str,claim:&ClaimedZ4StepTrace,max_work:usize
+)->Result<Option<DiagonalNormalForm>,String>{
+    let cert=parse_source(source)?;
+    let n=cert.qubits as usize;
+    if claim.source_digest!=cert.digest{
+        return Err("symbolic trace source digest mismatch".into());
+    }
+    if claim.prefixes.len()!=cert.steps.len(){
+        return Err("symbolic trace incomplete/extra prefixes".into());
+    }
+    // Deterministic checker-side cost bound, before allocating step matrices.
+    let work=cert.steps.len().checked_mul(
+        n.checked_mul(n).ok_or("symbolic cost overflow")?
+    ).ok_or("symbolic cost overflow")?;
+    if work>max_work{return Ok(None);}
+    let mut form=DiagonalNormalForm{
+        n,singles:vec![0;n],pairs:vec![0;n*n]
+    };
+    for (i,gate) in cert.steps.iter().enumerate(){
+        form=independent_z4_step(&form,gate)?;
+        let alleged=&claim.prefixes[i];
+        if alleged.n!=n||alleged.singles.len()!=n
+            ||alleged.pairs.len()!=n*n{
+            return Err(format!("malformed symbolic step {i}"));
+        }
+        if alleged!=&form{
+            return Err(format!("symbolic step mismatch at gate {i}"));
+        }
+    }
+    Ok(Some(form))
+}
+#[test]
+fn observed_symbolic_z4_step_certificate_matches_independent_basis_oracle(){
+    for n in [2usize,4,8,16]{
+        let src=make_source(n,128);
+        let cert=parse_source(&src).unwrap();
+        let proof=emit_z4_step_trace(&src).unwrap();
+        let form=verify_z4_step_trace(&src,&proof,128*n*n)
+            .unwrap().unwrap();
+        assert_eq!(form,normal_form(&cert));
+        // A fixed basis sample is an independent direct gate-evaluation
+        // oracle. It is not a proof for all assignments, which follows
+        // instead from the exact Z4 coefficient replay.
+        for basis in 0..(1usize<<n.min(8)){
+            assert_eq!(from_form_for_basis(&form,basis),
+                direct_basis_oracle(&cert,basis));
+        }
+        assert!(verify_z4_step_trace(&src,&proof,0).unwrap().is_none());
+        println!("SYMBOLIC_Z4_STEPCERT n={n} steps=128 verified=true resource_unknown=true");
+    }
+}
+#[test]
+fn observed_symbolic_z4_step_certificate_rejects_hidden_cancelled_errors(){
+    // Two equal controlled gphase(pi) gates cancel in Z4. A corrupted
+    // first prefix could be masked by a correct final normal form.
+    let src="OPENQASM 3.0;\nqubit[2] q;\nctrl @ gphase(pi) q[1];\nctrl @ gphase(pi) q[1];\n";
+    let mut claim=emit_z4_step_trace(src).unwrap();
+    assert_eq!(claim.prefixes.last().unwrap().singles[1],0);
+    claim.prefixes[0].singles[1]=0; // wrong first prefix
+    assert!(verify_z4_step_trace(src,&claim,100).is_err());
+    let mut claim=emit_z4_step_trace(src).unwrap();
+    claim.prefixes.pop();
+    assert!(verify_z4_step_trace(src,&claim,100).is_err());
+    let mut claim=emit_z4_step_trace(src).unwrap();
+    claim.source_digest[0]^=1;
+    assert!(verify_z4_step_trace(src,&claim,100).is_err());
+    let mut claim=emit_z4_step_trace(src).unwrap();
+    claim.prefixes[0].pairs[0]=1;
+    assert!(verify_z4_step_trace(src,&claim,100).is_err());
+    println!("SYMBOLIC_Z4_STEPCERT_HIDDEN_FINAL_ERROR_CAUGHT=true");
+    println!("SYMBOLIC_Z4_STEPCERT_FORGERIES_REJECTED=4");
+}

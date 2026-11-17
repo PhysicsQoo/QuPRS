@@ -1299,3 +1299,100 @@ fn observed_rank_two_property_contract_rejects_invalid_specs_and_forgery(){
     assert!(check_rank_two_claim(&altered_source,&proof,&valid,&claim).is_err());
     println!("RANK2_LOEWNER_INVALID_SPEC_REJECTED=4 SOURCE_BINDING_REJECTED=2");
 }
+
+
+// Source-to-spec Gram factorization: F = T^dagger U S, A = F^dagger F.
+// Compute only the requested source columns and effect overlaps directly
+// from the genuine unreduced native PathSum, without constructing a 4x4 U.
+// This is an experimental rank-(2,2) fixture, not a general solver API.
+fn native_restricted_overlap(
+    lowered_source:&str,s:&RankTwoPropertySpec
+)->Result<[[Q8;2];2],String>{
+    validate_rank_two_spec(s)?;
+    let (ops,n)=parse_qasm_str(lowered_source)?;
+    if n!=2{return Err("requires exactly two native source qubits".into());}
+    let mut ps=PathSum::new(2);
+    ps.set_auto_reduce(false);
+    for op in ops{op.apply(&mut ps,false);}
+    let mut fresh:Vec<u32>=ps.v.path_vars.iter().copied()
+        .filter(|v|*v>=2).collect();
+    fresh.sort_unstable();
+    if fresh.len()>=12{return Err("unbounded path count".into());}
+    let mut f:[[Q8;2];2]=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for column in 0..2usize{
+        let input=s.input_basis[column] as u64;
+        for path_assignment in 0..(1u64<<fresh.len()){
+            let mut bits=input;
+            for (j,&var) in fresh.iter().enumerate(){
+                if var>=62{return Err("unsafe path-bit position".into())}
+                if path_assignment&(1u64<<j)!=0{
+                    bits|=1u64<<var;
+                }
+            }
+            let mut output=0usize;
+            for q in 0..2{
+                let value=ps.f.functions[q].iter()
+                    .fold(false,|acc,monomial|acc^mono_true(monomial,bits));
+                if value {output|=1usize<<q;}
+            }
+            let mut phase=r(0,1);
+            for (monomial,coeff) in &ps.p.terms{
+                if coeff.radians.is_some()||!coeff.symbols.is_empty(){
+                    return Err("unadmitted source phase expression".into());
+                }
+                if mono_true(monomial,bits){
+                    phase+=r(coeff.constant.numer as i128,
+                        coeff.constant.denom as i128);
+                }
+            }
+            let amplitude=normalized(eighth_root(phase),fresh.len());
+            for bad in 0..2{
+                f[bad][column].sum(
+                    s.bad_orthonormal[bad][output].conjugate().times(&amplitude));
+            }
+        }
+    }
+    Ok(f)
+}
+fn exact_gram_from_overlap(f:&[[Q8;2];2])->M2{
+    let mut out:M2=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for i in 0..2{for j in 0..2 {
+        for bad in 0..2 {
+            out[i][j].sum(f[bad][i].conjugate().times(&f[bad][j]));
+        }
+    }}
+    out
+}
+#[test]
+fn observed_native_source_to_effect_overlap_gram_without_full_unitary(){
+    for (label,source) in [
+        ("real",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+            "ctrl @ gphase(pi/2) q[1];",
+        ],0)),
+        ("complex",h_frame_source(&[
+            "ctrl @ u3(0,pi,0) q[1],q[0];",
+        ],0)),
+    ]{
+        let source_record=parse_h_frame_source(&source).unwrap();
+        let spec=rank_two_effect_example(r(7,8));
+        let native_source=native_h_frame_lowering(&source_record);
+        let restricted=native_restricted_overlap(&native_source,&spec).unwrap();
+        let gram=exact_gram_from_overlap(&restricted);
+        let expected=exact_rank_two_gram(
+            &reference_h_frame_matrix(&source_record),&spec).unwrap();
+        let full_native=exact_rank_two_gram(
+            &actual_source_matrix(&native_source).unwrap(),&spec).unwrap();
+        assert_eq!(gram,expected);
+        assert_eq!(gram,full_native);
+        // A=F^dagger F suffices to test delta P - P U^dagger B U P.
+        assert!(exact_two_by_two_psd(
+            &delta_minus_gram(&gram,&r(7,8))).unwrap());
+        println!("RANK2_SUPPORT_EFFECT_GRAM case={label} \
+             native_pathsum_column_only=true exact_f_dagger_f=true \
+             full_unitary_reference_matched=true");
+    }
+    println!("RANK2_SUPPORT_EFFECT_GRAM_CASES=2");
+}

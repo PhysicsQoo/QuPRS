@@ -229,7 +229,7 @@ fn observed_exact_versioned_phase_bridge_oracle() {
 // NOT an implementation of the complete QASM grammar and is not a
 // production-facing source parser. It deliberately refuses general source.
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-enum SourceKind { Qasm2BuiltinU, Qasm3BuiltinU, Qasm3StdlibU2, Qasm3StdlibU3 }
+enum SourceKind { Qasm2BuiltinU, Qasm2StdlibU2, Qasm2StdlibU3, Qasm3BuiltinU, Qasm3StdlibU2, Qasm3StdlibU3 }
 
 struct SourcePhaseRecord {
     source_kind: SourceKind,
@@ -269,6 +269,8 @@ fn admit_source_phase_record(raw: &str) -> Result<SourcePhaseRecord,String> {
     }
     let kind=match (version,literal_name,include,args.len()) {
         (2,"U",_,3)=>SourceKind::Qasm2BuiltinU,
+        (2,"u3",true,3)=>SourceKind::Qasm2StdlibU3,
+        (2,"u2",true,2)=>SourceKind::Qasm2StdlibU2,
         (3,"U",_,3)=>SourceKind::Qasm3BuiltinU,
         (3,"u3",true,3)=>SourceKind::Qasm3StdlibU3,
         (3,"u2",true,2)=>SourceKind::Qasm3StdlibU2,
@@ -279,11 +281,13 @@ fn admit_source_phase_record(raw: &str) -> Result<SourcePhaseRecord,String> {
     let operation=ops.into_iter().next().unwrap();
     let phase_correction=match (&kind,&operation) {
         (SourceKind::Qasm2BuiltinU,QuantumOp::U(0,_,phi,lambda))
+        | (SourceKind::Qasm2StdlibU3,QuantumOp::U3(0,_,phi,lambda))
         | (SourceKind::Qasm3StdlibU3,QuantumOp::U3(0,_,phi,lambda))
             => (Angle::ZERO-phi.clone()-lambda.clone())/2,
         (SourceKind::Qasm3BuiltinU,QuantumOp::U(0,theta,_,_))
             => theta.clone()/2,
-        (SourceKind::Qasm3StdlibU2,QuantumOp::U2(0,phi,lambda))
+        (SourceKind::Qasm2StdlibU2,QuantumOp::U2(0,phi,lambda))
+        | (SourceKind::Qasm3StdlibU2,QuantumOp::U2(0,phi,lambda))
             => (Angle::ZERO-phi.clone()-lambda.clone())/2,
         _=>return Err("source gate-to-native IR mismatch".into()),
     };
@@ -332,6 +336,10 @@ fn observed_versioned_source_phase_records_and_bra_conjugation() {
           kind:SourceKind::Qasm2BuiltinU,reference:negative_i_z()},
         T{version:2,gate:"U",args:"2*pi,0,0",include:false,
           kind:SourceKind::Qasm2BuiltinU,reference:negative_identity()},
+        T{version:2,gate:"u3",args:"0,pi,0",include:true,
+          kind:SourceKind::Qasm2StdlibU3,reference:negative_i_z()},
+        T{version:2,gate:"u2",args:"0,0",include:true,
+          kind:SourceKind::Qasm2StdlibU2,reference:qasm3_u3_half_pi()},
         T{version:3,gate:"U",args:"pi/2,0,0",include:false,
           kind:SourceKind::Qasm3BuiltinU,reference:qasm3_builtin_u_half_pi()},
         T{version:3,gate:"U",args:"2*pi,0,0",include:false,
@@ -369,6 +377,8 @@ fn observed_versioned_source_phase_records_and_bra_conjugation() {
 fn observed_narrow_source_rejects_unbound_gates_and_versions() {
     let cases=[
         source_case(3,"u3","pi/2,0,0",false),
+        source_case(2,"u3","pi/2,0,0",false),
+        source_case(2,"u2","0,0",false),
         source_case(3,"u2","0,0",false),
         source_case(3,"u","0,0,0",false),
         source_case(3,"U3","pi/2,0,0",true),

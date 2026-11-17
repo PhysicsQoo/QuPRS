@@ -1,0 +1,171 @@
+//! Independent exact matrix reconstruction of unreduced one-qubit PathSum.
+ //!
+ //! The tiny oracle evaluates rational phases as exact eighth roots of unity
+ //! in Q(i,sqrt(2)), then compares against literal versioned QASM matrices.
+ //! It does not call reduction, an external solver, or an equivalence verdict.
+
+use num_rational::Ratio;
+use quprs::{qasm::parse_qasm_str, PathSum};
+
+type R = Ratio<i128>;
+
+fn rat(n: i128, d: i128) -> R { R::new(n, d) }
+
+/// (a+b*sqrt(2))+i(c+d*sqrt(2)), with rational a,b,c,d.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Q8 {
+    a: R, b: R, c: R, d: R,
+}
+impl Q8 {
+    fn new(a: R, b: R, c: R, d: R) -> Self { Self { a, b, c, d } }
+    fn zero() -> Self { Self::new(rat(0,1),rat(0,1),rat(0,1),rat(0,1)) }
+    fn one() -> Self { Self::new(rat(1,1),rat(0,1),rat(0,1),rat(0,1)) }
+    fn real(n: i128) -> Self { Self::new(rat(n,1),rat(0,1),rat(0,1),rat(0,1)) }
+    fn imag(n: i128) -> Self { Self::new(rat(0,1),rat(0,1),rat(n,1),rat(0,1)) }
+    fn sum_with(&mut self, x: Self) {
+        self.a += x.a; self.b += x.b; self.c += x.c; self.d += x.d;
+    }
+    fn neg(self) -> Self { Self::new(-self.a,-self.b,-self.c,-self.d) }
+    fn scaled(self, n: i128, d: i128) -> Self {
+        let k=rat(n,d);
+        Self::new(self.a*k.clone(),self.b*k.clone(),self.c*k.clone(),self.d*k)
+    }
+    fn times_sqrt2(self) -> Self {
+        Self::new(self.b*rat(2,1),self.a,self.d*rat(2,1),self.c)
+    }
+}
+fn root_of_unity(phase_cycles: R) -> Q8 {
+    let eighths = phase_cycles*rat(8,1);
+    assert_eq!(*eighths.numer()%*eighths.denom(),0,
+        "the fixture must have an exact eighth-root-of-unity phase");
+    let k = (eighths.to_integer()).rem_euclid(8);
+    match k {
+        0 => Q8::one(),
+        1 => Q8::new(rat(0,1),rat(1,2),rat(0,1),rat(1,2)),
+        2 => Q8::imag(1),
+        3 => Q8::new(rat(0,1),rat(-1,2),rat(0,1),rat(1,2)),
+        4 => Q8::real(-1),
+        5 => Q8::new(rat(0,1),rat(-1,2),rat(0,1),rat(-1,2)),
+        6 => Q8::imag(-1),
+        7 => Q8::new(rat(0,1),rat(1,2),rat(0,1),rat(-1,2)),
+        _ => unreachable!(),
+    }
+}
+fn normalization(value: Q8, paths: usize) -> Q8 {
+    // 2^(-paths/2): an exact element of Q(sqrt(2)).
+    assert!(paths<12,"bounded standalone matrix enumeration");
+    if paths%2==0 {
+        value.scaled(1,1i128<<(paths/2))
+    } else {
+        value.times_sqrt2().scaled(1,1i128<<((paths+1)/2))
+    }
+}
+fn source_matrix(source: &str) -> [[Q8;2];2] {
+    let (ops,n) = parse_qasm_str(source).expect("source admission prerequisite");
+    assert_eq!(n,1); assert_eq!(ops.len(),1);
+    let mut ps=PathSum::new(1);
+    ps.set_auto_reduce(false);
+    ops[0].apply(&mut ps,false);
+    let mut fresh: Vec<u32> = ps.v.path_vars.iter().copied().filter(|v| *v>=1).collect();
+    fresh.sort_unstable();
+    assert!(fresh.len()<12);
+    let mut result: [[Q8;2];2] = std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    let truth = |monomial: &[u32], assignment: u64| ->
+        bool { monomial.iter().all(|&x| x<62 && (assignment & (1u64<<x))!=0) };
+    for input in 0..2u64 {
+        for mask in 0..(1u64<<fresh.len()) {
+            let mut assignment=input;
+            for (j,&var) in fresh.iter().enumerate() {
+                assert!(var<62);
+                if mask & (1u64<<j)!=0 { assignment|=1u64<<var; }
+            }
+            let output=ps.f.functions[0].iter()
+                .fold(false,|parity,monomial|parity^truth(monomial,assignment));
+            let mut phase=rat(0,1);
+            for (monomial,coeff) in &ps.p.terms {
+                assert!(coeff.radians.is_none(), "only rational-pi sources");
+                assert!(coeff.symbols.is_empty(), "no free source parameters");
+                if truth(monomial,assignment) {
+                    phase += rat(coeff.constant.numer as i128,coeff.constant.denom as i128);
+                }
+            }
+            let path=normalization(root_of_unity(phase),fresh.len());
+            result[usize::from(output)][input as usize].sum_with(path);
+        }
+    }
+    result
+}
+
+fn identity() -> [[Q8;2];2] {
+    [[Q8::one(),Q8::zero()],[Q8::zero(),Q8::one()]]
+}
+fn negative_identity() -> [[Q8;2];2] {
+    [[Q8::real(-1),Q8::zero()],[Q8::zero(),Q8::real(-1)]]
+}
+fn z() -> [[Q8;2];2] {
+    [[Q8::one(),Q8::zero()],[Q8::zero(),Q8::real(-1)]]
+}
+fn negative_i_z() -> [[Q8;2];2] {
+    [[Q8::imag(-1),Q8::zero()],[Q8::zero(),Q8::imag(1)]]
+}
+fn qasm3_builtin_u_half_pi() -> [[Q8;2];2] {
+    // OpenQASM 3 U(pi/2,0,0) = ((1+i)/2) * [[1,-1],[1,1]].
+    let c=Q8::new(rat(1,2),rat(0,1),rat(1,2),rat(0,1));
+    [[c.clone(),c.clone().neg()],[c.clone(),c]]
+}
+fn qasm3_u3_half_pi() -> [[Q8;2];2] {
+    // u3(pi/2,0,0) = (sqrt(2)/2) * [[1,-1],[1,1]].
+    let c=Q8::new(rat(0,1),rat(1,2),rat(0,1),rat(0,1));
+    [[c.clone(),c.clone().neg()],[c.clone(),c]]
+}
+struct MatrixCase {
+    name: &'static str,
+    source_params: &'static str,
+    expected_builtin: [[Q8;2];2],
+    expected_compat: [[Q8;2];2],
+}
+fn cases() -> Vec<MatrixCase> {
+    vec![
+        MatrixCase { name:"theta_zero",source_params:"0,0,0",
+            expected_builtin:identity(),expected_compat:identity() },
+        MatrixCase { name:"theta_twopi",source_params:"2*pi,0,0",
+            expected_builtin:identity(),expected_compat:negative_identity() },
+        MatrixCase { name:"phi_pi",source_params:"0,pi,0",
+            expected_builtin:z(),expected_compat:negative_i_z() },
+        MatrixCase { name:"theta_halfpi",source_params:"pi/2,0,0",
+            expected_builtin:qasm3_builtin_u_half_pi(),
+            expected_compat:qasm3_u3_half_pi() },
+    ]
+}
+fn source(gate: &str, params: &str) -> String {
+    format!("OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\n{gate}({params}) q[0];\n")
+}
+fn analyze_print() -> Vec<String> {
+    let mut differences=Vec::new();
+    for case in cases() {
+        let builtin=source_matrix(&source("U",case.source_params));
+        let compat=source_matrix(&source("u3",case.source_params));
+        let builtin_matches = builtin == case.expected_builtin;
+        let compat_matches = compat == case.expected_compat;
+        println!("EXACT_MATRIX case={} gate=U conforms={} native={builtin:?} expected={:?}",
+            case.name,builtin_matches,case.expected_builtin);
+        println!("EXACT_MATRIX case={} gate=u3 conforms={} native={compat:?} expected={:?}",
+            case.name,compat_matches,case.expected_compat);
+        if !builtin_matches {differences.push(format!("{}:U",case.name))}
+        if !compat_matches {differences.push(format!("{}:u3",case.name))}
+    }
+    println!("EXACT_MATRIX_NONCONFORMANCES={}", differences.join(","));
+    differences
+}
+#[test]
+fn observed_exact_qasm_unitary_matrix_oracle() {
+    let findings=analyze_print();
+    println!("EXACT_MATRIX_OBSERVATIONS={}",findings.len());
+}
+#[test]
+fn strict_contract_exact_qasm_unitary_matrices() {
+    let findings=analyze_print();
+    assert!(findings.is_empty(),
+        "strict source unitary matrix mismatches: {}",findings.join(", "));
+}

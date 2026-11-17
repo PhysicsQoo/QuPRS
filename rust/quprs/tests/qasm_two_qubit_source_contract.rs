@@ -906,3 +906,113 @@ fn observed_source_bound_non_diagonal_certificate_attacks(){
     println!("HFRAME_SOURCE_MUTATIONS_REJECTED={}",mutants.len());
     println!("HFRAME_CERT_MUTATIONS_REJECTED=7");
 }
+
+
+// A property-typed rank-one effect-risk proof, not merely circuit equality.
+// The caller supplies the intended (trusted) input projector, bad projector,
+// and delta; the source certificate only binds source semantics. A claimed
+// verdict and claimed exact risk are independently reconstructed and checked.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum FrameRiskVerdict {Proved,Refuted}
+type Ket4=[Q8;4];
+fn ket4_normalized(psi:&Ket4)->bool {
+    let mut norm=Q8::zero();
+    for z in psi {
+        norm.sum(z.conjugate().times(z));
+    }
+    norm==Q8::one()
+}
+fn risk_from_rank_one_effect(matrix:&M4,input:&Ket4,bad:&Ket4)->Q8{
+    let mut output:Ket4=std::array::from_fn(|_|Q8::zero());
+    for row in 0..4{
+        for col in 0..4{
+            output[row].sum(matrix[row][col].times(&input[col]));
+        }
+    }
+    let mut bad_amplitude=Q8::zero();
+    for row in 0..4{
+        bad_amplitude.sum(bad[row].conjugate().times(&output[row]));
+    }
+    bad_amplitude.times(&bad_amplitude.conjugate())
+}
+fn check_rank_one_frame_risk_claim(
+    source:&str, source_cert:&[u8],
+    trusted_input:&Ket4,trusted_bad:&Ket4,trusted_delta:&Rat,
+    claimed_risk:&Q8,claimed_verdict:FrameRiskVerdict
+)->Result<bool,String>{
+    let frame=replay_h_frame_cert(source,source_cert)?;
+    if !ket4_normalized(trusted_input)||!ket4_normalized(trusted_bad){
+        return Err("input or bad projector does not have a unit norm generator".into());
+    }
+    if trusted_delta<&r(0,1)||trusted_delta>&r(1,1){
+        return Err("outside declared rational probability threshold".into());
+    }
+    let risk=risk_from_rank_one_effect(&reference_h_frame_matrix(&frame),
+        trusted_input,trusted_bad);
+    if &risk!=claimed_risk{
+        return Ok(false);
+    }
+    if risk.b!=r(0,1)||risk.c!=r(0,1)||risk.d!=r(0,1){
+        return Err("rank-one risk outside this rational-result proof profile".into());
+    }
+    if risk.a<r(0,1)||risk.a>r(1,1){
+        return Err("calculated risk outside [0,1]".into());
+    }
+    let expected=if risk.a<=*trusted_delta{
+        FrameRiskVerdict::Proved
+    }else{
+        FrameRiskVerdict::Refuted
+    };
+    Ok(expected==claimed_verdict)
+}
+#[test]
+fn observed_source_bound_nondiagonal_effect_risk_proved_and_refuted(){
+    // Independent trusted specification:
+    // AllDensityOn(|psi><psi|), psi=(|00>+|11>)/sqrt(2);
+    // bad-effect B=|bad><bad|, bad=(|00>-|10>)/sqrt(2).
+    // The only admitted density on the rank-one support is |psi><psi|.
+    let s=Q8::sqrt2_half();
+    let psi=[s.clone(),Q8::zero(),Q8::zero(),s.clone()];
+    let bad=[s.clone(),Q8::zero(),s.neg(),Q8::zero()];
+    assert!(ket4_normalized(&psi)&&ket4_normalized(&bad));
+    let a=h_frame_source(&[
+        "ctrl @ u3(0,pi,0) q[1],q[0];",
+        "ctrl @ gphase(pi/2) q[1];",
+    ],0);
+    let c=h_frame_source(&["ctrl @ u3(0,pi,0) q[1],q[0];"],0);
+    let ca=parse_h_frame_source(&a).unwrap();
+    let cc=parse_h_frame_source(&c).unwrap();
+    let cert_a=encode_h_frame_cert(&ca);
+    let cert_c=encode_h_frame_cert(&cc);
+    let reference_a=reference_h_frame_matrix(&ca);
+    let reference_c=reference_h_frame_matrix(&cc);
+    let native_a=actual_source_matrix(&native_h_frame_lowering(&ca)).unwrap();
+    let native_c=actual_source_matrix(&native_h_frame_lowering(&cc)).unwrap();
+    assert_eq!(reference_a,native_a);
+    assert_eq!(reference_c,native_c);
+    let zero=Q8::zero();
+    let half=Q8::new(r(1,2),r(0,1),r(0,1),r(0,1));
+    assert_eq!(risk_from_rank_one_effect(&native_a,&psi,&bad),zero);
+    assert_eq!(risk_from_rank_one_effect(&native_c,&psi,&bad),half);
+    let delta_zero=r(0,1);
+    let delta_half=r(1,2);
+    assert!(check_rank_one_frame_risk_claim(&a,&cert_a,&psi,&bad,
+        &delta_zero,&zero,FrameRiskVerdict::Proved).unwrap());
+    assert!(check_rank_one_frame_risk_claim(&c,&cert_c,&psi,&bad,
+        &delta_zero,&half,FrameRiskVerdict::Refuted).unwrap());
+    assert!(check_rank_one_frame_risk_claim(&c,&cert_c,&psi,&bad,
+        &delta_half,&half,FrameRiskVerdict::Proved).unwrap());
+    assert!(!check_rank_one_frame_risk_claim(&c,&cert_c,&psi,&bad,
+        &delta_zero,&half,FrameRiskVerdict::Proved).unwrap());
+    assert!(!check_rank_one_frame_risk_claim(&c,&cert_c,&psi,&bad,
+        &delta_zero,&zero,FrameRiskVerdict::Proved).unwrap());
+    let invalid_delta=r(3,2);
+    assert!(check_rank_one_frame_risk_claim(&a,&cert_a,&psi,&bad,
+        &invalid_delta,&zero,FrameRiskVerdict::Proved).is_err());
+    let mut forged_cert=cert_c.clone();
+    forged_cert[36]=1;
+    assert!(check_rank_one_frame_risk_claim(&c,&forged_cert,&psi,&bad,
+        &delta_zero,&half,FrameRiskVerdict::Refuted).is_err());
+    println!("HFRAME_RANK_ONE_EFFECT_RISK source_a=0 source_c=1/2 exact_native=true");
+    println!("HFRAME_RISK_VERDICTS proved=2 refuted=1 forged_proved_rejected=2 invalid_spec_rejected=1 forged_source_rejected=1");
+}

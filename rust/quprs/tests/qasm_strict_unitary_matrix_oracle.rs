@@ -455,9 +455,11 @@ fn composed_native_matrix(records:&[SourcePhaseRecord],bra:bool)->M2 {
     let mut ps=PathSum::new(1);
     ps.set_auto_reduce(false);
     if bra {
-        // To evaluate (G_m ... G_1)^dagger by left multiplication,
-        // apply adjoints in reversed chronological source order.
-        for rec in records.iter().rev() {
+        // PathSum's Bra-side gate application composes on the right.
+        // The source order therefore gives G_1^dagger ... G_m^dagger,
+        // the adjoint of the Ket-side G_m ... G_1 sequence.
+        // Reversing here would produce G_m^dagger ... G_1^dagger.
+        for rec in records.iter() {
             rec.operation.apply(&mut ps,true);
             QuantumOp::GlobalPhase(rec.phase_correction.clone())
                 .apply(&mut ps,true);

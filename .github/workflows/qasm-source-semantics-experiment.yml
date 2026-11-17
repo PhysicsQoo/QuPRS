@@ -8,6 +8,7 @@ on:
     paths:
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs
+      - rust/quprs/tests/qasm_two_qubit_source_contract.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
 permissions:
@@ -60,6 +61,7 @@ jobs:
           sha256sum rust/quprs/src/qasm.rs rust/quprs/src/gates.rs \
             rust/quprs/src/ir.rs rust/quprs/tests/qasm_source_semantics_experiment.rs \
             rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs \
+            rust/quprs/tests/qasm_two_qubit_source_contract.rs \
             > evidence/source-sha256.txt
 
       - name: Observe native parser, CX and U/U3 phase behavior
@@ -75,6 +77,22 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test qasm_strict_unitary_matrix_oracle observed_ -- --nocapture \
             2>&1 | tee evidence/exact-unitary-matrices.log
+
+      - name: Observe exact two-qubit source and effect diagnostics
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_two_qubit_source_contract observed_ -- --nocapture \
+            2>&1 | tee evidence/two-qubit-observed.log
+
+      - name: Check strict two-qubit source matrices (diagnostic, may fail)
+        id: two_qubit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_two_qubit_source_contract strict_contract_ -- --nocapture \
+            2>&1 | tee evidence/two-qubit-strict.log
 
       - name: Check official strict unitary matrices (diagnostic, may fail)
         id: exact_matrix
@@ -99,15 +117,17 @@ jobs:
         env:
           STRICT_RESULT: ${{ steps.strict.outcome }}
           MATRIX_RESULT: ${{ steps.exact_matrix.outcome }}
+          TWOQ_RESULT: ${{ steps.two_qubit.outcome }}
         run: |
           set -euo pipefail
           mkdir -p evidence
-          printf 'strict_source_contract=%s\nstrict_matrix_contract=%s\n' "$STRICT_RESULT" "$MATRIX_RESULT" > evidence/summary.txt
+          printf 'strict_source_contract=%s\nstrict_matrix_contract=%s\nstrict_two_qubit_contract=%s\n' "$STRICT_RESULT" "$MATRIX_RESULT" "$TWOQ_RESULT" > evidence/summary.txt
           {
             echo '## QASM source semantics — research-only diagnostic'
             echo
             echo "Strict conformance test outcome: **$STRICT_RESULT**"
             echo "Strict full-matrix outcome: **$MATRIX_RESULT**"
+            echo "Strict two-qubit outcome: **$TWOQ_RESULT**"
             echo
             echo 'A failed strict test identifies a source semantic discrepancy.'
             echo 'It is **not** a failure of unrelated production CI, nor a verified correction.'

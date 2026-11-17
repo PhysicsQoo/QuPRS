@@ -33,6 +33,17 @@ impl Q8 {
     fn times_sqrt2(self) -> Self {
         Self::new(self.b*rat(2,1),self.a,self.d*rat(2,1),self.c)
     }
+    fn multiplied_by(&self, rhs: &Self) -> Self {
+        // Exact cyclotomic arithmetic with sqrt(2)^2 = 2 and i^2 = -1.
+        let a=&self.a; let b=&self.b; let c=&self.c; let d=&self.d;
+        let e=&rhs.a; let f=&rhs.b; let g=&rhs.c; let h=&rhs.d;
+        Self::new(
+            a*e + rat(2,1)*b*f - c*g - rat(2,1)*d*h,
+            a*f + b*e - c*h - d*g,
+            a*g + rat(2,1)*b*h + c*e + rat(2,1)*d*f,
+            a*h + b*g + c*f + d*e,
+        )
+    }
 }
 fn root_of_unity(phase_cycles: R) -> Q8 {
     let eighths = phase_cycles*rat(8,1);
@@ -122,18 +133,25 @@ fn qasm3_u3_half_pi() -> [[Q8;2];2] {
 struct MatrixCase {
     name: &'static str,
     source_params: &'static str,
+    theta_over_pi: R,
+    phi_over_pi: R,
+    lambda_over_pi: R,
     expected_builtin: [[Q8;2];2],
     expected_compat: [[Q8;2];2],
 }
 fn cases() -> Vec<MatrixCase> {
     vec![
         MatrixCase { name:"theta_zero",source_params:"0,0,0",
+            theta_over_pi:rat(0,1),phi_over_pi:rat(0,1),lambda_over_pi:rat(0,1),
             expected_builtin:identity(),expected_compat:identity() },
         MatrixCase { name:"theta_twopi",source_params:"2*pi,0,0",
+            theta_over_pi:rat(2,1),phi_over_pi:rat(0,1),lambda_over_pi:rat(0,1),
             expected_builtin:identity(),expected_compat:negative_identity() },
         MatrixCase { name:"phi_pi",source_params:"0,pi,0",
+            theta_over_pi:rat(0,1),phi_over_pi:rat(1,1),lambda_over_pi:rat(0,1),
             expected_builtin:z(),expected_compat:negative_i_z() },
         MatrixCase { name:"theta_halfpi",source_params:"pi/2,0,0",
+            theta_over_pi:rat(1,2),phi_over_pi:rat(0,1),lambda_over_pi:rat(0,1),
             expected_builtin:qasm3_builtin_u_half_pi(),
             expected_compat:qasm3_u3_half_pi() },
     ]
@@ -168,4 +186,37 @@ fn strict_contract_exact_qasm_unitary_matrices() {
     let findings=analyze_print();
     assert!(findings.is_empty(),
         "strict source unitary matrix mismatches: {}",findings.join(", "));
+}
+
+
+#[test]
+fn observed_exact_versioned_phase_bridge_oracle() {
+    // This is an independently checked scalar translation for a proposed
+    // versioned source adapter, not a mutation of the production gate kernels.
+    //
+    // The existing raw implementation has Qiskit-U-like phase Q.
+    // Strict OpenQASM 3: U = exp(i*theta/2) Q;
+    // stdgates compatibility u3 = exp(-i*(phi+lambda)/2) Q.
+    let mut count=0;
+    for case in cases() {
+        let native_builtin=source_matrix(&source("U",case.source_params));
+        let native_compat=source_matrix(&source("u3",case.source_params));
+        let u_phase=root_of_unity(case.theta_over_pi.clone()/rat(4,1));
+        let compat_phase=root_of_unity(
+            -(case.phi_over_pi.clone()+case.lambda_over_pi.clone())/rat(4,1)
+        );
+        let translated_builtin=std::array::from_fn(|r|std::array::from_fn(|c|
+            native_builtin[r][c].multiplied_by(&u_phase)
+        ));
+        let translated_compat=std::array::from_fn(|r|std::array::from_fn(|c|
+            native_compat[r][c].multiplied_by(&compat_phase)
+        ));
+        assert_eq!(translated_builtin,case.expected_builtin,
+            "source builtin U phase translation failed: {}",case.name);
+        assert_eq!(translated_compat,case.expected_compat,
+            "source compatibility u3 phase translation failed: {}",case.name);
+        println!("VERSIONED_PHASE_BRIDGE case={} exact=true",case.name);
+        count+=1;
+    }
+    println!("VERSIONED_PHASE_BRIDGE_EXACT_CASES={count}");
 }

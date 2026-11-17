@@ -1016,3 +1016,286 @@ fn observed_source_bound_nondiagonal_effect_risk_proved_and_refuted(){
     println!("HFRAME_RANK_ONE_EFFECT_RISK source_a=0 source_c=1/2 exact_native=true");
     println!("HFRAME_RISK_VERDICTS proved=2 refuted=1 forged_proved_rejected=2 invalid_spec_rejected=1 forged_source_rejected=1");
 }
+
+
+// Rank-two source-linked property proof: exact Loewner PSD / witness over the
+// *trusted* two-dimensional input subspace and a two-dimensional effect.
+// This is not a general parser or a complete PSD checker at arbitrary rank.
+type M2=[[Q8;2];2];
+type Vec2=[Q8;2];
+struct RankTwoPropertySpec {
+    input_basis:[usize;2],
+    bad_orthonormal:[Ket4;2],
+    threshold:Rat,
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum RankTwoVerdict{Proved,Refuted}
+struct RankTwoClaim{
+    claimed_gram:M2,
+    verdict:RankTwoVerdict,
+    witness:Option<Vec2>,
+}
+fn q8_minus(a:&Q8,b:&Q8)->Q8{
+    let mut out=a.clone();
+    out.sum(b.neg());
+    out
+}
+fn q8_real_sign(z:&Q8)->Result<i8,String>{
+    if z.c!=r(0,1)||z.d!=r(0,1){
+        return Err("Hermitian scalar has nonzero imaginary component".into());
+    }
+    let a=&z.a;let b=&z.b;
+    let zero=r(0,1);
+    if a==&zero&&b==&zero {return Ok(0);}
+    if a>=&zero&&b>=&zero{return Ok(1);}
+    if a<=&zero&&b<=&zero{return Ok(-1);}
+    // For opposite signs, compare |a| and sqrt(2)*|b| without
+    // floating-point conversion. This local i128 exact fixture is tiny.
+    let a_squared=a.clone()*a.clone();
+    let two_b_squared=r(2,1)*b.clone()*b.clone();
+    let cmp=a_squared.cmp(&two_b_squared);
+    Ok(if cmp==std::cmp::Ordering::Equal {0}
+       else if a>&zero {
+           if cmp==std::cmp::Ordering::Greater {1}else{-1}
+       }else if cmp==std::cmp::Ordering::Greater {-1}else{1})
+}
+fn q8_inner4(a:&Ket4,b:&Ket4)->Q8{
+    let mut acc=Q8::zero();
+    for j in 0..4 {acc.sum(a[j].conjugate().times(&b[j]));}
+    acc
+}
+fn validate_rank_two_spec(s:&RankTwoPropertySpec)->Result<(),String>{
+    if s.input_basis[0]>=4||s.input_basis[1]>=4
+        ||s.input_basis[0]==s.input_basis[1]{
+        return Err("input subspace requires two distinct basis vectors".into());
+    }
+    if s.threshold<r(0,1)||s.threshold>r(1,1){
+        return Err("threshold must lie within [0,1]".into());
+    }
+    let [bad_a,bad_b]=&s.bad_orthonormal;
+    if q8_inner4(bad_a,bad_a)!=Q8::one()
+      ||q8_inner4(bad_b,bad_b)!=Q8::one()
+      ||q8_inner4(bad_a,bad_b)!=Q8::zero(){
+        return Err("bad-effect generators must be orthonormal".into());
+    }
+    Ok(())
+}
+fn exact_rank_two_gram(matrix:&M4,s:&RankTwoPropertySpec)->Result<M2,String>{
+    validate_rank_two_spec(s)?;
+    let mut overlaps:[[Q8;2];2]=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for bad in 0..2{
+        for input in 0..2 {
+            let col=s.input_basis[input];
+            for row in 0..4 {
+                overlaps[bad][input].sum(
+                    s.bad_orthonormal[bad][row].conjugate().times(&matrix[row][col]));
+            }
+        }
+    }
+    let mut out:M2=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for i in 0..2 {for j in 0..2 {
+        for k in 0..2{
+            out[i][j].sum(overlaps[k][i].conjugate().times(&overlaps[k][j]));
+        }
+    }}
+    if out[0][1]!=out[1][0].conjugate(){
+        return Err("restricted risk operator is not Hermitian".into());
+    }
+    Ok(out)
+}
+fn delta_minus_gram(gram:&M2,delta:&Rat)->M2{
+    let mut result:M2=std::array::from_fn(|i|
+        std::array::from_fn(|j| if i==j{
+            Q8::new(delta.clone(),r(0,1),r(0,1),r(0,1))
+        }else{Q8::zero()}));
+    for i in 0..2{for j in 0..2{
+        result[i][j]=q8_minus(&result[i][j],&gram[i][j]);
+    }}
+    result
+}
+fn exact_two_by_two_psd(matrix:&M2)->Result<bool,String>{
+    if matrix[0][1]!=matrix[1][0].conjugate(){
+        return Err("claimed Loewner matrix is not Hermitian".into());
+    }
+    let sign_a=q8_real_sign(&matrix[0][0])?;
+    let sign_d=q8_real_sign(&matrix[1][1])?;
+    let det=q8_minus(&matrix[0][0].times(&matrix[1][1]),
+        &matrix[0][1].times(&matrix[1][0]));
+    let sign_det=q8_real_sign(&det)?;
+    Ok(sign_a>=0&&sign_d>=0&&sign_det>=0)
+}
+fn witness_quadratic(matrix:&M2,v:&Vec2)->Q8{
+    let mut res=Q8::zero();
+    for i in 0..2{for j in 0..2 {
+        res.sum(v[i].conjugate().times(&matrix[i][j].times(&v[j])));
+    }}
+    res
+}
+fn check_rank_two_claim(
+    source:&str,source_certificate:&[u8],
+    trusted_spec:&RankTwoPropertySpec,claim:&RankTwoClaim
+)->Result<bool,String>{
+    let parsed=replay_h_frame_cert(source,source_certificate)?;
+    let source_matrix=reference_h_frame_matrix(&parsed);
+    let gram=exact_rank_two_gram(&source_matrix,trusted_spec)?;
+    // Never trust a producer-supplied restricted risk operator.
+    if gram!=claim.claimed_gram{return Ok(false);}
+    let residual=delta_minus_gram(&gram,&trusted_spec.threshold);
+    match claim.verdict{
+        RankTwoVerdict::Proved=>{
+            if claim.witness.is_some(){return Ok(false);}
+            exact_two_by_two_psd(&residual)
+        }
+        RankTwoVerdict::Refuted=>{
+            let Some(v)=&claim.witness else{return Ok(false)};
+            let positive_gap=witness_quadratic(&delta_minus_gram(
+                &gram,&trusted_spec.threshold),v).neg();
+            let norm=v[0].conjugate().times(&v[0])
+                .times(&Q8::one());
+            let mut norm=norm;
+            norm.sum(v[1].conjugate().times(&v[1]));
+            if q8_real_sign(&norm)?<=0{return Ok(false);}
+            // Gap >0 gives a normalized physical input in im(P)
+            // with expectation risk - delta >0, hence valid REFUTED.
+            Ok(q8_real_sign(&positive_gap)?>0)
+        }
+    }
+}
+fn rank_two_effect_example(delta:Rat)->RankTwoPropertySpec{
+    let half=Q8::one().scale(1,2);
+    let s=Q8::sqrt2_half();
+    // beta=(|00>+|01>+|10>+|11>)/2
+    // gamma=(|00>-|01>)/sqrt(2)
+    RankTwoPropertySpec{
+        input_basis:[0,2],
+        bad_orthonormal:[
+            [half.clone(),half.clone(),half.clone(),half],
+            [s.clone(),s.neg(),Q8::zero(),Q8::zero()],
+        ],
+        threshold:delta,
+    }
+}
+fn gram_expected_real()->M2{
+    [
+        [Q8::one().scale(3,4),Q8::one().scale(1,4)],
+        [Q8::one().scale(1,4),Q8::one().scale(1,4)],
+    ]
+}
+fn gram_expected_complex()->M2{
+    [
+        [Q8::one().scale(3,4),Q8::imaginary(-1).scale(1,4)],
+        [Q8::imaginary(1).scale(1,4),Q8::one().scale(1,4)],
+    ]
+}
+#[test]
+fn observed_rank_two_input_and_effect_exact_psd_with_native_pathsum(){
+    let repaired=h_frame_source(&[
+        "ctrl @ u3(0,pi,0) q[1],q[0];",
+        "ctrl @ gphase(pi/2) q[1];",
+    ],0);
+    let phase_shifted=h_frame_source(&["ctrl @ u3(0,pi,0) q[1],q[0];"],0);
+    let cases=[
+        ("real",repaired,gram_expected_real(),
+            [Q8::integer(2),Q8::one()]),
+        ("complex",phase_shifted,gram_expected_complex(),
+            [Q8::integer(2),Q8::imaginary(1)]),
+    ];
+    for (label,source,expected,witness) in cases{
+        let c=parse_h_frame_source(&source).unwrap();
+        let cert=encode_h_frame_cert(&c);
+        let independent=reference_h_frame_matrix(&c);
+        let native=actual_source_matrix(&native_h_frame_lowering(&c)).unwrap();
+        assert_eq!(native,independent);
+        let spec_proved=rank_two_effect_example(r(7,8));
+        let gram=exact_rank_two_gram(&native,&spec_proved).unwrap();
+        assert_eq!(gram,expected,"source-linked exact risk matrix: {label}");
+        let residual_psd=delta_minus_gram(&gram,&r(7,8));
+        assert!(exact_two_by_two_psd(&residual_psd).unwrap());
+        let det=q8_minus(&residual_psd[0][0].times(&residual_psd[1][1]),
+            &residual_psd[0][1].times(&residual_psd[1][0]));
+        assert_eq!(det,Q8::one().scale(1,64));
+        let proved=RankTwoClaim{
+            claimed_gram:gram.clone(),verdict:RankTwoVerdict::Proved,witness:None
+        };
+        assert!(check_rank_two_claim(&source,&cert,&spec_proved,&proved).unwrap());
+
+        let spec_refuted=rank_two_effect_example(r(3,4));
+        let residual_bad=delta_minus_gram(&gram,&r(3,4));
+        assert!(!exact_two_by_two_psd(&residual_bad).unwrap());
+        let det_bad=q8_minus(
+            &residual_bad[0][0].times(&residual_bad[1][1]),
+            &residual_bad[0][1].times(&residual_bad[1][0]));
+        assert_eq!(det_bad,Q8::integer(-1).scale(1,16));
+        // Each computational input basis vector is apparently safe,
+        // yet their coherent superposition gives risk above delta.
+        assert!(q8_real_sign(&q8_minus(&gram[0][0],
+            &Q8::one().scale(3,4))).unwrap()<=0);
+        assert!(q8_real_sign(&q8_minus(&gram[1][1],
+            &Q8::one().scale(3,4))).unwrap()<=0);
+        let positive_gap=witness_quadratic(&gram,&witness);
+        let norm=Q8::integer(5);
+        assert_eq!(q8_minus(&positive_gap,
+            &Q8::one().scale(3,4).times(&norm)),Q8::one().scale(1,2));
+        // Normalized witness has risk = delta + (1/2)/5 = 17/20.
+        let witness_risk=positive_gap.scale(1,5);
+        assert_eq!(witness_risk,Q8::one().scale(17,20));
+        let refuted=RankTwoClaim{
+            claimed_gram:gram.clone(),verdict:RankTwoVerdict::Refuted,
+            witness:Some(witness.clone())
+        };
+        assert!(check_rank_two_claim(&source,&cert,&spec_refuted,&refuted).unwrap());
+        assert!(!check_rank_two_claim(&source,&cert,&spec_refuted,
+            &RankTwoClaim{claimed_gram:gram.clone(),
+                verdict:RankTwoVerdict::Proved,witness:None}).unwrap());
+        assert!(!check_rank_two_claim(&source,&cert,&spec_proved,
+            &RankTwoClaim{claimed_gram:gram.clone(),
+                verdict:RankTwoVerdict::Refuted,witness:Some(witness.clone())}).unwrap());
+        assert!(!check_rank_two_claim(&source,&cert,&spec_refuted,
+            &RankTwoClaim{claimed_gram:gram.clone(),
+                verdict:RankTwoVerdict::Refuted,witness:Some([
+                    Q8::zero(),Q8::zero()])}).unwrap());
+        let mut fake_gram=gram.clone();
+        fake_gram[0][1]=Q8::zero();
+        assert!(!check_rank_two_claim(&source,&cert,&spec_refuted,
+            &RankTwoClaim{claimed_gram:fake_gram,
+                verdict:RankTwoVerdict::Refuted,witness:Some(witness.clone())}).unwrap());
+        println!(
+            "RANK2_LOEWNER_NATIVE case={label} input_rank=2 effect_rank=2 \
+             source_exact=true gram_exact=true proved_delta=7/8 \
+             det_proved=1/64 refuted_delta=3/4 det_refuted=-1/16 \
+             witness_risk=17/20 positive_gap=1/2"
+        );
+    }
+    println!("RANK2_LOEWNER_EXACT_CASES=2");
+}
+#[test]
+fn observed_rank_two_property_contract_rejects_invalid_specs_and_forgery(){
+    let source=h_frame_source(&["ctrl @ U(0,pi,0) q[1],q[0];"],0);
+    let parsed=parse_h_frame_source(&source).unwrap();
+    let proof=encode_h_frame_cert(&parsed);
+    let gram=gram_expected_real();
+    let claim=RankTwoClaim{
+        claimed_gram:gram,verdict:RankTwoVerdict::Proved,witness:None
+    };
+    let valid=rank_two_effect_example(r(7,8));
+    assert!(check_rank_two_claim(&source,&proof,&valid,&claim).unwrap());
+    let mut invalid=rank_two_effect_example(r(7,8));
+    invalid.input_basis=[0,0];
+    assert!(check_rank_two_claim(&source,&proof,&invalid,&claim).is_err());
+    invalid=rank_two_effect_example(r(7,8));
+    invalid.bad_orthonormal[1]=invalid.bad_orthonormal[0].clone();
+    assert!(check_rank_two_claim(&source,&proof,&invalid,&claim).is_err());
+    invalid=rank_two_effect_example(r(7,8));
+    invalid.threshold=r(9,8);
+    assert!(check_rank_two_claim(&source,&proof,&invalid,&claim).is_err());
+    invalid=rank_two_effect_example(r(-1,8));
+    assert!(check_rank_two_claim(&source,&proof,&invalid,&claim).is_err());
+    let mut tampered=proof.clone();
+    tampered[36]=1;
+    assert!(check_rank_two_claim(&source,&tampered,&valid,&claim).is_err());
+    let altered_source=source.replace("U(0,pi,0)","u3(0,pi,0)");
+    assert!(check_rank_two_claim(&altered_source,&proof,&valid,&claim).is_err());
+    println!("RANK2_LOEWNER_INVALID_SPEC_REJECTED=4 SOURCE_BINDING_REJECTED=2");
+}

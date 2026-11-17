@@ -573,3 +573,118 @@ fn observed_exact_strict_source_miter_and_controlled_phase_witness() {
         Q8::zero());
     println!("SOURCE_MITER_CONTROLLED_WITNESS corrected_bad_risk=1 phase_erased_bad_risk=0");
 }
+
+
+// Two-qubit experiment: real native PathSum matrix extraction. This checks
+// a source-level decomposition of controlled global phase using standard
+// one-qubit phase on the control, not native ctrl @ modifier support.
+type M4 = [[Q8;4];4];
+fn matrix4_from_native_source(source:&str)->M4 {
+    let (ops,n)=parse_qasm_str(source).expect("native two-qubit source parse");
+    assert_eq!(n,2);
+    let mut ps=PathSum::new(2);
+    ps.set_auto_reduce(false);
+    for operation in &ops {operation.apply(&mut ps,false);}
+    let mut fresh:Vec<u32>=ps.v.path_vars.iter().copied()
+        .filter(|v|*v>=2).collect();
+    fresh.sort_unstable();
+    assert!(fresh.len()<12);
+    let truth=|monomial:&[u32],assignment:u64|->bool{
+        monomial.iter().all(|&v| v<62&&(assignment&(1u64<<v))!=0)
+    };
+    let mut matrix:M4=std::array::from_fn(|_|
+        std::array::from_fn(|_|Q8::zero()));
+    for input in 0..4usize {
+        for path_mask in 0..(1usize<<fresh.len()) {
+            let mut assignment=input as u64;
+            for (j,&var) in fresh.iter().enumerate() {
+                assert!(var<62);
+                if path_mask & (1usize<<j)!=0 {
+                    assignment|=1u64<<var;
+                }
+            }
+            let mut output=0;
+            for (q,terms) in ps.f.functions.iter().enumerate() {
+                let parity=terms.iter().fold(false,|acc,monomial|
+                    acc^truth(monomial,assignment));
+                if parity {output|=1usize<<q;}
+            }
+            assert!(output<4);
+            let mut phase=rat(0,1);
+            for (monomial,coefficient) in &ps.p.terms {
+                assert!(coefficient.radians.is_none());
+                assert!(coefficient.symbols.is_empty());
+                if truth(monomial,assignment) {
+                    phase+=rat(coefficient.constant.numer as i128,
+                        coefficient.constant.denom as i128);
+                }
+            }
+            matrix[output][input].sum_with(normalization(
+                root_of_unity(phase),fresh.len()));
+        }
+    }
+    matrix
+}
+fn matrix4_diagonal(values:[Q8;4])->M4 {
+    std::array::from_fn(|r|std::array::from_fn(|c|
+        if r==c {values[r].clone()} else {Q8::zero()}))
+}
+fn matrix4_identity()->M4 {
+    matrix4_diagonal([Q8::one(),Q8::one(),Q8::one(),Q8::one()])
+}
+fn matrix4_controlled_target(target:&M2)->M4 {
+    // Source basis |q1 q0>. q1 is control, q0 the target.
+    std::array::from_fn(|r|std::array::from_fn(|c|{
+        if r<2&&c<2 {
+            if r==c {Q8::one()}else{Q8::zero()}
+        }else if r>=2&&c>=2 {
+            target[r-2][c-2].clone()
+        }else {Q8::zero()}
+    }))
+}
+#[test]
+fn observed_native_two_qubit_controlled_global_phase_witness() {
+    let ctrl_minus_identity=matrix4_controlled_target(&negative_identity());
+    let source="OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\np(pi) q[1];\n";
+    let native=matrix4_from_native_source(source);
+    assert_eq!(native,ctrl_minus_identity,
+        "physical controlled -I must be equivalent to Z on the control");
+    assert_ne!(native,matrix4_identity());
+    println!("NATIVE_TWOQ_CONTROLLED_MINUS_I_MATRIX_EXACT=true");
+
+    let plus="OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[1];\np(pi) q[1];\nh q[1];\n";
+    let minus="OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[1];\nh q[1];\n";
+    let phase_kept=matrix4_from_native_source(plus);
+    let phase_erased=matrix4_from_native_source(minus);
+    // H Z H = X on the control; for input |00>, bad effect |10><10|.
+    assert_eq!(phase_kept[2][0],Q8::one());
+    assert_eq!(phase_erased[2][0],Q8::zero());
+    let risk_kept=phase_kept[2][0].multiplied_by(
+        &conjugate_q8(&phase_kept[2][0]));
+    let risk_erased=phase_erased[2][0].multiplied_by(
+        &conjugate_q8(&phase_erased[2][0]));
+    assert_eq!(risk_kept,Q8::one());
+    assert_eq!(risk_erased,Q8::zero());
+    println!("NATIVE_TWOQ_PHASE_CONTEXT_BAD_RISK retained=1 erased=0");
+}
+#[test]
+fn observed_native_modifier_admission_separate_from_decomposition() {
+    let source="OPENQASM 3.0;\nqubit[2] q;\nctrl @ U(2*pi,0,0) q[1], q[0];";
+    let native= parse_qasm_str(source);
+    assert!(native.is_err(),"modifier requires a separate source validator");
+    println!("NATIVE_QASM_CTRL_MODIFIER_CURRENTLY_UNSUPPORTED=true");
+}
+#[test]
+fn observed_typed_phase_equivalence_not_control_congruence() {
+    let a=identity();
+    let b=negative_identity();
+    // A and B have equal channels but not equal strict matrices.
+    assert_ne!(a,b);
+    let ca=matrix4_controlled_target(&a);
+    let cb=matrix4_controlled_target(&b);
+    assert_ne!(ca,cb);
+    assert_eq!(ca,matrix4_identity());
+    assert_eq!(cb,matrix4_diagonal([
+        Q8::one(),Q8::one(),Q8::real(-1),Q8::real(-1)]));
+    println!("PHASE_EQ_NOT_CONGRUENT_UNDER_CONTROL=true");
+}

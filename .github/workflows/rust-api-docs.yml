@@ -520,6 +520,9 @@ jobs:
 
   versioned-dev-deploy:
     name: Publish isolated /docs/dev site from reviewed Rustdoc
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
     needs: generated-reference
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04

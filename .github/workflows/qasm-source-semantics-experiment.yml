@@ -129,6 +129,46 @@ jobs:
           test "$status" -eq 4
           grep -x 'INVALID_PROOF' evidence/p8c1-cross-binary-forged.log
           echo 'P8C1_STANDALONE_CROSS_BINARY=4 exact_pass; 1 invalid_proof_rejected'
+          # Explicitly separate parser failures from proof failures and
+          # resource exhaustion. These are typed exit codes, not PROVED.
+          printf 'OPENQASM 3.1;\n' > evidence/p8c1-unsupported.qasm
+          printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[0] q;\n' \
+            > evidence/p8c1-invalid.qasm
+          head -c 1048577 /dev/zero > evidence/p8c1-overlimit.p8c1
+          head -c 32769 /dev/zero > evidence/p8c1-overlimit.qasm
+          head -c 60 evidence/p8c1-fixtures/h-cx-t.p8c1 \
+            > evidence/p8c1-truncated.p8c1
+          check_reject() {
+            expected_label="$1"; expected_code="$2"; shift 2
+            set +e
+            evidence/p8c1-checker "$@" > evidence/p8c1-typed-negative-last.log
+            actual_code=$?
+            set -e
+            test "$actual_code" -eq "$expected_code"
+            grep -x "$expected_label" evidence/p8c1-typed-negative-last.log
+          }
+          check_reject UNSUPPORTED_SOURCE 3 \
+            evidence/p8c1-unsupported.qasm evidence/p8c1-fixtures/h-cx-t.p8c1
+          check_reject INVALID_SOURCE 2 \
+            evidence/p8c1-invalid.qasm evidence/p8c1-fixtures/h-cx-t.p8c1
+          check_reject UNKNOWN_RESOURCE 5 \
+            evidence/p8c1-fixtures/h-cx-t.qasm evidence/p8c1-overlimit.p8c1
+          check_reject UNKNOWN_RESOURCE 5 \
+            evidence/p8c1-overlimit.qasm evidence/p8c1-fixtures/h-cx-t.p8c1
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-cx-t.qasm evidence/p8c1-truncated.p8c1
+          echo 'P8C1_TYPED_NEGATIVES=5 exact_classes=true'
+          if test -x /usr/bin/time; then
+            /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \
+              -o evidence/p8c1-standalone-resource-pilot.log \
+              evidence/p8c1-checker \
+                evidence/p8c1-fixtures/structural-16q.qasm \
+                evidence/p8c1-fixtures/structural-16q.p8c1
+            cat evidence/p8c1-standalone-resource-pilot.log
+          else
+            echo 'P8C1_PILOT_RSS=UNAVAILABLE' > evidence/p8c1-standalone-resource-pilot.log
+          fi
+
 
       - name: Check independent source semantics and gate-prefix certificates
         run: |
@@ -194,3 +234,31 @@ jobs:
           path: evidence/
           if-no-files-found: ignore
           retention-days: 7
+
+
+  standalone-no-native-prerequisites:
+    name: Standalone P8C1 verifier without QuPRS/Cargo/native libraries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact experiment revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Install stable Rust only
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build and test std-only independent verifier
+        run: |
+          set -euo pipefail
+          rustc --version
+          rustc --edition=2021 --test rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone-unit
+          /tmp/p8c1-standalone-unit --nocapture
+          rustc --edition=2021 rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone
+          set +e
+          /tmp/p8c1-standalone > /tmp/p8c1-no-input.log
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -x INVALID_SOURCE /tmp/p8c1-no-input.log
+          echo 'P8C1_STDALONE_NO_CARGO=4_tests_pass'

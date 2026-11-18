@@ -9,6 +9,8 @@ use std::process::ExitCode;
 mod two_copy_wmc;
 #[path = "p8c1_two_copy_cnf.rs"]
 mod two_copy_cnf;
+#[path = "p8c1_two_copy_structural.rs"]
+mod two_copy_structural;
 #[cfg(test)]
 #[path = "p8c1_dense_oracle.rs"]
 mod dense_oracle;
@@ -962,24 +964,26 @@ fn main()->ExitCode {
         let result=(||{
             let src=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
             let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
-            let evidence=read_limited(&paths[2],12_000,Error::InvalidProof)?;
+            let evidence=read_limited(&paths[2],65_536,Error::InvalidProof)?;
             if evidence.starts_with(b"C8C1") {
                 let (models,enumerated)=two_copy_cnf::verify(&src,&proof,&evidence)?;
                 if models!=enumerated {return Err(Error::InvalidProof);}
-                Ok((true,models))
+                Ok((0u8,models))
+            } else if evidence.starts_with(b"S8C1"){
+                let models=two_copy_structural::verify(&src,&proof,&evidence)?;
+                Ok((1u8,models))
             } else {
                 let w=two_copy_wmc::verify_w8c1(&src,&proof,&evidence)?;
-                Ok((false,w.buckets))
+                Ok((2u8,w.buckets))
             }
         })();
         return match result {
-            Ok((is_cnf,counts))=>{
-                if is_cnf {
-                    println!("SCOPED_TWO_COPY_CNF_EXHAUSTIVE buckets=8 checked_models={} source_trust=BLOCKED",
-                        counts.iter().map(|&x|x as usize).sum::<usize>());
-                } else {
-                    println!("SCOPED_TWO_COPY_WMC_ENUM_EXACT buckets=8 total_weighted_pairs={} source_trust=BLOCKED",
-                        counts.iter().map(|&x|x as usize).sum::<usize>());
+            Ok((kind,counts))=>{
+                let total=counts.iter().map(|&x|x as usize).sum::<usize>();
+                match kind {
+                    0=>println!("SCOPED_TWO_COPY_CNF_EXHAUSTIVE buckets=8 checked_models={total} source_trust=BLOCKED"),
+                    1=>println!("SCOPED_TWO_COPY_STRUCTURAL_UNIQUE_EXTENSION buckets=8 checked_models={total} source_trust=BLOCKED"),
+                    _=>println!("SCOPED_TWO_COPY_WMC_ENUM_EXACT buckets=8 total_weighted_pairs={total} source_trust=BLOCKED"),
                 }
                 ExitCode::SUCCESS
             }
@@ -1446,6 +1450,71 @@ mod tests {
         ).unwrap();
         let claim=encode_p8g1_claim(source,&proof,sp,&gram);
         (proof,claim,gram,spec)
+    }
+    #[test]
+    fn s8c1_structural_unique_auxiliary_extension_exact_vs_blocking(){
+        let (source,proof)=example_h();
+        let (_,state)=replay_state(&source,&proof).unwrap();
+        let bytes=two_copy_structural::encode(&source,&proof,&state,0,1,1).unwrap();
+        assert_eq!(
+            two_copy_structural::verify(&source,&proof,&bytes),
+            Ok([1,0,0,0,0,0,0,0])
+        );
+        let reference=two_copy_cnf::build(&state,0,1,1).unwrap();
+        assert_eq!(
+            two_copy_cnf::count_models(&reference).unwrap(),
+            two_copy_structural::verify(&source,&proof,&bytes).unwrap()
+        );
+        for i in [0,4,36,68,70,80,81,bytes.len()/2,bytes.len()-1]{
+            let mut forged=bytes.clone();forged[i]^=1;
+            assert_eq!(two_copy_structural::verify(&source,&proof,&forged),
+                Err(Error::InvalidProof));
+        }
+        println!("S8C1_EXACT_H source_bound=true unique_extension=true buckets=8 exact_model_count=1 forged_9_rejected=true certificate_bytes={}",bytes.len());
+    }
+    #[test]
+    fn s8c1_structural_sampled_two_copy_phase_correctness(){
+        // The XOR path expressions and nontrivial Z8 phase coefficients are
+        // interpreted by an independent exhaustive bucket/Boolean oracle.
+        let examples=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nt q[0];\nh q[1];\ncz q[0],q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[3] q;\nh q[0];\ncx q[0],q[2];\nh q[1];\nt q[2];\ns q[1];\n".as_slice(),
+        ];
+        let mut total=0;
+        for source in examples {
+            let(n,_)=parse_source(source).unwrap();
+            let (proof,state)=source_proof_and_state(source);
+            let dimension=1usize<<n;
+            for &(first,second) in &[(0,0),(0,1),(1,0),(1,1)] {
+                for bad in [1u64,1u64<<(dimension-1), (1u64<<dimension)-1]{
+                    let bytes=two_copy_structural::encode(source,&proof,&state,first,second,bad).unwrap();
+                    let structural=two_copy_structural::verify(source,&proof,&bytes).unwrap();
+                    let reference=two_copy_cnf::count_models(
+                        &two_copy_cnf::build(&state,first,second,bad).unwrap()
+                    ).unwrap();
+                    assert_eq!(structural,reference);
+                    total+=1;
+                }
+            }
+        }
+        assert_eq!(total,36);
+        println!("S8C1_STRUCTURAL_DIFFERENTIAL obligations={total} unique_extension=true all_eight_buckets_match=true");
+    }
+    #[test]
+    fn s8c1_export_external_producer_fixtures_when_requested(){
+        let Ok(dir)=std::env::var("S8C1_FIXTURE_DIR") else {return;};
+        let src=std::fs::read(format!("{dir}/h-1q.qasm")).unwrap();
+        let proof=std::fs::read(format!("{dir}/h-1q.p8c1")).unwrap();
+        let (_,state)=replay_state(&src,&proof).unwrap();
+        let bytes=two_copy_structural::encode(&src,&proof,&state,0,1,1).unwrap();
+        assert_eq!(two_copy_structural::verify(&src,&proof,&bytes).unwrap(),
+            [1,0,0,0,0,0,0,0]);
+        std::fs::write(format!("{dir}/h-1q.s8c1"),&bytes).unwrap();
+        let mut corrupted=bytes.clone();
+        corrupted[bytes.len()/2]^=1;
+        std::fs::write(format!("{dir}/h-1q-forged.s8c1"),&corrupted).unwrap();
+        println!("S8C1_EXPORTED real_native_source=true root_bucket=0 proof_bytes={}",bytes.len());
     }
     #[test]
     fn checked_surd_psd_overflow_returns_unknown_not_a_proof(){

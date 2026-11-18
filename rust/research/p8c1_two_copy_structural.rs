@@ -263,7 +263,11 @@ pub(super) fn verify(src:&[u8],proof:&[u8],bytes:&[u8])->Check<[u16;8]>{
     }
     let (_,state)=replay_state(src,proof)?;
     if state.paths!=h{return Err(Error::InvalidProof);}
-    let expected=encode(src,proof,&state,first,second,bad)?;
+    // Invalid indices or bad-output masks in an untrusted serialized
+    // claim are INVALID_PROOF, not errors attributed to the admitted source.
+    let expected=encode(src,proof,&state,first,second,bad).map_err(|e|
+        if e==Error::InvalidSource {Error::InvalidProof}else{e}
+    )?;
     // The complete deterministic gate DAG, including every structural
     // definition, is bound to a fresh independent source replay. Reject
     // dummy, orphan, reordered or noncanonical auxiliary variables.

@@ -57,7 +57,7 @@ fn ingest(
     index.insert(node,id);
     Ok(id)
 }
-pub(super) fn emit(src:&[u8],proof:&[u8],structure:&[u8])->Check<Vec<u8>>{
+pub(super) fn emit_via_exhaustive_tree(src:&[u8],proof:&[u8],structure:&[u8])->Check<Vec<u8>>{
     let circuit=two_copy_structural::verify_schema_without_enumeration(
         src,proof,structure
     )?;
@@ -96,6 +96,85 @@ pub(super) fn emit(src:&[u8],proof:&[u8],structure:&[u8])->Check<Vec<u8>>{
 }
 // Separate, conservative Kleene evaluator. It deliberately does NOT
 // reuse D8C1's partial_bucket or trust its emitter's leaf decisions.
+
+// A *non-exhaustive* producer. Only evaluate the partially bound,
+// deterministic S8C1 Boolean DAG; a certified whole cube is a leaf.
+// Remaining undecidable cubes are partitioned using Shannon branching.
+// Hash-cons identical depth/count/child nodes for all eight buckets.
+// The generator can still take exponential time in the worst case,
+// but never constructs the 2^(2h) truth table or a D8C1 tree.
+fn generate_symbolic_node(
+    circuit:&Structural,bucket:usize,depth:usize,prefix:usize,
+    nodes:&mut Vec<Node>,interner:&mut BTreeMap<Node,u16>,
+    visits:&mut usize,
+)->Check<u16>{
+    *visits=visits.checked_add(1).ok_or(Error::UnknownResource)?;
+    // Visits include duplicate contextual checks, not just canonical nodes.
+    if *visits>MAX_NODES{return Err(Error::UnknownResource);}
+    let (tag,count,left,right)=match partial(circuit,bucket,depth,prefix)?{
+        Some(false)=>(0u8,0u16,INVALID,INVALID),
+        Some(true)=>{
+            let amount=1usize<<circuit.primary.saturating_sub(depth);
+            (1u8,u16::try_from(amount).map_err(|_|Error::UnknownResource)?,
+                INVALID,INVALID)
+        }
+        None=>{
+            if depth>=circuit.primary{return Err(Error::InvalidProof);}
+            let l=generate_symbolic_node(circuit,bucket,depth+1,prefix,
+                nodes,interner,visits)?;
+            let r=generate_symbolic_node(circuit,bucket,depth+1,
+                prefix|(1usize<<depth),nodes,interner,visits)?;
+            let a=nodes.get(l as usize).ok_or(Error::InvalidProof)?.count;
+            let b=nodes.get(r as usize).ok_or(Error::InvalidProof)?.count;
+            let sum=a.checked_add(b).ok_or(Error::UnknownResource)?;
+            (2u8,sum,l,r)
+        }
+    };
+    let node=Node{
+        tag,depth:depth as u8,count,left,right
+    };
+    if let Some(&id)=interner.get(&node){return Ok(id);}
+    if nodes.len()>=MAX_NODES{return Err(Error::UnknownResource);}
+    let id=u16::try_from(nodes.len()).map_err(|_|Error::UnknownResource)?;
+    nodes.push(node);
+    interner.insert(node,id);
+    Ok(id)
+}
+pub(super) fn emit(src:&[u8],proof:&[u8],structure:&[u8])->Check<Vec<u8>>{
+    let circuit=two_copy_structural::verify_schema_without_enumeration(
+        src,proof,structure
+    )?;
+    if circuit.primary>8{return Err(Error::UnknownResource);}
+    let mut nodes=Vec::new();
+    let mut intern=BTreeMap::new();
+    let mut roots=[0u16;8];
+    let mut visits=0usize;
+    for (bucket,root) in roots.iter_mut().enumerate(){
+        *root=generate_symbolic_node(
+            &circuit,bucket,0,0,&mut nodes,&mut intern,&mut visits
+        )?;
+    }
+    let mut out=Vec::with_capacity(HEADER+8*nodes.len()+16);
+    out.extend_from_slice(MAGIC);
+    out.extend_from_slice(&sha256(src));
+    out.extend_from_slice(&sha256(proof));
+    out.extend_from_slice(&sha256(structure));
+    out.push(circuit.primary as u8);
+    out.extend_from_slice(
+        &u16::try_from(nodes.len()).map_err(|_|Error::UnknownResource)?.to_le_bytes()
+    );
+    for node in nodes{
+        out.push(node.tag);
+        out.push(node.depth);
+        out.extend_from_slice(&node.count.to_le_bytes());
+        out.extend_from_slice(&node.left.to_le_bytes());
+        out.extend_from_slice(&node.right.to_le_bytes());
+    }
+    for id in roots{out.extend_from_slice(&id.to_le_bytes());}
+    if out.len()>MAX_BYTES{return Err(Error::UnknownResource);}
+    Ok(out)
+}
+
 fn partial(
     c:&Structural,bucket:usize,depth:usize,prefix:usize
 )->Check<Option<bool>>{
@@ -257,6 +336,31 @@ pub(super) fn verify(
 mod tests {
     use super::*;
     use super::two_copy_structural::Gate;
+    #[test]
+    fn nonenumerative_symbolic_emitter_matches_exhaustive_producer(){
+        let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n";
+        let (proof,state)=super::super::tests::source_proof_and_state(src);
+        let mut count=0;
+        for first in 0..2 {
+            for second in 0..2 {
+                for bad in [1u64,2,3] {
+                    let structural=two_copy_structural::encode(
+                        src,&proof,&state,first,second,bad).unwrap();
+                    let symbolic=emit(src,&proof,&structural).unwrap();
+                    let exhaustive=emit_via_exhaustive_tree(src,&proof,&structural).unwrap();
+                    let actual=verify(src,&proof,&structural,&symbolic).unwrap();
+                    let independent=verify(src,&proof,&structural,&exhaustive).unwrap();
+                    assert_eq!(actual.buckets,independent.buckets);
+                    // Canonical hash-consing and choice of split variable
+                    // should make the signed byte representation identical.
+                    assert_eq!(symbolic,exhaustive);
+                    count+=1;
+                }
+            }
+        }
+        assert_eq!(count,12);
+        println!("M8D1_NONENUMERATIVE_PRODUCER tests={count} exact_bytes_equal_exhaustive=true");
+    }
     #[test]
     fn independent_partial_boolean_evaluator_is_conservative(){
         let c=Structural{

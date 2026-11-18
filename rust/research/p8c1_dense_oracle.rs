@@ -50,7 +50,7 @@ fn parse_source(bytes:&[u8])->Result<(usize,Vec<DenseGate>),String>{
             return Err("noncanonical wire delimiters".into());
         }
         let unary=||read_wire(operands,n);
-        let binary=||{
+        let binary=|| -> Result<(usize,usize),String> {
             let (a,b)=operands.split_once(',').ok_or("missing binary operands")?;
             let c=read_wire(a,n)?;
             let t=read_wire(b,n)?;

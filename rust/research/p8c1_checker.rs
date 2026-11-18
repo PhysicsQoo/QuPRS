@@ -1069,4 +1069,121 @@ mod tests {
         println!("P8S1_BASIS_VS_SPAN basis_only_sat=true superposition_violates=true no_span_claim=true");
     }
 
+
+    fn coherent_spec(
+        n:usize,span_mask:u64,bad:u64,num:usize,den:usize
+    )->Vec<u8>{
+        format!("SCG1\nn={n}\nspan_basis=0x{span_mask:016x}\nbasis_bad=0x{bad:016x}\ndelta={num}/{den}\n").into_bytes()
+    }
+    fn source_proof_and_state(source:&[u8])->(Vec<u8>,State){
+        let(n,gates)=parse_source(source).unwrap();
+        let mut state=State{
+            n,paths:0,
+            outputs:(0..n).map(|i|BTreeSet::from([1u64<<i])).collect(),
+            phase:Phase::new(),
+        };
+        let mut fuel=Fuel{remaining:MAX_UPDATES};
+        let mut frames=Vec::new();
+        for gate in gates{
+            evolve(&mut state,gate,&mut fuel).unwrap();
+            frames.push(state.clone());
+        }
+        (write_proof(source,n,&frames),state)
+    }
+    fn coherent_fixture(
+        source:&[u8],sp:&[u8]
+    )->(Vec<u8>,[u8;P8G1_BYTES],CoherentGram,CoherentSpanSpec){
+        let (proof,state)=source_proof_and_state(source);
+        let spec=parse_scg1_spec(sp).unwrap();
+        let gram=path_coherent_gram(
+            &state,spec.first,spec.second,spec.bad_mask
+        ).unwrap();
+        let claim=encode_p8g1_claim(source,&proof,sp,&gram);
+        (proof,claim,gram,spec)
+    }
+    #[test]
+    fn coherent_rank_two_gram_psd_exact_and_mutations(){
+        let (src,_) = example_h();
+        let spec_half=coherent_spec(1,3,1,1,2);
+        let(proof,claim,gram,parsed)=coherent_fixture(&src,&spec_half);
+        assert_eq!(gram.diag0,(1,0));
+        assert_eq!(gram.diag1,(1,0));
+        assert_eq!(gram.off,[1,0,0,0]);
+        assert_eq!(gram.h,1);
+        assert_eq!(verify_p8g1_coherent(&src,&proof,&spec_half,&claim),
+            Ok(CoherentVerdict::ScopedViolated{reason:"negative_determinant"}));
+        assert_eq!(gram_psd_verdict(&gram,&parsed),
+            CoherentVerdict::ScopedViolated{reason:"negative_determinant"});
+        let spec_full=coherent_spec(1,3,1,1,1);
+        let (proof_full,claim_full,_,_)=coherent_fixture(&src,&spec_full);
+        assert_eq!(verify_p8g1_coherent(&src,&proof_full,&spec_full,&claim_full),
+            Ok(CoherentVerdict::ScopedSatisfied));
+        let spec_zero=coherent_spec(1,3,1,0,1);
+        let(proof_zero,claim_zero,_,_)=coherent_fixture(&src,&spec_zero);
+        assert_eq!(verify_p8g1_coherent(&src,&proof_zero,&spec_zero,&claim_zero),
+            Ok(CoherentVerdict::ScopedViolated{reason:"negative_diagonal_0"}));
+        // All 1-bit changes of an accepted Gram claim must fail closed.
+        let mut changes=0usize;
+        for index in 0..claim_full.len(){
+            for shift in 0..8 {
+                let mut forged=claim_full;
+                forged[index]^=1u8<<shift;
+                assert!(verify_p8g1_coherent(&src,&proof_full,&spec_full,&forged).is_err(),
+                    "rank-two certificate single-bit mutation admitted at {index}:{shift}");
+                changes+=1;
+            }
+        }
+        assert_eq!(changes,P8G1_BYTES*8);
+        let mut bad=claim_full;
+        bad[112]^=1;
+        assert_eq!(verify_p8g1_coherent(&src,&proof_full,&spec_full,&bad),
+            Err(Error::InvalidProof));
+        assert_eq!(verify_p8g1_coherent(&src,&proof_full,&spec_half,&claim_full),
+            Err(Error::InvalidProof));
+        let wrong=coherent_spec(1,1,1,1,1);
+        assert_eq!(parse_scg1_spec(&wrong).unwrap_err(),Error::InvalidSource);
+        let wrong=coherent_spec(1,3,1,2,4);
+        assert_eq!(parse_scg1_spec(&wrong).unwrap_err(),Error::InvalidSource);
+        println!("P8G1_RANK2_H_EXACT diag=1,1 off=1 h=1 delta_half=violation_det delta_one=sat delta_zero=negative_diagonal mutations={changes} accepted=0");
+    }
+    #[test]
+    fn coherent_rank_two_surds_and_independent_dense_gram(){
+        let corpus=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nt q[0];\ns q[1];\ncz q[0],q[1];\n".as_slice(),
+        ];
+        let mut cases=0;
+        for src in corpus {
+            let(n,_)=parse_source(src).unwrap();
+            let (proof,state)=source_proof_and_state(src);
+            let span=3u64;
+            let first=0;
+            let second=1;
+            let bad=if n==1{1u64}else{9u64};
+            let gram=path_coherent_gram(&state,first,second,bad).unwrap();
+            let dense=dense_oracle::coherent_gram(src,first,second,bad).unwrap();
+            assert_eq!(
+                ((gram.diag0.0 as i128,gram.diag0.1 as i128),
+                 (gram.diag1.0 as i128,gram.diag1.1 as i128),
+                 gram.off.map(|x|x as i128),gram.h as usize),
+                dense
+            );
+            for (num,den) in [(0,1),(1,8),(1,4),(1,2),(1,1)]{
+                let spec=coherent_spec(n,span,bad,num,den);
+                let parsed=parse_scg1_spec(&spec).unwrap();
+                let claim=encode_p8g1_claim(src,&proof,&spec,&gram);
+                let actual=verify_p8g1_coherent(src,&proof,&spec,&claim).unwrap();
+                assert_eq!(
+                    actual==CoherentVerdict::ScopedSatisfied,
+                    dense_oracle::coherent_psd(dense,num as i128,den as i128)
+                );
+                assert_eq!(actual,gram_psd_verdict(&gram,&parsed));
+            }
+            cases+=1;
+        }
+        assert_eq!(cases,3);
+        println!("P8G1_DENSE_GRAM_EXACT circuits={cases} risk_thresholds=15 all_match=true");
+    }
+
 }

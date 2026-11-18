@@ -449,13 +449,23 @@ fn proof_bound_bytes(source:&[u8],proof:&[u8],spec:&[u8]) -> [u8;P8S1_BYTES] {
 }
 // Returns true iff C + D sqrt(2) <= 0, using only integer arithmetic.
 // Cap on n/path count and fraction denominator ensures no i128 overflow.
-fn nonpositive_quadratic(C:i128,D:i128)->bool{
-    if C==0 {return D<=0;}
-    if D==0 {return C<=0;}
-    if C>0 && D>0 {return false;}
-    if C<0 && D<0 {return true;}
-    if C>0 {C*C<=2*D*D}
-    else {2*D*D<=C*C}
+// Exact sign in Z[sqrt(2)], but an i128 overflow is UNKNOWN, never
+// a panic, a wrapped comparison, or a claimed proof verdict.
+fn checked_nonpositive_quadratic(c:i128,d:i128)->Check<bool>{
+    if c==0 {return Ok(d<=0);}
+    if d==0 {return Ok(c<=0);}
+    if c>0 && d>0 {return Ok(false);}
+    if c<0 && d<0 {return Ok(true);}
+    let c_squared=c.checked_mul(c).ok_or(Error::UnknownResource)?;
+    let twice_d_squared=d.checked_mul(d)
+        .and_then(|v|v.checked_mul(2)).ok_or(Error::UnknownResource)?;
+    Ok(if c>0 {c_squared<=twice_d_squared} else {twice_d_squared<=c_squared})
+}
+fn checked_nonnegative_quadratic(c:i128,d:i128)->Check<bool>{
+    Ok(checked_nonpositive_quadratic(
+        c.checked_neg().ok_or(Error::UnknownResource)?,
+        d.checked_neg().ok_or(Error::UnknownResource)?
+    )?)
 }
 fn evaluate_monomial(mask:u64,bits:u64)->bool { bits&mask==mask }
 // Computes exact squared norms in Z[sqrt(2)] / 2^h. Every path
@@ -515,7 +525,7 @@ fn verify_spb1_property(
         // risk = (A+B sqrt(2))/2^paths, compare to rational delta.
         let c=spec.delta_den*A-spec.delta_num*(1i128<<state.paths);
         let d=spec.delta_den*B;
-        if !nonpositive_quadratic(c,d) {
+        if !checked_nonpositive_quadratic(c,d)? {
             return Ok(PropertyVerdict::ScopedViolated{input_basis:input});
         }
     }
@@ -650,27 +660,27 @@ fn path_coherent_gram(
 // Rank-two Hermitian PSD equivalence: d0>=0, d1>=0, det>=0.
 // All comparisons are exact integers in Z[sqrt(2)] after clearing
 // the positive common denominator (delta_den*2^h).
-fn gram_psd_verdict(gram:&CoherentGram,spec:&CoherentSpanSpec)->CoherentVerdict{
-    let (num,den)=(spec.delta_num,spec.delta_den);
-    let scale=1i128<<gram.h;
-    let(c0,d0)=(num*scale-den*(gram.diag0.0 as i128),-den*(gram.diag0.1 as i128));
-    let(c1,d1)=(num*scale-den*(gram.diag1.0 as i128),-den*(gram.diag1.1 as i128));
-    let nonneg=|c:i128,d:i128|nonpositive_quadratic(-c,-d);
-    if !nonneg(c0,d0){
-        return CoherentVerdict::ScopedViolated{reason:"negative_diagonal_0"};
+fn gram_psd_verdict(gram:&CoherentGram,spec:&CoherentSpanSpec)->Check<CoherentVerdict>{
+    // Exactly the same algebraic PSD obligation as before, but all
+    // multiplications, additions and signed-surd comparisons are checked.
+    // If fixed-width exact arithmetic cannot decide a case, fail closed.
+    let(a,b,c)=scalar_gram_matrix(gram,spec)?;
+    if !checked_nonnegative_quadratic(a.0,a.1)? {
+        return Ok(CoherentVerdict::ScopedViolated{reason:"negative_diagonal_0"});
     }
-    if !nonneg(c1,d1){
-        return CoherentVerdict::ScopedViolated{reason:"negative_diagonal_1"};
+    if !checked_nonnegative_quadratic(b.0,b.1)? {
+        return Ok(CoherentVerdict::ScopedViolated{reason:"negative_diagonal_1"});
     }
-    let z=gram.off.map(|a|a as i128);
-    let off_norm_a=z.iter().map(|v|v*v).sum::<i128>();
-    let off_norm_b=z[0]*(z[1]-z[3])+z[2]*(z[1]+z[3]);
-    let det_a=c0*c1+2*d0*d1-den*den*off_norm_a;
-    let det_b=c0*d1+d0*c1-den*den*off_norm_b;
-    if !nonneg(det_a,det_b){
-        return CoherentVerdict::ScopedViolated{reason:"negative_determinant"};
+    let product=real_mul(a,b)?;
+    let off_squared=root_norm(c)?;
+    let determinant=(
+        product.0.checked_sub(off_squared.0).ok_or(Error::UnknownResource)?,
+        product.1.checked_sub(off_squared.1).ok_or(Error::UnknownResource)?,
+    );
+    if !checked_nonnegative_quadratic(determinant.0,determinant.1)? {
+        return Ok(CoherentVerdict::ScopedViolated{reason:"negative_determinant"});
     }
-    CoherentVerdict::ScopedSatisfied
+    Ok(CoherentVerdict::ScopedSatisfied)
 }
 fn encode_p8g1_claim(
     source:&[u8],proof:&[u8],spec:&[u8],gram:&CoherentGram
@@ -720,7 +730,7 @@ fn verify_p8g1_coherent(
     let computed=path_coherent_gram(&state,spec.first,spec.second,spec.bad_mask)?;
     let provided=CoherentGram{n,h,first,second,bad_mask:bad,diag0,diag1,off};
     if provided!=computed {return Err(Error::InvalidProof);}
-    Ok(gram_psd_verdict(&provided,&spec))
+    gram_psd_verdict(&provided,&spec)
 }
 
 // P8W1: separate source/spec/P8C1/P8G1-bound *constructive* violating
@@ -817,7 +827,7 @@ fn coherent_witness_quadratic(
     let v=w.input1.map(|v|v as i128);
     let norm=real_add(root_norm(u)?,root_norm(v)?)?;
     let actual_norm=(w.norm.0 as i128,w.norm.1 as i128);
-    if norm!=actual_norm || nonpositive_quadratic(norm.0,norm.1){
+    if norm!=actual_norm || checked_nonpositive_quadratic(norm.0,norm.1)?{
         return Err(Error::InvalidProof);
     }
     let cross=root_mul(root_mul(root_conj(u)?,c)?,v)?;
@@ -829,15 +839,15 @@ fn coherent_witness_quadratic(
     Ok((norm,quadratic))
 }
 fn derive_coherent_witness(g:&CoherentGram,s:&CoherentSpanSpec)->Check<Witness>{
-    if gram_psd_verdict(g,s)==CoherentVerdict::ScopedSatisfied{
+    if gram_psd_verdict(g,s)?==CoherentVerdict::ScopedSatisfied{
         return Err(Error::InvalidProof);
     }
     let (a,b,c)=scalar_gram_matrix(g,s)?;
     let basis=[1i128,0,0,0];
     let zero=[0i128;4];
-    let (u,v)=if !nonpositive_quadratic(-a.0,-a.1){
+    let (u,v)=if !checked_nonnegative_quadratic(a.0,a.1)?{
         (basis,zero)
-    }else if !nonpositive_quadratic(-b.0,-b.1){
+    }else if !checked_nonnegative_quadratic(b.0,b.1)?{
         (zero,basis)
     }else{
         // If a>0, w=(-c,a) has w†D'w=a*det(D')<0.
@@ -847,7 +857,7 @@ fn derive_coherent_witness(g:&CoherentGram,s:&CoherentSpanSpec)->Check<Witness>{
             (root_neg(c)?,real_to_root(a)?)
         }else{
             let q=root_norm(c)?;
-            if nonpositive_quadratic(q.0,q.1){return Err(Error::InvalidProof);}
+            if checked_nonpositive_quadratic(q.0,q.1)?{return Err(Error::InvalidProof);}
             let factor=real_add(b,q)?;
             (root_neg(root_mul(c,real_to_root(factor)?)?)?,real_to_root(q)?)
         }
@@ -862,7 +872,7 @@ fn derive_coherent_witness(g:&CoherentGram,s:&CoherentSpanSpec)->Check<Witness>{
         norm:(checked_i64(norm.0)?,checked_i64(norm.1)?)
     };
     let(_,quadratic)=coherent_witness_quadratic(g,s,&w)?;
-    if !nonpositive_quadratic(quadratic.0,quadratic.1)
+    if !checked_nonpositive_quadratic(quadratic.0,quadratic.1)?
         ||quadratic==(0,0){
         return Err(Error::InvalidProof);
     }
@@ -910,7 +920,7 @@ fn verify_p8w1_witness(
         off:[gc.i64()?,gc.i64()?,gc.i64()?,gc.i64()?]
     };
     let(_,quadratic)=coherent_witness_quadratic(&g,&spec,&w)?;
-    if !nonpositive_quadratic(quadratic.0,quadratic.1)
+    if !checked_nonpositive_quadratic(quadratic.0,quadratic.1)?
         ||quadratic==(0,0){
         return Err(Error::InvalidProof);
     }
@@ -1340,7 +1350,7 @@ mod tests {
                             for &(num,den) in &thresholds {
                                 let sp=coherent_spec(n,pre,bad,num,den);
                                 let parsed=parse_scg1_spec(&sp).unwrap();
-                                let verdict=gram_psd_verdict(&exact,&parsed);
+                                let verdict=gram_psd_verdict(&exact,&parsed).unwrap();
                                 let dense=dense_oracle::coherent_psd(
                                     independent,num as i128,den as i128
                                 );
@@ -1438,6 +1448,35 @@ mod tests {
         (proof,claim,gram,spec)
     }
     #[test]
+    fn checked_surd_psd_overflow_returns_unknown_not_a_proof(){
+        // In the older unguarded determinant check these would overflow
+        // i128, potentially panicking or wrapping the proof verdict.
+        assert_eq!(
+            checked_nonpositive_quadratic(i128::MAX,-i128::MAX),
+            Err(Error::UnknownResource)
+        );
+        assert_eq!(checked_nonpositive_quadratic(1,-1),Ok(true));
+        assert_eq!(checked_nonpositive_quadratic(2,-1),Ok(false));
+        assert_eq!(checked_nonnegative_quadratic(1,0),Ok(true));
+        assert_eq!(checked_nonnegative_quadratic(-1,0),Ok(false));
+        let spec=parse_scg1_spec(&coherent_spec(1,3,1,0,1)).unwrap();
+        let oversized=CoherentGram{
+            n:1,h:8,first:0,second:1,bad_mask:1,
+            diag0:(0,0),diag1:(0,0),
+            off:[i64::MAX,0,0,0]
+        };
+        assert_eq!(gram_psd_verdict(&oversized,&spec),Err(Error::UnknownResource));
+        let (src,_) = example_h();
+        let half=coherent_spec(1,3,1,1,2);
+        let (_,claim,gram,parsed)=coherent_fixture(&src,&half);
+        assert_eq!(claim.len(),P8G1_BYTES);
+        assert_eq!(
+            gram_psd_verdict(&gram,&parsed),
+            Ok(CoherentVerdict::ScopedViolated{reason:"negative_determinant"})
+        );
+        println!("P8G1_FIXED_PRECISION_OVERFLOW=unknown_resource no_wrapped_psd_claim=true");
+    }
+    #[test]
     fn coherent_rank_two_gram_psd_exact_and_mutations(){
         let (src,_) = example_h();
         let spec_half=coherent_spec(1,3,1,1,2);
@@ -1448,7 +1487,7 @@ mod tests {
         assert_eq!(gram.h,1);
         assert_eq!(verify_p8g1_coherent(&src,&proof,&spec_half,&claim),
             Ok(CoherentVerdict::ScopedViolated{reason:"negative_determinant"}));
-        assert_eq!(gram_psd_verdict(&gram,&parsed),
+        assert_eq!(gram_psd_verdict(&gram,&parsed).unwrap(),
             CoherentVerdict::ScopedViolated{reason:"negative_determinant"});
         let spec_full=coherent_spec(1,3,1,1,1);
         let (proof_full,claim_full,_,_)=coherent_fixture(&src,&spec_full);
@@ -1514,7 +1553,7 @@ mod tests {
                     actual==CoherentVerdict::ScopedSatisfied,
                     dense_oracle::coherent_psd(dense,num as i128,den as i128)
                 );
-                assert_eq!(actual,gram_psd_verdict(&gram,&parsed));
+                assert_eq!(actual,gram_psd_verdict(&gram,&parsed).unwrap());
             }
             cases+=1;
         }
@@ -1542,7 +1581,7 @@ mod tests {
                 &source,&proof,&spec_bytes,&gram_bytes,&encoded
             ).unwrap();
             assert_eq!(decoded,witness);
-            assert!(nonpositive_quadratic(gap.0,gap.1)&&gap!=(0,0));
+            assert!(checked_nonpositive_quadratic(gap.0,gap.1).unwrap()&&gap!=(0,0));
             let independent=dense_oracle::coherent_witness_excess(
                 &source,spec.first,spec.second,spec.bad_mask,
                 spec.delta_num,spec.delta_den,

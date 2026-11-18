@@ -51,7 +51,7 @@ pub fn diagnostics(path: &Path, overridden: bool) -> Result<String, String> {
 pub fn diagnostics_with_deadline(
     path: &Path,
     overridden: bool,
-    deadline: Option<std::time::Instant>,
+    deadline: Option<crate::clock::Instant>,
 ) -> Result<String, String> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -77,7 +77,7 @@ pub fn diagnostics_with_deadline(
     Ok(info)
 }
 
-fn uncached_diagnostics(path: &Path, overridden: bool, deadline: Option<std::time::Instant>) -> Result<String, String> {
+fn uncached_diagnostics(path: &Path, overridden: bool, deadline: Option<crate::clock::Instant>) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Ganak {}: {e}", path.display()))?;
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -87,8 +87,8 @@ fn uncached_diagnostics(path: &Path, overridden: bool, deadline: Option<std::tim
     if !overridden && !pinned { return Err(format!("Unverified packaged Ganak: sha256={hash}; rebuild QuPRS")); }
     // Ganak provenance is also a subprocess. Never bypass the bounded
     // cancellation policy through the --version preflight.
-    let version_timeout = std::time::Instant::now()
-        .checked_add(std::time::Duration::from_secs(10))
+    let version_timeout = crate::clock::Instant::now()
+        .checked_add(crate::clock::Duration::from_secs(10))
         .unwrap();
     let limit = deadline.map_or(version_timeout, |d| d.min(version_timeout));
     let mut command = std::process::Command::new(path);

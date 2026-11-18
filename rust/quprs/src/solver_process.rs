@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use crate::clock::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_STREAM_BYTES: usize = 1024 * 1024;
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn posix_timeout_kills_direct_child_and_grandchild() {
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use crate::clock::{SystemTime, UNIX_EPOCH};
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let marker = std::env::temp_dir().join(format!(

@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::time::Instant;
+use crate::clock::Instant;
 
 #[derive(Clone, Debug, Default)]
 struct Recorder {

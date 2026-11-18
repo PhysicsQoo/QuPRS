@@ -1,3 +1,4 @@
+mod clock { pub use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH}; }
 // rust/quprs/build.rs
 use std::env;
 use std::fs;

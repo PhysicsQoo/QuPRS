@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QuPRS — circuit comparison</title><link rel="stylesheet" href="style.css?v=20261115-clean-v3"></head>
+<body><main><header><h1>QuPRS</h1><p>Compare quantum circuits in your browser.</p><p class="paper"><a href="https://doi.org/10.1007/978-3-032-22749-2_21">Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting</a><br>TACAS 2026 · <a href="https://github.com/PhysicsQoo/QuPRS">QuPRS on GitHub</a></p></header>
+<form id="form"><fieldset id="inputs"><div class="circuits"><section><label for="left">Circuit A</label><textarea id="left" spellcheck="false">OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[1];
+h q[0];
+h q[0];</textarea><label class="file">Load QASM <input id="leftFile" type="file" accept=".qasm,.txt"></label></section><section><label for="right">Circuit B</label><textarea id="right" spellcheck="false">OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[1];</textarea><label class="file">Load QASM <input id="rightFile" type="file" accept=".qasm,.txt"></label></section></div>
+<div class="controls"><label>Mode<select id="mode"><option value="hybrid">Hybrid</option><option value="wmc">Weighted model counting</option><option value="reduction">Reduction only</option></select></label><label>Strategy<select id="strategy"><option value="difference">Difference</option><option value="proportional">Proportional</option><option value="naive">Naive</option><option value="straightforward">Straightforward</option></select></label><label>Distance tolerance<input id="epsilon" type="number" step="any" value="1e-8" min="0" max="1"></label></div>
+<details><summary>Reduction settings</summary><label>Reduction coefficient tolerance <input id="rr" type="number" step="any" value="1e-10" min="0"></label><p>Zero disables tolerance-based RR matching. This criterion is separate from the distance tolerance.</p></details>
+<div class="examples"><span>Examples:</span><button type="button" id="identity">H·H = I</button><button type="button" id="phase">Small phase difference</button><button type="button" id="cz">CZ decomposition</button></div></fieldset>
+<div class="actions"><button id="run" type="submit">Compare circuits</button><button id="stop" type="button" disabled>Stop</button><button id="download" type="button" disabled>Download report</button></div></form>
+<section class="result" aria-live="polite"><p id="state">Ready. Circuits stay on this device.</p><h2>Normalized Frobenius distance</h2><p id="distance" class="distance">—</p><p>Closer to <strong>0</strong> means the circuits are closer. Global phase is ignored.</p><p id="verdict"></p><p id="warning"></p><p id="timing"></p></section>
+<footer><a href="engines/sources/gpmc-mpfr-browser-source.tar.gz">Solver source and licenses</a></footer>
+</main><script type="module" src="app.js?v=20261115-clean-v3"></script></body></html>

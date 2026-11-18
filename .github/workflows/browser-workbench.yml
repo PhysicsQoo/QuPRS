@@ -1,0 +1,234 @@
+name: Browser workbench
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'rust/**'
+      - 'web/**'
+      - 'scripts/web/**'
+      - '.github/workflows/browser-workbench.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the validated playground subtree to the existing gh-pages branch
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: browser-workbench-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      QUPRS_WEB_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Native adapter and transport tests
+        run: |
+          set -euo pipefail
+          mkdir -p build-evidence
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --features browser-transport --lib browser_transport 2>&1 | tee build-evidence/transport-tests.log
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs-web 2>&1 | tee build-evidence/adapter-tests.log
+          cargo build --locked --manifest-path rust/Cargo.toml -p quprs-web --release --example native_check
+          cp rust/target/release/examples/native_check build-evidence/native-check
+          cp rust/Cargo.lock build-evidence/Cargo.lock
+      - name: Build actual QuPRS core as WebAssembly
+        run: |
+          cargo install wasm-bindgen-cli --locked --version 0.2.100
+          RUSTFLAGS='-C link-arg=--max-memory=536870912' cargo build --locked --manifest-path rust/Cargo.toml --release --target wasm32-unknown-unknown -p quprs-web
+          wasm-bindgen rust/target/wasm32-unknown-unknown/release/quprs_web.wasm --target web --out-dir web/pkg
+          cp rust/Cargo.lock build-evidence/Cargo.lock
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quprs-core
+          path: |
+            web/pkg
+            build-evidence
+  counter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '4.0.23'
+      - uses: actions/cache@v4
+        with:
+          path: .browser-prefix
+          key: quprs-gmp630-mpfr421-emsdk4023-v1
+      - name: Build pinned original MPFR GPMC
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev
+          bash scripts/web/build-counter.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quprs-gpmc
+          path: web/engines
+  validate:
+    needs: [core, counter]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      QUPRS_SOLVER_PROVISION: external
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: quprs-core
+          path: ${{ runner.temp }}/core
+      - uses: actions/download-artifact@v4
+        with:
+          name: quprs-gpmc
+          path: ${{ runner.temp }}/counter
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= -pyflakes= .github/workflows/browser-workbench.yml
+      - name: Assemble exact tested binaries and sources
+        run: |
+          set -euo pipefail
+          python3 scripts/web/assemble.py "$RUNNER_TEMP/core" "$RUNNER_TEMP/counter" "$RUNNER_TEMP/site"
+          python3 scripts/web/check-wasm-limits.py "$RUNNER_TEMP/site/pkg/quprs_web_bg.wasm" "$RUNNER_TEMP/site/engines/gpmc.wasm" > "$RUNNER_TEMP/site/engines/MEMORY_LIMITS.json"
+          chmod +x "$RUNNER_TEMP/core/build-evidence/native-check" "$RUNNER_TEMP/counter/native-gpmc"
+          printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > "$RUNNER_TEMP/site/source-sha.txt"
+          python3 scripts/web/test-stage-pages.py
+          git clone --filter=blob:none --no-checkout --depth=1 --single-branch --branch gh-pages https://github.com/PhysicsQoo/QuPRS.git "$RUNNER_TEMP/pages-fixture"
+          git -C "$RUNNER_TEMP/pages-fixture" read-tree HEAD
+          python3 scripts/web/stage-pages.py "$RUNNER_TEMP/site" "$RUNNER_TEMP/pages-fixture"
+          git -C "$RUNNER_TEMP/pages-fixture" diff --cached --stat > "$RUNNER_TEMP/pages-staging.txt"
+      - name: Native upstream unit suite in the default numerical profile
+        env:
+          QUPRS_GPMC_PATH: ${{ runner.temp }}/counter/native-gpmc
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y libgmp-dev libmpfr-dev zlib1g-dev
+          gh release download release/v2.8.0 --repo meelgroup/ganak --pattern ganak-v2.8.0-linux-amd64.tar.gz --dir "$RUNNER_TEMP/ganak-test"
+          python3 scripts/web/install-test-ganak.py "$RUNNER_TEMP/ganak-test/ganak-v2.8.0-linux-amd64.tar.gz" "$RUNNER_TEMP/ganak-test/ganak"
+          export QUPRS_GANAK_PATH="$RUNNER_TEMP/ganak-test/ganak"
+          mkdir -p "$RUNNER_TEMP/qa-results"
+          cc -shared -fPIC rust/quprs/native/mpfr_weight_bridge.c -lmpfr -lgmp -o "$RUNNER_TEMP/phase-reference.so"
+          python3 scripts/web/check-phase-weights.py prepare "$RUNNER_TEMP/phase-reference.so" "$QUPRS_GPMC_PATH" "$RUNNER_TEMP/qa-results/phase-reference.json"
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --features browser-transport --lib -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/qa-results/upstream-unit.log"
+      - name: Actual browser and native differential checks
+        env:
+          QUWEB_BASE_PATH: /QuPRS/playground/
+          QUWEB_DIST: ${{ runner.temp }}/site
+          QUWEB_NATIVE_CHECK: ${{ runner.temp }}/core/build-evidence/native-check
+          QUWEB_NATIVE_GPMC: ${{ runner.temp }}/counter/native-gpmc
+          QUWEB_QA_OUT: ${{ runner.temp }}/qa-results
+          QUWEB_PLAYWRIGHT: ${{ runner.temp }}/qa/node_modules/playwright
+        run: |
+          set -euo pipefail
+          node --check web/app.js
+          node --check web/worker.js
+          node web/tests/host.cjs
+          npm install --prefix "$RUNNER_TEMP/qa" --no-save playwright@1.65.1
+          "$RUNNER_TEMP/qa/node_modules/.bin/playwright" install --with-deps chromium
+          core=$(python3 -c 'import os;print(min(os.sched_getaffinity(0)))')
+          taskset -c "$core" node web/tests/counter.cjs
+          python3 scripts/web/check-phase-weights.py verify "$RUNNER_TEMP/qa-results/phase-results.json"
+          taskset -c "$core" node web/tests/smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-validation
+          path: ${{ runner.temp }}/qa-results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-browser-site
+          path: ${{ runner.temp }}/site
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: github-pages
+    permissions:
+      contents: write
+      actions: read
+      pages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-browser-site
+          path: browser-site
+      - name: Verify existing Pages configuration
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pages" > "$RUNNER_TEMP/pages-config.json"
+          python3 - "$RUNNER_TEMP/pages-config.json" <<'PYCODE'
+          import json,sys
+          p=json.load(open(sys.argv[1]))
+          assert p['build_type']=='legacy' and p['source']=={'branch':'gh-pages','path':'/'}, 'Expected existing gh-pages root publishing; no settings were changed'
+          PYCODE
+          echo "PAGES_BASE=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url)" >> "$GITHUB_ENV"
+      - name: Publish only the reviewed playground subtree
+        run: |
+          set -euo pipefail
+          test "$(cat browser-site/source-sha.txt)" = '${{ github.sha }}'
+          python3 source/scripts/web/stage-pages.py browser-site pages
+          git -C pages config user.name 'github-actions[bot]'
+          git -C pages config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git -C pages diff --cached --quiet; then
+            git -C pages commit -m 'Deploy validated browser workbench'
+            # A concurrent docs publication causes a normal non-fast-forward rejection.
+            git -C pages push origin HEAD:gh-pages
+          fi
+          echo 'Published playground/; existing root, docs and previews preserved.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Request and verify the actual Pages build
+        run: |
+          set -euo pipefail
+          # GITHUB_TOKEN branch pushes alone do not trigger Pages builds.
+          build_url=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)
+          built=false
+          for attempt in $(seq 1 40); do
+            status=$(gh api "$build_url" --jq .status)
+            if [ "$status" = built ]; then built=true; break; fi
+            if [ "$status" = errored ]; then gh api "$build_url"; exit 1; fi
+            sleep 15
+          done
+          test "$built" = true
+          base="${PAGES_BASE%/}/playground"
+          matched=false
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 10 "$base/source-sha.txt?verify=${{ github.sha }}" -o "$RUNNER_TEMP/public-sha.txt" && test "$(cat "$RUNNER_TEMP/public-sha.txt")" = '${{ github.sha }}'; then matched=true; break; fi
+            sleep 10
+          done
+          test "$matched" = true
+          for file in index.html app.js worker.js pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
+            curl --fail --silent --show-error --max-time 30 "$base/$file?verify=${{ github.sha }}" -o "$RUNNER_TEMP/public-asset"
+            test "$(sha256sum "$RUNNER_TEMP/public-asset" | cut -d' ' -f1)" = "$(sha256sum "browser-site/$file" | cut -d' ' -f1)"
+          done
+          echo "Verified published workbench: $base/" >> "$GITHUB_STEP_SUMMARY"

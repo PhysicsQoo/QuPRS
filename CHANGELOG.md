@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add an optional browser workbench using the Rust verifier and MPFR GPMC as WASM, with circuit uploads, numerical projective Frobenius distance, Stop/timeout and downloadable results. Native entry points and numerical defaults are retained.
+- Add a manual, validated GitHub Pages publication workflow for the `playground/` subtree, preserving existing documentation and preview pages.
+
 ## v0.16.0 — Python 3.14 and native Rust modernization
 
 This entry describes the v0.16.0 release source and its intended distribution

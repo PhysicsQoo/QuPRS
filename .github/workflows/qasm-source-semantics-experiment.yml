@@ -13,6 +13,7 @@ on:
       - rust/research/p8c1_checker.rs
       - rust/research/p8c1_dense_oracle.rs
       - rust/research/p8c1_two_copy_wmc.rs
+      - rust/research/p8c1_two_copy_cnf.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
@@ -68,7 +69,7 @@ jobs:
             rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs \
             rust/quprs/tests/qasm_two_qubit_source_contract.rs \
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
-            rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs \
+            rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -330,13 +331,51 @@ jobs:
             evidence/p8c1-fixtures/h-1q.p8c1 \
             evidence/p8c1-fixtures/two-copy-h1.w8c1 \
             | tee evidence/w8c1-two-copy-proof.log
-          grep -E '^SCOPED_TWO_COPY_WMC_ENUM_EXACT first=0 second=1 paths=1 bad_mask=1 total_weighted_pairs=1 ' \
+          grep -E '^SCOPED_TWO_COPY_WMC_ENUM_EXACT buckets=8 total_weighted_pairs=1 ' \
             evidence/w8c1-two-copy-proof.log
           check_reject INVALID_PROOF 4 \
             evidence/p8c1-fixtures/h-1q.qasm \
             evidence/p8c1-fixtures/h-1q.p8c1 \
             evidence/p8c1-fixtures/two-copy-h1-forged.w8c1
           echo 'W8C1_CROSS_BINARY_ENUM=complex_weighted_pair_count_verified forged_rejected no_general_CNF_proof'
+
+          # C8C1 is a deliberately exponential, canonical *complete
+          # assignment-blocking CNF*, one for each root-of-unity phase
+          # bucket; the proof checker checks every clause/assignment and
+          # computes the exact complex-weighted bucket counts anew.
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          from struct import pack
+          d=Path("evidence/p8c1-fixtures")
+          source=(d/"h-1q.qasm").read_bytes()
+          proof=(d/"h-1q.p8c1").read_bytes()
+          data=bytearray(b"C8C1"+sha256(source).digest()+sha256(proof).digest()
+              +bytes([0,1])+pack("<Q",1)+bytes([1]))
+          for phase in range(8):
+              excluded=[1,2,3] if phase==0 else [0,1,2,3]
+              data.extend(pack("<H",len(excluded)))
+              for assignment in excluded:
+                  data.extend(pack("<HH",(~assignment)&3,assignment))
+          assert len(data)==219
+          (d/"two-copy-h1.c8c1").write_bytes(data)
+          forged=bytearray(data)
+          forged[79+2]^=1
+          (d/"two-copy-h1-forged.c8c1").write_bytes(forged)
+          PY
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/two-copy-h1.c8c1 \
+            | tee evidence/c8c1-two-copy-cnf.log
+          grep -x 'SCOPED_TWO_COPY_CNF_EXHAUSTIVE buckets=8 checked_models=1 source_trust=BLOCKED' \
+            evidence/c8c1-two-copy-cnf.log
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/two-copy-h1-forged.c8c1
+          echo 'C8C1_CROSS_BINARY_CNF=8_canonical_CNF_buckets_exactly_checked forged_rejected not_solver_proof'
+
 
 
 

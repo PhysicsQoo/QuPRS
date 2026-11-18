@@ -4,6 +4,11 @@
 // This integration test compiles solver_process.rs into its own crate.
 // Match build.rs: the runtime timing hooks are intentionally no-ops here;
 // the real opt-in recorder belongs only to the pathsum library crate.
+// This file is a separate integration-test crate; the included source modules
+// refer to the crate-local clock, just as they do in build.rs.
+mod clock {
+    pub use std::time::{Instant, Duration, SystemTime, UNIX_EPOCH};
+}
 mod diagnostics {
     pub(crate) fn span(_stage: &'static str) -> Option<()> { None }
     pub(crate) fn child_spawned() {}

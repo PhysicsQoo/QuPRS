@@ -13,6 +13,8 @@ mod two_copy_cnf;
 mod two_copy_structural;
 #[path = "p8c1_two_copy_count_trace.rs"]
 mod two_copy_count_trace;
+#[path = "p8c1_count_to_gram.rs"]
+mod count_to_gram;
 #[cfg(test)]
 #[path = "p8c1_dense_oracle.rs"]
 mod dense_oracle;
@@ -962,6 +964,37 @@ fn cli()->Check<usize> {
 }
 fn main()->ExitCode {
     let paths:Vec<_>=std::env::args().skip(1).collect();
+    if paths.len()==10 {
+        // D8C1 certified eight-root counts for (i,i),(j,j),(i,j)
+        // compose into a P8G1 Gram/PSD property without enumerating
+        // all primary path assignments on the checker side.
+        let result=(||{
+            let source=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
+            let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
+            let spec=read_limited(&paths[2],MAX_SPEC_BYTES,Error::InvalidSource)?;
+            let read=|p:&str|read_limited(p,65_536,Error::InvalidProof);
+            let structural=[read(&paths[3])?,read(&paths[4])?,read(&paths[5])?];
+            let traces=[read(&paths[6])?,read(&paths[7])?,read(&paths[8])?];
+            let gram=read_limited(&paths[9],P8G1_BYTES,Error::InvalidProof)?;
+            count_to_gram::verify(&source,&proof,&spec,
+                [&structural[0],&structural[1],&structural[2]],
+                [&traces[0],&traces[1],&traces[2]],&gram)
+        })();
+        return match result {
+            Ok(result)=>{
+                let (word,code)=match result.verdict{
+                    CoherentVerdict::ScopedSatisfied=>
+                        ("SCOPED_COUNT_TO_GRAM_PSD_SAT".to_string(),0u8),
+                    CoherentVerdict::ScopedViolated{reason}=>
+                        (format!("SCOPED_COUNT_TO_GRAM_PSD_VIOLATED reason={reason}"),6u8),
+                };
+                println!("{word} proof_nodes={} early_leaves={} source_trust=BLOCKED",
+                    result.counted_nodes,result.early_leaves);
+                ExitCode::from(code)
+            }
+            Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
+        };
+    }
     if paths.len()==3 {
         let result=(||{
             let src=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
@@ -1617,6 +1650,109 @@ mod tests {
         assert_eq!(verified.buckets,enumerated);
         println!("D8C1_PRUNING h=4 primary_assignments=256 checker_proof_nodes=8 buckets=8 all_zero=true trace_bytes={}",
             trace.len());
+    }
+    #[test]
+    fn g8d1_counts_compose_into_exact_rank_two_gram_psd_without_enumeration(){
+        let corpus=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nh q[1];\ncz q[0],q[1];\n".as_slice(),
+        ];
+        let mut cases=0usize;
+        let mut nodes=0usize;
+        for src in corpus{
+            let (proof,state)=source_proof_and_state(src);
+            let dim=1usize<<state.n;
+            for second in 1..dim{
+                let first=0usize;
+                for bad in [1u64,1u64<<(dim-1),(1u64<<dim)-1]{
+                    let pair=[(first,first),(second,second),(first,second)];
+                    let mut structures=Vec::new();
+                    let mut traces=Vec::new();
+                    for &(i,j) in &pair{
+                        let structure=two_copy_structural::encode(src,&proof,
+                            &state,i,j,bad).unwrap();
+                        let trace=two_copy_count_trace::emit(src,&proof,&structure).unwrap();
+                        structures.push(structure);
+                        traces.push(trace);
+                    }
+                    for (num,den) in [(0,1),(1,2),(1,1)]{
+                        let sp=coherent_spec(state.n,(1u64<<first)|(1u64<<second),
+                            bad,num,den);
+                        let expected_gram=path_coherent_gram(&state,first,second,bad).unwrap();
+                        let claim=encode_p8g1_claim(src,&proof,&sp,&expected_gram);
+                        let checked=count_to_gram::verify(src,&proof,&sp,
+                            [&structures[0],&structures[1],&structures[2]],
+                            [&traces[0],&traces[1],&traces[2]],&claim).unwrap();
+                        let specification=parse_scg1_spec(&sp).unwrap();
+                        assert_eq!(checked.gram,expected_gram);
+                        assert_eq!(checked.verdict,
+                            gram_psd_verdict(&expected_gram,&specification).unwrap());
+                        let dense=dense_oracle::coherent_gram(src,first,second,bad).unwrap();
+                        assert_eq!(
+                            ((checked.gram.diag0.0 as i128,checked.gram.diag0.1 as i128),
+                             (checked.gram.diag1.0 as i128,checked.gram.diag1.1 as i128),
+                             checked.gram.off.map(|x|x as i128),checked.gram.h as usize),
+                            dense
+                        );
+                        nodes+=checked.counted_nodes;
+                        cases+=1;
+                        if cases==1 {
+                            let mut forged=claim;forged[112]^=1;
+                            assert_eq!(count_to_gram::verify(src,&proof,&sp,
+                                [&structures[0],&structures[1],&structures[2]],
+                                [&traces[0],&traces[1],&traces[2]],&forged),
+                                Err(Error::InvalidProof));
+                            let mut forged_trace=traces[0].clone();
+                            forged_trace[100]^=1;
+                            assert_eq!(count_to_gram::verify(src,&proof,&sp,
+                                [&structures[0],&structures[1],&structures[2]],
+                                [&forged_trace,&traces[1],&traces[2]],&claim),
+                                Err(Error::InvalidProof));
+                            assert_eq!(count_to_gram::verify(src,&proof,&sp,
+                                [&structures[2],&structures[1],&structures[0]],
+                                [&traces[2],&traces[1],&traces[0]],&claim),
+                                Err(Error::InvalidProof));
+                        }
+                    }
+                }
+            }
+        }
+        println!("G8D1_COUNT_TO_GRAM circuits=4 exact_compositions={cases} local_proof_nodes={nodes} dense_oracle_matches=true no_enumeration_in_checker=true");
+        assert!(cases>=30);
+    }
+    #[test]
+    fn g8d1_export_external_producer_fixtures_when_requested(){
+        let Ok(dir)=std::env::var("G8D1_FIXTURE_DIR")else{return;};
+        let src=std::fs::read(format!("{dir}/h-1q.qasm")).unwrap();
+        let proof=std::fs::read(format!("{dir}/h-1q.p8c1")).unwrap();
+        let (_,state)=replay_state(&src,&proof).unwrap();
+        let pair=[(0,0),(1,1),(0,1)];
+        let mut structures=Vec::new();
+        let mut traces=Vec::new();
+        for (index,&(i,j)) in pair.iter().enumerate(){
+            let structure=two_copy_structural::encode(&src,&proof,&state,i,j,1).unwrap();
+            let trace=two_copy_count_trace::emit(&src,&proof,&structure).unwrap();
+            std::fs::write(format!("{dir}/gram-{index}.s8c1"),&structure).unwrap();
+            std::fs::write(format!("{dir}/gram-{index}.d8c1"),&trace).unwrap();
+            structures.push(structure);
+            traces.push(trace);
+        }
+        for (tag,num,den) in [("sat",1,1),("violated",1,2)]{
+            let sp=coherent_spec(1,3,1,num,den);
+            let gram=path_coherent_gram(&state,0,1,1).unwrap();
+            let claim=encode_p8g1_claim(&src,&proof,&sp,&gram);
+            std::fs::write(format!("{dir}/gram-{tag}.scg1"),&sp).unwrap();
+            std::fs::write(format!("{dir}/gram-{tag}.p8g1"),claim).unwrap();
+            let result=count_to_gram::verify(&src,&proof,&sp,
+                [&structures[0],&structures[1],&structures[2]],
+                [&traces[0],&traces[1],&traces[2]],&claim).unwrap();
+            let expected=if tag=="sat" {CoherentVerdict::ScopedSatisfied}
+                else {CoherentVerdict::ScopedViolated{reason:"negative_determinant"}};
+            assert_eq!(result.verdict,expected);
+        }
+        println!("G8D1_EXPORTED real_native_source=true verified_count_traces=3 both_property_verdicts=true");
     }
     #[test]
     fn d8c1_differential_trace_buckets_vs_canonical_count(){

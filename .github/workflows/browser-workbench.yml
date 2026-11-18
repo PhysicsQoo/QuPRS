@@ -7,6 +7,16 @@ on:
       - 'web/**'
       - 'scripts/web/**'
       - '.github/workflows/browser-workbench.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'rust/quprs/**'
+      - 'rust/web/**'
+      - 'rust/Cargo.toml'
+      - 'rust/Cargo.lock'
+      - 'web/**'
+      - 'scripts/web/**'
+      - '.github/workflows/browser-workbench.yml'
   workflow_dispatch:
     inputs:
       publish:
@@ -159,6 +169,10 @@ jobs:
           name: tested-browser-site
           path: ${{ runner.temp }}/site
   publish:
+    # Serialize all writes to the shared gh-pages branch with both docs publishers.
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.publish &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')

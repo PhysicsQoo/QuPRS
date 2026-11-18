@@ -1218,4 +1218,94 @@ mod phase8_local_step_research {
         println!("INDEPENDENT_Z8_STEPCERT_STRUCTURAL n=16 prefixes=128 exact=true unknown_budgets=3 forged_rejected=4");
     }
 
+
+    // Source-to-native producer bridge, kept distinct from the independent
+    // source decoder and symbolic checker. Observes the *unreduced* real
+    // QuPRS PathSum, including exact rational-cycle phase coefficients.
+    fn native_prefix_branches(
+        source_text: &str, n: usize,
+    ) -> Result<(usize, Vec<BTreeMap<(usize,u8),u32>>), String> {
+        use quprs::{qasm::parse_qasm_str, PathSum};
+        let (ops, parsed_n) = parse_qasm_str(source_text)?;
+        if parsed_n != n || n > 3 {
+            return Err("native bounded source register mismatch".into());
+        }
+        let mut native = PathSum::new(n);
+        native.set_auto_reduce(false);
+        for gate in ops { gate.apply(&mut native, false); }
+        let mut paths: Vec<u32> = native.v.path_vars.iter().copied()
+            .filter(|&v| v >= n as u32).collect();
+        paths.sort_unstable();
+        if paths.len() > 8 || paths.iter().any(|&v| v >= 62) {
+            return Err("native branch oracle path cap".into());
+        }
+        let mut result = Vec::new();
+        for input in 0..(1usize << n) {
+            let mut bag = BTreeMap::new();
+            for path_bits in 0..(1usize << paths.len()) {
+                let mut bits = input as u64;
+                for (index, &variable) in paths.iter().enumerate() {
+                    if (path_bits >> index) & 1 == 1 {
+                        bits |= 1u64 << variable;
+                    }
+                }
+                let true_mono = |monomial: &[u32]| -> bool {
+                    monomial.iter().all(|&v| v < 62 && bits & (1u64 << v) != 0)
+                };
+                let mut output = 0usize;
+                for (q, f) in native.f.functions.iter().enumerate() {
+                    if f.iter().fold(false, |old, mon| old ^ true_mono(mon)) {
+                        output |= 1usize << q;
+                    }
+                }
+                let mut exp = 0u8;
+                for (mon, coefficient) in &native.p.terms {
+                    if coefficient.radians.is_some() || !coefficient.symbols.is_empty() {
+                        return Err("native phase is outside exact eighth-root domain".into());
+                    }
+                    if true_mono(mon) {
+                        let numerator = (coefficient.constant.numer as i128)
+                            .checked_mul(8).ok_or("phase numerator overflow")?;
+                        let denominator = coefficient.constant.denom as i128;
+                        if denominator == 0 || numerator % denominator != 0 {
+                            return Err("native phase is not a Z8 coefficient".into());
+                        }
+                        exp = ((exp as i128 + numerator / denominator)
+                            .rem_euclid(8)) as u8;
+                    }
+                }
+                *bag.entry((output, exp)).or_insert(0u32) += 1;
+            }
+            result.push(bag);
+        }
+        Ok((paths.len(),result))
+    }
+    #[test]
+    fn observed_independent_z8_checker_matches_native_unreduced_pathsum_prefixes() {
+        let cases: &[&[&str]] = &[
+            &["h q[0];", "cx q[0],q[1];"],
+            &["cx q[0],q[1];", "t q[1];"],
+            &["h q[0];", "t q[0];", "cx q[0],q[1];"],
+            &["s q[1];", "h q[0];", "cz q[0],q[1];", "h q[0];"],
+        ];
+        let mut prefixes = 0;
+        for (index, gates) in cases.iter().enumerate() {
+            for end in 1..=gates.len() {
+                let src = source(2, &(gates[..end].join("\n") + "\n"));
+                let claim = emit(&src).expect("supported source should produce certificate");
+                let verified = independent_replay(&src, &claim, limits())
+                    .expect("independent source verifier")
+                    .expect("bounded symbolic proof should be checked");
+                let (native_paths, native_bag) = native_prefix_branches(&src, 2)
+                    .expect("genuinely native PathSum should parse bounded source");
+                assert_eq!(verified.paths,native_paths,
+                    "normalization path count mismatch at case={index} prefix={end}");
+                assert_eq!(path_multiset(&verified),native_bag,
+                    "source-linked exact phase/path branch mismatch at case={index} prefix={end}");
+                prefixes += 1;
+            }
+        }
+        println!("INDEPENDENT_Z8_NATIVE_PATHSUM cases={} prefixes={prefixes} exact_unreduced=true",cases.len());
+    }
+
 }

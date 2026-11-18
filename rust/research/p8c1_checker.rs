@@ -13,6 +13,8 @@ mod two_copy_cnf;
 mod two_copy_structural;
 #[path = "p8c1_two_copy_count_trace.rs"]
 mod two_copy_count_trace;
+#[path = "p8c1_two_copy_count_dag.rs"]
+mod two_copy_count_dag;
 #[path = "p8c1_count_to_gram.rs"]
 mod count_to_gram;
 #[cfg(test)]
@@ -1054,13 +1056,22 @@ fn main()->ExitCode {
                     let source=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
                     let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
                     let trace=read_limited(&paths[3],65_536,Error::InvalidProof)?;
-                    two_copy_count_trace::verify(&source,&proof,&structure,&trace)
+                    if trace.starts_with(b"M8D1"){
+                        let dag=two_copy_count_dag::verify(&source,&proof,&structure,&trace)?;
+                        Ok((1u8,dag.buckets,dag.nodes,dag.shared_contexts))
+                    }else{
+                        let tree=two_copy_count_trace::verify(&source,&proof,&structure,&trace)?;
+                        Ok((0u8,tree.buckets,tree.stats.nodes,tree.stats.early_leaves))
+                    }
                 })();
                 return match result {
-                    Ok(result)=>{
-                        let total=result.buckets.iter().map(|&v|v as usize).sum::<usize>();
-                        println!("SCOPED_TWO_COPY_COUNT_TRACE_EXACT buckets=8 checked_models={total} checker_nodes={} early_leaves={} source_trust=BLOCKED",
-                            result.stats.nodes,result.stats.early_leaves);
+                    Ok((kind,counts,nodes,early_or_shared))=>{
+                        let total=counts.iter().map(|&v|v as usize).sum::<usize>();
+                        if kind==1{
+                            println!("SCOPED_TWO_COPY_SHARED_DAG_EXACT buckets=8 checked_models={total} unique_nodes={nodes} shared_contexts={early_or_shared} source_trust=BLOCKED");
+                        }else{
+                            println!("SCOPED_TWO_COPY_COUNT_TRACE_EXACT buckets=8 checked_models={total} checker_nodes={nodes} early_leaves={early_or_shared} source_trust=BLOCKED");
+                        }
                         ExitCode::SUCCESS
                     }
                     Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
@@ -1753,6 +1764,90 @@ mod tests {
             assert_eq!(result.verdict,expected);
         }
         println!("G8D1_EXPORTED real_native_source=true verified_count_traces=3 both_property_verdicts=true");
+    }
+    #[test]
+    fn m8d1_exact_shared_dag_all_root_contexts_and_forgery(){
+        let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nt q[0];\nh q[0];\nt q[0];\nh q[0];\nt q[0];\nh q[0];\nt q[0];\n";
+        let (proof,state)=source_proof_and_state(src);
+        let structure=two_copy_structural::encode(src,&proof,&state,0,2,15).unwrap();
+        let original=two_copy_count_trace::emit(src,&proof,&structure).unwrap();
+        let dag=two_copy_count_dag::emit(src,&proof,&structure).unwrap();
+        let tree=two_copy_count_trace::verify(src,&proof,&structure,&original).unwrap();
+        let checked=two_copy_count_dag::verify(src,&proof,&structure,&dag).unwrap();
+        assert_eq!(tree.buckets,[0;8]);
+        assert_eq!(checked.buckets,tree.buckets);
+        assert_eq!(checked.nodes,1);
+        assert_eq!(checked.contexts,8);
+        assert_eq!(checked.shared_contexts,7);
+        let(mut rejected,mut retained)=(0usize,0usize);
+        for i in 0..dag.len(){
+            for bit in 0..8{
+                let mut forged=dag.clone();forged[i]^=1u8<<bit;
+                if two_copy_count_dag::verify(src,&proof,&structure,&forged).is_err(){
+                    rejected+=1;
+                }else{retained+=1;}
+            }
+        }
+        // The canonical 1-node/8-root proof has no alternate valid
+        // single-bit encoding, so all bit-level changes are rejected.
+        assert_eq!(retained,0);
+        assert_eq!(rejected,dag.len()*8);
+        let mut changed=structure.clone();changed[3]^=1;
+        assert_eq!(two_copy_count_dag::verify(src,&proof,&changed,&dag),
+            Err(Error::InvalidProof));
+        println!("M8D1_SHARED_FALSE_CUBE h=4 original_tree_nodes=8 unique_dag_nodes={} contexts={} shared_contexts={} tree_bytes={} dag_bytes={} forged_bits={} accepted=0",checked.nodes,checked.contexts,checked.shared_contexts,original.len(),dag.len(),rejected);
+    }
+    #[test]
+    fn m8d1_exact_counts_differential_vs_d8c1_and_canonical_cnf(){
+        let sources=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nh q[1];\ncz q[0],q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[3] q;\nh q[0];\ncx q[0],q[2];\nh q[1];\nt q[2];\ns q[1];\n".as_slice(),
+        ];
+        let mut cases=0usize;
+        let mut contexts=0usize;
+        let mut shared=0usize;
+        let mut saved_bytes=0isize;
+        for src in sources{
+            let(proof,state)=source_proof_and_state(src);
+            let dim=1usize<<state.n;
+            for (first,second) in [(0,0),(0,1),(1,0),(1,1)]{
+                for bad in [1u64,1u64<<(dim-1),(1u64<<dim)-1]{
+                    let structure=two_copy_structural::encode(src,&proof,
+                        &state,first,second,bad).unwrap();
+                    let original=two_copy_count_trace::emit(src,&proof,&structure).unwrap();
+                    let dag=two_copy_count_dag::emit(src,&proof,&structure).unwrap();
+                    let tree=two_copy_count_trace::verify(src,&proof,&structure,&original).unwrap();
+                    let checked=two_copy_count_dag::verify(src,&proof,&structure,&dag).unwrap();
+                    assert_eq!(checked.buckets,tree.buckets);
+                    assert_eq!(checked.buckets,two_copy_cnf::count_models(
+                        &two_copy_cnf::build(&state,first,second,bad).unwrap()
+                    ).unwrap());
+                    cases+=1;
+                    contexts+=checked.contexts;
+                    shared+=checked.shared_contexts;
+                    saved_bytes+=original.len() as isize-dag.len() as isize;
+                }
+            }
+        }
+        assert_eq!(cases,48);
+        println!("M8D1_COUNT_DAG_DIFF obligations={cases} checked_contexts={contexts} shared_contexts={shared} cumulative_byte_savings={saved_bytes} all_eight_buckets_match=true no_primary_enumeration_in_checker=true");
+    }
+    #[test]
+    fn m8d1_export_external_producer_fixture_when_requested(){
+        let Ok(dir)=std::env::var("M8D1_FIXTURE_DIR")else{return;};
+        let src=std::fs::read(format!("{dir}/h-1q.qasm")).unwrap();
+        let proof=std::fs::read(format!("{dir}/h-1q.p8c1")).unwrap();
+        let structure=std::fs::read(format!("{dir}/h-1q.s8c1")).unwrap();
+        let dag=two_copy_count_dag::emit(&src,&proof,&structure).unwrap();
+        let v=two_copy_count_dag::verify(&src,&proof,&structure,&dag).unwrap();
+        assert_eq!(v.buckets,[1,0,0,0,0,0,0,0]);
+        std::fs::write(format!("{dir}/h-1q.m8d1"),&dag).unwrap();
+        let mut fake=dag.clone();
+        fake[40]^=1;
+        std::fs::write(format!("{dir}/h-1q-forged.m8d1"),&fake).unwrap();
+        println!("M8D1_EXPORTED source_bound=true dag_nodes={} shared_contexts={} dag_bytes={}",v.nodes,v.shared_contexts,dag.len());
     }
     #[test]
     fn d8c1_differential_trace_buckets_vs_canonical_count(){

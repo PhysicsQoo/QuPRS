@@ -734,7 +734,7 @@ mod tests {
             let mut masks=vec![1u64,full,1u64<<(dim-1),full&0x55];
             masks.sort_unstable(); masks.dedup();
             for example in 0..12u64 {
-                let mut seed=(n as u64)*0x9e3779b97f4a7c15u64
+                let mut seed=(n as u64).wrapping_mul(0x9e3779b97f4a7c15u64)
                     ^example.wrapping_mul(0xbf58476d1ce4e5b9);
                 let mut program=String::new();
                 let mut h_count=0usize;

@@ -80,7 +80,7 @@ jobs:
           # GITHUB_TOKEN branch pushes alone do not trigger Pages builds.
           build_url=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)
           built=false
-          for attempt in $(seq 1 40); do
+          for _ in $(seq 1 40); do
             status=$(gh api "$build_url" --jq .status)
             if [ "$status" = built ]; then built=true; break; fi
             if [ "$status" = errored ]; then gh api "$build_url"; exit 1; fi
@@ -89,7 +89,7 @@ jobs:
           test "$built" = true
           base="${PAGES_BASE%/}/playground"
           matched=false
-          for attempt in $(seq 1 18); do
+          for _ in $(seq 1 18); do
             if curl --fail --silent --show-error --max-time 10 "$base/source-sha.txt?verify=${{ github.sha }}" -o "$RUNNER_TEMP/public-sha.txt" && test "$(cat "$RUNNER_TEMP/public-sha.txt")" = '${{ github.sha }}'; then matched=true; break; fi
             sleep 10
           done

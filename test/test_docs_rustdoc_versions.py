@@ -81,6 +81,16 @@ class RustdocVersionNavigationTests(unittest.TestCase):
         self.assertNotIn('querySelector("[data-quprs-version-selector]")', script)
         self.assertIn('bar.setAttribute("data-quprs-version-selector", "")', script)
 
+    def test_isolated_preview_does_not_request_live_manifest(self):
+        script = self.selector.read_text(encoding="utf-8")
+        self.assertIn('if (preview) {', script)
+        self.assertIn('option("preview", "PR preview", true);', script)
+        self.assertLess(
+            script.index('option("preview", "PR preview", true);'),
+            script.index('fetch(docsPrefix + "versions.json"'),
+        )
+        self.assertIn('nav[data-quprs-version-selector]', script)
+
     def test_missing_reference_fails_closed(self):
         self.root_page.unlink()
         with self.assertRaisesRegex(AssertionError, "Missing staged"):

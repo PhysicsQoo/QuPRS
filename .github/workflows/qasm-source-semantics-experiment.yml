@@ -158,6 +158,50 @@ jobs:
           check_reject INVALID_PROOF 4 \
             evidence/p8c1-fixtures/h-cx-t.qasm evidence/p8c1-truncated.p8c1
           echo 'P8C1_TYPED_NEGATIVES=5 exact_classes=true'
+
+          # P0-C: exact basis-only P/B/delta property, cryptographically
+          # bound to the source, normalized spec bytes and verified P8C1.
+          # SHA digests are equality binding, not signatures or source trust.
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          d=Path("evidence/p8c1-fixtures")
+          src=(d/"h-cx-t.qasm").read_bytes()
+          proof=(d/"h-cx-t.p8c1").read_bytes()
+          for name, bad, delta in [
+              ("safe","0000000000000002","0/1"),
+              ("violated","0000000000000008","1/3")]:
+              sp=(f"SPB1\nn=2\nbasis_pre=0x0000000000000001\n"
+                  f"basis_bad=0x{bad}\ndelta={delta}\n").encode()
+              binding=(b"P8S1"+hashlib.sha256(src).digest()
+                  +hashlib.sha256(sp).digest()+hashlib.sha256(proof).digest())
+              (d/f"{name}.spb1").write_bytes(sp)
+              (d/f"{name}.p8s1").write_bytes(binding)
+          PY
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-cx-t.qasm \
+            evidence/p8c1-fixtures/h-cx-t.p8c1 \
+            evidence/p8c1-fixtures/safe.spb1 \
+            evidence/p8c1-fixtures/safe.p8s1 | tee evidence/p8s1-safe.log
+          grep -x 'SCOPED_PROPERTY_SAT source_trust=BLOCKED' evidence/p8s1-safe.log
+          check_reject SCOPED_PROPERTY_VIOLATED 6 \
+            evidence/p8c1-fixtures/h-cx-t.qasm \
+            evidence/p8c1-fixtures/h-cx-t.p8c1 \
+            evidence/p8c1-fixtures/violated.spb1 \
+            evidence/p8c1-fixtures/violated.p8s1
+          # Reuse old binding while swapping both a valid spec and a proof.
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-cx-t.qasm \
+            evidence/p8c1-fixtures/h-cx-t.p8c1 \
+            evidence/p8c1-fixtures/violated.spb1 \
+            evidence/p8c1-fixtures/safe.p8s1
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-cx-t.qasm \
+            evidence/p8c1-fixtures/forged.p8c1 \
+            evidence/p8c1-fixtures/safe.spb1 \
+            evidence/p8c1-fixtures/safe.p8s1
+          echo 'P8S1_CROSS_BINARY_PROPERTY=sat_1 violated_1 forged_2 source_trust_blocked'
+
           if test -x /usr/bin/time; then
             /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \
               -o evidence/p8c1-standalone-resource-pilot.log \

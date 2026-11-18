@@ -29,6 +29,10 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertEqual(selected("docs/site/index.md"), {"docs_reference", "docs_version"})
         self.assertEqual(selected("mkdocs.yml"), {"docs_reference", "docs_version"})
         self.assertEqual(selected("scripts/check_rust_api_docs.py"), {"docs_reference"})
+        self.assertEqual(selected("scripts/check_docs_examples.py"), {"docs_fast"})
+        self.assertEqual(selected(".github/scripts/test-docs-workflow-coverage.cjs"), {"docs_fast"})
+        self.assertEqual(selected("src/QuPRS/utils/solver_adapter.py"), {"docs_fast"})
+        self.assertEqual(selected(".github/workflows/docs-check.yml"), {"docs_fast"})
         self.assertEqual(selected("scripts/docs_versioning.py"), {"docs_reference", "docs_version"})
 
     def test_shared_publication_stages_all_relevant_siblings(self) -> None:

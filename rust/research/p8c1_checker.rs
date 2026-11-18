@@ -1052,7 +1052,7 @@ fn main()->ExitCode {
         let preliminary=read_limited(&paths[2],65_536,Error::InvalidProof);
         match preliminary {
             Ok(structure) if structure.starts_with(b"S8C1")=>{
-                let result=(||{
+                let result:Check<(u8,[u16;8],usize,usize)>=(||{
                     let source=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
                     let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
                     let trace=read_limited(&paths[3],65_536,Error::InvalidProof)?;

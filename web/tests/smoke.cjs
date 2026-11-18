@@ -18,6 +18,15 @@ function native(request){
  const h=await open();const results=[];let calls=0;
  try{
   const errors=[];h.page.on('pageerror',e=>errors.push(String(e)));
+  const browserClock=await h.page.evaluate(async base=>{
+    const wasm=await import(new URL('pkg/quprs_web.js',base).href);
+    await wasm.default({module_or_path:new URL('pkg/quprs_web_bg.wasm',base)});
+    return JSON.parse(wasm.clock_contract_probe());
+  },h.base);
+  assert.equal(browserClock.past_expired,true,'WASM monotonic expired deadline');
+  assert.equal(browserClock.future_pending,true,'WASM monotonic future deadline');
+  assert(Number.isFinite(browserClock.elapsed_seconds)&&browserClock.elapsed_seconds>=0,
+    'WASM clock must return valid elapsed time');
   for(const [id,a,b] of requests)for(const mode of ['hybrid','wmc'])for(const strategy of ['difference','proportional']){
    const request={circuit1:a,circuit2:b,mode,strategy,distance_tolerance:1e-8,rr_tolerance:1e-10};
    const n=native(request),w=await h.run(request);assert(!w.error,`${id}: ${w.error}`);

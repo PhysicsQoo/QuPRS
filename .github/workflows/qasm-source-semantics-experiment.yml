@@ -203,6 +203,65 @@ jobs:
             evidence/p8c1-fixtures/safe.p8s1
           echo 'P8S1_CROSS_BINARY_PROPERTY=sat_1 violated_1 forged_2 source_trust_blocked'
 
+          # Distinct SCG1 semantics: ALL normalized coherent states in the
+          # two-dimensional support, not SPB1 basis-only quantification.
+          # A separate Python fixture author prepares the small exact
+          # rank-2 Gram claim; standalone Rust checks its content against
+          # the real producer's source-bound P8C1 transition proof.
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, struct
+          d=Path("evidence/p8c1-fixtures")
+          src=(d/"h-1q.qasm").read_bytes()
+          proof=(d/"h-1q.p8c1").read_bytes()
+          for name,num,den in [
+              ("coherent-violation",1,2),("coherent-satisfied",1,1)]:
+              sp=(f"SCG1\nn=1\nspan_basis=0x0000000000000003\n"
+                  f"basis_bad=0x0000000000000001\ndelta={num}/{den}\n").encode()
+              # On H, B={|0>}, P={|0>,|1>}: the unnormalized
+              # numerator Gram is [[1,1],[1,1]], divided by 2^1.
+              certificate=(b"P8G1"
+                  +hashlib.sha256(src).digest()
+                  +hashlib.sha256(sp).digest()
+                  +hashlib.sha256(proof).digest()
+                  +bytes([1,1,0,1])
+                  +struct.pack("<Q",1)
+                  +struct.pack("<qqqqqqqq",1,0,1,0,1,0,0,0))
+              assert len(certificate)==176
+              (d/f"{name}.scg1").write_bytes(sp)
+              (d/f"{name}.p8g1").write_bytes(certificate)
+          bad=bytearray((d/"coherent-satisfied.p8g1").read_bytes())
+          bad[112]^=1
+          (d/"coherent-forged.p8g1").write_bytes(bad)
+          PY
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/coherent-satisfied.scg1 \
+            evidence/p8c1-fixtures/coherent-satisfied.p8g1 \
+            | tee evidence/p8g1-coherent-sat.log
+          grep -x 'SCOPED_COHERENT_SPAN_SAT source_trust=BLOCKED' \
+            evidence/p8g1-coherent-sat.log
+          check_reject SCOPED_COHERENT_SPAN_VIOLATED 6 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/coherent-violation.scg1 \
+            evidence/p8c1-fixtures/coherent-violation.p8g1
+          grep -E '^SCOPED_COHERENT_SPAN_VIOLATED reason=negative_determinant ' \
+            evidence/p8c1-typed-negative-last.log
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/coherent-satisfied.scg1 \
+            evidence/p8c1-fixtures/coherent-forged.p8g1
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/coherent-violation.scg1 \
+            evidence/p8c1-fixtures/coherent-satisfied.p8g1
+          echo 'P8G1_CROSS_BINARY_COHERENT=sat_1 violated_det_1 forged_2 basis_only_not_span'
+
+
           if test -x /usr/bin/time; then
             /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \
               -o evidence/p8c1-standalone-resource-pilot.log \

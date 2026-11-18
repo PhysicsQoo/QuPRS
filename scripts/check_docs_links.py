@@ -39,6 +39,12 @@ def check_links(site: Path, base_url: str) -> int:
     root_prefix = origin.path.rstrip("/") + "/"
     if ".." in root_prefix.split("/"):
         raise AssertionError("Unsafe preview URL prefix")
+    # The Playground is a separate Pages subtree, not part of /docs/<version>/.
+    # Allow only the official user-facing entry point; do not relax link checks
+    # for other site paths or unreviewed cross-prefix resources.
+    allowed_sibling_links = {
+        ("https", "physicsqoo.github.io", "/QuPRS/playground/"),
+    }
 
     page_data: dict[str, Page] = {}
     for path in site.rglob("*.html"):
@@ -59,6 +65,9 @@ def check_links(site: Path, base_url: str) -> int:
                 continue
             path = unquote(target.path)
             if not path.startswith(root_prefix):
+                if tag == "a" and (target.scheme, target.netloc, path) in allowed_sibling_links:
+                    checked += 1
+                    continue
                 failures.append(f"{relative}: {tag} {raw!r} escapes deployment prefix")
                 continue
             target_relative = path[len(root_prefix):]
@@ -100,6 +109,28 @@ def negative_fixture() -> None:
                 raise
         else:
             raise AssertionError("Broken link fixture incorrectly passed")
+
+        # A reviewed sibling entry is allowed, but arbitrary same-host links
+        # outside this versioned documentation tree still fail closed.
+        good = '<a href="index.html">Local</a>' * 100
+        (root / "index.html").write_text(
+            '<html><body>' + good +
+            '<a href="https://physicsqoo.github.io/QuPRS/playground/">Playground</a>' +
+            '</body></html>', encoding="utf-8",
+        )
+        assert check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/") == 101
+        (root / "index.html").write_text(
+            '<html><body>' + good +
+            '<a href="https://physicsqoo.github.io/QuPRS/unreviewed/">Unsupported</a>' +
+            '</body></html>', encoding="utf-8",
+        )
+        try:
+            check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/")
+        except AssertionError as exc:
+            if "escapes deployment prefix" not in str(exc):
+                raise
+        else:
+            raise AssertionError("Unreviewed sibling link incorrectly passed")
 
 
 if __name__ == "__main__":

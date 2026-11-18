@@ -1,6 +1,6 @@
 # Browser workbench
 
-The optional static workbench compares restricted unitary QASM2/3 circuits locally using the Rust verifier and the real MPFR GPMC counter, both compiled to WebAssembly. It accepts uploads, supports Hybrid/WMC/reduction modes, shows normalized Frobenius distance after minimizing global phase, and downloads a JSON result. Smaller distances mean closer circuits. Numerical acceptance and a displayed zero are not exact-equivalence certificates; reduction may accept within tolerance without computing a distance.
+The optional static workbench compares restricted unitary QASM2/3 circuits locally using the Rust verifier and the real MPFR GPMC counter, both compiled to WebAssembly. It accepts uploads, supports Hybrid/WMC/reduction modes, shows the projective Hilbert–Schmidt distance `sqrt(1 - |Tr(U†V)|² / 4^n)` (global phase ignored), and downloads a JSON result. Smaller distances mean closer circuits. Numerical acceptance and a displayed zero are not exact-equivalence certificates; reduction may accept within tolerance without computing a distance.
 
 ## Build and validate
 

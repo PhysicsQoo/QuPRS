@@ -16,7 +16,7 @@
   const current = source ? source[1] : null;
 
   function render() {
-    if (document.querySelector("[data-quprs-version-selector]")) return;
+    if (document.querySelector("nav[data-quprs-version-selector]")) return;
     const bar = document.createElement("nav");
     bar.className = "quprs-version-switcher";
     bar.setAttribute("aria-label", "QuPRS Rust API documentation version");
@@ -56,8 +56,14 @@
       const item = new Option(title, value, selected, selected);
       select.add(item);
     }
-    if (preview) option("preview", "PR preview", true);
-    else option("loading", "Loading versions...", true);
+    if (preview) {
+      // An isolated PR preview contains only its own subtree, not the live
+      // /docs/versions.json manifest. Never request a missing resource from
+      // the preview server; users can return to the published docs via link.
+      option("preview", "PR preview", true);
+      return;
+    }
+    option("loading", "Loading versions...", true);
 
     fetch(docsPrefix + "versions.json", { credentials: "same-origin" })
       .then(response => {

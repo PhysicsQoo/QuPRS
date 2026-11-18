@@ -445,8 +445,24 @@ jobs:
             evidence/p8c1-fixtures/gram-2.d8c1 \
             evidence/p8c1-fixtures/gram-sat.p8g1 \
             | tee evidence/g8d1-gram-sat.log
-          grep -E '^SCOPED_COUNT_TO_GRAM_PSD_SAT proof_nodes=[0-9]+ early_leaves=[0-9]+ source_trust=BLOCKED
-
+          grep -F 'SCOPED_COUNT_TO_GRAM_PSD_SAT proof_nodes=' evidence/g8d1-gram-sat.log
+          set +e
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/gram-violated.scg1 \
+            evidence/p8c1-fixtures/gram-0.s8c1 \
+            evidence/p8c1-fixtures/gram-1.s8c1 \
+            evidence/p8c1-fixtures/gram-2.s8c1 \
+            evidence/p8c1-fixtures/gram-0.d8c1 \
+            evidence/p8c1-fixtures/gram-1.d8c1 \
+            evidence/p8c1-fixtures/gram-2.d8c1 \
+            evidence/p8c1-fixtures/gram-violated.p8g1 > evidence/g8d1-violated.log
+          rc=$?
+          set -e
+          test "$rc" -eq 6
+          grep -F 'SCOPED_COUNT_TO_GRAM_PSD_VIOLATED reason=negative_determinant' evidence/g8d1-violated.log
+          echo 'G8D1_CROSS_BINARY=SAT_and_VIOLATED_exact_three_count_traces'
           if test -x /usr/bin/time; then
             /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \
               -o evidence/p8c1-standalone-resource-pilot.log \

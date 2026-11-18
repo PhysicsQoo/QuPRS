@@ -1766,6 +1766,41 @@ mod tests {
         println!("G8D1_EXPORTED real_native_source=true verified_count_traces=3 both_property_verdicts=true");
     }
     #[test]
+    fn m8d1_symbolic_producer_matches_exhaustive_reference(){
+        let examples=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nh q[1];\ncz q[0],q[1];\n".as_slice(),
+        ];
+        let mut cases=0usize;
+        let mut saved=0isize;
+        for source in examples{
+            let (proof,state)=source_proof_and_state(source);
+            let dim=1usize<<state.n;
+            for &(first,second) in &[(0,0),(0,1),(1,0),(1,1)]{
+                for bad in [1u64,1u64<<(dim-1),(1u64<<dim)-1]{
+                    let structure=two_copy_structural::encode(
+                        source,&proof,&state,first,second,bad).unwrap();
+                    let symbolic=two_copy_count_dag::emit(source,&proof,&structure).unwrap();
+                    let exhaustive=two_copy_count_dag::emit_via_exhaustive_tree(
+                        source,&proof,&structure).unwrap();
+                    let s=two_copy_count_dag::verify(
+                        source,&proof,&structure,&symbolic).unwrap();
+                    let e=two_copy_count_dag::verify(
+                        source,&proof,&structure,&exhaustive).unwrap();
+                    assert_eq!(s.buckets,e.buckets);
+                    assert_eq!(symbolic,exhaustive,
+                        "nonenumerative emitter changed canonical DAG bytes");
+                    saved+=exhaustive.len() as isize-symbolic.len() as isize;
+                    cases+=1;
+                }
+            }
+        }
+        assert_eq!(cases,36);
+        assert_eq!(saved,0);
+        println!("M8D1_SYMBOLIC_GENERATOR circuits=3 comparisons={cases} exact_canonical_bytes=true no_exhaustive_path_pair_enumeration_in_generator=true");
+    }
+    #[test]
     fn m8d1_exact_shared_dag_all_root_contexts_and_forgery(){
         let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nt q[0];\nh q[0];\nt q[0];\nh q[0];\nt q[0];\nh q[0];\nt q[0];\n";
         let (proof,state)=source_proof_and_state(src);

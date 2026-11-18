@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "QuPRS_cli"
-version = "0.16.0"
+version = "0.17.0-rc.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1303,7 +1303,7 @@ dependencies = [
 
 [[package]]
 name = "quprs"
-version = "0.16.0"
+version = "0.17.0-rc.1"
 dependencies = [
  "anyhow",
  "cmake",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "quprs-web"
-version = "0.16.0"
+version = "0.17.0-rc.1"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "quprs_python"
-version = "0.16.0"
+version = "0.17.0-rc.1"
 dependencies = [
  "pyo3",
  "quprs",

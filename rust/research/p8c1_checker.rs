@@ -11,6 +11,8 @@ mod two_copy_wmc;
 mod two_copy_cnf;
 #[path = "p8c1_two_copy_structural.rs"]
 mod two_copy_structural;
+#[path = "p8c1_two_copy_count_trace.rs"]
+mod two_copy_count_trace;
 #[cfg(test)]
 #[path = "p8c1_dense_oracle.rs"]
 mod dense_oracle;
@@ -1009,6 +1011,33 @@ fn main()->ExitCode {
         };
     }
     if paths.len()==4 {
+        // D8C1 consumes a canonical S8C1 structural proof, NOT a property
+        // specification. Its local Shannon rules can certify counts without
+        // enumerating every primary path assignment.
+        let preliminary=read_limited(&paths[2],65_536,Error::InvalidProof);
+        match preliminary {
+            Ok(structure) if structure.starts_with(b"S8C1")=>{
+                let result=(||{
+                    let source=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
+                    let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
+                    let trace=read_limited(&paths[3],65_536,Error::InvalidProof)?;
+                    two_copy_count_trace::verify(&source,&proof,&structure,&trace)
+                })();
+                return match result {
+                    Ok(result)=>{
+                        let total=result.buckets.iter().map(|&v|v as usize).sum::<usize>();
+                        println!("SCOPED_TWO_COPY_COUNT_TRACE_EXACT buckets=8 checked_models={total} checker_nodes={} early_leaves={} source_trust=BLOCKED",
+                            result.stats.nodes,result.stats.early_leaves);
+                        ExitCode::SUCCESS
+                    }
+                    Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
+                };
+            }
+            Err(e)=>{println!("{}",e.label());return ExitCode::from(e.exit_code());}
+            _=>{},
+        }
+    }
+    if paths.len()==4 {
         // Do not reinterpret basis-only SPB1 as coherent-span SCG1.
         // A distinct spec magic selects a distinct proof contract.
         let is_coherent=match read_limited(&paths[2],MAX_SPEC_BYTES,Error::InvalidSource){
@@ -1538,6 +1567,104 @@ mod tests {
             rows.push((structural.len(),blocking.len()));
         }
         assert_eq!(rows.len(),4);
+    }
+    #[test]
+    fn d8c1_local_shannon_trace_exact_and_fail_closed(){
+        let (src,proof)=example_h();
+        let (_,state)=replay_state(&src,&proof).unwrap();
+        let structural=two_copy_structural::encode(&src,&proof,&state,0,1,1).unwrap();
+        let trace=two_copy_count_trace::emit(&src,&proof,&structural).unwrap();
+        let checked=two_copy_count_trace::verify(&src,&proof,&structural,&trace).unwrap();
+        assert_eq!(checked.buckets,[1,0,0,0,0,0,0,0]);
+        let canonical=two_copy_cnf::count_models(
+            &two_copy_cnf::build(&state,0,1,1).unwrap()
+        ).unwrap();
+        assert_eq!(checked.buckets,canonical);
+        let(mut rejected,mut accepted)=(0usize,0usize);
+        for i in 0..trace.len(){
+            for bit in 0..8{
+                let mut forged=trace.clone();forged[i]^=1u8<<bit;
+                if two_copy_count_trace::verify(&src,&proof,&structural,&forged).is_err(){
+                    rejected+=1;
+                }else{accepted+=1;}
+            }
+        }
+        assert_eq!(accepted,0);
+        assert_eq!(rejected,trace.len()*8);
+        let mut forged=structural.clone();forged[9]^=1;
+        assert_eq!(two_copy_count_trace::verify(&src,&proof,&forged,&trace),
+            Err(Error::InvalidProof));
+        println!("D8C1_H_EXACT trace_bytes={} proof_nodes={} exhaustive_mutations={} rejected={} accepted=0",
+            trace.len(),checked.stats.nodes,rejected,rejected);
+    }
+    #[test]
+    fn d8c1_false_subtree_prunes_all_path_pairs_without_enumeration(){
+        // The first and second basis inputs differ on untouched q[1],
+        // so none of the 2^(2h) path pairs can share the same output.
+        let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nt q[0];\nh q[0];\nt q[0];\nh q[0];\nt q[0];\nh q[0];\nt q[0];\n";
+        let(proof,state)=source_proof_and_state(src);
+        assert_eq!(state.paths,4);
+        let structural=two_copy_structural::encode(src,&proof,&state,0,2,15).unwrap();
+        let trace=two_copy_count_trace::emit(src,&proof,&structural).unwrap();
+        let verified=two_copy_count_trace::verify(src,&proof,&structural,&trace).unwrap();
+        assert_eq!(verified.buckets,[0;8]);
+        assert_eq!(verified.stats.nodes,8);
+        assert_eq!(verified.stats.early_leaves,8);
+        assert_eq!(verified.stats.forced_splits,0);
+        let enumerated=two_copy_cnf::count_models(
+            &two_copy_cnf::build(&state,0,2,15).unwrap()
+        ).unwrap();
+        assert_eq!(verified.buckets,enumerated);
+        println!("D8C1_PRUNING h=4 primary_assignments=256 checker_proof_nodes=8 buckets=8 all_zero=true trace_bytes={}",
+            trace.len());
+    }
+    #[test]
+    fn d8c1_differential_trace_buckets_vs_canonical_count(){
+        let sources=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\nh q[1];\ncz q[0],q[1];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[3] q;\nh q[0];\ncx q[0],q[2];\nh q[1];\nt q[2];\ns q[1];\n".as_slice(),
+        ];
+        let mut cases=0;
+        let mut nodes=0;
+        for src in sources{
+            let (proof,state)=source_proof_and_state(src);
+            let dim=1usize<<state.n;
+            for (a,b) in [(0,0),(0,1),(1,0),(1,1)]{
+                for bad in [1u64,1u64<<(dim-1),(1u64<<dim)-1]{
+                    let structural=two_copy_structural::encode(
+                        src,&proof,&state,a,b,bad).unwrap();
+                    let trace=two_copy_count_trace::emit(
+                        src,&proof,&structural).unwrap();
+                    let verified=two_copy_count_trace::verify(
+                        src,&proof,&structural,&trace).unwrap();
+                    let old=two_copy_cnf::count_models(
+                        &two_copy_cnf::build(&state,a,b,bad).unwrap()
+                    ).unwrap();
+                    assert_eq!(verified.buckets,old);
+                    cases+=1;nodes+=verified.stats.nodes;
+                }
+            }
+        }
+        assert_eq!(cases,48);
+        println!("D8C1_DIFF_COUNT_TRACE obligations={cases} checked_local_nodes={nodes} exact_eight_bucket_matches=true nonenumerative_checker=true");
+    }
+    #[test]
+    fn d8c1_export_native_source_linked_fixture_when_requested(){
+        let Ok(dir)=std::env::var("D8C1_FIXTURE_DIR")else{return;};
+        let src=std::fs::read(format!("{dir}/h-1q.qasm")).unwrap();
+        let proof=std::fs::read(format!("{dir}/h-1q.p8c1")).unwrap();
+        let structural=std::fs::read(format!("{dir}/h-1q.s8c1")).unwrap();
+        let trace=two_copy_count_trace::emit(&src,&proof,&structural).unwrap();
+        assert_eq!(two_copy_count_trace::verify(
+            &src,&proof,&structural,&trace).unwrap().buckets,
+            [1,0,0,0,0,0,0,0]);
+        std::fs::write(format!("{dir}/h-1q.d8c1"),&trace).unwrap();
+        let mut forged=trace.clone();forged[trace.len()-1]^=1;
+        std::fs::write(format!("{dir}/h-1q-forged.d8c1"),&forged).unwrap();
+        println!("D8C1_EXPORTED source_linked=true trace_bytes={} all_eight_buckets=true",
+            trace.len());
     }
     #[test]
     fn s8c1_export_external_producer_fixtures_when_requested(){

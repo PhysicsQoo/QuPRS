@@ -21,6 +21,13 @@ on:
       - 'src/QuPRS/pathsum/statistics.py'
       - 'src/QuPRS/pathsum/gates/**'
       - 'src/QuPRS/py.typed'
+      - 'scripts/check_generated_stub.py'
+      - 'test/test_generated_stub_parity.py'
+      - 'scripts/check_docs_examples.py'
+      - 'scripts/check_docs_scoped_contract.py'
+      - 'src/QuPRS/utils/solver_adapter.py'
+      - 'src/QuPRS/utils/wmc_problem.py'
+      - '.github/scripts/test-docs-workflow-coverage.cjs'
       - 'scripts/docs_versioning.py'
       - 'scripts/check_docs_version_browser.py'
       - 'scripts/check_rust_api_docs.py'
@@ -38,6 +45,7 @@ on:
       - '.github/workflows/browser-workbench-publish.yml'
       - '.github/workflows/docs-versioning-poc.yml'
       - '.github/workflows/rust-api-docs.yml'
+      - '.github/workflows/docs-check.yml'
       - '.github/workflows/docs-release-publish.yml'
       - '.github/workflows/website-ci.yml'
   workflow_dispatch:
@@ -57,6 +65,7 @@ jobs:
     outputs:
       homepage: ${{ steps.scope.outputs.homepage }}
       browser: ${{ steps.scope.outputs.browser }}
+      docs_fast: ${{ steps.scope.outputs.docs_fast }}
       docs_version: ${{ steps.scope.outputs.docs_version }}
       docs_reference: ${{ steps.scope.outputs.docs_reference }}
     steps:
@@ -79,7 +88,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             # Manual validation explicitly exercises every suite.
-            for name in homepage browser docs_version docs_reference; do
+            for name in homepage browser docs_fast docs_version docs_reference; do
               echo "$name=true" >> "$GITHUB_OUTPUT"
             done
           else
@@ -101,6 +110,14 @@ jobs:
     needs: impact
     if: needs.impact.outputs.browser == 'true'
     uses: ./.github/workflows/browser-workbench.yml
+    permissions:
+      contents: read
+
+  docs-fast:
+    name: Website / Strict documentation
+    needs: impact
+    if: needs.impact.outputs.docs_fast == 'true'
+    uses: ./.github/workflows/docs-check.yml
     permissions:
       contents: read
 
@@ -128,7 +145,7 @@ jobs:
   required:
     name: Website CI / Required
     if: ${{ always() }}
-    needs: [impact, homepage, browser, docs-version, docs-reference]
+    needs: [impact, homepage, browser, docs-fast, docs-version, docs-reference]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -137,10 +154,12 @@ jobs:
       ROUTING: ${{ needs.impact.result }}
       WANT_HOMEPAGE: ${{ needs.impact.outputs.homepage }}
       WANT_BROWSER: ${{ needs.impact.outputs.browser }}
+      WANT_DOCS_FAST: ${{ needs.impact.outputs.docs_fast }}
       WANT_DOCS_VERSION: ${{ needs.impact.outputs.docs_version }}
       WANT_DOCS_REFERENCE: ${{ needs.impact.outputs.docs_reference }}
       GOT_HOMEPAGE: ${{ needs.homepage.result }}
       GOT_BROWSER: ${{ needs.browser.result }}
+      GOT_DOCS_FAST: ${{ needs.docs-fast.result }}
       GOT_DOCS_VERSION: ${{ needs.docs-version.result }}
       GOT_DOCS_REFERENCE: ${{ needs.docs-reference.result }}
     steps:
@@ -154,6 +173,7 @@ jobs:
           suites=[
               ("homepage", "WANT_HOMEPAGE", "GOT_HOMEPAGE"),
               ("browser", "WANT_BROWSER", "GOT_BROWSER"),
+              ("docs-fast", "WANT_DOCS_FAST", "GOT_DOCS_FAST"),
               ("docs-version", "WANT_DOCS_VERSION", "GOT_DOCS_VERSION"),
               ("docs-reference", "WANT_DOCS_REFERENCE", "GOT_DOCS_REFERENCE"),
           ]

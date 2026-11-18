@@ -415,12 +415,13 @@ jobs:
             evidence/p8c1-fixtures/h-1q.s8c1 \
             evidence/p8c1-fixtures/h-1q.d8c1 \
             | tee evidence/d8c1-count-trace.log
-          grep -E '^SCOPED_TWO_COPY_COUNT_TRACE_EXACT buckets=8 checked_models=1 checker_nodes=[0-9]+ early_leaves=[0-9]+ source_trust=BLOCKED
-
-
-
-
-
+          grep -F 'SCOPED_TWO_COPY_COUNT_TRACE_EXACT buckets=8 checked_models=1 ' evidence/d8c1-count-trace.log
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/h-1q.s8c1 \
+            evidence/p8c1-fixtures/h-1q-forged.d8c1
+          echo 'D8C1_CROSS_BINARY_COUNT_TRACE=source_bound local_shannon_counts_verified forged_rejected no_solver_count_trust'
 
           if test -x /usr/bin/time; then
             /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \

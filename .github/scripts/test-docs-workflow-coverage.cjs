@@ -34,6 +34,7 @@ function eventPaths(source, event) {
 
 const docs = fs.readFileSync('.github/workflows/docs-check.yml', 'utf8');
 const rust = fs.readFileSync('.github/workflows/rust-api-docs.yml', 'utf8');
+const website = fs.readFileSync('.github/workflows/website-ci.yml', 'utf8');
 
 const shared = [
   'mkdocs.yml', 'docs/requirements-site.txt', 'docs/site/**',
@@ -52,7 +53,9 @@ const local = [
 ];
 for (const event of ['pull_request', 'push']) {
   const fastPaths = eventPaths(docs, event);
-  const nativePaths = eventPaths(rust, event);
+  // PR validation is routed by Website CI; dev-push Rustdoc publishing
+  // retains the native workflow's original direct path filter.
+  const nativePaths = eventPaths(event === 'pull_request' ? website : rust, event);
   assert.deepEqual([...fastPaths].sort(), [...local].sort(),
     `Unexpected fast documentation trigger for ${event}`);
   for (const path of shared) {
@@ -64,6 +67,12 @@ for (const event of ['pull_request', 'push']) {
   assert.ok(docs.includes('branches: [dev]'), 'Fast docs must target dev');
   assert.ok(rust.includes('branches: [dev]'), 'Rust API docs must target dev');
 }
+assert.ok(rust.includes('on:\n  workflow_call:\n'), 'Rust API validation must be reusable');
+assert.ok(!rust.includes('\n  pull_request:\n'), 'Rust API docs must not trigger duplicate PR checks');
+assert.ok(website.includes('uses: ./.github/workflows/rust-api-docs.yml'),
+  'Website CI must invoke the native Rust/Python reference gate');
+assert.ok(website.includes('name: Website CI / Required'),
+  'Website CI must retain one stable required check');
 for (const statement of [
   'python scripts/check_docs_site.py --sources',
   'python scripts/generate_stubs.py --check',

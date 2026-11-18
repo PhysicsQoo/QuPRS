@@ -77,7 +77,7 @@ def browser_check(root: Path, output: Path) -> None:
                         page.wait_for_url(
                             base + "v0.99.99-test/rust-api/quprs/", timeout=20000
                         )
-                        if not page.locator("[data-quprs-version-selector]").is_visible():
+                        if not page.locator("nav[data-quprs-version-selector]").is_visible():
                             raise AssertionError("Rustdoc selector missing after version change")
                         mobile = browser.new_page(viewport={"width": 390, "height": 844},
                                                   is_mobile=True, has_touch=True)

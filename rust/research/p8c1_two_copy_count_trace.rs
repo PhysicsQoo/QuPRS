@@ -110,10 +110,15 @@ fn generator_node(c:&Structural,bucket:usize,depth:usize,prefix:usize,
             true_count=true_count.checked_add(1).ok_or(Error::UnknownResource)?;
         }
     }
-    if true_count==0 {
+    // Exhaustive producer chooses the correct count, but only uses
+    // an early leaf if the independent checker's conservative ternary
+    // evaluation can certify it from the partial assignment.
+    let locally_known=partial_bucket(c,bucket,depth,prefix)?;
+    if true_count==0 && locally_known==Tri::False {
         stats.early_leaves+=1;
         append_node(bytes,0,0)?;
-    } else if true_count as usize ==(1usize<<remaining){
+    } else if true_count as usize ==(1usize<<remaining)
+        && locally_known==Tri::True {
         stats.early_leaves+=1;
         append_node(bytes,1,true_count)?;
     } else {
@@ -232,9 +237,10 @@ mod tests {
         let mut stats=Stats::default();
         assert_eq!(generator_node(&c,0,0,0,&mut stream,&mut stats),Ok(0));
         let mut cursor=Cursor::new(&stream);
-        // Generator's exhaustive compression may choose FALSE at root,
-        // but checker rejects it because local partial truth is UNKNOWN.
+        // The generator must split even if exhaustive evaluation knows
+        // the subtree is false: the checker cannot prove that at the root.
         assert_eq!(check_node(&c,0,0,0,&mut cursor,&mut Stats::default()),
-            Err(Error::InvalidProof));
+            Ok(0));
+        assert_eq!(stream[0],2);
     }
 }

@@ -1,0 +1,172 @@
+name: Website CI
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'website/**'
+      - 'scripts/site/**'
+      - 'web/**'
+      - 'rust/**'
+      - 'scripts/web/**'
+      - 'docs/site/**'
+      - 'docs/requirements-site.txt'
+      - 'docs/requirements-versioned.txt'
+      - 'mkdocs.yml'
+      - 'src/QuPRS/__init__.py'
+      - 'src/QuPRS/interface/load_qiskit.py'
+      - 'src/QuPRS/pathsum/core.py'
+      - 'src/QuPRS/pathsum/core.pyi'
+      - 'src/QuPRS/pathsum/__init__.py'
+      - 'src/QuPRS/pathsum/statistics.py'
+      - 'src/QuPRS/pathsum/gates/**'
+      - 'src/QuPRS/py.typed'
+      - 'scripts/docs_versioning.py'
+      - 'scripts/check_docs_version_browser.py'
+      - 'scripts/check_rust_api_docs.py'
+      - 'scripts/stage_rust_crate_candidate.py'
+      - 'scripts/check_docs_gate_stubs.py'
+      - 'scripts/generate_stubs.py'
+      - 'scripts/check_docs_site.py'
+      - 'scripts/check_docs_science.py'
+      - 'scripts/check_docs_visual.py'
+      - 'scripts/check_docs_links.py'
+      - 'test/test_docs_auto_publication.py'
+      - '.github/workflows/site-homepage.yml'
+      - '.github/workflows/site-homepage-publish.yml'
+      - '.github/workflows/browser-workbench.yml'
+      - '.github/workflows/browser-workbench-publish.yml'
+      - '.github/workflows/docs-versioning-poc.yml'
+      - '.github/workflows/rust-api-docs.yml'
+      - '.github/workflows/docs-release-publish.yml'
+      - '.github/workflows/website-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  impact:
+    name: Website / Changed-path routing
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      homepage: ${{ steps.scope.outputs.homepage }}
+      browser: ${{ steps.scope.outputs.browser }}
+      docs_version: ${{ steps.scope.outputs.docs_version }}
+      docs_reference: ${{ steps.scope.outputs.docs_reference }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check scope selector adversarial fixtures
+        run: python -m unittest discover -s scripts/site -p test_website_impact.py -v
+      - name: Resolve exact PR source scope
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Manual validation explicitly exercises every suite.
+            for name in homepage browser docs_version docs_reference; do
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            done
+          else
+            python scripts/site/website-impact.py \
+              --base "$BASE_SHA" --head "$HEAD_SHA" \
+              --github-output "$GITHUB_OUTPUT"
+          fi
+
+  homepage:
+    name: Website / Homepage
+    needs: impact
+    if: needs.impact.outputs.homepage == 'true'
+    uses: ./.github/workflows/site-homepage.yml
+    permissions:
+      contents: read
+
+  browser:
+    name: Website / Browser WASM
+    needs: impact
+    if: needs.impact.outputs.browser == 'true'
+    uses: ./.github/workflows/browser-workbench.yml
+    permissions:
+      contents: read
+
+  docs-version:
+    name: Website / Docs versioning
+    needs: impact
+    if: needs.impact.outputs.docs_version == 'true'
+    uses: ./.github/workflows/docs-versioning-poc.yml
+    permissions:
+      contents: read
+
+  docs-reference:
+    name: Website / Rust and Python API docs
+    needs: impact
+    if: needs.impact.outputs.docs_reference == 'true'
+    uses: ./.github/workflows/rust-api-docs.yml
+    # Existing same-repository PR preview has its own restricted publishing
+    # job. Generated reference tests retain contents:read in the called file.
+    # No stable or root Pages publisher is enabled by the PR event.
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
+
+  required:
+    name: Website CI / Required
+    if: ${{ always() }}
+    needs: [impact, homepage, browser, docs-version, docs-reference]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      ROUTING: ${{ needs.impact.result }}
+      WANT_HOMEPAGE: ${{ needs.impact.outputs.homepage }}
+      WANT_BROWSER: ${{ needs.impact.outputs.browser }}
+      WANT_DOCS_VERSION: ${{ needs.impact.outputs.docs_version }}
+      WANT_DOCS_REFERENCE: ${{ needs.impact.outputs.docs_reference }}
+      GOT_HOMEPAGE: ${{ needs.homepage.result }}
+      GOT_BROWSER: ${{ needs.browser.result }}
+      GOT_DOCS_VERSION: ${{ needs.docs-version.result }}
+      GOT_DOCS_REFERENCE: ${{ needs.docs-reference.result }}
+    steps:
+      - name: Require exact applicable suites, reject unexpected skipped tests
+        shell: python
+        run: |
+          import os
+          errors=[]
+          if os.environ["ROUTING"] != "success":
+              errors.append("Changed-path routing did not succeed")
+          suites=[
+              ("homepage", "WANT_HOMEPAGE", "GOT_HOMEPAGE"),
+              ("browser", "WANT_BROWSER", "GOT_BROWSER"),
+              ("docs-version", "WANT_DOCS_VERSION", "GOT_DOCS_VERSION"),
+              ("docs-reference", "WANT_DOCS_REFERENCE", "GOT_DOCS_REFERENCE"),
+          ]
+          for name,want,got in suites:
+              expected=os.environ[want]
+              actual=os.environ[got]
+              if expected == "true" and actual != "success":
+                  errors.append(f"{name}: required suite ended {actual}, expected success")
+              elif expected == "false" and actual != "skipped":
+                  errors.append(f"{name}: unexpected run {actual}; expected skipped")
+              elif expected not in {"true","false"}:
+                  errors.append(f"{name}: missing or invalid route {expected!r}")
+              print(f"{name}: selected={expected}, result={actual}")
+          if errors:
+              raise SystemExit("Website CI failed closed:\n" + "\n".join(errors))
+          print("Website CI / Required: PASS")

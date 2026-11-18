@@ -1,0 +1,102 @@
+name: Solver Timeout ARM Diagnostic
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/solver-timeout-arm-diagnostic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solver-timeout-arm-diagnostic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-solver-timeout:
+    name: Python 3.13 ARM / bounded solver failure replay
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 22
+    env:
+      QUPRS_SOLVER_PROVISION: external
+    steps:
+      - name: Check out exact source associated with original stalled matrix
+        uses: actions/checkout@v4
+        with:
+          ref: f693dd768f2376dbd895d27f19920d47a09a00d9
+          persist-credentials: false
+      - name: Verify immutable source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = f693dd768f2376dbd895d27f19920d47a09a00d9
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Restore pinned Ganak distribution
+        uses: ./.github/actions/cache-ganak-release
+      - name: Build source with native extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip maturin
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(which python)")")"
+          maturin develop --release -E dev
+          python -m QuPRS.utils.ganak_distribution
+      - name: Serial fault matrix without xdist or coverage
+        id: serial
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p diagnostic-logs
+          timeout --signal=TERM --kill-after=15s 150s \
+            python -m pytest test/test_solver_failure_matrix.py \
+            -k test_public_wmc_solver_failure_is_never_inequivalence \
+            -n 0 -q -ra --durations=10 -o faulthandler_timeout=90 \
+            --junitxml=diagnostic-logs/serial.xml \
+            2>&1 | tee diagnostic-logs/serial.log
+      - name: Parallel fault matrix with coverage
+        id: parallel
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p diagnostic-logs
+          timeout --signal=TERM --kill-after=15s 150s \
+            python -m pytest test/test_solver_failure_matrix.py \
+            -k test_public_wmc_solver_failure_is_never_inequivalence \
+            -n 4 -q -ra --durations=10 -o faulthandler_timeout=90 \
+            --cov=src/QuPRS --cov-report=xml:diagnostic-logs/coverage.xml \
+            --junitxml=diagnostic-logs/parallel.xml \
+            2>&1 | tee diagnostic-logs/parallel.log
+      - name: Preserve targeted failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: solver-timeout-arm-313-focused
+          path: diagnostic-logs/
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Reject timeout or failed fault-injection assertions
+        if: always()
+        env:
+          SERIAL_RESULT: ${{ steps.serial.outcome }}
+          PARALLEL_RESULT: ${{ steps.parallel.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "serial=$SERIAL_RESULT parallel=$PARALLEL_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          test "$SERIAL_RESULT" = success
+          test "$PARALLEL_RESULT" = success

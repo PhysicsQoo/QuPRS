@@ -38,8 +38,14 @@ function native(request){
    }
    assert.equal(w.report.certified_distance_interval,false);
    assert.equal(w.report.distance_metric,'projective_hilbert_schmidt');
-   for(const report of [n.report,w.report])for(const key of ['core_seconds','pathsum_seconds','counter_seconds']){
-     const value=report[key];assert(Number.isFinite(value)&&value>=0,`${context}: invalid ${key}=${value}`);
+   for(const report of [n.report,w.report]){
+     for(const key of ['core_seconds','pathsum_seconds']){
+       const value=report[key];assert(Number.isFinite(value)&&value>=0,`${context}: invalid ${key}=${value}`);
+     }
+     // tool_time is optional when no external counter was invoked.
+     const counter=report.counter_seconds;
+     assert(counter===null||(Number.isFinite(counter)&&counter>=0),
+       `${context}: invalid counter_seconds=${counter}`);
    }
    assert(Number.isFinite(w.request_ms)&&w.request_ms>=0,`${context}: invalid elapsed time`);
    assert(w.report.core_seconds<=w.request_ms/1000+1,`${context}: WASM core time exceeds observed request wall time`);

@@ -685,16 +685,16 @@ mod tests {
     #[test]
     fn source_spec_proof_binding_and_claim_mutations_fail_closed() {
         let (source,proof)=example_h();
-        let spec=spec(1,1,2,1,2);
-        let binding=proof_bound_bytes(&source,&proof,&spec);
-        assert_eq!(verify_spb1_property(&source,&proof,&spec,&binding),
+        let spec_bytes=spec(1,1,2,1,2);
+        let binding=proof_bound_bytes(&source,&proof,&spec_bytes);
+        assert_eq!(verify_spb1_property(&source,&proof,&spec_bytes,&binding),
             Ok(PropertyVerdict::ScopedSatisfied));
         let mut total=0usize;
         for i in 0..binding.len() {
             for bit in 0..8 {
                 let mut forged=binding;
                 forged[i]^=1<<bit;
-                assert_ne!(verify_spb1_property(&source,&proof,&spec,&forged),
+                assert_ne!(verify_spb1_property(&source,&proof,&spec_bytes,&forged),
                     Ok(PropertyVerdict::ScopedSatisfied));
                 total+=1;
             }
@@ -703,10 +703,10 @@ mod tests {
         assert_eq!(verify_spb1_property(&source,&proof,&alt,&binding),
             Err(Error::InvalidProof));
         let mut mutated_proof=proof.clone();mutated_proof[15]^=1;
-        assert_eq!(verify_spb1_property(&source,&mutated_proof,&spec,&binding),
+        assert_eq!(verify_spb1_property(&source,&mutated_proof,&spec_bytes,&binding),
             Err(Error::InvalidProof));
         let mut mutated_source=source.clone();mutated_source.push(b' ');
-        assert_eq!(verify_spb1_property(&mutated_source,&proof,&spec,&binding),
+        assert_eq!(verify_spb1_property(&mutated_source,&proof,&spec_bytes,&binding),
             Err(Error::InvalidProof));
         assert_eq!(property(&source,&proof,b"SPB1\nn=1\nbasis_pre=0x0000000000000001\nbasis_bad=0x0000000000000002\ndelta=2/4\n"),
             Err(Error::InvalidSource));

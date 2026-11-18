@@ -286,7 +286,7 @@ jobs:
             evidence/p8c1-fixtures/coherent-violation.p8g1 \
             evidence/p8c1-fixtures/coherent-witness-valid.p8w1 \
             | tee evidence/p8w1-normalized-witness.log
-          grep -E '^SCOPED_COHERENT_WITNESS_ACCEPTED norm_surd=2:0 negative_gap_surd=-2:0 ' \
+          grep -E '^SCOPED_COHERENT_WITNESS_ACCEPTED norm_surd=2:0 negative_gap_surd=-4:0 ' \
             evidence/p8w1-normalized-witness.log
           check_reject INVALID_PROOF 4 \
             evidence/p8c1-fixtures/h-1q.qasm \

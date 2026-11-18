@@ -39,6 +39,10 @@ class HomepageTests(unittest.TestCase):
         self.assertIn("https://github.com/PhysicsQoo/QuPRS", parsed.urls)
         self.assertIn("https://pypi.org/project/QuPRS/", parsed.urls)
         self.assertIn("https://crates.io/crates/quprs", parsed.urls)
+        self.assertIn("docs/stable/rust-api/quprs/", parsed.urls,
+                      "Homepage must link to the existing stable Rustdoc")
+        self.assertFalse(any("pr-preview/" in url for url in parsed.urls),
+                         "Internal PR previews must not appear on the public homepage")
         self.assertNotIn("playground/", parsed.urls, "Unpublished Playground must not be a live link")
         self.assertEqual(html.count(stager.REVISION_MARKER), 1)
         self.assertIn('<link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">', html)
@@ -60,6 +64,7 @@ class HomepageTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.pages)], check=True)
         for name in (
             "index.html", "docs/stable/index.html", "docs/dev/index.html",
+            "docs/stable/rust-api/quprs/index.html",
             "playground/index.html", "pr-preview/pr-17/index.html",
             ".nojekyll", "CNAME",
         ):

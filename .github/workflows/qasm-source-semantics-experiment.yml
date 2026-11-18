@@ -15,6 +15,7 @@ on:
       - rust/research/p8c1_two_copy_wmc.rs
       - rust/research/p8c1_two_copy_cnf.rs
       - rust/research/p8c1_two_copy_structural.rs
+      - rust/research/p8c1_two_copy_count_trace.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
@@ -72,6 +73,7 @@ jobs:
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/research/p8c1_two_copy_structural.rs \
+            rust/research/p8c1_two_copy_count_trace.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -398,6 +400,143 @@ jobs:
             evidence/p8c1-fixtures/h-1q.p8c1 \
             evidence/p8c1-fixtures/h-1q-forged.s8c1
           echo 'S8C1_CROSS_BINARY_STRUCTURAL=unique_aux_extension true_eight_buckets forged_rejected reference_C8C1_match'
+
+          # D8C1 counts are certified by conservative three-valued gate
+          # propagation and local Shannon branch-sum identities. Unlike
+          # the S8C1 reference harness, this checker path does NOT
+          # enumerate all original primary path assignments.
+          D8C1_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/p8c1-fixtures" \
+            evidence/p8c1-checker-tests --exact \
+            tests::d8c1_export_native_source_linked_fixture_when_requested \
+            --nocapture 2>&1 | tee evidence/d8c1-export.log
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/h-1q.s8c1 \
+            evidence/p8c1-fixtures/h-1q.d8c1 \
+            | tee evidence/d8c1-count-trace.log
+          grep -E '^SCOPED_TWO_COPY_COUNT_TRACE_EXACT buckets=8 checked_models=1 checker_nodes=[0-9]+ early_leaves=[0-9]+ source_trust=BLOCKED
+
+
+
+
+
+
+          if test -x /usr/bin/time; then
+            /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \
+              -o evidence/p8c1-standalone-resource-pilot.log \
+              evidence/p8c1-checker \
+                evidence/p8c1-fixtures/structural-16q.qasm \
+                evidence/p8c1-fixtures/structural-16q.p8c1
+            cat evidence/p8c1-standalone-resource-pilot.log
+          else
+            echo 'P8C1_PILOT_RSS=UNAVAILABLE' > evidence/p8c1-standalone-resource-pilot.log
+          fi
+
+
+      - name: Check independent source semantics and gate-prefix certificates
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_independent_source_kernel_experiment observed_ -- --nocapture \
+            2>&1 | tee evidence/independent-source-kernel.log
+
+      - name: Check strict two-qubit source matrices (diagnostic, may fail)
+        id: two_qubit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_two_qubit_source_contract strict_contract_ -- --nocapture \
+            2>&1 | tee evidence/two-qubit-strict.log
+
+      - name: Check official strict unitary matrices (diagnostic, may fail)
+        id: exact_matrix
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_strict_unitary_matrix_oracle strict_contract_ -- --nocapture \
+            2>&1 | tee evidence/exact-unitary-conformance.log
+
+      - name: Compare against strict source contract (diagnostic, may fail)
+        id: strict
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_source_semantics_experiment strict_contract_ -- --nocapture \
+            2>&1 | tee evidence/strict-source-contract.log
+
+      - name: Report diagnostic outcome
+        if: always()
+        env:
+          STRICT_RESULT: ${{ steps.strict.outcome }}
+          MATRIX_RESULT: ${{ steps.exact_matrix.outcome }}
+          TWOQ_RESULT: ${{ steps.two_qubit.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          printf 'strict_source_contract=%s\nstrict_matrix_contract=%s\nstrict_two_qubit_contract=%s\n' "$STRICT_RESULT" "$MATRIX_RESULT" "$TWOQ_RESULT" > evidence/summary.txt
+          {
+            echo '## QASM source semantics — research-only diagnostic'
+            echo
+            echo "Strict conformance test outcome: **$STRICT_RESULT**"
+            echo "Strict full-matrix outcome: **$MATRIX_RESULT**"
+            echo "Strict two-qubit outcome: **$TWOQ_RESULT**"
+            echo
+            echo 'A failed strict test identifies a source semantic discrepancy.'
+            echo 'It is **not** a failure of unrelated production CI, nor a verified correction.'
+            echo 'A successful observed-behavior test does not certify OpenQASM conformance.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qasm-source-semantics-diagnostics
+          path: evidence/
+          if-no-files-found: ignore
+          retention-days: 7
+
+
+  standalone-no-native-prerequisites:
+    name: Standalone P8C1 verifier without QuPRS/Cargo/native libraries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact experiment revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Install stable Rust only
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build and test std-only independent verifier
+        run: |
+          set -euo pipefail
+          rustc --version
+          rustc --edition=2021 --test rust/research/p8c1_dense_oracle.rs -o /tmp/p8c1-dense-unit
+          /tmp/p8c1-dense-unit --nocapture
+          rustc --edition=2021 --test rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone-unit
+          /tmp/p8c1-standalone-unit --nocapture
+          rustc --edition=2021 rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone
+          set +e
+          /tmp/p8c1-standalone > /tmp/p8c1-no-input.log
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -x INVALID_SOURCE /tmp/p8c1-no-input.log
+          echo 'P8C1_STANDALONE_NO_CARGO=checker_and_dense_oracle_tests_pass'
+ \
+            evidence/d8c1-count-trace.log
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/h-1q.s8c1 \
+            evidence/p8c1-fixtures/h-1q-forged.d8c1
+          echo 'D8C1_CROSS_BINARY_COUNT_TRACE=source_bound local_shannon_counts_verified forged_rejected no_solver_count_trust'
+
 
 
 

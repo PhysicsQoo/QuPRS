@@ -938,4 +938,284 @@ mod phase8_local_step_research {
         assert_eq!(forgeries, 5);
         println!("SYMBOLIC_Z8_H_STEPCERT forgeries_rejected={forgeries} resource_unknown=true unsupported_rejected=true");
     }
+
+    // Independent checker implementation. The claim producer above uses
+    // triple inclusion-exclusion; this verifier computes parity through
+    // the recurrence a XOR b = a + b - 2ab (mod 8).
+    // Neither source parsing nor gate transition calls the producer helpers.
+    #[derive(Clone, Copy)]
+    struct CheckLimits {
+        max_terms: usize,
+        max_updates: usize,
+        max_paths: usize,
+    }
+    struct Fuel {
+        left: usize,
+        max_terms: usize,
+    }
+    fn checked_phase_update(
+        phase: &mut Phase, mon: u64, delta: u8, fuel: &mut Fuel,
+    ) -> bool {
+        if fuel.left == 0 { return false; }
+        fuel.left -= 1;
+        let old = phase.get(&mon).copied().unwrap_or(0);
+        let new = (old + delta % 8) % 8;
+        if new == 0 { phase.remove(&mon); } else { phase.insert(mon, new); }
+        phase.len() <= fuel.max_terms
+    }
+    fn checked_parity_lift(expr: &Anf, fuel: &mut Fuel) -> Option<Phase> {
+        // Independent sequential construction: each XOR toggles parity.
+        // Charging every generated monomial protects against combinatorial
+        // expansion; zero work budget never accepts a proof.
+        let mut acc = Phase::new();
+        for &mon in expr {
+            let old = acc.clone();
+            if !checked_phase_update(&mut acc, mon, 1, fuel) { return None; }
+            for (&key, &coeff) in &old {
+                let negative_twice = (8 - (2 * coeff) % 8) % 8;
+                if !checked_phase_update(&mut acc, key | mon, negative_twice, fuel) {
+                    return None;
+                }
+            }
+        }
+        Some(acc)
+    }
+    fn independently_read_source(source: &str) -> Result<(usize, Vec<Gate>), String> {
+        if source.len() > 32768 { return Err("independent source size cap".into()); }
+        let mut statements = source.lines().map(str::trim).filter(|v| !v.is_empty());
+        if statements.next() != Some("OPENQASM 3.0;")
+            || statements.next() != Some("include \"stdgates.inc\";") {
+            return Err("independent source version or scope unsupported".into());
+        }
+        let register = statements.next().ok_or("missing declared source register")?;
+        let number = register.strip_prefix("qubit[")
+            .and_then(|v| v.strip_suffix("] q;"))
+            .ok_or("invalid register")?;
+        if number.is_empty() || (number.len() > 1 && number.starts_with('0'))
+            || !number.bytes().all(|v| v.is_ascii_digit()) {
+            return Err("invalid register count".into());
+        }
+        let n: usize = number.parse().map_err(|_| "register overflow")?;
+        if n == 0 || n > 16 { return Err("unsupported independent register".into()); }
+        fn read_wire(token: &str, width: usize) -> Result<usize, String> {
+            let value = token.strip_prefix("q[")
+                .and_then(|v| v.strip_suffix(']'))
+                .ok_or("invalid indexed qubit")?;
+            if value.is_empty() || (value.len() > 1 && value.starts_with('0'))
+                || !value.bytes().all(|b| b.is_ascii_digit()) {
+                return Err("invalid indexed qubit integer".into());
+            }
+            let index: usize = value.parse().map_err(|_| "qubit index overflow")?;
+            if index >= width { return Err("qubit index out of bounds".into()); }
+            Ok(index)
+        }
+        let mut sequence = Vec::new();
+        for statement in statements {
+            if sequence.len() == 1024 { return Err("independent source gate cap".into()); }
+            let statement = statement.strip_suffix(';').ok_or("missing source terminator")?;
+            if statement == "gphase(pi/4)" {
+                sequence.push(Gate::Global(1));
+                continue;
+            }
+            let (name, operands) = statement.split_once(' ')
+                .ok_or("unknown source statement")?;
+            if operands.contains(' ') || operands.contains('\t') {
+                return Err("unexpected operands".into());
+            }
+            let gate = match name {
+                "h" => Gate::H(read_wire(operands, n)?),
+                "x" => Gate::X(read_wire(operands, n)?),
+                "t" => Gate::T(read_wire(operands, n)?),
+                "s" => Gate::S(read_wire(operands, n)?),
+                "z" => Gate::Z(read_wire(operands, n)?),
+                "cx" | "cz" => {
+                    let (first, second) = operands.split_once(',')
+                        .ok_or("missing binary gate operand")?;
+                    let control = read_wire(first, n)?;
+                    let target = read_wire(second, n)?;
+                    if control == target { return Err("binary gate alias".into()); }
+                    if name == "cx" { Gate::Cx(control, target) }
+                    else { Gate::Cz(control, target) }
+                }
+                _ => return Err("source gate outside verifier whitelist".into()),
+            };
+            sequence.push(gate);
+        }
+        if sequence.is_empty() {return Err("empty source gate sequence".into());}
+        Ok((n, sequence))
+    }
+    fn independent_replay(
+        source: &str, claim: &Claim, limits: CheckLimits,
+    ) -> Result<Option<State>, String> {
+        let (n, source_gates) = independently_read_source(source)?;
+        if source_digest(source) != claim.source_hash {
+            return Err("verified source digest disagrees with claim".into());
+        }
+        if source_gates.len() != claim.prefixes.len() {
+            return Err("missing/extra source-linked prefix".into());
+        }
+        // Validate *all* untrusted prefix encodings before resource fallback.
+        // Bounds here are on canonical monomial counts, not serialized bytes.
+        for alleged in &claim.prefixes {
+            if alleged.n != n || alleged.out.len() != n
+                || alleged.paths > 63usize.saturating_sub(n) {
+                return Err("noncanonical claimed dimension".into());
+            }
+            let width = n + alleged.paths;
+            let permitted = (1u64 << width) - 1;
+            if alleged.out.iter().any(|p| p.iter().any(|m| m & !permitted != 0))
+                || alleged.phase.iter().any(|(&m, &c)| m & !permitted != 0 || c == 0 || c >= 8) {
+                return Err("noncanonical claimed monomial or coefficient".into());
+            }
+            let count = alleged.phase.len() + alleged.out.iter().map(|o| o.len()).sum::<usize>();
+            if count > limits.max_terms {return Ok(None);}
+        }
+        let mut fuel = Fuel { left: limits.max_updates, max_terms: limits.max_terms };
+        let mut current = State {
+            n, paths: 0,
+            out: (0..n).map(|i| BTreeSet::from([1u64 << i])).collect(),
+            phase: Phase::new(),
+        };
+        if n > limits.max_terms {return Ok(None);}
+        for (index, source_gate) in source_gates.into_iter().enumerate() {
+            // All verifier-side mutations and allocations use a separate
+            // implementation from the producer (no calls to next/lift8/xor).
+            match source_gate {
+                Gate::H(t) => {
+                    if current.paths >= limits.max_paths || n + current.paths >= 63 {
+                        return Ok(None);
+                    }
+                    let fresh = 1u64 << (n + current.paths);
+                    let old_output = current.out[t].clone();
+                    // 4·parity ≡ 4·sum(monomials) (mod 8).
+                    for mon in old_output {
+                        if !checked_phase_update(&mut current.phase, fresh | mon, 4, &mut fuel) {
+                            return Ok(None);
+                        }
+                    }
+                    current.out[t] = BTreeSet::from([fresh]);
+                    current.paths += 1;
+                }
+                Gate::X(t) => {
+                    if fuel.left == 0 {return Ok(None);}
+                    fuel.left -= 1;
+                    if !current.out[t].insert(0) {current.out[t].remove(&0);}
+                }
+                Gate::Cx(c, t) => {
+                    let control = current.out[c].clone();
+                    for mon in control {
+                        if fuel.left == 0 {return Ok(None);}
+                        fuel.left -= 1;
+                        if !current.out[t].insert(mon) {current.out[t].remove(&mon);}
+                        if current.out[t].len() > limits.max_terms {return Ok(None);}
+                    }
+                }
+                Gate::T(t) | Gate::S(t) | Gate::Z(t) => {
+                    let factor = match source_gate {
+                        Gate::T(_) => 1, Gate::S(_) => 2, Gate::Z(_) => 4, _ => unreachable!(),
+                    };
+                    let Some(lift) = checked_parity_lift(&current.out[t], &mut fuel) else {
+                        return Ok(None);
+                    };
+                    for (m, coeff) in lift {
+                        if !checked_phase_update(
+                            &mut current.phase, m, (factor * coeff) % 8, &mut fuel,
+                        ) { return Ok(None); }
+                    }
+                }
+                Gate::Cz(c,t) => {
+                    // 4·(parity_c)(parity_t) mod8 is just a GF2
+                    // convolution at coefficient four, including overlaps.
+                    let left = current.out[c].clone();
+                    let right = current.out[t].clone();
+                    for a in left {
+                        for &b in &right {
+                            if !checked_phase_update(&mut current.phase, a | b, 4, &mut fuel) {
+                                return Ok(None);
+                            }
+                        }
+                    }
+                }
+                Gate::Global(k) => {
+                    if !checked_phase_update(&mut current.phase, 0, k, &mut fuel) {
+                        return Ok(None);
+                    }
+                }
+            }
+            let state_terms = current.phase.len()
+                + current.out.iter().map(|v| v.len()).sum::<usize>();
+            if state_terms > limits.max_terms {return Ok(None);}
+            if claim.prefixes[index] != current {
+                return Err(format!("independent symbolic step mismatch at {index}"));
+            }
+        }
+        Ok(Some(current))
+    }
+    fn limits() -> CheckLimits {
+        CheckLimits { max_terms: 256, max_updates: 50000, max_paths: 24 }
+    }
+
+    #[test]
+    fn observed_phase8_independent_checker_replays_source_and_triples() {
+        let examples = [
+            source(2, "h q[0];\ncx q[0],q[1];\nt q[1];\nh q[1];\n"),
+            source(3, "h q[0];\ncx q[0],q[1];\ns q[1];\ncz q[0],q[2];\nt q[2];\n"),
+            source(4, "cx q[0],q[3];\ncx q[1],q[3];\ncx q[2],q[3];\nt q[3];\n"),
+            source(4, "h q[1];\ncx q[1],q[3];\ncx q[0],q[3];\nt q[3];\nh q[3];\n"),
+        ];
+        let mut prefixes = 0;
+        for s in &examples {
+            let claim = emit(s).unwrap();
+            let expected = claim.prefixes.last().unwrap();
+            assert_eq!(independent_replay(s, &claim, limits()).unwrap().unwrap(), *expected);
+            prefixes += claim.prefixes.len();
+        }
+        let triple = emit(&examples[2]).unwrap();
+        let phase = &triple.prefixes.last().unwrap().phase;
+        assert_eq!(phase.get(&0b111u64), Some(&4));
+        assert_eq!(phase.get(&0b11u64), Some(&6));
+        println!("INDEPENDENT_Z8_STEPCERT circuits=4 prefixes={prefixes} parity_triple_verified=true");
+    }
+    #[test]
+    fn observed_phase8_independent_replay_scales_structurally_and_fails_closed() {
+        let mut body = String::new();
+        for t in 0..16 {
+            body.push_str(&format!("h q[{t}];\n"));
+        }
+        for j in 0..112 {
+            let t = j % 16;
+            let gate = if j % 2 == 0 { "t" } else { "x" };
+            body.push_str(&format!("{gate} q[{t}];\n"));
+        }
+        let large = source(16, &body);
+        let claim = emit(&large).unwrap();
+        assert_eq!(claim.prefixes.len(), 128);
+        assert!(independent_replay(&large, &claim, limits()).unwrap().is_some());
+        let mut changed = claim.clone();
+        changed.prefixes[12].paths = 2; // wrong intermediate path count
+        assert!(independent_replay(&large, &changed, limits()).is_err());
+        let mut changed = claim.clone();
+        changed.prefixes[27].phase.insert(0, 3);
+        assert!(independent_replay(&large, &changed, limits()).is_err());
+        let mut changed = claim.clone();
+        changed.prefixes[31].out[0].insert(1u64 << 62);
+        assert!(independent_replay(&large, &changed, limits()).is_err());
+        let mut changed = claim.clone();
+        changed.prefixes.pop();
+        assert!(independent_replay(&large, &changed, limits()).is_err());
+        assert!(independent_replay(&large, &claim, CheckLimits {
+            max_terms: 256, max_updates: 0, max_paths: 24,
+        }).unwrap().is_none());
+        assert!(independent_replay(&large, &claim, CheckLimits {
+            max_terms: 2, max_updates: 50000, max_paths: 24,
+        }).unwrap().is_none());
+        assert!(independent_replay(&large, &claim, CheckLimits {
+            max_terms: 256, max_updates: 50000, max_paths: 2,
+        }).unwrap().is_none());
+        assert!(independent_replay(
+            &large.replace("OPENQASM 3.0;", "OPENQASM 3.1;"), &claim, limits(),
+        ).is_err());
+        println!("INDEPENDENT_Z8_STEPCERT_STRUCTURAL n=16 prefixes=128 exact=true unknown_budgets=3 forged_rejected=4");
+    }
+
 }

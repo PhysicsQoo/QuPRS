@@ -29,6 +29,8 @@ on:
       - 'src/QuPRS/utils/wmc_problem.py'
       - '.github/scripts/test-docs-workflow-coverage.cjs'
       - 'scripts/docs_versioning.py'
+      - 'scripts/rustdoc_version_selector.js'
+      - 'test/test_docs_rustdoc_versions.py'
       - 'scripts/check_docs_version_browser.py'
       - 'scripts/check_rust_api_docs.py'
       - 'scripts/stage_rust_crate_candidate.py'

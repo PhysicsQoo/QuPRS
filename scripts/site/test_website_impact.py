@@ -34,6 +34,8 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertEqual(selected("src/QuPRS/utils/solver_adapter.py"), {"docs_fast"})
         self.assertEqual(selected(".github/workflows/docs-check.yml"), {"docs_fast"})
         self.assertEqual(selected("scripts/docs_versioning.py"), {"docs_reference", "docs_version"})
+        self.assertEqual(selected("scripts/rustdoc_version_selector.js"), {"docs_reference", "docs_version"})
+        self.assertEqual(selected("test/test_docs_rustdoc_versions.py"), {"docs_reference", "docs_version"})
 
     def test_shared_publication_stages_all_relevant_siblings(self) -> None:
         self.assertEqual(

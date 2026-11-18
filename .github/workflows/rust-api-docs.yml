@@ -34,6 +34,8 @@ on:
       - 'scripts/check_docs_visual.py'
       - 'scripts/check_docs_links.py'
       - 'scripts/docs_versioning.py'
+      - 'scripts/rustdoc_version_selector.js'
+      - 'test/test_docs_rustdoc_versions.py'
       - 'docs/requirements-versioned.txt'
       - '.github/workflows/rust-api-docs.yml'
   workflow_dispatch:

@@ -153,7 +153,7 @@ fn check_node(c:&Structural,bucket:usize,depth:usize,prefix:usize,
     stats.nodes=stats.nodes.checked_add(1).ok_or(Error::UnknownResource)?;
     if stats.nodes>MAX_NODES{return Err(Error::UnknownResource);}
     let tag=reader.u8()?;
-    let count=reader.u16()?;
+    let count=u16::try_from(reader.u16()?).map_err(|_|Error::InvalidProof)?;
     let known=partial_bucket(c,bucket,depth,prefix)?;
     let remaining=c.primary-depth;
     match known {

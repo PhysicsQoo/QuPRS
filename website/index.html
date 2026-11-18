@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="QuPRS checks quantum circuit equivalence with path-sum reduction and weighted model counting. Explore documentation, Rust and Python packages, and source code.">
+  <meta name="theme-color" content="#121a31">
+  <meta name="quprs-source-revision" content="__SOURCE_REVISION__">
+  <link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">
+  <title>QuPRS — Quantum Circuit Equivalence Checking</title>
+  <style>
+    :root{color-scheme:light dark;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}
+    *{box-sizing:border-box}body{margin:0;background:#f6f8fc;color:#17223a}
+    a{color:#2457a7;text-underline-offset:3px}a:focus-visible{outline:3px solid #d18520;outline-offset:4px;border-radius:3px}
+    .skip{position:absolute;left:-9999px;top:8px;background:#fff;padding:10px}.skip:focus{left:8px;z-index:10}
+    .wrap{max-width:1080px;margin:auto;padding:0 28px}
+    header{border-bottom:1px solid #dce3ee;background:#fff}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:22px;min-height:74px}
+    .logo{font-size:1.35rem;font-weight:800;letter-spacing:-.045em;color:#17223a;text-decoration:none}
+    nav{display:flex;gap:24px;flex-wrap:wrap}nav a{font-weight:600;text-decoration:none}
+    .hero{padding:78px 0 56px}
+    .eyebrow{font-size:.85rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#385885}
+    h1{font-size:clamp(2.3rem,5.2vw,4.2rem);letter-spacing:-.055em;line-height:1.11;max-width:900px;margin:14px 0 22px}
+    .intro{font-size:1.19rem;color:#45516b;max-width:800px;margin:0 0 30px}
+    .actions{display:flex;flex-wrap:wrap;gap:12px}
+    .action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 17px;border:1px solid #b7c8dc;border-radius:9px;text-decoration:none;font-weight:700}
+    .primary{background:#234c92;color:#fff;border-color:#234c92}.secondary{background:#fff;color:#234c92}
+    h2{font-size:1.4rem;letter-spacing:-.025em;margin:0 0 20px}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px;margin-bottom:44px}
+    .card{background:#fff;border:1px solid #dae1ec;border-radius:14px;padding:24px}
+    .card h3{font-size:1.08rem;margin:0 0 6px}.card p{margin:0 0 12px;color:#536079}
+    .card a{font-weight:700}.card .soon{font-weight:600;color:#536079;font-size:.9rem}
+    .install{background:#ecf0f7;border-radius:14px;padding:20px 24px;margin-bottom:56px}
+    .install p{margin:0 0 10px;color:#45516b}
+    code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:1rem}
+    .install code{display:inline-block;padding:9px 12px;background:#fff;border:1px solid #d7dfeb;border-radius:7px}
+    footer{border-top:1px solid #dce3ee;padding:28px 0 44px;color:#536079;font-size:.92rem}
+    @media(max-width:660px){.top{align-items:flex-start;flex-direction:column;padding:16px 0;gap:8px}nav{gap:16px}.hero{padding:48px 0 36px}.grid{grid-template-columns:1fr}.wrap{padding:0 20px}}
+    @media(prefers-color-scheme:dark){
+      body{background:#0e1627;color:#eef3fb}header,.card{background:#151f32;border-color:#303f57}
+      .logo{color:#eef3fb}a,nav a{color:#a7c9ff}.eyebrow{color:#a2c4f7}
+      .intro,.card p,.card .soon,.install p,footer{color:#b6c4d8}
+      .secondary,.install code{background:#202d43;color:#d7e7ff;border-color:#4d6081}
+      .install{background:#1a2740}footer{border-color:#303f57}
+      .primary{background:#3b66ae;border-color:#3b66ae}
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header>
+    <div class="wrap top">
+      <a class="logo" href="./" aria-label="QuPRS home">QuPRS</a>
+      <nav aria-label="Primary navigation">
+        <a href="docs/">Documentation</a>
+        <a href="https://github.com/PhysicsQoo/QuPRS">GitHub</a>
+        <a href="https://github.com/PhysicsQoo/QuPRS/releases">Releases</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="wrap">
+    <section class="hero" aria-labelledby="heading">
+      <div class="eyebrow">Open-source quantum verification</div>
+      <h1 id="heading">Quantum circuit equivalence checking with Path-sum and WMC.</h1>
+      <p class="intro">QuPRS combines symbolic Path-sum reduction with weighted model counting to help compare quantum circuits. Use the Python package, native Rust library, or the documented command-line tools.</p>
+      <div class="actions">
+        <a class="action primary" href="docs/">Read documentation</a>
+        <a class="action secondary" href="https://github.com/PhysicsQoo/QuPRS">Explore source code</a>
+      </div>
+    </section>
+    <section aria-labelledby="resources">
+      <h2 id="resources">Explore QuPRS</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>Documentation</h3>
+          <p>Getting started, supported workflows, theory, and versioned API references.</p>
+          <a href="docs/">Open documentation</a>
+        </article>
+        <article class="card">
+          <h3>Browser Playground</h3>
+          <p>Run supported circuit comparisons in your browser using local WebAssembly computation.</p>
+          <span class="soon">In validation — online access will follow deployment checks</span>
+        </article>
+        <article class="card">
+          <h3>Python package</h3>
+          <p>Install the Python interface to work with quantum circuits and Qiskit integrations.</p>
+          <a href="https://pypi.org/project/QuPRS/">View on PyPI</a>
+        </article>
+        <article class="card">
+          <h3>Rust crate</h3>
+          <p>Use the native Rust verification API in your own applications.</p>
+          <a href="https://crates.io/crates/quprs">View on crates.io</a>
+        </article>
+      </div>
+    </section>
+    <section class="install" aria-labelledby="install-heading">
+      <h2 id="install-heading">Get started</h2>
+      <p>Install a published version that supports your operating system and Python version; see the documentation for requirements.</p>
+      <code>pip install QuPRS</code>
+    </section>
+  </main>
+  <footer><div class="wrap">QuPRS is an open-source research tool. See the <a href="https://github.com/PhysicsQoo/QuPRS">source repository</a> for license, publications and contributions.</div></footer>
+</body>
+</html>

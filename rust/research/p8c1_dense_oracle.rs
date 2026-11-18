@@ -196,6 +196,55 @@ pub(crate) fn plus_state_h_bad_zero()->Result<(i128,i128,usize),String>{
     let(a,b)=norm_coeff(&vector[0]);
     Ok((a,b,h_count+1))
 }
+
+pub(crate) fn coherent_gram(
+    bytes:&[u8], first:usize, second:usize, bad_mask:u64,
+)->Result<((i128,i128),(i128,i128),[i128;4],usize),String>{
+    if first==second {return Err("rank-two input indices must differ".into());}
+    let (a,h)=simulate(bytes,&[(first,1)])?;
+    let (b,hb)=simulate(bytes,&[(second,1)])?;
+    if h!=hb{return Err("Hadamard normalization mismatch".into());}
+    let(mut diag_a,mut diag_b)=((0i128,0i128),(0i128,0i128));
+    let mut off=[0i128;8];
+    for output in 0..a.len() {
+        if bad_mask&(1u64<<output)==0 {continue;}
+        let(x,y)=norm_coeff(&a[output]);
+        diag_a.0+=x;diag_a.1+=y;
+        let(x,y)=norm_coeff(&b[output]);
+        diag_b.0+=x;diag_b.1+=y;
+        // Dense independent matrix-multiplication path: conj(v_a)*v_b.
+        for k in 0..8 {
+            for l in 0..8 {
+                off[(l+8-k)%8]+=a[output][k]*b[output][l];
+            }
+        }
+    }
+    let reduced=std::array::from_fn(|i|off[i]-off[i+4]);
+    Ok((diag_a,diag_b,reduced,h))
+}
+pub(crate) fn coherent_psd(
+    gram:((i128,i128),(i128,i128),[i128;4],usize),
+    num:i128,den:i128,
+)->bool{
+    let((a0,b0),(a1,b1),off,h)=gram;
+    let scale=1i128<<h;
+    let (c0,d0)=(num*scale-den*a0,-den*b0);
+    let (c1,d1)=(num*scale-den*a1,-den*b1);
+    fn nonnegative(c:i128,d:i128)->bool{
+        if c==0{return d>=0;}
+        if d==0{return c>=0;}
+        if c>0 && d>0{return true;}
+        if c<0 && d<0{return false;}
+        if c>0{c*c>=2*d*d}else{2*d*d>=c*c}
+    }
+    if !nonnegative(c0,d0) || !nonnegative(c1,d1) {return false;}
+    let off_constant=off.iter().map(|v|v*v).sum::<i128>();
+    let off_surd=off[0]*(off[1]-off[3])+off[2]*(off[1]+off[3]);
+    let determinant_constant=c0*c1+2*d0*d1-den*den*off_constant;
+    let determinant_surd=c0*d1+d0*c1-den*den*off_surd;
+    nonnegative(determinant_constant,determinant_surd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

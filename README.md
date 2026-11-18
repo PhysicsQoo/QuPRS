@@ -32,7 +32,9 @@ In quantum computing, verifying whether an optimized or compiled quantum circuit
 
 ## Browser workbench
 
-A local WebAssembly interface is available in `web/`. It uses the Rust verifier and MPFR GPMC to compare unitary QASM2/3 circuits. Distances are numerical estimates. See [build and GitHub Pages deployment](docs/browser-workbench.md) for the optional `/playground/` site.
+**[Browser Playground](https://physicsqoo.github.io/QuPRS/playground/)** (available after the official site deployment) compares supported unitary QASM2/3 circuits using the local CPU and memory, without installing Python or Rust. QuPRS Rust and the MPFR-based GPMC counter run as WebAssembly in browser Workers; the QASM inputs are not sent to a remote verification service. Results are numerical estimates, not certified distance intervals.
+
+See the [Playground user guide in the versioned documentation](https://physicsqoo.github.io/QuPRS/docs/dev/browser-workbench/) and [source build and deployment instructions](docs/browser-workbench.md). Until the official site is published, the web link may be unavailable.
 
 ## Contents
 

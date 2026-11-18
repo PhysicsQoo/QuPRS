@@ -11,6 +11,7 @@ on:
       - rust/quprs/tests/qasm_two_qubit_source_contract.rs
       - rust/quprs/tests/qasm_source_ir_certificate_experiment.rs
       - rust/research/p8c1_checker.rs
+      - rust/research/p8c1_dense_oracle.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
@@ -66,7 +67,7 @@ jobs:
             rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs \
             rust/quprs/tests/qasm_two_qubit_source_contract.rs \
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
-            rust/research/p8c1_checker.rs \
+            rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -296,6 +297,8 @@ jobs:
         run: |
           set -euo pipefail
           rustc --version
+          rustc --edition=2021 --test rust/research/p8c1_dense_oracle.rs -o /tmp/p8c1-dense-unit
+          /tmp/p8c1-dense-unit --nocapture
           rustc --edition=2021 --test rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone-unit
           /tmp/p8c1-standalone-unit --nocapture
           rustc --edition=2021 rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone
@@ -305,4 +308,4 @@ jobs:
           set -e
           test "$status" -eq 2
           grep -x INVALID_SOURCE /tmp/p8c1-no-input.log
-          echo 'P8C1_STDALONE_NO_CARGO=4_tests_pass'
+          echo 'P8C1_STANDALONE_NO_CARGO=checker_and_dense_oracle_tests_pass'

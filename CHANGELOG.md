@@ -39,11 +39,11 @@ package availability through the release registries, not this changelog.
 - Unify path-scoped Website CI for homepage, Browser WASM, strict documentation,
   versioned documentation and generated Rust/Python API references, retaining
   fail-closed required results and isolated Pages publication permissions.
-- Prepare a manifest-backed version selector for **newly generated** native
+- Include a manifest-backed version selector for **newly generated** native
   Rustdoc, preserving Rustdoc search and its original interface; historical
-  immutable API docs are not silently rewritten. This feature is included
-  only if its exact-head browser, API-reference and Website CI checks pass
-  before RC source freeze.
+  immutable API docs are not silently rewritten. The selector's isolated
+  preview, Chromium navigation and generated API-reference checks passed
+  before its integration into the candidate source.
 
 ### Native packaging and compatibility
 

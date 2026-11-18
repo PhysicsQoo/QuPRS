@@ -1308,4 +1308,239 @@ mod phase8_local_step_research {
         println!("INDEPENDENT_Z8_NATIVE_PATHSUM cases={} prefixes={prefixes} exact_unreduced=true",cases.len());
     }
 
+
+    // Research-only canonical P8C1 proof envelope. The producer exports
+    // complete prefixes; the decoder is separately written and validates
+    // source provenance, canonical order, per-frame terms and total budget
+    // before any semantic admission. It is not a production proof format.
+    #[derive(Clone, Copy)]
+    struct ProofByteLimits {
+        max_bytes: usize,
+        max_total_terms: usize,
+        symbolic: CheckLimits,
+    }
+    fn proof_byte_limits() -> ProofByteLimits {
+        ProofByteLimits {
+            max_bytes: 1 << 20, max_total_terms: 32_768,
+            symbolic: CheckLimits {
+                max_terms: 256, max_updates: 50_000, max_paths: 24,
+            },
+        }
+    }
+    fn serialize_p8c1_untrusted(claim: &Claim) -> Result<Vec<u8>, String> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"P8C1");
+        let n = claim.prefixes.first().ok_or("empty claim")?.n;
+        bytes.push(u8::try_from(n).map_err(|_| "oversized width")?);
+        bytes.extend_from_slice(
+            &u16::try_from(claim.prefixes.len()).map_err(|_| "too many prefixes")?.to_le_bytes()
+        );
+        bytes.extend_from_slice(&claim.source_hash);
+        for state in &claim.prefixes {
+            if state.n != n || state.out.len() != n {
+                return Err("producer inconsistent state dimension".into());
+            }
+            bytes.push(u8::try_from(state.paths).map_err(|_| "oversized path count")?);
+            for anf in &state.out {
+                bytes.extend_from_slice(
+                    &u16::try_from(anf.len()).map_err(|_| "too many ANF terms")?.to_le_bytes()
+                );
+                for &monomial in anf {
+                    bytes.extend_from_slice(&monomial.to_le_bytes());
+                }
+            }
+            bytes.extend_from_slice(
+                &u16::try_from(state.phase.len()).map_err(|_| "too many phase terms")?.to_le_bytes()
+            );
+            for (&monomial, &coefficient) in &state.phase {
+                bytes.extend_from_slice(&monomial.to_le_bytes());
+                bytes.push(coefficient);
+            }
+        }
+        Ok(bytes)
+    }
+    struct ProofCursor<'a> {
+        bytes: &'a [u8],
+        position: usize,
+    }
+    impl<'a> ProofCursor<'a> {
+        fn new(bytes: &'a [u8]) -> Self {
+            Self { bytes, position: 0 }
+        }
+        fn take(&mut self, count: usize) -> Result<&'a [u8], String> {
+            let end = self.position.checked_add(count).ok_or("cursor overflow")?;
+            let result = self.bytes.get(self.position..end)
+                .ok_or("truncated source-bound proof")?;
+            self.position = end;
+            Ok(result)
+        }
+        fn byte(&mut self) -> Result<u8, String> {
+            Ok(self.take(1)?[0])
+        }
+        fn short(&mut self) -> Result<usize, String> {
+            let data = self.take(2)?;
+            Ok(u16::from_le_bytes([data[0],data[1]]) as usize)
+        }
+        fn word(&mut self) -> Result<u64, String> {
+            let data = self.take(8)?;
+            Ok(u64::from_le_bytes(
+                data.try_into().map_err(|_| "incorrect fixed word")?
+            ))
+        }
+    }
+    fn verify_p8c1_serialized(
+        source: &str, proof_bytes: &[u8], budget: ProofByteLimits,
+    ) -> Result<Option<State>, String> {
+        // Admission is independent of the producer's source parser.
+        let (n, independent_gates) = independently_read_source(source)?;
+        if proof_bytes.len() > budget.max_bytes { return Ok(None); }
+        let mut reader = ProofCursor::new(proof_bytes);
+        if reader.take(4)? != b"P8C1" {
+            return Err("unsupported or forged proof encoding version".into());
+        }
+        let width = reader.byte()? as usize;
+        let steps = reader.short()?;
+        let source_hash = reader.take(32)?;
+        if width != n || steps != independent_gates.len() {
+            return Err("proof register or gate coverage mismatch".into());
+        }
+        if source_hash != source_digest(source) {
+            return Err("proof source bytes/digest mismatch".into());
+        }
+        let mut claim = Claim {
+            source_hash: source_digest(source),
+            prefixes: Vec::with_capacity(steps),
+        };
+        let mut total_terms = 0usize;
+        for _ in 0..steps {
+            let paths = reader.byte()? as usize;
+            let num_vars = n.checked_add(paths).ok_or("path count overflow")?;
+            if num_vars >= 63 {
+                return Err("invalid symbolic variable width".into());
+            }
+            let legal_bits = (1u64 << num_vars) - 1;
+            let mut out = Vec::with_capacity(n);
+            let mut frame_terms = 0usize;
+            for _ in 0..n {
+                let count = reader.short()?;
+                frame_terms = frame_terms.checked_add(count)
+                    .ok_or("frame monomial count overflow")?;
+                total_terms = total_terms.checked_add(count)
+                    .ok_or("total monomial count overflow")?;
+                if frame_terms > budget.symbolic.max_terms
+                    || total_terms > budget.max_total_terms {
+                    return Ok(None);
+                }
+                let mut anf = BTreeSet::new();
+                let mut previous = None;
+                for _ in 0..count {
+                    let monomial = reader.word()?;
+                    if monomial & !legal_bits != 0
+                        || previous.is_some_and(|p| monomial <= p) {
+                        return Err("noncanonical ANF term ordering or variable".into());
+                    }
+                    anf.insert(monomial);
+                    previous = Some(monomial);
+                }
+                out.push(anf);
+            }
+            let count = reader.short()?;
+            frame_terms = frame_terms.checked_add(count)
+                .ok_or("frame phase count overflow")?;
+            total_terms = total_terms.checked_add(count)
+                .ok_or("total phase count overflow")?;
+            if frame_terms > budget.symbolic.max_terms
+                || total_terms > budget.max_total_terms {
+                return Ok(None);
+            }
+            let mut phase = Phase::new();
+            let mut previous = None;
+            for _ in 0..count {
+                let monomial = reader.word()?;
+                let coefficient = reader.byte()?;
+                if monomial & !legal_bits != 0 || coefficient == 0 || coefficient >= 8
+                    || previous.is_some_and(|p| monomial <= p) {
+                    return Err("noncanonical Z8 phase ordering/coefficient".into());
+                }
+                phase.insert(monomial,coefficient);
+                previous=Some(monomial);
+            }
+            claim.prefixes.push(State {n, paths, out, phase});
+        }
+        if reader.position != proof_bytes.len() {
+            return Err("trailing unbound proof payload".into());
+        }
+        // This is a separate checker implementation, not producer next().
+        independent_replay(source,&claim,budget.symbolic)
+    }
+    #[test]
+    fn observed_phase8_serialized_proof_decodes_and_replays_native_prefixes() {
+        let examples = [
+            source(2, "h q[0];\ncx q[0],q[1];\nt q[1];\n"),
+            source(3, "h q[0];\ncx q[0],q[1];\nt q[1];\ncz q[1],q[2];\n"),
+            source(4, "cx q[0],q[3];\ncx q[1],q[3];\ncx q[2],q[3];\nt q[3];\n"),
+        ];
+        let mut total_steps = 0usize;
+        let mut bytes = 0usize;
+        for example in examples {
+            let producer = emit(&example).unwrap();
+            let canonical = serialize_p8c1_untrusted(&producer).unwrap();
+            let replayed = verify_p8c1_serialized(&example,&canonical,proof_byte_limits())
+                .unwrap().unwrap();
+            assert_eq!(replayed,*producer.prefixes.last().unwrap());
+            assert_eq!(serialize_p8c1_untrusted(&producer).unwrap(),canonical);
+            total_steps += producer.prefixes.len();
+            bytes += canonical.len();
+        }
+        println!("P8C1_SERIALIZED_NATIVE_EXACT samples=3 steps={total_steps} bytes_total={bytes} replay=true");
+    }
+    #[test]
+    fn observed_phase8_serialized_proof_rejects_forgery_and_unknown_budget() {
+        let src=source(2,"x q[0];\ncx q[0],q[1];\nt q[1];\n");
+        let claim=emit(&src).unwrap();
+        let proof=serialize_p8c1_untrusted(&claim).unwrap();
+        assert!(verify_p8c1_serialized(&src,&proof,proof_byte_limits()).unwrap().is_some());
+        let mut rejects=0;
+        let mut m=proof.clone();m[0]=b'X';
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        let mut m=proof.clone();m[4]=4;
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        let mut m=proof.clone();m[5]=0;
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        let mut m=proof.clone();m[7]^=1;
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        let mut m=proof.clone();m.pop();
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        let mut m=proof.clone();m.push(0);
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        // The first X prefix has a two-monomial ANF output, represented
+        // as canonical 0,1 u64 terms. Duplicate and descending order fail.
+        let mut m=proof.clone();m[50..58].copy_from_slice(&0u64.to_le_bytes());
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        let mut m=proof.clone();m[42..50].copy_from_slice(&9u64.to_le_bytes());
+        assert!(verify_p8c1_serialized(&src,&m,proof_byte_limits()).is_err());
+        rejects+=1;
+        let different=source(2,"x q[0];\ncx q[0],q[1];\ns q[1];\n");
+        assert!(verify_p8c1_serialized(&different,&proof,proof_byte_limits()).is_err());
+        rejects+=1;
+        assert!(verify_p8c1_serialized(&src,&proof,ProofByteLimits {
+            max_bytes:proof.len()-1,..proof_byte_limits()
+        }).unwrap().is_none());
+        assert!(verify_p8c1_serialized(&src,&proof,ProofByteLimits {
+            max_total_terms:1,..proof_byte_limits()
+        }).unwrap().is_none());
+        assert!(verify_p8c1_serialized(&src,&proof,ProofByteLimits {
+            symbolic:CheckLimits { max_updates:0,..proof_byte_limits().symbolic },
+            ..proof_byte_limits()
+        }).unwrap().is_none());
+        println!("P8C1_SERIALIZED_NEGATIVE rejects={rejects} unknown_limits=3 no_unchecked_proof=true");
+    }
+
 }

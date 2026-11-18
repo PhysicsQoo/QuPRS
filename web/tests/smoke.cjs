@@ -21,11 +21,12 @@ function native(request){
   for(const [id,a,b] of requests)for(const mode of ['hybrid','wmc'])for(const strategy of ['difference','proportional']){
    const request={circuit1:a,circuit2:b,mode,strategy,distance_tolerance:1e-8,rr_tolerance:1e-10};
    const n=native(request),w=await h.run(request);assert(!w.error,`${id}: ${w.error}`);assert.equal(w.report.status,n.report.status,`${id}/${mode}/${strategy}`);
-   assert.equal(w.report.certified_distance_interval,false);assert.equal(w.report.rr_approximate,n.report.rr_approximate);
+   assert.equal(w.report.certified_distance_interval,false);assert.equal(w.report.distance_metric,'projective_hilbert_schmidt');assert.equal(w.report.rr_approximate,n.report.rr_approximate);
    if(w.report.solver_invoked)calls++;
    const wd=w.report.distance_estimate,nd=n.report.distance_estimate;
    if(wd!==null && nd!==null)assert(Math.abs(wd-nd)<=1e-8,`${id} distance mismatch ${wd}/${nd}`);
    if(id==='near_phase'&&mode==='wmc')assert(wd>4.9e-7&&wd<5.1e-7,`Incorrect near-phase distance ${wd}`);
+   if(id==='T'&&mode==='wmc')assert(Math.abs(wd-Math.sin(Math.PI/8))<1e-8,`Projective distance must match native threshold metric: ${wd}`);
    results.push({id,mode,strategy,native:n,wasm:w});
   }
   assert(calls>=8,'Actual MPFR weighted counting was not exercised');

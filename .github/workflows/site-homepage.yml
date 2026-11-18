@@ -1,0 +1,145 @@
+name: QuPRS Homepage
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'website/**'
+      - 'scripts/site/**'
+      - '.github/workflows/site-homepage.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'website/**'
+      - 'scripts/site/**'
+      - '.github/workflows/site-homepage.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish reviewed root index.html to the existing gh-pages branch
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quprs-homepage-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate source and isolated root staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate static homepage and negative safety fixtures
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s scripts/site -p test_homepage.py -v
+          python -m py_compile scripts/site/stage-homepage.py scripts/site/test_homepage.py
+      - name: Stage against the existing Pages tree without publishing
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth=1 --branch gh-pages \
+            "https://github.com/$GITHUB_REPOSITORY.git" "$RUNNER_TEMP/homepage-pages"
+          python scripts/site/stage-homepage.py website \
+            "$RUNNER_TEMP/homepage-pages" '${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git -C "$RUNNER_TEMP/homepage-pages" diff --cached --name-only)" = index.html
+          test "$(git -C "$RUNNER_TEMP/homepage-pages" diff --cached --name-status | cut -f1)" = M
+          ! grep -F '__SOURCE_REVISION__' "$RUNNER_TEMP/homepage-pages/index.html"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homepage-validated-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/homepage-pages/index.html
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: Publish only reviewed homepage root
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: github-pages
+    permissions:
+      contents: write
+      pages: write
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages
+          persist-credentials: true
+      - name: Require existing gh-pages root publication configuration
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pages" > "$RUNNER_TEMP/pages-config.json"
+          python3 - "$RUNNER_TEMP/pages-config.json" <<'PY'
+          import json,sys
+          config=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert config.get("build_type") == "legacy", "Pages must use existing branch publishing"
+          assert config.get("source") == {"branch":"gh-pages","path":"/"}, "Unexpected Pages source"
+          PY
+      - name: Publish the reviewed root index without touching sibling subtrees
+        run: |
+          set -euo pipefail
+          python3 source/scripts/site/stage-homepage.py source/website pages "$GITHUB_SHA"
+          changed="$(git -C pages diff --cached --name-only)"
+          test -z "$changed" || test "$changed" = index.html
+          git -C pages config user.name 'github-actions[bot]'
+          git -C pages config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if test -n "$changed"; then
+            git -C pages commit -m 'site: publish reviewed QuPRS homepage'
+            # No force push: any concurrent branch update fails closed.
+            git -C pages push origin HEAD:gh-pages
+          fi
+          git -C pages fetch --no-tags origin gh-pages
+          test "$(git -C pages show FETCH_HEAD:index.html | grep -Fc "name=\"quprs-source-revision\" content=\"$GITHUB_SHA\"")" = 1
+          echo 'Updated only gh-pages:index.html; docs, playground and previews were preserved.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and verify public GitHub Pages output
+        run: |
+          set -euo pipefail
+          build_url="$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)"
+          built=false
+          for attempt in $(seq 1 40); do
+            status="$(gh api "$build_url" --jq .status)"
+            if test "$status" = built; then built=true; break; fi
+            if test "$status" = errored; then gh api "$build_url"; exit 1; fi
+            sleep 15
+          done
+          test "$built" = true
+          homepage='https://physicsqoo.github.io/QuPRS/'
+          verified=false
+          for attempt in $(seq 1 18); do
+            if curl --fail --silent --show-error --max-time 15 \
+              "$homepage?verify=$GITHUB_SHA" -o "$RUNNER_TEMP/homepage-public.html" &&
+              grep -Fq "name=\"quprs-source-revision\" content=\"$GITHUB_SHA\"" "$RUNNER_TEMP/homepage-public.html"; then
+              verified=true
+              break
+            fi
+            sleep 10
+          done
+          test "$verified" = true
+          cmp "$RUNNER_TEMP/homepage-public.html" pages/index.html
+          echo "Verified public homepage: $homepage" >> "$GITHUB_STEP_SUMMARY"

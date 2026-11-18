@@ -12,6 +12,7 @@ on:
       - rust/quprs/tests/qasm_source_ir_certificate_experiment.rs
       - rust/research/p8c1_checker.rs
       - rust/research/p8c1_dense_oracle.rs
+      - rust/research/p8c1_two_copy_wmc.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
@@ -67,7 +68,7 @@ jobs:
             rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs \
             rust/quprs/tests/qasm_two_qubit_source_contract.rs \
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
-            rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs \
+            rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -301,6 +302,42 @@ jobs:
             evidence/p8c1-fixtures/coherent-satisfied.p8g1 \
             evidence/p8c1-fixtures/coherent-witness-valid.p8w1
           echo 'P8W1_CROSS_BINARY_WITNESS=normalized_plus_risk_one exact_negative_gap verified; forged2 rejected'
+
+          # A separate exact *two-copy* weighted-counting certificate:
+          # no CNF solver is trusted; exhaustive matching paths check each
+          # eighth-root bucket, including conjugated cross interference.
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          from struct import pack
+          d=Path("evidence/p8c1-fixtures")
+          src=(d/"h-1q.qasm").read_bytes()
+          proof=(d/"h-1q.p8c1").read_bytes()
+          # For H and B={|0>}, input pair (0,1), exactly one y,z pair
+          # contributes phase omega^0. All other roots have weight zero.
+          counts=[1]+[0]*7
+          evidence=(b"W8C1"+sha256(src).digest()+sha256(proof).digest()
+              +bytes([0,1])+pack("<Q",1)+bytes([1])
+              +pack("<8H",*counts))
+          assert len(evidence)==95
+          (d/"two-copy-h1.w8c1").write_bytes(evidence)
+          forged=bytearray(evidence)
+          forged[-16]^=1
+          (d/"two-copy-h1-forged.w8c1").write_bytes(forged)
+          PY
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/two-copy-h1.w8c1 \
+            | tee evidence/w8c1-two-copy-proof.log
+          grep -E '^SCOPED_TWO_COPY_WMC_ENUM_EXACT first=0 second=1 paths=1 bad_mask=1 total_weighted_pairs=1 ' \
+            evidence/w8c1-two-copy-proof.log
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/two-copy-h1-forged.w8c1
+          echo 'W8C1_CROSS_BINARY_ENUM=complex_weighted_pair_count_verified forged_rejected no_general_CNF_proof'
+
 
 
 

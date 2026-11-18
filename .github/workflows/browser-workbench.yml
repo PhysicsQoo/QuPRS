@@ -1,6 +1,16 @@
 name: Browser workbench
 on:
   workflow_call:
+  push:
+    branches: [dev]
+    paths:
+      - 'rust/quprs/**'
+      - 'rust/web/**'
+      - 'rust/Cargo.toml'
+      - 'rust/Cargo.lock'
+      - 'web/**'
+      - 'scripts/web/**'
+      - '.github/workflows/browser-workbench.yml'
 permissions:
   contents: read
 concurrency:

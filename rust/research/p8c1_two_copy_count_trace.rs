@@ -75,13 +75,13 @@ fn partial_bucket(c:&Structural,bucket:usize,depth:usize,prefix:usize)->Check<Tr
     values.get(c.bucket[bucket] as usize)
         .copied().ok_or(Error::InvalidProof)
 }
-#[derive(Debug,Default,Clone,Copy)]
+#[derive(Debug,Default,Clone,Copy,PartialEq,Eq)]
 pub(super) struct Stats {
     pub(super) nodes:usize,
     pub(super) early_leaves:usize,
     pub(super) forced_splits:usize,
 }
-#[derive(Debug)]
+#[derive(Debug,PartialEq,Eq)]
 pub(super) struct Counts {
     pub(super) buckets:[u16;8],
     pub(super) stats:Stats,

@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 CHECKER = Path(__file__).with_name("check-wasm-limits.py")
-HEADER = b"\\x00asm\\x01\\x00\\x00\\x00"
+HEADER = b"\x00asm\x01\x00\x00\x00"
 
 
 def leb(number: int) -> bytes:
@@ -31,7 +31,7 @@ def module_with_memory(maximum: int | None, minimum: int = 1, count: int = 1) ->
         for _ in range(count)
     )
     section = leb(count) + types
-    return HEADER + b"\\x05" + leb(len(section)) + section
+    return HEADER + b"\x05" + leb(len(section)) + section
 
 
 class MemoryLimitTests(unittest.TestCase):

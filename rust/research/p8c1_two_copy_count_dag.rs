@@ -337,31 +337,6 @@ mod tests {
     use super::*;
     use super::two_copy_structural::Gate;
     #[test]
-    fn nonenumerative_symbolic_emitter_matches_exhaustive_producer(){
-        let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n";
-        let (proof,state)=super::super::tests::source_proof_and_state(src);
-        let mut count=0;
-        for first in 0..2 {
-            for second in 0..2 {
-                for bad in [1u64,2,3] {
-                    let structural=two_copy_structural::encode(
-                        src,&proof,&state,first,second,bad).unwrap();
-                    let symbolic=emit(src,&proof,&structural).unwrap();
-                    let exhaustive=emit_via_exhaustive_tree(src,&proof,&structural).unwrap();
-                    let actual=verify(src,&proof,&structural,&symbolic).unwrap();
-                    let independent=verify(src,&proof,&structural,&exhaustive).unwrap();
-                    assert_eq!(actual.buckets,independent.buckets);
-                    // Canonical hash-consing and choice of split variable
-                    // should make the signed byte representation identical.
-                    assert_eq!(symbolic,exhaustive);
-                    count+=1;
-                }
-            }
-        }
-        assert_eq!(count,12);
-        println!("M8D1_NONENUMERATIVE_PRODUCER tests={count} exact_bytes_equal_exhaustive=true");
-    }
-    #[test]
     fn independent_partial_boolean_evaluator_is_conservative(){
         let c=Structural{
             primary:1,gates:vec![

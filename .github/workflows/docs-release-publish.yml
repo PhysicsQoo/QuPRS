@@ -264,6 +264,9 @@ jobs:
 
   publish:
     name: Publish stable alias after every validation passes
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
     needs: [admission, build]
     if: >-
       ${{ needs.admission.outputs.should_publish == 'true' &&

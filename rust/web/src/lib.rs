@@ -90,11 +90,9 @@ fn report(result: EquivalenceCheckResult, stdout: Option<&str>) -> Result<Value,
             let d = defect
                 .to_f64()
                 .ok_or("Distance outside numeric display range")?;
-            let norm = norm2
-                .to_f64()
-                .ok_or("Normalized count outside display range")?
-                .sqrt();
-            distance = Some((2.0 * d / (1.0 + norm)).sqrt());
+            // Match the core's projective Hilbert-Schmidt distance, not
+            // phase-minimized chordal Frobenius distance.
+            distance = Some(d.sqrt());
             kind = "printed_count_estimate";
             if distance == Some(0.0) && !defect.is_zero() {
                 warning="Distance is below binary64 display resolution; zero is not an exact-equivalence certificate.".into();
@@ -112,7 +110,7 @@ fn report(result: EquivalenceCheckResult, stdout: Option<&str>) -> Result<Value,
     Ok(
         json!({"status":result.equivalent(),"qubits":result.qubit_num,"gates1":result.gate_num1,"gates2":result.gate_num2,
   "method":result.method.as_str(),"strategy":format!("{:?}",result.strategy),"distance_estimate":distance,"distance_kind":kind,
-  "normalized_frobenius":true,"global_phase_ignored":true,"certified_distance_interval":false,
+  "distance_metric":"projective_hilbert_schmidt","global_phase_ignored":true,"certified_distance_interval":false,
   "rr_approximate":result.rr_approximate,"solver_invoked":result.solver_invoked,
   "numerical_verdict":result.wmc_printed_verdict,"precision_reason":result.wmc_precision_reason,
   "distance_tolerance":result.approximate_distance_tolerance,"warning":warning,
@@ -176,6 +174,19 @@ impl BrowserJob {
         }
     }
 }
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+#[doc(hidden)]
+pub fn clock_contract_probe() -> String {
+    let (past_expired, future_pending, elapsed_seconds) =
+        quprs::browser_transport::clock_contract_probe();
+    json!({
+        "past_expired": past_expired,
+        "future_pending": future_pending,
+        "elapsed_seconds": elapsed_seconds
+    }).to_string()
+}
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {

@@ -7,6 +7,16 @@ on:
       - 'web/**'
       - 'scripts/web/**'
       - '.github/workflows/browser-workbench.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'rust/quprs/**'
+      - 'rust/web/**'
+      - 'rust/Cargo.toml'
+      - 'rust/Cargo.lock'
+      - 'web/**'
+      - 'scripts/web/**'
+      - '.github/workflows/browser-workbench.yml'
   workflow_dispatch:
     inputs:
       publish:
@@ -37,6 +47,7 @@ jobs:
           set -euo pipefail
           mkdir -p build-evidence
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --features browser-transport --lib browser_transport 2>&1 | tee build-evidence/transport-tests.log
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --no-default-features --features browser-transport --lib clock_contract_tests 2>&1 | tee build-evidence/clock-tests.log
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs-web 2>&1 | tee build-evidence/adapter-tests.log
           cargo build --locked --manifest-path rust/Cargo.toml -p quprs-web --release --example native_check
           cp rust/target/release/examples/native_check build-evidence/native-check
@@ -109,6 +120,7 @@ jobs:
           set -euo pipefail
           python3 scripts/web/assemble.py "$RUNNER_TEMP/core" "$RUNNER_TEMP/counter" "$RUNNER_TEMP/site"
           python3 scripts/web/check-wasm-limits.py "$RUNNER_TEMP/site/pkg/quprs_web_bg.wasm" "$RUNNER_TEMP/site/engines/gpmc.wasm" > "$RUNNER_TEMP/site/engines/MEMORY_LIMITS.json"
+          python3 scripts/web/test-wasm-limits.py
           chmod +x "$RUNNER_TEMP/core/build-evidence/native-check" "$RUNNER_TEMP/counter/native-gpmc"
           printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > "$RUNNER_TEMP/site/source-sha.txt"
           python3 scripts/web/test-stage-pages.py
@@ -159,6 +171,10 @@ jobs:
           name: tested-browser-site
           path: ${{ runner.temp }}/site
   publish:
+    # Serialize all writes to the shared gh-pages branch with both docs publishers.
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.publish &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')

@@ -129,6 +129,25 @@ pub fn replay<T>(job: &Job, stdout: &str, f: impl FnOnce() -> Result<T>) -> Resu
     }
     result
 }
+// Check browser clock arithmetic in the actual WASM target without waiting
+// for a production-scale timeout. Worker termination is tested separately.
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub fn clock_contract_probe() -> (bool, bool, f64) {
+    let start = crate::clock::Instant::now();
+    let expired = start
+        .checked_sub(crate::clock::Duration::from_millis(1))
+        .expect("representable past deadline");
+    let future = start
+        .checked_add(crate::clock::Duration::from_secs(1))
+        .expect("representable future deadline");
+    (
+        crate::clock::Instant::now() >= expired,
+        future > crate::clock::Instant::now(),
+        start.elapsed().as_secs_f64(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

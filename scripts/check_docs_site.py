@@ -15,6 +15,7 @@ DOCS_DIR = ROOT / "docs" / "site"
 EXPECTED_PAGES = (
     "index.html",
     "getting-started/index.html",
+    "browser-workbench/index.html",
     "verification/index.html",
     "theory/index.html",
     "reference/index.html",

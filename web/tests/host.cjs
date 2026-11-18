@@ -10,8 +10,12 @@ vm.runInNewContext(fs.readFileSync('web/engines/host.js','utf8').replaceAll('exp
  const r2=new W(),h2=context.createHost(r2,'https://example.com/engines/',1000);
  r2.emit({count_request:{id:2,engine:'ganak',cnf:'p cnf 1 0'}});const c2=W.all.at(-1);
  h2.cancel();await assert.rejects(h2.result,e=>e.code==='STOPPED');assert(r2.terminated&&c2.terminated);
- const r3=new W(),h3=context.createHost(r3,'https://example.com/engines/',5);
+ const r3=new W(),started=Date.now(),h3=context.createHost(r3,'https://example.com/engines/',5);
  r3.emit({count_request:{id:3,engine:'gpmc',cnf:'p cnf 1 0'}});const c3=W.all.at(-1);
  await assert.rejects(h3.result,e=>e.code==='TIMEOUT');assert(r3.terminated&&c3.terminated);
+ assert(Date.now()-started<5000,'Timeout handler did not settle a hanging worker promptly');
+ // A result arriving after timeout must not be forwarded or reported as success.
+ c3.emit({stdout:'late result'});r3.emit({report:{verdict:'incorrect'}});
+ assert.equal(r3.messages.length,0);
  console.log('Explicit worker ownership / cancellation / timeout PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

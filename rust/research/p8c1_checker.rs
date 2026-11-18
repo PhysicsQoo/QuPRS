@@ -1175,6 +1175,7 @@ mod tests {
         let mut properties=0usize;
         let mut gram_pairs=0usize;
         let mut psd_verdicts=0usize;
+        let mut constructive_witnesses=0usize;
         let thresholds=[(0,1),(1,8),(1,4),(1,2),(1,1)];
         for n in 1..=3 {
             let dim=1usize<<n;
@@ -1286,6 +1287,35 @@ mod tests {
                                 );
                                 assert_eq!(verdict==CoherentVerdict::ScopedSatisfied,dense,
                                     "P8G1 PSD mismatch n={n} sample={example} span={pre:x} bad={bad:x} delta={num}/{den}");
+
+                                if verdict!=CoherentVerdict::ScopedSatisfied {
+                                    let w=derive_coherent_witness(&exact,&parsed)
+                                        .unwrap_or_else(|e|panic!(
+                                            "witness construction failed {e:?} n={n} sample={example} span={pre:x} bad={bad:x} delta={num}/{den}"
+                                        ));
+                                    let claim=encode_p8g1_claim(src,&proof,&sp,&exact);
+                                    let bytes=encode_p8w1(&claim,&w);
+                                    let(_,negative_gap)=verify_p8w1_witness(
+                                        src,&proof,&sp,&claim,&bytes
+                                    ).unwrap();
+                                    let (norm,excess,_)=dense_oracle::coherent_witness_excess(
+                                        src,first,second,bad,
+                                        num as i128,den as i128,
+                                        w.input0.map(|x|x as i128),
+                                        w.input1.map(|x|x as i128)
+                                    ).unwrap();
+                                    assert_eq!(norm,(w.norm.0 as i128,w.norm.1 as i128));
+                                    assert_eq!(negative_gap,(-excess.0,-excess.1),
+                                        "P8W1 independent dense witness mismatch n={n} sample={example} span={pre:x} bad={bad:x} delta={num}/{den}");
+                                    assert!(dense_oracle::coherent_witness_is_violation(
+                                        src,first,second,bad,
+                                        num as i128,den as i128,
+                                        w.input0.map(|x|x as i128),
+                                        w.input1.map(|x|x as i128)
+                                    ).unwrap());
+                                    constructive_witnesses+=1;
+                                }
+
                                 psd_verdicts+=1;
                             }
                         }
@@ -1297,6 +1327,7 @@ mod tests {
         assert_eq!(cases,36);
         println!("P8S1_DENSE_DIFFERENTIAL circuits={cases} exact_prob_pairs={probability_pairs} property_verdicts={properties} all_match=true");
         println!("P8G1_DENSE_SWEEP circuits={cases} gram_pairs={gram_pairs} coherent_psd_verdicts={psd_verdicts} all_match=true");
+        println!("P8W1_DENSE_WITNESS_SWEEP circuits={cases} constructive_witnesses={constructive_witnesses} independently_verified=true all_negative_gaps_exact=true");
     }
     #[test]
     fn basis_only_contract_rejects_unjustified_span_inference() {

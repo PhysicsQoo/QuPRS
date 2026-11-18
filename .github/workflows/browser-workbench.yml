@@ -120,6 +120,7 @@ jobs:
           set -euo pipefail
           python3 scripts/web/assemble.py "$RUNNER_TEMP/core" "$RUNNER_TEMP/counter" "$RUNNER_TEMP/site"
           python3 scripts/web/check-wasm-limits.py "$RUNNER_TEMP/site/pkg/quprs_web_bg.wasm" "$RUNNER_TEMP/site/engines/gpmc.wasm" > "$RUNNER_TEMP/site/engines/MEMORY_LIMITS.json"
+          python3 scripts/web/test-wasm-limits.py
           chmod +x "$RUNNER_TEMP/core/build-evidence/native-check" "$RUNNER_TEMP/counter/native-gpmc"
           printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > "$RUNNER_TEMP/site/source-sha.txt"
           python3 scripts/web/test-stage-pages.py

@@ -7,6 +7,8 @@ use std::io::Read;
 use std::process::ExitCode;
 #[path = "p8c1_two_copy_wmc.rs"]
 mod two_copy_wmc;
+#[path = "p8c1_two_copy_cnf.rs"]
+mod two_copy_cnf;
 #[cfg(test)]
 #[path = "p8c1_dense_oracle.rs"]
 mod dense_oracle;
@@ -950,13 +952,25 @@ fn main()->ExitCode {
         let result=(||{
             let src=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
             let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
-            let evidence=read_limited(&paths[2],95,Error::InvalidProof)?;
-            two_copy_wmc::verify_w8c1(&src,&proof,&evidence)
+            let evidence=read_limited(&paths[2],12_000,Error::InvalidProof)?;
+            if evidence.starts_with(b"C8C1") {
+                let (models,enumerated)=two_copy_cnf::verify(&src,&proof,&evidence)?;
+                if models!=enumerated {return Err(Error::InvalidProof);}
+                Ok((true,models))
+            } else {
+                let w=two_copy_wmc::verify_w8c1(&src,&proof,&evidence)?;
+                Ok((false,w.buckets))
+            }
         })();
         return match result {
-            Ok(w)=>{
-                println!("SCOPED_TWO_COPY_WMC_ENUM_EXACT first={} second={} paths={} bad_mask={} total_weighted_pairs={} source_trust=BLOCKED",
-                    w.first,w.second,w.h,w.bad_mask,w.buckets.iter().map(|&x|x as usize).sum::<usize>());
+            Ok((is_cnf,counts))=>{
+                if is_cnf {
+                    println!("SCOPED_TWO_COPY_CNF_EXHAUSTIVE buckets=8 checked_models={} source_trust=BLOCKED",
+                        counts.iter().map(|&x|x as usize).sum::<usize>());
+                } else {
+                    println!("SCOPED_TWO_COPY_WMC_ENUM_EXACT buckets=8 total_weighted_pairs={} source_trust=BLOCKED",
+                        counts.iter().map(|&x|x as usize).sum::<usize>());
+                }
                 ExitCode::SUCCESS
             }
             Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}

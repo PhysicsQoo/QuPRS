@@ -610,3 +610,332 @@ fn observed_symbolic_z4_step_certificate_rejects_hidden_cancelled_errors(){
     println!("SYMBOLIC_Z4_STEPCERT_HIDDEN_FINAL_ERROR_CAUGHT=true");
     println!("SYMBOLIC_Z4_STEPCERT_FORGERIES_REJECTED=4");
 }
+
+
+// Research-only finite Clifford+T local-replay experiment.
+// This code is intentionally isolated from the production QASM parser,
+// PathSum implementation, solver and public API.
+mod phase8_local_step_research {
+    use super::source_digest;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    type Anf = BTreeSet<u64>;
+    type Phase = BTreeMap<u64, u8>;
+
+    #[derive(Clone, Copy, Debug)]
+    enum Gate {
+        H(usize), X(usize), Cx(usize, usize),
+        T(usize), S(usize), Z(usize), Cz(usize, usize), Global(u8),
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct State {
+        n: usize,
+        paths: usize,
+        out: Vec<Anf>,
+        phase: Phase,
+    }
+    #[derive(Clone)]
+    struct Claim {
+        source_hash: [u8; 32],
+        prefixes: Vec<State>,
+    }
+
+    fn variable(i: usize) -> Anf {
+        BTreeSet::from([1u64 << i])
+    }
+    fn xor(a: &Anf, b: &Anf) -> Anf {
+        let mut result = a.clone();
+        for &m in b {
+            if !result.insert(m) { result.remove(&m); }
+        }
+        result
+    }
+    fn add_phase(dst: &mut Phase, monomial: u64, coefficient: u8) {
+        let next = (dst.get(&monomial).copied().unwrap_or(0)
+            + coefficient % 8) % 8;
+        if next == 0 { dst.remove(&monomial); }
+        else { dst.insert(monomial, next); }
+    }
+    // Exact Boolean parity -> Z8 multilinear lifting.
+    // Higher inclusion-exclusion terms vanish modulo 8.
+    fn lift8(expr: &Anf) -> Phase {
+        let terms: Vec<u64> = expr.iter().copied().collect();
+        let mut answer = Phase::new();
+        for &a in &terms { add_phase(&mut answer, a, 1); }
+        for i in 0..terms.len() {
+            for j in i+1..terms.len() {
+                add_phase(&mut answer, terms[i] | terms[j], 6);
+            }
+        }
+        for i in 0..terms.len() {
+            for j in i+1..terms.len() {
+                for k in j+1..terms.len() {
+                    add_phase(&mut answer, terms[i] | terms[j] | terms[k], 4);
+                }
+            }
+        }
+        answer
+    }
+    fn initial(n: usize) -> State {
+        State {n, paths: 0, out: (0..n).map(variable).collect(),
+            phase: Phase::new()}
+    }
+    fn next(mut state: State, gate: Gate) -> Result<State, String> {
+        match gate {
+            Gate::H(t) => {
+                if t >= state.n || state.n + state.paths >= 63 {
+                    return Err("invalid H wire or path limit".into());
+                }
+                let fresh = 1u64 << (state.n + state.paths);
+                for (mon, coeff) in lift8(&state.out[t]) {
+                    add_phase(&mut state.phase, mon | fresh, (4 * coeff) % 8);
+                }
+                state.out[t] = variable(state.n + state.paths);
+                state.paths += 1;
+            }
+            Gate::X(t) => {
+                if t >= state.n {return Err("invalid X target".into());}
+                state.out[t] = xor(&state.out[t], &BTreeSet::from([0u64]));
+            }
+            Gate::Cx(c, t) => {
+                if c >= state.n || t >= state.n || c == t {
+                    return Err("invalid CX operands".into());
+                }
+                state.out[t] = xor(&state.out[t], &state.out[c]);
+            }
+            Gate::T(t) | Gate::S(t) | Gate::Z(t) => {
+                if t >= state.n {return Err("invalid phase target".into());}
+                let factor = match gate {
+                    Gate::T(_) => 1, Gate::S(_) => 2, _ => 4
+                };
+                for (mon, coeff) in lift8(&state.out[t]) {
+                    add_phase(&mut state.phase, mon, (factor * coeff) % 8);
+                }
+            }
+            Gate::Cz(c, t) => {
+                if c >= state.n || t >= state.n || c == t {
+                    return Err("invalid CZ operands".into());
+                }
+                for (ma, a) in lift8(&state.out[c]) {
+                    for (mb, b) in lift8(&state.out[t]) {
+                        add_phase(&mut state.phase, ma | mb, (4 * a * b) % 8);
+                    }
+                }
+            }
+            Gate::Global(k) => add_phase(&mut state.phase, 0, k % 8),
+        }
+        Ok(state)
+    }
+
+    fn wire(token: &str, n: usize) -> Result<usize, String> {
+        let decimal = token.strip_prefix("q[")
+            .and_then(|s| s.strip_suffix(']'))
+            .ok_or("bad wire syntax")?;
+        if decimal.is_empty() || (decimal.starts_with('0') && decimal.len() > 1)
+            || !decimal.bytes().all(|c| c.is_ascii_digit()) {
+            return Err("noncanonical wire index".into());
+        }
+        let i: usize = decimal.parse().map_err(|_| "wire overflow")?;
+        if i >= n {return Err("wire out of bounds".into());}
+        Ok(i)
+    }
+    // Deliberately closed and versioned source grammar; never invoke
+    // production parse_qasm_str or accept a claimed source operation.
+    fn parse(source: &str) -> Result<(usize, Vec<Gate>), String> {
+        if source.len() > 32768 {return Err("source length cap".into());}
+        let lines: Vec<_> = source.lines().map(str::trim)
+            .filter(|line| !line.is_empty()).collect();
+        if lines.len() < 4 || lines[0] != "OPENQASM 3.0;"
+            || lines[1] != "include \"stdgates.inc\";" {
+            return Err("unsupported source version/import".into());
+        }
+        let decimal = lines[2].strip_prefix("qubit[")
+            .and_then(|s| s.strip_suffix("] q;"))
+            .ok_or("unsupported register declaration")?;
+        if decimal.is_empty() || (decimal.len() > 1 && decimal.starts_with('0'))
+            || !decimal.bytes().all(|c| c.is_ascii_digit()) {
+            return Err("noncanonical qubit count".into());
+        }
+        let n: usize = decimal.parse().map_err(|_| "qubit count overflow")?;
+        if n == 0 || n > 16 || lines.len() > 1027 {
+            return Err("source resource limit".into());
+        }
+        let mut gates = Vec::new();
+        for line in &lines[3..] {
+            if *line == "gphase(pi/4);" {
+                gates.push(Gate::Global(1)); continue;
+            }
+            let bare = line.strip_suffix(';').ok_or("missing semicolon")?;
+            let (op, args) = bare.split_once(' ').ok_or("unsupported gate")?;
+            if args.contains(' ') || args.contains('\t') {
+                return Err("noncanonical operands".into());
+            }
+            let gate = match op {
+                "h" => Gate::H(wire(args, n)?),
+                "x" => Gate::X(wire(args, n)?),
+                "t" => Gate::T(wire(args, n)?),
+                "s" => Gate::S(wire(args, n)?),
+                "z" => Gate::Z(wire(args, n)?),
+                "cx" | "cz" => {
+                    let (a, b) = args.split_once(',').ok_or("missing two wires")?;
+                    let a = wire(a, n)?;
+                    let b = wire(b, n)?;
+                    if a == b {return Err("overlapping control and target".into());}
+                    if op == "cx" {Gate::Cx(a, b)} else {Gate::Cz(a, b)}
+                }
+                _ => return Err("gate outside exact whitelist".into()),
+            };
+            gates.push(gate);
+        }
+        Ok((n, gates))
+    }
+    fn emit(source: &str) -> Result<Claim, String> {
+        let (n, gates) = parse(source)?;
+        let mut state = initial(n);
+        let mut prefixes = Vec::new();
+        for gate in gates {
+            state = next(state, gate)?;
+            prefixes.push(state.clone());
+        }
+        Ok(Claim {source_hash: source_digest(source), prefixes})
+    }
+    fn check(source: &str, claim: &Claim, budget: usize)
+        -> Result<Option<State>, String>
+    {
+        let (n, gates) = parse(source)?;
+        if claim.source_hash != source_digest(source) {
+            return Err("source digest mismatch".into());
+        }
+        if claim.prefixes.len() != gates.len() {
+            return Err("incomplete step chain".into());
+        }
+        let cost = gates.len().checked_mul((n + 16) * (n + 16))
+            .ok_or("work limit overflow")?;
+        if cost > budget {return Ok(None);}
+        let mut state = initial(n);
+        for (i, gate) in gates.into_iter().enumerate() {
+            state = next(state, gate)?;
+            if state != claim.prefixes[i] {
+                return Err(format!("invalid exact symbolic step {i}"));
+            }
+        }
+        Ok(Some(state))
+    }
+    fn anf_eval(expr: &Anf, bits: u64) -> usize {
+        (expr.iter().filter(|m| bits & **m == **m).count() & 1) as usize
+    }
+    fn path_multiset(state: &State) -> Vec<BTreeMap<(usize, u8), u32>> {
+        let mut result = Vec::new();
+        for x in 0..(1usize << state.n) {
+            let mut bag = BTreeMap::new();
+            for y in 0..(1usize << state.paths) {
+                let bits = x as u64 | ((y as u64) << state.n);
+                let output = state.out.iter().enumerate()
+                    .map(|(i, f)| anf_eval(f, bits) << i).sum();
+                let phase = (state.phase.iter()
+                    .filter(|(m, _)| bits & **m == **m)
+                    .map(|(_, c)| *c as usize).sum::<usize>() % 8) as u8;
+                *bag.entry((output, phase)).or_insert(0) += 1;
+            }
+            result.push(bag);
+        }
+        result
+    }
+    // Structurally independent source-gate branch semantics: no ANF or
+    // phase polynomial, and no native QuPRS PathSum operations.
+    fn oracle_step(
+        previous: Vec<BTreeMap<(usize, u8), u32>>, gate: Gate
+    ) -> Vec<BTreeMap<(usize, u8), u32>> {
+        previous.into_iter().map(|bag| {
+            let mut next_bag = BTreeMap::new();
+            for ((bits, phase), count) in bag {
+                let bit = |i| (bits >> i) & 1;
+                let mut push = |out: usize, exp: u8| {
+                    *next_bag.entry((out, exp % 8)).or_insert(0) += count;
+                };
+                match gate {
+                    Gate::H(t) => {
+                        let z = bit(t) as u8;
+                        push(bits & !(1 << t), phase);
+                        push(bits | (1 << t), phase + 4 * z);
+                    }
+                    Gate::X(t) => push(bits ^ (1 << t), phase),
+                    Gate::Cx(c,t) => push(bits ^ (bit(c) << t), phase),
+                    Gate::T(t) => push(bits, phase + bit(t) as u8),
+                    Gate::S(t) => push(bits, phase + (2 * bit(t)) as u8),
+                    Gate::Z(t) => push(bits, phase + (4 * bit(t)) as u8),
+                    Gate::Cz(c,t) => push(bits, phase + (4 * bit(c) * bit(t)) as u8),
+                    Gate::Global(k) => push(bits, phase + k),
+                }
+            }
+            next_bag
+        }).collect()
+    }
+    fn source(n: usize, body: &str) -> String {
+        format!("OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[{n}] q;\n{body}")
+    }
+
+    #[test]
+    fn observed_phase8_h_anf_local_steps_match_exact_branch_oracle() {
+        let examples = [
+            source(1, "h q[0];\nh q[0];\n"),
+            source(1, "h q[0];\nt q[0];\nh q[0];\n"),
+            source(2, "cx q[0],q[1];\nt q[1];\n"),
+            source(2, "h q[0];\ncx q[0],q[1];\nt q[1];\nh q[1];\n"),
+            source(2, "s q[1];\nh q[0];\ncz q[0],q[1];\nh q[0];\n"),
+            source(3, "h q[0];\ncx q[0],q[1];\nt q[1];\ncx q[1],q[2];\ns q[2];\n"),
+            source(3, "x q[0];\nh q[2];\ncx q[2],q[1];\nt q[1];\nh q[2];\n"),
+            source(3, "h q[0];\nh q[1];\ncx q[0],q[2];\nt q[2];\ncz q[1],q[2];\ngphase(pi/4);\n"),
+        ];
+        let mut prefixes = 0;
+        for src in examples {
+            let (n, gates) = parse(&src).unwrap();
+            let claimed = emit(&src).unwrap();
+            assert_eq!(claimed.prefixes.len(), gates.len());
+            let full = check(&src, &claimed, 100_000).unwrap().unwrap();
+            assert_eq!(full, *claimed.prefixes.last().unwrap());
+            let mut exact = (0..(1usize << n)).map(|x| {
+                BTreeMap::from([((x, 0u8), 1u32)])
+            }).collect();
+            for (j, gate) in gates.into_iter().enumerate() {
+                exact = oracle_step(exact, gate);
+                assert_eq!(path_multiset(&claimed.prefixes[j]), exact);
+                prefixes += 1;
+            }
+        }
+        let xor_t = source(2, "cx q[0],q[1];\nt q[1];\n");
+        let proof = emit(&xor_t).unwrap();
+        assert_eq!(proof.prefixes.last().unwrap().phase.get(&3u64), Some(&6));
+        println!("SYMBOLIC_Z8_H_STEPCERT examples=8 prefixes={prefixes} exact_branch_multiset=true");
+        println!("SYMBOLIC_Z8_XOR_LIFT pair_coefficient=6 correct=true");
+    }
+
+    #[test]
+    fn observed_phase8_local_step_rejects_forged_chain_and_resource_claims() {
+        let src = source(2, "h q[0];\ncx q[0],q[1];\nt q[1];\n");
+        let original = emit(&src).unwrap();
+        let mut forgeries = 0;
+        let mut a = original.clone();
+        a.source_hash[0] ^= 1;
+        assert!(check(&src, &a, 100_000).is_err()); forgeries += 1;
+        let mut b = original.clone();
+        b.prefixes[0].paths = 0;
+        assert!(check(&src, &b, 100_000).is_err()); forgeries += 1;
+        let mut c = original.clone();
+        c.prefixes[2].phase.insert(3, 1);
+        assert!(check(&src, &c, 100_000).is_err()); forgeries += 1;
+        let mut d = original.clone();
+        d.prefixes.pop();
+        assert!(check(&src, &d, 100_000).is_err()); forgeries += 1;
+        let mut e = original.clone();
+        e.prefixes[0].out[0] = variable(0);
+        assert!(check(&src, &e, 100_000).is_err()); forgeries += 1;
+        assert!(check(&src, &original, 0).unwrap().is_none());
+        assert!(parse(&src.replace("OPENQASM 3.0;", "OPENQASM 3.1;")).is_err());
+        assert!(parse(&source(2, "U(2*pi,0,0) q[0];\n")).is_err());
+        assert!(parse(&source(2, "ctrl @ t q[0],q[1];\n")).is_err());
+        assert_eq!(forgeries, 5);
+        println!("SYMBOLIC_Z8_H_STEPCERT forgeries_rejected={forgeries} resource_unknown=true unsupported_rejected=true");
+    }
+}

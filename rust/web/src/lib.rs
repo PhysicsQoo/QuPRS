@@ -175,6 +175,19 @@ impl BrowserJob {
     }
 }
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+#[doc(hidden)]
+pub fn clock_contract_probe() -> String {
+    let (past_expired, future_pending, elapsed_seconds) =
+        quprs::browser_transport::clock_contract_probe();
+    json!({
+        "past_expired": past_expired,
+        "future_pending": future_pending,
+        "elapsed_seconds": elapsed_seconds
+    }).to_string()
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();

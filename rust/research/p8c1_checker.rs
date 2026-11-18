@@ -5,6 +5,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::process::ExitCode;
+#[cfg(test)]
+#[path = "p8c1_dense_oracle.rs"]
+mod dense_oracle;
 
 const MAX_SOURCE_BYTES: usize = 32_768;
 const MAX_PROOF_BYTES: usize = 1 << 20;
@@ -713,6 +716,124 @@ mod tests {
         assert_eq!(property(&source,&proof,b"SPB1\nn=4\nbasis_pre=0x0000000000000001\nbasis_bad=0x0000000000000002\ndelta=1/2\n"),
             Err(Error::UnsupportedSource));
         println!("SPB1_BINDING_MUTATIONS={} accepted=0 source_spec_proof_bound=true",total);
+    }
+
+
+    #[test]
+    fn differential_dense_source_risk_oracle_sweep() {
+        // Independently decoded dense gate-by-gate amplitudes, rather than
+        // parity-polynomial/pathsum replay. Compare *exact* Q(sqrt2)
+        // numerators before comparing the typed property verdict.
+        let mut cases=0usize;
+        let mut probability_pairs=0usize;
+        let mut properties=0usize;
+        let thresholds=[(0,1),(1,8),(1,4),(1,2),(1,1)];
+        for n in 1..=3 {
+            let dim=1usize<<n;
+            let full=(1u64<<dim)-1;
+            let mut masks=vec![1u64,full,1u64<<(dim-1),full&0x55];
+            masks.sort_unstable(); masks.dedup();
+            for example in 0..12u64 {
+                let mut seed=(n as u64)*0x9e3779b97f4a7c15u64
+                    ^example.wrapping_mul(0xbf58476d1ce4e5b9);
+                let mut program=String::new();
+                let mut h_count=0usize;
+                for step in 0..12 {
+                    seed=seed.wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    let opcode=((seed>>34)%9) as usize;
+                    let a=(seed as usize)%n;
+                    let b=(a+1+((seed>>17) as usize)%n.saturating_sub(1).max(1))%n;
+                    let gate=match opcode {
+                        0 if h_count<5 => {h_count+=1;format!("h q[{a}];")},
+                        1 => format!("t q[{a}];"),
+                        2 => format!("s q[{a}];"),
+                        3 => format!("z q[{a}];"),
+                        4 => format!("x q[{a}];"),
+                        5 if n>1 => format!("cx q[{a}],q[{b}];"),
+                        6 if n>1 => format!("cz q[{a}],q[{b}];"),
+                        7 => "gphase(pi/4);".to_string(),
+                        _ => format!("x q[{a}];"),
+                    };
+                    program.push_str(&gate);
+                    program.push('\n');
+                    if step==0 && n>1 {
+                        // Guaranteed non-diagonal example among the corpus.
+                        program.push_str("h q[0];\n");
+                        h_count+=1;
+                    }
+                }
+                let source=format!("OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[{n}] q;\n{program}");
+                let src=source.as_bytes();
+                let (_,gates)=parse_source(src).unwrap();
+                let mut state=State {
+                    n, paths:0,
+                    outputs:(0..n).map(|bit|BTreeSet::from([1u64<<bit])).collect(),
+                    phase:Phase::new(),
+                };
+                let mut fuel=Fuel{remaining:MAX_UPDATES};
+                let mut frames=Vec::new();
+                for gate in gates {
+                    evolve(&mut state,gate,&mut fuel).unwrap();
+                    frames.push(state.clone());
+                }
+                let proof=write_proof(src,n,&frames);
+                assert_eq!(replay_state(src,&proof).unwrap().1,state);
+                for &bad in &masks {
+                    // Compare every computational-basis input, not just
+                    // inputs selected by a particular specification.
+                    for basis in 0..dim {
+                        let symbolic=exact_bad_probability(&state,basis,bad).unwrap();
+                        let dense=dense_oracle::basis_risk(src,basis,bad).unwrap();
+                        assert_eq!(
+                            (symbolic.0,symbolic.1,state.paths),dense,
+                            "exact dense/ANF mismatch n={n} sample={example} basis={basis} bad={bad:x}"
+                        );
+                        probability_pairs+=1;
+                    }
+                    for &pre in &masks {
+                        for &(num,den) in &thresholds {
+                            let sp=spec(n,pre,bad,num,den);
+                            let actual=property(src,&proof,&sp).unwrap();
+                            let mut first_failure=None;
+                            for basis in 0..dim {
+                                if pre&(1u64<<basis)==0 {continue;}
+                                let risk=dense_oracle::basis_risk(src,basis,bad).unwrap();
+                                if !dense_oracle::risk_at_most(risk,num as i128,den as i128) {
+                                    first_failure=Some(basis);
+                                    break;
+                                }
+                            }
+                            let expected=match first_failure {
+                                Some(input_basis)=>PropertyVerdict::ScopedViolated{input_basis},
+                                None=>PropertyVerdict::ScopedSatisfied,
+                            };
+                            assert_eq!(actual,expected,
+                                "dense oracle verdict mismatch n={n} sample={example} pre={pre:x} bad={bad:x} delta={num}/{den}");
+                            properties+=1;
+                        }
+                    }
+                }
+                cases+=1;
+            }
+        }
+        assert_eq!(cases,36);
+        println!("P8S1_DENSE_DIFFERENTIAL circuits={cases} exact_prob_pairs={probability_pairs} property_verdicts={properties} all_match=true");
+    }
+    #[test]
+    fn basis_only_contract_rejects_unjustified_span_inference() {
+        let (source,proof)=example_h();
+        // |0> and |1> each have Pr(bad=|0>)=1/2 under H.
+        let sp=spec(1,3,1,1,2);
+        assert_eq!(property(&source,&proof,&sp),
+            Ok(PropertyVerdict::ScopedSatisfied));
+        // But |+> = (|0>+|1>)/sqrt(2) is mapped by H to |0>
+        // and has Pr(bad=|0>)=1. This is a property-semantics
+        // counterexample, not a verifier bug in its stated basis-only scope.
+        let risk=dense_oracle::plus_state_h_bad_zero().unwrap();
+        assert_eq!(risk,(4,0,2));
+        assert!(!dense_oracle::risk_at_most(risk,1,2));
+        println!("P8S1_BASIS_VS_SPAN basis_only_sat=true superposition_violates=true no_span_claim=true");
     }
 
 }

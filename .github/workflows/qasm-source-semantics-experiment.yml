@@ -74,8 +74,7 @@ jobs:
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/research/p8c1_two_copy_structural.rs \
-            rust/research/p8c1_two_copy_count_trace.rs \
-            rust/research/p8c1_count_to_gram.rs \
+            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_count_to_gram.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -424,298 +423,33 @@ jobs:
             evidence/p8c1-fixtures/h-1q.s8c1 \
             evidence/p8c1-fixtures/h-1q-forged.d8c1
           echo 'D8C1_CROSS_BINARY_COUNT_TRACE=source_bound local_shannon_counts_verified forged_rejected no_solver_count_trust'
-
-          # G8D1: three independently counted D8C1 two-copy obligations
-          # for (i,i),(j,j),(i,j) reconstruct a complete exact Gram.
-          # The checker performs ONLY local Shannon trace checks and
-          # exact Z[zeta8] arithmetic; no primary path enumeration.
           G8D1_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/p8c1-fixtures" \
             evidence/p8c1-checker-tests --exact \
-            tests::g8d1_export_external_producer_fixtures_when_requested \
-            --nocapture 2>&1 | tee evidence/g8d1-export.log
-          evidence/p8c1-checker \
-            evidence/p8c1-fixtures/h-1q.qasm \
-            evidence/p8c1-fixtures/h-1q.p8c1 \
-            evidence/p8c1-fixtures/gram-sat.scg1 \
-            evidence/p8c1-fixtures/gram-0.s8c1 \
-            evidence/p8c1-fixtures/gram-1.s8c1 \
-            evidence/p8c1-fixtures/gram-2.s8c1 \
-            evidence/p8c1-fixtures/gram-0.d8c1 \
-            evidence/p8c1-fixtures/gram-1.d8c1 \
-            evidence/p8c1-fixtures/gram-2.d8c1 \
-            evidence/p8c1-fixtures/gram-sat.p8g1 \
-            | tee evidence/g8d1-gram-sat.log
-          grep -F 'SCOPED_COUNT_TO_GRAM_PSD_SAT proof_nodes=' evidence/g8d1-gram-sat.log
+            tests::g8d1_export_external_producer_fixtures_when_requested --nocapture
+          g8d1() {
+            evidence/p8c1-checker \
+              evidence/p8c1-fixtures/h-1q.qasm \
+              evidence/p8c1-fixtures/h-1q.p8c1 \
+              "evidence/p8c1-fixtures/gram-$1.scg1" \
+              evidence/p8c1-fixtures/gram-{0,1,2}.s8c1 \
+              evidence/p8c1-fixtures/gram-{0,1,2}.d8c1 \
+              "evidence/p8c1-fixtures/gram-$2.p8g1"
+          }
+          g8d1 sat sat | tee evidence/g8d1-sat.log
+          grep -F SCOPED_COUNT_TO_GRAM_PSD_SAT evidence/g8d1-sat.log
           set +e
-          evidence/p8c1-checker \
-            evidence/p8c1-fixtures/h-1q.qasm \
-            evidence/p8c1-fixtures/h-1q.p8c1 \
-            evidence/p8c1-fixtures/gram-violated.scg1 \
-            evidence/p8c1-fixtures/gram-0.s8c1 \
-            evidence/p8c1-fixtures/gram-1.s8c1 \
-            evidence/p8c1-fixtures/gram-2.s8c1 \
-            evidence/p8c1-fixtures/gram-0.d8c1 \
-            evidence/p8c1-fixtures/gram-1.d8c1 \
-            evidence/p8c1-fixtures/gram-2.d8c1 \
-            evidence/p8c1-fixtures/gram-violated.p8g1 > evidence/g8d1-violated.log
+          g8d1 violated violated > evidence/g8d1-violate.log
           rc=$?
           set -e
           test "$rc" -eq 6
-          grep -F 'SCOPED_COUNT_TO_GRAM_PSD_VIOLATED reason=negative_determinant' evidence/g8d1-violated.log
-          echo 'G8D1_CROSS_BINARY=SAT_and_VIOLATED_exact_three_count_traces'
-          if test -x /usr/bin/time; then
-            /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \
-              -o evidence/p8c1-standalone-resource-pilot.log \
-              evidence/p8c1-checker \
-                evidence/p8c1-fixtures/structural-16q.qasm \
-                evidence/p8c1-fixtures/structural-16q.p8c1
-            cat evidence/p8c1-standalone-resource-pilot.log
-          else
-            echo 'P8C1_PILOT_RSS=UNAVAILABLE' > evidence/p8c1-standalone-resource-pilot.log
-          fi
-
-
-      - name: Check independent source semantics and gate-prefix certificates
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_independent_source_kernel_experiment observed_ -- --nocapture \
-            2>&1 | tee evidence/independent-source-kernel.log
-
-      - name: Check strict two-qubit source matrices (diagnostic, may fail)
-        id: two_qubit
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_two_qubit_source_contract strict_contract_ -- --nocapture \
-            2>&1 | tee evidence/two-qubit-strict.log
-
-      - name: Check official strict unitary matrices (diagnostic, may fail)
-        id: exact_matrix
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_strict_unitary_matrix_oracle strict_contract_ -- --nocapture \
-            2>&1 | tee evidence/exact-unitary-conformance.log
-
-      - name: Compare against strict source contract (diagnostic, may fail)
-        id: strict
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_source_semantics_experiment strict_contract_ -- --nocapture \
-            2>&1 | tee evidence/strict-source-contract.log
-
-      - name: Report diagnostic outcome
-        if: always()
-        env:
-          STRICT_RESULT: ${{ steps.strict.outcome }}
-          MATRIX_RESULT: ${{ steps.exact_matrix.outcome }}
-          TWOQ_RESULT: ${{ steps.two_qubit.outcome }}
-        run: |
-          set -euo pipefail
-          mkdir -p evidence
-          printf 'strict_source_contract=%s\nstrict_matrix_contract=%s\nstrict_two_qubit_contract=%s\n' "$STRICT_RESULT" "$MATRIX_RESULT" "$TWOQ_RESULT" > evidence/summary.txt
-          {
-            echo '## QASM source semantics — research-only diagnostic'
-            echo
-            echo "Strict conformance test outcome: **$STRICT_RESULT**"
-            echo "Strict full-matrix outcome: **$MATRIX_RESULT**"
-            echo "Strict two-qubit outcome: **$TWOQ_RESULT**"
-            echo
-            echo 'A failed strict test identifies a source semantic discrepancy.'
-            echo 'It is **not** a failure of unrelated production CI, nor a verified correction.'
-            echo 'A successful observed-behavior test does not certify OpenQASM conformance.'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Preserve diagnostic logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qasm-source-semantics-diagnostics
-          path: evidence/
-          if-no-files-found: ignore
-          retention-days: 7
-
-
-  standalone-no-native-prerequisites:
-    name: Standalone P8C1 verifier without QuPRS/Cargo/native libraries
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out exact experiment revision
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          submodules: false
-      - name: Install stable Rust only
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build and test std-only independent verifier
-        run: |
-          set -euo pipefail
-          rustc --version
-          rustc --edition=2021 --test rust/research/p8c1_dense_oracle.rs -o /tmp/p8c1-dense-unit
-          /tmp/p8c1-dense-unit --nocapture
-          rustc --edition=2021 --test rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone-unit
-          /tmp/p8c1-standalone-unit --nocapture
-          rustc --edition=2021 rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone
+          grep -F 'reason=negative_determinant' evidence/g8d1-violate.log
           set +e
-          /tmp/p8c1-standalone > /tmp/p8c1-no-input.log
-          status=$?
-          set -e
-          test "$status" -eq 2
-          grep -x INVALID_SOURCE /tmp/p8c1-no-input.log
-          echo 'P8C1_STANDALONE_NO_CARGO=checker_and_dense_oracle_tests_pass'
- \
-            evidence/g8d1-gram-sat.log
-          set +e
-          evidence/p8c1-checker \
-            evidence/p8c1-fixtures/h-1q.qasm \
-            evidence/p8c1-fixtures/h-1q.p8c1 \
-            evidence/p8c1-fixtures/gram-violated.scg1 \
-            evidence/p8c1-fixtures/gram-0.s8c1 \
-            evidence/p8c1-fixtures/gram-1.s8c1 \
-            evidence/p8c1-fixtures/gram-2.s8c1 \
-            evidence/p8c1-fixtures/gram-0.d8c1 \
-            evidence/p8c1-fixtures/gram-1.d8c1 \
-            evidence/p8c1-fixtures/gram-2.d8c1 \
-            evidence/p8c1-fixtures/gram-violated.p8g1 \
-            > evidence/g8d1-gram-violation.log
-          rc=$?
-          set -e
-          test "$rc" -eq 6
-          grep -E '^SCOPED_COUNT_TO_GRAM_PSD_VIOLATED reason=negative_determinant proof_nodes=[0-9]+ early_leaves=[0-9]+ source_trust=BLOCKED
-
-          if test -x /usr/bin/time; then
-            /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \
-              -o evidence/p8c1-standalone-resource-pilot.log \
-              evidence/p8c1-checker \
-                evidence/p8c1-fixtures/structural-16q.qasm \
-                evidence/p8c1-fixtures/structural-16q.p8c1
-            cat evidence/p8c1-standalone-resource-pilot.log
-          else
-            echo 'P8C1_PILOT_RSS=UNAVAILABLE' > evidence/p8c1-standalone-resource-pilot.log
-          fi
-
-
-      - name: Check independent source semantics and gate-prefix certificates
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_independent_source_kernel_experiment observed_ -- --nocapture \
-            2>&1 | tee evidence/independent-source-kernel.log
-
-      - name: Check strict two-qubit source matrices (diagnostic, may fail)
-        id: two_qubit
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_two_qubit_source_contract strict_contract_ -- --nocapture \
-            2>&1 | tee evidence/two-qubit-strict.log
-
-      - name: Check official strict unitary matrices (diagnostic, may fail)
-        id: exact_matrix
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_strict_unitary_matrix_oracle strict_contract_ -- --nocapture \
-            2>&1 | tee evidence/exact-unitary-conformance.log
-
-      - name: Compare against strict source contract (diagnostic, may fail)
-        id: strict
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
-            --test qasm_source_semantics_experiment strict_contract_ -- --nocapture \
-            2>&1 | tee evidence/strict-source-contract.log
-
-      - name: Report diagnostic outcome
-        if: always()
-        env:
-          STRICT_RESULT: ${{ steps.strict.outcome }}
-          MATRIX_RESULT: ${{ steps.exact_matrix.outcome }}
-          TWOQ_RESULT: ${{ steps.two_qubit.outcome }}
-        run: |
-          set -euo pipefail
-          mkdir -p evidence
-          printf 'strict_source_contract=%s\nstrict_matrix_contract=%s\nstrict_two_qubit_contract=%s\n' "$STRICT_RESULT" "$MATRIX_RESULT" "$TWOQ_RESULT" > evidence/summary.txt
-          {
-            echo '## QASM source semantics — research-only diagnostic'
-            echo
-            echo "Strict conformance test outcome: **$STRICT_RESULT**"
-            echo "Strict full-matrix outcome: **$MATRIX_RESULT**"
-            echo "Strict two-qubit outcome: **$TWOQ_RESULT**"
-            echo
-            echo 'A failed strict test identifies a source semantic discrepancy.'
-            echo 'It is **not** a failure of unrelated production CI, nor a verified correction.'
-            echo 'A successful observed-behavior test does not certify OpenQASM conformance.'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Preserve diagnostic logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qasm-source-semantics-diagnostics
-          path: evidence/
-          if-no-files-found: ignore
-          retention-days: 7
-
-
-  standalone-no-native-prerequisites:
-    name: Standalone P8C1 verifier without QuPRS/Cargo/native libraries
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out exact experiment revision
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          submodules: false
-      - name: Install stable Rust only
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build and test std-only independent verifier
-        run: |
-          set -euo pipefail
-          rustc --version
-          rustc --edition=2021 --test rust/research/p8c1_dense_oracle.rs -o /tmp/p8c1-dense-unit
-          /tmp/p8c1-dense-unit --nocapture
-          rustc --edition=2021 --test rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone-unit
-          /tmp/p8c1-standalone-unit --nocapture
-          rustc --edition=2021 rust/research/p8c1_checker.rs -o /tmp/p8c1-standalone
-          set +e
-          /tmp/p8c1-standalone > /tmp/p8c1-no-input.log
-          status=$?
-          set -e
-          test "$status" -eq 2
-          grep -x INVALID_SOURCE /tmp/p8c1-no-input.log
-          echo 'P8C1_STANDALONE_NO_CARGO=checker_and_dense_oracle_tests_pass'
- \
-            evidence/g8d1-gram-violation.log
-          # Wrong witness/spec pairing must never be accepted.
-          set +e
-          evidence/p8c1-checker \
-            evidence/p8c1-fixtures/h-1q.qasm \
-            evidence/p8c1-fixtures/h-1q.p8c1 \
-            evidence/p8c1-fixtures/gram-violated.scg1 \
-            evidence/p8c1-fixtures/gram-0.s8c1 \
-            evidence/p8c1-fixtures/gram-1.s8c1 \
-            evidence/p8c1-fixtures/gram-2.s8c1 \
-            evidence/p8c1-fixtures/gram-0.d8c1 \
-            evidence/p8c1-fixtures/gram-1.d8c1 \
-            evidence/p8c1-fixtures/gram-2.d8c1 \
-            evidence/p8c1-fixtures/gram-sat.p8g1 > evidence/g8d1-forged.log
+          g8d1 violated sat > evidence/g8d1-forged.log
           rc=$?
           set -e
           test "$rc" -eq 4
           grep -x INVALID_PROOF evidence/g8d1-forged.log
-          echo 'G8D1_CROSS_BINARY_COMPOSITION=exact_SAT_VIOLATED forged_proof_rejected nonenumerative_checker=true'
-
+          echo 'G8D1_CROSS_BINARY=verified_counts_to_exact_Gram_PSD'
 
           if test -x /usr/bin/time; then
             /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \

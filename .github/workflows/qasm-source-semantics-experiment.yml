@@ -14,6 +14,7 @@ on:
       - rust/research/p8c1_dense_oracle.rs
       - rust/research/p8c1_two_copy_wmc.rs
       - rust/research/p8c1_two_copy_cnf.rs
+      - rust/research/p8c1_two_copy_structural.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
@@ -70,6 +71,7 @@ jobs:
             rust/quprs/tests/qasm_two_qubit_source_contract.rs \
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
+            rust/research/p8c1_two_copy_structural.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -375,6 +377,28 @@ jobs:
             evidence/p8c1-fixtures/h-1q.p8c1 \
             evidence/p8c1-fixtures/two-copy-h1-forged.c8c1
           echo 'C8C1_CROSS_BINARY_CNF=8_canonical_CNF_buckets_exactly_checked forged_rejected not_solver_proof'
+
+          # S8C1 uses an ordered, structural GF(2)-XOR/Tseitin gate
+          # network rather than exponential truth-table blocking clauses.
+          # The independent checker replays source semantics and verifies
+          # each deterministic auxiliary gate's unique extension.
+          S8C1_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/p8c1-fixtures" \
+            evidence/p8c1-checker-tests --exact \
+            tests::s8c1_export_external_producer_fixtures_when_requested \
+            --nocapture 2>&1 | tee evidence/s8c1-export.log
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/h-1q.s8c1 \
+            | tee evidence/s8c1-two-copy-structural.log
+          grep -x 'SCOPED_TWO_COPY_STRUCTURAL_UNIQUE_EXTENSION buckets=8 checked_models=1 source_trust=BLOCKED' \
+            evidence/s8c1-two-copy-structural.log
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/h-1q-forged.s8c1
+          echo 'S8C1_CROSS_BINARY_STRUCTURAL=unique_aux_extension true_eight_buckets forged_rejected reference_C8C1_match'
+
 
 
 

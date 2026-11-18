@@ -6,7 +6,7 @@ import argparse
 import json
 import subprocess
 
-ROUTES = ("homepage", "browser", "docs_version", "docs_reference")
+ROUTES = ("homepage", "browser", "docs_fast", "docs_version", "docs_reference")
 ALL_GATE = {
     ".github/workflows/website-ci.yml",
     ".github/workflows/site-homepage-publish.yml",
@@ -18,6 +18,17 @@ HOMEPAGE_WORKFLOW = ".github/workflows/site-homepage.yml"
 BROWSER_WORKFLOW = ".github/workflows/browser-workbench.yml"
 DOC_VERSION_WORKFLOW = ".github/workflows/docs-versioning-poc.yml"
 DOC_REFERENCE_WORKFLOW = ".github/workflows/rust-api-docs.yml"
+DOC_FAST_WORKFLOW = ".github/workflows/docs-check.yml"
+DOC_FAST_FILES = {
+    "scripts/check_generated_stub.py",
+    "test/test_generated_stub_parity.py",
+    "scripts/check_docs_examples.py",
+    "scripts/check_docs_scoped_contract.py",
+    "src/QuPRS/utils/solver_adapter.py",
+    "src/QuPRS/utils/wmc_problem.py",
+    ".github/scripts/test-docs-workflow-coverage.cjs",
+    DOC_FAST_WORKFLOW,
+}
 
 DOC_REFERENCE_FILES = {
     "src/QuPRS/__init__.py",
@@ -69,6 +80,8 @@ def classify(paths: list[str]) -> dict[str, bool]:
         if (path == DOC_REFERENCE_WORKFLOW or path in DOC_REFERENCE_FILES or
                 path.startswith(("docs/site/", "rust/quprs/", "src/QuPRS/pathsum/gates/"))):
             result["docs_reference"] = True
+        if path in DOC_FAST_FILES:
+            result["docs_fast"] = True
         if path in DOC_VERSION_FILES or path.startswith("docs/site/"):
             result["docs_version"] = True
         # Shared publication boundary changes must exercise sibling isolation.

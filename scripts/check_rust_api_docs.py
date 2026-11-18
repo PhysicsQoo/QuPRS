@@ -14,6 +14,8 @@ from threading import Thread
 from urllib.parse import unquote, urlsplit
 from urllib.request import urlopen
 
+from docs_versioning import inject_rustdoc_version_navigation
+
 
 ROOT = Path(__file__).resolve().parents[1]
 RUSTDOC_ROOT = ROOT / "rust" / "target" / "doc"
@@ -46,6 +48,9 @@ def compose() -> None:
     if RUST_API.exists():
         raise AssertionError("Rust API destination must be absent before composition")
     shutil.copytree(RUSTDOC_ROOT, RUST_API)
+    inject_rustdoc_version_navigation(
+        RUST_API, ROOT / "scripts" / "rustdoc_version_selector.js"
+    )
     # Preserve the previous development Rustdoc URL without duplicating API.
     old = RUST_API / "pathsum"
     if old.exists():
@@ -82,6 +87,10 @@ def check_assets() -> None:
     html = rust_index.read_text(encoding="utf-8")
     if "VerificationOptions" not in html:
         raise AssertionError("Public Rust verification types are not documented")
+    if html.count('data-quprs-version-selector="true"') != 1:
+        raise AssertionError("Native Rustdoc selector is missing or duplicated")
+    if not (RUST_API / "quprs-versions.js").is_file():
+        raise AssertionError("Native Rustdoc selector asset missing")
 
     # Native rustdoc assets are outside Zensical's Markdown link checker.
     checked = 0

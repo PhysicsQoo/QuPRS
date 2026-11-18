@@ -35,6 +35,7 @@ jobs:
             .github/workflows/docs-release-publish.yml \
             .github/workflows/docs-versioning-poc.yml \
             .github/workflows/rust-api-docs.yml \
+            .github/workflows/docs-check.yml \
             .github/workflows/website-ci.yml \
             .github/workflows/site-homepage.yml \
             .github/workflows/site-homepage-publish.yml \

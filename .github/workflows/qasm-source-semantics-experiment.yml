@@ -10,6 +10,7 @@ on:
       - rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs
       - rust/quprs/tests/qasm_two_qubit_source_contract.rs
       - rust/quprs/tests/qasm_source_ir_certificate_experiment.rs
+      - rust/research/p8c1_checker.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
 
@@ -65,6 +66,7 @@ jobs:
             rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs \
             rust/quprs/tests/qasm_two_qubit_source_contract.rs \
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
+            rust/research/p8c1_checker.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -95,6 +97,38 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test qasm_source_ir_certificate_experiment observed_ -- --nocapture \
             2>&1 | tee evidence/source-ir-certificate.log
+
+      - name: Check standalone std-only P8C1 checker
+        run: |
+          set -euo pipefail
+          # Independent verifier is compiled with rustc, no Cargo package,
+          # QuPRS API, producer, external libraries or native dependencies.
+          rustc --edition=2021 --test rust/research/p8c1_checker.rs -o evidence/p8c1-checker-tests
+          evidence/p8c1-checker-tests --nocapture 2>&1 | tee evidence/p8c1-standalone-tests.log
+          rustc --edition=2021 rust/research/p8c1_checker.rs -o evidence/p8c1-checker
+          # Native research producer exports source/proof pairs. The CLI
+          # re-reads the actual files in a separate process and checks each.
+          P8C1_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/p8c1-fixtures" \
+            cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test qasm_source_ir_certificate_experiment \
+            observed_p8c1_exports_cross_binary_fixtures_when_requested -- --nocapture \
+            2>&1 | tee evidence/p8c1-fixture-export.log
+          : > evidence/p8c1-cross-binary.log
+          for case in h-cx-t cx-t-parity mixed-3q structural-16q; do
+            evidence/p8c1-checker \
+              "evidence/p8c1-fixtures/$case.qasm" \
+              "evidence/p8c1-fixtures/$case.p8c1" | tee -a evidence/p8c1-cross-binary.log
+          done
+          test "$(grep -c '^SCOPED_REPLAY_PASS ' evidence/p8c1-cross-binary.log)" -eq 4
+          set +e
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-cx-t.qasm \
+            evidence/p8c1-fixtures/forged.p8c1 > evidence/p8c1-cross-binary-forged.log
+          status=$?
+          set -e
+          test "$status" -eq 4
+          grep -x 'INVALID_PROOF' evidence/p8c1-cross-binary-forged.log
+          echo 'P8C1_STANDALONE_CROSS_BINARY=4 exact_pass; 1 invalid_proof_rejected'
 
       - name: Check independent source semantics and gate-prefix certificates
         run: |

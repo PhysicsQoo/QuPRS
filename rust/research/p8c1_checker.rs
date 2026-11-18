@@ -321,7 +321,7 @@ fn read_phase(reader:&mut Cursor<'_>,width:usize,aggregate:&mut usize,
     }
     Ok(out)
 }
-fn check(source:&[u8],proof:&[u8])->Check<usize> {
+fn replay_state(source:&[u8],proof:&[u8])->Check<(usize,State)> {
     // The caller caps both files while reading. This second guard permits
     // direct calls with already-owned byte slices and fails closed.
     if source.len()>MAX_SOURCE_BYTES || proof.len()>MAX_PROOF_BYTES {
@@ -360,8 +360,167 @@ fn check(source:&[u8],proof:&[u8])->Check<usize> {
         }
     }
     if reader.at!=proof.len() {return Err(Error::InvalidProof);}
-    Ok(gates.len())
+    Ok((gates.len(),state))
 }
+fn check(source:&[u8],proof:&[u8])->Check<usize> {
+    replay_state(source,proof).map(|(steps,_)|steps)
+}
+
+// SPB1: deliberately restricted *computational basis* reachability/risk
+// semantics. P and B are bit masks over basis indices, not arbitrary quantum
+// subspaces. Only n <= 3 and H path count <= 8 are admitted for this pilot.
+// This is not a general property verifier or authoritative QASM frontend.
+const MAX_SPEC_BYTES: usize = 256;
+const P8S1_BYTES: usize = 4 + 32 + 32 + 32;
+#[derive(Debug, Clone, Copy)]
+struct BasisRiskSpec {
+    n: usize,
+    pre_mask: u64,
+    bad_mask: u64,
+    delta_num: i128,
+    delta_den: i128,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PropertyVerdict {
+    ScopedSatisfied,
+    ScopedViolated { input_basis: usize },
+}
+fn exact_hex_mask(value: &str) -> Check<u64> {
+    let h=value.strip_prefix("0x").ok_or(Error::InvalidSource)?;
+    if h.len()!=16 || !h.bytes().all(|b|b.is_ascii_hexdigit()
+        && (!b.is_ascii_alphabetic() || b.is_ascii_lowercase())) {
+        return Err(Error::InvalidSource);
+    }
+    u64::from_str_radix(h,16).map_err(|_|Error::InvalidSource)
+}
+fn parse_basis_spec(data: &[u8]) -> Check<BasisRiskSpec> {
+    if data.len()>MAX_SPEC_BYTES {return Err(Error::UnknownResource);}
+    let text=std::str::from_utf8(data).map_err(|_|Error::InvalidSource)?;
+    let mut lines=text.split_terminator('\n');
+    if lines.next()!=Some("SPB1") {return Err(Error::UnsupportedSource);}
+    let q=lines.next().and_then(|s|s.strip_prefix("n="))
+        .ok_or(Error::InvalidSource)?;
+    let n=canonical_number(q)?;
+    if n==0 || n>3 {return Err(Error::UnsupportedSource);}
+    let pm=lines.next().and_then(|s|s.strip_prefix("basis_pre="))
+        .ok_or(Error::InvalidSource)?;
+    let bm=lines.next().and_then(|s|s.strip_prefix("basis_bad="))
+        .ok_or(Error::InvalidSource)?;
+    let delta=lines.next().and_then(|s|s.strip_prefix("delta="))
+        .ok_or(Error::InvalidSource)?;
+    if lines.next().is_some() || !text.ends_with('\n') {
+        return Err(Error::InvalidSource);
+    }
+    let pre_mask=exact_hex_mask(pm)?;
+    let bad_mask=exact_hex_mask(bm)?;
+    let allowed=(1u64 << (1usize << n))-1;
+    if pre_mask==0 || bad_mask==0 || ((pre_mask|bad_mask)&!allowed)!=0 {
+        return Err(Error::InvalidSource);
+    }
+    let (num,den)=delta.split_once('/').ok_or(Error::InvalidSource)?;
+    let a=canonical_number(num)? as i128;
+    let b=canonical_number(den)? as i128;
+    if b==0 || a>b || b>65_535 {return Err(Error::InvalidSource);}
+    // Fractions are in reduced canonical form (0/1 mandatory for zero).
+    fn gcd(mut a:i128,mut b:i128)->i128{
+        while b!=0 {let rem=a%b;a=b;b=rem;}
+        a
+    }
+    if gcd(a,b)!=1 {return Err(Error::InvalidSource);}
+    Ok(BasisRiskSpec {n,pre_mask,bad_mask,delta_num:a,delta_den:b})
+}
+fn proof_bound_bytes(source:&[u8],proof:&[u8],spec:&[u8]) -> [u8;P8S1_BYTES] {
+    let mut bound=[0u8;P8S1_BYTES];
+    bound[..4].copy_from_slice(b"P8S1");
+    bound[4..36].copy_from_slice(&sha256(source));
+    bound[36..68].copy_from_slice(&sha256(spec));
+    bound[68..100].copy_from_slice(&sha256(proof));
+    bound
+}
+// Returns true iff C + D sqrt(2) <= 0, using only integer arithmetic.
+// Cap on n/path count and fraction denominator ensures no i128 overflow.
+fn nonpositive_quadratic(C:i128,D:i128)->bool{
+    if C==0 {return D<=0;}
+    if D==0 {return C<=0;}
+    if C>0 && D>0 {return false;}
+    if C<0 && D<0 {return true;}
+    if C>0 {C*C<=2*D*D}
+    else {2*D*D<=C*C}
+}
+fn evaluate_monomial(mask:u64,bits:u64)->bool { bits&mask==mask }
+// Computes exact squared norms in Z[sqrt(2)] / 2^h. Every path
+// contributes one eighth root of unity; no floating point or tolerances.
+fn exact_bad_probability(state:&State,input:usize,bad_mask:u64)->Check<(i128,i128)> {
+    if state.n>3 || state.paths>8 {return Err(Error::UnknownResource);}
+    let size=1usize << state.n;
+    let mut freqs=vec![[0i128;8];size];
+    for y in 0..(1usize << state.paths) {
+        let bits=input as u64 | ((y as u64) << state.n);
+        let mut out=0usize;
+        for (index,terms) in state.outputs.iter().enumerate() {
+            let bit=terms.iter().filter(|&&mon|evaluate_monomial(mon,bits)).count()%2;
+            out |= bit<<index;
+        }
+        let phase=state.phase.iter()
+            .filter(|(mon,_)| evaluate_monomial(**mon,bits))
+            .map(|(_,coeff)|*coeff as usize).sum::<usize>()%8;
+        freqs[out][phase]+=1;
+    }
+    let(mut A,mut B)=(0i128,0i128);
+    for (output,counts) in freqs.iter().enumerate() {
+        if (bad_mask >> output)&1==0 {continue;}
+        for k in 0..8 {
+            A+=counts[k]*counts[k];
+            for l in k+1..8 {
+                let diff=l-k;
+                match diff {
+                    1|7 => B+=counts[k]*counts[l],
+                    3|5 => B-=counts[k]*counts[l],
+                    4 => A-=2*counts[k]*counts[l],
+                    _=>{},
+                }
+            }
+        }
+    }
+    Ok((A,B))
+}
+fn verify_spb1_property(
+    source:&[u8],proof:&[u8],spec_bytes:&[u8],bound:&[u8]
+)->Check<PropertyVerdict>{
+    if spec_bytes.len()>MAX_SPEC_BYTES {return Err(Error::UnknownResource);}
+    if bound.len()!=P8S1_BYTES || bound[..4]!=*b"P8S1" {
+        return Err(Error::InvalidProof);
+    }
+    if bound[4..36]!=sha256(source) || bound[36..68]!=sha256(spec_bytes)
+        || bound[68..100]!=sha256(proof) {
+        return Err(Error::InvalidProof);
+    }
+    let spec=parse_basis_spec(spec_bytes)?;
+    let (_,state)=replay_state(source,proof)?;
+    if state.n!=spec.n {return Err(Error::InvalidProof);}
+    if state.paths>8 {return Err(Error::UnknownResource);}
+    for input in 0..(1usize<<spec.n) {
+        if (spec.pre_mask >> input)&1==0 {continue;}
+        let (A,B)=exact_bad_probability(&state,input,spec.bad_mask)?;
+        // risk = (A+B sqrt(2))/2^paths, compare to rational delta.
+        let c=spec.delta_den*A-spec.delta_num*(1i128<<state.paths);
+        let d=spec.delta_den*B;
+        if !nonpositive_quadratic(c,d) {
+            return Ok(PropertyVerdict::ScopedViolated{input_basis:input});
+        }
+    }
+    Ok(PropertyVerdict::ScopedSatisfied)
+}
+fn cli_property(source:&str,proof:&str,spec:&str,binding:&str)
+    -> Check<PropertyVerdict>
+{
+    let s=read_limited(source,MAX_SOURCE_BYTES,Error::InvalidSource)?;
+    let p=read_limited(proof,MAX_PROOF_BYTES,Error::InvalidProof)?;
+    let t=read_limited(spec,MAX_SPEC_BYTES,Error::InvalidSource)?;
+    let b=read_limited(binding,P8S1_BYTES,Error::InvalidProof)?;
+    verify_spb1_property(&s,&p,&t,&b)
+}
+
 fn cli()->Check<usize> {
     let mut args=std::env::args().skip(1);
     let source=args.next().ok_or(Error::InvalidSource)?;
@@ -372,6 +531,20 @@ fn cli()->Check<usize> {
     check(&src,&cert)
 }
 fn main()->ExitCode {
+    let paths:Vec<_>=std::env::args().skip(1).collect();
+    if paths.len()==4 {
+        return match cli_property(&paths[0],&paths[1],&paths[2],&paths[3]) {
+            Ok(PropertyVerdict::ScopedSatisfied)=>{
+                println!("SCOPED_PROPERTY_SAT source_trust=BLOCKED");
+                ExitCode::SUCCESS
+            }
+            Ok(PropertyVerdict::ScopedViolated{input_basis})=>{
+                println!("SCOPED_PROPERTY_VIOLATED input_basis={input_basis} source_trust=BLOCKED");
+                ExitCode::from(6)
+            }
+            Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
+        };
+    }
     match cli() {
         Ok(steps)=>{
             println!("SCOPED_REPLAY_PASS steps={steps} source_trust=BLOCKED");
@@ -470,4 +643,76 @@ mod tests {
         assert_eq!(check(&s,&vec![0;MAX_PROOF_BYTES+1]),Err(Error::UnknownResource));
         assert_eq!(check(&vec![b'a';MAX_SOURCE_BYTES+1],&p),Err(Error::UnknownResource));
     }
+
+    fn spec(n:usize,pre:u64,bad:u64,num:usize,den:usize)->Vec<u8> {
+        format!("SPB1\nn={n}\nbasis_pre=0x{pre:016x}\nbasis_bad=0x{bad:016x}\ndelta={num}/{den}\n").into_bytes()
+    }
+    fn property(src:&[u8],proof:&[u8],sp:&[u8])->Check<PropertyVerdict> {
+        verify_spb1_property(src,proof,sp,&proof_bound_bytes(src,proof,sp))
+    }
+    #[test]
+    fn exact_basis_risk_half_and_irrational_thresholds() {
+        let (s,p)=example_h();
+        assert_eq!(property(&s,&p,&spec(1,1,2,1,2)),
+            Ok(PropertyVerdict::ScopedSatisfied));
+        assert_eq!(property(&s,&p,&spec(1,1,2,1,3)),
+            Ok(PropertyVerdict::ScopedViolated {input_basis:0}));
+        assert_eq!(property(&s,&p,&spec(1,1,2,1,1)),
+            Ok(PropertyVerdict::ScopedSatisfied));
+        let (source,proof)=example_cx_t();
+        assert_eq!(property(&source,&proof,&spec(2,1,2,0,1)),
+            Ok(PropertyVerdict::ScopedSatisfied));
+        // Exact H;T;H on |0>: risk of output |1> =
+        // (2 - sqrt(2))/4, strictly between 1/8 and 1/4.
+        let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\n";
+        let mut state=State {n:1,paths:0,
+            outputs:vec![BTreeSet::from([1])],phase:Phase::new()};
+        let mut fuel=Fuel {remaining:MAX_UPDATES};
+        let mut prefixes=Vec::new();
+        for g in [Gate::H(0),Gate::T(0),Gate::H(0)] {
+            evolve(&mut state,g,&mut fuel).unwrap();
+            prefixes.push(state.clone());
+        }
+        let proof=write_proof(src,1,&prefixes);
+        assert_eq!(property(src,&proof,&spec(1,1,2,1,8)),
+            Ok(PropertyVerdict::ScopedViolated{input_basis:0}));
+        assert_eq!(property(src,&proof,&spec(1,1,2,1,4)),
+            Ok(PropertyVerdict::ScopedSatisfied));
+        let (a,b)=exact_bad_probability(&state,0,2).unwrap();
+        assert_eq!((a,b),(2,-1));
+        println!("SPB1_EXACT_RISK rational_half=true irrational_surd=(2-sqrt2)/4=true thresholds=pass_and_violate");
+    }
+    #[test]
+    fn source_spec_proof_binding_and_claim_mutations_fail_closed() {
+        let (source,proof)=example_h();
+        let spec=spec(1,1,2,1,2);
+        let binding=proof_bound_bytes(&source,&proof,&spec);
+        assert_eq!(verify_spb1_property(&source,&proof,&spec,&binding),
+            Ok(PropertyVerdict::ScopedSatisfied));
+        let mut total=0usize;
+        for i in 0..binding.len() {
+            for bit in 0..8 {
+                let mut forged=binding;
+                forged[i]^=1<<bit;
+                assert_ne!(verify_spb1_property(&source,&proof,&spec,&forged),
+                    Ok(PropertyVerdict::ScopedSatisfied));
+                total+=1;
+            }
+        }
+        let alt=spec(1,1,2,1,3);
+        assert_eq!(verify_spb1_property(&source,&proof,&alt,&binding),
+            Err(Error::InvalidProof));
+        let mut mutated_proof=proof.clone();mutated_proof[15]^=1;
+        assert_eq!(verify_spb1_property(&source,&mutated_proof,&spec,&binding),
+            Err(Error::InvalidProof));
+        let mut mutated_source=source.clone();mutated_source.push(b' ');
+        assert_eq!(verify_spb1_property(&mutated_source,&proof,&spec,&binding),
+            Err(Error::InvalidProof));
+        assert_eq!(property(&source,&proof,b"SPB1\nn=1\nbasis_pre=0x0000000000000001\nbasis_bad=0x0000000000000002\ndelta=2/4\n"),
+            Err(Error::InvalidSource));
+        assert_eq!(property(&source,&proof,b"SPB1\nn=4\nbasis_pre=0x0000000000000001\nbasis_bad=0x0000000000000002\ndelta=1/2\n"),
+            Err(Error::UnsupportedSource));
+        println!("SPB1_BINDING_MUTATIONS={} accepted=0 source_spec_proof_bound=true",total);
+    }
+
 }

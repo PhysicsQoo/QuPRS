@@ -273,6 +273,9 @@ impl<'a> Cursor<'a> {
         let b=self.bytes(2)?;
         Ok(u16::from_le_bytes([b[0],b[1]]) as usize)
     }
+    fn i64(&mut self)->Check<i64>{
+        Ok(i64::from_le_bytes(self.bytes(8)?.try_into().map_err(|_|Error::InvalidProof)?))
+    }
     fn u64(&mut self)->Check<u64>{
         let b=self.bytes(8)?;
         Ok(u64::from_le_bytes(b.try_into().map_err(|_|Error::InvalidProof)?))
@@ -514,6 +517,217 @@ fn verify_spb1_property(
     }
     Ok(PropertyVerdict::ScopedSatisfied)
 }
+
+// SCG1 / P8G1 are deliberately DISTINCT from SPB1 / P8S1.
+// SCG1 quantifies over *all normalized coherent states* in the span
+// of exactly TWO selected computational-basis input vectors.
+// It is not a general arbitrary-rank/density-operator specification.
+const P8G1_BYTES:usize=176;
+#[derive(Debug,Clone,Copy)]
+struct CoherentSpanSpec {
+    n:usize, pre_mask:u64, bad_mask:u64, delta_num:i128, delta_den:i128,
+    first:usize,second:usize,
+}
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+struct CoherentGram {
+    n:u8,h:u8,first:u8,second:u8,bad_mask:u64,
+    diag0:(i64,i64),diag1:(i64,i64),off:[i64;4],
+}
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+enum CoherentVerdict {
+    ScopedSatisfied,
+    ScopedViolated{reason:&'static str},
+}
+fn parse_scg1_spec(data:&[u8])->Check<CoherentSpanSpec>{
+    if data.len()>MAX_SPEC_BYTES{return Err(Error::UnknownResource);}
+    let text=std::str::from_utf8(data).map_err(|_|Error::InvalidSource)?;
+    let mut lines=text.split_terminator('\n');
+    if lines.next()!=Some("SCG1"){return Err(Error::UnsupportedSource);}
+    let n=canonical_number(lines.next()
+        .and_then(|s|s.strip_prefix("n=")).ok_or(Error::InvalidSource)?)?;
+    if n==0||n>3{return Err(Error::UnsupportedSource);}
+    let pre_mask=exact_hex_mask(lines.next()
+        .and_then(|s|s.strip_prefix("span_basis=")).ok_or(Error::InvalidSource)?)?;
+    let bad_mask=exact_hex_mask(lines.next()
+        .and_then(|s|s.strip_prefix("basis_bad=")).ok_or(Error::InvalidSource)?)?;
+    let fraction=lines.next()
+        .and_then(|s|s.strip_prefix("delta=")).ok_or(Error::InvalidSource)?;
+    if lines.next().is_some()||!text.ends_with('\n'){
+        return Err(Error::InvalidSource);
+    }
+    let valid=(1u64 << (1usize<<n))-1;
+    if pre_mask.count_ones()!=2 || bad_mask==0 ||
+        (pre_mask|bad_mask)&!valid!=0 {
+        return Err(Error::InvalidSource);
+    }
+    let(a,b)=fraction.split_once('/').ok_or(Error::InvalidSource)?;
+    let numerator=canonical_number(a)? as i128;
+    let denominator=canonical_number(b)? as i128;
+    if denominator==0 || numerator>denominator || denominator>65535{
+        return Err(Error::InvalidSource);
+    }
+    let(mut r,mut t)=(numerator,denominator);
+    while t!=0{let remainder=r%t;r=t;t=remainder;}
+    if r!=1{return Err(Error::InvalidSource);}
+    let mut indices=(0..(1usize<<n)).filter(|i|pre_mask&(1u64<<i)!=0);
+    let first=indices.next().ok_or(Error::InvalidSource)?;
+    let second=indices.next().ok_or(Error::InvalidSource)?;
+    Ok(CoherentSpanSpec{
+        n,pre_mask,bad_mask,delta_num:numerator,delta_den:denominator,first,second,
+    })
+}
+fn path_histogram(state:&State,input:usize)->Check<Vec<[i128;8]>>{
+    if state.n>3||state.paths>8{return Err(Error::UnknownResource);}
+    let mut output=vec![[0i128;8];1usize<<state.n];
+    for y in 0..(1usize<<state.paths){
+        let bits=(input as u64)|((y as u64)<<state.n);
+        let mut out=0usize;
+        for(index,terms)in state.outputs.iter().enumerate(){
+            let parity=terms.iter().fold(false,|acc,&mon|acc^evaluate_monomial(mon,bits));
+            if parity{out|=1usize<<index;}
+        }
+        let phase=state.phase.iter()
+            .filter(|(&mon,_)|evaluate_monomial(mon,bits))
+            .map(|(_,c)|*c as usize).sum::<usize>()%8;
+        output[out][phase]+=1;
+    }
+    Ok(output)
+}
+fn checked_i64(value:i128)->Check<i64>{
+    i64::try_from(value).map_err(|_|Error::UnknownResource)
+}
+fn path_coherent_gram(
+    state:&State,first:usize,second:usize,bad_mask:u64
+)->Check<CoherentGram>{
+    if state.n>3||state.paths>8{return Err(Error::UnknownResource);}
+    if first>=1usize<<state.n||second>=1usize<<state.n||first>=second {
+        return Err(Error::InvalidSource);
+    }
+    let left=path_histogram(state,first)?;
+    let right=path_histogram(state,second)?;
+    let(mut diag0,mut diag1)=((0i128,0i128),(0i128,0i128));
+    let mut cross=[0i128;8];
+    for output in 0..left.len(){
+        if bad_mask&(1u64<<output)==0{continue;}
+        // Exact pairwise path interference; intentionally different from
+        // the dense oracle's cyclotomic polynomial-norm implementation.
+        for k in 0..8 {
+            diag0.0+=left[output][k]*left[output][k];
+            diag1.0+=right[output][k]*right[output][k];
+            for l in k+1..8{
+                let diff=l-k;
+                let ca=left[output][k]*left[output][l];
+                let cb=right[output][k]*right[output][l];
+                match diff {
+                    1|7=>{diag0.1+=ca;diag1.1+=cb;}
+                    3|5=>{diag0.1-=ca;diag1.1-=cb;}
+                    4=>{diag0.0-=2*ca;diag1.0-=2*cb;}
+                    _=>{},
+                }
+            }
+            for l in 0..8 {
+                cross[(l+8-k)%8]+=left[output][k]*right[output][l];
+            }
+        }
+    }
+    let off=[
+        checked_i64(cross[0]-cross[4])?,
+        checked_i64(cross[1]-cross[5])?,
+        checked_i64(cross[2]-cross[6])?,
+        checked_i64(cross[3]-cross[7])?,
+    ];
+    Ok(CoherentGram{
+        n:state.n as u8,h:state.paths as u8,first:first as u8,
+        second:second as u8,bad_mask,
+        diag0:(checked_i64(diag0.0)?,checked_i64(diag0.1)?),
+        diag1:(checked_i64(diag1.0)?,checked_i64(diag1.1)?),off,
+    })
+}
+// Rank-two Hermitian PSD equivalence: d0>=0, d1>=0, det>=0.
+// All comparisons are exact integers in Z[sqrt(2)] after clearing
+// the positive common denominator (delta_den*2^h).
+fn gram_psd_verdict(gram:&CoherentGram,spec:&CoherentSpanSpec)->CoherentVerdict{
+    let (num,den)=(spec.delta_num,spec.delta_den);
+    let scale=1i128<<gram.h;
+    let(c0,d0)=(num*scale-den*(gram.diag0.0 as i128),-den*(gram.diag0.1 as i128));
+    let(c1,d1)=(num*scale-den*(gram.diag1.0 as i128),-den*(gram.diag1.1 as i128));
+    let nonneg=|c:i128,d:i128|nonpositive_quadratic(-c,-d);
+    if !nonneg(c0,d0){
+        return CoherentVerdict::ScopedViolated{reason:"negative_diagonal_0"};
+    }
+    if !nonneg(c1,d1){
+        return CoherentVerdict::ScopedViolated{reason:"negative_diagonal_1"};
+    }
+    let z=gram.off.map(|a|a as i128);
+    let off_norm_a=z.iter().map(|v|v*v).sum::<i128>();
+    let off_norm_b=z[0]*(z[1]-z[3])+z[2]*(z[1]+z[3]);
+    let det_a=c0*c1+2*d0*d1-den*den*off_norm_a;
+    let det_b=c0*d1+d0*c1-den*den*off_norm_b;
+    if !nonneg(det_a,det_b){
+        return CoherentVerdict::ScopedViolated{reason:"negative_determinant"};
+    }
+    CoherentVerdict::ScopedSatisfied
+}
+fn encode_p8g1_claim(
+    source:&[u8],proof:&[u8],spec:&[u8],gram:&CoherentGram
+)->[u8;P8G1_BYTES]{
+    let mut bytes=[0u8;P8G1_BYTES];
+    bytes[..4].copy_from_slice(b"P8G1");
+    bytes[4..36].copy_from_slice(&sha256(source));
+    bytes[36..68].copy_from_slice(&sha256(spec));
+    bytes[68..100].copy_from_slice(&sha256(proof));
+    bytes[100]=gram.n;bytes[101]=gram.h;
+    bytes[102]=gram.first;bytes[103]=gram.second;
+    bytes[104..112].copy_from_slice(&gram.bad_mask.to_le_bytes());
+    let mut offset=112;
+    for scalar in [
+        gram.diag0.0,gram.diag0.1,gram.diag1.0,gram.diag1.1,
+        gram.off[0],gram.off[1],gram.off[2],gram.off[3]
+    ] {
+        bytes[offset..offset+8].copy_from_slice(&scalar.to_le_bytes());
+        offset+=8;
+    }
+    bytes
+}
+fn verify_p8g1_coherent(
+    source:&[u8],proof:&[u8],spec_bytes:&[u8],claim:&[u8]
+)->Check<CoherentVerdict>{
+    if claim.len()!=P8G1_BYTES {return Err(Error::InvalidProof);}
+    let spec=parse_scg1_spec(spec_bytes)?;
+    let mut cursor=Cursor::new(claim);
+    if cursor.bytes(4)?!=b"P8G1"
+        ||cursor.bytes(32)?!=sha256(source)
+        ||cursor.bytes(32)?!=sha256(spec_bytes)
+        ||cursor.bytes(32)?!=sha256(proof) {
+        return Err(Error::InvalidProof);
+    }
+    let (n,h,first,second)=(cursor.u8()?,cursor.u8()?,cursor.u8()?,cursor.u8()?);
+    let bad=cursor.u64()?;
+    let diag0=(cursor.i64()?,cursor.i64()?);
+    let diag1=(cursor.i64()?,cursor.i64()?);
+    let off=[cursor.i64()?,cursor.i64()?,cursor.i64()?,cursor.i64()?];
+    if cursor.at!=P8G1_BYTES{return Err(Error::InvalidProof);}
+    if n as usize!=spec.n || first as usize!=spec.first ||
+        second as usize!=spec.second || bad!=spec.bad_mask {
+        return Err(Error::InvalidProof);
+    }
+    let (_,state)=replay_state(source,proof)?;
+    if state.n!=spec.n || state.paths>8{return Err(Error::UnknownResource);}
+    let computed=path_coherent_gram(&state,spec.first,spec.second,spec.bad_mask)?;
+    let provided=CoherentGram{n,h,first,second,bad_mask:bad,diag0,diag1,off};
+    if provided!=computed {return Err(Error::InvalidProof);}
+    Ok(gram_psd_verdict(&provided,&spec))
+}
+fn cli_coherent(
+    source:&str,proof:&str,spec:&str,claim:&str
+)->Check<CoherentVerdict>{
+    let s=read_limited(source,MAX_SOURCE_BYTES,Error::InvalidSource)?;
+    let p=read_limited(proof,MAX_PROOF_BYTES,Error::InvalidProof)?;
+    let t=read_limited(spec,MAX_SPEC_BYTES,Error::InvalidSource)?;
+    let g=read_limited(claim,P8G1_BYTES,Error::InvalidProof)?;
+    verify_p8g1_coherent(&s,&p,&t,&g)
+}
+
 fn cli_property(source:&str,proof:&str,spec:&str,binding:&str)
     -> Check<PropertyVerdict>
 {
@@ -536,6 +750,25 @@ fn cli()->Check<usize> {
 fn main()->ExitCode {
     let paths:Vec<_>=std::env::args().skip(1).collect();
     if paths.len()==4 {
+        // Do not reinterpret basis-only SPB1 as coherent-span SCG1.
+        // A distinct spec magic selects a distinct proof contract.
+        let is_coherent=match read_limited(&paths[2],MAX_SPEC_BYTES,Error::InvalidSource){
+            Ok(data)=>data.starts_with(b"SCG1\n"),
+            Err(e)=>{println!("{}",e.label());return ExitCode::from(e.exit_code());}
+        };
+        if is_coherent {
+            return match cli_coherent(&paths[0],&paths[1],&paths[2],&paths[3]) {
+                Ok(CoherentVerdict::ScopedSatisfied)=>{
+                    println!("SCOPED_COHERENT_SPAN_SAT source_trust=BLOCKED");
+                    ExitCode::SUCCESS
+                }
+                Ok(CoherentVerdict::ScopedViolated{reason})=>{
+                    println!("SCOPED_COHERENT_SPAN_VIOLATED reason={reason} source_trust=BLOCKED");
+                    ExitCode::from(6)
+                }
+                Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
+            };
+        }
         return match cli_property(&paths[0],&paths[1],&paths[2],&paths[3]) {
             Ok(PropertyVerdict::ScopedSatisfied)=>{
                 println!("SCOPED_PROPERTY_SAT source_trust=BLOCKED");

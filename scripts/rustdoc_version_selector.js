@@ -56,8 +56,14 @@
       const item = new Option(title, value, selected, selected);
       select.add(item);
     }
-    if (preview) option("preview", "PR preview", true);
-    else option("loading", "Loading versions...", true);
+    if (preview) {
+      // An isolated PR preview contains only its own subtree, not the live
+      // /docs/versions.json manifest. Never request a missing resource from
+      // the preview server; users can return to the published docs via link.
+      option("preview", "PR preview", true);
+      return;
+    }
+    option("loading", "Loading versions...", true);
 
     fetch(docsPrefix + "versions.json", { credentials: "same-origin" })
       .then(response => {

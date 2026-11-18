@@ -34,6 +34,7 @@ function eventPaths(source, event) {
 
 const docs = fs.readFileSync('.github/workflows/docs-check.yml', 'utf8');
 const rust = fs.readFileSync('.github/workflows/rust-api-docs.yml', 'utf8');
+const website = fs.readFileSync('.github/workflows/website-ci.yml', 'utf8');
 
 const shared = [
   'mkdocs.yml', 'docs/requirements-site.txt', 'docs/site/**',
@@ -51,19 +52,31 @@ const local = [
   '.github/scripts/test-docs-workflow-coverage.cjs'
 ];
 for (const event of ['pull_request', 'push']) {
-  const fastPaths = eventPaths(docs, event);
-  const nativePaths = eventPaths(rust, event);
-  assert.deepEqual([...fastPaths].sort(), [...local].sort(),
-    `Unexpected fast documentation trigger for ${event}`);
+  const fastPaths = eventPaths(event === 'pull_request' ? website : docs, event);
+  const nativePaths = eventPaths(event === 'pull_request' ? website : rust, event);
+  if (event === 'push') {
+    assert.deepEqual([...fastPaths].sort(), [...local].sort(),
+      'Strict documentation push filter must remain unchanged');
+  } else {
+    for (const path of local) {
+      assert.ok(fastPaths.includes(path), `Website PR lost strict documentation coverage: ${path}`);
+    }
+    assert.ok(website.includes('uses: ./.github/workflows/docs-check.yml'),
+      'Website CI must route strict documentation checks');
+    assert.ok(!docs.includes('\n  pull_request:\n'), 'Strict docs must not trigger duplicate PR checks');
+  }
   for (const path of shared) {
     assert.ok(nativePaths.includes(path),
       `Rust API workflow lost ${event} coverage for ${path}`);
-    assert.ok(!fastPaths.includes(path),
-      `Duplicate docs workflow triggers on ${event}: ${path}`);
+    if (event === 'push') {
+      assert.ok(!fastPaths.includes(path),
+        `Duplicate documentation push triggers for ${path}`);
+    }
   }
-  assert.ok(docs.includes('branches: [dev]'), 'Fast docs must target dev');
-  assert.ok(rust.includes('branches: [dev]'), 'Rust API docs must target dev');
+  assert.ok(docs.includes('branches: [dev]'), 'Strict docs push must target dev');
+  assert.ok(rust.includes('branches: [dev]'), 'Rust API docs push must target dev');
 }
+assert.ok(docs.includes('on:\n  workflow_call:\n'), 'Strict docs must be reusable');
 for (const statement of [
   'python scripts/check_docs_site.py --sources',
   'python scripts/generate_stubs.py --check',

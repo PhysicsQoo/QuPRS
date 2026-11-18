@@ -1002,3 +1002,11 @@ DEALINGS IN THE SOFTWARE.
    See the License for the specific language governing permissions and
    limitations under the License.
 </details>
+
+## Browser workbench
+
+The optional WASM/browser transport retains QuPRS verification and numerical classification. It moves the original MPFR C source-phase weight bridge into the GPMC worker, retaining its tolerance-selected working precision. Browser distances are numerical estimates, not end-to-end interval certificates.
+
+Worker lifecycle management, bounded output collection and the resource-clock shim are adapted from guluchen/PathsumWMC (MIT), copyright 2026 guluchen and contributors. Browser integration was prepared with Codex. The resource shim reports worker wall time and linear memory rather than OS CPU/RSS.
+
+The browser GPMC port pins PhysicsQoo/GPMC 93cae8dbf2da967e34fea8b7f40bc8f98362e2e0. Complete corresponding counter sources, GMP6.3.0 and MPFR4.2.1 source archives, MPFR-C++ notices and rebuild instructions are distributed with the static site. The frontend MIT license does not replace third-party licenses.

@@ -1,5 +1,70 @@
 # Changelog
 
+## Unreleased
+
+## v0.17.0-rc.1 — Browser workbench and website integration (release candidate)
+
+This entry describes **candidate source**, not an already published release.
+Native Python/Rust verification and its solver selection, tolerance and verdict
+contracts remain independent of the optional web application. Confirm actual
+package availability through the release registries, not this changelog.
+
+### Optional browser verification
+
+- Add a browser-local workbench with QuPRS Rust and an independently built
+  GMP/MPFR GPMC counter compiled to WebAssembly, using Workers for supported
+  unitary OpenQASM 2/3 input. This is a **restricted subset**, not a generic
+  OpenQASM 3 implementation; measurements and arbitrary classical programs
+  are unsupported.
+- Keep the three verification modes (reduction rules, WMC-only and Hybrid)
+  and display the projective Hilbert–Schmidt distance estimate when available.
+  Numerical estimates, including zero, are **not** certified error intervals
+  or independent exact-equivalence proofs. A timeout, solver error or
+  inconclusive computation must not be represented as an equivalence verdict.
+- Provide browser-side Stop and a **200-second wall-clock watchdog**.
+  Each WASM module is limited to **512 MiB of linear memory**, which is *not*
+  a bound on total browser-process memory or combined Worker allocations.
+  Comparisons with native Rust require matching circuit inputs and methods;
+  native and browser timings are not interchangeable.
+- Browser calculations use the viewer's CPU and memory; static assets are
+  delivered by GitHub Pages. No remote QASM verification backend, GPU
+  acceleration or server-side source upload is part of the workbench.
+  The Playground URL is available **only after separate Pages publication
+  and real public-site verification**; package release alone does not deploy it.
+
+### Documentation and website
+
+- Add a public project homepage and stable Rust API Reference entry, without
+  displaying internal PR-preview directories in the public navigation.
+- Unify path-scoped Website CI for homepage, Browser WASM, strict documentation,
+  versioned documentation and generated Rust/Python API references, retaining
+  fail-closed required results and isolated Pages publication permissions.
+- Include a manifest-backed version selector for **newly generated** native
+  Rustdoc, preserving Rustdoc search and its original interface; historical
+  immutable API docs are not silently rewritten. The selector's isolated
+  preview, Chromium navigation and generated API-reference checks passed
+  before its integration into the candidate source.
+
+### Native packaging and compatibility
+
+- Retain the v0.16.0 supported native distribution baseline: CPython
+  3.11–3.14 with the documented Qiskit compatibility constraints,
+  Linux manylinux x86-64/ARM64 and macOS **15+** Intel/Apple Silicon
+  wheels, source distribution and independently packaged Rust crate.
+  Do not infer Windows wheels, macOS 14 wheels or free-threaded CPython
+  support from source-only tests.
+- Keep source-angle provenance, phase handling, per-call tolerance,
+  independent GPMC/Ganak solver contracts and distinct Equivalent,
+  Not Equivalent, Unknown and Error outcomes. No new third-party solver,
+  default verification method or formally certified general algorithm
+  is introduced by this release.
+- Release acceptance remains gated by exact-source Python and Rust tests,
+  cross-platform source and installed-artifact smokes, standalone crate
+  preflight, solver portability and the protected `dev` → `main`
+  admission policy. Diagnostic-only workflows and research prototypes
+  are not part of the candidate payload.
+
+
 ## v0.16.0 — Python 3.14 and native Rust modernization
 
 This entry describes the v0.16.0 release source and its intended distribution

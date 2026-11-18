@@ -62,6 +62,10 @@ pub struct WmcManager {
     weights: HashMap<i32, Complex<f64>>, 
     var_map: HashMap<u32, i32>,
     next_var_id: i32,
+    #[cfg(feature="browser-transport")]
+    browser_phase_lines: Vec<String>,
+    #[cfg(feature="browser-transport")]
+    browser_weight_bits: usize,
     #[cfg(feature="high-precision-gpmc")]
     precise_weights: Option<HashMap<i32, (String, String)>>,
     #[cfg(feature="high-precision-gpmc")]
@@ -75,6 +79,10 @@ impl WmcManager {
             weights: HashMap::new(),
             var_map: HashMap::new(),
             next_var_id: 1,
+            #[cfg(feature="browser-transport")]
+            browser_phase_lines:Vec::new(),
+            #[cfg(feature="browser-transport")]
+            browser_weight_bits:96,
             #[cfg(feature="high-precision-gpmc")]
             precise_weights: None,
             #[cfg(feature="high-precision-gpmc")]
@@ -112,6 +120,11 @@ impl WmcManager {
             // Do not compute an f64 weight at all when the precise GPMC
             // distance-mode input is selected. The separate optional map
             // owns the original source phase's decimal weight.
+            #[cfg(feature="browser-transport")]
+            let browser_exact=crate::browser_transport::active();
+            #[cfg(not(feature="browser-transport"))]
+            let browser_exact=false;
+            let weight=if browser_exact {Complex::new(1.0,0.0)} else {
             #[cfg(feature="high-precision-gpmc")]
             let weight = if let Some(ref mut precise) = self.precise_weights {
                 let id = self.next_var_id;
@@ -178,10 +191,19 @@ impl WmcManager {
                 Ok(Complex::new(angle.cos(), angle.sin()))
             })()?;
 
+                weight
+            };
+
             let z_i = self.next_var_id;
             self.next_var_id += 1;
             
             self.weights.insert(z_i, weight);
+            #[cfg(feature="browser-transport")]
+            if browser_exact {
+                if !coeff.symbols.is_empty(){return Err(anyhow!("Unbound phase symbol cannot become an MPFR input weight"))}
+                let rad=coeff.radians.as_ref().cloned().unwrap_or_else(BigRational::zero);
+                self.browser_phase_lines.push(format!("c p quprs-phase {z_i} {} {} {} {} {} {}\n",coeff.constant.numer,coeff.constant.denom,rad.numer(),rad.denom(),u8::from(coeff.radians.is_some()),self.browser_weight_bits));
+            }
 
             if mono.is_empty() {
                 self.clauses.push(vec![z_i]);
@@ -261,6 +283,8 @@ impl WmcManager {
     }
 
     pub fn encode_trace(&mut self, ps: &PathSum) -> Result<()> {
+        #[cfg(feature="browser-transport")]
+        if crate::browser_transport::active(){self.browser_weight_bits=if ps.p.terms.is_empty(){96}else{crate::precise_weight::bits_for_distance(crate::browser_transport::epsilon(),ps.p.terms.len())?};}
         self.encode_phase_polynomial(ps)?;
 
         for i in 0..ps.v.num_qubits {
@@ -303,6 +327,8 @@ impl WmcManager {
         if self.precise_weights.as_ref().is_some_and(|weights| !weights.is_empty()) {
             return false;
         }
+        #[cfg(feature="browser-transport")]
+        if !self.browser_phase_lines.is_empty(){return false;}
         let Ok(vars) = usize::try_from(self.next_var_id - 1) else {
             return false;
         };
@@ -324,6 +350,12 @@ impl WmcManager {
         let problem=crate::wmc_problem::WmcProblem::new(
             self.next_var_id - 1, &self.clauses, &self.weights
         );
+        #[cfg(feature="browser-transport")]
+        if crate::browser_transport::active() && adapter.id()=="gpmc" {
+            let mut out=problem.serialize(adapter);
+            for phase in &self.browser_phase_lines{out.push_str(phase);}
+            return out;
+        }
         #[cfg(feature="high-precision-gpmc")]
         if adapter.id()=="gpmc" {
             if let Some(ref precise)=self.precise_weights {
@@ -337,14 +369,14 @@ impl WmcManager {
     pub fn solve(&self, tool_name: &str) -> Result<Complex<f64>> {
         self.solve_with_deadline(
             tool_name,
-            std::time::Instant::now().checked_add(std::time::Duration::from_secs(600)),
+            crate::clock::Instant::now().checked_add(crate::clock::Duration::from_secs(600)),
         )
     }
 
     pub fn solve_with_deadline(
         &self,
         tool_name: &str,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<crate::clock::Instant>,
     ) -> Result<Complex<f64>> {
         let adapter = crate::solver_adapter::adapter_for(tool_name)?;
         self.solve_with_adapter(adapter, deadline)
@@ -353,10 +385,10 @@ impl WmcManager {
     pub fn observe_with_deadline(
         &self,
         tool_name: &str,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<crate::clock::Instant>,
     ) -> Result<crate::solver_result::SolverObservation> {
         let selected = crate::solver_adapter::adapter_for(tool_name)?;
-        let started = std::time::Instant::now();
+        let started = crate::clock::Instant::now();
         let count = self.solve_with_adapter(selected, deadline)?;
         Ok(crate::solver_result::SolverObservation {
             solver_id: selected.id().to_string(),
@@ -372,7 +404,7 @@ impl WmcManager {
     pub fn solve_with_deadline_printed(
         &self,
         tool_name: &str,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<crate::clock::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
         let selected = crate::solver_adapter::adapter_for(tool_name)?;
         self.solve_with_adapter_printed(selected, deadline)
@@ -381,14 +413,14 @@ impl WmcManager {
     /// Typed result for the public distance-mode verifier, preserving the
     /// selected solver (GPMC effective default 30 digits, native Ganak mode 6).
     pub fn solve_with_deadline_distance_printed(
-        &self, tool_name: &str, deadline: Option<std::time::Instant>,
+        &self, tool_name: &str, deadline: Option<crate::clock::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
         self.solve_with_deadline_distance_printed_precision(tool_name, deadline, 30)
     }
 
     /// Explicit per-call precision: no second solver call or global state.
     pub fn solve_with_deadline_distance_printed_precision(
-        &self, tool_name: &str, deadline: Option<std::time::Instant>, digits: u32,
+        &self, tool_name: &str, deadline: Option<crate::clock::Instant>, digits: u32,
     ) -> Result<crate::precision_count::PrintedCount> {
         self.solve_with_adapter_printed(
             crate::solver_adapter::distance_adapter_for(tool_name, digits)?, deadline,
@@ -398,7 +430,7 @@ impl WmcManager {
     /// Solve with the single, already-accounted-for DIMACS serialization.
     /// The solver adapter still selects its own executable and precision.
     pub(crate) fn solve_with_deadline_distance_printed_precision_prepared(
-        &self, tool_name: &str, deadline: Option<std::time::Instant>,
+        &self, tool_name: &str, deadline: Option<crate::clock::Instant>,
         digits: u32, prepared_cnf: &str,
     ) -> Result<crate::precision_count::PrintedCount> {
         let adapter = crate::solver_adapter::distance_adapter_for(tool_name, digits)?;
@@ -413,7 +445,7 @@ impl WmcManager {
     pub(crate) fn solve_with_adapter_printed(
         &self,
         adapter: &dyn crate::solver_adapter::SolverAdapter,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<crate::clock::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
         self.run_solver_with_parser(adapter, deadline, crate::precision_count::parse_stdout_optional, None)
     }
@@ -421,7 +453,7 @@ impl WmcManager {
     pub(crate) fn solve_with_adapter(
         &self,
         adapter: &dyn crate::solver_adapter::SolverAdapter,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<crate::clock::Instant>,
     ) -> Result<Complex<f64>> {
         self.run_solver_with_parser(adapter, deadline, |stdout| adapter.parse_count(stdout), None)
     }
@@ -429,7 +461,7 @@ impl WmcManager {
     fn run_solver_with_parser<T, F>(
         &self,
         adapter: &dyn crate::solver_adapter::SolverAdapter,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<crate::clock::Instant>,
         parser: F,
         prepared_cnf: Option<&str>,
     ) -> Result<T>
@@ -437,9 +469,16 @@ impl WmcManager {
         F: Fn(&str) -> Result<Option<T>>,
     {
         let tool_name = adapter.id();
+        #[cfg(feature="browser-transport")]
+        if crate::browser_transport::active() {
+            if tool_name!="gpmc"{return Err(anyhow!("Browser transport currently supports GPMC only"))}
+            let cnf=prepared_cnf.map(str::to_owned).unwrap_or_else(||self.to_dimacs_with_adapter(adapter));
+            let stdout=crate::browser_transport::exchange(tool_name,&cnf)?;
+            return parser(&stdout)?.ok_or_else(||anyhow!("Browser counter returned no recognizable count"));
+        }
         use std::fs::OpenOptions;
         use std::sync::atomic::{AtomicU64, Ordering};
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use crate::clock::{SystemTime, UNIX_EPOCH};
 
         struct TempCnf {
             path: std::path::PathBuf,
@@ -724,7 +763,7 @@ mod count_parser_tests {
     fn timed_out_gpmc_solver_is_not_a_weighted_count() {
         use super::*;
         use std::os::unix::fs::PermissionsExt;
-        use std::time::{Duration, Instant};
+        use crate::clock::{Duration, Instant};
 
         let _guard = GPMC_OVERRIDE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
         let path = std::env::temp_dir().join(format!(
@@ -819,7 +858,7 @@ mod count_parser_tests {
             }
         }
         let manager=WmcManager::new(&PathSum::new(0));
-        let deadline=|| Some(std::time::Instant::now()+std::time::Duration::from_secs(10));
+        let deadline=|| Some(crate::clock::Instant::now()+crate::clock::Duration::from_secs(10));
         let selected=Mock("ok");
         let result=manager.solve_with_adapter(&selected,deadline()).unwrap();
         assert_eq!(result,Complex::new(1.5,-0.25));

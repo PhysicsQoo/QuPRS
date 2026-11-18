@@ -1,16 +1,7 @@
 name: Documentation Versioning PoC
 
 on:
-  pull_request:
-    branches: [dev]
-    paths:
-      - 'scripts/docs_versioning.py'
-      - '.github/workflows/docs-release-publish.yml'
-      - 'test/test_docs_auto_publication.py'
-      - 'scripts/check_docs_version_browser.py'
-      - 'docs/requirements-versioned.txt'
-      - '.github/workflows/docs-versioning-poc.yml'
-      - 'mkdocs.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -40,11 +31,24 @@ jobs:
           curl --fail --location --silent --show-error             -o "$RUNNER_TEMP/actionlint.tar.gz"             'https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz'
           printf '%s  %s\n'             '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'             "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint"             .github/workflows/docs-release-publish.yml             .github/workflows/docs-versioning-poc.yml             .github/workflows/rust-api-docs.yml
+          "$RUNNER_TEMP/actionlint" \
+            .github/workflows/docs-release-publish.yml \
+            .github/workflows/docs-versioning-poc.yml \
+            .github/workflows/rust-api-docs.yml \
+            .github/workflows/docs-check.yml \
+            .github/workflows/website-ci.yml \
+            .github/workflows/site-homepage.yml \
+            .github/workflows/site-homepage-publish.yml \
+            .github/workflows/browser-workbench.yml \
+            .github/workflows/browser-workbench-publish.yml
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Verify Rustdoc version selector contracts and JavaScript syntax
+        run: |
+          python -m unittest discover -s test -p 'test_docs_rustdoc_versions.py' -v
+          node --check scripts/rustdoc_version_selector.js
       - name: Verify stable documentation automatic release policy (offline)
         run: python -m unittest discover -s test -p 'test_docs_auto_publication.py'
       - name: Install pinned versioned documentation toolchain

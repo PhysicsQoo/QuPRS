@@ -17,6 +17,7 @@ name = "quprs"
 path = "src/lib.rs"
 
 [dependencies]
+web-time = "1"
 rustc-hash = "2.0"
 num-integer = "0.1"
 num-bigint = "0.4"
@@ -48,3 +49,4 @@ proptest = "1.0"
 # Use QUPRS_SOLVER_PROVISION=external to omit solver provisioning in a checkout.
 default = ["high-precision-gpmc"]
 high-precision-gpmc = []
+browser-transport = []

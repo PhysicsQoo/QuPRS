@@ -28,6 +28,29 @@
 //! Hybrid and WMC-only methods use the same API. They require external
 //! GPMC/Ganak executables whenever a weighted count must be computed.
 
+// Browser clock adaptation; native Instant remains the std implementation.
+pub(crate) mod clock {
+    pub use web_time::Instant;
+    pub use std::time::{Duration,SystemTime,UNIX_EPOCH};
+}
+#[cfg(test)]
+mod clock_contract_tests {
+    use super::clock::{Duration, Instant};
+
+    #[test]
+    fn deadline_and_elapsed_use_monotonic_native_clock() {
+        // web_time delegates to std::time::Instant on native targets.
+        let start: std::time::Instant = Instant::now();
+        let expired = start.checked_sub(Duration::from_millis(1)).unwrap();
+        assert!(Instant::now() >= expired);
+        let future = start.checked_add(Duration::from_secs(1)).unwrap();
+        assert!(future > Instant::now());
+        std::thread::sleep(Duration::from_millis(2));
+        assert!(start.elapsed() >= Duration::from_millis(1));
+    }
+}
+#[cfg(feature="browser-transport")]
+pub mod browser_transport;
 pub mod pathsum;
 pub mod circuit;
 pub mod verification;
@@ -42,7 +65,7 @@ pub mod wmc;
 pub mod precision_count;
 mod solver_adapter;
 mod wmc_problem;
-#[cfg(feature="high-precision-gpmc")]
+#[cfg(any(feature="high-precision-gpmc",feature="browser-transport"))]
 mod precise_weight;
 pub mod solver_result;
 mod diagnostics;
@@ -55,7 +78,7 @@ pub use strategy::VerificationStrategy;
 use ir::QuantumOp;
 use wmc::WmcManager;
 use anyhow::Result;
-use std::time::Instant;
+use crate::clock::Instant;
 use log::{info, debug};
 use num_traits::ToPrimitive;
 /// Select the native equivalence-verification pipeline.
@@ -623,7 +646,7 @@ fn check_equivalence_with_distance_mode(
         return Err(anyhow::anyhow!("timeout must be a positive number of seconds"));
     }
     let deadline = Some(
-        global_start.checked_add(std::time::Duration::from_secs(timeout_secs))
+        global_start.checked_add(crate::clock::Duration::from_secs(timeout_secs))
             .ok_or_else(|| anyhow::anyhow!("timeout duration cannot be represented"))?
     );
     

@@ -4,8 +4,10 @@ use crate::rational::{PhaseCoeff,Rational};
 use anyhow::{anyhow,Result};
 use num_rational::BigRational;
 use num_traits::Zero;
+#[cfg(feature="high-precision-gpmc")]
 use std::ffi::{CStr,CString,c_char};
 
+#[cfg(feature="high-precision-gpmc")]
 #[link(name="quprs_phase_mpfr",kind="static")]
 unsafe extern "C" {
     fn quprs_mpfr_phase_weight(
@@ -42,6 +44,7 @@ pub(crate) fn bits_for_distance(epsilon: f64, phase_terms: usize) -> Result<usiz
 
 /// Generate one complex source-phase weight without converting through f64.
 /// The working precision is selected by the verification request.
+#[cfg(feature="high-precision-gpmc")]
 pub(crate) fn from_phase(phase:&PhaseCoeff, precision_bits:usize)->Result<(String,String)> {
     if !(64..=1024).contains(&precision_bits) {
         return Err(anyhow!("Unsupported MPFR input-weight precision"));
@@ -77,7 +80,7 @@ pub(crate) fn from_phase(phase:&PhaseCoeff, precision_bits:usize)->Result<(Strin
     let im=unsafe{CStr::from_ptr(im.as_ptr())}.to_str()?.to_string();
     Ok((re,im))
 }
-#[cfg(test)]
+#[cfg(all(test,feature="high-precision-gpmc"))]
 mod tests {
     use super::*;
     use num_bigint::BigInt;

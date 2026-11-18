@@ -1,0 +1,52 @@
+name: QuPRS Homepage
+
+on:
+  workflow_call:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'website/**'
+      - 'scripts/site/**'
+      - '.github/workflows/site-homepage.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quprs-homepage-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate source and isolated root staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate static homepage and negative safety fixtures
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s scripts/site -p test_homepage.py -v
+          python -m py_compile scripts/site/stage-homepage.py scripts/site/test_homepage.py
+      - name: Stage against the existing Pages tree without publishing
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth=1 --branch gh-pages \
+            "https://github.com/$GITHUB_REPOSITORY.git" "$RUNNER_TEMP/homepage-pages"
+          python scripts/site/stage-homepage.py website \
+            "$RUNNER_TEMP/homepage-pages" '${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git -C "$RUNNER_TEMP/homepage-pages" diff --cached --name-only)" = index.html
+          test "$(git -C "$RUNNER_TEMP/homepage-pages" diff --cached --name-status | cut -f1)" = M
+          ! grep -F '__SOURCE_REVISION__' "$RUNNER_TEMP/homepage-pages/index.html"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homepage-validated-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/homepage-pages/index.html
+          retention-days: 7
+          if-no-files-found: error

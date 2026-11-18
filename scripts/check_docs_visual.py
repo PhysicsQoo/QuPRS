@@ -86,6 +86,11 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                             else:
                                 math_count = 0
                                 display_count = 0
+                            if name == "rustdoc":
+                                selector = page.locator("nav[data-quprs-version-selector] select")
+                                selector.wait_for(state="visible", timeout=20000)
+                                if not selector.is_disabled() or selector.input_value() != "preview":
+                                    raise AssertionError("Isolated PR Rustdoc must remain in preview mode")
                             if name == "pathsum-api":
                                 for gate in ("h", "cx", "rz", "mcx", "CRk"):
                                     locator = page.locator(

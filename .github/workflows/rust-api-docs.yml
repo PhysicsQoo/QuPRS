@@ -1,40 +1,7 @@
 name: Rust API Documentation
 
 on:
-  pull_request:
-    branches: [dev]
-    paths:
-      - 'rust/quprs/src/**'
-      - 'rust/quprs/build.rs'
-      - 'rust/quprs/native/**'
-      - 'rust/quprs/tests/**'
-      - 'src/QuPRS/__init__.py'
-      - 'src/QuPRS/interface/load_qiskit.py'
-      - 'src/QuPRS/pathsum/core.py'
-      - 'src/QuPRS/pathsum/core.pyi'
-      - 'src/QuPRS/pathsum/__init__.py'
-      - 'src/QuPRS/pathsum/statistics.py'
-      - 'src/QuPRS/pathsum/gates/**'
-      - 'rust/quprs/Cargo.toml'
-      - 'rust/quprs/README.md'
-      - 'rust/Cargo.lock'
-      - 'mkdocs.yml'
-      - 'docs/requirements-site.txt'
-      - 'docs/site/**'
-
-      - 'scripts/check_rust_api_docs.py'
-      - 'scripts/stage_rust_crate_candidate.py'
-      - 'scripts/check_docs_gate_stubs.py'
-      - 'scripts/generate_stubs.py'
-      - 'src/QuPRS/py.typed'
-      - 'scripts/check_docs_site.py'
-
-      - 'scripts/check_docs_science.py'
-      - 'scripts/check_docs_visual.py'
-      - 'scripts/check_docs_links.py'
-      - 'scripts/docs_versioning.py'
-      - 'docs/requirements-versioned.txt'
-      - '.github/workflows/rust-api-docs.yml'
+  workflow_call:
   push:
     branches: [dev]
     paths:
@@ -67,6 +34,8 @@ on:
       - 'scripts/check_docs_visual.py'
       - 'scripts/check_docs_links.py'
       - 'scripts/docs_versioning.py'
+      - 'scripts/rustdoc_version_selector.js'
+      - 'test/test_docs_rustdoc_versions.py'
       - 'docs/requirements-versioned.txt'
       - '.github/workflows/rust-api-docs.yml'
   workflow_dispatch:
@@ -404,6 +373,9 @@ jobs:
 
   preview-deploy:
     name: Publish review-only preview subtree
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
     needs: generated-reference
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -520,6 +492,9 @@ jobs:
 
   versioned-dev-deploy:
     name: Publish isolated /docs/dev site from reviewed Rustdoc
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
     needs: generated-reference
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04

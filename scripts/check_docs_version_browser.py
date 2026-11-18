@@ -53,6 +53,32 @@ def browser_check(root: Path, output: Path) -> None:
                           return t.includes('dev') &&
                             links.some(a => (a.getAttribute('href') || '').includes('v0.99.99-test'));
                         }""", timeout=20000)
+                        # Rustdoc remains native, but its small version menu
+                        # consumes the same mike versions.json manifest.
+                        response = page.goto(
+                            base + "dev/rust-api/quprs/", wait_until="networkidle"
+                        )
+                        if response is None or response.status != 200:
+                            raise AssertionError("Missing native Rustdoc page")
+                        selector = page.locator("[data-quprs-version-selector] select")
+                        selector.wait_for(state="visible", timeout=20000)
+                        page.wait_for_function(
+                            "() => {const s=document.querySelector('[data-quprs-version-selector] select');"
+                            "return s && !s.disabled && [...s.options].some(o=>o.value==='stable')"
+                            " && [...s.options].some(o=>o.value==='v0.99.99-test');}",
+                            timeout=20000,
+                        )
+                        if selector.input_value() != "dev":
+                            raise AssertionError("Rustdoc selector did not select dev")
+                        page.screenshot(
+                            path=str(output / "rustdoc-dev-selector.png"), full_page=True
+                        )
+                        selector.select_option("v0.99.99-test")
+                        page.wait_for_url(
+                            base + "v0.99.99-test/rust-api/quprs/", timeout=20000
+                        )
+                        if not page.locator("[data-quprs-version-selector]").is_visible():
+                            raise AssertionError("Rustdoc selector missing after version change")
                         mobile = browser.new_page(viewport={"width": 390, "height": 844},
                                                   is_mobile=True, has_touch=True)
                         response = mobile.goto(base + "dev/", wait_until="networkidle")
@@ -69,7 +95,7 @@ def browser_check(root: Path, output: Path) -> None:
         json.dumps({"versions": results, "selector": "PASS"}, indent=2) + "\n",
         encoding="utf-8",
     )
-    print("Live mike version selector browser check: PASS (2 desktop, 1 mobile)")
+    print("Version browser check: PASS (mike and native Rustdoc selection, desktop/mobile)")
 
 
 def main() -> None:

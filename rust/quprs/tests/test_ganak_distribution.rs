@@ -41,3 +41,31 @@ fn packaged_binary_matches_the_pinned_release() {
     let info = distribution::diagnostics(path, false).unwrap();
     assert!(info.contains("pinned=true"));
 }
+
+#[test]
+fn native_clock_elapsed_and_deadline_contract() {
+    // web_time re-exports std::time::Instant on native targets.
+    let start: std::time::Instant = clock::Instant::now();
+    let already_expired = start.checked_sub(clock::Duration::from_millis(1)).unwrap();
+    assert!(clock::Instant::now() >= already_expired);
+    let future = start.checked_add(clock::Duration::from_secs(1)).unwrap();
+    assert!(future > start);
+    std::thread::sleep(clock::Duration::from_millis(2));
+    assert!(start.elapsed() >= clock::Duration::from_millis(1));
+}
+
+#[cfg(unix)]
+#[test]
+fn native_solver_deadline_kills_real_hanging_process() {
+    let mut cmd = std::process::Command::new("sleep");
+    cmd.arg("5");
+    let start = clock::Instant::now();
+    let err = solver_process::run(
+        &mut cmd,
+        Some(start.checked_add(clock::Duration::from_millis(120)).unwrap()),
+    )
+    .err()
+    .expect("hanging child must expire and be reaped");
+    assert!(err.to_string().contains("SolverTimeout"), "{err:#}");
+    assert!(start.elapsed() < clock::Duration::from_secs(3));
+}

@@ -1616,4 +1616,44 @@ mod tests {
         println!("P8W1_MUTATION_EXHAUSTIVE bytes=116 flips={rejects} accepted=0 sat_claim_rejected=true");
     }
 
+
+    #[test]
+    fn c8c1_source_bound_cnf_cross_checks(){
+        let source=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\n";
+        let (proof,state)=source_proof_and_state(source);
+        let mut count=0usize;
+        for first in 0..4 {
+            for second in 0..4 {
+                for bad_mask in [1u64,2,8,15] {
+                    let candidate=two_copy_cnf::build(
+                        &state,first,second,bad_mask
+                    ).unwrap();
+                    let bytes=two_copy_cnf::encode(source,&proof,&candidate).unwrap();
+                    let (cnf,enum_counts)=two_copy_cnf::verify(source,&proof,&bytes).unwrap();
+                    assert_eq!(cnf,enum_counts);
+                    assert_eq!(cnf,two_copy_wmc::enumerate_pairs(
+                        &state,first,second,bad_mask
+                    ).unwrap().buckets);
+                    count+=1;
+                    if count==1 {
+                        let mut fake=bytes.clone();
+                        fake[0]^=1;
+                        assert!(two_copy_cnf::verify(source,&proof,&fake).is_err());
+                        fake=bytes.clone();
+                        fake.pop();
+                        assert!(two_copy_cnf::verify(source,&proof,&fake).is_err());
+                        fake=bytes.clone();
+                        fake[79+2]^=1;
+                        assert!(two_copy_cnf::verify(source,&proof,&fake).is_err());
+                        fake=bytes.clone();
+                        fake.extend_from_slice(&[0,0]);
+                        assert!(two_copy_cnf::verify(source,&proof,&fake).is_err());
+                    }
+                }
+            }
+        }
+        assert_eq!(count,64);
+        println!("C8C1_SOURCE_BOUND_CNF obligations={count} checked_exact_models=true tamper_reject=4 non_scalable=true");
+    }
+
 }

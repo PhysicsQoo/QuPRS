@@ -1472,17 +1472,19 @@ mod tests {
             ).unwrap());
             checks+=1;
         }
-        // Canonical explicit state for H/half threshold is |+>.
+        // This sound constructor need not output a specific eigenvector.
+        // For H/half, 8|0>+4|1> normalizes to
+        // (2|0>+|1>)/sqrt(5) and has risk 9/10 > 1/2.
         let spec_bytes=coherent_spec(1,3,1,1,2);
         let(proof,claim,gram,spec)=coherent_fixture(&source,&spec_bytes);
         let w=derive_coherent_witness(&gram,&spec).unwrap();
-        assert_eq!(w.input0,[1,0,0,0]);
-        assert_eq!(w.input1,[1,0,0,0]);
-        assert_eq!(w.norm,(2,0));
+        assert_eq!(w.input0,[8,0,0,0]);
+        assert_eq!(w.input1,[4,0,0,0]);
+        assert_eq!(w.norm,(80,0));
         let(_,gap)=verify_p8w1_witness(&source,&proof,&spec_bytes,
             &claim,&encode_p8w1(&claim,&w)).unwrap();
-        assert_eq!(gap,(-2,0));
-        println!("P8W1_CONSTRUCTIVE_EXACT cases={checks} direct_dense_oracle=true normalized_symbolic=true canonical_plus_state=true");
+        assert_eq!(gap,(-128,0));
+        println!("P8W1_CONSTRUCTIVE_EXACT cases={checks} direct_dense_oracle=true normalized_symbolic=true witness_risk_nine_tenths=true");
     }
     #[test]
     fn explicit_coherent_witness_all_bits_forged_and_sat_rejected(){

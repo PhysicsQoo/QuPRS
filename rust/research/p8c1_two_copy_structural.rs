@@ -13,14 +13,14 @@ const S8C1_MAX_GATES:usize=8192;
 const S8C1_MAX_BYTES:usize=65536;
 const HEADER:usize=4+32+32+2+8+1+2;
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
-enum Op {Zero=0,One=1,Not=2,And=3,Or=4,Xor=5}
+pub(super) enum Op {Zero=0,One=1,Not=2,And=3,Or=4,Xor=5}
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
-struct Gate {op:Op,a:u16,b:u16}
+pub(super) struct Gate {pub(super) op:Op,pub(super) a:u16,pub(super) b:u16}
 #[derive(Clone,Debug,PartialEq,Eq)]
 pub(super) struct Structural {
-    primary:usize,
-    gates:Vec<Gate>,
-    bucket:[u16;8],
+    pub(super) primary:usize,
+    pub(super) gates:Vec<Gate>,
+    pub(super) bucket:[u16;8],
 }
 struct Builder {
     primary:usize,
@@ -152,7 +152,7 @@ pub(super) fn build(state:&State,first:usize,second:usize,bad:u64)->Check<Struct
     }
     Ok(Structural{primary:2*h,gates:b.gates,bucket})
 }
-fn evaluate(c:&Structural,assignment:usize)->Check<Vec<bool>>{
+pub(super) fn evaluate(c:&Structural,assignment:usize)->Check<Vec<bool>>{
     if c.primary>8 || c.gates.len()>S8C1_MAX_GATES{return Err(Error::UnknownResource);}
     let mut values=Vec::with_capacity(c.primary+c.gates.len());
     for i in 0..c.primary{values.push((assignment>>i)&1==1);}
@@ -246,6 +246,43 @@ pub(super) fn encode(src:&[u8],proof:&[u8],state:&State,
     if out.len()>S8C1_MAX_BYTES {return Err(Error::UnknownResource);}
     Ok(out)
 }
+// Checks the complete source-bound deterministic structural gate DAG,
+// including the exact canonical byte representation, WITHOUT enumerating
+// 2^(2h) primary assignments. D8C1 consumes this admitted circuit and
+// verifies its own local Shannon count trace instead.
+pub(super) fn verify_schema_without_enumeration(
+    src:&[u8],proof:&[u8],bytes:&[u8]
+)->Check<Structural>{
+    if bytes.len()>S8C1_MAX_BYTES{return Err(Error::UnknownResource);}
+    if bytes.len()<HEADER+16{return Err(Error::InvalidProof);}
+    let mut reader=Cursor::new(bytes);
+    if reader.bytes(4)?!=b"S8C1"
+        ||reader.bytes(32)?!=sha256(src)
+        ||reader.bytes(32)?!=sha256(proof) {
+        return Err(Error::InvalidProof);
+    }
+    let first=reader.u8()? as usize;
+    let second=reader.u8()? as usize;
+    let bad=reader.u64()?;
+    let h=reader.u8()? as usize;
+    let declared=reader.u16()?;
+    if h>S8C1_MAX_PATHS || declared>S8C1_MAX_GATES {
+        return Err(Error::UnknownResource);
+    }
+    let (_,state)=replay_state(src,proof)?;
+    if state.paths!=h{return Err(Error::InvalidProof);}
+    let expected=encode(src,proof,&state,first,second,bad).map_err(|e|
+        if e==Error::InvalidSource {Error::InvalidProof}else{e}
+    )?;
+    if expected!=bytes{return Err(Error::InvalidProof);}
+    let network=build(&state,first,second,bad).map_err(|e|
+        if e==Error::InvalidSource {Error::InvalidProof}else{e}
+    )?;
+    if network.gates.len()!=declared{return Err(Error::InvalidProof);}
+    check_local_unique_extension()?;
+    Ok(network)
+}
+
 pub(super) fn verify(src:&[u8],proof:&[u8],bytes:&[u8])->Check<[u16;8]>{
     if bytes.len()>S8C1_MAX_BYTES{return Err(Error::UnknownResource);}
     if bytes.len()<HEADER+16{return Err(Error::InvalidProof);}

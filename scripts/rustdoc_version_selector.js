@@ -75,7 +75,7 @@
         if (stable) items.push({ value: "stable", name: "Stable (" + stable.version + ")" });
         if (versions.some(row => row.version === "dev")) items.push({ value: "dev", name: "dev" });
         for (const row of versions) {
-          if (row.version !== "dev" && (!stable || row.version !== stable.version))
+          if (row.version !== "dev")
             items.push({ value: row.version, name: row.version });
         }
         if (items.length === 0) throw new Error("No supported versions");

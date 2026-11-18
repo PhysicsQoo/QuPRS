@@ -199,7 +199,7 @@ pub(super) fn verify(
         .and_then(|p|p.checked_add(16))
         .ok_or(Error::UnknownResource)?;
     if expected!=bytes.len(){return Err(Error::InvalidProof);}
-    let mut nodes=Vec::with_capacity(n);
+    let mut nodes:Vec<Node>=Vec::with_capacity(n);
     let mut distinct=BTreeSet::new();
     for index in 0..n{
         let tag=reader.u8()?;

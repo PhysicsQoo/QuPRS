@@ -718,6 +718,201 @@ fn verify_p8g1_coherent(
     if provided!=computed {return Err(Error::InvalidProof);}
     Ok(gram_psd_verdict(&provided,&spec))
 }
+
+// P8W1: separate source/spec/P8C1/P8G1-bound *constructive* violating
+// coherent state. Coefficients live in Z[zeta_8] and are normalized by
+// the positive square root of the exact Z[sqrt(2)] norm. The verifier
+// independently checks that the normalized state's excess risk is > 0.
+const P8W1_BYTES:usize=116;
+type Cyclo=[i128;4];
+type Real=(i128,i128);
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+struct Witness {
+    input0:[i64;4], input1:[i64;4], norm: (i64,i64),
+}
+fn real_add(x:Real,y:Real)->Check<Real>{
+    Ok((x.0.checked_add(y.0).ok_or(Error::UnknownResource)?,
+        x.1.checked_add(y.1).ok_or(Error::UnknownResource)?))
+}
+fn real_mul(x:Real,y:Real)->Check<Real>{
+    let constant=x.0.checked_mul(y.0)
+        .and_then(|a|x.1.checked_mul(y.1)?.checked_mul(2)?.checked_add(a))
+        .ok_or(Error::UnknownResource)?;
+    let surd=x.0.checked_mul(y.1)
+        .and_then(|a|x.1.checked_mul(y.0)?.checked_add(a))
+        .ok_or(Error::UnknownResource)?;
+    Ok((constant,surd))
+}
+fn root_conj(x:Cyclo)->Check<Cyclo>{
+    Ok([x[0],
+        x[3].checked_neg().ok_or(Error::UnknownResource)?,
+        x[2].checked_neg().ok_or(Error::UnknownResource)?,
+        x[1].checked_neg().ok_or(Error::UnknownResource)?])
+}
+fn root_mul(x:Cyclo,y:Cyclo)->Check<Cyclo>{
+    let mut z=[0i128;4];
+    for i in 0..4{
+        for j in 0..4{
+            let product=x[i].checked_mul(y[j]).ok_or(Error::UnknownResource)?;
+            let k=(i+j)%4;
+            let term=if i+j>=4{
+                product.checked_neg().ok_or(Error::UnknownResource)?
+            }else{product};
+            z[k]=z[k].checked_add(term).ok_or(Error::UnknownResource)?;
+        }
+    }
+    Ok(z)
+}
+fn root_add(x:Cyclo,y:Cyclo)->Check<Cyclo>{
+    let mut z=[0i128;4];
+    for i in 0..4 {z[i]=x[i].checked_add(y[i]).ok_or(Error::UnknownResource)?;}
+    Ok(z)
+}
+fn root_neg(x:Cyclo)->Check<Cyclo>{
+    let mut z=[0i128;4];
+    for i in 0..4 {z[i]=x[i].checked_neg().ok_or(Error::UnknownResource)?;}
+    Ok(z)
+}
+fn real_to_root(r:Real)->Check<Cyclo>{
+    Ok([r.0,r.1,0,r.1.checked_neg().ok_or(Error::UnknownResource)?])
+}
+fn root_to_real(x:Cyclo)->Check<Real>{
+    if x[2]!=0 || x[3]!=x[1].checked_neg().ok_or(Error::UnknownResource)?{
+        return Err(Error::InvalidProof);
+    }
+    Ok((x[0],x[1]))
+}
+fn root_norm(x:Cyclo)->Check<Real>{
+    root_to_real(root_mul(root_conj(x)?,x)?)
+}
+fn scalar_gram_matrix(g:&CoherentGram,s:&CoherentSpanSpec)->Check<(Real,Real,Cyclo)>{
+    let shift=1i128.checked_shl(g.h as u32).ok_or(Error::UnknownResource)?;
+    let d=s.delta_den;
+    let a=(s.delta_num.checked_mul(shift)
+        .and_then(|v|d.checked_mul(g.diag0.0 as i128)?.checked_neg()?.checked_add(v))
+        .ok_or(Error::UnknownResource)?,
+        d.checked_mul(g.diag0.1 as i128)
+            .and_then(|v|v.checked_neg()).ok_or(Error::UnknownResource)?);
+    let b=(s.delta_num.checked_mul(shift)
+        .and_then(|v|d.checked_mul(g.diag1.0 as i128)?.checked_neg()?.checked_add(v))
+        .ok_or(Error::UnknownResource)?,
+        d.checked_mul(g.diag1.1 as i128)
+            .and_then(|v|v.checked_neg()).ok_or(Error::UnknownResource)?);
+    let mut c=[0i128;4];
+    for i in 0..4{
+        c[i]=d.checked_mul(g.off[i] as i128)
+            .and_then(|v|v.checked_neg()).ok_or(Error::UnknownResource)?;
+    }
+    Ok((a,b,c))
+}
+fn coherent_witness_quadratic(
+    g:&CoherentGram,s:&CoherentSpanSpec,w:&Witness
+)->Check<(Real,Real)>{
+    let (a,b,c)=scalar_gram_matrix(g,s)?;
+    let u=w.input0.map(|v|v as i128);
+    let v=w.input1.map(|v|v as i128);
+    let norm=real_add(root_norm(u)?,root_norm(v)?)?;
+    let actual_norm=(w.norm.0 as i128,w.norm.1 as i128);
+    if norm!=actual_norm || nonpositive_quadratic(norm.0,norm.1){
+        return Err(Error::InvalidProof);
+    }
+    let cross=root_mul(root_mul(root_conj(u)?,c)?,v)?;
+    let twice_real=root_to_real(root_add(cross,root_conj(cross)?)?)?;
+    let quadratic=real_add(
+        real_add(real_mul(a,root_norm(u)?)?,real_mul(b,root_norm(v)?)?)?,
+        twice_real
+    )?;
+    Ok((norm,quadratic))
+}
+fn derive_coherent_witness(g:&CoherentGram,s:&CoherentSpanSpec)->Check<Witness>{
+    if gram_psd_verdict(g,s)==CoherentVerdict::ScopedSatisfied{
+        return Err(Error::InvalidProof);
+    }
+    let (a,b,c)=scalar_gram_matrix(g,s)?;
+    let basis=[1i128,0,0,0];
+    let zero=[0i128;4];
+    let (u,v)=if !nonpositive_quadratic(-a.0,-a.1){
+        (basis,zero)
+    }else if !nonpositive_quadratic(-b.0,-b.1){
+        (zero,basis)
+    }else{
+        // If a>0, w=(-c,a) has w†D'w=a*det(D')<0.
+        // If a=0, q=|c|²>0; w=(-c*(b+q),q) has
+        // w†D'w=-(b+2q)*q²<0. Both use only Z[zeta8].
+        if a!=(0,0){
+            (root_neg(c)?,real_to_root(a)?)
+        }else{
+            let q=root_norm(c)?;
+            if nonpositive_quadratic(q.0,q.1){return Err(Error::InvalidProof);}
+            let factor=real_add(b,q)?;
+            (root_neg(root_mul(c,real_to_root(factor)?)?)?,real_to_root(q)?)
+        }
+    };
+    let norm=real_add(root_norm(u)?,root_norm(v)?)?;
+    let mut coords=[[0i64;4];2];
+    for(i,amp)in [u,v].into_iter().enumerate(){
+        for j in 0..4{coords[i][j]=checked_i64(amp[j])?;}
+    }
+    let w=Witness{
+        input0:coords[0],input1:coords[1],
+        norm:(checked_i64(norm.0)?,checked_i64(norm.1)?)
+    };
+    let(_,quadratic)=coherent_witness_quadratic(g,s,&w)?;
+    if !nonpositive_quadratic(quadratic.0,quadratic.1)
+        ||quadratic==(0,0){
+        return Err(Error::InvalidProof);
+    }
+    Ok(w)
+}
+fn encode_p8w1(gram:&[u8],w:&Witness)->[u8;P8W1_BYTES]{
+    let mut output=[0u8;P8W1_BYTES];
+    output[..4].copy_from_slice(b"P8W1");
+    output[4..36].copy_from_slice(&sha256(gram));
+    let mut pos=36;
+    for v in w.input0.into_iter().chain(w.input1).chain([w.norm.0,w.norm.1]){
+        output[pos..pos+8].copy_from_slice(&v.to_le_bytes());
+        pos+=8;
+    }
+    output
+}
+fn verify_p8w1_witness(
+    source:&[u8],proof:&[u8],spec_bytes:&[u8],gram_claim:&[u8],witness:&[u8]
+)->Check<(Witness,Real)>{
+    if witness.len()!=P8W1_BYTES {return Err(Error::InvalidProof);}
+    let spec=parse_scg1_spec(spec_bytes)?;
+    let verdict=verify_p8g1_coherent(source,proof,spec_bytes,gram_claim)?;
+    if verdict==CoherentVerdict::ScopedSatisfied{
+        return Err(Error::InvalidProof);
+    }
+    let mut cursor=Cursor::new(witness);
+    if cursor.bytes(4)?!=b"P8W1" ||cursor.bytes(32)?!=sha256(gram_claim){
+        return Err(Error::InvalidProof);
+    }
+    let mut words=[0i64;10];
+    for word in &mut words{*word=cursor.i64()?;}
+    if cursor.at!=P8W1_BYTES{return Err(Error::InvalidProof);}
+    let w=Witness{
+        input0:words[0..4].try_into().map_err(|_|Error::InvalidProof)?,
+        input1:words[4..8].try_into().map_err(|_|Error::InvalidProof)?,
+        norm:(words[8],words[9])
+    };
+    let mut gc=Cursor::new(gram_claim);
+    gc.bytes(104)?;
+    let bad_mask=gc.u64()?;
+    let g=CoherentGram{
+        n:gram_claim[100],h:gram_claim[101],
+        first:gram_claim[102],second:gram_claim[103],bad_mask,
+        diag0:(gc.i64()?,gc.i64()?),diag1:(gc.i64()?,gc.i64()?),
+        off:[gc.i64()?,gc.i64()?,gc.i64()?,gc.i64()?]
+    };
+    let(_,quadratic)=coherent_witness_quadratic(&g,&spec,&w)?;
+    if !nonpositive_quadratic(quadratic.0,quadratic.1)
+        ||quadratic==(0,0){
+        return Err(Error::InvalidProof);
+    }
+    Ok((w,quadratic))
+}
+
 fn cli_coherent(
     source:&str,proof:&str,spec:&str,claim:&str
 )->Check<CoherentVerdict>{
@@ -749,6 +944,24 @@ fn cli()->Check<usize> {
 }
 fn main()->ExitCode {
     let paths:Vec<_>=std::env::args().skip(1).collect();
+    if paths.len()==5 {
+        let result=(||{
+            let src=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
+            let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
+            let spec=read_limited(&paths[2],MAX_SPEC_BYTES,Error::InvalidSource)?;
+            let gram=read_limited(&paths[3],P8G1_BYTES,Error::InvalidProof)?;
+            let witness=read_limited(&paths[4],P8W1_BYTES,Error::InvalidProof)?;
+            verify_p8w1_witness(&src,&proof,&spec,&gram,&witness)
+        })();
+        return match result {
+            Ok((w,gap))=>{
+                println!("SCOPED_COHERENT_WITNESS_ACCEPTED norm_surd={}:{} negative_gap_surd={}:{} input0={:?} input1={:?} source_trust=BLOCKED",
+                    w.norm.0,w.norm.1,gap.0,gap.1,w.input0,w.input1);
+                ExitCode::SUCCESS
+            },
+            Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
+        };
+    }
     if paths.len()==4 {
         // Do not reinterpret basis-only SPB1 as coherent-span SCG1.
         // A distinct spec magic selects a distinct proof contract.

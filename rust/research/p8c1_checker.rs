@@ -960,6 +960,8 @@ mod tests {
         let mut cases=0usize;
         let mut probability_pairs=0usize;
         let mut properties=0usize;
+        let mut gram_pairs=0usize;
+        let mut psd_verdicts=0usize;
         let thresholds=[(0,1),(1,8),(1,4),(1,2),(1,1)];
         for n in 1..=3 {
             let dim=1usize<<n;
@@ -1047,11 +1049,41 @@ mod tests {
                         }
                     }
                 }
+
+                for &bad in &masks {
+                    for first in 0..dim {
+                        for second in first+1..dim {
+                            let exact=path_coherent_gram(&state,first,second,bad).unwrap();
+                            let independent=dense_oracle::coherent_gram(src,first,second,bad).unwrap();
+                            assert_eq!(
+                                ((exact.diag0.0 as i128,exact.diag0.1 as i128),
+                                 (exact.diag1.0 as i128,exact.diag1.1 as i128),
+                                 exact.off.map(|x|x as i128),exact.h as usize),
+                                independent,
+                                "P8G1 exact matrix coefficients n={n} sample={example} inputs={first},{second} bad={bad:x}"
+                            );
+                            gram_pairs+=1;
+                            let pre=(1u64<<first)|(1u64<<second);
+                            for &(num,den) in &thresholds {
+                                let sp=coherent_spec(n,pre,bad,num,den);
+                                let parsed=parse_scg1_spec(&sp).unwrap();
+                                let verdict=gram_psd_verdict(&exact,&parsed);
+                                let dense=dense_oracle::coherent_psd(
+                                    independent,num as i128,den as i128
+                                );
+                                assert_eq!(verdict==CoherentVerdict::ScopedSatisfied,dense,
+                                    "P8G1 PSD mismatch n={n} sample={example} span={pre:x} bad={bad:x} delta={num}/{den}");
+                                psd_verdicts+=1;
+                            }
+                        }
+                    }
+                }
                 cases+=1;
             }
         }
         assert_eq!(cases,36);
         println!("P8S1_DENSE_DIFFERENTIAL circuits={cases} exact_prob_pairs={probability_pairs} property_verdicts={properties} all_match=true");
+        println!("P8G1_DENSE_SWEEP circuits={cases} gram_pairs={gram_pairs} coherent_psd_verdicts={psd_verdicts} all_match=true");
     }
     #[test]
     fn basis_only_contract_rejects_unjustified_span_inference() {

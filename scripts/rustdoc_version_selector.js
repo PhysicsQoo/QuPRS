@@ -16,7 +16,7 @@
   const current = source ? source[1] : null;
 
   function render() {
-    if (document.querySelector("[data-quprs-version-selector]")) return;
+    if (document.querySelector("nav[data-quprs-version-selector]")) return;
     const bar = document.createElement("nav");
     bar.className = "quprs-version-switcher";
     bar.setAttribute("aria-label", "QuPRS Rust API documentation version");

@@ -145,7 +145,7 @@ jobs:
             actual_code=$?
             set -e
             test "$actual_code" -eq "$expected_code"
-            grep -x "$expected_label" evidence/p8c1-typed-negative-last.log
+            grep -E "^$expected_label( |$)" evidence/p8c1-typed-negative-last.log
           }
           check_reject UNSUPPORTED_SOURCE 3 \
             evidence/p8c1-unsupported.qasm evidence/p8c1-fixtures/h-cx-t.p8c1

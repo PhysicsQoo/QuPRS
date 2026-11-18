@@ -1502,6 +1502,44 @@ mod tests {
         println!("S8C1_STRUCTURAL_DIFFERENTIAL obligations={total} unique_extension=true all_eight_buckets_match=true");
     }
     #[test]
+    fn s8c1_structural_h1_to_h4_certificate_size_pilot(){
+        // Paired true-source proof bytes and C8C1 canonical blocking bytes
+        // at fixed n=1, varying H-path count h=1..4. This is NOT a
+        // walltime benchmark nor a proof of polynomial end-to-end size.
+        let mut rows=Vec::new();
+        for h in 1..=4{
+            let mut gates=String::new();
+            for _ in 0..h {
+                gates.push_str("h q[0];\nt q[0];\n");
+            }
+            let source=format!(
+                "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\n{gates}"
+            );
+            let (proof,state)=source_proof_and_state(source.as_bytes());
+            assert_eq!(state.paths,h);
+            let structural=two_copy_structural::encode(
+                source.as_bytes(),&proof,&state,0,1,1
+            ).unwrap();
+            let blocking=two_copy_cnf::encode(
+                source.as_bytes(),&proof,
+                &two_copy_cnf::build(&state,0,1,1).unwrap()
+            ).unwrap();
+            let exact_s=two_copy_structural::verify(
+                source.as_bytes(),&proof,&structural).unwrap();
+            let (exact_b,independent)=two_copy_cnf::verify(
+                source.as_bytes(),&proof,&blocking).unwrap();
+            assert_eq!(exact_s,exact_b);
+            assert_eq!(exact_s,independent);
+            let models=exact_s.iter().map(|&v|v as usize).sum::<usize>();
+            println!(
+                "S8C1_SIZE_PILOT n=1 h={h} primary={} s8c1_bytes={} c8c1_bytes={} counted_pairs={models} exact=true nonbenchmark=true",
+                2*h,structural.len(),blocking.len()
+            );
+            rows.push((structural.len(),blocking.len()));
+        }
+        assert_eq!(rows.len(),4);
+    }
+    #[test]
     fn s8c1_export_external_producer_fixtures_when_requested(){
         let Ok(dir)=std::env::var("S8C1_FIXTURE_DIR") else {return;};
         let src=std::fs::read(format!("{dir}/h-1q.qasm")).unwrap();

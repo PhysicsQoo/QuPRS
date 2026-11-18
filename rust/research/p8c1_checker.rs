@@ -5,6 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::process::ExitCode;
+#[path = "p8c1_two_copy_wmc.rs"]
+mod two_copy_wmc;
 #[cfg(test)]
 #[path = "p8c1_dense_oracle.rs"]
 mod dense_oracle;
@@ -944,6 +946,22 @@ fn cli()->Check<usize> {
 }
 fn main()->ExitCode {
     let paths:Vec<_>=std::env::args().skip(1).collect();
+    if paths.len()==3 {
+        let result=(||{
+            let src=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
+            let proof=read_limited(&paths[1],MAX_PROOF_BYTES,Error::InvalidProof)?;
+            let evidence=read_limited(&paths[2],95,Error::InvalidProof)?;
+            two_copy_wmc::verify_w8c1(&src,&proof,&evidence)
+        })();
+        return match result {
+            Ok(w)=>{
+                println!("SCOPED_TWO_COPY_WMC_ENUM_EXACT first={} second={} paths={} bad_mask={} total_weighted_pairs={} source_trust=BLOCKED",
+                    w.first,w.second,w.h,w.bad_mask,w.buckets.iter().map(|&x|x as usize).sum::<usize>());
+                ExitCode::SUCCESS
+            }
+            Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
+        };
+    }
     if paths.len()==5 {
         let result=(||{
             let src=read_limited(&paths[0],MAX_SOURCE_BYTES,Error::InvalidSource)?;
@@ -1176,6 +1194,7 @@ mod tests {
         let mut gram_pairs=0usize;
         let mut psd_verdicts=0usize;
         let mut constructive_witnesses=0usize;
+        let mut double_path_wmc_obligations=0usize;
         let thresholds=[(0,1),(1,8),(1,4),(1,2),(1,1)];
         for n in 1..=3 {
             let dim=1usize<<n;
@@ -1276,6 +1295,32 @@ mod tests {
                                 independent,
                                 "P8G1 exact matrix coefficients n={n} sample={example} inputs={first},{second} bad={bad:x}"
                             );
+
+                            // A separate, complete two-copy Boolean
+                            // assignment enumeration realizes the exact
+                            // complex weighted-counting identity for Gram.
+                            // This is a bounded oracle, not a CNF solver proof.
+                            if example<3 && state.paths<=6 {
+                                let counted=two_copy_wmc::enumerate_pairs(
+                                    &state,first,second,bad
+                                ).unwrap();
+                                assert_eq!(
+                                    two_copy_wmc::cyclotomic_four(&counted),
+                                    exact.off.map(|x|x as i128),
+                                    "two-copy WMC cross-phase mismatch n={n} sample={example} pair={first},{second}"
+                                );
+                                let fixture=two_copy_wmc::encode_w8c1(src,&proof,&counted);
+                                assert_eq!(
+                                    two_copy_wmc::verify_w8c1(src,&proof,&fixture).unwrap(),
+                                    counted
+                                );
+                                if double_path_wmc_obligations==0 {
+                                    let mut forged=fixture;
+                                    forged[79]^=1;
+                                    assert!(two_copy_wmc::verify_w8c1(src,&proof,&forged).is_err());
+                                }
+                                double_path_wmc_obligations+=1;
+                            }
                             gram_pairs+=1;
                             let pre=(1u64<<first)|(1u64<<second);
                             for &(num,den) in &thresholds {
@@ -1328,6 +1373,7 @@ mod tests {
         println!("P8S1_DENSE_DIFFERENTIAL circuits={cases} exact_prob_pairs={probability_pairs} property_verdicts={properties} all_match=true");
         println!("P8G1_DENSE_SWEEP circuits={cases} gram_pairs={gram_pairs} coherent_psd_verdicts={psd_verdicts} all_match=true");
         println!("P8W1_DENSE_WITNESS_SWEEP circuits={cases} constructive_witnesses={constructive_witnesses} independently_verified=true all_negative_gaps_exact=true");
+        println!("W8C1_TWO_COPY_ORACLE gram_obligations={double_path_wmc_obligations} exact_pair_weights=true distinct_from_cnf_certification=true");
     }
     #[test]
     fn basis_only_contract_rejects_unjustified_span_inference() {

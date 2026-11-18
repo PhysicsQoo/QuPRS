@@ -75,6 +75,12 @@ class RustdocVersionNavigationTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "symlinked"):
             module.inject_rustdoc_version_navigation(self.staged, alias)
 
+    def test_initializer_checks_navigation_not_script_marker(self):
+        script = self.selector.read_text(encoding="utf-8")
+        self.assertIn('querySelector("nav[data-quprs-version-selector]")', script)
+        self.assertNotIn('querySelector("[data-quprs-version-selector]")', script)
+        self.assertIn('bar.setAttribute("data-quprs-version-selector", "")', script)
+
     def test_missing_reference_fails_closed(self):
         self.root_page.unlink()
         with self.assertRaisesRegex(AssertionError, "Missing staged"):

@@ -1609,4 +1609,49 @@ mod phase8_local_step_research {
             bytes.len(),source_text.len(),wall_us);
     }
 
+
+    #[test]
+    fn observed_p8c1_exports_cross_binary_fixtures_when_requested() {
+        // An opt-in test fixture producer. The standalone CLI has no access
+        // to this module, its types, or its implementation at compile time.
+        let Ok(target) = std::env::var("P8C1_FIXTURE_DIR") else {
+            println!("P8C1_STANDALONE_FIXTURE_EXPORT=disabled");
+            return;
+        };
+        std::fs::create_dir_all(&target).unwrap();
+        let mut structural = String::new();
+        for wire in 0..16 {
+            structural.push_str(&format!("h q[{wire}];\n"));
+        }
+        for j in 0..112 {
+            let wire = j % 16;
+            structural.push_str(&format!(
+                "{} q[{wire}];\n",if j%2==0 {"t"}else{"x"}
+            ));
+        }
+        let cases = [
+            ("h-cx-t",source(2,"h q[0];\ncx q[0],q[1];\nt q[1];\n")),
+            ("cx-t-parity",source(2,"cx q[0],q[1];\nt q[1];\n")),
+            ("mixed-3q",source(3,
+                "h q[0];\ncx q[0],q[1];\nt q[1];\ncz q[1],q[2];\n")),
+            ("structural-16q",source(16,&structural)),
+        ];
+        let mut total_bytes=0usize;
+        for (name,src) in cases {
+            let claim=emit(&src).unwrap();
+            let proof=serialize_p8c1_untrusted(&claim).unwrap();
+            assert!(verify_p8c1_serialized(&src,&proof,proof_byte_limits())
+                .unwrap().is_some());
+            std::fs::write(format!("{target}/{name}.qasm"),src).unwrap();
+            std::fs::write(format!("{target}/{name}.p8c1"),&proof).unwrap();
+            if name=="h-cx-t" {
+                let mut bad=proof.clone();
+                bad[0]^=0x01;
+                std::fs::write(format!("{target}/forged.p8c1"),bad).unwrap();
+            }
+            total_bytes+=proof.len();
+        }
+        println!("P8C1_CROSS_BINARY_EXPORTED fixtures=4 proof_bytes_total={total_bytes}");
+    }
+
 }

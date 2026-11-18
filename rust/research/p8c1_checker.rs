@@ -1460,10 +1460,22 @@ mod tests {
         assert_eq!(checked_nonnegative_quadratic(1,0),Ok(true));
         assert_eq!(checked_nonnegative_quadratic(-1,0),Ok(false));
         let spec=parse_scg1_spec(&coherent_spec(1,3,1,0,1)).unwrap();
-        let oversized=CoherentGram{
+        // A single i64::MAX coefficient has a representable i128 square:
+        // it is a definite negative determinant, not an overflow.
+        let representable=CoherentGram{
             n:1,h:8,first:0,second:1,bad_mask:1,
             diag0:(0,0),diag1:(0,0),
             off:[i64::MAX,0,0,0]
+        };
+        assert_eq!(
+            gram_psd_verdict(&representable,&spec),
+            Ok(CoherentVerdict::ScopedViolated{reason:"negative_determinant"})
+        );
+        // Several such coefficients require a sum of squared terms beyond
+        // i128. This must fail closed with UNKNOWN_RESOURCE, never panic.
+        let oversized=CoherentGram{
+            off:[i64::MAX,i64::MAX,i64::MAX,i64::MAX],
+            ..representable
         };
         assert_eq!(gram_psd_verdict(&oversized,&spec),Err(Error::UnknownResource));
         let (src,_) = example_h();

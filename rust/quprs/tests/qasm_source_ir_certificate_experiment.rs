@@ -1543,4 +1543,70 @@ mod phase8_local_step_research {
         println!("P8C1_SERIALIZED_NEGATIVE rejects={rejects} unknown_limits=3 no_unchecked_proof=true");
     }
 
+
+    #[test]
+    fn observed_p8c1_every_single_bit_mutation_is_fail_closed() {
+        // Deterministic exhaustive 1-bit flips of the *entire serialized
+        // proof*, including header, length, digest, ANF and phase entries.
+        // Mutations may reject or return UNKNOWN, but never certify.
+        let source_text = source(2, "h q[0];\ncx q[0],q[1];\nt q[1];\n");
+        let bytes = serialize_p8c1_untrusted(&emit(&source_text).unwrap()).unwrap();
+        assert!(verify_p8c1_serialized(&source_text,&bytes,proof_byte_limits())
+            .unwrap().is_some());
+        let mut fail_closed = 0usize;
+        let mut unknown = 0usize;
+        for byte_index in 0..bytes.len() {
+            for bit_index in 0..8 {
+                let mut forged = bytes.clone();
+                forged[byte_index] ^= 1u8 << bit_index;
+                match verify_p8c1_serialized(&source_text,&forged,proof_byte_limits()) {
+                    Ok(Some(_)) => panic!(
+                        "single-bit forged proof accepted at byte {byte_index} bit {bit_index}"
+                    ),
+                    Ok(None) => {fail_closed += 1; unknown += 1;},
+                    Err(_) => {fail_closed += 1;},
+                }
+            }
+        }
+        println!("P8C1_MUTATION_EXHAUSTIVE original_bytes={} single_bit_changes={} rejected_or_unknown={} unknown={} accepted=0",
+            bytes.len(), bytes.len()*8, fail_closed, unknown);
+        assert_eq!(fail_closed,bytes.len()*8);
+    }
+    #[test]
+    fn observed_p8c1_large_structural_128_step_size_and_admission() {
+        use std::time::Instant;
+        let mut body = String::new();
+        for wire in 0..16 {
+            body.push_str(&format!("h q[{wire}];\n"));
+        }
+        for j in 0..112 {
+            let wire = j % 16;
+            body.push_str(&format!(
+                "{} q[{wire}];\n", if j % 2 == 0 { "t" } else { "x" }
+            ));
+        }
+        let source_text = source(16,&body);
+        let claim = emit(&source_text).unwrap();
+        assert_eq!(claim.prefixes.len(),128);
+        let bytes = serialize_p8c1_untrusted(&claim).unwrap();
+        let started = Instant::now();
+        let last = verify_p8c1_serialized(&source_text,&bytes,proof_byte_limits())
+            .unwrap().unwrap();
+        let wall_us = started.elapsed().as_micros();
+        assert_eq!(&last,claim.prefixes.last().unwrap());
+        assert!(bytes.len() < (1 << 20));
+        let input_limit = ProofByteLimits {
+            max_bytes: bytes.len()-1,..proof_byte_limits()
+        };
+        assert!(verify_p8c1_serialized(&source_text,&bytes,input_limit)
+            .unwrap().is_none());
+        let terms_limit = ProofByteLimits {
+            max_total_terms: 64,..proof_byte_limits()
+        };
+        assert!(verify_p8c1_serialized(&source_text,&bytes,terms_limit)
+            .unwrap().is_none());
+        println!("P8C1_SIZE_PILOT n=16 steps=128 proof_bytes={} source_bytes={} checker_wall_us={} exact=true unknown_resource_cases=2 nonbenchmark=true",
+            bytes.len(),source_text.len(),wall_us);
+    }
+
 }

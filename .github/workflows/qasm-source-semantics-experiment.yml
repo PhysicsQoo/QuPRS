@@ -261,6 +261,48 @@ jobs:
             evidence/p8c1-fixtures/coherent-satisfied.p8g1
           echo 'P8G1_CROSS_BINARY_COHERENT=sat_1 violated_det_1 forged_2 basis_only_not_span'
 
+          # P8W1 witness is an explicitly normalized *coherent state* via
+          # its symbolic denominator sqrt(norm). Independent CLI checks
+          # exact negative quadratic gap after replaying Gram and P8C1.
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          from struct import pack
+          d=Path("evidence/p8c1-fixtures")
+          gram=(d/"coherent-violation.p8g1").read_bytes()
+          # H/2 risk example: input (|0>+|1>)/sqrt(2).
+          witness=b"P8W1"+sha256(gram).digest() + pack(
+              "<qqqqqqqqqq",1,0,0,0,1,0,0,0,2,0)
+          assert len(witness)==116
+          (d/"coherent-witness-valid.p8w1").write_bytes(witness)
+          fake=bytearray(witness)
+          fake[36]^=1
+          (d/"coherent-witness-forged.p8w1").write_bytes(fake)
+          PY
+          evidence/p8c1-checker \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/coherent-violation.scg1 \
+            evidence/p8c1-fixtures/coherent-violation.p8g1 \
+            evidence/p8c1-fixtures/coherent-witness-valid.p8w1 \
+            | tee evidence/p8w1-normalized-witness.log
+          grep -E '^SCOPED_COHERENT_WITNESS_ACCEPTED norm_surd=2:0 negative_gap_surd=-2:0 ' \
+            evidence/p8w1-normalized-witness.log
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/coherent-violation.scg1 \
+            evidence/p8c1-fixtures/coherent-violation.p8g1 \
+            evidence/p8c1-fixtures/coherent-witness-forged.p8w1
+          check_reject INVALID_PROOF 4 \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/coherent-satisfied.scg1 \
+            evidence/p8c1-fixtures/coherent-satisfied.p8g1 \
+            evidence/p8c1-fixtures/coherent-witness-valid.p8w1
+          echo 'P8W1_CROSS_BINARY_WITNESS=normalized_plus_risk_one exact_negative_gap verified; forged2 rejected'
+
+
 
           if test -x /usr/bin/time; then
             /usr/bin/time -f 'P8C1_PILOT_WALL_S=%e\nP8C1_PILOT_PEAK_RSS_KB=%M' \

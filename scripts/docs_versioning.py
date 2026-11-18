@@ -201,6 +201,16 @@ def check_local_layout(root: Path, expected: tuple[str, ...]) -> None:
             target = folder / version / name
             if not target.is_file():
                 raise AssertionError(f"Missing versioned source page: {target}")
+        if version != "stable":
+            rustdoc_root = folder / version / "rust-api"
+            selector_js = rustdoc_root / "quprs-versions.js"
+            crate_page = rustdoc_root / "quprs" / "index.html"
+            if not selector_js.is_file():
+                raise AssertionError(f"Missing Rustdoc version selector asset: {selector_js}")
+            if crate_page.read_text(encoding="utf-8").count(
+                'data-quprs-version-selector="true"'
+            ) != 1:
+                raise AssertionError(f"Missing or duplicate Rustdoc version selector: {crate_page}")
     candidates = [folder / "versions.json", root / "versions.json"]
     found = next((p for p in candidates if p.is_file()), None)
     if found is None:

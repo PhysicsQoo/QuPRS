@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+## v0.17.0 — Browser verification, native Rust API documentation and release safety
+
+This stable release promotes the independently tested v0.17.0-rc.1 source
+without extending the verifier's published semantics or introducing a new
+default algorithm. Availability of stable wheels, crate archives and
+versioned documentation must be confirmed from the actual registries and
+website after the signed stable release has passed its publication gates.
+
+### Optional browser workbench
+
+- Provide a browser-local, WebAssembly-backed QuPRS Rust verifier and
+  GMP/MPFR GPMC counter with a restricted unitary OpenQASM 2/3 input subset.
+  Measurements, arbitrary classical OpenQASM 3 programs and general quantum
+  channel verification are not supported browser features.
+- Support the existing RR, WMC-only and Hybrid verification modes, with
+  projective Hilbert–Schmidt distance estimates when available. Report
+  `Unknown`, errors and timeouts distinctly; numerical zero alone must not
+  be presented as a certified equivalence proof.
+- Provide Stop control, a 200-second wall-clock watchdog and a 512 MiB
+  **per-WASM-module linear-memory limit** (not total browser memory).
+  Browser and native wall-clock timings are not interchangeable.
+- Public `/playground/` availability depends on a separately verified
+  GitHub Pages deployment. Releasing the Python and Rust packages does not
+  automatically publish the browser application.
+
+### Documentation and delivery
+
+- Include the public project homepage, Stable Rust API Reference links,
+  versioned documentation and an unobtrusive, manifest-backed selector in
+  **newly generated** Rustdoc pages. Preserve Rustdoc's native search and
+  interface; previously published immutable Rustdoc pages are not rewritten.
+  Keep internal PR-preview directories out of public homepage navigation.
+- Use path-scoped unified Website CI with fail-closed Required checks and
+  separate manual Pages publication permissions.
+- Retain immutable PyPI artifact name/SHA-256 reconciliation, OIDC Trusted
+  Publishing and Sigstore attestations, and independently published Rust
+  crates. Do not treat a source commit, tag or green build as evidence of
+  a successful registry upload.
+
+### Compatibility and verification
+
+- Retain the documented CPython 3.11–3.14 support on Linux x86-64/ARM64
+  and macOS 15+ Intel/Apple Silicon, with ABI3 wheels, an sdist and an
+  independent `quprs` Rust crate. No Windows native wheel, macOS 14 wheel
+  or free-threaded Python qualification is claimed.
+- Preserve Python/Rust public API behavior, source-angle provenance,
+  independent RR/WMC/Hybrid error semantics, numerical tolerances,
+  solver provenance and `Equivalent`/`Not Equivalent`/`Unknown`/`Error`
+  distinctions. No independent proof kernel or generalized parameterized
+  verification soundness claim is introduced.
+- Require the complete exact-source cross-platform release matrix,
+  installed-artifact smokes, solver and lockfile parity, the protected
+  `dev` → `main` admission and signed stable tag before publishing.
+  Experimental solver rewrites and diagnostic-only workflows are excluded.
+
 ## v0.17.0-rc.1 — Browser workbench and website integration (release candidate)
 
 This entry describes **candidate source**, not an already published release.

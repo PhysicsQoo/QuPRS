@@ -189,6 +189,30 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.doesNotMatch(python, /skip-existing:\s*true/,
       "Do not silently ignore an existing mismatched PyPI distribution");
 
+    // A failed publish action is retryable only if its upload set has
+    // not changed; an attestation failure with partial uploads must not
+    // silently pass as a successful registry-hash-only publication.
+    assert.equal((python.match(/uses: pypa\/gh-action-pypi-publish@release\/v1/g) || []).length, 2,
+      "Exactly two bounded PyPI upload attempts are permitted");
+    assert.equal((python.match(/attestations: true/g) || []).length, 2,
+      "Both upload actions must explicitly retain Sigstore attestations");
+    assert.doesNotMatch(python, /attestations: false/,
+      "Disabling Sigstore is never an acceptable retry strategy");
+    assert.match(python, /id: pypi_upload_primary[\s\S]*?continue-on-error: true/,
+      "A failed first attempt must be conditionally recoverable");
+    assert.match(python, /if: steps\.pypi_upload_primary\.outcome == 'failure'/,
+      "Never invoke the retry planner after a successful first upload");
+    assert.match(python, /scripts\/reconcile_pypi_artifacts\.py plan[\s\S]*?--upload-dir pypi-to-upload-retry/,
+      "The retry must recompute its immutable PyPI inventory");
+    assert.match(python, /diff -u[\s\S]*?find pypi-to-upload -maxdepth 1[\s\S]*?find pypi-to-upload-retry -maxdepth 1/,
+      "A partially uploaded release must block automatic retry");
+    assert.match(python, /if: steps\.pypi_retry_plan\.outputs\.publish_required == 'true'/,
+      "Skip retry upload if the registry already has all artifacts");
+    assert.match(python, /packages-dir: pypi-to-upload-retry\//,
+      "The second attempt must use only the newly verified missing artifacts");
+    assert.match(python, /No successful attested PyPI publish/,
+      "A failed attestation cannot be treated as success based only on artifact hashes");
+
     assert.doesNotMatch(python, /action-gh-release/,
       "Public GitHub Release must follow both registries");
 
@@ -251,6 +275,12 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
       "python3 scripts/reconcile_pypi_artifacts.py verify", "echo unchecked-registry")],
     ["PyPI retry uploads the unfiltered distribution set", x => x.replace(
       "packages-dir: pypi-to-upload/", "packages-dir: dist/")],
+    ["PyPI retry disables attestations", x => x.replace(
+      "attestations: true", "attestations: false")],
+    ["PyPI retry does not check for partial uploads", x => x.replace(
+      "diff -u \\", "echo unchecked-partial-upload")],
+    ["PyPI retry may pass without an attested publisher", x => x.replace(
+      "No successful attested PyPI publish", "Silently accept missing attestations")],
     ["Rust skips installed artifact safety gates", x => x.replace(
       "needs: [verify_release_ref, platform_wheels, build_sdist, sdist_install, rust_preflight]",
       "needs: [verify_release_ref, rust_preflight]")],

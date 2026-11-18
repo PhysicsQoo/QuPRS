@@ -1630,6 +1630,7 @@ mod phase8_local_step_research {
             ));
         }
         let cases = [
+            ("h-1q",source(1,"h q[0];\n")),
             ("h-cx-t",source(2,"h q[0];\ncx q[0],q[1];\nt q[1];\n")),
             ("cx-t-parity",source(2,"cx q[0],q[1];\nt q[1];\n")),
             ("mixed-3q",source(3,
@@ -1651,7 +1652,7 @@ mod phase8_local_step_research {
             }
             total_bytes+=proof.len();
         }
-        println!("P8C1_CROSS_BINARY_EXPORTED fixtures=4 proof_bytes_total={total_bytes}");
+        println!("P8C1_CROSS_BINARY_EXPORTED fixtures=5 proof_bytes_total={total_bytes}");
     }
 
 }

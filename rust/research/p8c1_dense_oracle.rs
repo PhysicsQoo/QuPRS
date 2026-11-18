@@ -245,6 +245,83 @@ pub(crate) fn coherent_psd(
     nonnegative(determinant_constant,determinant_surd)
 }
 
+
+// Mathematically independent *dense-vector* witness validation.
+// This code directly evolves each input basis column then forms the
+// supplied coherent superposition. It never uses path histograms/Gram
+// or the Checker's cyclotomic ring implementation.
+fn multiply_root(x:[i128;4],y:[i128;4])->[i128;4]{
+    let mut z=[0i128;4];
+    for i in 0..4 {
+        for j in 0..4 {
+            let k=(i+j)%4;
+            let sign=if i+j>=4{-1}else{1};
+            z[k]+=sign*x[i]*y[j];
+        }
+    }
+    z
+}
+fn dense_norm_root(c:[i128;4])->(i128,i128){
+    let a=c;
+    let constant=a.iter().map(|v|v*v).sum::<i128>();
+    let surd=a[0]*(a[1]-a[3])+a[2]*(a[1]+a[3]);
+    (constant,surd)
+}
+fn positive_quadratic(c:i128,d:i128)->bool{
+    if c==0{return d>0;}
+    if d==0{return c>0;}
+    if c>0 && d>0{return true;}
+    if c<0 && d<0{return false;}
+    if c>0{c*c>2*d*d}
+    else {2*d*d>c*c}
+}
+pub(crate) fn coherent_witness_excess(
+    source:&[u8],first:usize,second:usize,bad_mask:u64,
+    delta_num:i128,delta_den:i128,w0:[i128;4],w1:[i128;4],
+)->Result<((i128,i128),(i128,i128),usize),String>{
+    let (column0,h)=simulate(source,&[(first,1)])?;
+    let (column1,h1)=simulate(source,&[(second,1)])?;
+    if h!=h1{return Err("different Hadamard counts".into());}
+    let n0=dense_norm_root(w0);
+    let n1=dense_norm_root(w1);
+    let norm=(n0.0+n1.0,n0.1+n1.1);
+    if !positive_quadratic(norm.0,norm.1) {
+        return Err("unnormalizable coherent input".into());
+    }
+    let(mut bad_a,mut bad_b)=(0i128,0i128);
+    for out in 0..column0.len(){
+        if bad_mask&(1u64<<out)==0{continue;}
+        let mut combined=[0i128;8];
+        for phase in 0..8{
+            for (column,weight) in [(&column0,w0),(&column1,w1)]{
+                for k in 0..4{
+                    let mut result=phase+k;
+                    let mut sign=1i128;
+                    if result>=8{result-=8;}
+                    combined[result]+=sign*column[out][phase]*weight[k];
+                }
+            }
+        }
+        let q=norm_coeff(&combined);
+        bad_a+=q.0;bad_b+=q.1;
+    }
+    let scale=1i128<<h;
+    let excess=(
+        delta_den*bad_a-delta_num*scale*norm.0,
+        delta_den*bad_b-delta_num*scale*norm.1
+    );
+    Ok((norm,excess,h))
+}
+pub(crate) fn coherent_witness_is_violation(
+    source:&[u8],first:usize,second:usize,bad_mask:u64,
+    num:i128,den:i128,w0:[i128;4],w1:[i128;4],
+)->Result<bool,String>{
+    let (_,excess,_)=coherent_witness_excess(
+        source,first,second,bad_mask,num,den,w0,w1
+    )?;
+    Ok(positive_quadratic(excess.0,excess.1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

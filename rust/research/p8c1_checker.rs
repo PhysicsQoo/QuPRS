@@ -1431,4 +1431,96 @@ mod tests {
         println!("P8G1_DENSE_GRAM_EXACT circuits={cases} risk_thresholds=15 all_match=true");
     }
 
+
+    #[test]
+    fn explicit_coherent_witness_exact_and_dense(){
+        let(source,_)=example_h();
+        let mut checks=0usize;
+        for (num,den,reason) in [
+            (0,1,"negative_diagonal_0"),
+            (1,2,"negative_determinant"),
+            (3,4,"negative_determinant"),
+        ] {
+            let spec_bytes=coherent_spec(1,3,1,num,den);
+            let (proof,gram_bytes,gram,spec)=coherent_fixture(&source,&spec_bytes);
+            assert_eq!(verify_p8g1_coherent(&source,&proof,&spec_bytes,&gram_bytes),
+                Ok(CoherentVerdict::ScopedViolated{reason}));
+            let witness=derive_coherent_witness(&gram,&spec).unwrap();
+            let encoded=encode_p8w1(&gram_bytes,&witness);
+            let (decoded,gap)=verify_p8w1_witness(
+                &source,&proof,&spec_bytes,&gram_bytes,&encoded
+            ).unwrap();
+            assert_eq!(decoded,witness);
+            assert!(nonpositive_quadratic(gap.0,gap.1)&&gap!=(0,0));
+            let independent=dense_oracle::coherent_witness_excess(
+                &source,spec.first,spec.second,spec.bad_mask,
+                spec.delta_num,spec.delta_den,
+                witness.input0.map(|x|x as i128),
+                witness.input1.map(|x|x as i128)
+            ).unwrap();
+            assert_eq!(independent.0,(
+                witness.norm.0 as i128,witness.norm.1 as i128));
+            assert_eq!(
+                (gap.0,gap.1),
+                (-independent.1.0,-independent.1.1)
+            );
+            assert!(dense_oracle::coherent_witness_is_violation(
+                &source,spec.first,spec.second,spec.bad_mask,
+                spec.delta_num,spec.delta_den,
+                witness.input0.map(|x|x as i128),
+                witness.input1.map(|x|x as i128)
+            ).unwrap());
+            checks+=1;
+        }
+        // Canonical explicit state for H/half threshold is |+>.
+        let spec_bytes=coherent_spec(1,3,1,1,2);
+        let(proof,claim,gram,spec)=coherent_fixture(&source,&spec_bytes);
+        let w=derive_coherent_witness(&gram,&spec).unwrap();
+        assert_eq!(w.input0,[1,0,0,0]);
+        assert_eq!(w.input1,[1,0,0,0]);
+        assert_eq!(w.norm,(2,0));
+        let(_,gap)=verify_p8w1_witness(&source,&proof,&spec_bytes,
+            &claim,&encode_p8w1(&claim,&w)).unwrap();
+        assert_eq!(gap,(-2,0));
+        println!("P8W1_CONSTRUCTIVE_EXACT cases={checks} direct_dense_oracle=true normalized_symbolic=true canonical_plus_state=true");
+    }
+    #[test]
+    fn explicit_coherent_witness_all_bits_forged_and_sat_rejected(){
+        let(source,_)=example_h();
+        let spec_bytes=coherent_spec(1,3,1,1,2);
+        let(proof,claim,gram,spec)=coherent_fixture(&source,&spec_bytes);
+        let witness=derive_coherent_witness(&gram,&spec).unwrap();
+        let bytes=encode_p8w1(&claim,&witness);
+        assert!(verify_p8w1_witness(&source,&proof,&spec_bytes,&claim,&bytes).is_ok());
+        let mut rejects=0usize;
+        for byte in 0..P8W1_BYTES{
+            for bit in 0..8{
+                let mut forged=bytes;
+                forged[byte]^=1u8<<bit;
+                assert!(verify_p8w1_witness(
+                    &source,&proof,&spec_bytes,&claim,&forged
+                ).is_err(),"forged P8W1 accepted {byte}:{bit}");
+                rejects+=1;
+            }
+        }
+        assert_eq!(rejects,928);
+        let spec_sat=coherent_spec(1,3,1,1,1);
+        let(proof_sat,claim_sat,gram_sat,parsed_sat)=coherent_fixture(&source,&spec_sat);
+        assert_eq!(derive_coherent_witness(&gram_sat,&parsed_sat),
+            Err(Error::InvalidProof));
+        assert_eq!(verify_p8w1_witness(&source,&proof_sat,&spec_sat,
+            &claim_sat,&bytes),Err(Error::InvalidProof));
+        let mut fake=bytes;
+        fake[36..44].copy_from_slice(&0i64.to_le_bytes());
+        assert_eq!(verify_p8w1_witness(&source,&proof,&spec_bytes,
+            &claim,&fake),Err(Error::InvalidProof));
+        let mut fake=bytes;
+        fake[100..108].copy_from_slice(&1i64.to_le_bytes());
+        assert_eq!(verify_p8w1_witness(&source,&proof,&spec_bytes,
+            &claim,&fake),Err(Error::InvalidProof));
+        assert_eq!(verify_p8w1_witness(&source,&proof,&spec_bytes,
+            &claim,&bytes[..bytes.len()-1]),Err(Error::InvalidProof));
+        println!("P8W1_MUTATION_EXHAUSTIVE bytes=116 flips={rejects} accepted=0 sat_claim_rejected=true");
+    }
+
 }

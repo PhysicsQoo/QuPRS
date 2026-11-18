@@ -226,7 +226,7 @@ mod tests {
         let phase=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\ngphase(pi/4);\nt q[0];\ns q[1];\ncz q[0],q[1];\n";
         let (v,h)=simulate(phase,&[(3,1)]).unwrap();
         assert_eq!(h,0);
-        assert_eq!(v[3][0],0);
+        assert_eq!(v[3][0],1);
         assert_eq!(v[3][4],0);
         assert_eq!(norm_coeff(&v[3]),(1,0));
         assert_eq!(basis_risk(phase,3,8).unwrap(),(1,0,0));

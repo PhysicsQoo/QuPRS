@@ -18,12 +18,12 @@ class StageTests(unittest.TestCase):
   (self.site/'extra.txt').unlink();module.stage(self.site,self.pages);self.assertFalse((self.pages/'playground/extra.txt').exists())
  def test_vendor_whitespace_is_preserved_but_first_party_checked(self):
   # Vendor notices and pinned source patches must remain byte-identical.
-  vendor_notice='Upstream attribution with original trailing space \\n'
-  vendor_patch='diff --git a/a b/a\\n+ \\n'
+  vendor_notice='Upstream attribution with original trailing space \n'
+  vendor_patch='diff --git a/a b/a\n+ \n'
   (self.site/'NOTICE.md').write_text(vendor_notice)
   patch=self.site/'engines/sources/GPMC-browser.patch';patch.parent.mkdir(parents=True)
   patch.write_text(vendor_patch)
-  (self.site/'app.js').write_text('console.log("ok");\\n')
+  (self.site/'app.js').write_text('console.log("ok");\n')
   module.stage(self.site,self.pages)
   self.assertEqual((self.pages/'playground/NOTICE.md').read_text(),vendor_notice)
   self.assertEqual((self.pages/'playground/engines/sources/GPMC-browser.patch').read_text(),vendor_patch)
@@ -36,7 +36,7 @@ class StageTests(unittest.TestCase):
                      'Global whitespace gate must reproduce the upstream fixture failure')
   self.assertEqual(check('playground/index.html','playground/app.js').returncode,0,
                    'First-party code must pass independent whitespace validation')
-  (self.site/'app.js').write_text('console.log("broken"); \\n')
+  (self.site/'app.js').write_text('console.log("broken"); \n')
   module.stage(self.site,self.pages)
   self.assertNotEqual(check('playground/index.html','playground/app.js').returncode,0,
                       'First-party whitespace errors must still fail closed')

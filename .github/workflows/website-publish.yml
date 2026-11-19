@@ -15,6 +15,11 @@ on:
       publish:
         required: true
         type: boolean
+      release_tag:
+        description: Signed stable tag for guarded browser publication
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       target:
@@ -46,6 +51,17 @@ jobs:
     permissions:
       contents: read
 
+  browser-stable-validation:
+    name: Website / Signed stable Browser WASM admission
+    needs: policy
+    if: ${{ inputs.target == 'playground-stable' && needs.policy.result == 'success' }}
+    uses: ./.github/workflows/browser-workbench.yml
+    with:
+      source_sha: ${{ needs.policy.outputs.source_sha }}
+      release_tag: ${{ inputs.release_tag }}
+    permissions:
+      contents: read
+
   homepage-validation:
     name: Website / Homepage admission
     if: ${{ inputs.target == 'homepage' }}
@@ -62,46 +78,90 @@ jobs:
     timeout-minutes: 3
     env:
       TARGET: ${{ inputs.target }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+      SOURCE_RUN_REF: ${{ github.event.workflow_run.head_branch }}
+      SOURCE_RUN_EVENT: ${{ github.event.workflow_run.event }}
+      SOURCE_RUN_REPO: ${{ github.event.workflow_run.repository.full_name }}
+      SOURCE_RUN_PATH: ${{ github.event.workflow_run.path }}
+      SOURCE_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+    outputs:
+      source_sha: ${{ steps.gate.outputs.source_sha }}
     steps:
-      - name: Require protected dev push or explicit maintainer dispatch
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require protected branch or signed release
+        id: gate
         run: |
           set -euo pipefail
-          # Reusable workflows inherit the original triggering event and ref.
-          # Never publish from PR, fork, untrusted branch, or arbitrary caller.
-          case "$GITHUB_EVENT_NAME" in
-            push)
-              test "$GITHUB_REF" = 'refs/heads/dev' || {
-                echo "::error::Automatic publication is allowed only from dev"
-                exit 1
-              }
-              ;;
-            workflow_dispatch)
-              if [[ "$GITHUB_REF" != 'refs/heads/dev' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
-                echo "::error::Manual recovery requires dev or main"
-                exit 1
-              fi
-              ;;
-            *)
-              echo "::error::Untrusted website publication event"
-              exit 1
-              ;;
-          esac
-          case "$TARGET" in
-            playground|homepage) ;;
-            *) echo "::error::Unexpected publication target"; exit 1 ;;
-          esac
-          echo "Trusted source-branch publication policy passed."
+          if [[ "$TARGET" == playground-stable ]]; then
+            test "$GITHUB_REF" = refs/heads/main
+            case "$GITHUB_EVENT_NAME" in
+              workflow_run)
+                test "$SOURCE_RUN_EVENT" = push
+                test "$SOURCE_RUN_REPO" = "$GITHUB_REPOSITORY"
+                test "$SOURCE_RUN_PATH" = .github/workflows/python-publish.yml
+                test "$SOURCE_RUN_CONCLUSION" = success
+                test "$SOURCE_RUN_REF" = "$RELEASE_TAG"
+                ;;
+              push|workflow_dispatch) ;;
+              *) echo "::error::Unsupported stable release event"; exit 1 ;;
+            esac
+            [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            source_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+              test "$SOURCE_RUN_SHA" = "$source_sha"
+            fi
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.type)" = tag
+            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)"
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object" --jq .verification.verified)" = true
+            release_state="$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq '[.isDraft,.isPrerelease] | tostring')"
+            test "$release_state" = '[false,false]'
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$source_sha&per_page=100" |
+              jq -e --arg tag "$RELEASE_TAG" --arg sha "$source_sha" '
+                [.workflow_runs[] | select(
+                  .name == "Build and Publish Python Package" and .event == "push"
+                  and .path == ".github/workflows/python-publish.yml"
+                  and .head_branch == $tag and .head_sha == $sha
+                  and .conclusion == "success"
+                )] | length >= 1
+              ' >/dev/null
+            echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            echo "Signed stable release admitted: $RELEASE_TAG at $source_sha"
+          else
+            case "$GITHUB_EVENT_NAME" in
+              push) test "$GITHUB_REF" = refs/heads/dev ;;
+              workflow_dispatch)
+                [[ "$GITHUB_REF" == refs/heads/dev || "$GITHUB_REF" == refs/heads/main ]] ;;
+              *) echo "::error::Untrusted website publication event"; exit 1 ;;
+            esac
+            case "$TARGET" in
+              playground|homepage) ;;
+              *) echo "::error::Unexpected publication target"; exit 1 ;;
+            esac
+          fi
 
   publish:
     name: Publish isolated, validated Pages content
-    needs: [browser-validation, homepage-validation, policy]
+    needs: [browser-validation, browser-stable-validation, homepage-validation, policy]
     if: >-
       ${{ always() && !cancelled() && inputs.publish == true &&
           needs.policy.result == 'success' &&
           ((inputs.target == 'playground' && needs.browser-validation.result == 'success' &&
+            needs.browser-stable-validation.result == 'skipped' &&
             needs.homepage-validation.result == 'skipped') ||
            (inputs.target == 'homepage' && needs.homepage-validation.result == 'success' &&
-            needs.browser-validation.result == 'skipped')) }}
+            needs.browser-validation.result == 'skipped' &&
+            needs.browser-stable-validation.result == 'skipped') ||
+           (inputs.target == 'playground-stable' &&
+            needs.browser-stable-validation.result == 'success' &&
+            needs.browser-validation.result == 'skipped' &&
+            needs.homepage-validation.result == 'skipped')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
@@ -114,6 +174,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET: ${{ inputs.target }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SOURCE_SHA: ${{ needs.policy.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -145,6 +207,7 @@ jobs:
           echo "PAGES_BASE=https://physicsqoo.github.io/QuPRS" >> "$GITHUB_ENV"
 
       - name: Reject obsolete source after concurrent dev merges
+        if: ${{ inputs.target != 'playground-stable' }}
         run: |
           set -euo pipefail
           # Run under the shared Pages publication lock, immediately before
@@ -158,6 +221,7 @@ jobs:
           fi
 
       - name: Stage only the selected Pages subtree
+        if: ${{ inputs.target != 'playground-stable' }}
         run: |
           set -euo pipefail
           case "$TARGET" in
@@ -168,7 +232,7 @@ jobs:
               test -f browser-site/worker.js
               test -f browser-site/pkg/quprs_web_bg.wasm
               test -f browser-site/engines/gpmc.wasm
-              python3 source/scripts/web/stage-pages.py browser-site pages
+              python3 source/scripts/web/stage-versioned-pages.py dev browser-site pages --sha "$GITHUB_SHA"
               ;;
             homepage)
               python3 source/scripts/site/stage-homepage.py source/website pages "$GITHUB_SHA"
@@ -182,7 +246,7 @@ jobs:
               ["git","-C","pages","diff","--cached","--name-only"],text=True
           ).splitlines()
           assert all(
-              (p=="index.html" if target=="homepage" else p.startswith("playground/"))
+              (p=="index.html" if target=="homepage" else p.startswith("playground/dev/"))
               for p in paths
           ),f"Unrelated Pages files staged: {paths}"
           print(f"Isolated staged paths: {len(paths)}")
@@ -193,13 +257,13 @@ jobs:
           # The staged-path whitelist above still rejects every unrelated file.
           if [[ "$TARGET" == playground ]]; then
             git -C pages diff --cached --check -- \
-              playground/index.html \
-              playground/app.js \
-              playground/worker.js \
-              playground/style.css \
-              playground/engines/host.js \
-              playground/engines/output.js \
-              playground/engines/runner.js
+              playground/dev/index.html \
+              playground/dev/app.js \
+              playground/dev/worker.js \
+              playground/dev/style.css \
+              playground/dev/engines/host.js \
+              playground/dev/engines/output.js \
+              playground/dev/engines/runner.js
           else
             git -C pages diff --cached --check -- index.html
           fi
@@ -214,6 +278,7 @@ jobs:
           echo "Published $TARGET to gh-pages without altering sibling subtrees." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Request and verify real GitHub Pages publication
+        if: ${{ inputs.target != 'playground-stable' }}
         run: |
           set -euo pipefail
           # Publishing via GITHUB_TOKEN does not automatically trigger a Pages build.
@@ -227,7 +292,7 @@ jobs:
           done
           test "$built" = true
           if [[ "$TARGET" == playground ]]; then
-            public="$PAGES_BASE/playground"
+            public="$PAGES_BASE/playground/dev"
             matched=false
             for _ in $(seq 1 18); do
               if curl --fail --silent --show-error --max-time 10 "$public/source-sha.txt?verify=$GITHUB_SHA" -o "$RUNNER_TEMP/public-sha.txt" &&
@@ -258,3 +323,10 @@ jobs:
           else
             exit 1
           fi
+
+      - name: Publish immutable release and stable alias
+        if: ${{ inputs.target == 'playground-stable' }}
+        run: |
+          set -euo pipefail
+          test "$(tr -d '\r\n' < browser-site/source-sha.txt)" = "$SOURCE_SHA"
+          bash source/scripts/web/publish-stable-pages.sh browser-site pages "$RELEASE_TAG" "$SOURCE_SHA"

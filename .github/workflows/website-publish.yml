@@ -135,7 +135,12 @@ jobs:
             echo "Signed stable release admitted: $RELEASE_TAG at $source_sha"
           else
             case "$GITHUB_EVENT_NAME" in
-              push) test "$GITHUB_REF" = refs/heads/dev ;;
+              push)
+                if [[ "$GITHUB_REF" != refs/heads/dev ]]; then
+                  echo "::error::Automatic publication is allowed only from dev"
+                  exit 1
+                fi
+                ;;
               workflow_dispatch)
                 [[ "$GITHUB_REF" == refs/heads/dev || "$GITHUB_REF" == refs/heads/main ]] ;;
               *) echo "::error::Untrusted website publication event"; exit 1 ;;

@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/docs-release-publish.yml'
+      - 'scripts/web/publish-stable-pages.sh'
   workflow_dispatch:
     inputs:
       tag:

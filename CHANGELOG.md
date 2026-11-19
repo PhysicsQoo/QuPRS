@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## v0.17.0-rc.2 — Browser Playground publication and release qualification (release candidate)
+
+This entry describes **RC2 candidate source**, not confirmation of a published
+Python/Rust package or a signed release tag. RC2 retains the v0.17.0-rc.1
+scientific algorithms, public APIs, solver defaults and numerical verdict
+contracts. The additional scope is reviewed website publication reliability.
+
+### Public website and browser workbench
+
+- Deploy the separately validated Browser Playground automatically after
+  reviewed, protected `dev` changes. Publish only `gh-pages:/playground/`
+  using the existing branch and a shared guarded website workflow; no new
+  GitHub Environment, publication branch or routine manual dispatch is needed.
+- Preserve upstream notice and source-patch bytes exactly while continuing
+  strict whitespace checks for first-party Playground assets. Require native
+  Rust, WASM, MPFR/GPMC and Chromium differential checks before publication,
+  reject stale source revisions and verify the public source identifier and
+  HTML, Worker, JavaScript and WASM asset digests after the Pages build.
+- Make the homepage Browser Playground heading link directly to the verified
+  live `playground/` route. Publish the homepage independently, preserving
+  documentation, Rustdoc, previews and unrelated Pages content.
+- The present `playground/` route follows the **latest successfully validated
+  `dev` publication**, not necessarily the most recent stable package release.
+  Stable-tag automation, immutable per-version browser URLs and a Playground
+  version selector remain future, separately qualified work.
+
+### Release admission and compatibility
+
+- Keep the v0.17.0-rc.1 restricted OpenQASM, browser-local computation,
+  numerical uncertainty, 200-second watchdog and per-module 512 MiB WASM
+  linear-memory limitations. Neither browser estimates nor a zero reported
+  distance constitute a general certified equivalence proof.
+- Retain the supported native platforms and installed-wheel/sdist plus
+  standalone Rust crate acceptance. RC2 preparation does not publish packages,
+  modify historic stable documentation or create a Git tag. Promotion requires
+  an exact-head protected `dev` → `main` Release-Ready review and subsequent
+  separately authorized, signed RC2 publication.
+
 ## v0.17.0-rc.1 — Browser workbench and website integration (release candidate)
 
 This entry describes **candidate source**, not an already published release.

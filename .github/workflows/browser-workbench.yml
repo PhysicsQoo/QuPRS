@@ -152,6 +152,8 @@ jobs:
         run: |
           set -euo pipefail
           node --check web/app.js
+          node --check web/examples.js
+          node web/tests/catalog.cjs
           node --check web/worker.js
           node web/tests/host.cjs
           npm install --prefix "$RUNNER_TEMP/qa" --no-save playwright@1.65.1

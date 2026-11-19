@@ -1,13 +1,22 @@
 name: QuPRS Homepage Publish
 
-# Backward-compatible manual entry. The deployment implementation and approval
-# logic now live in Website Publish; remove this adapter only after the new
-# workflow is registered on the repository default branch.
+# Trusted dev-push trigger and optional manual recovery entry. The shared
+# Website Publish workflow owns all homepage validation and publication logic.
 on:
+  # Auto-publish only changes relevant to the homepage after a dev merge.
+  push:
+    branches: [dev]
+    paths:
+      - 'website/**'
+      - 'scripts/site/stage-homepage.py'
+      - 'scripts/site/test_homepage.py'
+      - '.github/workflows/site-homepage.yml'
+      - '.github/workflows/site-homepage-publish.yml'
+      - '.github/workflows/website-publish.yml'
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish after validation (manual maintainer action)
+        description: Optional manual recovery publish (dev or main only)
         required: true
         type: boolean
         default: false
@@ -20,7 +29,7 @@ jobs:
     uses: ./.github/workflows/website-publish.yml
     with:
       target: homepage
-      publish: ${{ inputs.publish }}
+      publish: ${{ github.event_name == 'push' || inputs.publish }}
     permissions:
       contents: write
       actions: read

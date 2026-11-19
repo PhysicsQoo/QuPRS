@@ -113,15 +113,25 @@ print(json.load(open(sys.argv[1]))['version'])
 PY
 )"
 stable_sha="$(tr -d '\r\n' < "$pages/playground/source-sha.txt")"
-# If an older accepted tag was backfilled, the latest stable alias remains.
-if [[ "$stable_sha" == "$source_sha" ]]; then
-  check_live "$PAGES_BASE/playground" "$stable_sha"
-else
-  curl --fail --location --silent --show-error --max-time 20 \
-    "$PAGES_BASE/playground/source-sha.txt?v=$stable_sha" \
-    -o "$RUNNER_TEMP/stable-source-sha"
-  test "$(tr -d '\r\n' < "$RUNNER_TEMP/stable-source-sha")" = "$stable_sha"
-fi
+# The root is a tiny redirect into the source-pinned version. A browser must
+# never reuse unversioned JS or WASM assets from a different stable release.
+matched=false
+for _ in $(seq 1 18); do
+  if curl --fail --location --silent --show-error --max-time 15 \
+      -H 'Cache-Control: no-cache' \
+      "$PAGES_BASE/playground/source-sha.txt?v=$stable_sha" \
+      -o "$RUNNER_TEMP/stable-source-sha" &&
+     [[ "$(tr -d '\r\n' < "$RUNNER_TEMP/stable-source-sha")" == "$stable_sha" ]] &&
+     curl --fail --location --silent --show-error --max-time 15 \
+      "$PAGES_BASE/playground/index.html?v=$stable_sha" \
+      -o "$RUNNER_TEMP/stable-index.html" &&
+     grep -Fq "href=\"./$current/\"" "$RUNNER_TEMP/stable-index.html"; then
+    matched=true
+    break
+  fi
+  sleep 10
+done
+test "$matched" = true
 curl --fail --location --silent --show-error --max-time 20 \
  "$PAGES_BASE/playground/stable-release.json?v=$stable_sha" \
  -o "$RUNNER_TEMP/stable-release.json"

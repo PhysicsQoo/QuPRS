@@ -64,10 +64,12 @@ def check_links(site: Path, base_url: str) -> int:
             if target.scheme not in {"http", "https"} or target.netloc != origin.netloc:
                 continue
             path = unquote(target.path)
+            # This separately published Pages app is an approved navigation
+            # target even when the docs site is checked at the /QuPRS/ root.
+            if tag == "a" and (target.scheme, target.netloc, path) in allowed_sibling_links:
+                checked += 1
+                continue
             if not path.startswith(root_prefix):
-                if tag == "a" and (target.scheme, target.netloc, path) in allowed_sibling_links:
-                    checked += 1
-                    continue
                 failures.append(f"{relative}: {tag} {raw!r} escapes deployment prefix")
                 continue
             target_relative = path[len(root_prefix):]
@@ -119,6 +121,21 @@ def negative_fixture() -> None:
             '</body></html>', encoding="utf-8",
         )
         assert check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/") == 101
+        # The same official navigation link remains valid at the root
+        # deployment prefix; unknown same-host pages do not become exempt.
+        assert check_links(root, "https://physicsqoo.github.io/QuPRS/") == 101
+        (root / "index.html").write_text(
+            '<html><body>' + good +
+            '<a href="https://physicsqoo.github.io/QuPRS/not-published/">Missing</a>' +
+            '</body></html>', encoding="utf-8",
+        )
+        try:
+            check_links(root, "https://physicsqoo.github.io/QuPRS/")
+        except AssertionError as exc:
+            if "targets a missing file" not in str(exc):
+                raise
+        else:
+            raise AssertionError("Missing root sibling incorrectly passed")
         (root / "index.html").write_text(
             '<html><body>' + good +
             '<a href="https://physicsqoo.github.io/QuPRS/unreviewed/">Unsupported</a>' +

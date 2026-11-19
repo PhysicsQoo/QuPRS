@@ -1,0 +1,57 @@
+name: Scoped ARM solver-failure diagnostic
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/arm-solver-stall-diagnostic.yml'
+      - 'scripts/ci/arm_solver_stall_probe.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arm-solver-diagnostic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arm-python313:
+    name: Focused Ubuntu ARM / Python 3.13 solver matrix
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    env:
+      QUPRS_SOLVER_PROVISION: source
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'rust -> target'
+          key: scoped-arm-python313
+      - name: Install native solver build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake libgmp-dev libmpfr-dev zlib1g-dev
+          python -m pip install --upgrade pip 'maturin>=1.5,<2'
+          export VIRTUAL_ENV="$(dirname "$(dirname "$(command -v python)")")"
+          maturin develop --release -E dev
+      - name: Compare bounded worker / coverage modes
+        run: |
+          mkdir -p arm-probe-results
+          python scripts/ci/arm_solver_stall_probe.py --output arm-probe-results --budget-seconds 150
+      - name: Upload focused per-mode results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-solver-stall-probe
+          path: arm-probe-results
+          if-no-files-found: warn

@@ -1,16 +1,131 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QuPRS — circuit comparison</title><link rel="stylesheet" href="style.css?v=20261115-clean-v3"></head>
-<body><main><header><h1>QuPRS</h1><p>Compare quantum circuits in your browser.</p><p class="paper"><a href="https://doi.org/10.1007/978-3-032-22749-2_21">Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting</a><br>TACAS 2026 · <a href="https://github.com/PhysicsQoo/QuPRS">QuPRS on GitHub</a></p></header>
-<form id="form"><fieldset id="inputs"><div class="circuits"><section><label for="left">Circuit A</label><textarea id="left" spellcheck="false">OPENQASM 2.0;
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Compare supported quantum circuits locally with QuPRS Rust and WebAssembly.">
+  <title>QuPRS — Browser Playground</title>
+  <link rel="stylesheet" href="style.css?v=20261119-browser-ux">
+</head>
+<body>
+<main>
+  <header class="page-header">
+    <p class="eyebrow">LOCAL QUANTUM VERIFICATION</p>
+    <h1>QuPRS Playground</h1>
+    <p class="intro">Compare two supported unitary circuits directly in your browser, with local Rust/WebAssembly computation.</p>
+    <p class="paper"><a href="https://doi.org/10.1007/978-3-032-22749-2_21">Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting</a> · TACAS 2026 · <a href="https://github.com/PhysicsQoo/QuPRS">Source code</a></p>
+  </header>
+
+  <form id="form" novalidate>
+    <fieldset id="inputs">
+      <details class="examples panel" id="examplesPanel">
+        <summary>Browse verified circuit examples (14 pairs)</summary>
+        <p class="help">Choose an example to load both editors and its recommended settings. It will not start a computation.</p>
+        <div class="example-filters">
+          <label for="exampleSearch">Search examples
+            <input id="exampleSearch" type="search" placeholder="Gate, operation or description" autocomplete="off">
+          </label>
+          <label for="exampleCategory">Category
+            <select id="exampleCategory"><option value="all">All categories</option></select>
+          </label>
+        </div>
+        <div id="exampleButtons" class="example-groups"></div>
+        <p id="exampleEmpty" class="help" hidden>No matching examples. Try another search or category.</p>
+        <p id="exampleDescription" class="help" aria-live="polite">Select a circuit pair to load it into the editors.</p>
+        <button id="resetExample" type="button" class="subtle">Restore initial H·H = I example</button>
+      </details>
+
+      <div class="section-heading">
+        <h2 id="circuitsTitle">Circuit inputs</h2>
+        <p class="help">OpenQASM 2 is the tested example format. Measurements, reset and noise are not supported.</p>
+      </div>
+      <div class="circuits" aria-labelledby="circuitsTitle">
+        <section class="editor-panel" aria-labelledby="leftHeading">
+          <div class="editor-heading"><h3 id="leftHeading">Circuit A</h3><span class="pill">Left</span></div>
+          <label class="sr-only" for="left">Circuit A OpenQASM</label>
+          <textarea id="left" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="editorHelp">OPENQASM 2.0;
 include "qelib1.inc";
 qreg q[1];
 h q[0];
-h q[0];</textarea><label class="file">Load QASM <input id="leftFile" type="file" accept=".qasm,.txt"></label></section><section><label for="right">Circuit B</label><textarea id="right" spellcheck="false">OPENQASM 2.0;
+h q[0];</textarea>
+          <label class="file" for="leftFile">Upload Circuit A (.qasm or .txt)
+            <input id="leftFile" type="file" accept=".qasm,.txt">
+          </label>
+        </section>
+        <section class="editor-panel" aria-labelledby="rightHeading">
+          <div class="editor-heading"><h3 id="rightHeading">Circuit B</h3><span class="pill">Right</span></div>
+          <label class="sr-only" for="right">Circuit B OpenQASM</label>
+          <textarea id="right" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="editorHelp">OPENQASM 2.0;
 include "qelib1.inc";
-qreg q[1];</textarea><label class="file">Load QASM <input id="rightFile" type="file" accept=".qasm,.txt"></label></section></div>
-<div class="controls"><label>Mode<select id="mode"><option value="hybrid">Hybrid</option><option value="wmc">Weighted model counting</option><option value="reduction">Reduction only</option></select></label><label>Strategy<select id="strategy"><option value="difference">Difference</option><option value="proportional">Proportional</option><option value="naive">Naive</option><option value="straightforward">Straightforward</option></select></label><label>Distance tolerance<input id="epsilon" type="number" step="any" value="1e-8" min="0" max="1"></label></div>
-<details><summary>Reduction settings</summary><label>Reduction coefficient tolerance <input id="rr" type="number" step="any" value="1e-10" min="0"></label><p>Zero disables tolerance-based RR matching. This criterion is separate from the distance tolerance.</p></details>
-<details class="examples"><summary>Examples (14 verified circuit pairs)</summary><div id="exampleButtons"></div></details></fieldset>
-<div class="actions"><button id="run" type="submit">Compare circuits</button><button id="stop" type="button" disabled>Stop</button><button id="download" type="button" disabled>Download report</button></div></form>
-<section class="result" aria-live="polite"><p id="state">Ready. Circuits stay on this device.</p><h2>Projective Hilbert–Schmidt distance</h2><p id="distance" class="distance">—</p><p>Closer to <strong>0</strong> means the circuits are closer. Global phase is ignored.</p><p id="verdict"></p><p id="warning"></p><p id="timing"></p></section>
-<footer><a href="engines/sources/gpmc-mpfr-browser-source.tar.gz">Solver source and licenses</a></footer>
-</main><script type="module" src="app.js?v=20261115-clean-v3"></script></body></html>
+qreg q[1];</textarea>
+          <label class="file" for="rightFile">Upload Circuit B (.qasm or .txt)
+            <input id="rightFile" type="file" accept=".qasm,.txt">
+          </label>
+        </section>
+      </div>
+      <p id="editorHelp" class="help">Both inputs are processed in this browser. Uploaded text is not sent to a verification server. Maximum upload size: 256 KiB.</p>
+
+      <section class="settings panel" aria-labelledby="settingsHeading">
+        <h2 id="settingsHeading">Comparison settings</h2>
+        <div class="controls">
+          <label for="mode">Verification mode
+            <select id="mode">
+              <option value="hybrid">Hybrid — reduction + WMC</option>
+              <option value="wmc">Weighted model counting</option>
+              <option value="reduction">Reduction only</option>
+            </select>
+          </label>
+          <label for="epsilon">Projective distance tolerance
+            <input id="epsilon" type="number" step="any" value="1e-8" min="0" max="1" aria-describedby="distanceHelp">
+          </label>
+        </div>
+        <p id="distanceHelp" class="help">The projective Hilbert–Schmidt distance ignores global phase. A numerical value, including zero, is not an independently certified proof of exact equality.</p>
+        <details id="advanced">
+          <summary>Advanced reduction and solver settings</summary>
+          <div class="controls">
+            <label for="strategy">WMC strategy
+              <select id="strategy">
+                <option value="difference">Difference</option>
+                <option value="proportional">Proportional</option>
+                <option value="naive">Naive</option>
+                <option value="straightforward">Straightforward</option>
+              </select>
+            </label>
+            <label for="rr">Reduction coefficient tolerance
+              <input id="rr" type="number" step="any" value="1e-10" min="0" aria-describedby="rrHelp">
+            </label>
+          </div>
+          <p id="rrHelp" class="help">A value of zero disables tolerance-based reduction matching. This is separate from the projective distance tolerance.</p>
+        </details>
+      </section>
+    </fieldset>
+
+    <p id="inputError" class="form-error" role="alert" hidden></p>
+    <div class="actions">
+      <button id="run" type="submit" class="primary">Compare circuits</button>
+      <button id="stop" type="button" disabled>Stop computation</button>
+      <button id="download" type="button" disabled>Download JSON report</button>
+    </div>
+  </form>
+
+  <section class="result panel" id="results" aria-labelledby="resultsHeading" aria-live="polite">
+    <div class="section-heading">
+      <h2 id="resultsHeading">Verification result</h2>
+      <p id="state" class="run-state">Ready. Circuits stay on this device.</p>
+    </div>
+    <p id="verdict" class="verdict"></p>
+    <h3>Projective Hilbert–Schmidt distance</h3>
+    <p id="distance" class="distance">—</p>
+    <p class="help">Global phase is ignored. A computed approximation is not a certified distance interval.</p>
+    <p id="warning" class="warning"></p>
+    <p id="method" class="result-meta"></p>
+    <p id="timing" class="result-meta"></p>
+  </section>
+  <footer>
+    <a href="engines/sources/gpmc-mpfr-browser-source.tar.gz">Solver source and licenses</a>
+    <span> · Runs locally in browser Workers</span>
+  </footer>
+</main>
+<script type="module" src="app.js?v=20261119-browser-ux"></script>
+</body>
+</html>

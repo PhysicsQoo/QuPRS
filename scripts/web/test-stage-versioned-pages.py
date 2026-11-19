@@ -83,6 +83,28 @@ class StageVersionedTests(unittest.TestCase):
         for name, before in self.original.items():
             self.assertEqual((self.pages / name).read_bytes(), before)
 
+    def test_legacy_dev_backed_root_is_not_replaced_before_stable_admission(self):
+        # The first migration starts with an unversioned dev-backed page,
+        # not an empty playground directory.
+        legacy = self.pages / "playground"
+        legacy.mkdir()
+        for name in stage_module.MANDATORY:
+            path = legacy / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(SHA3 if name == "source-sha.txt" else "legacy-" + name)
+        self.commit()
+        stage(self.site, self.pages, "snapshot", "v0.17.0", SHA1)
+        self.assertEqual((legacy / "source-sha.txt").read_text(), SHA3)
+        self.assertEqual((legacy / "app.js").read_text(), "legacy-app.js")
+        self.assertTrue((legacy / "v0.17.0/app.js").is_file())
+        stage(self.site, self.pages, "promote", "v0.17.0", SHA1)
+        self.assertEqual((legacy / "source-sha.txt").read_text().strip(), SHA1)
+        self.assertIn('href="./v0.17.0/"', (legacy / "index.html").read_text())
+        self.assertFalse((legacy / "app.js").exists())
+        self.assertEqual((legacy / "v0.17.0/app.js").read_text(), "v1app.js")
+        for name, before in self.original.items():
+            self.assertEqual((self.pages / name).read_bytes(), before)
+
     def test_immutable_snapshot_and_bad_sha(self):
         stage(self.site, self.pages, "snapshot", "v0.17.0", SHA1)
         self.commit()

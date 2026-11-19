@@ -152,8 +152,17 @@ jobs:
         run: |
           set -euo pipefail
           node --check web/app.js
-          node --check web/examples.js
-          node web/tests/catalog.cjs
+          # Only the original signed v0.17.0 tag predates the gallery.
+          # Other versions, including all current dev builds, must execute
+          # both source-controlled catalog checks.
+          if [[ '${{ inputs.release_tag }}' == v0.17.0 ]]; then
+            test ! -e web/examples.js && test ! -e web/tests/catalog.cjs
+            echo 'Original signed v0.17.0 gallery-free source admitted'
+          else
+            test -f web/examples.js && test -f web/tests/catalog.cjs
+            node --check web/examples.js
+            node web/tests/catalog.cjs
+          fi
           node --check web/worker.js
           node web/tests/host.cjs
           npm install --prefix "$RUNNER_TEMP/qa" --no-save playwright@1.65.1

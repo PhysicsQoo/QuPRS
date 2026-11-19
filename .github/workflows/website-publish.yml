@@ -193,7 +193,7 @@ jobs:
           path: pages
           persist-credentials: true
       - uses: actions/download-artifact@v4
-        if: ${{ inputs.target == 'playground' }}
+        if: ${{ inputs.target == 'playground' || inputs.target == 'playground-stable' }}
         with:
           name: tested-browser-site
           path: browser-site

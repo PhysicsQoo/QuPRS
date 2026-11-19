@@ -1,10 +1,28 @@
 import {createWorkerHost} from './engines/host.js?v=20261115-quprs-source-mpfr-v2';
+import {EXAMPLES,CATEGORIES} from './examples.js';
 const $=id=>document.getElementById(id);let host,last,pendingUploads=0;
 function busy(value){$('inputs').disabled=value;$('run').disabled=value||pendingUploads>0;$('stop').disabled=!value}
-function setPair(a,b,n=1){const pre=`OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[${n}];\n`;$('left').value=pre+a;$('right').value=pre+b}
-$('identity').onclick=()=>setPair('h q[0];\nh q[0];','');
-$('phase').onclick=()=>setPair('u1(0.000001) q[0];','');
-$('cz').onclick=()=>setPair('cz q[0],q[1];','h q[1];\ncx q[0],q[1];\nh q[1];',2);
+const groups=new Map(CATEGORIES.map(category=>[category.id,category.title]));
+for(const [category,title] of groups){
+  const items=EXAMPLES.filter(example=>example.category===category);
+  if(!items.length)continue;
+  const section=document.createElement('section');
+  const heading=document.createElement('h3');heading.textContent=title;section.append(heading);
+  for(const example of items){
+    const button=document.createElement('button');button.type='button';
+    button.textContent=example.title;button.dataset.exampleId=example.id;
+    button.title=example.description;
+    button.addEventListener('click',()=>{
+      $('left').value=example.circuit1;$('right').value=example.circuit2;
+      $('mode').value=example.mode;$('strategy').value=example.strategy;
+      $('epsilon').value=String(example.distance_tolerance);
+      $('rr').value=String(example.rr_tolerance);
+      $('state').textContent='Loaded example: '+example.description;
+    });
+    section.append(button);
+  }
+  $('exampleButtons').append(section);
+}
 for(const side of ['left','right'])$(side+'File').onchange=async e=>{const file=e.target.files[0];if(!file)return;pendingUploads++;$('run').disabled=true;try{$(side).value=await file.text()}finally{pendingUploads--;$('run').disabled=Boolean(host)||pendingUploads>0}};
 $('stop').onclick=()=>host?.cancel();
 $('form').onsubmit=async e=>{

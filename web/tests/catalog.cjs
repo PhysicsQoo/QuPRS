@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const add=([a,b],[c,d])=>[a+c,b+d],mul=([a,b],[c,d])=>[a*c-b*d,a*d+b*c];
 const abs=([a,b])=>Math.hypot(a,b),conj=([a,b])=>[a,-b];
-const z=[0,0],one=[1,0],neg=[-1,0],h=1/Math.sqrt(2);
+const z=[0,0],neg=[-1,0],h=1/Math.sqrt(2);
 const exponent=angle=>[Math.cos(angle),Math.sin(angle)];
 const phaseAngle=s=>s==='pi/2'?Math.PI/2:Number(s);
 function parse(qasm){
@@ -63,7 +63,9 @@ function classify(a,b){
  for(let c=0;c<d;c++)for(let r=0;r<d;r++){entries.push(u.cols[c][r]);other.push(v.cols[c][r]);}
  const direct=Math.max(...entries.map((x,i)=>abs(add(x,mul(neg,other[i])))));
  const first=entries.findIndex(x=>abs(x)>1e-9);assert(first>=0);
- const factor=mul(other[first],conj(entries[first]));
+ const numerator=mul(other[first],conj(entries[first]));
+ const scale=abs(entries[first])**2;
+ const factor=[numerator[0]/scale,numerator[1]/scale];
  const projective=Math.max(...entries.map((x,i)=>abs(add(mul(factor,x),mul(neg,other[i])))));
  let trace=z;
  for(let i=0;i<entries.length;i++)trace=add(trace,mul(conj(entries[i]),other[i]));
@@ -75,6 +77,11 @@ async function readCatalog(){
  return (await import('data:text/javascript,'+encodeURIComponent(code))).EXAMPLES;
 }
 async function checkCatalog(){
+ const pre='OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\n';
+ const rotated=classify(pre+'h q[0];\nrz(pi/2) q[0];\nh q[0];',
+                       pre+'h q[0];\nu1(pi/2) q[0];\nh q[0];');
+ assert(rotated.projective<1e-9&&rotated.direct>1e-5,
+   'Projective comparison must normalize a subunit reference amplitude');
  const list=await readCatalog();assert(list.length>=12,'At least twelve examples');
  assert.equal(new Set(list.map(x=>x.id)).size,list.length,'Stable unique IDs');
  const kinds=new Set(),source=[];

@@ -1,0 +1,216 @@
+name: Website Publish
+
+# Shared manual publication control plane for the root homepage and Browser Playground.
+# Documentation stable/dev and PR-preview workflows retain their independent
+# admission policies and keep the shared gh-pages serialization lock.
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+      publish:
+        required: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Select the isolated website subtree to publish
+        required: true
+        type: choice
+        options:
+          - playground
+          - homepage
+        default: playground
+      publish:
+        description: Publish only after source validation and approval (false = validate only)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quprs-website-publish-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  browser-validation:
+    name: Website / Browser WASM admission
+    if: ${{ inputs.target == 'playground' }}
+    uses: ./.github/workflows/browser-workbench.yml
+    permissions:
+      contents: read
+
+  homepage-validation:
+    name: Website / Homepage admission
+    if: ${{ inputs.target == 'homepage' }}
+    uses: ./.github/workflows/site-homepage.yml
+    permissions:
+      contents: read
+
+  policy:
+    name: Verify manually approved source-publishing policy
+    if: ${{ inputs.publish == true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 3
+    env:
+      TARGET: ${{ inputs.target }}
+      READY: ${{ vars.QUPRS_SITE_PUBLISHER_READY }}
+    steps:
+      - name: Reject unapproved source branch or unconfigured environment
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/dev' || test "$GITHUB_REF" = 'refs/heads/main'
+          case "$TARGET" in
+            playground|homepage) ;;
+            *) echo "::error::Unexpected publication target"; exit 1 ;;
+          esac
+          if [[ "$READY" != 'true' ]]; then
+            echo "::error::Configure protected site-publisher environment first, then set QUPRS_SITE_PUBLISHER_READY=true"
+            exit 1
+          fi
+          echo "Source-publisher environment admission preflight passed."
+
+  publish:
+    name: Publish isolated, reviewed Pages content
+    needs: [browser-validation, homepage-validation, policy]
+    if: >-
+      ${{ always() && !cancelled() && inputs.publish == true &&
+          needs.policy.result == 'success' &&
+          ((inputs.target == 'playground' && needs.browser-validation.result == 'success' &&
+            needs.homepage-validation.result == 'skipped') ||
+           (inputs.target == 'homepage' && needs.homepage-validation.result == 'success' &&
+            needs.browser-validation.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: site-publisher
+    concurrency:
+      group: quprs-gh-pages-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+      pages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages
+          persist-credentials: true
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.target == 'playground' }}
+        with:
+          name: tested-browser-site
+          path: browser-site
+
+      - name: Confirm the existing GitHub Pages branch source
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pages" > "$RUNNER_TEMP/pages-config.json"
+          python3 - "$RUNNER_TEMP/pages-config.json" <<'PYCODE'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f:
+              p=json.load(f)
+          assert p.get("build_type")=="legacy", "Expected existing branch publication"
+          assert p.get("source")=={"branch":"gh-pages","path":"/"}, "Unexpected Pages source"
+          PYCODE
+          echo "PAGES_BASE=https://physicsqoo.github.io/QuPRS" >> "$GITHUB_ENV"
+
+      - name: Stage only the selected Pages subtree
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            playground)
+              test "$(tr -d '\r\n' < browser-site/source-sha.txt)" = "$GITHUB_SHA"
+              test -f browser-site/index.html
+              test -f browser-site/app.js
+              test -f browser-site/worker.js
+              test -f browser-site/pkg/quprs_web_bg.wasm
+              test -f browser-site/engines/gpmc.wasm
+              python3 source/scripts/web/stage-pages.py browser-site pages
+              ;;
+            homepage)
+              python3 source/scripts/site/stage-homepage.py source/website pages "$GITHUB_SHA"
+              ;;
+            *) exit 1 ;;
+          esac
+          python3 - "$TARGET" <<'PYCODE'
+          import subprocess,sys
+          target=sys.argv[1]
+          paths=subprocess.check_output(
+              ["git","-C","pages","diff","--cached","--name-only"],text=True
+          ).splitlines()
+          assert all(
+              (p=="index.html" if target=="homepage" else p.startswith("playground/"))
+              for p in paths
+          ),f"Unrelated Pages files staged: {paths}"
+          print(f"Isolated staged paths: {len(paths)}")
+          PYCODE
+          git -C pages diff --cached --check
+          git -C pages config user.name 'github-actions[bot]'
+          git -C pages config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git -C pages diff --cached --quiet; then
+            git -C pages commit -m "site: publish validated $TARGET"
+            git -C pages push origin HEAD:gh-pages
+          fi
+          git -C pages fetch --no-tags origin gh-pages
+          test "$(git -C pages rev-parse HEAD)" = "$(git -C pages rev-parse FETCH_HEAD)"
+          echo "Published $TARGET to gh-pages without altering sibling subtrees." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Request and verify real GitHub Pages publication
+        run: |
+          set -euo pipefail
+          # Publishing via GITHUB_TOKEN does not automatically trigger a Pages build.
+          build_url="$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)"
+          built=false
+          for _ in $(seq 1 40); do
+            status="$(gh api "$build_url" --jq .status)"
+            if [[ "$status" == built ]]; then built=true; break; fi
+            if [[ "$status" == errored ]]; then gh api "$build_url"; exit 1; fi
+            sleep 15
+          done
+          test "$built" = true
+          if [[ "$TARGET" == playground ]]; then
+            public="$PAGES_BASE/playground"
+            matched=false
+            for _ in $(seq 1 18); do
+              if curl --fail --silent --show-error --max-time 10 "$public/source-sha.txt?verify=$GITHUB_SHA" -o "$RUNNER_TEMP/public-sha.txt" &&
+                 test "$(tr -d '\r\n' < "$RUNNER_TEMP/public-sha.txt")" = "$GITHUB_SHA"; then
+                matched=true; break
+              fi
+              sleep 10
+            done
+            test "$matched" = true
+            for file in index.html app.js worker.js pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
+              curl --fail --silent --show-error --max-time 30 "$public/$file?verify=$GITHUB_SHA" -o "$RUNNER_TEMP/public-asset"
+              test "$(sha256sum "$RUNNER_TEMP/public-asset" | cut -d' ' -f1)" = "$(sha256sum "browser-site/$file" | cut -d' ' -f1)"
+            done
+            echo "Verified public Playground: $public/" >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$TARGET" == homepage ]]; then
+            public="$PAGES_BASE/"
+            matched=false
+            for _ in $(seq 1 18); do
+              if curl --fail --silent --show-error --max-time 15 "$public?verify=$GITHUB_SHA" -o "$RUNNER_TEMP/public-homepage.html" &&
+                 grep -Fq "name=\"quprs-source-revision\" content=\"$GITHUB_SHA\"" "$RUNNER_TEMP/public-homepage.html"; then
+                matched=true; break
+              fi
+              sleep 10
+            done
+            test "$matched" = true
+            cmp "$RUNNER_TEMP/public-homepage.html" pages/index.html
+            echo "Verified public homepage: $public" >> "$GITHUB_STEP_SUMMARY"
+          else
+            exit 1
+          fi

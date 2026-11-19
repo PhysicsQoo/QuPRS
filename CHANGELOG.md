@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## v0.17.1 — Browser Playground patch release (candidate; not yet published)
+
+This release candidate extends v0.17.0 with site-only maintenance. It does
+**not** change the native Rust/Python verification algorithms, public solver
+APIs, numerical verdicts, tolerances, Python dependencies or platform support.
+
+- Publish the optional Browser Playground from separately verified signed
+  stable sources. Immutable `/playground/vX.Y.Z/` URLs retain source SHA and
+  complete asset digests; the default `/playground/` alias follows only a
+  successful stable publication. The protected `/playground/dev/` preview is
+  independently updated and does not overwrite immutable release history.
+- Add 14 source-controlled, categorized OpenQASM circuit-pair examples, with
+  an independent small-unitary oracle and real native/Rust-WASM/GPMC Chromium
+  differential checks. They are demonstrations, **not proof certificates**.
+- Improve the local-only browser editor, example filtering, accessible
+  controls, invalid-input messages and distinctions among EQ, global-phase EQ,
+  NEQ, UNKNOWN, stopped and timed-out requests. Projective distance remains
+  global-phase invariant and its numerical estimate is not a certified bound.
+- Retain the existing `gh-pages` writer serialization, protected branch
+  admission, cancellation semantics, and bounded WASM resources. The signed
+  `v0.17.0` historical Playground snapshot is separately qualified and is
+  not reconstructed from current `dev` assets.
+
+**Release gate:** source/lockfile consistency, existing cross-platform native
+wheel/sdist/crate and solver regression tests, browser native/Chromium/GPMC,
+independent published-site hashes, then separately signed stable tag and
+package publication. This changelog entry does not assert that any of those
+future release operations has completed.
+
 ## v0.17.0 — Browser Playground and versioned documentation (stable release candidate)
 
 This entry records the **v0.17.0 stable source candidate**, not a claim

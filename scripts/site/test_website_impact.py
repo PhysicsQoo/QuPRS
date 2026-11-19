@@ -57,6 +57,7 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertEqual(selected(".github/workflows/website-ci.yml"), set(routing.ROUTES))
         self.assertEqual(selected(".github/workflows/site-homepage-publish.yml"), set(routing.ROUTES))
         self.assertEqual(selected(".github/workflows/browser-workbench-publish.yml"), set(routing.ROUTES))
+        self.assertEqual(selected(".github/workflows/website-publish.yml"), set(routing.ROUTES))
         self.assertEqual(selected("scripts/site/website-impact.py"), set(routing.ROUTES))
 
     def test_no_changes_or_unsafe_paths_do_not_bypass(self) -> None:

@@ -16,6 +16,33 @@ class StageTests(unittest.TestCase):
   for name,data in old.items():self.assertEqual((self.pages/name).read_bytes(),data)
   (self.site/'extra.txt').write_text('new');module.stage(self.site,self.pages);self.assertTrue((self.pages/'playground/extra.txt').is_file())
   (self.site/'extra.txt').unlink();module.stage(self.site,self.pages);self.assertFalse((self.pages/'playground/extra.txt').exists())
+ def test_vendored_provenance_whitespace_exemption(self):
+  # Git's strict diff --check would reject pre-existing whitespace in
+  # upstream notices/patches; publishing must keep their original bytes.
+  import shutil
+  for name,data in {
+   'NOTICE.md':b'Upstream license line  \\n',
+   'engines/sources/GPMC-browser.patch':b'+ \\n',
+  }.items():
+   p=self.site/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+  module.stage(self.site,self.pages)
+  strict=subprocess.run(['git','-C',str(self.pages),'diff','--cached','--check'],capture_output=True,text=True)
+  self.assertNotEqual(strict.returncode,0)
+  scoped=subprocess.run(['git','-C',str(self.pages),'diff','--cached','--check','--','.',
+   ':(exclude)playground/NOTICE.md',
+   ':(exclude)playground/engines/sources/GPMC-browser.patch'],capture_output=True,text=True)
+  self.assertEqual(scoped.returncode,0,scoped.stderr)
+  for name in ('NOTICE.md','engines/sources/GPMC-browser.patch'):
+   self.assertEqual((self.site/name).read_bytes(),(self.pages/'playground'/name).read_bytes())
+  # A whitespace fault in a first-party asset is still rejected.
+  (self.site/'app.js').write_bytes(b'console.log("not allowed");  \\n')
+  module.stage(self.site,self.pages)
+  invalid=subprocess.run(['git','-C',str(self.pages),'diff','--cached','--check','--','.',
+   ':(exclude)playground/NOTICE.md',
+   ':(exclude)playground/engines/sources/GPMC-browser.patch'],capture_output=True,text=True)
+  self.assertNotEqual(invalid.returncode,0)
+  self.assertIn('playground/app.js',invalid.stdout)
+
  def test_rejects_destination_symlink(self):
   (self.pages/'playground').symlink_to(self.site,target_is_directory=True)
   with self.assertRaises(ValueError):module.stage(self.site,self.pages)

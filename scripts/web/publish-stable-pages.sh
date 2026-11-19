@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# Publish an immutable snapshot first, then the stable alias. Signed release
+# provenance and exact-source WASM/Chromium qualification are mandatory upstream.
+set -euo pipefail
+test "$#" = 4
+site="$(realpath "$1")"
+pages="$(realpath "$2")"
+tag="$3"
+source_sha="$4"
+test -n "$GH_TOKEN"
+test -n "$GITHUB_REPOSITORY"
+test -n "$PAGES_BASE"
+[[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+[[ "$source_sha" =~ ^[a-f0-9]{40}$ ]]
+test "$(tr -d '\r\n' < "$site/source-sha.txt")" = "$source_sha"
+
+git -C "$pages" config user.name 'github-actions[bot]'
+git -C "$pages" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+git -C "$pages" diff --quiet
+test -z "$(git -C "$pages" diff --cached --name-only)"
+test "$(git -C "$pages" rev-parse HEAD)" = "$(git -C "$pages" rev-parse refs/heads/gh-pages)"
+
+commit_push() {
+  local title="$1"
+  if git -C "$pages" diff --cached --quiet; then return; fi
+  git -C "$pages" diff --cached --check -- playground/versions.json playground/stable-release.json
+  git -C "$pages" commit -m "$title"
+  git -C "$pages" push origin HEAD:gh-pages
+  git -C "$pages" fetch --no-tags origin gh-pages
+  test "$(git -C "$pages" rev-parse HEAD)" = "$(git -C "$pages" rev-parse FETCH_HEAD)"
+}
+
+build_pages() {
+  local build_url status
+  build_url="$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)"
+  for _ in $(seq 1 40); do
+    status="$(gh api "$build_url" --jq .status)"
+    [[ "$status" == built ]] && return 0
+    [[ "$status" == errored ]] && return 1
+    sleep 15
+  done
+  echo "::error::Pages build timeout" >&2
+  return 1
+}
+
+check_live() {
+  local url="$1" sha="$2" file expected got matched
+  matched=false
+  for _ in $(seq 1 18); do
+    if curl --fail --location --silent --show-error --max-time 15 \
+       -H 'Cache-Control: no-cache' "$url/source-sha.txt?v=$sha" \
+       -o "$RUNNER_TEMP/playground-live-sha" &&
+       [[ "$(tr -d '\r\n' < "$RUNNER_TEMP/playground-live-sha")" == "$sha" ]]; then
+      matched=true
+      break
+    fi
+    sleep 10
+  done
+  test "$matched" = true
+  for file in index.html app.js worker.js pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
+    curl --fail --location --silent --show-error --max-time 35 \
+      -H 'Cache-Control: no-cache' "$url/$file?v=$sha" \
+      -o "$RUNNER_TEMP/playground-live-asset"
+    expected="$(sha256sum "$site/$file" | cut -d' ' -f1)"
+    got="$(sha256sum "$RUNNER_TEMP/playground-live-asset" | cut -d' ' -f1)"
+    test "$got" = "$expected"
+  done
+}
+
+# A failed snapshot never changes the public stable root.
+python3 source/scripts/web/stage-versioned-pages.py snapshot \
+  "$site" "$pages" --tag "$tag" --sha "$source_sha"
+commit_push "site: stage immutable Playground $tag"
+build_pages
+check_live "$PAGES_BASE/playground/$tag" "$source_sha"
+
+before_alias="$(git -C "$pages" rev-parse HEAD)"
+previous_sha=""
+if [[ -f "$pages/playground/source-sha.txt" ]]; then
+  previous_sha="$(tr -d '\r\n' < "$pages/playground/source-sha.txt")"
+fi
+promoted=false
+
+rollback() {
+  local failure=$?
+  trap - ERR
+  if [[ "$promoted" == true ]]; then
+    echo "::error::Stable promotion failed; restoring previous alias" >&2
+    if git -C "$pages" restore --source="$before_alias" --staged --worktree -- playground &&
+       ! git -C "$pages" diff --cached --quiet; then
+      git -C "$pages" commit -m "site: restore prior Playground stable alias"
+      git -C "$pages" push origin HEAD:gh-pages
+      build_pages || true
+      if [[ -n "$previous_sha" ]]; then
+        echo "Prior source SHA: $previous_sha" >> "$GITHUB_STEP_SUMMARY"
+      fi
+    fi
+  fi
+  exit "$failure"
+}
+trap rollback ERR
+
+python3 source/scripts/web/stage-versioned-pages.py promote \
+  "$site" "$pages" --tag "$tag" --sha "$source_sha"
+if ! git -C "$pages" diff --cached --quiet; then
+  commit_push "site: promote validated Playground $tag"
+  promoted=true
+  build_pages
+fi
+current="$(python3 - "$pages/playground/stable-release.json" <<'PY'
+import json,sys
+print(json.load(open(sys.argv[1]))['version'])
+PY
+)"
+stable_sha="$(tr -d '\r\n' < "$pages/playground/source-sha.txt")"
+# If an older accepted tag was backfilled, the latest stable alias remains.
+if [[ "$stable_sha" == "$source_sha" ]]; then
+  check_live "$PAGES_BASE/playground" "$stable_sha"
+else
+  curl --fail --location --silent --show-error --max-time 20 \
+    "$PAGES_BASE/playground/source-sha.txt?v=$stable_sha" \
+    -o "$RUNNER_TEMP/stable-source-sha"
+  test "$(tr -d '\r\n' < "$RUNNER_TEMP/stable-source-sha")" = "$stable_sha"
+fi
+curl --fail --location --silent --show-error --max-time 20 \
+ "$PAGES_BASE/playground/stable-release.json?v=$stable_sha" \
+ -o "$RUNNER_TEMP/stable-release.json"
+test "$(python3 - "$RUNNER_TEMP/stable-release.json" <<'PY'
+import json,sys
+print(json.load(open(sys.argv[1]))['version'])
+PY
+)" = "$current"
+trap - ERR
+echo "Immutable Playground $tag and stable alias $current verified." >> "$GITHUB_STEP_SUMMARY"

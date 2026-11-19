@@ -43,9 +43,10 @@ class HomepageTests(unittest.TestCase):
                       "Homepage must link to the existing stable Rustdoc")
         self.assertFalse(any("pr-preview/" in url for url in parsed.urls),
                          "Internal PR previews must not appear on the public homepage")
-        self.assertNotIn("playground/", parsed.urls, "Unpublished Playground must not be a live link")
+        self.assertEqual(parsed.urls.count("playground/"), 1,
+                         "Published Playground must have exactly one direct homepage entry")
         self.assertIn("https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md",
-                      parsed.urls, "A useful Playground guide must remain clickable before deployment")
+                      parsed.urls, "Keep the Playground guide available alongside the launch link")
         self.assertEqual(html.count(stager.REVISION_MARKER), 1)
         self.assertIn('<link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">', html)
         self.assertNotIn("noindex", html.lower())

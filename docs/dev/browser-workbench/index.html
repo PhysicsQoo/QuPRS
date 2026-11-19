@@ -900,7 +900,8 @@
 
 
 <h1 id="browser-playground">Browser Playground</h1>
-<p>The optional QuPRS Browser Playground is designed to compare two supported unitary OpenQASM circuits without installing Python or Rust. <strong>The online application has not yet completed its independent GitHub Pages deployment.</strong> Its intended address is <code>https://physicsqoo.github.io/QuPRS/playground/</code>; this is shown as text, not as a live link, until that published subtree is verified. In the meantime, see the <a href="https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md">Browser Playground build and usage guide</a>.</p>
+<p>The optional QuPRS Browser Playground compares supported unitary OpenQASM circuits without installing Python or Rust. Its public entry point is <a href="https://physicsqoo.github.io/QuPRS/playground/">Browser Playground</a>. The stable publication policy uses immutable versioned links such as <code>/playground/v0.17.0/</code> and keeps the separately validated development preview at <code>/playground/dev/</code>. The default URL is promoted to the latest stable only after a signed release, browser/native validation and live asset checks; consult <code>/playground/stable-release.json</code> and <code>/playground/versions.json</code> to distinguish verified stable publication from the initial dev-backed route.</p>
+<p>See the <a href="https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/browser-workbench.md">Browser Playground build and deployment guide</a> for exact-source checks and availability requirements.</p>
 <h2 id="how-it-works">How it works</h2>
 <p>The application downloads static HTML, JavaScript and WebAssembly (WASM) assets from GitHub Pages. The verification itself runs <strong>locally on the user's CPU</strong>:</p>
 <ol>

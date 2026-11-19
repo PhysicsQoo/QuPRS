@@ -1,6 +1,9 @@
 name: Website Publish
 
 # Shared manual publication control plane for the root homepage and Browser Playground.
+# This workflow does not request a deployment Environment from dev/main. It
+# updates only the existing gh-pages source, then requests and verifies the
+# legacy Pages build. Existing github-pages Environment rules are unchanged.
 # Documentation stable/dev and PR-preview workflows retain their independent
 # admission policies and keep the shared gh-pages serialization lock.
 on:
@@ -51,7 +54,7 @@ jobs:
       contents: read
 
   policy:
-    name: Verify manually approved source-publishing policy
+    name: Verify explicit manual source-publishing policy
     if: ${{ inputs.publish == true }}
     runs-on: ubuntu-latest
     permissions:
@@ -59,24 +62,25 @@ jobs:
     timeout-minutes: 3
     env:
       TARGET: ${{ inputs.target }}
-      READY: ${{ vars.QUPRS_SITE_PUBLISHER_READY }}
     steps:
-      - name: Reject unapproved source branch or unconfigured environment
+      - name: Require explicit manual dispatch on an allowed source branch
         run: |
           set -euo pipefail
+          # Reusable callers inherit the triggering event. Only a maintainer's
+          # deliberate workflow_dispatch may publish; PR/push events cannot.
+          if [[ "$GITHUB_EVENT_NAME" != 'workflow_dispatch' ]]; then
+            echo "::error::Publication requires workflow_dispatch"
+            exit 1
+          fi
           test "$GITHUB_REF" = 'refs/heads/dev' || test "$GITHUB_REF" = 'refs/heads/main'
           case "$TARGET" in
             playground|homepage) ;;
             *) echo "::error::Unexpected publication target"; exit 1 ;;
           esac
-          if [[ "$READY" != 'true' ]]; then
-            echo "::error::Configure protected site-publisher environment first, then set QUPRS_SITE_PUBLISHER_READY=true"
-            exit 1
-          fi
-          echo "Source-publisher environment admission preflight passed."
+          echo "Manual source-branch publication policy passed."
 
   publish:
-    name: Publish isolated, reviewed Pages content
+    name: Publish isolated, validated Pages content
     needs: [browser-validation, homepage-validation, policy]
     if: >-
       ${{ always() && !cancelled() && inputs.publish == true &&
@@ -87,7 +91,6 @@ jobs:
             needs.browser-validation.result == 'skipped')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    environment: site-publisher
     concurrency:
       group: quprs-gh-pages-publish
       cancel-in-progress: false

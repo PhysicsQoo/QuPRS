@@ -1,5 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawnSync}=require('node:child_process');const {open}=require('./harness.cjs');
+const {checkCatalog}=require('./catalog.cjs');
 const out=process.env.QUWEB_QA_OUT||'web/test-results';fs.mkdirSync(out,{recursive:true});
 const q=(g,n=1)=>`OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[${n}];\n${g.replaceAll(';',';\n')}`;
 const requests=[
@@ -15,6 +16,7 @@ function native(request){
  assert.equal(r.status,0,r.stderr||r.stdout);const v=JSON.parse(r.stdout);assert(!v.error,v.error);return v;
 }
 (async()=>{
+ const catalog=await checkCatalog();
  const h=await open();const results=[];let calls=0;
  try{
   const errors=[];h.page.on('pageerror',e=>errors.push(String(e)));
@@ -56,7 +58,68 @@ function native(request){
    if(id==='T'&&mode==='wmc')assert(Math.abs(wd-Math.sin(Math.PI/8))<1e-8,`Projective distance must match native threshold metric: ${wd}`);
    results.push({id,mode,strategy,native:n,wasm:w});
   }
+  // Every published example must be clickable, source-correct, executable and
+  // native/WASM-consistent. The independent matrix oracle runs before these.
+  await h.page.locator('.examples summary').click();
+  // One source-controlled catalog feeds accessible search/category navigation.
+  await h.page.locator('#exampleCategory').selectOption('different');
+  assert(await h.page.locator('[data-example-id="x-different"]').isVisible());
+  assert(!(await h.page.locator('[data-example-id="identity"]').isVisible()));
+  await h.page.locator('#exampleSearch').fill('Pauli-X');
+  const stateBeforeSearch=await h.page.locator('#state').textContent();
+  await h.page.locator('#exampleSearch').press('Enter');
+  assert.equal(await h.page.locator('#state').textContent(),stateBeforeSearch,
+    'Enter in example search must not submit a computation');
+  assert(await h.page.locator('[data-example-id="x-different"]').isVisible());
+  assert(!(await h.page.locator('[data-example-id="t-different"]').isVisible()));
+  await h.page.locator('#exampleSearch').fill('nonexistent gate description');
+  assert(await h.page.locator('#exampleEmpty').isVisible());
+  await h.page.locator('#resetExample').click();
+  assert.equal(await h.page.locator('#exampleCategory').inputValue(),'all');
+  assert.equal(await h.page.locator('#exampleSearch').inputValue(),'');
+  assert(await h.page.locator('[data-example-id="identity"]').isVisible());
+  assert.equal(await h.page.getByRole('textbox',{name:'Circuit A OpenQASM'}).count(),1);
+  assert.equal(await h.page.getByRole('textbox',{name:'Circuit B OpenQASM'}).count(),1);
+  for(const example of catalog.examples){
+    await h.page.locator('[data-example-id="'+example.id+'"]').click();
+    assert.equal(await h.page.locator('#left').inputValue(),example.circuit1);
+    assert.equal(await h.page.locator('#right').inputValue(),example.circuit2);
+    const req={circuit1:example.circuit1,circuit2:example.circuit2,
+      mode:example.mode,strategy:example.strategy,
+      distance_tolerance:example.distance_tolerance,rr_tolerance:example.rr_tolerance};
+    const n=native(req),w=await h.run(req);
+    assert(!w.error,example.id+': '+w.error);
+    assert.equal(w.report.status,n.report.status,example.id+': native/WASM status differs');
+    assert.equal(w.report.qubits,example.qubits,example.id+': qubit count');
+    if(example.expected==='different')
+      assert.equal(w.report.status,'not_equivalent',example.id+': expected distinct unitary');
+    else assert(['equivalent','equivalent*'].includes(w.report.status),
+      example.id+': expected unitary equivalence up to global phase; got '+w.report.status);
+    results.push({id:'gallery/'+example.id,native:n,wasm:w});
+  }
   assert(calls>=8,'Actual MPFR weighted counting was not exercised');
+  // Rejected browser inputs do not launch workers or create a report.
+  await h.page.locator('[data-example-id="identity"]').click();
+  await h.page.locator('#left').fill(' ');
+  await h.page.locator('#run').click();
+  assert(await h.page.locator('#inputError').isVisible());
+  assert.equal(await h.page.locator('#left').getAttribute('aria-invalid'),'true');
+  assert(await h.page.locator('#download').isDisabled());
+  await h.page.locator('#resetExample').click();
+  assert(await h.page.locator('#inputError').isHidden());
+  await h.page.locator('#epsilon').fill('-0.1');
+  await h.page.locator('#run').click();
+  assert((await h.page.locator('#inputError').textContent()).includes('0 to 1'));
+  await h.page.locator('#resetExample').click();
+  await h.page.locator('#advanced summary').click();
+  await h.page.locator('#rr').fill('-1');
+  await h.page.locator('#run').click();
+  assert((await h.page.locator('#inputError').textContent()).includes('non-negative'));
+  assert(await h.page.locator('#advanced').evaluate(e=>e.open));
+  await h.page.locator('#resetExample').click();
+  assert(await h.page.locator('#inputError').isHidden());
+  // Return to a one-qubit pair for the existing upload/run/download UI checks.
+  await h.page.locator('[data-example-id="identity"]').click();
   // Exercise both sides of a genuine WMC distance-tolerance boundary.
   const thresholdOutcomes=[];
   for(const epsilon of [0.37,0.40]){

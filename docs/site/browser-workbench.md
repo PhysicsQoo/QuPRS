@@ -1,6 +1,8 @@
 # Browser Playground
 
-The optional QuPRS Browser Playground is designed to compare two supported unitary OpenQASM circuits without installing Python or Rust. **The online application has not yet completed its independent GitHub Pages deployment.** Its intended address is `https://physicsqoo.github.io/QuPRS/playground/`; this is shown as text, not as a live link, until that published subtree is verified. In the meantime, see the [Browser Playground build and usage guide](https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md).
+The optional QuPRS Browser Playground compares supported unitary OpenQASM circuits without installing Python or Rust. Its public entry point is [Browser Playground](https://physicsqoo.github.io/QuPRS/playground/). The stable publication policy uses immutable versioned links such as `/playground/v0.17.0/` and keeps the separately validated development preview at `/playground/dev/`. The default URL is promoted to the latest stable only after a signed release, browser/native validation and live asset checks; consult `/playground/stable-release.json` and `/playground/versions.json` to distinguish verified stable publication from the initial dev-backed route.
+
+See the [Browser Playground build and deployment guide](https://github.com/PhysicsQoo/QuPRS/blob/dev/docs/browser-workbench.md) for exact-source checks and availability requirements.
 
 ## How it works
 

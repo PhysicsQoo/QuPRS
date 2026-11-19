@@ -58,6 +58,10 @@ class StageVersionedTests(unittest.TestCase):
         stage(self.site, self.pages, "snapshot", "v0.17.0", SHA1)
         self.assertFalse((self.pages / "playground/index.html").exists())
         stage(self.site, self.pages, "promote", "v0.17.0", SHA1)
+        redirect = (self.pages / "playground/index.html").read_text()
+        self.assertIn('href="./v0.17.0/"', redirect)
+        self.assertFalse((self.pages / "playground/app.js").exists(),
+                         "Stable root should not expose cacheable unversioned JS")
         self.commit()
         self.make_site(SHA2, "v2")
         stage(self.site, self.pages, "snapshot", "v0.18.0", SHA2)
@@ -73,6 +77,9 @@ class StageVersionedTests(unittest.TestCase):
         manifest = json.loads((self.pages / "playground/versions.json").read_text())
         self.assertEqual(manifest["stable"], "v0.18.0")
         self.assertEqual([v["version"] for v in manifest["versions"]], ["v0.18.0", "v0.17.0"])
+        self.assertTrue(all(len(v["asset_sha256"]) == 64 for v in manifest["versions"]))
+        self.assertIn('href="./v0.18.0/"',
+                      (self.pages / "playground/index.html").read_text())
         for name, before in self.original.items():
             self.assertEqual((self.pages / name).read_bytes(), before)
 

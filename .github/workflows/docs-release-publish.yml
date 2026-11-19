@@ -436,3 +436,19 @@ jobs:
           fi
           echo "Public immutable docs ($TAG) and stable alias verified"
           echo "Live docs: $base/$TAG/ ; stable: $base/stable/" >> "$GITHUB_STEP_SUMMARY"
+
+  browser-stable:
+    name: Publish signed stable Browser Playground
+    needs: admission
+    if: >-
+      ${{ needs.admission.result == 'success' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+    uses: ./.github/workflows/website-publish.yml
+    with:
+      target: playground-stable
+      publish: true
+      release_tag: ${{ needs.admission.outputs.release_tag }}
+    permissions:
+      contents: write
+      actions: read
+      pages: write

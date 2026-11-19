@@ -107,6 +107,7 @@ function native(request){
   await h.page.locator('#run').click();
   assert((await h.page.locator('#inputError').textContent()).includes('0 to 1'));
   await h.page.locator('#resetExample').click();
+  await h.page.locator('#advanced summary').click();
   await h.page.locator('#rr').fill('-1');
   await h.page.locator('#run').click();
   assert((await h.page.locator('#inputError').textContent()).includes('non-negative'));

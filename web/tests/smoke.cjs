@@ -79,6 +79,8 @@ function native(request){
     results.push({id:'gallery/'+example.id,native:n,wasm:w});
   }
   assert(calls>=8,'Actual MPFR weighted counting was not exercised');
+  // Return to a one-qubit pair for the existing upload/run/download UI checks.
+  await h.page.locator('[data-example-id="identity"]').click();
   // Exercise both sides of a genuine WMC distance-tolerance boundary.
   const thresholdOutcomes=[];
   for(const epsilon of [0.37,0.40]){

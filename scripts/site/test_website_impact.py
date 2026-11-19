@@ -60,6 +60,26 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertEqual(selected(".github/workflows/website-publish.yml"), set(routing.ROUTES))
         self.assertEqual(selected("scripts/site/website-impact.py"), set(routing.ROUTES))
 
+    def test_existing_pages_branch_publish_policy(self) -> None:
+        # Keep publishing on the existing Pages branch without broadening
+        # the configured github-pages Environment source restrictions.
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/website-publish.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("environment: site-publisher", workflow)
+        self.assertNotIn("environment: github-pages", workflow)
+        self.assertNotIn("QUPRS_SITE_PUBLISHER_READY", workflow)
+        self.assertIn("GITHUB_EVENT_NAME", workflow)
+        self.assertIn("workflow_dispatch", workflow)
+        self.assertIn("refs/heads/dev", workflow)
+        self.assertIn("refs/heads/main", workflow)
+        self.assertIn("group: quprs-gh-pages-publish", workflow)
+        self.assertIn("git -C pages push origin HEAD:gh-pages", workflow)
+        self.assertIn('gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"', workflow)
+        self.assertIn("source-sha.txt", workflow)
+        self.assertIn("sha256sum", workflow)
+
     def test_no_changes_or_unsafe_paths_do_not_bypass(self) -> None:
         for paths in ([], ["../docs/site/index.md"], ["/absolute"], ["docs\\site\\index.md"]):
             with self.subTest(paths=paths), self.assertRaises(ValueError):

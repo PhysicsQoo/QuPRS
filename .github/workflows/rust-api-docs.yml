@@ -545,6 +545,9 @@ jobs:
           fi
           test "$(git show gh-pages:docs/dev/source-sha.txt | tr -d '\r\n')" = "${{ github.sha }}"
           git cat-file -e gh-pages:docs/dev/rust-api/quprs/index.html
+          git cat-file -e gh-pages:docs/dev/rust-api/quprs-versions.js
+          git show gh-pages:docs/dev/rust-api/quprs/index.html |
+            grep -F 'data-quprs-version-selector="true"' > /dev/null
           test "$(git rev-parse gh-pages:index.html)" = "$before_root"
           test "$(git rev-parse gh-pages:pr-preview 2>/dev/null || printf absent)" = "$before_preview"
           git worktree add --detach "$RUNNER_TEMP/versioned-docs" gh-pages
@@ -581,6 +584,11 @@ jobs:
             exit 1
           fi
           git cat-file -e "$remote:docs/dev/rust-api/quprs/index.html"
+          git cat-file -e "$remote:docs/dev/rust-api/quprs-versions.js"
+          git show "$remote:docs/dev/rust-api/quprs/index.html" |
+            grep -F 'data-quprs-version-selector="true"' > /dev/null
+          git show "$remote:docs/dev/rust-api/quprs-versions.js" |
+            cmp - "$RUNNER_TEMP/versioned-docs/docs/dev/rust-api/quprs-versions.js"
           for page in index.html rust-api/quprs/index.html; do
             git show "$remote:docs/dev/$page" |
               cmp - "$RUNNER_TEMP/versioned-docs/docs/dev/$page"

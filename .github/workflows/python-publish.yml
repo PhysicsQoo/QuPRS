@@ -401,10 +401,54 @@ jobs:
             --dist-dir dist --upload-dir pypi-to-upload
 
       - name: Publish only missing, preverified Python artifacts
+        id: pypi_upload_primary
         if: steps.pypi_plan.outputs.publish_required == 'true'
+        continue-on-error: true
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: pypi-to-upload/
+          attestations: true
+
+      # A transient Sigstore/Rekor 5xx may interrupt attestation creation
+      # before upload. Retry at most once, without rebuilding any archives.
+      # If any archives appeared during the failed attempt, fail closed:
+      # their published provenance needs independent inspection, not a blind
+      # reupload or a hash-only acceptance of possibly missing attestations.
+      - name: Reconcile the identical missing set before one PyPI retry
+        if: steps.pypi_upload_primary.outcome == 'failure'
+        id: pypi_retry_plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 20
+          python3 scripts/reconcile_pypi_artifacts.py plan \
+            --version "${GITHUB_REF_NAME#v}" \
+            --dist-dir dist --upload-dir pypi-to-upload-retry
+          diff -u \
+            <(find pypi-to-upload -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort) \
+            <(find pypi-to-upload-retry -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+
+      - name: Retry missing Python artifacts once with mandatory attestations
+        id: pypi_upload_retry
+        if: steps.pypi_retry_plan.outputs.publish_required == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi-to-upload-retry/
+          attestations: true
+
+      - name: Require a successful attested upload or previously verified inventory
+        if: always()
+        env:
+          PUBLISH_REQUIRED: ${{ steps.pypi_plan.outputs.publish_required }}
+          FIRST_OUTCOME: ${{ steps.pypi_upload_primary.outcome }}
+          RETRY_OUTCOME: ${{ steps.pypi_upload_retry.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISH_REQUIRED" == true && "$FIRST_OUTCOME" != success && "$RETRY_OUTCOME" != success ]]; then
+            echo "::error::No successful attested PyPI publish; investigate provenance before recovery"
+            exit 1
+          fi
 
       - name: Verify all PyPI archive hashes after publication
         shell: bash

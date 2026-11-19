@@ -180,6 +180,8 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     assert.match(python, /pypa\/gh-action-pypi-publish@release\/v1/);
     assert.match(python, /scripts\/reconcile_pypi_artifacts\.py plan/,
       "PyPI must compare existing files before irreversible upload");
+    assert.equal((python.match(/python3 scripts\/reconcile_pypi_artifacts\.py plan/g) || []).length, 2,
+      "Both original and retry upload attempts must independently reconcile immutable assets");
     assert.match(python, /scripts\/reconcile_pypi_artifacts\.py verify/,
       "PyPI must verify all registry archive hashes after upload");
     assert.match(python, /if: steps\.pypi_plan\.outputs\.publish_required == 'true'/,

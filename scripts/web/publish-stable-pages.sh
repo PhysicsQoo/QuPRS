@@ -92,15 +92,26 @@ rollback() {
   local failure=$?
   trap - ERR
   if [[ "$promoted" == true ]]; then
-    echo "::error::Stable promotion failed; restoring previous alias" >&2
-    if git -C "$pages" restore --source="$before_alias" --staged --worktree -- playground &&
-       ! git -C "$pages" diff --cached --quiet; then
-      git -C "$pages" commit -m "site: restore prior Playground stable alias"
-      git -C "$pages" push origin HEAD:gh-pages
-      build_pages || true
-      if [[ -n "$previous_sha" ]]; then
-        echo "Prior source SHA: $previous_sha" >> "$GITHUB_STEP_SUMMARY"
+    # Never roll back somebody else's newer gh-pages revision. The publication
+    # lock serializes cooperating workflows; this guard also protects against
+    # unrelated out-of-band branch edits or a failed push.
+    local local_sha remote_sha
+    local_sha="$(git -C "$pages" rev-parse HEAD)"
+    remote_sha="$(git -C "$pages" ls-remote origin refs/heads/gh-pages | cut -f1)" || remote_sha=""
+    if [[ -n "$remote_sha" && "$remote_sha" == "$local_sha" &&
+          "$local_sha" != "$before_alias" ]]; then
+      echo "::error::Stable promotion failed; restoring prior alias on gh-pages" >&2
+      if git -C "$pages" restore --source="$before_alias" --staged --worktree -- playground &&
+         ! git -C "$pages" diff --cached --quiet; then
+        git -C "$pages" commit -m "site: restore prior Playground stable alias"
+        git -C "$pages" push origin HEAD:gh-pages || true
+        build_pages || true
+        if [[ -n "$previous_sha" ]]; then
+          echo "Prior source SHA: $previous_sha" >> "$GITHUB_STEP_SUMMARY"
+        fi
       fi
+    else
+      echo "::error::Could not safely roll back: publication HEAD differs from live gh-pages" >&2
     fi
   fi
   exit "$failure"
@@ -110,8 +121,10 @@ trap rollback ERR
 python3 source/scripts/web/stage-versioned-pages.py promote \
   "$site" "$pages" --tag "$tag" --sha "$source_sha"
 if ! git -C "$pages" diff --cached --quiet; then
-  commit_push "site: promote validated Playground $tag"
+  # Arm rollback before commit/push. A push may succeed even when a subsequent
+  # confirmation API call fails; the remote equality guard prevents false undo.
   promoted=true
+  commit_push "site: promote validated Playground $tag"
   build_pages
 fi
 current="$(python3 - "$pages/playground/stable-release.json" <<'PY'

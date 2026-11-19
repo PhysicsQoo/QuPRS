@@ -19,10 +19,9 @@ class StageTests(unittest.TestCase):
  def test_vendored_provenance_whitespace_exemption(self):
   # Git's strict diff --check would reject pre-existing whitespace in
   # upstream notices/patches; publishing must keep their original bytes.
-  import shutil
   for name,data in {
-   'NOTICE.md':b'Upstream license line  \\n',
-   'engines/sources/GPMC-browser.patch':b'+ \\n',
+   'NOTICE.md':b'Upstream license line  \n',
+   'engines/sources/GPMC-browser.patch':b'+ \n',
   }.items():
    p=self.site/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
   module.stage(self.site,self.pages)

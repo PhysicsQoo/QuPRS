@@ -17,10 +17,14 @@ import time
 import psutil
 
 CASES = (
-    ("single_no_cov", ["-n", "0"]),
-    ("single_cov", ["-n", "0", "--cov=src/QuPRS", "--cov-report="]),
-    ("xdist4_no_cov", ["-n", "4"]),
-    ("xdist4_cov", ["-n", "4", "--cov=src/QuPRS", "--cov-report="]),
+    ("single_no_cov", ["-n", "0"], False),
+    ("single_cov", ["-n", "0", "--cov=src/QuPRS", "--cov-report="], False),
+    ("xdist4_no_cov", ["-n", "4"], False),
+    ("xdist4_cov", ["-n", "4", "--cov=src/QuPRS", "--cov-report="], False),
+    # Broader but still bounded: reproduce contention across the full
+    # fault-injection module, then its adjacent complex-weight fixtures.
+    ("xdist_auto_failure_matrix_cov", ["-n", "auto", "--cov=src/QuPRS", "--cov-report="], True),
+    ("xdist_auto_adjacent_cnf_cov", ["-n", "auto", "--cov=src/QuPRS", "--cov-report="], True),
 )
 
 
@@ -82,15 +86,23 @@ def main():
         parser.error("budget outside safe range")
     opt.output.mkdir(parents=True, exist_ok=True)
     reports = []
-    for name, flags in CASES:
+    for name, flags, broader in CASES:
+        selection = (
+            ["test/test_solver_failure_matrix.py",
+             "test/test_v0140_exact_printed_cnf.py"]
+            if name == "xdist_auto_adjacent_cnf_cov"
+            else ["test/test_solver_failure_matrix.py"]
+            if broader
+            else ["test/test_solver_failure_matrix.py::"
+                  "test_public_wmc_solver_failure_is_never_inequivalence"]
+        )
         cmd = [
-            sys.executable, "-m", "pytest",
-            "test/test_solver_failure_matrix.py::"
-            "test_public_wmc_solver_failure_is_never_inequivalence",
-            "-k", "python and ganak and timeout",
+            sys.executable, "-m", "pytest", *selection,
             "-v", "-ra", "-o", "faulthandler_timeout=45",
             "--disable-warnings", *flags,
         ]
+        if not broader:
+            cmd.extend(["-k", "python and ganak and timeout"])
         start = time.monotonic()
         with (opt.output / (name + ".log")).open("w", encoding="utf-8") as stream:
             proc = subprocess.Popen(

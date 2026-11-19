@@ -1,13 +1,26 @@
 name: Browser Playground Publish
 
-# Backward-compatible manual entry. The deployment implementation and approval
-# logic now live in Website Publish; remove this adapter only after the new
-# workflow is registered on the repository default branch.
+# Trusted dev-push trigger and optional manual recovery entry. The shared
+# Website Publish workflow owns all browser validation and publication logic.
 on:
+  # Auto-publish validated Browser WASM after a protected dev merge.
+  # PR checks remain read-only in Website CI; no new Environment is used.
+  push:
+    branches: [dev]
+    paths:
+      - 'rust/quprs/**'
+      - 'rust/web/**'
+      - 'rust/Cargo.toml'
+      - 'rust/Cargo.lock'
+      - 'web/**'
+      - 'scripts/web/**'
+      - '.github/workflows/browser-workbench.yml'
+      - '.github/workflows/browser-workbench-publish.yml'
+      - '.github/workflows/website-publish.yml'
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish after validation (manual maintainer action)
+        description: Optional manual recovery publish (dev or main only)
         required: true
         type: boolean
         default: false
@@ -20,7 +33,7 @@ jobs:
     uses: ./.github/workflows/website-publish.yml
     with:
       target: playground
-      publish: ${{ inputs.publish }}
+      publish: ${{ github.event_name == 'push' || inputs.publish }}
     permissions:
       contents: write
       actions: read

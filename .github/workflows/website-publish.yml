@@ -1,7 +1,7 @@
 name: Website Publish
 
-# Shared manual publication control plane for the root homepage and Browser Playground.
-# This workflow does not request a deployment Environment from dev/main. It
+# Reusable automatic (trusted dev push) and manual recovery publication control.
+# No source job requests a deployment Environment from dev/main. It
 # updates only the existing gh-pages source, then requests and verifies the
 # legacy Pages build. Existing github-pages Environment rules are unchanged.
 # Documentation stable/dev and PR-preview workflows retain their independent
@@ -26,7 +26,7 @@ on:
           - homepage
         default: playground
       publish:
-        description: Publish only after source validation and approval (false = validate only)
+        description: Manual recovery only (automatic dev-push publication needs no input)
         required: true
         type: boolean
         default: false
@@ -54,7 +54,7 @@ jobs:
       contents: read
 
   policy:
-    name: Verify explicit manual source-publishing policy
+    name: Verify trusted source-publishing policy
     if: ${{ inputs.publish == true }}
     runs-on: ubuntu-latest
     permissions:
@@ -63,21 +63,34 @@ jobs:
     env:
       TARGET: ${{ inputs.target }}
     steps:
-      - name: Require explicit manual dispatch on an allowed source branch
+      - name: Require protected dev push or explicit maintainer dispatch
         run: |
           set -euo pipefail
-          # Reusable callers inherit the triggering event. Only a maintainer's
-          # deliberate workflow_dispatch may publish; PR/push events cannot.
-          if [[ "$GITHUB_EVENT_NAME" != 'workflow_dispatch' ]]; then
-            echo "::error::Publication requires workflow_dispatch"
-            exit 1
-          fi
-          test "$GITHUB_REF" = 'refs/heads/dev' || test "$GITHUB_REF" = 'refs/heads/main'
+          # Reusable workflows inherit the original triggering event and ref.
+          # Never publish from PR, fork, untrusted branch, or arbitrary caller.
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              test "$GITHUB_REF" = 'refs/heads/dev' || {
+                echo "::error::Automatic publication is allowed only from dev"
+                exit 1
+              }
+              ;;
+            workflow_dispatch)
+              if [[ "$GITHUB_REF" != 'refs/heads/dev' && "$GITHUB_REF" != 'refs/heads/main' ]]; then
+                echo "::error::Manual recovery requires dev or main"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Untrusted website publication event"
+              exit 1
+              ;;
+          esac
           case "$TARGET" in
             playground|homepage) ;;
             *) echo "::error::Unexpected publication target"; exit 1 ;;
           esac
-          echo "Manual source-branch publication policy passed."
+          echo "Trusted source-branch publication policy passed."
 
   publish:
     name: Publish isolated, validated Pages content
@@ -130,6 +143,19 @@ jobs:
           assert p.get("source")=={"branch":"gh-pages","path":"/"}, "Unexpected Pages source"
           PYCODE
           echo "PAGES_BASE=https://physicsqoo.github.io/QuPRS" >> "$GITHUB_ENV"
+
+      - name: Reject obsolete source after concurrent dev merges
+        run: |
+          set -euo pipefail
+          # Run under the shared Pages publication lock, immediately before
+          # staging, so an older long-running WASM build cannot overwrite a
+          # newer dev version that has already merged.
+          branch="${GITHUB_REF#refs/heads/}"
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha)"
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo "::error::Validated source $GITHUB_SHA is stale; $branch is now $latest"
+            exit 1
+          fi
 
       - name: Stage only the selected Pages subtree
         run: |

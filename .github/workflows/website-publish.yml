@@ -187,7 +187,21 @@ jobs:
           ),f"Unrelated Pages files staged: {paths}"
           print(f"Isolated staged paths: {len(paths)}")
           PYCODE
-          git -C pages diff --cached --check
+          if [[ "$TARGET" == playground ]]; then
+            # These two files are unmodified third-party source notices/patches.
+            # Preserve their exact bytes: rewriting them for whitespace style
+            # would change archived upstream source and its provenance.
+            # All other staged files retain Git's strict whitespace gate.
+            for file in NOTICE.md engines/sources/GPMC-browser.patch; do
+              test -f "browser-site/$file"
+              cmp "browser-site/$file" "pages/playground/$file"
+            done
+            git -C pages diff --cached --check -- . \
+              ':(exclude)playground/NOTICE.md' \
+              ':(exclude)playground/engines/sources/GPMC-browser.patch'
+          else
+            git -C pages diff --cached --check
+          fi
           git -C pages config user.name 'github-actions[bot]'
           git -C pages config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if ! git -C pages diff --cached --quiet; then

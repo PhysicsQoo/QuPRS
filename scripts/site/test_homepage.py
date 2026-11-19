@@ -44,7 +44,9 @@ class HomepageTests(unittest.TestCase):
         self.assertFalse(any("pr-preview/" in url for url in parsed.urls),
                          "Internal PR previews must not appear on the public homepage")
         self.assertEqual(parsed.urls.count("playground/"), 1,
-                         "Published Playground must have exactly one direct homepage entry")
+                         "Browser Playground card must have exactly one direct link")
+        self.assertIn('<h3><a href="playground/">Browser Playground</a></h3>', html,
+                      "The Browser Playground card title itself must be clickable")
         self.assertIn("https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md",
                       parsed.urls, "Keep the Playground guide available alongside the launch link")
         self.assertEqual(html.count(stager.REVISION_MARKER), 1)

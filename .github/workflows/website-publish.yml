@@ -187,7 +187,22 @@ jobs:
           ),f"Unrelated Pages files staged: {paths}"
           print(f"Isolated staged paths: {len(paths)}")
           PYCODE
-          git -C pages diff --cached --check
+          # Check only first-party browser assets. NOTICE.md and the archived
+          # upstream GPMC source patch are reproduced byte-for-byte and can
+          # legitimately contain upstream whitespace that git --check flags.
+          # The staged-path whitelist above still rejects every unrelated file.
+          if [[ "$TARGET" == playground ]]; then
+            git -C pages diff --cached --check -- \
+              playground/index.html \
+              playground/app.js \
+              playground/worker.js \
+              playground/style.css \
+              playground/engines/host.js \
+              playground/engines/output.js \
+              playground/engines/runner.js
+          else
+            git -C pages diff --cached --check -- index.html
+          fi
           git -C pages config user.name 'github-actions[bot]'
           git -C pages config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if ! git -C pages diff --cached --quiet; then

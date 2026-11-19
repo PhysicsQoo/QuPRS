@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish after validated source and protected approval
+        description: Publish after validation (manual maintainer action)
         required: true
         type: boolean
         default: false

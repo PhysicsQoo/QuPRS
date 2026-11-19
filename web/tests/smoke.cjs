@@ -66,6 +66,10 @@ function native(request){
   assert(await h.page.locator('[data-example-id="x-different"]').isVisible());
   assert(!(await h.page.locator('[data-example-id="identity"]').isVisible()));
   await h.page.locator('#exampleSearch').fill('Pauli-X');
+  const stateBeforeSearch=await h.page.locator('#state').textContent();
+  await h.page.locator('#exampleSearch').press('Enter');
+  assert.equal(await h.page.locator('#state').textContent(),stateBeforeSearch,
+    'Enter in example search must not submit a computation');
   assert(await h.page.locator('[data-example-id="x-different"]').isVisible());
   assert(!(await h.page.locator('[data-example-id="t-different"]').isVisible()));
   await h.page.locator('#exampleSearch').fill('nonexistent gate description');

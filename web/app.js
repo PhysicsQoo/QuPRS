@@ -108,6 +108,10 @@ for(const example of EXAMPLES){
   groups.get(example.category).append(button);
 }
 $('exampleSearch').addEventListener('input',filterExamples);
+$('exampleSearch').addEventListener('keydown',event=>{
+  // Search should never submit the comparison form or start a solver worker.
+  if(event.key==='Enter')event.preventDefault();
+});
 $('exampleCategory').addEventListener('change',filterExamples);
 $('resetExample').addEventListener('click',()=>{
   $('exampleCategory').value='all';

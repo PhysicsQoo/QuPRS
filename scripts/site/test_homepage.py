@@ -44,6 +44,8 @@ class HomepageTests(unittest.TestCase):
         self.assertFalse(any("pr-preview/" in url for url in parsed.urls),
                          "Internal PR previews must not appear on the public homepage")
         self.assertNotIn("playground/", parsed.urls, "Unpublished Playground must not be a live link")
+        self.assertIn("https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md",
+                      parsed.urls, "A useful Playground guide must remain clickable before deployment")
         self.assertEqual(html.count(stager.REVISION_MARKER), 1)
         self.assertIn('<link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">', html)
         self.assertNotIn("noindex", html.lower())

@@ -13,6 +13,13 @@ test -n "$PAGES_BASE"
 [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 [[ "$source_sha" =~ ^[a-f0-9]{40}$ ]]
 test "$(tr -d '\r\n' < "$site/source-sha.txt")" = "$source_sha"
+# Repeat signed-tag verification immediately before the public mutation, not
+# just prior to the potentially expensive native/WASM/Chromium build.
+test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.type)" = tag
+tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)"
+test "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object" --jq .object.sha)" = "$source_sha"
+test "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object" --jq .verification.verified)" = true
+test "$(gh release view "$tag" --json isDraft,isPrerelease --jq '[.isDraft,.isPrerelease] | tostring')" = '[false,false]'
 
 git -C "$pages" config user.name 'github-actions[bot]'
 git -C "$pages" config user.email '41898282+github-actions[bot]@users.noreply.github.com'

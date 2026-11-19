@@ -45,6 +45,7 @@ on:
       - '.github/workflows/site-homepage-publish.yml'
       - '.github/workflows/browser-workbench.yml'
       - '.github/workflows/browser-workbench-publish.yml'
+      - '.github/workflows/website-publish.yml'
       - '.github/workflows/docs-versioning-poc.yml'
       - '.github/workflows/rust-api-docs.yml'
       - '.github/workflows/docs-check.yml'

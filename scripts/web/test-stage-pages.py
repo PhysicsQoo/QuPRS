@@ -16,6 +16,30 @@ class StageTests(unittest.TestCase):
   for name,data in old.items():self.assertEqual((self.pages/name).read_bytes(),data)
   (self.site/'extra.txt').write_text('new');module.stage(self.site,self.pages);self.assertTrue((self.pages/'playground/extra.txt').is_file())
   (self.site/'extra.txt').unlink();module.stage(self.site,self.pages);self.assertFalse((self.pages/'playground/extra.txt').exists())
+ def test_vendor_whitespace_is_preserved_but_first_party_checked(self):
+  # Vendor notices and pinned source patches must remain byte-identical.
+  vendor_notice='Upstream attribution with original trailing space \n'
+  vendor_patch='diff --git a/a b/a\n+ \n'
+  (self.site/'NOTICE.md').write_text(vendor_notice)
+  patch=self.site/'engines/sources/GPMC-browser.patch';patch.parent.mkdir(parents=True)
+  patch.write_text(vendor_patch)
+  (self.site/'app.js').write_text('console.log("ok");\n')
+  module.stage(self.site,self.pages)
+  self.assertEqual((self.pages/'playground/NOTICE.md').read_text(),vendor_notice)
+  self.assertEqual((self.pages/'playground/engines/sources/GPMC-browser.patch').read_text(),vendor_patch)
+  def check(*names):
+   return subprocess.run(
+    ['git','-C',str(self.pages),'diff','--cached','--check','--',*names],
+    capture_output=True,text=True,
+   )
+  self.assertNotEqual(check('playground/').returncode,0,
+                     'Global whitespace gate must reproduce the upstream fixture failure')
+  self.assertEqual(check('playground/index.html','playground/app.js').returncode,0,
+                   'First-party code must pass independent whitespace validation')
+  (self.site/'app.js').write_text('console.log("broken"); \n')
+  module.stage(self.site,self.pages)
+  self.assertNotEqual(check('playground/index.html','playground/app.js').returncode,0,
+                      'First-party whitespace errors must still fail closed')
  def test_rejects_destination_symlink(self):
   (self.pages/'playground').symlink_to(self.site,target_is_directory=True)
   with self.assertRaises(ValueError):module.stage(self.site,self.pages)

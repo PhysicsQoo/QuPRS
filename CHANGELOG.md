@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+## v0.17.0 — Browser Playground and versioned documentation (stable release candidate)
+
+This entry records the **v0.17.0 stable source candidate**, not a claim
+that the stable Git tag, registries or documentation have been published.
+The stable candidate promotes the tested v0.17.0-rc.2 implementation without
+new algorithms, public API changes, solver defaults or dependency upgrades.
+Refer to the v0.17.0-rc.1 and v0.17.0-rc.2 entries below for the underlying
+feature and deployment changes.
+
+### Included and qualified functionality
+
+- Keep the optional browser-local Rust/WASM + GPMC workbench with its
+  **restricted unitary OpenQASM 2/3 subset**, explicit numerical uncertainty,
+  cancellation, 200-second watchdog and **512 MiB per-WASM-module**
+  linear-memory limit. Browser outputs are not independently certified
+  equivalence proofs, and the limit is not total browser-process memory.
+- Retain the verified homepage link to `/playground/`, the guarded automated
+  `dev` publication path, isolated `gh-pages` updates, versioned Python/Rust
+  API documentation and native Rustdoc version navigation. Until a separately
+  qualified stable-publication workflow replaces it, the default
+  `/playground/` still tracks the **latest successfully validated dev build**,
+  not necessarily the latest stable package. Immutable per-version Playground
+  URLs and an app version selector are not promised by this release.
+- Preserve Python/Rust numerical result distinctions
+  (`Equivalent`, `Not Equivalent`, `Unknown`, `Error`), phase/tolerance
+  contracts, optional external GPMC/Ganak solver semantics and existing
+  native algorithms. No new generally certified formal-verification engine
+  or performance superiority guarantee is introduced.
+
+### Distribution and stable-release acceptance
+
+- Align the public Python version `0.17.0`, Rust workspace/standalone crate
+  version `0.17.0`, both Cargo lockfiles and the standalone Python/Rust
+  release metadata. No third-party dependency is changed.
+- Preserve CPython 3.11–3.14 on the previously qualified Linux x86-64/ARM64
+  and macOS **15+** Intel/Apple Silicon wheels, plus source distribution and
+  independently packaged Rust crate. Windows wheels, macOS 14 wheels and
+  free-threaded Python remain outside the qualified release matrix.
+- The predecessor signed `v0.17.0-rc.2` tag was published with dual-registry
+  release workflow and successfully validated installed artifacts. This is
+  historical RC2 evidence, **not a substitute for stable-candidate CI**.
+  Promote the new source only after exact-head dev CI and protected
+  `dev` → `main` Release-Ready admission, including 16 cross-platform
+  source checks, 4 wheel builds, 16 installed-wheel smokes, 2 sdist smokes,
+  standalone crate and negative policy checks.
+- Creating the stable Git tag, publishing PyPI/crates.io and promoting stable
+  documentation are **separate, gated actions**, not performed by this
+  source metadata change. Existing Pages publication environments and
+  permitted branches remain unchanged.
+
 ## v0.17.0-rc.2 — Browser Playground publication and release qualification (release candidate)
 
 This entry describes **RC2 candidate source**, not confirmation of a published

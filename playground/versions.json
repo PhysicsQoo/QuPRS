@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "stable": null,
+  "versions": [
+    {
+      "asset_sha256": "e303c5d026f9381fbcae4e26cc36b85d19ffc2dba11f099ed6ba43177d1f09d1",
+      "source_sha": "a7cf84bd3b6aa3030e212198ba26516427bb93a7",
+      "version": "v0.17.0"
+    }
+  ]
+}

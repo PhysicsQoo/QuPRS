@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/PhysicsQoo/GPMC",
+  "revision": "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0",
+  "version": "v1.0.2",
+  "arithmetic": "Original QuPRS source-phase bridge (96\u20131024-bit selected input weights) and MPFR complex counting; numeric estimate, not an end-to-end certificate",
+  "emscripten": "4.0.23",
+  "wasm_memory_max_mib": 512,
+  "cpp_stack_mib": 16,
+  "resource_clock": "worker-local elapsed wall time and linear-memory proxy; not OS CPU/RSS",
+  "sha256": {
+    "gpmc.js": "5753aa98217effe1c8857b91b44264aa47342e7ac694f42da2af96229e3e9ea6",
+    "gpmc.wasm": "4d09729f093c69899fe22b10f0f573f454d4892ba651f853b9af47b2c46b1842",
+    "sources/GPMC-browser.patch": "b3b7d6c24ee3185cb3d2832e00ac0ccfac29ae31706e86e2c64f117369d33b4a",
+    "sources/gmp-6.3.0.tar.xz": "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898",
+    "sources/gpmc-mpfr-browser-source.tar.gz": "f9edca95376bf8bccd2f5268677f3c7efc5dc30c8aa7603cfc24cd0acb4ecb67",
+    "sources/mpfr-4.2.1.tar.xz": "277807353a6726978996945af13e52829e3abd7a9a5b7fb2793894e18f1fcbb2"
+  },
+  "native_ci_sha256": "258998968ddd745ec00fc9c2c3796233762f44c47fdcf78b52dabc581262b931"
+}

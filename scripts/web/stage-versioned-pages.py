@@ -6,6 +6,7 @@ verify signed release provenance and serialize with other gh-pages writers.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -39,6 +40,18 @@ def files(directory: Path) -> dict[str, bytes]:
         if entry.is_file():
             result[entry.relative_to(directory).as_posix()] = entry.read_bytes()
     return result
+
+
+def digest_blobs(blobs: dict[str, bytes]) -> str:
+    """Hash every path and byte, not just source-sha or the entry page."""
+    digest = hashlib.sha256()
+    for path, contents in sorted(blobs.items()):
+        name = path.encode("utf-8")
+        digest.update(len(name).to_bytes(4, "big"))
+        digest.update(name)
+        digest.update(len(contents).to_bytes(8, "big"))
+        digest.update(contents)
+    return digest.hexdigest()
 
 
 def sha(directory: Path) -> str:
@@ -80,6 +93,8 @@ def load_existing(root: Path) -> tuple[dict, dict | None]:
         dest = root / item["version"]
         if not dest.is_dir() or dest.is_symlink() or sha(dest) != item["source_sha"]:
             raise ValueError("Immutable version inventory is inconsistent")
+        if digest_blobs(files(dest)) != item.get("asset_sha256"):
+            raise ValueError("Immutable version asset checksum mismatch")
     if len(tags) != len(set(tags)):
         raise ValueError("Duplicate version in manifest")
     if tags != sorted(tags, key=version_key, reverse=True):
@@ -140,7 +155,10 @@ def stage(site: Path, checkout: Path, mode: str, tag: str = "", expected_sha: st
         if mode == "snapshot" and not any(
             item["version"] == tag for item in inventory["versions"]
         ):
-            inventory["versions"].append({"version": tag, "source_sha": expected_sha})
+            inventory["versions"].append({
+                "version": tag, "source_sha": expected_sha,
+                "asset_sha256": digest_blobs(original),
+            })
         if mode == "promote" and (
             stable is None or version_key(tag) > version_key(stable["version"])
         ):
@@ -155,12 +173,16 @@ def stage(site: Path, checkout: Path, mode: str, tag: str = "", expected_sha: st
                     shutil.rmtree(child)
                 else:
                     child.unlink()
-            for child in site.iterdir():
-                dest_asset = root / child.name
-                if child.is_dir():
-                    shutil.copytree(child, dest_asset)
-                else:
-                    shutil.copy2(child, dest_asset)
+            # Keep root as a lightweight redirect to immutable versioned
+            # assets. Browsers cannot mix cached JS/WASM from different tags.
+            (root / "index.html").write_text(
+                '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+                f'<meta http-equiv="refresh" content="0;url=./{tag}/">'
+                '<title>QuPRS stable Playground</title></head><body>'
+                f'<p>Latest stable: <a href="./{tag}/">{tag}</a></p>'
+                '</body></html>\n', encoding="utf-8"
+            )
+            (root / "source-sha.txt").write_text(expected_sha + "\n", encoding="ascii")
             stable = {"version": tag, "source_sha": expected_sha}
             (root / "stable-release.json").write_text(
                 json.dumps(stable, indent=2, sort_keys=True) + "\n", encoding="utf-8"

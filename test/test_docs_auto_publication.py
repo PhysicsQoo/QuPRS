@@ -37,7 +37,7 @@ class StableDocumentationAutomationTests(unittest.TestCase):
 
     def test_publishing_is_automatic_only_on_main(self):
         src = self.source
-        publish = src.split("\n  publish:\n", 1)[1]
+        publish = src.split("\n  browser-stable:\n", 1)[1]
         head = publish.split("\n    steps:", 1)[0]
         self.assertIn("needs: [admission, build]", head)
         self.assertIn("needs.admission.outputs.should_publish == 'true'", head)

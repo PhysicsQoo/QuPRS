@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+## v0.17.2 — Documentation, Browser Playground UX and CI reliability (release candidate)
+
+This patch candidate consolidates changes since the **signed v0.17.1** release.
+It does **not** change the quantum equivalence-checking algorithms, Rust/Python
+public verifier APIs, numerical tolerance or EQ/NEQ/UNKNOWN verdict semantics,
+the solver selection contract, or supported Python/platform matrix.
+
+- Improve the homepage and Browser Playground navigation, layout, accessible
+  editor controls and persistent light/dark themes. Add a circuit A/B swap
+  control and a direct TACAS 2026 paper link. Browser examples and results
+  remain demonstrations and numerical diagnostics, not formal certificates.
+- Upgrade the documentation site to Zensical 0.1.2. Keep its native navigation
+  and version menu, without injecting a custom header. Integrate the Rustdoc
+  version selector using supported native Rustdoc HTML/CSS extension points,
+  with versioned documentation, link and browser regression checks.
+- Remove the completed, one-time stable-documentation main-push backfill.
+  Prevent repeat dev-push validation by routing Browser, Homepage and
+  documentation checks through their existing PR/reusable/publishing owners.
+  Preserve independent source-matched publication and immutable historical
+  documentation/Playground snapshots.
+- Retire the completed manual Python reduction profiling Action while
+  retaining its reproducible research sources. Enforce the reviewed
+  49-workflow inventory budget. Route policy-test-only release changes
+  through existing Dev Fast checks instead of the full package preflight.
+  Keep full source, wheel/sdist, signed release and solver acceptance gates.
+
+**Release gate:** align shared Cargo/Python version and both Cargo lockfiles;
+pass exact-head PR/Release-Ready source and installed-artifact validation,
+including Linux/macOS x86-64/ARM64 and Python 3.11–3.14; verify the signed
+annotated tag and dual-registry/GitHub Release artifacts; then validate
+independently published versioned docs, native Rustdoc and immutable
+Playground assets from the signed source. This source entry is **not**
+evidence that the tag, packages or site have already been published.
+
+
 ## v0.17.1 — Browser Playground patch release (candidate; not yet published)
 
 This release candidate extends v0.17.0 with site-only maintenance. It does

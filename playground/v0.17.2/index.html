@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Compare supported quantum circuits locally with QuPRS Rust and WebAssembly.">
+  <title>QuPRS — Browser Playground</title>
+  <script id="quprsTheme">
+    (() => {
+      const key = 'quprs-theme';
+      const root = document.documentElement;
+      const system = window.matchMedia('(prefers-color-scheme: dark)');
+      let choice;
+      try { choice = window.localStorage.getItem(key); } catch { choice = null; }
+      const saved = choice === 'light' || choice === 'dark' ? choice : null;
+      root.dataset.theme = saved || (system.matches ? 'dark' : 'light');
+
+      const updateButton = () => {
+        const button = document.getElementById('themeToggle');
+        if (!button) return;
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        button.textContent = next === 'dark' ? '☾ Dark mode' : '☀ Light mode';
+        button.setAttribute('aria-label', 'Switch to ' + next + ' mode');
+      };
+      const setup = () => {
+        const button = document.getElementById('themeToggle');
+        if (!button) return;
+        button.addEventListener('click', () => {
+          const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+          root.dataset.theme = next;
+          try { window.localStorage.setItem(key, next); } catch {}
+          updateButton();
+        });
+        updateButton();
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup, {once: true});
+      } else { setup(); }
+      system.addEventListener('change', event => {
+        let stored;
+        try { stored = window.localStorage.getItem(key); } catch { stored = null; }
+        if (stored !== 'light' && stored !== 'dark') {
+          root.dataset.theme = event.matches ? 'dark' : 'light';
+          updateButton();
+        }
+      });
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css?v=20261120-shared-theme-v1">
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to Playground</a>
+  <header class="site-header">
+    <div class="site-nav">
+      <a class="brand" href="https://physicsqoo.github.io/QuPRS/" aria-label="QuPRS homepage"><span class="brand-icon" aria-hidden="true">Q</span><span>QuPRS</span><span class="brand-separator" aria-hidden="true">/</span><span class="brand-subtitle">Playground</span></a>
+      <div class="site-nav-actions">
+        <nav class="site-nav-links" aria-label="Primary navigation">
+          <a href="https://physicsqoo.github.io/QuPRS/playground/" aria-current="page">Playground</a>
+          <a href="https://physicsqoo.github.io/QuPRS/docs/">Documentation</a>
+          <a href="https://physicsqoo.github.io/QuPRS/docs/stable/rust-api/quprs/">Rust API</a>
+          <a href="https://github.com/PhysicsQoo/QuPRS">GitHub</a>
+          <a href="https://github.com/PhysicsQoo/QuPRS/releases">Releases</a>
+        </nav>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to dark mode">☾ Dark mode</button>
+      </div>
+    </div>
+  </header>
+<main id="workspace">
+  <header class="page-header">
+    <p class="eyebrow">LOCAL QUANTUM VERIFICATION</p>
+    <h1>QuPRS Playground</h1>
+    <p class="intro">Explore quantum circuit equivalence using Rust and WebAssembly. Write or load a pair of circuits, choose a verification method and inspect the result—all locally in your browser.</p>
+    <div class="hero-tags" aria-label="Playground characteristics">
+      <span>Local computation</span><span>Rust + WASM</span><span>OpenQASM input</span>
+    </div>
+    <p class="paper"><a href="https://doi.org/10.1007/978-3-032-22749-2_21">Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting</a> · TACAS 2026 · <a href="https://github.com/PhysicsQoo/QuPRS">Source code</a></p>
+  </header>
+
+  <form id="form" novalidate>
+    <fieldset id="inputs">
+      <details class="examples panel" id="examplesPanel">
+        <summary>Browse verified circuit examples (14 pairs)</summary>
+        <p class="help">Choose an example to load both editors and its recommended settings. It will not start a computation.</p>
+        <div class="example-filters">
+          <label for="exampleSearch">Search examples
+            <input id="exampleSearch" type="search" placeholder="Gate, operation or description" autocomplete="off">
+          </label>
+          <label for="exampleCategory">Category
+            <select id="exampleCategory"><option value="all">All categories</option></select>
+          </label>
+        </div>
+        <div id="exampleButtons" class="example-groups"></div>
+        <p id="exampleEmpty" class="help" hidden>No matching examples. Try another search or category.</p>
+        <p id="exampleDescription" class="help" aria-live="polite">Select a circuit pair to load it into the editors.</p>
+        <button id="resetExample" type="button" class="subtle">Restore initial H·H = I example</button>
+      </details>
+
+      <div class="section-heading circuit-heading">
+        <div>
+          <p class="section-kicker">Step 01 · Input</p>
+          <h2 id="circuitsTitle">Circuit inputs</h2>
+          <p class="help">OpenQASM 2 is the tested example format. Measurements, reset and noise are not supported.</p>
+        </div>
+        <button id="swapCircuits" class="swap-button" type="button" aria-controls="left right" aria-label="Swap Circuit A and Circuit B"><span aria-hidden="true">⇄</span> Swap circuits</button>
+      </div>
+      <div class="circuits" aria-labelledby="circuitsTitle">
+        <section class="editor-panel" aria-labelledby="leftHeading">
+          <div class="editor-heading"><h3 id="leftHeading">Circuit A</h3><span class="pill">Left</span></div>
+          <label class="sr-only" for="left">Circuit A OpenQASM</label>
+          <textarea id="left" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="editorHelp">OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[1];
+h q[0];
+h q[0];</textarea>
+          <label class="file" for="leftFile">Upload Circuit A (.qasm or .txt)
+            <input id="leftFile" type="file" accept=".qasm,.txt">
+          </label>
+        </section>
+        <section class="editor-panel" aria-labelledby="rightHeading">
+          <div class="editor-heading"><h3 id="rightHeading">Circuit B</h3><span class="pill">Right</span></div>
+          <label class="sr-only" for="right">Circuit B OpenQASM</label>
+          <textarea id="right" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="editorHelp">OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[1];</textarea>
+          <label class="file" for="rightFile">Upload Circuit B (.qasm or .txt)
+            <input id="rightFile" type="file" accept=".qasm,.txt">
+          </label>
+        </section>
+      </div>
+      <p id="editorHelp" class="help">Both inputs are processed in this browser. Uploaded text is not sent to a verification server. Maximum upload size: 256 KiB.</p>
+
+      <section class="settings panel" aria-labelledby="settingsHeading">
+        <p class="section-kicker">Step 02 · Configure</p>
+        <h2 id="settingsHeading">Comparison settings</h2>
+        <div class="controls">
+          <label for="mode">Verification mode
+            <select id="mode">
+              <option value="hybrid">Hybrid — reduction + WMC</option>
+              <option value="wmc">Weighted model counting</option>
+              <option value="reduction">Reduction only</option>
+            </select>
+          </label>
+          <label for="epsilon">Projective distance tolerance
+            <input id="epsilon" type="number" step="any" value="1e-8" min="0" max="1" aria-describedby="distanceHelp">
+          </label>
+        </div>
+        <p id="distanceHelp" class="help">The projective Hilbert–Schmidt distance ignores global phase. A numerical value, including zero, is not an independently certified proof of exact equality.</p>
+        <details id="advanced">
+          <summary>Advanced reduction and solver settings</summary>
+          <div class="controls">
+            <label for="strategy">WMC strategy
+              <select id="strategy">
+                <option value="difference">Difference</option>
+                <option value="proportional">Proportional</option>
+                <option value="naive">Naive</option>
+                <option value="straightforward">Straightforward</option>
+              </select>
+            </label>
+            <label for="rr">Reduction coefficient tolerance
+              <input id="rr" type="number" step="any" value="1e-10" min="0" aria-describedby="rrHelp">
+            </label>
+          </div>
+          <p id="rrHelp" class="help">A value of zero disables tolerance-based reduction matching. This is separate from the projective distance tolerance.</p>
+        </details>
+      </section>
+    </fieldset>
+
+    <p id="inputError" class="form-error" role="alert" hidden></p>
+    <div class="actions">
+      <button id="run" type="submit" class="primary">Compare circuits <span aria-hidden="true">→</span></button>
+      <button id="stop" type="button" disabled>Stop computation</button>
+      <button id="download" type="button" disabled>Download JSON report</button>
+    </div>
+  </form>
+
+  <section class="result panel" id="results" aria-labelledby="resultsHeading" aria-live="polite">
+    <div class="section-heading">
+      <div><p class="section-kicker">Step 03 · Inspect</p><h2 id="resultsHeading">Verification result</h2></div>
+      <p id="state" class="run-state">Ready. Circuits stay on this device.</p>
+    </div>
+    <p id="verdict" class="verdict"></p>
+    <h3>Projective Hilbert–Schmidt distance</h3>
+    <p id="distance" class="distance">—</p>
+    <p class="help">Global phase is ignored. A computed approximation is not a certified distance interval.</p>
+    <p id="warning" class="warning"></p>
+    <p id="method" class="result-meta"></p>
+    <p id="timing" class="result-meta"></p>
+  </section>
+  <footer>
+    <a href="engines/sources/gpmc-mpfr-browser-source.tar.gz">Solver source and licenses</a>
+    <span> · Runs locally in browser Workers</span>
+  </footer>
+</main>
+<script type="module" src="app.js?v=20261120-browser-refine"></script>
+</body>
+</html>

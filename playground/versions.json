@@ -3,6 +3,11 @@
   "stable": "v0.17.1",
   "versions": [
     {
+      "asset_sha256": "46fb63067cc3d9f92c5a66b752b5e65d36da040b1cd6ca89841f5ebb862c4268",
+      "source_sha": "733a8177eb1f0da47d09ab934f81d1ddf47ecd67",
+      "version": "v0.17.2"
+    },
+    {
       "asset_sha256": "708ef953ffacdccb1dfea3b14efc039c92585394bc6f33220fadf37d93441418",
       "source_sha": "202bfb06d32071395b5fd50f0bd4508d06d1ca10",
       "version": "v0.17.1"

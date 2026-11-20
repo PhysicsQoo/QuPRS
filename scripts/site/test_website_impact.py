@@ -109,7 +109,9 @@ class WebsiteImpactTests(unittest.TestCase):
         for pattern in ("rust/quprs/**", "rust/web/**", "rust/Cargo.toml",
                         "rust/Cargo.lock", "web/**", "scripts/web/**"):
             self.assertIn("'" + pattern + "'", publisher)
-            self.assertIn("'" + pattern + "'", builder)
+        self.assertNotIn("\n  push:\n", builder,
+                         "The publisher is the only dev-push Browser build owner")
+        self.assertIn("  workflow_call:\n", builder)
         self.assertIn("branches: [dev]", publisher)
         self.assertIn("uses: ./.github/workflows/website-publish.yml", publisher)
         self.assertIn("target: playground", publisher)
@@ -128,6 +130,40 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertIn("playground-stable", release)
         self.assertNotIn("environment: github-pages", publisher)
         self.assertNotIn("environment: github-pages", shared)
+
+    def test_single_dev_push_owner_per_site_subsystem(self) -> None:
+        """Read-only PR validators must not repeat protected dev publishing jobs."""
+        root = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+        names = (
+            "browser-workbench.yml", "site-homepage.yml",
+            "docs-check.yml", "docs-examples.yml",
+            "browser-workbench-publish.yml", "site-homepage-publish.yml",
+            "website-ci.yml",
+        )
+        sources = {name: (root / name).read_text(encoding="utf-8") for name in names}
+        browser = sources["browser-workbench.yml"]
+        homepage = sources["site-homepage.yml"]
+        docs_fast = sources["docs-check.yml"]
+        examples = sources["docs-examples.yml"]
+        website = sources["website-ci.yml"]
+        for name in ("browser-workbench.yml", "docs-check.yml", "docs-examples.yml"):
+            self.assertNotIn("\n  push:\n", sources[name],
+                             f"Duplicate post-merge dev validation: {name}")
+        self.assertIn("  workflow_call:\n", browser)
+        self.assertIn("  workflow_call:\n", docs_fast)
+        self.assertIn("  pull_request:\n", examples)
+        self.assertIn("  workflow_dispatch:\n", examples)
+        self.assertIn("  workflow_call:\n", homepage)
+        self.assertIn("    branches: [main]", homepage)
+        self.assertNotIn("    branches: [dev, main]", homepage)
+        for name in ("browser-workbench-publish.yml", "site-homepage-publish.yml"):
+            adapter = sources[name]
+            self.assertIn("  push:\n    branches: [dev]", adapter)
+            self.assertIn("  workflow_dispatch:\n", adapter)
+            self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        for workflow in ("site-homepage.yml", "browser-workbench.yml",
+                         "docs-check.yml"):
+            self.assertIn(f"uses: ./.github/workflows/{workflow}", website)
 
     def test_no_changes_or_unsafe_paths_do_not_bypass(self) -> None:
         for paths in ([], ["../docs/site/index.md"], ["/absolute"], ["docs\\site\\index.md"]):

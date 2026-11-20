@@ -51,31 +51,27 @@ const local = [
   '.github/workflows/docs-check.yml',
   '.github/scripts/test-docs-workflow-coverage.cjs'
 ];
-for (const event of ['pull_request', 'push']) {
-  const fastPaths = eventPaths(event === 'pull_request' ? website : docs, event);
-  const nativePaths = eventPaths(event === 'pull_request' ? website : rust, event);
-  if (event === 'push') {
-    assert.deepEqual([...fastPaths].sort(), [...local].sort(),
-      'Strict documentation push filter must remain unchanged');
-  } else {
-    for (const path of local) {
-      assert.ok(fastPaths.includes(path), `Website PR lost strict documentation coverage: ${path}`);
-    }
-    assert.ok(website.includes('uses: ./.github/workflows/docs-check.yml'),
-      'Website CI must route strict documentation checks');
-    assert.ok(!docs.includes('\n  pull_request:\n'), 'Strict docs must not trigger duplicate PR checks');
-  }
-  for (const path of shared) {
-    assert.ok(nativePaths.includes(path),
-      `Rust API workflow lost ${event} coverage for ${path}`);
-    if (event === 'push') {
-      assert.ok(!fastPaths.includes(path),
-        `Duplicate documentation push triggers for ${path}`);
-    }
-  }
-  assert.ok(docs.includes('branches: [dev]'), 'Strict docs push must target dev');
-  assert.ok(rust.includes('branches: [dev]'), 'Rust API docs push must target dev');
+// The single PR admission routes local strict docs and native site reference
+// validation. Native dev-push docs deployment still owns publication; do not
+// rerun the fast strict docs workflow on the same protected dev commit.
+const prPaths = eventPaths(website, 'pull_request');
+const rustPushPaths = eventPaths(rust, 'push');
+for (const path of local) {
+  assert.ok(prPaths.includes(path), `Website PR lost strict documentation coverage: ${path}`);
 }
+assert.ok(website.includes('uses: ./.github/workflows/docs-check.yml'),
+  'Website CI must route strict documentation checks');
+assert.ok(!docs.includes('\n  pull_request:\n') &&
+          !docs.includes('\n  push:\n'),
+  'Reusable strict docs must not duplicate Website CI or protected dev push');
+for (const path of shared) {
+  assert.ok(prPaths.includes(path),
+    `Website PR lost native reference coverage for ${path}`);
+  assert.ok(rustPushPaths.includes(path),
+    `Native dev docs publisher lost source coverage for ${path}`);
+}
+assert.ok(rust.includes('branches: [dev]'),
+  'Rust API docs deployment must target protected dev');
 assert.ok(docs.includes('on:\n  workflow_call:\n'), 'Strict docs must be reusable');
 for (const statement of [
   'python scripts/check_docs_site.py --sources',

@@ -1,9 +1,11 @@
 name: QuPRS Homepage
+# The dev-push Homepage Publish workflow already invokes this validator.
+# Keep the independent main-only source check without duplicate dev runs.
 
 on:
   workflow_call:
   push:
-    branches: [dev, main]
+    branches: [main]
     paths:
       - 'website/**'
       - 'scripts/site/**'

@@ -43,17 +43,65 @@ class HomepageTests(unittest.TestCase):
                       "Homepage must link to the existing stable Rustdoc")
         self.assertFalse(any("pr-preview/" in url for url in parsed.urls),
                          "Internal PR previews must not appear on the public homepage")
-        self.assertEqual(parsed.urls.count("playground/"), 1,
-                         "Browser Playground card must have exactly one direct link")
-        self.assertIn('<h3><a href="playground/">Browser Playground</a></h3>', html,
-                      "The Browser Playground card title itself must be clickable")
+        self.assertEqual(parsed.urls.count("playground/"), 2,
+                         "Playground must be discoverable in top navigation and its card")
+        self.assertIn('<a href="playground/">Playground</a>', html,
+                      "Place the Playground entry in primary navigation")
+        playground_card = re.search(
+            r'<article class="card" data-index="02">(.*?)</article>', html, re.S
+        )
+        self.assertIsNotNone(playground_card, "Playground card must be present")
+        card = playground_card.group(1)
+        self.assertIn("<h3>Browser Playground</h3>", card,
+                      "Use a plain heading consistent with other resource cards")
+        self.assertIn('<a href="playground/">Open Browser Playground</a>', card)
+        self.assertLess(
+            card.index("local WebAssembly computation.</p>"),
+            card.index('<a href="playground/">'),
+            "The primary Playground link belongs below the description",
+        )
+        self.assertIn("Read the Playground guide", card)
         self.assertIn("https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md",
                       parsed.urls, "Keep the Playground guide available alongside the launch link")
+        self.assertEqual(parsed.urls.count("https://doi.org/10.1007/978-3-032-22749-2_21"), 1,
+                         "Homepage must link to the original peer-reviewed TACAS 2026 paper")
+        self.assertIn("Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting",
+                      html)
+        self.assertIn("TACAS", html)
+        self.assertIn("hero-layout", html)
+        self.assertIn("paper-feature", html)
         self.assertEqual(html.count(stager.REVISION_MARKER), 1)
         self.assertIn('<link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">', html)
         self.assertNotIn("noindex", html.lower())
-        self.assertNotIn("<script", html.lower())
+        self.assertEqual(html.count('<script id="quprsTheme">'), 1,
+                         "Only the reviewed inline theme initializer is allowed")
+        self.assertEqual(html.count("</script>"), 1)
+        self.assertNotIn("<script src=", html.lower(),
+                         "Homepage should not depend on a remote script")
         self.assertNotRegex(html, r"\b[A-Z]{2,8}-[0-9]{1,6}\b")
+
+    def test_shared_light_dark_theme_contract(self) -> None:
+        homepage = (SITE / "index.html").read_text(encoding="utf-8")
+        playground = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        pattern = re.compile(r'<script id="quprsTheme">(.*?)</script>', re.S)
+        homepage_theme = pattern.search(homepage)
+        playground_theme = pattern.search(playground)
+        self.assertIsNotNone(homepage_theme)
+        self.assertIsNotNone(playground_theme)
+        self.assertEqual(homepage_theme.group(1), playground_theme.group(1),
+                         "Pages must use identical theme behavior and storage key")
+        script = homepage_theme.group(1)
+        self.assertIn("'quprs-theme'", script)
+        self.assertIn("window.matchMedia('(prefers-color-scheme: dark)')", script)
+        self.assertIn("window.localStorage.getItem(key)", script)
+        self.assertIn("window.localStorage.setItem(key, next)", script)
+        self.assertIn("document.addEventListener('DOMContentLoaded'", script)
+        self.assertIn("system.addEventListener('change'", script)
+        for page in (homepage, playground):
+            self.assertEqual(page.count('id="themeToggle"'), 1)
+            self.assertIn('aria-label="Switch to dark mode"', page)
+            self.assertIn('data-theme="dark"', page if page is homepage else
+                          (ROOT / "web" / "style.css").read_text(encoding="utf-8"))
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="quprs-homepage-")

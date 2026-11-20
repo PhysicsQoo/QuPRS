@@ -91,6 +91,39 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertIn("source-sha.txt", workflow)
         self.assertIn("sha256sum", workflow)
 
+    def test_rust_source_dev_rebuild_and_immutable_stable_contract(self) -> None:
+        """A Rust code edit must rebuild the real WASM for dev, never overwrite stable."""
+        root = Path(__file__).resolve().parents[2]
+        workflows = root / ".github/workflows"
+        publisher = (workflows / "browser-workbench-publish.yml").read_text(encoding="utf-8")
+        builder = (workflows / "browser-workbench.yml").read_text(encoding="utf-8")
+        shared = (workflows / "website-publish.yml").read_text(encoding="utf-8")
+        release = (workflows / "docs-release-publish.yml").read_text(encoding="utf-8")
+        # These trigger paths cover the actual Rust core and WebAssembly adapter,
+        # while unrelated Python-only/native CLI edits need not rebuild the counter.
+        for pattern in ("rust/quprs/**", "rust/web/**", "rust/Cargo.toml",
+                        "rust/Cargo.lock", "web/**", "scripts/web/**"):
+            self.assertIn("'" + pattern + "'", publisher)
+            self.assertIn("'" + pattern + "'", builder)
+        self.assertIn("branches: [dev]", publisher)
+        self.assertIn("uses: ./.github/workflows/website-publish.yml", publisher)
+        self.assertIn("target: playground", publisher)
+        self.assertIn("cargo build --locked", builder)
+        self.assertIn("--target wasm32-unknown-unknown -p quprs-web", builder)
+        self.assertIn("wasm-bindgen rust/target/wasm32-unknown-unknown", builder)
+        self.assertIn("bash scripts/web/build-counter.sh", builder)
+        self.assertIn("Actual browser and native differential checks", builder)
+        self.assertIn("source-sha.txt", builder)
+        self.assertIn("test \"$(tr -d", shared)
+        self.assertIn("scripts/web/stage-versioned-pages.py dev", shared.replace("source/", ""))
+        self.assertIn("playground/dev", shared)
+        self.assertIn("sha256sum", shared)
+        self.assertIn("Publish immutable release and stable alias", shared)
+        self.assertIn("signed", release.lower())
+        self.assertIn("playground-stable", release)
+        self.assertNotIn("environment: github-pages", publisher)
+        self.assertNotIn("environment: github-pages", shared)
+
     def test_no_changes_or_unsafe_paths_do_not_bypass(self) -> None:
         for paths in ([], ["../docs/site/index.md"], ["/absolute"], ["docs\\site\\index.md"]):
             with self.subTest(paths=paths), self.assertRaises(ValueError):

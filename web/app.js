@@ -120,6 +120,19 @@ $('resetExample').addEventListener('click',()=>{
   loadExample(EXAMPLES.find(e=>e.id==='identity'));
 });
 
+// Reordering the two source circuits is an editor operation, not a solver
+// invocation. Discard any report computed for the previous operand order.
+$('swapCircuits').addEventListener('click',()=>{
+  if(host||pendingUploads)return;
+  const left=$('left').value;
+  $('left').value=$('right').value;
+  $('right').value=left;
+  clearValidation();
+  clearResult();
+  $('exampleDescription').textContent='Circuit order changed. Select an example to restore its original orientation.';
+  state('Circuit A and Circuit B swapped. Ready to compare.','ready');
+});
+
 for(const side of editorIds){
   $(side+'File').addEventListener('change',async event=>{
     const file=event.target.files[0];

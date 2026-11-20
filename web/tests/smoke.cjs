@@ -20,6 +20,34 @@ function native(request){
  const h=await open();const results=[];let calls=0;
  try{
   const errors=[];h.page.on('pageerror',e=>errors.push(String(e)));
+  // Theme is presentation-only: follow system preference without a choice,
+  // persist the explicit choice, and preserve editors on toggles/reload.
+  const originalLeft=await h.page.locator('#left').inputValue();
+  await h.page.emulateMedia({colorScheme:'dark'});
+  await h.page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+  assert.equal(await h.page.getByRole('button',{name:'Switch to light mode'}).count(),1);
+  await h.page.getByRole('button',{name:'Switch to light mode'}).click();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'light');
+  assert.equal(await h.page.evaluate(()=>localStorage.getItem('quprs-theme')),'light');
+  assert.equal(await h.page.locator('#left').inputValue(),originalLeft);
+  await h.page.reload();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'light',
+    'Manual light choice must override dark system preference after reload');
+  await h.page.getByRole('button',{name:'Switch to dark mode'}).click();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'dark');
+  assert.equal(await h.page.evaluate(()=>localStorage.getItem('quprs-theme')),'dark');
+  await h.page.evaluate(()=>localStorage.removeItem('quprs-theme'));
+  await h.page.emulateMedia({colorScheme:'light'});
+  await h.page.reload();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'light',
+    'Without stored choice, the page should follow system light mode');
+  await h.page.emulateMedia({colorScheme:'dark'});
+  await h.page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+  assert.equal(await h.page.locator('#left').inputValue(),originalLeft,
+    'Theme controls must never edit the circuit');
+  await h.page.emulateMedia({colorScheme:'light'});
+  await h.page.waitForFunction(()=>document.documentElement.dataset.theme==='light');
+  assert.equal(await h.page.locator('.site-nav-links').getByRole('link',{name:'Playground'}).getAttribute('aria-current'),'page');
   const browserClock=await h.page.evaluate(async base=>{
     const wasm=await import(new URL('pkg/quprs_web.js',base).href);
     await wasm.default({module_or_path:new URL('pkg/quprs_web_bg.wasm',base)});
@@ -98,6 +126,37 @@ function native(request){
     results.push({id:'gallery/'+example.id,native:n,wasm:w});
   }
   assert(calls>=8,'Actual MPFR weighted counting was not exercised');
+  // Swap is an editor-only operation: never start a worker, alter tolerances,
+  // or retain a stale report. Use an asymmetric pair for the smoke test.
+  const asymmetric=catalog.examples.find(e=>e.id==='t-different');
+  assert(asymmetric,'Expected a T comparison for swap coverage');
+  await h.page.locator('[data-example-id="t-different"]').click();
+  const settingsBefore=await h.page.evaluate(()=>Object.fromEntries(
+    ['mode','strategy','epsilon','rr'].map(id=>[id,document.getElementById(id).value])));
+  await h.page.locator('#run').click();
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
+  assert(await h.page.locator('#download').isEnabled());
+  const swap=h.page.getByRole('button',{name:'Swap Circuit A and Circuit B'});
+  assert.equal(await swap.count(),1,'Swap needs one accessible button');
+  await swap.click();
+  assert.equal(await h.page.locator('#left').inputValue(),asymmetric.circuit2);
+  assert.equal(await h.page.locator('#right').inputValue(),asymmetric.circuit1);
+  assert.equal(await h.page.locator('#distance').textContent(),'—','Swap must clear old distance');
+  assert.equal(await h.page.locator('#verdict').textContent(),'','Swap must clear old verdict');
+  assert(await h.page.locator('#download').isDisabled(),'Swap must discard old JSON report');
+  assert(await h.page.locator('#stop').isDisabled(),'Swap must not launch a worker');
+  assert((await h.page.locator('#state').textContent()).includes('swapped'));
+  const settingsAfter=await h.page.evaluate(()=>Object.fromEntries(
+    ['mode','strategy','epsilon','rr'].map(id=>[id,document.getElementById(id).value])));
+  assert.deepEqual(settingsAfter,settingsBefore,'Swap must preserve settings');
+  await swap.click();
+  assert.equal(await h.page.locator('#left').inputValue(),asymmetric.circuit1,'Double swap restores A');
+  assert.equal(await h.page.locator('#right').inputValue(),asymmetric.circuit2,'Double swap restores B');
+  await swap.click();
+  await h.page.locator('#run').click();
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
+  assert((await h.page.locator('#verdict').textContent()).includes('Different beyond tolerance'),
+    'Swapped asymmetric inputs must still execute correctly');
   // Rejected browser inputs do not launch workers or create a report.
   await h.page.locator('[data-example-id="identity"]').click();
   await h.page.locator('#left').fill(' ');
@@ -152,7 +211,9 @@ function native(request){
   await h.page.evaluate(()=>{document.querySelector('#form').requestSubmit();document.querySelector('#stop').click()});await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Stopped.'));assert.equal(await h.page.locator('#distance').textContent(),'—');
   await h.page.locator('#run').click();await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
   await h.page.screenshot({path:path.join(out,'desktop.png'),fullPage:true});await h.page.setViewportSize({width:390,height:844});
-  assert(await h.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await h.page.screenshot({path:path.join(out,'mobile.png'),fullPage:true});
+  assert(await h.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  assert(await h.page.locator('#swapCircuits').isVisible(),'Swap must stay visible on narrow screens');
+  await h.page.screenshot({path:path.join(out,'mobile.png'),fullPage:true});
   assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'browser.json'),JSON.stringify({pass:true,differential_cases:results.length,actual_counter_calls:calls,qasm3:true,invalid_input:true,timeout:true,stop:true,upload_download:true,mobile_390px:true,results},null,2));
  }finally{await h.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

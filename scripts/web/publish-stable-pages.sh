@@ -28,25 +28,73 @@ test -z "$(git -C "$pages" diff --cached --name-only)"
 test "$(git -C "$pages" rev-parse HEAD)" = "$(git -C "$pages" rev-parse refs/heads/gh-pages)"
 
 commit_push() {
-  local title="$1"
+  local title="$1" pushed remote
   if git -C "$pages" diff --cached --quiet; then return; fi
   git -C "$pages" diff --cached --check -- playground/versions.json playground/stable-release.json
   git -C "$pages" commit -m "$title"
+  pushed="$(git -C "$pages" rev-parse HEAD)"
   git -C "$pages" push origin HEAD:gh-pages
-  git -C "$pages" fetch --no-tags origin gh-pages
-  test "$(git -C "$pages" rev-parse HEAD)" = "$(git -C "$pages" rev-parse FETCH_HEAD)"
+  if ! git -C "$pages" fetch --no-tags origin gh-pages; then
+    echo "::error::Cannot fetch gh-pages after publishing $pushed" >&2
+    return 1
+  fi
+  remote="$(git -C "$pages" rev-parse FETCH_HEAD)"
+  if [[ "$remote" != "$pushed" ]]; then
+    echo "::error::gh-pages changed during publication: pushed=$pushed remote=$remote" >&2
+    return 1
+  fi
+  echo "Confirmed gh-pages at published commit $pushed"
 }
 
-build_pages() {
-  local build_url status
-  build_url="$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)"
-  for _ in $(seq 1 40); do
-    status="$(gh api "$build_url" --jq .status)"
-    [[ "$status" == built ]] && return 0
-    [[ "$status" == errored ]] && return 1
-    sleep 15
+# A GITHUB_TOKEN branch push does not reliably schedule Pages deployment.
+# First observe an existing Pages run for the exact pushed SHA. Request one
+# legacy build only when no run appears (or all observed runs were cancelled).
+# This avoids racing the built-in deployment and tolerates duplicate cancelled
+# runs as long as an exact-SHA success is eventually recorded.
+wait_for_pages() {
+  local target_sha="$1" deadline fallback_after status last_status="" runs
+  local fallback_requested=false
+  deadline=$((SECONDS + 900))
+  fallback_after=$((SECONDS + 75))
+  while (( SECONDS < deadline )); do
+    if runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=gh-pages&per_page=100")"; then
+      if ! status="$(printf '%s' "$runs" |
+          python3 source/scripts/web/pages-deployment-status.py --sha "$target_sha")"; then
+        echo "::error::Malformed Pages Actions evidence for source $target_sha" >&2
+        return 1
+      fi
+      if [[ "$status" != "$last_status" ]]; then
+        echo "Pages deployment for $target_sha: $status"
+        last_status="$status"
+      fi
+      case "$status" in
+        success) return 0 ;;
+        failed)
+          echo "::error::Pages deployment for $target_sha failed; inspect exact-SHA Actions runs" >&2
+          return 1
+          ;;
+        absent|cancelled)
+          if [[ "$fallback_requested" == false ]] && (( SECONDS >= fallback_after )); then
+            echo "::notice::No usable Pages deployment for $target_sha after 75s; requesting one legacy build"
+            if ! gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" >/dev/null; then
+              echo "::error::Legacy Pages fallback build request failed for $target_sha" >&2
+              return 1
+            fi
+            fallback_requested=true
+          fi
+          ;;
+        active) ;;
+        *)
+          echo "::error::Unknown Pages deployment state: $status" >&2
+          return 1
+          ;;
+      esac
+    else
+      echo "::warning::Pages Actions API unavailable for $target_sha; retrying"
+    fi
+    sleep 10
   done
-  echo "::error::Pages build timeout" >&2
+  echo "::error::Timed out waiting for successful Pages deployment of $target_sha; last=$last_status fallback_requested=$fallback_requested" >&2
   return 1
 }
 
@@ -78,7 +126,7 @@ check_live() {
 python3 source/scripts/web/stage-versioned-pages.py snapshot \
   "$site" "$pages" --tag "$tag" --sha "$source_sha"
 commit_push "site: stage immutable Playground $tag"
-build_pages
+wait_for_pages "$(git -C "$pages" rev-parse HEAD)"
 check_live "$PAGES_BASE/playground/$tag" "$source_sha"
 
 before_alias="$(git -C "$pages" rev-parse HEAD)"
@@ -105,7 +153,7 @@ rollback() {
          ! git -C "$pages" diff --cached --quiet; then
         git -C "$pages" commit -m "site: restore prior Playground stable alias"
         git -C "$pages" push origin HEAD:gh-pages || true
-        build_pages || true
+        wait_for_pages "$(git -C "$pages" rev-parse HEAD)" || true
         if [[ -n "$previous_sha" ]]; then
           echo "Prior source SHA: $previous_sha" >> "$GITHUB_STEP_SUMMARY"
         fi
@@ -125,7 +173,7 @@ if ! git -C "$pages" diff --cached --quiet; then
   # confirmation API call fails; the remote equality guard prevents false undo.
   promoted=true
   commit_push "site: promote validated Playground $tag"
-  build_pages
+  wait_for_pages "$(git -C "$pages" rev-parse HEAD)"
 fi
 current="$(python3 - "$pages/playground/stable-release.json" <<'PY'
 import json,sys

@@ -49,6 +49,13 @@ class HomepageTests(unittest.TestCase):
                       "The Browser Playground card title itself must be clickable")
         self.assertIn("https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md",
                       parsed.urls, "Keep the Playground guide available alongside the launch link")
+        self.assertEqual(parsed.urls.count("https://doi.org/10.1007/978-3-032-22749-2_21"), 1,
+                         "Homepage must link to the original peer-reviewed TACAS 2026 paper")
+        self.assertIn("Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting",
+                      html)
+        self.assertIn("TACAS", html)
+        self.assertIn("hero-layout", html)
+        self.assertIn("paper-feature", html)
         self.assertEqual(html.count(stager.REVISION_MARKER), 1)
         self.assertIn('<link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">', html)
         self.assertNotIn("noindex", html.lower())

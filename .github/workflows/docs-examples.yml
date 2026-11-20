@@ -17,18 +17,6 @@ on:
       - 'src/QuPRS/interface/load_qiskit.py'
       - 'rust/cli/src/args.rs'
       - '.github/workflows/docs-examples.yml'
-  push:
-    branches: [dev]
-    paths:
-      - 'docs/site/examples.md'
-      - 'scripts/check_docs_examples.py'
-      - 'scripts/check_docs_scoped_contract.py'
-      - 'src/QuPRS/pathsum/pattern_match.py'
-      - 'src/QuPRS/utils/solver_adapter.py'
-      - 'src/QuPRS/utils/wmc_problem.py'
-      - 'src/QuPRS/interface/load_qiskit.py'
-      - 'rust/cli/src/args.rs'
-      - '.github/workflows/docs-examples.yml'
   workflow_dispatch:
 
 permissions:

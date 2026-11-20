@@ -1,0 +1,16 @@
+<!-- Native rustdoc extension: do not insert elements into its body flex layout. -->
+<script data-quprs-version-selector="true">
+(() => {
+  "use strict";
+  // One uniform --html-in-header snippet works for nested crate items,
+  // immutable release docs, the live dev docs and isolated PR previews.
+  const match = window.location.pathname.match(
+    /^\/QuPRS\/(docs\/(?:dev|v[0-9]+\.[0-9]+\.[0-9]+(?:-test)?)|pr-preview\/pr-[0-9]+)\/rust-api\//
+  );
+  if (!match) return;
+  const script = document.createElement("script");
+  script.src = "/QuPRS/" + match[1] + "/rust-api/quprs-versions.js";
+  script.defer = true;
+  document.head.appendChild(script);
+})();
+</script>

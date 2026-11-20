@@ -39,11 +39,13 @@ def check_links(site: Path, base_url: str) -> int:
     root_prefix = origin.path.rstrip("/") + "/"
     if ".." in root_prefix.split("/"):
         raise AssertionError("Unsafe preview URL prefix")
-    # The Playground is a separate Pages subtree, not part of /docs/<version>/.
-    # Allow only the official user-facing entry point; do not relax link checks
-    # for other site paths or unreviewed cross-prefix resources.
+    # These exact first-party navigation destinations are published by
+    # separate guarded Pages workflows or by the signed docs stable alias.
+    # Do not relax arbitrary cross-prefix links or static resource checking.
     allowed_sibling_links = {
+        ("https", "physicsqoo.github.io", "/QuPRS/"),
         ("https", "physicsqoo.github.io", "/QuPRS/playground/"),
+        ("https", "physicsqoo.github.io", "/QuPRS/docs/stable/rust-api/quprs/"),
     }
 
     page_data: dict[str, Page] = {}
@@ -118,12 +120,14 @@ def negative_fixture() -> None:
         (root / "index.html").write_text(
             '<html><body>' + good +
             '<a href="https://physicsqoo.github.io/QuPRS/playground/">Playground</a>' +
+            '<a href="https://physicsqoo.github.io/QuPRS/">Home</a>' +
+            '<a href="https://physicsqoo.github.io/QuPRS/docs/stable/rust-api/quprs/">Rust API</a>' +
             '</body></html>', encoding="utf-8",
         )
-        assert check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/") == 101
-        # The same official navigation link remains valid at the root
+        assert check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/") == 103
+        # Exact reviewed navigation links remain valid at the root
         # deployment prefix; unknown same-host pages do not become exempt.
-        assert check_links(root, "https://physicsqoo.github.io/QuPRS/") == 101
+        assert check_links(root, "https://physicsqoo.github.io/QuPRS/") == 103
         (root / "index.html").write_text(
             '<html><body>' + good +
             '<a href="https://physicsqoo.github.io/QuPRS/not-published/">Missing</a>' +

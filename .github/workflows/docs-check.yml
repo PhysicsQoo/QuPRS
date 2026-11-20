@@ -1,18 +1,9 @@
 name: Documentation
+# Website CI routes docs-only PR changes here. Avoid repeating its strict
+# build after the protected dev merge; native docs deploy is separately owned.
 
 on:
   workflow_call:
-  push:
-    branches: [dev]
-    paths:
-      - 'scripts/check_generated_stub.py'
-      - 'test/test_generated_stub_parity.py'
-      - 'scripts/check_docs_examples.py'
-      - 'scripts/check_docs_scoped_contract.py'
-      - 'src/QuPRS/utils/solver_adapter.py'
-      - 'src/QuPRS/utils/wmc_problem.py'
-      - '.github/workflows/docs-check.yml'
-      - '.github/scripts/test-docs-workflow-coverage.cjs'
   workflow_dispatch:
 
 permissions:

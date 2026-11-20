@@ -386,3 +386,25 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
   }
   console.log("Evergreen root README and three negative controls passed");
 }
+
+
+// A bounded workflow inventory prevents new standalone Actions from being
+// accumulated without an explicit release-policy review. Prefer reusing a
+// workflow_call, scoped job, or manual script before raising this ceiling.
+// Historical scientific scripts and records are NOT removed by this policy.
+{
+  const definitions = fs.readdirSync(".github/workflows")
+    .filter(name => /\.ya?ml$/.test(name))
+    .sort();
+  const workflowBudget = 49; // post-retirement baseline
+  const checkBudget = entries => assert.ok(entries.length <= workflowBudget,
+    "Workflow inventory exceeds 49; consolidate or explicitly review budget");
+  checkBudget(definitions);
+  assert.ok(!definitions.includes("python-reduction-profile-paired.yml"),
+    "Retired Python-only profiling must not return as a standalone Action");
+  assert.ok(fs.existsSync(".diagnostics/python_reduction/paired_profile.py"),
+    "Retain the original source-pinned manual research reproduction script");
+  assert.throws(() => checkBudget([...definitions, "unreviewed-extra.yml"]),
+    undefined, "New workflows require an explicit budget review");
+  console.log("Workflow inventory limit and retained research source PASS");
+}

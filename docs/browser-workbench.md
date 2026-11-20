@@ -10,6 +10,20 @@ To inspect a build, download the `tested-browser-site` artifact and serve it ove
 
 For a local source build, install Rust with the wasm32-unknown-unknown target, wasm-bindgen-cli0.2.100, Emscripten4.0.23, CMake, GMP/MPFR development libraries, Python and Node. Use `QUPRS_SOLVER_PROVISION=external` for the Rust build. The workflow records the exact `cargo`, `wasm-bindgen`, counter build and artifact assembly commands; `scripts/web/build-counter.sh` builds both native and WASM counters. Tests additionally use the checksum-pinned native GANAK fixture and Playwright1.65.1. Generated binaries belong in build artifacts, not source control.
 
+## How Rust source changes reach the Playground
+
+The browser **does not run Rust source files directly**: `quprs-web` compiles the current native `rust/quprs/` core and `rust/web/` adapter to `quprs_web_bg.wasm`; the separate original GPMC counter is also built as WASM. There are **two separate update tracks**:
+
+| Changed source / event | Automatic result | Public route |
+| --- | --- | --- |
+| Reviewed `dev` push touching `rust/quprs/**`, `rust/web/**`, `rust/Cargo.toml`, `rust/Cargo.lock`, `web/**` or `scripts/web/**` | Build from the exact `dev` commit, rerun Rust native tests, core+GPMC WASM and Chromium/native differential checks, then publish **only on success** | `/playground/dev/` |
+| A successfully published and verified **signed stable release tag** | Rebuild from that immutable tag commit, check the release/registry provenance and public JS/Worker/WASM hashes, stage a new immutable version, then promote the stable alias | `/playground/vX.Y.Z/` and `/playground/` |
+| PR without merge, failed CI/build/Pages validation, or unrelated Rust-only CLI/Python changes | No validated Playground version is promoted | Previous published content remains usable |
+
+The workflow boundary is source-controlled in `.github/workflows/browser-workbench-publish.yml` (trusted `dev` push), `browser-workbench.yml` (actual native and WASM rebuild), and `website-publish.yml` (source SHA, live hash and isolated Pages write). `scripts/site/test_website_impact.py` contains a regression check ensuring those Rust paths and build/publish links remain connected. `source-sha.txt` in each published version identifies the exact Rust checkout used; `/playground/versions.json` records the signed-stable snapshot identities.
+
+**Why not update stable on every Rust change?** Stable means the result of the full signed-release admission and must remain reproducible. Development Rust fixes appear on `/playground/dev/` after verified merges; they reach stable only on the next signed published version. This prevents mixing newly compiled Rust with older certified version assets and prevents a failing experiment from replacing the public default.
+
 ## Publish on the repository owner's GitHub Pages
 
 After a **reviewed merge to protected `dev`**, the `Browser Playground Publish` workflow starts automatically when the Rust/WebAssembly source, web assets, build scripts, or related publication workflows change. It runs the actual Rust WASM, GMP/MPFR GPMC WASM and browser/native differential suites first; only a fully passing run may publish. `QuPRS Homepage Publish` separately publishes relevant homepage changes after a protected `dev` push. Pull-request Website CI remains read-only and cannot publish. A manual `workflow_dispatch` remains available solely for recovery and validation, not as a routine release step.

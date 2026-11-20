@@ -20,6 +20,34 @@ function native(request){
  const h=await open();const results=[];let calls=0;
  try{
   const errors=[];h.page.on('pageerror',e=>errors.push(String(e)));
+  // Theme is presentation-only: follow system preference without a choice,
+  // persist the explicit choice, and preserve editors on toggles/reload.
+  const originalLeft=await h.page.locator('#left').inputValue();
+  await h.page.emulateMedia({colorScheme:'dark'});
+  await h.page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+  assert.equal(await h.page.getByRole('button',{name:'Switch to light mode'}).count(),1);
+  await h.page.getByRole('button',{name:'Switch to light mode'}).click();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'light');
+  assert.equal(await h.page.evaluate(()=>localStorage.getItem('quprs-theme')),'light');
+  assert.equal(await h.page.locator('#left').inputValue(),originalLeft);
+  await h.page.reload();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'light',
+    'Manual light choice must override dark system preference after reload');
+  await h.page.getByRole('button',{name:'Switch to dark mode'}).click();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'dark');
+  assert.equal(await h.page.evaluate(()=>localStorage.getItem('quprs-theme')),'dark');
+  await h.page.evaluate(()=>localStorage.removeItem('quprs-theme'));
+  await h.page.emulateMedia({colorScheme:'light'});
+  await h.page.reload();
+  assert.equal(await h.page.locator('html').getAttribute('data-theme'),'light',
+    'Without stored choice, the page should follow system light mode');
+  await h.page.emulateMedia({colorScheme:'dark'});
+  await h.page.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+  assert.equal(await h.page.locator('#left').inputValue(),originalLeft,
+    'Theme controls must never edit the circuit');
+  await h.page.emulateMedia({colorScheme:'light'});
+  await h.page.waitForFunction(()=>document.documentElement.dataset.theme==='light');
+  assert.equal(await h.page.locator('.site-nav-links').getByRole('link',{name:'Playground'}).getAttribute('aria-current'),'page');
   const browserClock=await h.page.evaluate(async base=>{
     const wasm=await import(new URL('pkg/quprs_web.js',base).href);
     await wasm.default({module_or_path:new URL('pkg/quprs_web_bg.wasm',base)});

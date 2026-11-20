@@ -43,8 +43,10 @@ class HomepageTests(unittest.TestCase):
                       "Homepage must link to the existing stable Rustdoc")
         self.assertFalse(any("pr-preview/" in url for url in parsed.urls),
                          "Internal PR previews must not appear on the public homepage")
-        self.assertEqual(parsed.urls.count("playground/"), 1,
-                         "Browser Playground card must have exactly one direct link")
+        self.assertEqual(parsed.urls.count("playground/"), 2,
+                         "Playground must be discoverable in top navigation and its card")
+        self.assertIn('<a href="playground/">Playground</a>', html,
+                      "Place the Playground entry in primary navigation")
         playground_card = re.search(
             r'<article class="card" data-index="02">(.*?)</article>', html, re.S
         )
@@ -71,8 +73,35 @@ class HomepageTests(unittest.TestCase):
         self.assertEqual(html.count(stager.REVISION_MARKER), 1)
         self.assertIn('<link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">', html)
         self.assertNotIn("noindex", html.lower())
-        self.assertNotIn("<script", html.lower())
+        self.assertEqual(html.count('<script id="quprsTheme">'), 1,
+                         "Only the reviewed inline theme initializer is allowed")
+        self.assertEqual(html.count("</script>"), 1)
+        self.assertNotIn("<script src=", html.lower(),
+                         "Homepage should not depend on a remote script")
         self.assertNotRegex(html, r"\b[A-Z]{2,8}-[0-9]{1,6}\b")
+
+    def test_shared_light_dark_theme_contract(self) -> None:
+        homepage = (SITE / "index.html").read_text(encoding="utf-8")
+        playground = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        pattern = re.compile(r'<script id="quprsTheme">(.*?)</script>', re.S)
+        homepage_theme = pattern.search(homepage)
+        playground_theme = pattern.search(playground)
+        self.assertIsNotNone(homepage_theme)
+        self.assertIsNotNone(playground_theme)
+        self.assertEqual(homepage_theme.group(1), playground_theme.group(1),
+                         "Pages must use identical theme behavior and storage key")
+        script = homepage_theme.group(1)
+        self.assertIn("'quprs-theme'", script)
+        self.assertIn("window.matchMedia('(prefers-color-scheme: dark)')", script)
+        self.assertIn("window.localStorage.getItem(key)", script)
+        self.assertIn("window.localStorage.setItem(key, next)", script)
+        self.assertIn("document.addEventListener('DOMContentLoaded'", script)
+        self.assertIn("system.addEventListener('change'", script)
+        for page in (homepage, playground):
+            self.assertEqual(page.count('id="themeToggle"'), 1)
+            self.assertIn('aria-label="Switch to dark mode"', page)
+            self.assertIn('data-theme="dark"', page if page is homepage else
+                          (ROOT / "web" / "style.css").read_text(encoding="utf-8"))
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="quprs-homepage-")

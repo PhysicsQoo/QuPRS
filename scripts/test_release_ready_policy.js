@@ -408,3 +408,37 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     undefined, "New workflows require an explicit budget review");
   console.log("Workflow inventory limit and retained research source PASS");
 }
+
+ 
+// A policy-only dev PR must not fire the full wheel/sdist publication matrix.
+// Existing Dev Fast owns the lightweight policy test, while Release-Ready Main
+// independently rechecks it during every dev -> main promotion.
+{
+  const publish = fs.readFileSync(".github/workflows/python-publish.yml", "utf8");
+  const fast = fs.readFileSync(".github/workflows/dev-fast.yml", "utf8");
+  const verifyRouting = (pub, dev) => {
+    const pr = pub.split(/^  pull_request:/m)[1]?.split(/^\\S/m)[0] || "";
+    assert.doesNotMatch(pr, /^      - 'scripts\\/test_release_ready_policy\\.js'$/m,
+      "Policy-only edits must not schedule the complete package build matrix");
+    assert.match(dev, /^      - 'scripts\\/test_release_ready_policy\\.js'$/m,
+      "Dev Fast must be triggered for a policy-only PR");
+    assert.match(dev, /^        run: node scripts\\/test_release_ready_policy\\.js$/m,
+      "Dev Fast must execute the policy negative suite");
+    assert.match(pub, /^      - '\\.github\\/workflows\\/python-publish\\.yml'$/m,
+      "Packaging workflow edits must retain full artifact preflight");
+    assert.match(pub, /^  push:\\n    tags:\\n      - 'v\\*'$/m,
+      "Signed-tag publication remains unchanged");
+  };
+  verifyRouting(publish, fast);
+  assert.throws(() => verifyRouting(
+    publish.replace("      - '.github/workflows/python-publish.yml'\\n",
+      "      - '.github/workflows/python-publish.yml'\\n      - 'scripts/test_release_ready_policy.js'\\n"),
+    fast), undefined, "Duplicate full package matrix on policy-only change");
+  assert.throws(() => verifyRouting(publish,
+    fast.replace("      - 'scripts/test_release_ready_policy.js'\\n", "")),
+    undefined, "Policy-only PR must still trigger a real check");
+  assert.throws(() => verifyRouting(publish,
+    fast.replace("run: node scripts/test_release_ready_policy.js", "run: echo skipped")),
+    undefined, "Policy test must never be replaced with a no-op");
+  console.log("Release policy-only PR routing budget and negative controls PASS");
+}

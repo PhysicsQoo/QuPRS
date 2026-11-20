@@ -38,7 +38,6 @@ on:
     branches: [dev]
     paths:
       - '.github/workflows/python-publish.yml'
-      - 'scripts/test_release_ready_policy.js'
       - 'scripts/release_artifact_smoke.py'
       - 'scripts/check_installed_typing.py'
       - 'src/QuPRS/py.typed'

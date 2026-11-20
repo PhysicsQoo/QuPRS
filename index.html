@@ -5,52 +5,109 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="QuPRS checks quantum circuit equivalence with path-sum reduction and weighted model counting. Explore documentation, Rust and Python packages, and source code.">
   <meta name="theme-color" content="#121a31">
-  <meta name="quprs-source-revision" content="0205d4176e9bdec7c8662d458f96697fd038bf2b">
+  <meta name="quprs-source-revision" content="8985dc4ace9ac638cde4596ec98b6297c84d7cd8">
   <link rel="canonical" href="https://physicsqoo.github.io/QuPRS/">
   <title>QuPRS — Quantum Circuit Equivalence Checking</title>
   <style>
-    :root{color-scheme:light dark;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}
-    *{box-sizing:border-box}body{margin:0;background:#f6f8fc;color:#17223a}
-    a{color:#2457a7;text-underline-offset:3px}a:focus-visible{outline:3px solid #d18520;outline-offset:4px;border-radius:3px}
-    .skip{position:absolute;left:-9999px;top:8px;background:#fff;padding:10px}.skip:focus{left:8px;z-index:10}
-    .wrap{max-width:1080px;margin:auto;padding:0 28px}
-    header{border-bottom:1px solid #dce3ee;background:#fff}
-    .top{display:flex;align-items:center;justify-content:space-between;gap:22px;min-height:74px}
-    .logo{font-size:1.35rem;font-weight:800;letter-spacing:-.045em;color:#17223a;text-decoration:none}
-    nav{display:flex;gap:24px;flex-wrap:wrap}nav a{font-weight:600;text-decoration:none}
-    .hero{padding:78px 0 56px}
-    .eyebrow{font-size:.85rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#385885}
-    h1{font-size:clamp(2.3rem,5.2vw,4.2rem);letter-spacing:-.055em;line-height:1.11;max-width:900px;margin:14px 0 22px}
-    .intro{font-size:1.19rem;color:#45516b;max-width:800px;margin:0 0 30px}
-    .actions{display:flex;flex-wrap:wrap;gap:12px}
-    .action{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 17px;border:1px solid #b7c8dc;border-radius:9px;text-decoration:none;font-weight:700}
-    .primary{background:#234c92;color:#fff;border-color:#234c92}.secondary{background:#fff;color:#234c92}
-    h2{font-size:1.4rem;letter-spacing:-.025em;margin:0 0 20px}
-    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px;margin-bottom:44px}
-    .card{background:#fff;border:1px solid #dae1ec;border-radius:14px;padding:24px}
-    .card h3{font-size:1.08rem;margin:0 0 6px}.card p{margin:0 0 12px;color:#536079}
-    .card a{font-weight:700}.card .soon{font-weight:600;color:#536079;font-size:.9rem}
-    .install{background:#ecf0f7;border-radius:14px;padding:20px 24px;margin-bottom:56px}
-    .install p{margin:0 0 10px;color:#45516b}
-    code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:1rem}
-    .install code{display:inline-block;padding:9px 12px;background:#fff;border:1px solid #d7dfeb;border-radius:7px}
-    footer{border-top:1px solid #dce3ee;padding:28px 0 44px;color:#536079;font-size:.92rem}
-    @media(max-width:660px){.top{align-items:flex-start;flex-direction:column;padding:16px 0;gap:8px}nav{gap:16px}.hero{padding:48px 0 36px}.grid{grid-template-columns:1fr}.wrap{padding:0 20px}}
-    @media(prefers-color-scheme:dark){
-      body{background:#0e1627;color:#eef3fb}header,.card{background:#151f32;border-color:#303f57}
-      .logo{color:#eef3fb}a,nav a{color:#a7c9ff}.eyebrow{color:#a2c4f7}
-      .intro,.card p,.card .soon,.install p,footer{color:#b6c4d8}
-      .secondary,.install code{background:#202d43;color:#d7e7ff;border-color:#4d6081}
-      .install{background:#1a2740}footer{border-color:#303f57}
-      .primary{background:#3b66ae;border-color:#3b66ae}
+    :root{
+      color-scheme:light; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      line-height:1.6; --ink:#182b43; --muted:#51667c; --line:#d8e1ea; --accent:#125c83;
+      --surface:#fff; --background:#f3f7fa
     }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:var(--background);color:var(--ink)}
+    a{color:var(--accent);text-underline-offset:3px}
+    a:focus-visible{outline:3px solid #d3932f;outline-offset:4px;border-radius:4px}
+    .skip{position:absolute;left:-9999px;top:8px;background:#fff;padding:10px 14px;z-index:20}
+    .skip:focus{left:8px}
+    .wrap{max-width:1160px;margin:auto;padding:0 30px}
+    header{border-bottom:1px solid var(--line);background:rgba(255,255,255,.97)}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:22px;min-height:78px}
+    .logo{display:flex;align-items:center;gap:12px;font-size:1.35rem;font-weight:820;letter-spacing:-.045em;color:var(--ink);text-decoration:none}
+    .logo-mark{display:inline-grid;place-items:center;width:39px;height:39px;background:#123d62;color:#fff;border-radius:11px;font-size:1.05rem;letter-spacing:-.08em}
+    nav{display:flex;align-items:center;gap:23px;flex-wrap:wrap}
+    nav a{font-weight:650;text-decoration:none;font-size:.92rem;color:#31455b}
+    nav a:hover{color:#125c83}
+    .hero{padding:64px 0 58px}
+    .hero-layout{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(270px,.86fr);align-items:center;gap:48px;padding:clamp(32px,5vw,65px);border-radius:24px;background:linear-gradient(118deg,#102f4e 0%,#143e61 56%,#1b5877 100%);color:#f7fbff;box-shadow:0 18px 50px rgba(15,44,75,.14)}
+    .hero-layout:before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.18;background:radial-gradient(circle at 82% 10%,#7bcee0,transparent 35%),repeating-linear-gradient(0deg,transparent 0 67px,rgba(175,218,238,.20) 68px,transparent 69px)}
+    .hero-copy,.hero-side{position:relative;z-index:1}
+    .eyebrow{font-size:.76rem;font-weight:750;letter-spacing:.16em;text-transform:uppercase;color:#b2dce9}
+    h1{font-size:clamp(2.45rem,5vw,4.3rem);letter-spacing:-.058em;line-height:1.11;max-width:730px;margin:16px 0 20px}
+    .intro{font-size:1.07rem;color:#d2e3ef;max-width:60ch;margin:0 0 28px}
+    .actions{display:flex;flex-wrap:wrap;gap:12px}
+    .action{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 19px;border:1px solid #abc8dd;border-radius:10px;text-decoration:none;font-weight:740;font-size:.94rem}
+    .action:hover{transform:translateY(-1px)}
+    .primary{background:#f6fbff;color:#123d62;border-color:#f6fbff}
+    .secondary{background:transparent;color:#fff;border-color:#749bb6}
+    .hero-side{padding:22px;border:1px solid rgba(186,219,239,.36);border-radius:16px;background:rgba(9,35,59,.45);backdrop-filter:blur(3px)}
+    .side-label{margin:0 0 16px;color:#b6d8e8;font-size:.77rem;font-weight:750;letter-spacing:.1em;text-transform:uppercase}
+    .pipeline{list-style:none;margin:0;padding:0}
+    .pipeline li{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid rgba(211,235,249,.18);font-weight:650}
+    .pipeline li span{width:33px;height:33px;display:grid;place-items:center;flex:none;border:1px solid rgba(221,242,255,.45);border-radius:9px;font:700 .82rem ui-monospace,SFMono-Regular,Consolas,monospace;color:#a9e5e9}
+    .side-note{margin:16px 0 0;color:#bdd5e3;font-size:.82rem}
+    .section-top{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:22px}
+    .section-kicker{font-size:.76rem;color:#316e87;text-transform:uppercase;font-weight:800;letter-spacing:.12em;margin:0 0 6px}
+    h2{font-size:clamp(1.5rem,2.5vw,2rem);letter-spacing:-.035em;line-height:1.2;margin:0}
+    .section-desc{max-width:530px;color:var(--muted);margin:0;font-size:.93rem}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:42px}
+    .card{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:17px;padding:26px 28px;box-shadow:0 3px 11px rgba(28,54,82,.025)}
+    .card:before{content:attr(data-index);display:inline-grid;place-items:center;width:38px;height:38px;margin-bottom:18px;border-radius:10px;background:#e7f2f6;color:#25637d;font:750 .84rem ui-monospace,SFMono-Regular,Consolas,monospace}
+    .card h3{font-size:1.2rem;letter-spacing:-.02em;margin:0 0 7px}
+    .card h3 a{text-decoration:none}
+    .card p{margin:0 0 16px;color:var(--muted)}
+    .card a{font-weight:700}
+    .card a:hover{text-decoration-thickness:2px}
+    .paper-feature{display:grid;grid-template-columns:155px minmax(0,1fr);gap:28px;padding:29px;border:1px solid #cbdce5;background:#e7f1f5;border-radius:17px;margin-bottom:38px;align-items:center}
+    .paper-stamp{min-height:125px;display:flex;flex-direction:column;justify-content:space-between;padding:17px;background:#143a5b;border-radius:12px;color:#d2e7f1;font-size:.77rem;font-weight:800;letter-spacing:.12em}
+    .paper-stamp strong{font-size:1.55rem;line-height:1;letter-spacing:-.05em;color:#fff}
+    .paper-feature h2{font-size:1.25rem;margin-bottom:8px}
+    .paper-feature p{color:#466076;margin:0 0 9px}
+    .paper-feature a{font-weight:750}
+    .install{display:flex;justify-content:space-between;align-items:center;gap:25px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px 28px;margin-bottom:60px}
+    .install h2{font-size:1.22rem;margin-bottom:8px}
+    .install p{margin:0;color:var(--muted);font-size:.91rem;max-width:66ch}
+    code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    .install code{flex:none;display:inline-block;padding:13px 17px;background:#f0f6f9;border:1px solid #d4e1e9;border-radius:9px;font-size:.92rem;color:#164461}
+    footer{border-top:1px solid var(--line);padding:28px 0 44px;color:var(--muted);font-size:.91rem}
+    @media(max-width:860px){
+      .hero-layout{grid-template-columns:1fr;gap:23px}
+      .hero-side{max-width:none}
+      .section-top{align-items:flex-start;flex-direction:column}
+      .install{align-items:flex-start;flex-direction:column}
+    }
+    @media(max-width:610px){
+      .top{align-items:flex-start;flex-direction:column;padding:15px 0;gap:12px}
+      nav{gap:10px 17px}
+      .wrap{padding:0 18px}
+      .hero{padding:28px 0 36px}
+      .hero-layout{padding:28px 22px;border-radius:17px}
+      h1{font-size:clamp(2rem,9vw,3rem)}
+      .grid{grid-template-columns:1fr;gap:13px}
+      .card{padding:21px}
+      .paper-feature{grid-template-columns:1fr;padding:21px}
+      .paper-stamp{min-height:80px;flex-direction:row;align-items:center}
+      .install{padding:21px}
+    }
+    @media(prefers-color-scheme:dark){
+      :root{--ink:#edf4fb;--muted:#b0c0d0;--line:#34495d;--surface:#182c41;--background:#0d1a2c;--accent:#a4d5ee}
+      header{background:#122238}
+      .logo{color:#f1f7fb}nav a{color:#c4d8e8}
+      .card:before{background:#23475b;color:#bce1ef}
+      .paper-feature{background:#192f41;border-color:#385b6b}
+      .paper-feature p{color:#b5cfdd}
+      .install{background:#192c41}
+      .install code{color:#dbedfa;background:#102135;border-color:#46617a}
+    }
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.action:hover{transform:none}}
   </style>
 </head>
 <body>
   <a class="skip" href="#main">Skip to main content</a>
   <header>
     <div class="wrap top">
-      <a class="logo" href="./" aria-label="QuPRS home">QuPRS</a>
+      <a class="logo" href="./" aria-label="QuPRS home"><span class="logo-mark" aria-hidden="true">Q</span>QuPRS</a>
       <nav aria-label="Primary navigation">
         <a href="docs/">Documentation</a>
         <a href="docs/stable/rust-api/quprs/">Rust API</a>
@@ -61,39 +118,61 @@
   </header>
   <main id="main" class="wrap">
     <section class="hero" aria-labelledby="heading">
-      <div class="eyebrow">Open-source quantum verification</div>
-      <h1 id="heading">Quantum circuit equivalence checking with Path-sum and WMC.</h1>
-      <p class="intro">QuPRS combines symbolic Path-sum reduction with weighted model counting to help compare quantum circuits. Use the Python package, native Rust library, or the documented command-line tools.</p>
-      <div class="actions">
-        <a class="action primary" href="docs/">Read documentation</a>
-        <a class="action secondary" href="https://github.com/PhysicsQoo/QuPRS">Explore source code</a>
+      <div class="hero-layout">
+        <div class="hero-copy">
+          <div class="eyebrow">Open source · Quantum circuit verification</div>
+          <h1 id="heading">Reason about circuits, not just their outputs.</h1>
+          <p class="intro">QuPRS combines symbolic Path-sum reduction and weighted model counting to compare supported quantum circuits. Explore the published research, run examples locally in a browser, or use the Python and Rust libraries.</p>
+          <div class="actions">
+            <a class="action primary" href="docs/">Get started with QuPRS</a>
+            <a class="action secondary" href="https://github.com/PhysicsQoo/QuPRS">Explore source code</a>
+          </div>
+        </div>
+        <aside class="hero-side" aria-label="Verification pathways">
+          <p class="side-label">Verification pathways</p>
+          <ol class="pipeline">
+            <li><span>01</span> Path-sum reduction</li>
+            <li><span>02</span> Weighted model counting</li>
+            <li><span>03</span> Hybrid verification</li>
+          </ol>
+          <p class="side-note">Numerical results are not by themselves formal proof certificates. Method and tolerance details matter.</p>
+        </aside>
       </div>
     </section>
     <section aria-labelledby="resources">
-      <h2 id="resources">Explore QuPRS</h2>
+      <div class="section-top"><div><p class="section-kicker">Tools &amp; references</p><h2 id="resources">Explore QuPRS</h2></div><p class="section-desc">Choose the workflow that fits your research: a local browser experiment, a Python integration, or the native Rust API.</p></div>
       <div class="grid">
-        <article class="card">
+        <article class="card" data-index="01">
           <h3>Documentation</h3>
           <p>Getting started, supported workflows, theory, and versioned API references.</p>
           <a href="docs/">Open documentation</a>
         </article>
-        <article class="card">
+        <article class="card" data-index="02">
           <h3><a href="playground/">Browser Playground</a></h3>
           <p>Run supported circuit comparisons in your browser using local WebAssembly computation.</p>
           <p><a href="https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md">Read the Playground guide</a></p>
         </article>
-        <article class="card">
+        <article class="card" data-index="03">
           <h3>Python package</h3>
           <p>Install the Python interface to work with quantum circuits and Qiskit integrations.</p>
           <a href="https://pypi.org/project/QuPRS/">View on PyPI</a>
         </article>
-        <article class="card">
+        <article class="card" data-index="04">
           <h3>Rust crate</h3>
           <p>Use the native Rust verification API in your own applications. The stable Rust API Reference is published alongside the versioned documentation.</p>
           <a href="docs/stable/rust-api/quprs/">Rust API Reference</a>
           <span aria-hidden="true"> · </span>
           <a href="https://crates.io/crates/quprs">View on crates.io</a>
         </article>
+      </div>
+    </section>
+    <section class="paper-feature" aria-labelledby="paper-heading">
+      <div class="paper-stamp" aria-hidden="true"><span>RESEARCH PAPER</span><strong>TACAS<br>2026</strong></div>
+      <div>
+        <p class="section-kicker">Publication</p>
+        <h2 id="paper-heading">Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting</h2>
+        <p>Read the original research paper describing the Path-sum and weighted model counting approach.</p>
+        <a href="https://doi.org/10.1007/978-3-032-22749-2_21">Read the TACAS 2026 paper (DOI)</a>
       </div>
     </section>
     <section class="install" aria-labelledby="install-heading">

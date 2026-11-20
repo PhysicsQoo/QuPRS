@@ -17,6 +17,11 @@
 
   function render() {
     if (document.querySelector("nav[data-quprs-version-selector]")) return;
+    // Rustdoc uses body.rustdoc as a horizontal flex layout on desktop.
+    // A body-level navigation sibling becomes an unwanted column. Keep the
+    // native sidebar/topbar untouched and enhance only the content column.
+    const main = document.querySelector("main");
+    if (!main) return;
     const bar = document.createElement("nav");
     bar.className = "quprs-version-switcher";
     bar.setAttribute("aria-label", "QuPRS Rust API documentation version");
@@ -30,27 +35,23 @@
     label.append(" ", select);
     bar.append(label);
 
-    const parentLink = document.createElement("a");
-    parentLink.href = docsPrefix;
-    parentLink.textContent = "Documentation";
-    bar.append(parentLink);
+    const links = document.createElement("span");
+    links.className = "quprs-version-links";
+    for (const [href, title] of [
+      ["/QuPRS/", "Home"],
+      ["/QuPRS/playground/", "Playground"],
+      [docsPrefix, "Documentation"],
+      ["https://github.com/PhysicsQoo/QuPRS", "GitHub"],
+      ["https://github.com/PhysicsQoo/QuPRS/releases", "Releases"]
+    ]) {
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.textContent = title;
+      links.append(anchor);
+    }
+    bar.append(links);
 
-    const style = document.createElement("style");
-    style.textContent = [
-      ".quprs-version-switcher{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;",
-      "padding:.45rem 1rem;background:var(--main-background-color,#f6f8fc);",
-      "border-bottom:1px solid var(--border-color,#ccd3dc);",
-      "font-family:system-ui,sans-serif;font-size:.82rem}",
-      ".quprs-version-switcher label{display:flex;align-items:center;gap:.5rem}",
-      ".quprs-version-switcher select{max-width:14rem;font:inherit;padding:.2rem .4rem;",
-      "color:inherit;background:inherit;border:1px solid #8892a2;border-radius:.3rem}",
-      ".quprs-version-switcher a{color:var(--link-color,#3266a8)}",
-      "@media(max-width:600px){.quprs-version-switcher{padding:.5rem;gap:.7rem}}"
-    ].join("");
-    document.head.append(style);
-    const topbar = document.querySelector("rustdoc-topbar");
-    if (topbar) topbar.insertAdjacentElement("afterend", bar);
-    else document.body.insertBefore(bar, document.body.firstChild);
+    main.insertBefore(bar, main.firstChild);
 
     function option(value, title, selected = false) {
       const item = new Option(title, value, selected, selected);

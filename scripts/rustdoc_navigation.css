@@ -1,0 +1,38 @@
+.quprs-version-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem 1rem;
+  max-width: 960px;
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: .4rem 0 .65rem;
+  border-bottom: 1px solid var(--border-color, #ccd3dc);
+  font-family: system-ui, sans-serif;
+  font-size: .82rem;
+}
+.quprs-version-switcher label {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.quprs-version-switcher select {
+  max-width: 14rem;
+  font: inherit;
+  padding: .2rem .4rem;
+  color: inherit;
+  background: inherit;
+  border: 1px solid #8892a2;
+  border-radius: .3rem;
+}
+.quprs-version-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem 1rem;
+}
+.quprs-version-links a { color: var(--link-color, #3266a8); }
+@media (max-width: 700px) {
+  .quprs-version-switcher { padding: .35rem 0; gap: .5rem; }
+  .quprs-version-links { gap: .35rem .75rem; }
+}

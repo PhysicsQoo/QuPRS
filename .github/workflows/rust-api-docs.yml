@@ -35,6 +35,9 @@ on:
       - 'scripts/check_docs_links.py'
       - 'scripts/docs_versioning.py'
       - 'scripts/rustdoc_version_selector.js'
+      - 'scripts/build-rustdoc.sh'
+      - 'scripts/rustdoc_quprs_head.html'
+      - 'scripts/rustdoc_navigation.css'
       - 'test/test_docs_rustdoc_versions.py'
       - 'docs/requirements-versioned.txt'
       - '.github/workflows/rust-api-docs.yml'
@@ -200,7 +203,7 @@ jobs:
         uses: ./.github/actions/cache-ganak-release
       - name: Build Rust library reference
         if: steps.reuse-rustdoc.outputs.used != 'true'
-        run: cargo doc --locked --manifest-path rust/Cargo.toml -p quprs --no-deps
+        run: bash scripts/build-rustdoc.sh
       - name: Run Rust documentation tests
         if: steps.reuse-rustdoc.outputs.used != 'true'
         run: cargo test --locked --manifest-path rust/Cargo.toml -p quprs --doc

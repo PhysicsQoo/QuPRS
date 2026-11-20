@@ -70,6 +70,36 @@ def browser_check(root: Path, output: Path) -> None:
                         )
                         if selector.input_value() != "dev":
                             raise AssertionError("Rustdoc selector did not select dev")
+                        # Rustdoc owns the page's desktop flex layout. The
+                        # selector must be inside main, never a sibling of the
+                        # native sidebar that would form a wide empty column.
+                        for width in (1366, 1024, 390):
+                            page.set_viewport_size({"width": width, "height": 850})
+                            layout = page.evaluate("""() => {
+                                const nav = document.querySelector(
+                                    "nav[data-quprs-version-selector]");
+                                const main = document.querySelector("main");
+                                const sidebar = document.querySelector(".sidebar");
+                                const nr = nav?.getBoundingClientRect();
+                                const mr = main?.getBoundingClientRect();
+                                const sr = sidebar?.getBoundingClientRect();
+                                return {
+                                    nested: !!nav && main?.contains(nav),
+                                    inBounds: !!nr && !!mr &&
+                                      nr.left >= mr.left - 2 && nr.right <= mr.right + 2,
+                                    sidebarLeft: sr?.left ?? -1,
+                                    navVisible: !!nr && nr.width > 0 && nr.height > 0
+                                };
+                            }""")
+                            if not layout["nested"] or not layout["inBounds"] or not layout["navVisible"]:
+                                raise AssertionError(
+                                    f"Rustdoc version selector escapes main at {width}px: {layout}"
+                                )
+                            if width >= 1024 and not (-2 <= layout["sidebarLeft"] <= 2):
+                                raise AssertionError(
+                                    f"Rustdoc sidebar shifted at {width}px: {layout}"
+                                )
+                        page.set_viewport_size({"width": 1366, "height": 850})
                         page.screenshot(
                             path=str(output / "rustdoc-dev-selector.png"), full_page=True
                         )

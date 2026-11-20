@@ -45,8 +45,20 @@ class HomepageTests(unittest.TestCase):
                          "Internal PR previews must not appear on the public homepage")
         self.assertEqual(parsed.urls.count("playground/"), 1,
                          "Browser Playground card must have exactly one direct link")
-        self.assertIn('<h3><a href="playground/">Browser Playground</a></h3>', html,
-                      "The Browser Playground card title itself must be clickable")
+        playground_card = re.search(
+            r'<article class="card" data-index="02">(.*?)</article>', html, re.S
+        )
+        self.assertIsNotNone(playground_card, "Playground card must be present")
+        card = playground_card.group(1)
+        self.assertIn("<h3>Browser Playground</h3>", card,
+                      "Use a plain heading consistent with other resource cards")
+        self.assertIn('<a href="playground/">Open Browser Playground</a>', card)
+        self.assertLess(
+            card.index("local WebAssembly computation.</p>"),
+            card.index('<a href="playground/">'),
+            "The primary Playground link belongs below the description",
+        )
+        self.assertIn("Read the Playground guide", card)
         self.assertIn("https://github.com/PhysicsQoo/QuPRS/blob/main/docs/browser-workbench.md",
                       parsed.urls, "Keep the Playground guide available alongside the launch link")
         self.assertEqual(parsed.urls.count("https://doi.org/10.1007/978-3-032-22749-2_21"), 1,

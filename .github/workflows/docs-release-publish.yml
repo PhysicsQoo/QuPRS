@@ -1,18 +1,13 @@
 name: Documentation Stable Release
 
-# A successful tag publisher run is the authoritative dual-registry release gate.
-# The narrowly scoped main push also recovers releases completed before this
-# automatic trigger existed. Manual dispatch remains available for dry runs.
+# The signed tag publisher is the authoritative dual-registry release gate.
+# Manual dispatch is retained for controlled recovery or dry runs.
+# The one-time main-push backfill completed and is no longer enabled.
 on:
   workflow_run:
     workflows:
       - Build and Publish Python Package
     types: [completed]
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/docs-release-publish.yml'
-      - 'scripts/web/publish-stable-pages.sh'
   workflow_dispatch:
     inputs:
       tag:
@@ -51,7 +46,6 @@ jobs:
     outputs:
       release_tag: ${{ steps.gate.outputs.release_tag }}
       should_publish: ${{ steps.gate.outputs.should_publish }}
-      should_publish_browser: ${{ steps.gate.outputs.should_publish_browser }}
     steps:
       - name: Check out trusted release admission policy
         uses: actions/checkout@v5
@@ -84,12 +78,6 @@ jobs:
               test "$SOURCE_RUN_PATH" = .github/workflows/python-publish.yml
               tag="$SOURCE_RUN_REF"
               ;;
-            push)
-              test "$GITHUB_REF" = refs/heads/main
-              # One-time automatic reconciliation of an already released
-              # stable version when this workflow is introduced on main.
-              tag="$(python3 scripts/release_version.py --kind tag)"
-              ;;
             *)
               echo "::error::Unsupported documentation publication event"
               exit 1
@@ -117,7 +105,7 @@ jobs:
             echo "::error::Stable docs require a published non-prerelease GitHub Release"
             exit 1
           fi
-          # Manual and backfill entrypoints must independently prove that the
+          # Manual recovery must independently prove that the
           # signed tag passed the original dual-registry publishing workflow.
           if [[ "$EVENT_NAME" != workflow_run ]]; then
             gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$tag_sha&per_page=100" |
@@ -146,42 +134,6 @@ jobs:
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
-          fi
-          # Stable Browser snapshots are immutable. Repeated main pushes may
-          # revisit an already-published signed tag: verify that existing
-          # release identity and inventory instead of rebuilding and comparing
-          # potentially nondeterministic WASM artifacts against historical bytes.
-          # Missing snapshots still enter the full signed-source build gate.
-          if git cat-file -e "refs/remotes/origin/gh-pages:playground/$tag/index.html" 2>/dev/null; then
-            browser_sha="$(git show "refs/remotes/origin/gh-pages:playground/$tag/source-sha.txt" | tr -d '\r\n')"
-            test "$browser_sha" = "$tag_sha"
-            git show refs/remotes/origin/gh-pages:playground/versions.json |
-              jq -e --arg tag "$tag" --arg sha "$tag_sha" '
-                .schema == 1 and
-                ([.versions[] |
-                  select(.version == $tag and .source_sha == $sha and
-                    (.asset_sha256 | test("^[0-9a-f]{64}$")))] | length == 1)
-              ' >/dev/null
-            stable_browser_tag="$(git show refs/remotes/origin/gh-pages:playground/stable-release.json | jq -r '.version')"
-            if [[ "$stable_browser_tag" == "$tag" ]]; then
-              test "$(git show refs/remotes/origin/gh-pages:playground/source-sha.txt | tr -d '\r\n')" = "$tag_sha"
-              git show refs/remotes/origin/gh-pages:playground/stable-release.json |
-                jq -e --arg tag "$tag" --arg sha "$tag_sha" '
-                  .version == $tag and .source_sha == $sha
-                ' >/dev/null
-            fi
-            echo "Existing signed Playground snapshot has matching provenance; skipping rebuild"
-            echo "should_publish_browser=false" >> "$GITHUB_OUTPUT"
-          else
-            if git cat-file -e "refs/remotes/origin/gh-pages:playground/versions.json" 2>/dev/null; then
-              # A manifest entry without its immutable directory is corruption,
-              # never an invitation to replace or silently repair the snapshot.
-              git show refs/remotes/origin/gh-pages:playground/versions.json |
-                jq -e --arg tag "$tag" '
-                  [.versions[] | select(.version == $tag)] | length == 0
-                ' >/dev/null
-            fi
-            echo "should_publish_browser=true" >> "$GITHUB_OUTPUT"
           fi
           echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -480,7 +432,6 @@ jobs:
     needs: admission
     if: >-
       ${{ needs.admission.result == 'success' &&
-          needs.admission.outputs.should_publish_browser == 'true' &&
           (github.event_name != 'workflow_dispatch' || inputs.publish) }}
     uses: ./.github/workflows/website-publish.yml
     with:

@@ -46,12 +46,21 @@ nav:
       - General Python API: python-api.md
       - Advanced Path-sum API: pathsum-api.md
       - Architecture: architecture.md
+  - QuPRS website:
+      - Home: https://physicsqoo.github.io/QuPRS/
+      - Browser Playground: https://physicsqoo.github.io/QuPRS/playground/
+      - Stable Rust API: https://physicsqoo.github.io/QuPRS/docs/stable/rust-api/quprs/
+      - GitHub releases: https://github.com/PhysicsQoo/QuPRS/releases
 
 markdown_extensions:
   - admonition
   - pymdownx.arithmatex:
       generic: true
 
+extra_css:
+  - stylesheets/quprs-site-navigation.css
+
 extra_javascript:
   - javascripts/mathjax.js
+  - javascripts/quprs-site-navigation.js
   - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js

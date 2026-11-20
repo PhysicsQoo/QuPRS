@@ -81,6 +81,28 @@ class RustdocVersionNavigationTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "Missing or unreviewed"):
             module.inject_rustdoc_version_navigation(self.staged, self.selector)
 
+    def test_native_rustdoc_redirect_needs_no_header_extension(self):
+        redirect = (
+            '<!DOCTYPE html><html lang="en"><head>'
+            '<meta http-equiv="refresh" content="0;URL=../../quprs/struct.ExclusiveLedger.html">'
+            '<title>Redirection</title></head><body>'
+            '<script>location.replace("../../quprs/struct.ExclusiveLedger.html")</script>'
+            '</body></html>'
+        )
+        self.nested_page.write_text(redirect, encoding="utf-8")
+        self.assertEqual(module.inject_rustdoc_version_navigation(self.staged, self.selector), 2)
+        self.assertEqual(self.nested_page.read_text(encoding="utf-8"), redirect)
+
+    def test_reject_rustdoc_redirect_outside_source_tree(self):
+        self.nested_page.write_text(
+            '<html><head><meta http-equiv="refresh" content="0;URL=https://evil.invalid/">'
+            '<title>Redirection</title></head><body>'
+            '<script>location.replace("https://evil.invalid/")</script></body></html>',
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(AssertionError, "Unsafe native Rustdoc redirect"):
+            module.inject_rustdoc_version_navigation(self.staged, self.selector)
+
     def test_reject_symlink_source(self):
         alias = self.root / "untrusted.js"
         alias.symlink_to(self.selector)

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "stable": "v0.17.0",
+  "stable": "v0.17.1",
   "versions": [
     {
       "asset_sha256": "708ef953ffacdccb1dfea3b14efc039c92585394bc6f33220fadf37d93441418",

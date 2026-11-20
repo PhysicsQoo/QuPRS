@@ -9,8 +9,7 @@ import subprocess
 ROUTES = ("homepage", "browser", "docs_fast", "docs_version", "docs_reference")
 ALL_GATE = {
     ".github/workflows/website-ci.yml",
-    ".github/workflows/site-homepage-publish.yml",
-    ".github/workflows/browser-workbench-publish.yml",
+    ".github/workflows/website-deploy.yml",
     ".github/workflows/website-publish.yml",
     "scripts/site/website-impact.py",
     "scripts/site/test_website_impact.py",

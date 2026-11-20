@@ -135,7 +135,11 @@ def inject_rustdoc_version_navigation(staged: Path, selector_source: Path) -> in
                     and 'location.replace(' in html)
         if redirect:
             target = re.search(r'<meta http-equiv="refresh" content="0;URL=([^"]+)"', html)
-            if target is None or not (page.parent / target.group(1)).resolve().is_relative_to(staged.resolve()):
+            if target is None:
+                raise AssertionError(f"Unsafe native Rustdoc redirect: {page}")
+            uri = target.group(1)
+            if ("://" in uri or uri.startswith(("/", "\\\\")) or "\\\\" in uri
+                    or not (page.parent / uri).resolve().is_relative_to(staged.resolve())):
                 raise AssertionError(f"Unsafe native Rustdoc redirect: {page}")
         elif (html.count('data-quprs-version-selector="true"') != 1
               or '<script data-quprs-version-selector="true">' not in html):

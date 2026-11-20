@@ -60,8 +60,7 @@ class WebsiteImpactTests(unittest.TestCase):
 
     def test_ci_own_changes_force_full_gate(self) -> None:
         self.assertEqual(selected(".github/workflows/website-ci.yml"), set(routing.ROUTES))
-        self.assertEqual(selected(".github/workflows/site-homepage-publish.yml"), set(routing.ROUTES))
-        self.assertEqual(selected(".github/workflows/browser-workbench-publish.yml"), set(routing.ROUTES))
+        self.assertEqual(selected(".github/workflows/website-deploy.yml"), set(routing.ROUTES))
         self.assertEqual(selected(".github/workflows/website-publish.yml"), set(routing.ROUTES))
         self.assertEqual(selected("scripts/site/website-impact.py"), set(routing.ROUTES))
 
@@ -83,13 +82,12 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertIn("Untrusted website publication event", workflow)
         self.assertIn('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch"', workflow)
         self.assertIn('if [[ "$latest" != "$GITHUB_SHA" ]]', workflow)
-        for filename in ("browser-workbench-publish.yml", "site-homepage-publish.yml"):
-            adapter = (root / ".github/workflows" / filename).read_text(encoding="utf-8")
-            self.assertIn("push:", adapter)
-            self.assertIn("branches: [dev]", adapter)
-            self.assertIn("workflow_dispatch:", adapter)
-            self.assertIn("github.event_name == 'push' || inputs.publish", adapter)
-            self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        adapter = (root / ".github/workflows/website-deploy.yml").read_text(encoding="utf-8")
+        self.assertIn("  push:\n    branches: [dev]", adapter)
+        self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        self.assertIn("uses: ./.github/workflows/rust-api-docs.yml", adapter)
+        self.assertIn("target: playground", adapter)
+        self.assertIn("target: homepage", adapter)
         self.assertIn("group: quprs-gh-pages-publish", workflow)
         self.assertIn("git -C pages push origin HEAD:gh-pages", workflow)
         self.assertIn('gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"', workflow)
@@ -100,7 +98,7 @@ class WebsiteImpactTests(unittest.TestCase):
         """A Rust code edit must rebuild the real WASM for dev, never overwrite stable."""
         root = Path(__file__).resolve().parents[2]
         workflows = root / ".github/workflows"
-        publisher = (workflows / "browser-workbench-publish.yml").read_text(encoding="utf-8")
+        publisher = (workflows / "website-deploy.yml").read_text(encoding="utf-8")
         builder = (workflows / "browser-workbench.yml").read_text(encoding="utf-8")
         shared = (workflows / "website-publish.yml").read_text(encoding="utf-8")
         release = (workflows / "docs-release-publish.yml").read_text(encoding="utf-8")
@@ -137,7 +135,7 @@ class WebsiteImpactTests(unittest.TestCase):
         names = (
             "browser-workbench.yml", "site-homepage.yml",
             "docs-check.yml", "docs-examples.yml",
-            "browser-workbench-publish.yml", "site-homepage-publish.yml",
+            "website-deploy.yml", "rust-api-docs.yml",
             "website-ci.yml",
         )
         sources = {name: (root / name).read_text(encoding="utf-8") for name in names}
@@ -156,11 +154,11 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertIn("  workflow_call:\n", homepage)
         self.assertIn("    branches: [main]", homepage)
         self.assertNotIn("    branches: [dev, main]", homepage)
-        for name in ("browser-workbench-publish.yml", "site-homepage-publish.yml"):
-            adapter = sources[name]
-            self.assertIn("  push:\n    branches: [dev]", adapter)
-            self.assertIn("  workflow_dispatch:\n", adapter)
-            self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        adapter = sources["website-deploy.yml"]
+        self.assertIn("  push:\n    branches: [dev]", adapter)
+        self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        self.assertIn("uses: ./.github/workflows/rust-api-docs.yml", adapter)
+        self.assertNotIn("\n  push:\n", sources["rust-api-docs.yml"])
         for workflow in ("site-homepage.yml", "browser-workbench.yml",
                          "docs-check.yml"):
             self.assertIn(f"uses: ./.github/workflows/{workflow}", website)

@@ -25,48 +25,60 @@ class RustdocVersionNavigationTests(unittest.TestCase):
         (self.crate / "nested").mkdir(parents=True)
         self.root_page = self.crate / "index.html"
         self.nested_page = self.crate / "nested" / "struct.Sample.html"
-        self.root_page.write_text(
-            '<!doctype html><html><head><title>quprs</title></head>'
-            '<body><rustdoc-topbar></rustdoc-topbar></body></html>', encoding="utf-8"
-        )
-        self.nested_page.write_text(
-            '<!doctype html><html><head><title>Sample</title></head>'
-            '<body><rustdoc-topbar></rustdoc-topbar></body></html>', encoding="utf-8"
-        )
+        self.head = ROOT / "scripts" / "rustdoc_quprs_head.html"
         self.selector = ROOT / "scripts" / "rustdoc_version_selector.js"
+        self.css = ROOT / "scripts" / "rustdoc_navigation.css"
+        self.build = ROOT / "scripts" / "build-rustdoc.sh"
+        head = self.head.read_text(encoding="utf-8")
+        for page in (self.root_page, self.nested_page):
+            page.write_text(
+                '<!doctype html><html><head><title>quprs</title>' + head +
+                '</head><body><rustdoc-topbar></rustdoc-topbar><main></main></body></html>',
+                encoding="utf-8",
+            )
 
-    def test_native_pages_share_one_relative_selector(self):
+    def test_native_pages_remain_byte_identical_after_asset_staging(self):
+        original = (self.root_page.read_bytes(), self.nested_page.read_bytes())
         self.assertEqual(module.inject_rustdoc_version_navigation(self.staged, self.selector), 2)
-        self.assertIn(
-            '<script defer src="../quprs-versions.js" data-quprs-version-selector="true"></script>',
-            self.root_page.read_text(encoding="utf-8")
-        )
-        self.assertIn(
-            '<script defer src="../../quprs-versions.js" data-quprs-version-selector="true"></script>',
-            self.nested_page.read_text(encoding="utf-8")
-        )
+        self.assertEqual((self.root_page.read_bytes(), self.nested_page.read_bytes()), original)
         self.assertEqual(
             (self.staged / "quprs-versions.js").read_bytes(), self.selector.read_bytes()
         )
         self.assertEqual(module.inject_rustdoc_version_navigation(self.staged, self.selector), 2)
-        self.assertEqual(
-            self.root_page.read_text().count('data-quprs-version-selector="true"'), 1
-        )
-        self.assertEqual(
-            self.nested_page.read_text().count('data-quprs-version-selector="true"'), 1
-        )
+        self.assertEqual((self.root_page.read_bytes(), self.nested_page.read_bytes()), original)
 
-    def test_reject_bad_html_before_accepting_native_docs(self):
-        self.nested_page.write_text("<html><body>no head</body></html>")
+    def test_official_rustdoc_extension_flags_are_source_controlled(self):
+        build = self.build.read_text(encoding="utf-8")
+        self.assertIn("cargo rustdoc --locked", build)
+        self.assertIn("--html-in-header scripts/rustdoc_quprs_head.html", build)
+        self.assertIn("--extend-css scripts/rustdoc_navigation.css", build)
+        self.assertIn('data-quprs-version-selector="true"', self.head.read_text())
+        self.assertIn(".quprs-version-switcher", self.css.read_text())
+        for workflow in ("rust-api-docs.yml", "docs-versioning-poc.yml",
+                         "docs-release-publish.yml"):
+            source = (ROOT / ".github" / "workflows" / workflow).read_text()
+            self.assertIn("bash scripts/build-rustdoc.sh", source)
+
+    def test_reject_missing_or_unreviewed_html_header(self):
+        self.nested_page.write_text("<html><head><title>missing</title></head></html>")
+        with self.assertRaisesRegex(AssertionError, "Missing or unreviewed"):
+            module.inject_rustdoc_version_navigation(self.staged, self.selector)
+        self.nested_page.write_text("<html><body>missing head</body></html>")
         with self.assertRaisesRegex(AssertionError, "Invalid Rustdoc head"):
             module.inject_rustdoc_version_navigation(self.staged, self.selector)
 
-    def test_reject_multiple_or_mismatched_existing_scripts(self):
+    def test_reject_duplicate_or_untrusted_script_marker(self):
+        marker = '<script data-quprs-version-selector="true"></script>'
         self.root_page.write_text(
-            '<html><head><script defer src="https://untrusted.invalid/widget.js" '
-            'data-quprs-version-selector="true"></script></head><body></body></html>'
+            "<html><head>" + marker + marker + "</head></html>"
         )
-        with self.assertRaisesRegex(AssertionError, "Unreviewed Rustdoc selector"):
+        with self.assertRaisesRegex(AssertionError, "Missing or unreviewed"):
+            module.inject_rustdoc_version_navigation(self.staged, self.selector)
+        self.root_page.write_text(
+            '<html><head><script src="https://untrusted.invalid/script.js" '
+            'data-quprs-version-selector="true"></script></head></html>'
+        )
+        with self.assertRaisesRegex(AssertionError, "Missing or unreviewed"):
             module.inject_rustdoc_version_navigation(self.staged, self.selector)
 
     def test_reject_symlink_source(self):

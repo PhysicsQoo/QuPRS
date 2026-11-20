@@ -1,4 +1,6 @@
 name: Browser workbench
+# Reusable validation only: dev-push publication owns the single post-merge
+# browser build; Website CI owns the read-only PR build.
 on:
   workflow_call:
     inputs:
@@ -12,16 +14,6 @@ on:
         required: false
         type: string
         default: ''
-  push:
-    branches: [dev]
-    paths:
-      - 'rust/quprs/**'
-      - 'rust/web/**'
-      - 'rust/Cargo.toml'
-      - 'rust/Cargo.lock'
-      - 'web/**'
-      - 'scripts/web/**'
-      - '.github/workflows/browser-workbench.yml'
 permissions:
   contents: read
 concurrency:

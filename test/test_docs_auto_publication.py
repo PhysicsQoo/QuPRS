@@ -12,10 +12,12 @@ class StableDocumentationAutomationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_automatic_release_and_single_backfill_trigger(self):
+    def test_automatic_release_and_no_completed_backfill_trigger(self):
         src = self.source
         self.assertRegex(src, r"(?m)^  workflow_run:\n    workflows:\n      - Build and Publish Python Package\n    types: \[completed\]")
-        self.assertRegex(src, r"(?m)^  push:\n    branches: \[main\]\n    paths:\n      - '\.github/workflows/docs-release-publish\.yml'")
+        self.assertNotRegex(src, r"(?m)^  push:\n")
+        self.assertNotIn('            push)\n', src)
+        self.assertIn("  workflow_dispatch:\n", src)
         self.assertIn("github.event.workflow_run.conclusion == 'success'", src)
         self.assertIn("github.event.workflow_run.event == 'push'", src)
         self.assertIn("github.event.workflow_run.repository.full_name == github.repository", src)

@@ -51,6 +51,7 @@ jobs:
     outputs:
       release_tag: ${{ steps.gate.outputs.release_tag }}
       should_publish: ${{ steps.gate.outputs.should_publish }}
+      should_publish_browser: ${{ steps.gate.outputs.should_publish_browser }}
     steps:
       - name: Check out trusted release admission policy
         uses: actions/checkout@v5
@@ -145,6 +146,42 @@ jobs:
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          # Stable Browser snapshots are immutable. Repeated main pushes may
+          # revisit an already-published signed tag: verify that existing
+          # release identity and inventory instead of rebuilding and comparing
+          # potentially nondeterministic WASM artifacts against historical bytes.
+          # Missing snapshots still enter the full signed-source build gate.
+          if git cat-file -e "refs/remotes/origin/gh-pages:playground/$tag/index.html" 2>/dev/null; then
+            browser_sha="$(git show "refs/remotes/origin/gh-pages:playground/$tag/source-sha.txt" | tr -d '\r\n')"
+            test "$browser_sha" = "$tag_sha"
+            git show refs/remotes/origin/gh-pages:playground/versions.json |
+              jq -e --arg tag "$tag" --arg sha "$tag_sha" '
+                .schema == 1 and
+                ([.versions[] |
+                  select(.version == $tag and .source_sha == $sha and
+                    (.asset_sha256 | test("^[0-9a-f]{64}$")))] | length == 1)
+              ' >/dev/null
+            stable_browser_tag="$(git show refs/remotes/origin/gh-pages:playground/stable-release.json | jq -r '.version')"
+            if [[ "$stable_browser_tag" == "$tag" ]]; then
+              test "$(git show refs/remotes/origin/gh-pages:playground/source-sha.txt | tr -d '\r\n')" = "$tag_sha"
+              git show refs/remotes/origin/gh-pages:playground/stable-release.json |
+                jq -e --arg tag "$tag" --arg sha "$tag_sha" '
+                  .version == $tag and .source_sha == $sha
+                ' >/dev/null
+            fi
+            echo "Existing signed Playground snapshot has matching provenance; skipping rebuild"
+            echo "should_publish_browser=false" >> "$GITHUB_OUTPUT"
+          else
+            if git cat-file -e "refs/remotes/origin/gh-pages:playground/versions.json" 2>/dev/null; then
+              # A manifest entry without its immutable directory is corruption,
+              # never an invitation to replace or silently repair the snapshot.
+              git show refs/remotes/origin/gh-pages:playground/versions.json |
+                jq -e --arg tag "$tag" '
+                  [.versions[] | select(.version == $tag)] | length == 0
+                ' >/dev/null
+            fi
+            echo "should_publish_browser=true" >> "$GITHUB_OUTPUT"
           fi
           echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -443,6 +480,7 @@ jobs:
     needs: admission
     if: >-
       ${{ needs.admission.result == 'success' &&
+          needs.admission.outputs.should_publish_browser == 'true' &&
           (github.event_name != 'workflow_dispatch' || inputs.publish) }}
     uses: ./.github/workflows/website-publish.yml
     with:

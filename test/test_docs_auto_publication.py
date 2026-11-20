@@ -57,6 +57,45 @@ class StableDocumentationAutomationTests(unittest.TestCase):
         self.assertIn('group: quprs-docs-stable-release', src)
         self.assertIn("cancel-in-progress: false", src)
 
+    def test_browser_snapshot_repeat_is_idempotent_and_source_verified(self):
+        src = self.source
+        # Keep this independent from the documentation-stable alias gate.
+        self.assertIn('should_publish_browser: ${{ steps.gate.outputs.should_publish_browser }}', src)
+        self.assertIn('playground/$tag/index.html', src)
+        self.assertIn('playground/$tag/source-sha.txt', src)
+        self.assertIn('test "$browser_sha" = "$tag_sha"', src)
+        self.assertIn('.schema == 1', src)
+        self.assertIn('.asset_sha256 | test("^[0-9a-f]{64}$")', src)
+        self.assertIn('playground/versions.json', src)
+        self.assertIn('playground/stable-release.json', src)
+        self.assertIn('playground/source-sha.txt', src)
+        self.assertIn('echo "should_publish_browser=false" >> "$GITHUB_OUTPUT"', src)
+        self.assertIn('echo "should_publish_browser=true" >> "$GITHUB_OUTPUT"', src)
+        publish = src.split("\\n  browser-stable:\\n", 1)[1]
+        self.assertIn("needs.admission.outputs.should_publish_browser == 'true'", publish)
+        self.assertIn("(github.event_name != 'workflow_dispatch' || inputs.publish)", publish)
+
+    def test_browser_snapshot_negative_mutations_are_rejected(self):
+        src = self.source
+        def safe(text):
+            return (
+                'test "$browser_sha" = "$tag_sha"' in text
+                and ".asset_sha256 | test" in text
+                and 'playground/versions.json' in text
+                and "needs.admission.outputs.should_publish_browser == 'true'" in text
+                and 'should_publish_browser=false' in text
+                and "playground/$tag/source-sha.txt" in text
+            )
+        self.assertTrue(safe(src))
+        for old in (
+            'test "$browser_sha" = "$tag_sha"',
+            ".asset_sha256 | test",
+            "needs.admission.outputs.should_publish_browser == 'true'",
+            "playground/$tag/source-sha.txt",
+        ):
+            with self.subTest(mutation=old):
+                self.assertFalse(safe(src.replace(old, "REMOVED", 1)))
+
     def test_negative_mutations_are_rejected(self):
         source = self.source
         def safe(s):

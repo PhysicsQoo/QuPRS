@@ -50,8 +50,8 @@ class RustdocVersionNavigationTests(unittest.TestCase):
     def test_official_rustdoc_extension_flags_are_source_controlled(self):
         build = self.build.read_text(encoding="utf-8")
         self.assertIn("cargo rustdoc --locked", build)
-        self.assertIn("--html-in-header scripts/rustdoc_quprs_head.html", build)
-        self.assertIn("--extend-css scripts/rustdoc_navigation.css", build)
+        self.assertIn('--html-in-header "$root/scripts/rustdoc_quprs_head.html"', build)
+        self.assertIn('--extend-css "$root/scripts/rustdoc_navigation.css"', build)
         self.assertIn('data-quprs-version-selector="true"', self.head.read_text())
         self.assertIn(".quprs-version-switcher", self.css.read_text())
         for workflow in ("rust-api-docs.yml", "docs-versioning-poc.yml",

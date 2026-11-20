@@ -81,6 +81,15 @@ class RustdocVersionNavigationTests(unittest.TestCase):
         self.assertNotIn('querySelector("[data-quprs-version-selector]")', script)
         self.assertIn('bar.setAttribute("data-quprs-version-selector", "")', script)
 
+    def test_selector_does_not_create_a_desktop_flex_column(self):
+        script = self.selector.read_text(encoding="utf-8")
+        self.assertIn('const main = document.querySelector("main");', script)
+        self.assertIn("main.insertBefore(bar, main.firstChild);", script)
+        self.assertNotIn('topbar.insertAdjacentElement("afterend", bar)', script)
+        self.assertNotIn('document.body.insertBefore(bar', script)
+        for link in ('"/QuPRS/"', '"/QuPRS/playground/"', '"Documentation"'):
+            self.assertIn(link, script)
+
     def test_isolated_preview_does_not_request_live_manifest(self):
         script = self.selector.read_text(encoding="utf-8")
         self.assertIn('if (preview) {', script)

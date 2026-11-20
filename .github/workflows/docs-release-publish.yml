@@ -215,7 +215,7 @@ jobs:
           key: ganak-archive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src/QuPRS/utils/ganak-release.txt') }}
       - name: Generate Rustdoc from the same release SHA
         run: |
-          cargo doc --locked --manifest-path rust/Cargo.toml -p quprs --no-deps
+          bash scripts/build-rustdoc.sh
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs --doc
           python scripts/docs_versioning.py stage-native --source-sha '${{ steps.resolve.outputs.source_sha }}'
           python scripts/docs_versioning.py config --ref '${{ steps.resolve.outputs.release_tag }}'

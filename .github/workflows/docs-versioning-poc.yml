@@ -102,7 +102,7 @@ jobs:
         uses: ./.github/actions/cache-ganak-release
       - name: Build source-matched Rustdoc
         run: |
-          cargo doc --locked --manifest-path rust/Cargo.toml -p quprs --no-deps
+          bash scripts/build-rustdoc.sh
           python scripts/docs_versioning.py stage-native --source-sha ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Simulate dev and stable version deployments locally
         run: |

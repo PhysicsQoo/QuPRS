@@ -25,7 +25,11 @@ class Page(HTMLParser):
         if attributes.get("id"):
             self.ids.add(attributes["id"])
         if tag in {"a", "link"} and attributes.get("href"):
-            self.refs.append((tag, attributes["href"]))
+            # Zensical can promote configured external navigation links to
+            # <link rel="prev/next">. Treat ONLY these metadata navigation
+            # relations like anchors; never whitelist arbitrary link assets.
+            kind = "a" if tag == "link" and attributes.get("rel") in {"prev", "next"} else tag
+            self.refs.append((kind, attributes["href"]))
         if tag in {"script", "img", "iframe", "source"} and attributes.get("src"):
             self.refs.append((tag, attributes["src"]))
 
@@ -39,11 +43,13 @@ def check_links(site: Path, base_url: str) -> int:
     root_prefix = origin.path.rstrip("/") + "/"
     if ".." in root_prefix.split("/"):
         raise AssertionError("Unsafe preview URL prefix")
-    # The Playground is a separate Pages subtree, not part of /docs/<version>/.
-    # Allow only the official user-facing entry point; do not relax link checks
-    # for other site paths or unreviewed cross-prefix resources.
+    # These exact first-party navigation destinations are published by
+    # separate guarded Pages workflows or by the signed docs stable alias.
+    # Do not relax arbitrary cross-prefix links or static resource checking.
     allowed_sibling_links = {
+        ("https", "physicsqoo.github.io", "/QuPRS/"),
         ("https", "physicsqoo.github.io", "/QuPRS/playground/"),
+        ("https", "physicsqoo.github.io", "/QuPRS/docs/stable/rust-api/quprs/"),
     }
 
     page_data: dict[str, Page] = {}
@@ -118,12 +124,31 @@ def negative_fixture() -> None:
         (root / "index.html").write_text(
             '<html><body>' + good +
             '<a href="https://physicsqoo.github.io/QuPRS/playground/">Playground</a>' +
+            '<a href="https://physicsqoo.github.io/QuPRS/">Home</a>' +
+            '<a href="https://physicsqoo.github.io/QuPRS/docs/stable/rust-api/quprs/">Rust API</a>' +
             '</body></html>', encoding="utf-8",
         )
-        assert check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/") == 101
-        # The same official navigation link remains valid at the root
+        assert check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/") == 103
+        # Exact reviewed navigation links remain valid at the root
         # deployment prefix; unknown same-host pages do not become exempt.
-        assert check_links(root, "https://physicsqoo.github.io/QuPRS/") == 101
+        assert check_links(root, "https://physicsqoo.github.io/QuPRS/") == 103
+        (root / "index.html").write_text(
+            '<html><head><link rel="next" href="https://physicsqoo.github.io/QuPRS/"></head>'
+            '<body>' + good + '</body></html>', encoding="utf-8",
+        )
+        assert check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/") == 101
+        (root / "index.html").write_text(
+            '<html><head><link rel="canonical" href="https://physicsqoo.github.io/QuPRS/"></head>'
+            '<body>' + good + '</body></html>', encoding="utf-8",
+        )
+        try:
+            check_links(root, "https://physicsqoo.github.io/QuPRS/docs/dev/")
+        except AssertionError as exc:
+            if "escapes deployment prefix" not in str(exc):
+                raise
+        else:
+            raise AssertionError("Non-navigation link metadata bypassed source boundary")
+
         (root / "index.html").write_text(
             '<html><body>' + good +
             '<a href="https://physicsqoo.github.io/QuPRS/not-published/">Missing</a>' +

@@ -26,7 +26,7 @@ EXPECTED_PAGES = (
     "path-sum/index.html",
     "weighted-model-counting/index.html",
 )
-ALLOWED_SUFFIXES = {".md", ".js"}
+ALLOWED_SUFFIXES = {".md", ".js", ".css"}
 PRIVATE_TRACKER_KEY = re.compile(r"\b[A-Z]{2,8}-[0-9]{1,6}\b")
 
 
@@ -80,6 +80,9 @@ def verify_site(site_dir: Path) -> None:
             raise AssertionError(f"Missing scientific content on {relative}")
     if not (site_dir / "javascripts" / "mathjax.js").is_file():
         raise AssertionError("MathJax configuration was not included")
+    config = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    if "QuPRS website:" not in config or "Browser Playground:" not in config:
+        raise AssertionError("Native documentation project links are missing")
     for path in site_dir.rglob("*.html"):
         content = path.read_text(encoding="utf-8")
         if PRIVATE_TRACKER_KEY.search(content):

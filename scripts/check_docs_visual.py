@@ -59,7 +59,10 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                             ("rustdoc", "rust-api/quprs/index.html", "quprs"),
                         ]
                         for name, suffix, heading in scenarios:
-                            page = browser.new_page(viewport={"width": 1366, "height": 900}, device_scale_factor=1)
+                            page = browser.new_page(
+                                viewport={"width": 1600 if name == "overview" else 1366, "height": 900},
+                                device_scale_factor=1,
+                            )
                             broken: list[str] = []
                             page.on("response", lambda response, broken=broken:
                                     broken.append(f"{response.status} {response.url}")
@@ -91,6 +94,20 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                 selector.wait_for(state="visible", timeout=20000)
                                 if not selector.is_disabled() or selector.input_value() != "preview":
                                     raise AssertionError("Isolated PR Rustdoc must remain in preview mode")
+                                layout = page.evaluate("""() => {
+                                    const nav = document.querySelector(
+                                      "nav[data-quprs-version-selector]");
+                                    const main = document.querySelector("main");
+                                    const sidebar = document.querySelector(".sidebar");
+                                    return {
+                                      inside: !!main && main.contains(nav),
+                                      sidebarLeft: sidebar?.getBoundingClientRect().left
+                                    };
+                                }""")
+                                if not layout["inside"] or not (-2 <= layout["sidebarLeft"] <= 2):
+                                    raise AssertionError(
+                                        f"Rustdoc selector shifted native sidebar: {layout}"
+                                    )
                             if name == "pathsum-api":
                                 for gate in ("h", "cx", "rz", "mcx", "CRk"):
                                     locator = page.locator(
@@ -106,6 +123,23 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                 links = page.locator('a[href*="path-sum/"],a[href*="examples/"]')
                                 if links.count() < 2:
                                     raise AssertionError("Expected navigation links missing")
+                                # Website links belong to Zensical's native
+                                # navigation tree, not a custom header widget.
+                                native_playground = page.locator(
+                                    'nav.md-nav--primary a[href*="/QuPRS/playground/"]'
+                                )
+                                if native_playground.count() < 1:
+                                    raise AssertionError("Native Zensical website navigation missing")
+                                if page.locator("[data-quprs-site-links]").count() != 0:
+                                    raise AssertionError("Unexpected custom header navigation")
+                                if page.locator('header [data-md-component="search"]').count() != 1:
+                                    raise AssertionError("Native Zensical search has been altered")
+                                if page.locator('header [data-md-component="source"]').count() != 1:
+                                    raise AssertionError("Native Zensical repository link has been altered")
+                                if page.evaluate(
+                                    "() => document.documentElement.scrollWidth > innerWidth + 2"
+                                ):
+                                    raise AssertionError("Documentation desktop header causes overflow")
                             if broken:
                                 raise AssertionError(f"Broken local resources in {name}: {broken[:5]}")
                             page.screenshot(

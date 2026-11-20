@@ -105,41 +105,36 @@ def create_config(output: Path, ref: str) -> None:
 
 
 def inject_rustdoc_version_navigation(staged: Path, selector_source: Path) -> int:
-    """Add a same-origin manifest-backed selector without changing Rustdoc UI.
+    """Stage the shared JS without mutating native Rustdoc HTML.
 
-    Each crate page loads one shared JavaScript asset relative to rust-api/.
-    This works at /docs/<version>/ and also in isolated PR previews.
-    Previously generated pages are not silently rewritten in-place.
+    The source-built Rustdoc pages must already have our official
+    --html-in-header marker, built with scripts/build-rustdoc.sh.
+    Missing/duplicate markers fail closed, never repaired silently.
     """
     if not selector_source.is_file() or selector_source.is_symlink():
         raise AssertionError("Missing or symlinked Rustdoc version selector source")
     crate = staged / "quprs"
     if not (crate / "index.html").is_file():
         raise AssertionError("Missing staged native quprs documentation")
-    filename = "quprs-versions.js"
-    script = staged / filename
+    script = staged / "quprs-versions.js"
     if script.is_symlink():
         raise AssertionError("Rustdoc version asset must not be a symlink")
-    shutil.copyfile(selector_source, script)
     count = 0
     for page in sorted(crate.rglob("*.html")):
         if page.is_symlink():
             raise AssertionError("Rustdoc HTML symlinks are not allowed")
         html = page.read_text(encoding="utf-8")
-        relative = Path(os.path.relpath(script, start=page.parent)).as_posix()
-        tag = f'<script defer src="{relative}" data-quprs-version-selector="true"></script>'
-        if 'data-quprs-version-selector="true"' in html:
-            if html.count('data-quprs-version-selector="true"') != 1 or tag not in html:
-                raise AssertionError(f"Unreviewed Rustdoc selector markup: {page}")
-        elif html.count("</head>") != 1:
+        if html.count("</head>") != 1:
             raise AssertionError(f"Invalid Rustdoc head markup: {page}")
-        else:
-            html = html.replace("</head>", tag + "</head>")
-            page.write_text(html, encoding="utf-8")
+        if (html.count('data-quprs-version-selector="true"') != 1
+                or '<script data-quprs-version-selector="true">' not in html):
+            raise AssertionError(f"Missing or unreviewed official Rustdoc header: {page}")
         count += 1
     if count < 1:
-        raise AssertionError("No Rustdoc crate HTML to adapt")
+        raise AssertionError("No Rustdoc crate HTML to validate")
+    shutil.copyfile(selector_source, script)
     return count
+
 
 
 def stage_native_reference(source_sha: str) -> None:
@@ -161,7 +156,7 @@ def stage_native_reference(source_sha: str) -> None:
     adapted = inject_rustdoc_version_navigation(
         destination, ROOT / "scripts" / "rustdoc_version_selector.js"
     )
-    print(f"Rustdoc version navigation installed on {adapted} crate pages")
+    print(f"Native Rustdoc header validated on {adapted} crate pages; JS asset staged")
     # Old development preview links remain valid after crate renaming.
     legacy = destination / "pathsum"
     if legacy.exists():

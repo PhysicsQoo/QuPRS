@@ -126,8 +126,19 @@ def inject_rustdoc_version_navigation(staged: Path, selector_source: Path) -> in
         html = page.read_text(encoding="utf-8")
         if html.count("</head>") != 1:
             raise AssertionError(f"Invalid Rustdoc head markup: {page}")
-        if (html.count('data-quprs-version-selector="true"') != 1
-                or '<script data-quprs-version-selector="true">' not in html):
+        # rustdoc emits tiny redirect stubs for re-exported items (e.g.
+        # diagnostics/struct.ExclusiveLedger.html). Official --html-in-header
+        # does not apply to these auto-redirects: they immediately navigate to
+        # the canonical page where the selector is present.
+        redirect = ('<meta http-equiv="refresh"' in html
+                    and '<title>Redirection</title>' in html
+                    and 'location.replace(' in html)
+        if redirect:
+            target = re.search(r'<meta http-equiv="refresh" content="0;URL=([^"]+)"', html)
+            if target is None or not (page.parent / target.group(1)).resolve().is_relative_to(staged.resolve()):
+                raise AssertionError(f"Unsafe native Rustdoc redirect: {page}")
+        elif (html.count('data-quprs-version-selector="true"') != 1
+              or '<script data-quprs-version-selector="true">' not in html):
             raise AssertionError(f"Missing or unreviewed official Rustdoc header: {page}")
         count += 1
     if count < 1:

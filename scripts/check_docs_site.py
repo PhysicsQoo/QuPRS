@@ -80,12 +80,6 @@ def verify_site(site_dir: Path) -> None:
             raise AssertionError(f"Missing scientific content on {relative}")
     if not (site_dir / "javascripts" / "mathjax.js").is_file():
         raise AssertionError("MathJax configuration was not included")
-    for asset in (
-        "javascripts/quprs-site-navigation.js",
-        "stylesheets/quprs-site-navigation.css",
-    ):
-        if not (site_dir / asset).is_file():
-            raise AssertionError(f"Native documentation navigation asset missing: {asset}")
     config = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
     if "QuPRS website:" not in config or "Browser Playground:" not in config:
         raise AssertionError("Native documentation project links are missing")

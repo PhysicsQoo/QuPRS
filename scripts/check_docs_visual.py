@@ -123,10 +123,15 @@ def verify_browser(site: Path, output: Path, base_path: str) -> None:
                                 links = page.locator('a[href*="path-sum/"],a[href*="examples/"]')
                                 if links.count() < 2:
                                     raise AssertionError("Expected navigation links missing")
-                                header_links = page.locator("[data-quprs-site-links] a")
-                                header_links.first.wait_for(state="visible", timeout=20000)
-                                if header_links.count() != 4:
-                                    raise AssertionError("Native header project links missing")
+                                # Website links belong to Zensical's native
+                                # navigation tree, not a custom header widget.
+                                native_playground = page.locator(
+                                    'nav.md-nav--primary a[href*="/QuPRS/playground/"]'
+                                )
+                                if native_playground.count() < 1:
+                                    raise AssertionError("Native Zensical website navigation missing")
+                                if page.locator("[data-quprs-site-links]").count() != 0:
+                                    raise AssertionError("Unexpected custom header navigation")
                                 if page.locator('header [data-md-component="search"]').count() != 1:
                                     raise AssertionError("Native Zensical search has been altered")
                                 if page.locator('header [data-md-component="source"]').count() != 1:

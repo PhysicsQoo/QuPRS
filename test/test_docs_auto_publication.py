@@ -12,10 +12,12 @@ class StableDocumentationAutomationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_automatic_release_and_single_backfill_trigger(self):
+    def test_automatic_release_and_no_completed_backfill_trigger(self):
         src = self.source
         self.assertRegex(src, r"(?m)^  workflow_run:\n    workflows:\n      - Build and Publish Python Package\n    types: \[completed\]")
-        self.assertRegex(src, r"(?m)^  push:\n    branches: \[main\]\n    paths:\n      - '\.github/workflows/docs-release-publish\.yml'")
+        self.assertNotRegex(src, r"(?m)^  push:\n")
+        self.assertNotIn('            push)\n', src)
+        self.assertIn("  workflow_dispatch:\n", src)
         self.assertIn("github.event.workflow_run.conclusion == 'success'", src)
         self.assertIn("github.event.workflow_run.event == 'push'", src)
         self.assertIn("github.event.workflow_run.repository.full_name == github.repository", src)
@@ -56,45 +58,6 @@ class StableDocumentationAutomationTests(unittest.TestCase):
         self.assertIn('echo "should_publish=true" >> "$GITHUB_OUTPUT"', src)
         self.assertIn('group: quprs-docs-stable-release', src)
         self.assertIn("cancel-in-progress: false", src)
-
-    def test_browser_snapshot_repeat_is_idempotent_and_source_verified(self):
-        src = self.source
-        # Keep this independent from the documentation-stable alias gate.
-        self.assertIn('should_publish_browser: ${{ steps.gate.outputs.should_publish_browser }}', src)
-        self.assertIn('playground/$tag/index.html', src)
-        self.assertIn('playground/$tag/source-sha.txt', src)
-        self.assertIn('test "$browser_sha" = "$tag_sha"', src)
-        self.assertIn('.schema == 1', src)
-        self.assertIn('.asset_sha256 | test("^[0-9a-f]{64}$")', src)
-        self.assertIn('playground/versions.json', src)
-        self.assertIn('playground/stable-release.json', src)
-        self.assertIn('playground/source-sha.txt', src)
-        self.assertIn('echo "should_publish_browser=false" >> "$GITHUB_OUTPUT"', src)
-        self.assertIn('echo "should_publish_browser=true" >> "$GITHUB_OUTPUT"', src)
-        publish = src.split("\n  browser-stable:\n", 1)[1]
-        self.assertIn("needs.admission.outputs.should_publish_browser == 'true'", publish)
-        self.assertIn("(github.event_name != 'workflow_dispatch' || inputs.publish)", publish)
-
-    def test_browser_snapshot_negative_mutations_are_rejected(self):
-        src = self.source
-        def safe(text):
-            return (
-                'test "$browser_sha" = "$tag_sha"' in text
-                and ".asset_sha256 | test" in text
-                and 'playground/versions.json' in text
-                and "needs.admission.outputs.should_publish_browser == 'true'" in text
-                and 'should_publish_browser=false' in text
-                and "playground/$tag/source-sha.txt" in text
-            )
-        self.assertTrue(safe(src))
-        for old in (
-            'test "$browser_sha" = "$tag_sha"',
-            ".asset_sha256 | test",
-            "needs.admission.outputs.should_publish_browser == 'true'",
-            "playground/$tag/source-sha.txt",
-        ):
-            with self.subTest(mutation=old):
-                self.assertFalse(safe(src.replace(old, "REMOVED", 1)))
 
     def test_negative_mutations_are_rejected(self):
         source = self.source

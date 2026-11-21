@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+from fnmatch import fnmatchcase
 from pathlib import Path
+import re
 import unittest
 
 source = Path(__file__).with_name("website-impact.py")
@@ -57,6 +59,96 @@ class WebsiteImpactTests(unittest.TestCase):
             selected("website/index.html", "docs/site/index.md", "web/app.js"),
             {"homepage", "browser", "docs_reference", "docs_version"},
         )
+
+    def test_independent_edits_route_to_exact_ci_and_dev_publish_jobs(self) -> None:
+        """Exercise real event filters and job gates, not just classifier results."""
+        root = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+        ci = (root / "website-ci.yml").read_text(encoding="utf-8")
+        dev = (root / "website-deploy.yml").read_text(encoding="utf-8")
+
+        def event_paths(workflow: str, event: str) -> list[str]:
+            lines = workflow.splitlines()
+            self.assertIn(f"  {event}:", lines)
+            patterns = []
+            in_paths = False
+            for line in lines[lines.index(f"  {event}:") + 1:]:
+                if line and not line.startswith(" "):
+                    break
+                if line.startswith("  ") and not line.startswith("    "):
+                    break
+                if line == "    paths:":
+                    in_paths = True
+                elif in_paths and line.startswith("      - '") and line.endswith("'"):
+                    patterns.append(line[len("      - '"):-1])
+                elif in_paths and line.startswith("    ") and not line.startswith("      "):
+                    break
+            self.assertTrue(patterns, f"Missing {event} path filters")
+            return patterns
+
+        def job_block(workflow: str, job: str) -> str:
+            match = re.search(
+                rf"(?ms)^  {re.escape(job)}:\\n(.*?)(?=^  [a-z][a-z-]*:\\n|\\Z)",
+                workflow,
+            )
+            self.assertIsNotNone(match, f"Missing job: {job}")
+            assert match is not None
+            return match.group(1)
+
+        # The PR gate runs validation; dev push is the only auto-publisher.
+        ci_lanes = {
+            "homepage": ("homepage", "site-homepage.yml"),
+            "browser": ("browser", "browser-workbench.yml"),
+            "docs_fast": ("docs-fast", "docs-check.yml"),
+            "docs_version": ("docs-version", "docs-versioning-poc.yml"),
+            "docs_reference": ("docs-reference", "rust-api-docs.yml"),
+        }
+        dev_lanes = {
+            "homepage": ("homepage", "website-publish.yml", "target: homepage"),
+            "browser": ("playground", "website-publish.yml", "target: playground"),
+            "docs_reference": ("docs-dev", "rust-api-docs.yml", ""),
+        }
+        for workflow, lanes in ((ci, ci_lanes), (dev, dev_lanes)):
+            for route, (job, called, *markers) in lanes.items():
+                with self.subTest(workflow="ci" if workflow == ci else "dev", lane=job):
+                    block = job_block(workflow, job)
+                    self.assertIn(
+                        f"if: needs.impact.outputs.{route} == 'true'", block
+                    )
+                    self.assertIn(f"uses: ./.github/workflows/{called}", block)
+                    for marker in markers:
+                        if marker:
+                            self.assertIn(marker, block)
+
+        ci_paths = event_paths(ci, "pull_request")
+        dev_paths = event_paths(dev, "push")
+        cases = (
+            ("homepage HTML", "website/index.html", {"homepage"}, {"homepage"}),
+            ("homepage validation", "scripts/site/test_homepage.py", {"homepage"}, {"homepage"}),
+            ("Playground frontend", "web/worker.js", {"browser"}, {"playground"}),
+            ("Playground Rust adapter", "rust/web/src/lib.rs", {"browser"}, {"playground"}),
+            ("Docs content", "docs/site/index.md",
+             {"docs_reference", "docs_version"}, {"docs-dev"}),
+            ("Docs API", "scripts/check_rust_api_docs.py",
+             {"docs_reference"}, {"docs-dev"}),
+        )
+        for label, path, expected_routes, expected_publishers in cases:
+            with self.subTest(change=label, path=path):
+                self.assertTrue(any(fnmatchcase(path, p) for p in ci_paths),
+                                f"PR trigger misses {path}")
+                self.assertTrue(any(fnmatchcase(path, p) for p in dev_paths),
+                                f"dev-push trigger misses {path}")
+                routes = selected(path)
+                self.assertEqual(routes, expected_routes)
+                self.assertEqual(
+                    {job for route, (job, _) in ci_lanes.items() if route in routes},
+                    {job for route, (job, _) in ci_lanes.items()
+                     if route in expected_routes},
+                )
+                self.assertEqual(
+                    {job for route, (job, _, _) in dev_lanes.items() if route in routes},
+                    expected_publishers,
+                    f"Unexpected dev publisher for independent {label} edit",
+                )
 
     def test_ci_own_changes_force_full_gate(self) -> None:
         self.assertEqual(selected(".github/workflows/website-ci.yml"), set(routing.ROUTES))

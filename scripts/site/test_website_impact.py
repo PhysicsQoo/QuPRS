@@ -87,7 +87,7 @@ class WebsiteImpactTests(unittest.TestCase):
 
         def job_block(workflow: str, job: str) -> str:
             match = re.search(
-                rf"(?ms)^  {re.escape(job)}:\\n(.*?)(?=^  [a-z][a-z-]*:\\n|\\Z)",
+                rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  [a-z][a-z-]*:\n|\Z)",
                 workflow,
             )
             self.assertIsNotNone(match, f"Missing job: {job}")
@@ -122,16 +122,16 @@ class WebsiteImpactTests(unittest.TestCase):
         ci_paths = event_paths(ci, "pull_request")
         dev_paths = event_paths(dev, "push")
         cases = (
-            ("homepage HTML", "website/index.html", {"homepage"}, {"homepage"}),
-            ("homepage validation", "scripts/site/test_homepage.py", {"homepage"}, {"homepage"}),
-            ("Playground frontend", "web/worker.js", {"browser"}, {"playground"}),
-            ("Playground Rust adapter", "rust/web/src/lib.rs", {"browser"}, {"playground"}),
+            ("homepage HTML", "website/index.html", {"homepage"}, {"homepage"}, {"homepage"}),
+            ("homepage validation", "scripts/site/test_homepage.py", {"homepage"}, {"homepage"}, {"homepage"}),
+            ("Playground frontend", "web/worker.js", {"browser"}, {"browser"}, {"playground"}),
+            ("Playground Rust adapter", "rust/web/src/lib.rs", {"browser"}, {"browser"}, {"playground"}),
             ("Docs content", "docs/site/index.md",
-             {"docs_reference", "docs_version"}, {"docs-dev"}),
+             {"docs_reference", "docs_version"}, {"docs-reference", "docs-version"}, {"docs-dev"}),
             ("Docs API", "scripts/check_rust_api_docs.py",
-             {"docs_reference"}, {"docs-dev"}),
+             {"docs_reference"}, {"docs-reference"}, {"docs-dev"}),
         )
-        for label, path, expected_routes, expected_publishers in cases:
+        for label, path, expected_routes, expected_ci_jobs, expected_publishers in cases:
             with self.subTest(change=label, path=path):
                 self.assertTrue(any(fnmatchcase(path, p) for p in ci_paths),
                                 f"PR trigger misses {path}")
@@ -141,8 +141,8 @@ class WebsiteImpactTests(unittest.TestCase):
                 self.assertEqual(routes, expected_routes)
                 self.assertEqual(
                     {job for route, (job, _) in ci_lanes.items() if route in routes},
-                    {job for route, (job, _) in ci_lanes.items()
-                     if route in expected_routes},
+                    expected_ci_jobs,
+                    f"Unexpected CI suite for independent {label} edit",
                 )
                 self.assertEqual(
                     {job for route, (job, _, _) in dev_lanes.items() if route in routes},

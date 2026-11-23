@@ -307,11 +307,11 @@ function native(request){
   assert.equal(await editor.inputValue(),originalQasm,'Shift+Tab should reverse multi-line indent');
   await editor.evaluate(field=>{field.setSelectionRange(4,4);field.dispatchEvent(new Event('select'));});
   assert((await h.page.locator('#leftPosition').textContent()).includes('Col 5'));
-  await editor.fill('OPENQASM 2.0;\\n  qreg q[1];');
+  await editor.fill('OPENQASM 2.0;\n  qreg q[1];');
   await editor.focus();
   await editor.evaluate(field=>field.setSelectionRange(field.value.length,field.value.length));
   await h.page.keyboard.press('Enter');
-  assert((await editor.inputValue()).endsWith('\\n  '),'Enter should carry forward indentation');
+  assert((await editor.inputValue()).endsWith('\n  '),'Enter should carry forward indentation');
   await h.page.locator('#caseFile').setInputFiles(casePath);
   await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported case'));
   await editor.focus();

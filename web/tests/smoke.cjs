@@ -1,5 +1,5 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
-const {spawnSync}=require('node:child_process');const {open}=require('./harness.cjs');
+const {spawnSync}=require('node:child_process');const {createHash}=require('node:crypto');const {open}=require('./harness.cjs');
 const {checkCatalog}=require('./catalog.cjs');
 const out=process.env.QUWEB_QA_OUT||'web/test-results';fs.mkdirSync(out,{recursive:true});
 const q=(g,n=1)=>`OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[${n}];\n${g.replaceAll(';',';\n')}`;
@@ -244,6 +244,29 @@ function native(request){
   const downloaded=JSON.parse(fs.readFileSync(path.join(out,'downloaded-report.json'),'utf8'));
   assert.equal(typeof downloaded.request?.circuit1,'string','Export must retain circuit source for reproducibility');
   assert.equal(typeof downloaded.request?.distance_tolerance,'number');
+  // Provenance must bind this completed report to the exact staged source,
+  // both published WASM binaries, and the canonical request bytes.
+  const build=JSON.parse(fs.readFileSync(path.join(process.env.QUWEB_DIST,'build-provenance.json'),'utf8'));
+  const sha=fs.readFileSync(path.join(process.env.QUWEB_DIST,'source-sha.txt'),'utf8').trim();
+  const digest=p=>createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  assert.equal(downloaded.provenance.source_sha,sha);
+  assert.equal(downloaded.provenance.metadata_status,'available');
+  assert.equal(downloaded.provenance.provenance_kind,'site-reported-not-a-proof-certificate');
+  assert.equal(downloaded.provenance.core_wasm_sha256,
+    digest(path.join(process.env.QUWEB_DIST,'pkg/quprs_web_bg.wasm')));
+  assert.equal(downloaded.provenance.gpmc_wasm_sha256,
+    digest(path.join(process.env.QUWEB_DIST,'engines/gpmc.wasm')));
+  assert.equal(downloaded.provenance.gpmc_version,build.gpmc_version);
+  assert.equal(downloaded.provenance.gpmc_revision,build.gpmc_revision);
+  assert.equal(downloaded.provenance.request_sha256,
+    createHash('sha256').update(JSON.stringify(downloaded.request)).digest('hex'));
+  const tamperedBuild=await h.page.evaluate(async base=>{
+    const mod=await import(new URL('provenance.js',base).href);
+    const response=await fetch(new URL('build-provenance.json',base));
+    const manifest=await response.json();
+    return mod.validateBuildIdentity('f'.repeat(40),manifest);
+  },h.base);
+  assert.equal(tamperedBuild.build,null,'Source SHA mismatch must reject binary identity');
 
   // Versioned case exchange must work without a solver run. Reports are data,
   // never imported verification certificates, even with forged verdicts.
@@ -318,6 +341,40 @@ function native(request){
   await h.page.keyboard.press('Control+Enter');
   await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
   assert(await h.page.locator('#download').isEnabled(),'Keyboard run must verify restored case locally');
+
+  // Manual text is subject to the same per-circuit UTF-8 byte bound as JSON:
+  // multi-byte Unicode must not bypass the byte budget or start a Worker.
+  await h.page.locator('#left').fill('é'.repeat(131073));
+  await h.page.locator('#run').click();
+  assert((await h.page.locator('#inputError').textContent()).includes('256 KiB'));
+  assert.equal(await h.page.locator('#left').getAttribute('aria-invalid'),'true');
+  assert(await h.page.locator('#download').isDisabled());
+  assert.equal(await h.page.locator('#distance').textContent(),'—');
+  await h.page.locator('#caseFile').setInputFiles(casePath);
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported case'));
+
+  const oversizedJson=path.join(out,'oversized-circuit-case.json');
+  fs.writeFileSync(oversizedJson,JSON.stringify({...exportedCase,
+    request:{...beforeCase,circuit2:'é'.repeat(131073)}}));
+  await h.page.locator('#caseFile').setInputFiles(oversizedJson);
+  await h.page.waitForFunction(()=>!document.querySelector('#inputError').hidden);
+  assert((await h.page.locator('#inputError').textContent()).includes('256 KiB'));
+  assert.equal(await h.page.locator('#right').inputValue(),beforeCase.circuit2,
+    'Oversized JSON must not partially mutate the editor');
+
+  // Failed local file admission must not replace the previous valid text.
+  const oversizedQasm=path.join(out,'oversized.qasm');
+  fs.writeFileSync(oversizedQasm,'x'.repeat(256*1024+1));
+  await h.page.locator('#leftFile').setInputFiles(oversizedQasm);
+  await h.page.waitForFunction(()=>document.querySelector('#inputError').textContent.includes('256 KiB'));
+  assert.equal(await h.page.locator('#left').inputValue(),beforeCase.circuit1);
+  const malformedQasm=path.join(out,'malformed.qasm');
+  fs.writeFileSync(malformedQasm,Buffer.from([0xff,0xfe,0xfd]));
+  await h.page.locator('#leftFile').setInputFiles(malformedQasm);
+  await h.page.waitForFunction(()=>document.querySelector('#inputError').textContent.includes('Could not read'));
+  assert.equal(await h.page.locator('#left').inputValue(),beforeCase.circuit1);
+  await h.page.locator('#caseFile').setInputFiles(casePath);
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported case'));
 
   const file=path.join(out,'input.qasm');fs.writeFileSync(file,q('u1(0.000001) q[0];'));await h.page.locator('#leftFile').setInputFiles(file);await h.page.waitForFunction(()=>document.querySelector('#left').value.includes('0.000001'));
   await h.page.locator('#mode').selectOption('wmc');await h.page.locator('#run').click();await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');

@@ -137,6 +137,8 @@ jobs:
           python3 scripts/web/test-wasm-limits.py
           chmod +x "$RUNNER_TEMP/core/build-evidence/native-check" "$RUNNER_TEMP/counter/native-gpmc"
           printf '%s\n' '${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}' > "$RUNNER_TEMP/site/source-sha.txt"
+          python3 scripts/web/test-build-provenance.py
+          python3 scripts/web/write-build-provenance.py "$RUNNER_TEMP/site"
           python3 scripts/web/test-stage-pages.py
           python3 scripts/web/test-pages-deployment-status.py
           git clone --filter=blob:none --no-checkout --depth=1 --single-branch --branch gh-pages https://github.com/PhysicsQoo/QuPRS.git "$RUNNER_TEMP/pages-fixture"

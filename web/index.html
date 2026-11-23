@@ -127,7 +127,7 @@ qreg q[1];</textarea>
           </label>
         </section>
       </div>
-      <p id="editorHelp" class="help">Both inputs are processed in this browser. Uploaded text is not sent to a verification server. Maximum upload size: 256 KiB. Press Tab to indent (or Shift+Tab to unindent selected lines); press Escape then Tab to leave an editor. Ctrl/Cmd+Enter runs the comparison.</p>
+      <p id="editorHelp" class="help">Both inputs are processed in this browser. Uploaded text is not sent to a verification server. Maximum input size: 256 KiB of UTF-8 per circuit, including manual text, uploads and JSON import. Press Tab to indent (or Shift+Tab to unindent selected lines); press Escape then Tab to leave an editor. Ctrl/Cmd+Enter runs the comparison.</p>
 
       <section class="settings panel" aria-labelledby="settingsHeading">
         <p class="section-kicker">Step 02 · Configure</p>
@@ -175,7 +175,7 @@ qreg q[1];</textarea>
         <input id="caseFile" type="file" accept=".json,application/json">
       </label>
     </div>
-    <p class="help case-help">Case export saves both circuit sources and settings without running a solver. Importing a case or a previous report restores inputs only—it never trusts the imported verdict. Run Compare circuits to verify locally.</p>
+    <p class="help case-help">Case export saves both circuit sources and settings without running a solver. A completed report additionally records build-reported source/binary hashes and a request fingerprint (not a proof certificate). Importing a case or a previous report restores inputs only—it never trusts the imported verdict. Run Compare circuits to verify locally.</p>
   </form>
 
   <section class="result panel" id="results" aria-labelledby="resultsHeading" aria-live="polite">
@@ -196,6 +196,6 @@ qreg q[1];</textarea>
     <span> · Runs locally in browser Workers</span>
   </footer>
 </main>
-<script type="module" src="app.js?v=20261123-case-io"></script>
+<script type="module" src="app.js?v=20261123-provenance-bounds"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 //! F8G1: a bounded, source+spec-bound rank-two coherent property certificate.
 //!
 //! Three independent F8C1 source-to-count proofs (i,i),(j,j),(i,j), each
-//! including source-path semantics, the P8C1 prefix proof, S8C1 root
+//! including symbolic source semantics, the P8C1 prefix proof, S8C1 root
 //! predicates and exact D8C1 or M8D1 counting, are composed into a
 //! canonical P8G1 Gram and exact PSD verdict. An UNSAFE verdict must carry
 //! a separately verified P8W1 constructive normalized-state witness.
@@ -22,7 +22,7 @@ const LENGTH:usize=4+1+14*32+1;
 pub(super) struct ResultProperty {
     pub(super) verdict:CoherentVerdict,
     pub(super) prefix_checks:usize,
-    pub(super) path_pairs:usize,
+    pub(super) root_checks:usize,
     pub(super) proof_method_mask:u8,
     pub(super) witness_gap:Option<Real>,
 }
@@ -43,7 +43,7 @@ fn checked_layers(
     ];
     let mut roots=[[0u16;8];3];
     let mut prefix_checks=0usize;
-    let mut path_pairs=0usize;
+    let mut root_checks=0usize;
     let mut method_mask=0u8;
     for i in 0..3{
         let proof=f8c1_chain::verify(
@@ -56,7 +56,7 @@ fn checked_layers(
         roots[i]=proof.buckets;
         prefix_checks=prefix_checks.checked_add(proof.prefix_checks)
             .ok_or(Error::UnknownResource)?;
-        path_pairs=path_pairs.checked_add(proof.pair_checks)
+        root_checks=root_checks.checked_add(proof.root_checks)
             .ok_or(Error::UnknownResource)?;
         method_mask|=1u8 << proof.method;
     }
@@ -93,7 +93,7 @@ fn checked_layers(
         }
     };
     Ok(ResultProperty{
-        verdict,prefix_checks,path_pairs,
+        verdict,prefix_checks,root_checks,
         proof_method_mask:method_mask,witness_gap,
     })
 }

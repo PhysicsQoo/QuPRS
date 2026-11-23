@@ -1,10 +1,10 @@
 {
-  "core_wasm_sha256": "50fcbc192eff0ff374aac7156970eeeab6d0f390a528392ccb2b185382f3bcb0",
+  "core_wasm_sha256": "f86cc4b78ce6f1de8821266918adbde7d043fdc3f8855445cb7199f7dad34c3f",
   "format": "quprs-browser-build",
   "gpmc_revision": "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0",
   "gpmc_version": "v1.0.2",
   "gpmc_wasm_sha256": "4d09729f093c69899fe22b10f0f573f454d4892ba651f853b9af47b2c46b1842",
   "identity_kind": "build-reported",
   "schema": 1,
-  "source_sha": "dd1c9bb6a179409bad390194ceaf3014e876812d"
+  "source_sha": "6b456fd47c34371fe2e5d1446ef1315589c77981"
 }

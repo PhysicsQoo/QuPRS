@@ -96,6 +96,26 @@ jobs:
           python scripts/site/website-impact.py \
             --base "$BASE_SHA" --head "$HEAD_SHA" \
             --github-output "$GITHUB_OUTPUT"
+      - name: Summarize exactly selected dev publication lanes
+        env:
+          BEFORE: ${{ github.event.before }}
+          SOURCE_SHA: ${{ github.sha }}
+          HOMEPAGE: ${{ steps.scope.outputs.homepage }}
+          PLAYGROUND: ${{ steps.scope.outputs.browser }}
+          DOCS: ${{ steps.scope.outputs.docs_reference }}
+        run: |
+          {
+            echo "### Website Dev Deploy routing"
+            echo "| Evidence | Value |"
+            echo "| --- | --- |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            echo "| Previous dev SHA | \`$BEFORE\` |"
+            echo "| Homepage | $HOMEPAGE |"
+            echo "| Playground | $PLAYGROUND |"
+            echo "| Docs and Rustdoc | $DOCS |"
+            echo
+            echo "Only selected lanes rebuild. Actual Pages publication requires exact-source validation and independent public readback."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   homepage:
     name: Website / Publish Homepage

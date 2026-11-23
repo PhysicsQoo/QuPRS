@@ -419,6 +419,62 @@ mod tests{
         );
     }
     #[test]
+    fn symbolic_u16_monomial_bit_order_and_squarefree_product(){
+        // Independent exact single-monomial oracle, including the most
+        // significant Rust u16 bit. This is a bounded *implementation*
+        // test, not a proof that Rust compiles to the Lean semantics.
+        let mut a=Algebra::new();
+        let mut checked=0usize;
+        for left in 0..16 {
+            let l=Algebra::var(left).unwrap();
+            assert_eq!(l,BTreeSet::from([1u16<<left]));
+            for right in 0..16 {
+                let r=Algebra::var(right).unwrap();
+                let p=a.and(&l,&r).unwrap();
+                assert_eq!(p,BTreeSet::from([(1u16<<left)|(1u16<<right)]));
+                assert_eq!(a.and(&p,&p).unwrap(),p);
+                // Use a sparse, independent variable-based truth oracle
+                // that does not call the source/path-sum evaluator.
+                for bits in [
+                    0u16,0xffff,0xaaaa,0x5555,0x8000,0x0001,
+                    1u16<<left,1u16<<right,
+                    (1u16<<left)|(1u16<<right),
+                ] {
+                    let truth=((bits>>left)&1!=0) && ((bits>>right)&1!=0);
+                    assert_eq!(value(&p,bits),truth);
+                    checked+=1;
+                }
+            }
+        }
+        assert_eq!(checked,2304);
+        assert_eq!(Algebra::var(16),Err(Error::UnknownResource));
+        println!(
+            "ANF_U16_MASK_SQUAREFREE positions=16 products=256 \
+             truth_checks={checked} msb_bit15=true bit16_rejected=true"
+        );
+    }
+    #[test]
+    fn symbolic_term_and_fuel_bounds_cannot_issue_partial_proofs(){
+        let mut a=Algebra::new();
+        // A one-term over-limit input cannot be silently truncated.
+        let oversized=(0..=(MAX_ANF_TERMS as u16)).collect::<Poly>();
+        assert_eq!(oversized.len(),MAX_ANF_TERMS+1);
+        assert_eq!(a.xor(&oversized,&Algebra::empty()),Err(Error::UnknownResource));
+        // Charge large Cartesian products *before* construction to
+        // fail closed without allocating a potentially huge expansion.
+        let dense=(0..(MAX_ANF_TERMS as u16)).collect::<Poly>();
+        let mut constrained=Algebra::new();
+        assert_eq!(constrained.and(&dense,&dense),Err(Error::UnknownResource));
+        assert!(constrained.remaining<=MAX_OPS);
+        let one=Algebra::one();
+        assert_eq!(Algebra{remaining:0}.and(&one,&one),Err(Error::UnknownResource));
+        println!(
+            "ANF_U16_RESOURCE_GUARD term_limit={} operation_fuel={} \
+             fail_closed=true no_partial_result=true",
+            MAX_ANF_TERMS,MAX_OPS
+        );
+    }
+    #[test]
     fn symbolic_expansion_budget_is_fail_closed(){
         let mut exhausted=Algebra{remaining:0};
         let one=Algebra::one();

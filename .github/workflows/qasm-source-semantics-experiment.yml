@@ -17,6 +17,7 @@ on:
       - rust/research/p8c1_two_copy_structural.rs
       - rust/research/p8c1_two_copy_count_trace.rs
       - rust/research/p8c1_two_copy_count_dag.rs
+      - rust/research/p8c1_f8c1_chain.rs
       - rust/research/p8c1_count_to_gram.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
       - .github/workflows/qasm-source-semantics-experiment.yml
@@ -75,7 +76,7 @@ jobs:
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/research/p8c1_two_copy_structural.rs \
-            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_count_to_gram.rs \
+            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_count_to_gram.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -439,6 +440,23 @@ jobs:
             evidence/p8c1-fixtures/h-1q.s8c1 \
             evidence/p8c1-fixtures/h-1q-forged.m8d1
           echo 'M8D1_CROSS_BINARY_SHARED_DAG=verified_contexts forged_rejected source_bound'
+          F8C1_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/p8c1-fixtures" \
+            evidence/p8c1-checker-tests --exact \
+            tests::f8c1_export_source_bound_fixture_when_requested --nocapture
+          evidence/p8c1-checker --chain \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/h-1q.s8c1 \
+            evidence/p8c1-fixtures/h-1q.m8d1 \
+            evidence/p8c1-fixtures/h-1q.f8c1 | tee evidence/f8c1-chain.log
+          grep -F 'SCOPED_F8C1_SOURCE_COUNT_CHAIN_EXACT' evidence/f8c1-chain.log
+          check_reject INVALID_PROOF 4 --chain \
+            evidence/p8c1-fixtures/h-1q.qasm \
+            evidence/p8c1-fixtures/h-1q.p8c1 \
+            evidence/p8c1-fixtures/h-1q.s8c1 \
+            evidence/p8c1-fixtures/h-1q.m8d1 \
+            evidence/p8c1-fixtures/h-1q-forged.f8c1
+          echo 'F8C1_CROSS_BINARY_CHAIN=raw_source_prefix_to_structural_count_exact forged_rejected'
           G8D1_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/p8c1-fixtures" \
             evidence/p8c1-checker-tests --exact \
             tests::g8d1_export_external_producer_fixtures_when_requested --nocapture

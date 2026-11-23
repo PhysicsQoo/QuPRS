@@ -86,7 +86,7 @@ theorem xor_phase_lift (x y : Bool) :
     (asNat x + asNat y + 6 * asNat (x && y)) % 8 := by
   cases x <;> cases y <;> decide
 
-theorem boolean_ring_and_idempotent (x : Bool) : x && x = x := by
+theorem boolean_ring_and_idempotent (x : Bool) : (x && x) = x := by
   cases x <;> decide
 
 theorem boolean_ring_xor_cancel (x : Bool) : x.xor x = false := by
@@ -136,7 +136,7 @@ theorem gate_cnf_iff (op : BoolOp) (a b z : Bool) :
 /-- Every admitted S8C1 gate has exactly one satisfying auxiliary output.
     Induction over an ordered, earlier-inputs-only DAG is the next lemma. -/
 theorem gate_unique_extension (op : BoolOp) (a b : Bool) :
-    ∃! z : Bool, gateCNF op a b z = true := by
+    ExistsUnique (fun z : Bool => gateCNF op a b z = true) := by
   refine ⟨gateValue op a b, ?_, ?_⟩
   · exact (gate_cnf_iff op a b (gateValue op a b)).2 rfl
   · intro z hz

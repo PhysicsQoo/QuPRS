@@ -164,13 +164,13 @@ def gateAt (values : List Bool) (g : OrderedGate) : Bool :=
 /-- A satisfying extension is defined by the actual per-gate CNF,
     rather than by simply declaring the output to equal an evaluator. -/
 inductive ValidExtension : List Bool → List OrderedGate → List Bool → Prop where
-  | done (prefix : List Bool) : ValidExtension prefix [] []
-  | step (prefix : List Bool) (gate : OrderedGate)
+  | done (ctx : List Bool) : ValidExtension ctx [] []
+  | step (ctx : List Bool) (gate : OrderedGate)
       (rest : List OrderedGate) (z : Bool) (zs : List Bool)
-      (head : gateCNF gate.op (prefixBit prefix gate.a)
-        (prefixBit prefix gate.b) z = true)
-      (tail : ValidExtension (prefix ++ [z]) rest zs) :
-      ValidExtension prefix (gate :: rest) (z :: zs)
+      (head : gateCNF gate.op (prefixBit ctx gate.a)
+        (prefixBit ctx gate.b) z = true)
+      (tail : ValidExtension (ctx ++ [z]) rest zs) :
+      ValidExtension ctx (gate :: rest) (z :: zs)
 
 /-- Universally quantified soundness of unique Tseitin extension:
     for any number of primary bits and any finite ordered gate sequence
@@ -178,30 +178,30 @@ inductive ValidExtension : List Bool → List OrderedGate → List Bool → Prop
     satisfies the complete conjunction of gate CNF definitions.
     The separate S8C1 schema checker rules out invalid references. -/
 theorem ordered_dag_unique_extension
-    (prefix : List Bool) (gates : List OrderedGate) :
+    (ctx : List Bool) (gates : List OrderedGate) :
     ∃ outputs : List Bool,
-      ValidExtension prefix gates outputs ∧
+      ValidExtension ctx gates outputs ∧
       ∀ other : List Bool,
-        ValidExtension prefix gates other → other = outputs := by
-  induction gates generalizing prefix with
+        ValidExtension ctx gates other → other = outputs := by
+  induction gates generalizing ctx with
   | nil =>
-      refine ⟨[], ValidExtension.done prefix, ?_⟩
+      refine ⟨[], ValidExtension.done ctx, ?_⟩
       intro other h
       cases h
       rfl
   | cons gate rest ih =>
-      let z := gateAt prefix gate
-      obtain ⟨zs, hzs, unique⟩ := ih (prefix := prefix ++ [z])
+      let z := gateAt ctx gate
+      obtain ⟨zs, hzs, unique⟩ := ih (ctx := ctx ++ [z])
       refine ⟨z :: zs, ?_, ?_⟩
-      · exact ValidExtension.step prefix gate rest z zs
-          ((gate_cnf_iff gate.op (prefixBit prefix gate.a)
-            (prefixBit prefix gate.b) z).2 rfl) hzs
+      · exact ValidExtension.step ctx gate rest z zs
+          ((gate_cnf_iff gate.op (prefixBit ctx gate.a)
+            (prefixBit ctx gate.b) z).2 rfl) hzs
       · intro other h
         cases h with
         | step _ _ _ z' zs' head tail =>
             have hz : z' = z :=
-              (gate_cnf_iff gate.op (prefixBit prefix gate.a)
-                (prefixBit prefix gate.b) z').1 head
+              (gate_cnf_iff gate.op (prefixBit ctx gate.a)
+                (prefixBit ctx gate.b) z').1 head
             subst z'
             have htail : zs' = zs := unique zs' tail
             simp [htail]

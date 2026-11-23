@@ -166,7 +166,12 @@ function native(request){
   assert(await h.page.locator('#download').isDisabled());
   assert((await h.page.locator('#state').textContent()).includes('Run comparison again'));
   assert.equal(await h.page.locator('#results').getAttribute('data-status'),null);
-  await h.page.evaluate(()=>document.querySelector('#form').requestSubmit());
+  const active=await h.page.evaluate(()=>{
+    document.querySelector('#form').requestSubmit();
+    return {progress:!document.querySelector('#progress').hidden,
+      stop:!document.querySelector('#stop').disabled};
+  });
+  assert(active.progress&&active.stop,'Running UI must show elapsed budget and available Stop');
   await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
   assert(await h.page.locator('#progress').isHidden(),'Elapsed timer must stop after completion');
   assert(await h.page.locator('#download').isEnabled());
@@ -184,6 +189,10 @@ function native(request){
   await h.page.keyboard.press('Tab');
   assert((await edit.inputValue()).endsWith('  '),'Tab should indent QASM without moving focus');
   assert.equal(await h.page.locator('#distance').textContent(),'—');
+  await h.page.keyboard.press('Escape');
+  await h.page.keyboard.press('Tab');
+  assert.notEqual(await h.page.evaluate(()=>document.activeElement.id),'left',
+    'Escape then Tab must let keyboard-only users leave the QASM editor');
   // Rejected browser inputs do not launch workers or create a report.
   await h.page.locator('[data-example-id="identity"]').click();
   await h.page.locator('#left').fill(' ');

@@ -71,12 +71,20 @@ for(const id of [...editorIds,'epsilon','rr','mode','strategy']){
 // Keep the existing native editors; Tab indents without losing the input event.
 for(const id of editorIds){
   $(id).addEventListener('keydown',event=>{
-    if(event.key!=='Tab'||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey)return;
-    event.preventDefault();
     const field=event.currentTarget;
+    // Escape then Tab permits keyboard-only navigation out of the editor.
+    if(event.key==='Escape'){field.dataset.nextTabLeaves='true';return;}
+    if(event.key!=='Tab')return;
+    if(field.dataset.nextTabLeaves==='true'){
+      delete field.dataset.nextTabLeaves;
+      return;
+    }
+    if(event.shiftKey||event.altKey||event.ctrlKey||event.metaKey)return;
+    event.preventDefault();
     field.setRangeText('  ',field.selectionStart,field.selectionEnd,'end');
     field.dispatchEvent(new Event('input',{bubbles:true}));
   });
+  $(id).addEventListener('blur',event=>delete event.currentTarget.dataset.nextTabLeaves);
 }
 function validateRequest(){
   clearValidation();
@@ -222,7 +230,9 @@ $('form').addEventListener('submit',async event=>{
     // Keep the request used for the report so a downloaded file can be reproduced.
     last={...report,wall_ms:performance.now()-start,request};
     state('Completed.','completed');
-    $('results').dataset.status=report.rr_approximate?'approximate':
+    const approximateEq=report.rr_approximate &&
+      (report.status==='equivalent'||report.status==='equivalent*');
+    $('results').dataset.status=approximateEq?'approximate':
       report.status==='equivalent*'?'equivalent-global':(report.status||'unknown');
     const d=report.distance_estimate;
     $('distance').textContent=typeof d==='number'&&Number.isFinite(d)
@@ -234,7 +244,7 @@ $('form').addEventListener('submit',async event=>{
       unknown:'Inconclusive — not proof of inequivalence'
     };
     let verdict=labels[report.status]||'Result status unavailable';
-    if(report.rr_approximate&&(report.status==='equivalent'||report.status==='equivalent*')){
+    if(approximateEq){
       verdict='Within reduction tolerance (approximate)';
     }
     $('verdict').textContent=verdict;

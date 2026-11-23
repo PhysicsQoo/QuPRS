@@ -33,6 +33,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      # Cache compiled dependencies and the pinned wasm-bindgen CLI, never the
+      # final tested WASM. The native tests and source rebuild always execute.
+      - name: Cache Rust dependencies and wasm-bindgen tool for browser core
+        id: rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+          key: browser-core-wasm-v1
+          save-if: ${{ github.ref == 'refs/heads/dev' && inputs.source_sha == '' }}
       - name: Native adapter and transport tests
         run: |
           set -euo pipefail
@@ -56,6 +65,20 @@ jobs:
           path: |
             web/pkg
             build-evidence
+      - name: Summarize exact-source browser core build
+        if: always()
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
+          CACHE_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+        run: |
+          {
+            echo "### Browser core build"
+            echo "| Evidence | Value |"
+            echo "| --- | --- |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            echo "| Rust dependency cache exact hit | \`${CACHE_HIT:-false}\` |"
+            echo "| Native adapter/transport and WASM source build | Required on every run |"
+          } >> "$GITHUB_STEP_SUMMARY"
   counter:
     runs-on: ubuntu-latest
     timeout-minutes: 35

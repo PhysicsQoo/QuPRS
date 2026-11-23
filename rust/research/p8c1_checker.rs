@@ -22,6 +22,8 @@ mod count_to_gram;
 mod dense_oracle;
 #[path = "p8c1_f8c1_chain.rs"]
 mod f8c1_chain;
+#[path = "p8c1_f8g1_property.rs"]
+mod f8g1_property;
 
 const MAX_SOURCE_BYTES: usize = 32_768;
 const MAX_PROOF_BYTES: usize = 1 << 20;
@@ -968,6 +970,60 @@ fn cli()->Check<usize> {
 }
 fn main()->ExitCode {
     let paths:Vec<_>=std::env::args().skip(1).collect();
+    if paths.len()==16 && paths[0]=="--rank2"{
+        // Cross-process, multi-artifact source/spec-linked rank-2 property
+        // verification. Existing legacy parser/source-trust remains BLOCKED.
+        let verdict=(||{
+            let src=read_limited(&paths[1],MAX_SOURCE_BYTES,Error::InvalidSource)?;
+            let p8=read_limited(&paths[2],MAX_PROOF_BYTES,Error::InvalidProof)?;
+            let spec=read_limited(&paths[3],MAX_SPEC_BYTES,Error::InvalidSource)?;
+            let read=|s:&str|read_limited(s,65_536,Error::InvalidProof);
+            let structures=[read(&paths[4])?,read(&paths[5])?,read(&paths[6])?];
+            let traces=[read(&paths[7])?,read(&paths[8])?,read(&paths[9])?];
+            let f8=[read(&paths[10])?,read(&paths[11])?,read(&paths[12])?];
+            let gram=read_limited(&paths[13],P8G1_BYTES,Error::InvalidProof)?;
+            let witness=read_limited(&paths[14],P8W1_BYTES,Error::InvalidProof)?;
+            let envelope=read_limited(&paths[15],512,Error::InvalidProof)?;
+            f8g1_property::verify(
+                &src,&p8,&spec,
+                [&structures[0],&structures[1],&structures[2]],
+                [&traces[0],&traces[1],&traces[2]],
+                [&f8[0],&f8[1],&f8[2]],&gram,&witness,&envelope
+            )
+        })();
+        return match verdict {
+            Ok(result)=>{
+                match result.verdict{
+                    CoherentVerdict::ScopedSatisfied=>{
+                        println!(
+                            "SCOPED_F8G1_RANK2_PROPERTY_SAT \
+                             source_prefix_checks={} paired_path_checks={} \
+                             proof_methods={} witness=not_required source_trust=BLOCKED",
+                            result.prefix_checks,result.path_pairs,
+                            result.proof_method_mask
+                        );
+                        ExitCode::SUCCESS
+                    },
+                    CoherentVerdict::ScopedViolated{reason}=>{
+                        println!(
+                            "SCOPED_F8G1_RANK2_PROPERTY_VIOLATED reason={reason} \
+                             source_prefix_checks={} paired_path_checks={} \
+                             proof_methods={} witness_checked={} source_trust=BLOCKED",
+                            result.prefix_checks,result.path_pairs,
+                            result.proof_method_mask,
+                            result.witness_gap.is_some()
+                        );
+                        ExitCode::from(6)
+                    }
+                }
+            }
+            Err(e)=>{
+                println!("{}",e.label());
+                ExitCode::from(e.exit_code())
+            }
+        }
+    }
+
     if paths.len()==6 && paths[0]=="--chain" {
         // Bounded finite full-chain admission: raw source -> every P8C1
         // source prefix -> S8C1 Boolean DAG -> exact D8C1/M8D1 count.
@@ -2317,6 +2373,206 @@ mod tests {
              envelope_bytes={} source_trust=BLOCKED",
             checked.prefix_checks,checked.pair_checks,envelope.len()
         );
+    }
+
+
+    #[test]
+    fn f8g1_three_source_count_proofs_to_rank2_exact_psd_and_witness(){
+        let sources=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\n".as_slice(),
+        ];
+        let mut checks=0usize;
+        let mut witness_cases=0usize;
+        let mut sat_cases=0usize;
+        for src in sources{
+            let (p8,state)=source_proof_and_state(src);
+            for (num,den) in [(0usize,1usize),(1,1)]{
+                let spec=coherent_spec(state.n,3,1,num,den);
+                let parsed=parse_scg1_spec(&spec).unwrap();
+                let exact=path_coherent_gram(
+                    &state,parsed.first,parsed.second,parsed.bad_mask).unwrap();
+                let claim=encode_p8g1_claim(src,&p8,&spec,&exact);
+                let verdict=gram_psd_verdict(&exact,&parsed).unwrap();
+                let witness=match verdict{
+                    CoherentVerdict::ScopedSatisfied=>Vec::new(),
+                    CoherentVerdict::ScopedViolated{..}=>{
+                        encode_p8w1(&claim,&derive_coherent_witness(&exact,&parsed).unwrap()).to_vec()
+                    }
+                };
+                let pair=[
+                    (parsed.first,parsed.first),
+                    (parsed.second,parsed.second),
+                    (parsed.first,parsed.second)
+                ];
+                for method in 0..3 {
+                    // D8C1-only, M8D1-only, and mixed independent
+                    // certified counts are all accepted if correctly linked.
+                    let mut structures=Vec::new();
+                    let mut traces=Vec::new();
+                    let mut bundles=Vec::new();
+                    for (slot,&(i,j)) in pair.iter().enumerate(){
+                        let s8=two_copy_structural::encode(
+                            src,&p8,&state,i,j,parsed.bad_mask).unwrap();
+                        let use_dag=method==1 || (method==2 && slot!=1);
+                        let trace=if use_dag{
+                            two_copy_count_dag::emit(src,&p8,&s8).unwrap()
+                        }else{
+                            two_copy_count_trace::emit(src,&p8,&s8).unwrap()
+                        };
+                        let f8=f8c1_chain::encode(src,&p8,&s8,&trace).unwrap();
+                        structures.push(s8);
+                        traces.push(trace);
+                        bundles.push(f8);
+                    }
+                    let ss=[&structures[0][..],&structures[1][..],&structures[2][..]];
+                    let tt=[&traces[0][..],&traces[1][..],&traces[2][..]];
+                    let ff=[&bundles[0][..],&bundles[1][..],&bundles[2][..]];
+                    let f8g=f8g1_property::encode(src,&p8,&spec,ss,tt,ff,&claim,&witness).unwrap();
+                    let result=f8g1_property::verify(
+                        src,&p8,&spec,ss,tt,ff,&claim,&witness,&f8g).unwrap();
+                    assert_eq!(result.verdict,verdict);
+                    assert_eq!(f8g.len(),454);
+                    assert!(result.prefix_checks>0 && result.path_pairs>0);
+                    if verdict==CoherentVerdict::ScopedSatisfied{
+                        assert_eq!(result.witness_gap,None);
+                        sat_cases+=1;
+                    }else{
+                        assert!(result.witness_gap.is_some());
+                        witness_cases+=1;
+                    }
+                    checks+=1;
+                }
+            }
+        }
+        assert_eq!(checks,18);
+        assert_eq!((sat_cases,witness_cases),(9,9));
+        println!(
+            "F8G1_RANK2_SOURCE_SPEC_CHAIN cases={checks} sat={sat_cases} \
+             violated_with_normalized_witness={witness_cases} \
+             methods=D8C1_M8D1_mixed exact_cyclotomic_psd=true source_trust=BLOCKED"
+        );
+    }
+    #[test]
+    fn f8g1_source_spec_three_counts_gram_witness_forgery_fail_closed(){
+        let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n";
+        let (p8,state)=source_proof_and_state(src);
+        let spec=coherent_spec(1,3,1,1,2);
+        let parsed=parse_scg1_spec(&spec).unwrap();
+        let gram=path_coherent_gram(&state,0,1,1).unwrap();
+        let claim=encode_p8g1_claim(src,&p8,&spec,&gram);
+        let witness=encode_p8w1(&claim,&derive_coherent_witness(&gram,&parsed).unwrap());
+        let pair=[(0usize,0usize),(1,1),(0,1)];
+        let mut structures=Vec::new();
+        let mut traces=Vec::new();
+        let mut bundles=Vec::new();
+        for &(i,j) in &pair{
+            let s8=two_copy_structural::encode(src,&p8,&state,i,j,1).unwrap();
+            let dag=two_copy_count_dag::emit(src,&p8,&s8).unwrap();
+            let f8=f8c1_chain::encode(src,&p8,&s8,&dag).unwrap();
+            structures.push(s8);traces.push(dag);bundles.push(f8);
+        }
+        let ss=[&structures[0][..],&structures[1][..],&structures[2][..]];
+        let tt=[&traces[0][..],&traces[1][..],&traces[2][..]];
+        let ff=[&bundles[0][..],&bundles[1][..],&bundles[2][..]];
+        let envelope=f8g1_property::encode(
+            src,&p8,&spec,ss,tt,ff,&claim,&witness).unwrap();
+        let accepted=f8g1_property::verify(
+            src,&p8,&spec,ss,tt,ff,&claim,&witness,&envelope).unwrap();
+        assert!(matches!(accepted.verdict,CoherentVerdict::ScopedViolated{..}));
+        let mut flipped=0usize;
+        for index in 0..envelope.len(){
+            for bit in 0..8{
+                let mut forged=envelope.clone();
+                forged[index]^=1u8<<bit;
+                assert!(f8g1_property::verify(
+                    src,&p8,&spec,ss,tt,ff,&claim,&witness,&forged).is_err());
+                flipped+=1;
+            }
+        }
+        assert_eq!(flipped,3632);
+        assert!(f8g1_property::verify(
+            src,&p8,&spec,ss,tt,ff,&claim,&[],&envelope).is_err());
+        let changed_spec=coherent_spec(1,3,1,1,1);
+        assert!(f8g1_property::verify(
+            src,&p8,&changed_spec,ss,tt,ff,&claim,&witness,&envelope).is_err());
+        let mut changed_gram=claim;
+        changed_gram[112]^=1;
+        assert!(f8g1_property::verify(
+            src,&p8,&spec,ss,tt,ff,&changed_gram,&witness,&envelope).is_err());
+        let mut changed_witness=witness;
+        changed_witness[36]^=1;
+        assert!(f8g1_property::verify(
+            src,&p8,&spec,ss,tt,ff,&claim,&changed_witness,&envelope).is_err());
+        let mixed_ss=[ss[2],ss[1],ss[0]];
+        assert!(f8g1_property::verify(
+            src,&p8,&spec,mixed_ss,tt,ff,&claim,&witness,&envelope).is_err());
+        let swapped_traces=[tt[2],tt[1],tt[0]];
+        assert!(f8g1_property::verify(
+            src,&p8,&spec,ss,swapped_traces,ff,&claim,&witness,&envelope).is_err());
+        let mut changed_p8=p8.clone();changed_p8[8]^=1;
+        assert!(f8g1_property::verify(
+            src,&changed_p8,&spec,ss,tt,ff,&claim,&witness,&envelope).is_err());
+        let changed_src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nx q[0];\n";
+        assert!(f8g1_property::verify(
+            changed_src,&p8,&spec,ss,tt,ff,&claim,&witness,&envelope).is_err());
+        let mut modified_f8=bundles[0].clone();
+        modified_f8[37]^=1;
+        let changed_ff=[modified_f8.as_slice(),ff[1],ff[2]];
+        assert!(f8g1_property::verify(
+            src,&p8,&spec,ss,tt,changed_ff,&claim,&witness,&envelope).is_err());
+        assert!(f8g1_property::verify(
+            src,&p8,&spec,ss,tt,ff,&claim,&witness,&envelope[..envelope.len()-1]).is_err());
+        let sat_spec=coherent_spec(1,3,1,1,1);
+        let sat_claim=encode_p8g1_claim(src,&p8,&sat_spec,&gram);
+        assert!(f8g1_property::encode(
+            src,&p8,&sat_spec,ss,tt,ff,&sat_claim,&witness).is_err(),
+            "SAT property must not carry an UNSAFE witness");
+        println!(
+            "F8G1_FORGERY_REJECTION flips={flipped} accepted=0 \
+             source_spec_count_order_gram_witness_checked=true \
+             missing_witness_rejected=true fail_closed=true"
+        );
+    }
+    #[test]
+    fn f8g1_export_cross_binary_rank2_fixtures_when_requested(){
+        let Ok(dir)=std::env::var("F8G1_FIXTURE_DIR")else{return;};
+        let src=std::fs::read(format!("{dir}/h-1q.qasm")).unwrap();
+        let p8=std::fs::read(format!("{dir}/h-1q.p8c1")).unwrap();
+        let mut structs=Vec::new();let mut counts=Vec::new();let mut f8s=Vec::new();
+        for index in 0..3{
+            let ss=std::fs::read(format!("{dir}/gram-{index}.s8c1")).unwrap();
+            let dd=std::fs::read(format!("{dir}/gram-{index}.d8c1")).unwrap();
+            let ff=f8c1_chain::encode(&src,&p8,&ss,&dd).unwrap();
+            std::fs::write(format!("{dir}/gram-{index}.f8c1"),&ff).unwrap();
+            structs.push(ss);counts.push(dd);f8s.push(ff);
+        }
+        let ss=[structs[0].as_slice(),structs[1].as_slice(),structs[2].as_slice()];
+        let cc=[counts[0].as_slice(),counts[1].as_slice(),counts[2].as_slice()];
+        let ff=[f8s[0].as_slice(),f8s[1].as_slice(),f8s[2].as_slice()];
+        let (_,state)=replay_state(&src,&p8).unwrap();
+        let gram=path_coherent_gram(&state,0,1,1).unwrap();
+        for tag in ["sat","violated"]{
+            let spec=std::fs::read(format!("{dir}/gram-{tag}.scg1")).unwrap();
+            let claim=std::fs::read(format!("{dir}/gram-{tag}.p8g1")).unwrap();
+            let parsed=parse_scg1_spec(&spec).unwrap();
+            let witness=if tag=="violated"{
+                encode_p8w1(&claim,&derive_coherent_witness(&gram,&parsed).unwrap()).to_vec()
+            }else{Vec::new()};
+            std::fs::write(format!("{dir}/gram-{tag}.p8w1"),&witness).unwrap();
+            let envelope=f8g1_property::encode(
+                &src,&p8,&spec,ss,cc,ff,&claim,&witness).unwrap();
+            let checked=f8g1_property::verify(
+                &src,&p8,&spec,ss,cc,ff,&claim,&witness,&envelope).unwrap();
+            assert_eq!(tag=="sat",checked.verdict==CoherentVerdict::ScopedSatisfied);
+            std::fs::write(format!("{dir}/gram-{tag}.f8g1"),&envelope).unwrap();
+            if tag=="violated"{
+                let mut forged=envelope.clone();forged[70]^=1;
+                std::fs::write(format!("{dir}/gram-violated-forged.f8g1"),&forged).unwrap();
+            }
+        }
+        println!("F8G1_EXPORTED_SOURCE_SPEC_RANK2 sat=true violated=true independent_full_chain=true");
     }
 
     #[test]

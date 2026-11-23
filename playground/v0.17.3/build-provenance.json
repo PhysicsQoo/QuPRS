@@ -1,0 +1,10 @@
+{
+  "core_wasm_sha256": "efa946b0d9b7f96ada2b206ed0a5786b0d7c49677d3a9d4dd98c5e5667dc0412",
+  "format": "quprs-browser-build",
+  "gpmc_revision": "93cae8dbf2da967e34fea8b7f40bc8f98362e2e0",
+  "gpmc_version": "v1.0.2",
+  "gpmc_wasm_sha256": "4d09729f093c69899fe22b10f0f573f454d4892ba651f853b9af47b2c46b1842",
+  "identity_kind": "build-reported",
+  "schema": 1,
+  "source_sha": "b398f07d6845efc23540549ccbfec717c27b1722"
+}

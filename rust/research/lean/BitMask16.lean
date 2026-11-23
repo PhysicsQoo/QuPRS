@@ -95,6 +95,7 @@ theorem evalMonomial16_product_iff
     cases h1 : decodeMask16 a i <;>
       cases h2 : decodeMask16 b i <;>
       simp_all
+    all_goals first | exact ha i h1 | exact hb i h2
 
 /-- Checked conversion from a Nat payload (as produced by a binary
     byte decoder) into an exactly representable 16-bit word.

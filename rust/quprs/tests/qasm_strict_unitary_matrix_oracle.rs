@@ -755,3 +755,46 @@ fn observed_strict_pinned_source_exact_matrix_and_bra_ket_contract(){
          qasm2_qasm30_qasm31=true bra_ket=true strict_U_u3_distinct=true"
     );
 }
+
+#[test]
+fn observed_pinned_source_multigate_independent_matrix_and_order(){
+    // Independently specified Q8 matrices are composed in source order;
+    // this is a stronger check than single-gate phase agreement.
+    let uhalf=qasm3_builtin_u_half_pi();
+    let minusiz=negative_i_z();
+    let specimens:Vec<(u8,Vec<&str>,Vec<M2>)>=vec![
+        (3,vec!["U(pi/2,0,0) q[0];","u3(0,pi,0) q[0];"],
+            vec![uhalf.clone(),minusiz.clone()]),
+        (3,vec!["u3(0,pi,0) q[0];","U(pi/2,0,0) q[0];"],
+            vec![minusiz.clone(),uhalf.clone()]),
+        (3,vec!["u2(0,0) q[0];","U(pi/2,0,0) q[0];","u3(2*pi,0,0) q[0];"],
+            vec![qasm3_u3_half_pi(),uhalf.clone(),negative_identity()]),
+        (2,vec!["U(0,pi,0) q[0];","u2(0,0) q[0];","u3(2*pi,0,0) q[0];"],
+            vec![minusiz.clone(),qasm3_u3_half_pi(),negative_identity()]),
+    ];
+    let mut comparisons=0usize;
+    for (version,gate_lines,reference_gates) in specimens {
+        let raw=bounded_sequence_source(version,&gate_lines);
+        let expected=seq_expected(&reference_gates);
+        let variants=if version==3 {
+            vec![raw.clone(),raw.replacen("OPENQASM 3.0;","OPENQASM 3.1;",1)]
+        } else {vec![raw.clone()]};
+        for src in variants {
+            assert_eq!(pinned_source_matrix(&src,false),expected,
+                "source-to-PathSum strict ordered matrix failed: {src}");
+            assert_eq!(pinned_source_matrix(&src,true),dag_q8(&expected),
+                "source-to-PathSum strict ordered adjoint failed: {src}");
+            comparisons+=2;
+        }
+    }
+    // Changing source spelling from imported u3 to builtin U changes
+    // global phase. A source-bound proof must be invalidated accordingly.
+    let src=bounded_sequence_source(3,&["u3(2*pi,0,0) q[0];","U(0,0,0) q[0];"]);
+    let changed=src.replacen("u3(2*pi,0,0)","U(2*pi,0,0)",1);
+    assert_ne!(pinned_source_matrix(&src,false),pinned_source_matrix(&changed,false));
+    println!(
+        "PINNED_SOURCE_MULTIGATE_EXACT comparisons={comparisons} \
+         order_sensitive=true source_spelling_phase_attack_detected=true \
+         exact_q8=true source_trust=SCOPED"
+    );
+}

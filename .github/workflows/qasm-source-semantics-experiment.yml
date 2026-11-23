@@ -627,7 +627,15 @@ jobs:
           test "$(cat lean-toolchain)" = "leanprover/lean4:v4.36.0"
           lean --version
           lean PathSumLocal.lean 2>&1 | tee /tmp/qasm-lean-local-proof.log
-          echo 'LEAN4_LOCAL_KERNEL_PROOFS_PASS pinned_toolchain=4.36.0 no_mathlib=true'
+          # Each exposed theorem prints its transitive axiom dependencies.
+          # A compilation-only PASS must not mask proof holes or custom trust.
+          if grep -E 'sorryAx|Lean[.]trustCompiler' /tmp/qasm-lean-local-proof.log; then
+            echo 'Unexpected Lean proof axiom dependency' >&2
+            exit 1
+          fi
+          report_count="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-local-proof.log)"
+          test "$report_count" -eq 12
+          echo 'LEAN4_LOCAL_KERNEL_PROOFS_PASS pinned_toolchain=4.36.0 no_mathlib=true theorem_axiom_reports=12'
 
       - name: Build and test std-only independent verifier
         run: |

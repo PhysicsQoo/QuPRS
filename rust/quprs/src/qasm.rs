@@ -252,6 +252,155 @@ pub fn parse_qasm_str(source: &str) -> Result<(Vec<QuantumOp>, usize), String> {
 
     Ok((ops, final_qubit_count))
 }
+/// A deliberately *restricted* and version-pinned source-admission adapter
+/// for exact source-level verification research. It does not silently treat
+/// the legacy compatibility parser as a conforming OpenQASM frontend.
+///
+/// This path keeps the existing PathSum U kernel unchanged. Instead, it
+/// preserves the source-kind-specific global phase as an ordered IR
+/// operation, so strict matrix equivalence (not just equality up to phase)
+/// survives source lowering. Control modifiers, aliases, declarations and
+/// library gates outside this profile fail closed.
+///
+/// NOT a full OpenQASM 2.0/3.0/3.1 implementation. The profile currently
+/// handles at most 16 qubits and 1024 explicitly supported unitary gates.
+#[doc(hidden)]
+pub fn parse_qasm_str_source_pinned(source: &str)
+    -> Result<(Vec<QuantumOp>, usize), String>
+{
+    if source.len() > 32_768 {
+        return Err("SourceTrust unknown: source byte budget exceeded".into());
+    }
+    let mut version: Option<&str> = None;
+    let mut included = false;
+    let mut declaration = false;
+    let mut gate_names: Vec<String> = Vec::new();
+    let mut begun = false;
+    for raw in source.lines() {
+        let line = raw.split("//").next().unwrap_or("").trim();
+        if line.is_empty() { continue; }
+        if version.is_none() {
+            match line {
+                "OPENQASM 2.0;" | "OPENQASM 3.0;" | "OPENQASM 3.1;" =>
+                    version = Some(line),
+                _ => return Err("SourceTrust unsupported or missing source version".into()),
+            }
+            continue;
+        }
+        // One statement per line prevents the native parser from silently
+        // accepting part of a statement or a second statement in a suffix.
+        if !line.ends_with(';') || line.bytes().filter(|&c| c == b';').count() != 1 {
+            return Err("SourceTrust unsupported statement shape".into());
+        }
+        let qasm2 = version == Some("OPENQASM 2.0;");
+        if line.starts_with("include ") {
+            if included || declaration || begun {
+                return Err("SourceTrust misplaced/duplicate standard include".into());
+            }
+            let expected = if qasm2 {"include \"qelib1.inc\";"}
+                else {"include \"stdgates.inc\";"};
+            if line != expected {
+                return Err("SourceTrust unsupported include".into());
+            }
+            included = true;
+            continue;
+        }
+        if (qasm2 && line.starts_with("qreg "))
+            || (!qasm2 && line.starts_with("qubit"))
+        {
+            if declaration || begun {
+                return Err("SourceTrust duplicate or late register".into());
+            }
+            declaration = true;
+            continue;
+        }
+        if !declaration {
+            return Err("SourceTrust gate before register".into());
+        }
+        begun = true;
+        if gate_names.len() >= 1024 {
+            return Err("SourceTrust unknown: gate budget exceeded".into());
+        }
+        if line.starts_with("gphase(") {
+            if qasm2 {
+                return Err("SourceTrust QASM2 gphase unsupported".into());
+            }
+            gate_names.push("gphase".into());
+            continue;
+        }
+        // Gate source spelling is significant: never lowercase the literal
+        // before deciding whether it is a builtin or an imported stdlib name.
+        let name = line.split(|c:char|c == '(' || c.is_ascii_whitespace())
+            .next().ok_or("SourceTrust malformed gate")?;
+        let builtin = if qasm2 {matches!(name,"U" | "CX")}
+            else {name == "U"};
+        let standard = matches!(name,
+            "h"|"x"|"y"|"z"|"s"|"sdg"|"t"|"tdg"|
+            "cx"|"cz"|"swap"|"ccx"|"rx"|"ry"|"rz"|
+            "p"|"u1"|"u2"|"u3");
+        if !builtin && !(included && standard) {
+            return Err(format!("SourceTrust undefined/unsupported gate: {name}"));
+        }
+        gate_names.push(name.to_string());
+    }
+    let version = version.ok_or("SourceTrust missing source version")?;
+    if !declaration || gate_names.is_empty() {
+        return Err("SourceTrust empty/unsupported source".into());
+    }
+    // The compatibility frontend has no 3.1 version token yet. It parses
+    // the identical admitted 3.0 subset after an exact header-only change;
+    // the original version and raw bytes remain separately available to
+    // the caller for proof binding. Unsupported 3.1 features fail closed.
+    let adapted = if version == "OPENQASM 3.1;" {
+        source.replacen("OPENQASM 3.1;", "OPENQASM 3.0;", 1)
+    } else {
+        source.to_owned()
+    };
+    let (legacy_ops, n) = parse_qasm_str(&adapted)?;
+    if n == 0 || n > 16 || legacy_ops.len() != gate_names.len() {
+        return Err("SourceTrust unsupported native lowering or register width".into());
+    }
+    let qasm2 = version == "OPENQASM 2.0;";
+    let mut result = Vec::with_capacity(legacy_ops.len() * 2);
+    for (literal, op) in gate_names.into_iter().zip(legacy_ops) {
+        // U kernel Q has the Qiskit/U3 phase convention. Explicit
+        // source-phase corrections are exact Angle operations:
+        // QASM3 U = exp(+i theta/2) Q
+        // QASM2 U and stdgates u3/u2 = exp(-i(phi+lambda)/2) Q.
+        let correction = match (literal.as_str(), &op) {
+            ("U", QuantumOp::U(_,theta,phi,lambda)) if !qasm2 =>
+                Some(theta.clone()/2),
+            ("U", QuantumOp::U(_,_,phi,lambda)) if qasm2 =>
+                Some((Angle::ZERO-phi.clone()-lambda.clone())/2),
+            ("u3",QuantumOp::U3(_,_,phi,lambda)) |
+            ("u2",QuantumOp::U2(_,phi,lambda)) =>
+                Some((Angle::ZERO-phi.clone()-lambda.clone())/2),
+            ("gphase",QuantumOp::GlobalPhase(_)) => None,
+            // All remaining admitted operations must have their literal
+            // gate name matched to an unambiguous native operation kind.
+            ("h",QuantumOp::H(_)) | ("x",QuantumOp::X(_)) |
+            ("y",QuantumOp::Y(_)) | ("z",QuantumOp::Z(_)) |
+            ("s",QuantumOp::S(_)) | ("sdg",QuantumOp::SDG(_)) |
+            ("t",QuantumOp::T(_)) | ("tdg",QuantumOp::TDG(_)) |
+            ("cx"|"CX",QuantumOp::CX(_,_)) |
+            ("cz",QuantumOp::CZ(_,_)) |
+            ("swap",QuantumOp::SWAP(_,_)) |
+            ("ccx",QuantumOp::CCX(_,_,_)) |
+            ("rx",QuantumOp::RX(_,_)) |
+            ("ry",QuantumOp::RY(_,_)) |
+            ("rz",QuantumOp::RZ(_,_)) |
+            ("p",QuantumOp::P(_,_)) |
+            ("u1",QuantumOp::U1(_,_)) => None,
+            _ => return Err("SourceTrust literal-to-IR gate mismatch".into()),
+        };
+        result.push(op);
+        if let Some(scalar) = correction {
+            result.push(QuantumOp::GlobalPhase(scalar));
+        }
+    }
+    Ok((result,n))
+}
+
 /// Unified entry point for reading and parsing QASM files.
 pub fn parse_file(path: &Path) -> Result<(Vec<QuantumOp>, usize), String> {
     let content = std::fs::read_to_string(path)

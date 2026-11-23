@@ -3,6 +3,8 @@ import {EXAMPLES,CATEGORIES} from './examples.js';
 
 const $=id=>document.getElementById(id);
 let host=null,last=null,pendingUploads=0;
+const timeoutMs=200000;
+let elapsedTicker=null;
 const editorIds=['left','right'];
 const groups=new Map();
 
@@ -37,6 +39,44 @@ function clearResult(){
   $('distance').textContent='—';
   for(const id of ['verdict','warning','method','timing'])$(id).textContent='';
   $('results').removeAttribute('data-status');
+}
+// A previous verdict only applies to the exact circuit texts and settings used.
+function invalidateResult(){
+  if(host)return; // Active requests are read-only through the disabled fieldset.
+  if(last!==null || $('results').hasAttribute('data-status')){
+    clearResult();
+    state('Inputs or settings changed. Run comparison again.','stale');
+  }
+}
+function showBuildInfo(){
+  const match=location.pathname.match(/\/playground\/(dev|v\d+\.\d+\.\d+)\/?$/);
+  const label=match?.[1]==='dev'?'Dev preview':
+    match?.[1]?.startsWith('v')?'Stable '+match[1]:'Local preview';
+  const target=$('buildInfo');
+  target.textContent=label;
+  // Reading the same-origin, immutable source marker is informational only.
+  fetch(new URL('./source-sha.txt',import.meta.url),{cache:'no-store'})
+    .then(response=>response.ok?response.text():null)
+    .then(source=>{
+      const sha=source?.trim();
+      if(sha && /^[0-9a-f]{40}$/i.test(sha))
+        target.textContent=label+' · source '+sha.slice(0,12);
+    }).catch(()=>{});
+}
+showBuildInfo();
+for(const id of [...editorIds,'epsilon','rr','mode','strategy']){
+  $(id).addEventListener('input',invalidateResult);
+  $(id).addEventListener('change',invalidateResult);
+}
+// Keep the existing native editors; Tab indents without losing the input event.
+for(const id of editorIds){
+  $(id).addEventListener('keydown',event=>{
+    if(event.key!=='Tab'||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey)return;
+    event.preventDefault();
+    const field=event.currentTarget;
+    field.setRangeText('  ',field.selectionStart,field.selectionEnd,'end');
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+  });
 }
 function validateRequest(){
   clearValidation();
@@ -170,12 +210,20 @@ $('form').addEventListener('submit',async event=>{
   const start=performance.now();
   try{
     const root=new Worker(new URL('worker.js?v=20261115-quprs-source-mpfr-v2',import.meta.url),{type:'module'});
-    host=createWorkerHost(root,new URL('engines/',import.meta.url).href,200000);
+    host=createWorkerHost(root,new URL('engines/',import.meta.url).href,timeoutMs);
+    const tick=()=>{
+      $('progress').hidden=false;
+      $('progress').textContent='Elapsed '+((performance.now()-start)/1000).toFixed(1)+' s / '+(timeoutMs/1000)+' s limit';
+    };
+    tick();
+    elapsedTicker=setInterval(tick,1000);
     root.postMessage({request});
     const {report}=await host.result;
-    last={...report,wall_ms:performance.now()-start};
+    // Keep the request used for the report so a downloaded file can be reproduced.
+    last={...report,wall_ms:performance.now()-start,request};
     state('Completed.','completed');
-    $('results').dataset.status=report.status||'unknown';
+    $('results').dataset.status=report.rr_approximate?'approximate':
+      report.status==='equivalent*'?'equivalent-global':(report.status||'unknown');
     const d=report.distance_estimate;
     $('distance').textContent=typeof d==='number'&&Number.isFinite(d)
       ?'≈ '+(d===0?'0':d.toExponential(5)):'Not computed';
@@ -197,13 +245,19 @@ $('form').addEventListener('submit',async event=>{
       :'A numerical estimate alone is not a certificate of exact equality.';
     $('warning').textContent=[report.warning,explanation].filter(Boolean).join(' ');
     $('method').textContent='Method: '+String(report.method||request.mode)+' · Strategy: '+String(report.strategy||request.strategy);
-    $('timing').textContent='Wall time: '+(last.wall_ms/1000).toFixed(3)+' s · '+(report.solver_invoked?'GPMC invoked':'No external counter invoked');
+    $('timing').textContent='Wall time: '+(last.wall_ms/1000).toFixed(3)+' s · '+
+      (report.solver_invoked?'Local GPMC weighted counter used':'No weighted counter used');
     $('download').disabled=false;
+    $('results').scrollIntoView({block:'nearest',behavior:
+      matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
   }catch(error){
     if(error.code==='STOPPED')state('Stopped. No result assigned.','stopped');
     else if(error.code==='TIMEOUT')state('Time limit reached. No result assigned.','timeout');
     else state('Error: '+String(error.message||error),'error');
   }finally{
+    clearInterval(elapsedTicker);
+    elapsedTicker=null;
+    $('progress').hidden=true;
     host=null;
     busy(false);
   }

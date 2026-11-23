@@ -169,7 +169,7 @@ fn strict_contract_u_and_u3_phase_must_be_distinct() {
 
 
 #[test]
-fn strict_source_pinned_admission_and_phase_lowering() {
+fn observed_strict_source_pinned_admission_and_phase_lowering() {
     use quprs::qasm::parse_qasm_str_source_pinned;
     for case in admission_cases() {
         let result=parse_qasm_str_source_pinned(case.source);

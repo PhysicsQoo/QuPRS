@@ -81,6 +81,42 @@ class PagesDeploymentTests(unittest.TestCase):
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("Invalid Pages Actions response", failed.stderr)
 
+    def test_dev_publisher_has_one_explicit_build_and_sha_readback(self):
+        source = (ROOT / ".github/workflows/website-publish.yml").read_text()
+        self.assertEqual(
+            source.count('gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"'),
+            1, "Each dev target must request just one explicit Pages build",
+        )
+        for required in (
+            "Reject obsolete source after concurrent dev merges",
+            "group: quprs-gh-pages-publish",
+            "Confirm the existing GitHub Pages branch source",
+            "Request and verify real GitHub Pages publication",
+            'test "$(tr -d',
+            'cmp "$RUNNER_TEMP/public-homepage.html" pages/index.html',
+            'sha256sum "$RUNNER_TEMP/public-asset"',
+            'Pages dynamic run snapshot for this SHA (informational)',
+            'Public exact-source/hash verification | PASS',
+        ):
+            self.assertIn(required, source)
+        # Never treat a cancelled auto-generated sibling as authorization to
+        # skip the exact-source and public asset checks.
+        self.assertNotIn("|| echo 'verified'", source)
+
+    def test_browser_dependency_cache_never_skips_real_science(self):
+        browser = (ROOT / ".github/workflows/browser-workbench.yml").read_text()
+        self.assertIn("uses: Swatinem/rust-cache@v2", browser)
+        self.assertIn("workspaces: rust -> target", browser)
+        self.assertIn("save-if: ${{ github.ref == 'refs/heads/dev' && inputs.source_sha == '' }}", browser)
+        self.assertIn("Native adapter and transport tests", browser)
+        self.assertIn("Build actual QuPRS core as WebAssembly", browser)
+        self.assertIn("Build pinned original MPFR GPMC", browser)
+        self.assertIn("Assemble exact tested binaries and sources", browser)
+        self.assertNotIn("if: steps.rust-cache.outputs.cache-hit", browser)
+        deploy = (ROOT / ".github/workflows/website-deploy.yml").read_text()
+        self.assertIn("Summarize exactly selected dev publication lanes", deploy)
+        self.assertIn("Select changed site subsystems from the exact protected push", deploy)
+
     def test_publication_script_keeps_fail_closed_guards(self):
         source = (ROOT / "scripts/web/publish-stable-pages.sh").read_text()
         self.assertIn('wait_for_pages "$(git -C "$pages" rev-parse HEAD)"', source)

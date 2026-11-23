@@ -98,6 +98,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visibl
 .editor-panel:nth-child(2) { border-top-color: #609e93; }
 .editor-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
 .editor-heading h3 { margin: 0; font-size: 1.05rem; letter-spacing: -.015em; }
+.editor-position { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; font-size: .73rem; color: var(--muted); }
 .pill { border: 1px solid #d1e1e9; background: #f2f7f9; color: #4b6e7f; border-radius: 100px; padding: 3px 10px; font-size: .72rem; font-weight: 710; }
 textarea {
   display: block; width: 100%; height: 275px; resize: vertical; border: 1px solid #b7cad4;
@@ -121,6 +122,9 @@ input[aria-invalid=true], textarea[aria-invalid=true] { border-color: #ae4333; b
 .actions { display: flex; flex-wrap: wrap; gap: 11px; margin: 24px 0; }
 .actions button { min-height: 45px; }
 .actions .primary { padding: 11px 22px; }
+.actions .case-import { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); }
+.actions .case-import input { width: 190px; max-width: 100%; margin: 0; }
+.case-help { margin-top: -14px; }
 .form-error { color: #9e3124; background: #fff4f1; border: 1px solid #edbeb4; padding: 12px 15px; border-radius: 9px; font-size: .91rem; }
 .result { margin-top: 28px; border-left: 4px solid #669caf; }
 .result .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 15px; }

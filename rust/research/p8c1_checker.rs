@@ -1259,6 +1259,111 @@ mod tests {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
+
+    // Binary contract for the source-linked proof parser. These tests
+    // exercise the actual Cursor/read_termset/read_phase implementations,
+    // not just an independent reimplementation of their semantics.
+    fn encoded_termset(masks:&[u64])->Vec<u8>{
+        let mut data=(masks.len() as u16).to_le_bytes().to_vec();
+        for &m in masks{data.extend_from_slice(&m.to_le_bytes());}
+        data
+    }
+    fn bounded_termset(bytes:&[u8],width:usize)->Check<Anf>{
+        let mut cursor=Cursor::new(bytes);
+        let mut total=0usize;
+        let mut local=0usize;
+        let ans=read_termset(&mut cursor,width,&mut total,&mut local)?;
+        if cursor.at!=bytes.len(){return Err(Error::InvalidProof);}
+        Ok(ans)
+    }
+    #[test]
+    fn p8c1_u16_le_mask_decoder_every_word_exact(){
+        let mut words=0usize;
+        for word in 0..=u16::MAX{
+            let encoded=word.to_le_bytes();
+            let mut cursor=Cursor::new(&encoded);
+            assert_eq!(cursor.u16().unwrap(),word as usize);
+            assert_eq!(cursor.at,2);
+            // Term masks in P8C1 are eight bytes, little-endian,
+            // independently of the n≤16 symbolic Rust u16 representation.
+            let mask=encoded_termset(&[word as u64]);
+            let got=bounded_termset(&mask,16).unwrap();
+            assert_eq!(got,BTreeSet::from([word as u64]));
+            words+=1;
+        }
+        assert_eq!(words,65_536);
+        println!(
+            "P8C1_WORD16_LE_DECODER all_words={words} \
+             endian=little mask_bits=16 exact=true"
+        );
+    }
+    #[test]
+    fn p8c1_mask_sorted_width_count_and_phase_fail_closed(){
+        let canonical=encoded_termset(&[0,0x0100,0x8000]);
+        assert_eq!(
+            bounded_termset(&canonical,16).unwrap(),
+            BTreeSet::from([0u64,0x0100,0x8000])
+        );
+        assert_eq!(
+            bounded_termset(&canonical,15),Err(Error::InvalidProof),
+            "A 16-bit mask must be rejected under width=15"
+        );
+        for bad in [
+            encoded_termset(&[0,0]),
+            encoded_termset(&[0x8000,1]),
+            encoded_termset(&[0x10000]),
+        ]{
+            assert_eq!(bounded_termset(&bad,16),Err(Error::InvalidProof));
+        }
+        let mut truncated=encoded_termset(&[0x8000]);
+        truncated.pop();
+        assert_eq!(bounded_termset(&truncated,16),Err(Error::InvalidProof));
+        let mut appended=canonical.clone();
+        appended.push(0);
+        assert_eq!(bounded_termset(&appended,16),Err(Error::InvalidProof));
+        let oversized=(MAX_FRAME_TERMS as u16+1).to_le_bytes();
+        assert_eq!(
+            bounded_termset(&oversized,16),Err(Error::UnknownResource),
+            "oversized count must fail before reading further proof bytes"
+        );
+        // Contrasts 0x0100 with a byte-swapped 0x0001.
+        assert_eq!(&canonical[10..18],&0x0100u64.to_le_bytes());
+        let mut data=Vec::new();
+        data.extend_from_slice(&2u16.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.push(1);
+        data.extend_from_slice(&0x8000u64.to_le_bytes());
+        data.push(7);
+        let mut cur=Cursor::new(&data);
+        let mut total=0usize;
+        let mut local=0usize;
+        assert_eq!(
+            read_phase(&mut cur,16,&mut total,&mut local),
+            Ok(BTreeMap::from([(0u64,1u8),(0x8000u64,7u8)]))
+        );
+        assert_eq!(cur.at,data.len());
+        // Phase coefficients 0 and 8 do not represent canonical Z8
+        // monomials; the original decoder must reject them.
+        for coeff in [0u8,8u8]{
+            let mut bad=Vec::new();
+            bad.extend_from_slice(&1u16.to_le_bytes());
+            bad.extend_from_slice(&0u64.to_le_bytes());
+            bad.push(coeff);
+            let mut cur=Cursor::new(&bad);
+            let (mut total,mut local)=(0,0);
+            assert_eq!(
+                read_phase(&mut cur,16,&mut total,&mut local),
+                Err(Error::InvalidProof)
+            );
+        }
+        println!(
+            "P8C1_MASK_PHASE_BOUNDARY \
+             width16_high_bit=true width15_rejected=true \
+             strict_sorted=true distinct=true term_count_bound=true \
+             little_endian=true noncanonical_phase_rejected=true"
+        );
+    }
+
     #[test]
     fn standalone_h_and_cx_t_exact_replay() {
         let (s,h)=example_h();

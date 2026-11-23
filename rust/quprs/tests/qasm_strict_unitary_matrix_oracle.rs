@@ -688,3 +688,69 @@ fn observed_typed_phase_equivalence_not_control_congruence() {
         Q8::one(),Q8::one(),Q8::real(-1),Q8::real(-1)]));
     println!("PHASE_EQ_NOT_CONGRUENT_UNDER_CONTROL=true");
 }
+
+
+fn pinned_source_matrix(raw:&str,is_bra:bool)->[[Q8;2];2]{
+    let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(raw)
+        .expect("strict source profile must admit this test case");
+    assert_eq!(n,1);
+    let mut ps=PathSum::new(1);
+    ps.set_auto_reduce(false);
+    if is_bra {
+        // Adjoint composition applies reversed source operation order.
+        for op in ops.iter().rev(){op.apply(&mut ps,true);}
+    } else {
+        for op in &ops {op.apply(&mut ps,false);}
+    }
+    matrix_from_pathsum(&ps)
+}
+
+#[test]
+fn strict_pinned_source_exact_matrix_and_bra_ket_contract(){
+    let mut exact_cases=0;
+    for version in ["3.0","3.1"] {
+        for case in cases() {
+            let builtin=format!(
+                "OPENQASM {version};\nqubit[1] q;\nU({}) q[0];\n",
+                case.source_params
+            );
+            let compat=format!(
+                "OPENQASM {version};\ninclude \"stdgates.inc\";\nqubit[1] q;\nu3({}) q[0];\n",
+                case.source_params
+            );
+            for (source,expected) in [
+                (&builtin,&case.expected_builtin),
+                (&compat,&case.expected_compat)
+            ] {
+                assert_eq!(&pinned_source_matrix(source,false),expected,
+                    "source-to-PathSum exact ket matrix");
+                assert_eq!(
+                    pinned_source_matrix(source,true),dag_q8(expected),
+                    "source-to-PathSum exact bra matrix");
+                exact_cases+=2;
+            }
+        }
+    }
+    // OpenQASM2 builtin U is identical to the compatibility u3 convention,
+    // not OpenQASM3 builtin U; verify strict phase, not up-to-phase equality.
+    for case in cases() {
+        for (gate,include) in [("U",false),("u3",true)] {
+            let src=source_case(2,gate,case.source_params,include);
+            assert_eq!(pinned_source_matrix(&src,false),case.expected_compat);
+            assert_eq!(
+                pinned_source_matrix(&src,true),dag_q8(&case.expected_compat));
+            exact_cases+=2;
+        }
+    }
+    // Phase-sensitive source miter: QASM3 U(2pi,0,0) == +I, while
+    // imported u3(2pi,0,0) == -I; these are NOT strict-matrix equal.
+    let builtin="OPENQASM 3.1;\nqubit[1] q;\nU(2*pi,0,0) q[0];";
+    let compat="OPENQASM 3.1;\ninclude \"stdgates.inc\";\nqubit[1] q;\nu3(2*pi,0,0) q[0];";
+    assert_eq!(pinned_source_matrix(builtin,false),identity());
+    assert_eq!(pinned_source_matrix(compat,false),negative_identity());
+    assert_ne!(pinned_source_matrix(builtin,false),pinned_source_matrix(compat,false));
+    println!(
+        "STRICT_PINNED_EXACT_SOURCE_MATRIX checks={exact_cases} \
+         qasm2_qasm30_qasm31=true bra_ket=true strict_U_u3_distinct=true"
+    );
+}

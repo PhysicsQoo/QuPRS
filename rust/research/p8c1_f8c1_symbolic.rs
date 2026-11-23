@@ -340,6 +340,84 @@ mod tests{
         let bad=phase_claim_to_bits(&incorrect,2,&mut algebra).unwrap();
         assert_ne!(bad,bits,"unsound omission of parity interaction detected");
     }
+    // Independent reference inversion over Boolean truth-table vectors.
+    // For a multilinear ANF f(x)=XOR_{m subset x} c_m, the
+    // Boolean-lattice Möbius transform is its own inverse in GF(2).
+    fn truth_to_masked_coefficients(n:usize,truth:&[bool])->Poly{
+        let width=1usize<<n;
+        assert_eq!(truth.len(),width);
+        let mut c=truth.to_vec();
+        for i in 0..n{
+            for m in 0..width{
+                if m&(1usize<<i)!=0{
+                    c[m]^=c[m^(1usize<<i)];
+                }
+            }
+        }
+        c.iter().enumerate().filter_map(|(mon,&enabled)|
+            enabled.then_some(mon as u16)).collect()
+    }
+    fn coefficient_bits(n:usize,bitfield:u32)->Poly{
+        let width=1usize<<n;
+        (0..width).filter(|&mon|bitfield&(1u32<<mon)!=0)
+            .map(|mon|mon as u16).collect()
+    }
+    #[test]
+    fn symbolic_bitmask_mobius_inverse_exhaustive(){
+        let mut checked=0usize;
+        // All 278 ANFs on <=3 variables: 2 + 4 + 16 + 256.
+        // This is a differential Rust-to-monomial-mask conformance
+        // check, not an arbitrary-width Rust refinement theorem.
+        for n in 0..=3{
+            let width=1usize<<n;
+            for packed in 0..(1u32<<width){
+                let p=coefficient_bits(n,packed);
+                let truth=(0..width).map(|a|value(&p,a as u16))
+                    .collect::<Vec<_>>();
+                let recovered=truth_to_masked_coefficients(n,&truth);
+                assert_eq!(recovered,p,
+                    "noncanonical coefficient encoding n={n} packed={packed}");
+                checked+=1;
+            }
+        }
+        assert_eq!(checked,278);
+        println!(
+            "ANF_MASK_MOBIUS_INVERSE exhaustive_polynomials={checked} \
+             max_variables=3 canonical_coefficients=true reference=independent_truth_transform"
+        );
+    }
+    #[test]
+    fn symbolic_bitmask_boolean_ops_truth_refinement(){
+        let mut a=Algebra::new();
+        let mut checks=0usize;
+        // Each pair of 2-variable canonical ANFs. This covers XOR
+        // cancellation, monomial idempotence, cross products and
+        // complement independently of how the Rust set is mutated.
+        for x in 0..16u32{
+            for y in 0..16u32{
+                let left=coefficient_bits(2,x);
+                let right=coefficient_bits(2,y);
+                let and=a.and(&left,&right).unwrap();
+                let or=a.or(&left,&right).unwrap();
+                let xor=a.xor(&left,&right).unwrap();
+                let not=a.not(&left).unwrap();
+                for input in 0..4u16{
+                    let l=value(&left,input);
+                    let r=value(&right,input);
+                    assert_eq!(value(&and,input),l&r);
+                    assert_eq!(value(&or,input),l|r);
+                    assert_eq!(value(&xor,input),l^r);
+                    assert_eq!(value(&not,input),!l);
+                    checks+=4;
+                }
+            }
+        }
+        assert_eq!(checks,4096);
+        println!(
+            "ANF_MASK_OPERATOR_REFINEMENT operations={checks} \
+             all_2variable_coefficient_pairs=true independent_truth_oracle=true"
+        );
+    }
     #[test]
     fn symbolic_expansion_budget_is_fail_closed(){
         let mut exhausted=Algebra{remaining:0};

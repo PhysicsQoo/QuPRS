@@ -289,7 +289,7 @@ theorem anfAdd_eval_correct :
                 cases h1 : evalANF n a1 xs <;>
                 cases h2 : evalANF n b0 xs <;>
                 cases h3 : evalANF n b1 xs <;>
-                simp [h0, h1, h2, h3]
+                simp
 
 /-- ANF product with x*x=x is extensionally Boolean AND for all n. -/
 theorem anfMultiply_eval_correct :
@@ -321,8 +321,8 @@ theorem anfMultiply_eval_correct :
                     (anfAdd n (anfMultiply n a0 b1)
                       (anfMultiply n a1 b0))
                     (anfMultiply n a1 b1)) xs) =
-                ((evalANF n a0 xs).xor (evalANF n a1 xs)) &&
-                  ((evalANF n b0 xs).xor (evalANF n b1 xs))
+                (((evalANF n a0 xs).xor (evalANF n a1 xs)) &&
+                  ((evalANF n b0 xs).xor (evalANF n b1 xs)))
               rw [ih a0 b0 xs,
                   anfAdd_eval_correct n _ _ xs,
                   anfAdd_eval_correct n _ _ xs,
@@ -331,7 +331,7 @@ theorem anfMultiply_eval_correct :
                 cases h1 : evalANF n a1 xs <;>
                 cases h2 : evalANF n b0 xs <;>
                 cases h3 : evalANF n b1 xs <;>
-                simp [h0, h1, h2, h3]
+                simp
 
 /-- No non-square-free monomials survive canonical multiplication.
     In particular, f*f=f holds as a *coefficient identity*, not merely
@@ -341,14 +341,14 @@ theorem anfMultiply_idempotent (n : Nat) (a : CanonicalANF n) :
   apply canonical_anf_unique n
   intro v
   rw [anfMultiply_eval_correct]
-  cases h : evalANF n a v <;> simp [h]
+  cases h : evalANF n a v <;> simp
 
 /-- Multilinear polynomial addition cancels duplicate coefficient masks. -/
 theorem anfAdd_self_zero_eval (n : Nat) (a : CanonicalANF n)
     (v : BoolVector n) :
     evalANF n (anfAdd n a a) v = false := by
   rw [anfAdd_eval_correct]
-  cases h : evalANF n a v <;> simp [h]
+  cases h : evalANF n a v <;> simp
 
 /-- The ANF coefficient-by-monomial-mask model refines Boolean XOR. -/
 theorem masked_anf_add_eval_correct

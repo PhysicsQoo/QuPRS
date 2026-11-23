@@ -1,8 +1,12 @@
 import {createWorkerHost} from './engines/host.js?v=20261115-quprs-source-mpfr-v2';
 import {EXAMPLES,CATEGORIES} from './examples.js';
+import {exportCase,importCase,normalizeRequest,assertCircuitText,MAX_CIRCUIT_BYTES,MAX_CASE_BYTES} from './case-io.js';
+import {readBuildIdentity,reportProvenance} from './provenance.js';
 
 const $=id=>document.getElementById(id);
 let host=null,last=null,pendingUploads=0;
+const timeoutMs=200000;
+let elapsedTicker=null;
 const editorIds=['left','right'];
 const groups=new Map();
 
@@ -14,6 +18,8 @@ function busy(value){
   $('inputs').disabled=value;
   $('run').disabled=value||pendingUploads>0;
   $('stop').disabled=!value;
+  $('exportCase').disabled=value||pendingUploads>0;
+  $('caseFile').disabled=value||pendingUploads>0;
 }
 function clearValidation(){
   $('inputError').hidden=true;
@@ -38,6 +44,91 @@ function clearResult(){
   for(const id of ['verdict','warning','method','timing'])$(id).textContent='';
   $('results').removeAttribute('data-status');
 }
+// A previous verdict only applies to the exact circuit texts and settings used.
+function invalidateResult(){
+  if(host)return; // Active requests are read-only through the disabled fieldset.
+  if(last!==null || $('results').hasAttribute('data-status')){
+    clearResult();
+    state('Inputs or settings changed. Run comparison again.','stale');
+  }
+}
+const buildIdentity=readBuildIdentity(import.meta.url);
+function showBuildInfo(){
+  const match=location.pathname.match(/\/playground\/(dev|v\d+\.\d+\.\d+)\/?$/);
+  const label=match?.[1]==='dev'?'Dev preview':
+    match?.[1]?.startsWith('v')?'Stable '+match[1]:'Local preview';
+  const target=$('buildInfo');
+  target.textContent=label;
+  // A same-origin source marker is useful identification, not a proof.
+  buildIdentity.then(identity=>{
+    if(identity.source_sha)target.textContent=label+' · source '+identity.source_sha.slice(0,12);
+  }).catch(()=>{});
+}
+showBuildInfo();
+for(const id of [...editorIds,'epsilon','rr','mode','strategy']){
+  $(id).addEventListener('input',invalidateResult);
+  $(id).addEventListener('change',invalidateResult);
+}
+// Keep native textareas: expose the cursor, keyboard shortcuts and indentation
+// without a dependency on a code editor or off-device QASM parsing service.
+function editorPosition(id){
+  const field=$(id),prefix=field.value.slice(0,field.selectionStart);
+  const line=prefix.split('\n').length;
+  const col=prefix.length-prefix.lastIndexOf('\n');
+  $(id+'Position').textContent='Ln '+line+' · Col '+col;
+}
+for(const id of editorIds){
+  const field=$(id);
+  const update=()=>editorPosition(id);
+  for(const type of ['input','click','keyup','select'])field.addEventListener(type,update);
+  field.addEventListener('keydown',event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){
+      event.preventDefault();
+      if(!host&&!pendingUploads)$('form').requestSubmit();
+      return;
+    }
+    // Escape then Tab permits keyboard-only navigation out of the editor.
+    if(event.key==='Escape'){field.dataset.nextTabLeaves='true';return;}
+    if(event.key==='Enter'&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey){
+      const prefix=field.value.slice(field.value.lastIndexOf('\n',field.selectionStart-1)+1,field.selectionStart);
+      const indent=prefix.match(/^[ \t]*/)?.[0]||'';
+      if(indent){
+        event.preventDefault();
+        field.setRangeText('\n'+indent,field.selectionStart,field.selectionEnd,'end');
+        field.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      return;
+    }
+    if(event.key!=='Tab')return;
+    if(field.dataset.nextTabLeaves==='true'){
+      delete field.dataset.nextTabLeaves;
+      return;
+    }
+    if(event.altKey||event.ctrlKey||event.metaKey)return;
+    event.preventDefault();
+    const start=field.selectionStart,end=field.selectionEnd;
+    const lineStart=field.value.lastIndexOf('\n',start-1)+1;
+    const segment=field.value.slice(lineStart,end);
+    const multiline=field.value.slice(start,end).includes('\n');
+    if(event.shiftKey){
+      const unindented=segment.replace(/^(?: {1,2}|\t)/gm,'');
+      if(unindented===segment)return;
+      field.setRangeText(unindented,lineStart,end,'end');
+      if(multiline)field.setSelectionRange(lineStart,lineStart+unindented.length);
+      else{
+        const caret=Math.max(lineStart,start-(segment.length-unindented.length));
+        field.setSelectionRange(caret,caret);
+      }
+    }else if(multiline){
+      const indented=segment.replace(/^/gm,'  ');
+      field.setRangeText(indented,lineStart,end,'end');
+      field.setSelectionRange(lineStart,lineStart+indented.length);
+    }else field.setRangeText('  ',start,end,'end');
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+  field.addEventListener('blur',event=>delete event.currentTarget.dataset.nextTabLeaves);
+  update();
+}
 function validateRequest(){
   clearValidation();
   for(const id of editorIds){
@@ -52,9 +143,16 @@ function validateRequest(){
   if(!rrText||!Number.isFinite(reduction)||reduction<0){
     return invalid('rr','Reduction coefficient tolerance must be a finite, non-negative number.');
   }
-  return {circuit1:$('left').value,circuit2:$('right').value,
+  const request={circuit1:$('left').value,circuit2:$('right').value,
     mode:$('mode').value,strategy:$('strategy').value,
     distance_tolerance:distance,rr_tolerance:reduction};
+  try{return normalizeRequest(request);}
+  catch(error){
+    const message=String(error.message||error);
+    const field=message.startsWith('Circuit A')?'left':
+      message.startsWith('Circuit B')?'right':null;
+    return invalid(field,message);
+  }
 }
 function loadExample(example){
   if(host||pendingUploads)return;
@@ -62,6 +160,7 @@ function loadExample(example){
   clearResult();
   $('left').value=example.circuit1;
   $('right').value=example.circuit2;
+  editorIds.forEach(editorPosition);
   $('mode').value=example.mode;
   $('strategy').value=example.strategy;
   $('epsilon').value=String(example.distance_tolerance);
@@ -127,6 +226,7 @@ $('swapCircuits').addEventListener('click',()=>{
   const left=$('left').value;
   $('left').value=$('right').value;
   $('right').value=left;
+  editorIds.forEach(editorPosition);
   clearValidation();
   clearResult();
   $('exampleDescription').textContent='Circuit order changed. Select an example to restore its original orientation.';
@@ -138,7 +238,7 @@ for(const side of editorIds){
     const file=event.target.files[0];
     if(!file)return;
     clearValidation();
-    if(file.size>256*1024||!/\.(qasm|txt)$/i.test(file.name)){
+    if(file.size>MAX_CIRCUIT_BYTES||!/\.(qasm|txt)$/i.test(file.name)){
       invalid(null,'Upload a .qasm or .txt file no larger than 256 KiB.');
       event.target.value='';
       return;
@@ -146,7 +246,12 @@ for(const side of editorIds){
     pendingUploads++;
     busy(false);
     try{
-      $(side).value=await file.text();
+      // Reject malformed UTF-8, empty files and oversized decoded content
+      // before mutating the active editor or replacing a prior result.
+      const text=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());
+      assertCircuitText(text,side==='left'?'Circuit A':'Circuit B');
+      $(side).value=text;
+      editorPosition(side);
       clearResult();
       state('Loaded Circuit '+(side==='left'?'A':'B')+' from a local file.','ready');
     }catch(e){
@@ -158,6 +263,40 @@ for(const side of editorIds){
     }
   });
 }
+// Import only data from user-selected local JSON. A prior report's claimed
+// verdict, timings and distance are discarded; a fresh Worker run is required.
+$('caseFile').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];
+  if(!file)return;
+  if(host||pendingUploads){event.target.value='';return;}
+  if(!/\.json$/i.test(file.name)||file.size>MAX_CASE_BYTES){
+    invalid(null,'Import a .json case or report no larger than 768 KiB.');
+    event.target.value='';
+    return;
+  }
+  pendingUploads++;
+  busy(false);
+  try{
+    const {request,kind}=importCase(await file.text());
+    clearValidation();
+    clearResult();
+    $('left').value=request.circuit1;
+    $('right').value=request.circuit2;
+    $('mode').value=request.mode;
+    $('strategy').value=request.strategy;
+    $('epsilon').value=String(request.distance_tolerance);
+    $('rr').value=String(request.rr_tolerance);
+    editorIds.forEach(editorPosition);
+    $('exampleDescription').textContent='Imported '+kind+' inputs. The imported result is not trusted.';
+    state('Imported '+kind+' inputs and settings. Run comparison to verify locally.','ready');
+  }catch(e){
+    invalid(null,'Cannot import comparison: '+String(e.message||e));
+  }finally{
+    pendingUploads--;
+    busy(false);
+    event.target.value='';
+  }
+});
 $('stop').addEventListener('click',()=>host?.cancel());
 $('form').addEventListener('submit',async event=>{
   event.preventDefault();
@@ -170,12 +309,23 @@ $('form').addEventListener('submit',async event=>{
   const start=performance.now();
   try{
     const root=new Worker(new URL('worker.js?v=20261115-quprs-source-mpfr-v2',import.meta.url),{type:'module'});
-    host=createWorkerHost(root,new URL('engines/',import.meta.url).href,200000);
+    host=createWorkerHost(root,new URL('engines/',import.meta.url).href,timeoutMs);
+    const tick=()=>{
+      $('progress').hidden=false;
+      $('progress').textContent='Elapsed '+((performance.now()-start)/1000).toFixed(1)+' s / '+(timeoutMs/1000)+' s limit';
+    };
+    tick();
+    elapsedTicker=setInterval(tick,1000);
     root.postMessage({request});
     const {report}=await host.result;
-    last={...report,wall_ms:performance.now()-start};
+    // Keep the request used for the report so a downloaded file can be reproduced.
+    const provenance=await reportProvenance(request,buildIdentity);
+    last={...report,wall_ms:performance.now()-start,request,provenance};
     state('Completed.','completed');
-    $('results').dataset.status=report.status||'unknown';
+    const approximateEq=report.rr_approximate &&
+      (report.status==='equivalent'||report.status==='equivalent*');
+    $('results').dataset.status=approximateEq?'approximate':
+      report.status==='equivalent*'?'equivalent-global':(report.status||'unknown');
     const d=report.distance_estimate;
     $('distance').textContent=typeof d==='number'&&Number.isFinite(d)
       ?'≈ '+(d===0?'0':d.toExponential(5)):'Not computed';
@@ -186,7 +336,7 @@ $('form').addEventListener('submit',async event=>{
       unknown:'Inconclusive — not proof of inequivalence'
     };
     let verdict=labels[report.status]||'Result status unavailable';
-    if(report.rr_approximate&&(report.status==='equivalent'||report.status==='equivalent*')){
+    if(approximateEq){
       verdict='Within reduction tolerance (approximate)';
     }
     $('verdict').textContent=verdict;
@@ -197,23 +347,38 @@ $('form').addEventListener('submit',async event=>{
       :'A numerical estimate alone is not a certificate of exact equality.';
     $('warning').textContent=[report.warning,explanation].filter(Boolean).join(' ');
     $('method').textContent='Method: '+String(report.method||request.mode)+' · Strategy: '+String(report.strategy||request.strategy);
-    $('timing').textContent='Wall time: '+(last.wall_ms/1000).toFixed(3)+' s · '+(report.solver_invoked?'GPMC invoked':'No external counter invoked');
+    $('timing').textContent='Wall time: '+(last.wall_ms/1000).toFixed(3)+' s · '+
+      (report.solver_invoked?'Local GPMC weighted counter used':'No weighted counter used');
     $('download').disabled=false;
+    $('results').scrollIntoView({block:'nearest',behavior:
+      matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
   }catch(error){
     if(error.code==='STOPPED')state('Stopped. No result assigned.','stopped');
     else if(error.code==='TIMEOUT')state('Time limit reached. No result assigned.','timeout');
     else state('Error: '+String(error.message||error),'error');
   }finally{
+    clearInterval(elapsedTicker);
+    elapsedTicker=null;
+    $('progress').hidden=true;
     host=null;
     busy(false);
   }
 });
-$('download').addEventListener('click',()=>{
-  if(!last)return;
-  const url=URL.createObjectURL(new Blob([JSON.stringify(last,null,2)],{type:'application/json'}));
+function downloadJSON(data,name){
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)+'\n'],{type:'application/json'}));
   const a=document.createElement('a');
   a.href=url;
-  a.download='quprs-browser-report.json';
+  a.download=name;
   a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$('exportCase').addEventListener('click',()=>{
+  if(host||pendingUploads)return;
+  const request=validateRequest();
+  if(!request)return;
+  try{downloadJSON(exportCase(request),'quprs-browser-case.json');}
+  catch(e){invalid(null,'Cannot export comparison: '+String(e.message||e));}
+});
+$('download').addEventListener('click',()=>{
+  if(last)downloadJSON(last,'quprs-browser-report.json');
 });

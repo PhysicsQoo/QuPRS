@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+from fnmatch import fnmatchcase
 from pathlib import Path
+import re
 import unittest
 
 source = Path(__file__).with_name("website-impact.py")
@@ -58,10 +60,99 @@ class WebsiteImpactTests(unittest.TestCase):
             {"homepage", "browser", "docs_reference", "docs_version"},
         )
 
+    def test_independent_edits_route_to_exact_ci_and_dev_publish_jobs(self) -> None:
+        """Exercise real event filters and job gates, not just classifier results."""
+        root = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+        ci = (root / "website-ci.yml").read_text(encoding="utf-8")
+        dev = (root / "website-deploy.yml").read_text(encoding="utf-8")
+
+        def event_paths(workflow: str, event: str) -> list[str]:
+            lines = workflow.splitlines()
+            self.assertIn(f"  {event}:", lines)
+            patterns = []
+            in_paths = False
+            for line in lines[lines.index(f"  {event}:") + 1:]:
+                if line and not line.startswith(" "):
+                    break
+                if line.startswith("  ") and not line.startswith("    "):
+                    break
+                if line == "    paths:":
+                    in_paths = True
+                elif in_paths and line.startswith("      - '") and line.endswith("'"):
+                    patterns.append(line[len("      - '"):-1])
+                elif in_paths and line.startswith("    ") and not line.startswith("      "):
+                    break
+            self.assertTrue(patterns, f"Missing {event} path filters")
+            return patterns
+
+        def job_block(workflow: str, job: str) -> str:
+            match = re.search(
+                rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  [a-z][a-z-]*:\n|\Z)",
+                workflow,
+            )
+            self.assertIsNotNone(match, f"Missing job: {job}")
+            assert match is not None
+            return match.group(1)
+
+        # The PR gate runs validation; dev push is the only auto-publisher.
+        ci_lanes = {
+            "homepage": ("homepage", "site-homepage.yml"),
+            "browser": ("browser", "browser-workbench.yml"),
+            "docs_fast": ("docs-fast", "docs-check.yml"),
+            "docs_version": ("docs-version", "docs-versioning-poc.yml"),
+            "docs_reference": ("docs-reference", "rust-api-docs.yml"),
+        }
+        dev_lanes = {
+            "homepage": ("homepage", "website-publish.yml", "target: homepage"),
+            "browser": ("playground", "website-publish.yml", "target: playground"),
+            "docs_reference": ("docs-dev", "rust-api-docs.yml", ""),
+        }
+        for workflow, lanes in ((ci, ci_lanes), (dev, dev_lanes)):
+            for route, (job, called, *markers) in lanes.items():
+                with self.subTest(workflow="ci" if workflow == ci else "dev", lane=job):
+                    block = job_block(workflow, job)
+                    self.assertIn(
+                        f"if: needs.impact.outputs.{route} == 'true'", block
+                    )
+                    self.assertIn(f"uses: ./.github/workflows/{called}", block)
+                    for marker in markers:
+                        if marker:
+                            self.assertIn(marker, block)
+
+        ci_paths = event_paths(ci, "pull_request")
+        dev_paths = event_paths(dev, "push")
+        cases = (
+            ("homepage HTML", "website/index.html", {"homepage"}, {"homepage"}, {"homepage"}),
+            ("homepage validation", "scripts/site/test_homepage.py", {"homepage"}, {"homepage"}, {"homepage"}),
+            ("Playground frontend", "web/worker.js", {"browser"}, {"browser"}, {"playground"}),
+            ("Playground Rust adapter", "rust/web/src/lib.rs", {"browser"}, {"browser"}, {"playground"}),
+            ("Docs content", "docs/site/index.md",
+             {"docs_reference", "docs_version"}, {"docs-reference", "docs-version"}, {"docs-dev"}),
+            ("Docs API", "scripts/check_rust_api_docs.py",
+             {"docs_reference"}, {"docs-reference"}, {"docs-dev"}),
+        )
+        for label, path, expected_routes, expected_ci_jobs, expected_publishers in cases:
+            with self.subTest(change=label, path=path):
+                self.assertTrue(any(fnmatchcase(path, p) for p in ci_paths),
+                                f"PR trigger misses {path}")
+                self.assertTrue(any(fnmatchcase(path, p) for p in dev_paths),
+                                f"dev-push trigger misses {path}")
+                routes = selected(path)
+                self.assertEqual(routes, expected_routes)
+                self.assertEqual(
+                    {job for route, (job, _) in ci_lanes.items() if route in routes},
+                    expected_ci_jobs,
+                    f"Unexpected CI suite for independent {label} edit",
+                )
+                self.assertEqual(
+                    {job for route, (job, _, _) in dev_lanes.items() if route in routes},
+                    expected_publishers,
+                    f"Unexpected dev publisher for independent {label} edit",
+                )
+
     def test_ci_own_changes_force_full_gate(self) -> None:
         self.assertEqual(selected(".github/workflows/website-ci.yml"), set(routing.ROUTES))
-        self.assertEqual(selected(".github/workflows/site-homepage-publish.yml"), set(routing.ROUTES))
-        self.assertEqual(selected(".github/workflows/browser-workbench-publish.yml"), set(routing.ROUTES))
+        self.assertEqual(selected(".github/workflows/website-deploy.yml"), set(routing.ROUTES))
         self.assertEqual(selected(".github/workflows/website-publish.yml"), set(routing.ROUTES))
         self.assertEqual(selected("scripts/site/website-impact.py"), set(routing.ROUTES))
 
@@ -83,13 +174,12 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertIn("Untrusted website publication event", workflow)
         self.assertIn('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch"', workflow)
         self.assertIn('if [[ "$latest" != "$GITHUB_SHA" ]]', workflow)
-        for filename in ("browser-workbench-publish.yml", "site-homepage-publish.yml"):
-            adapter = (root / ".github/workflows" / filename).read_text(encoding="utf-8")
-            self.assertIn("push:", adapter)
-            self.assertIn("branches: [dev]", adapter)
-            self.assertIn("workflow_dispatch:", adapter)
-            self.assertIn("github.event_name == 'push' || inputs.publish", adapter)
-            self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        adapter = (root / ".github/workflows/website-deploy.yml").read_text(encoding="utf-8")
+        self.assertIn("  push:\n    branches: [dev]", adapter)
+        self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        self.assertIn("uses: ./.github/workflows/rust-api-docs.yml", adapter)
+        self.assertIn("target: playground", adapter)
+        self.assertIn("target: homepage", adapter)
         self.assertIn("group: quprs-gh-pages-publish", workflow)
         self.assertIn("git -C pages push origin HEAD:gh-pages", workflow)
         self.assertIn('gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"', workflow)
@@ -100,7 +190,7 @@ class WebsiteImpactTests(unittest.TestCase):
         """A Rust code edit must rebuild the real WASM for dev, never overwrite stable."""
         root = Path(__file__).resolve().parents[2]
         workflows = root / ".github/workflows"
-        publisher = (workflows / "browser-workbench-publish.yml").read_text(encoding="utf-8")
+        publisher = (workflows / "website-deploy.yml").read_text(encoding="utf-8")
         builder = (workflows / "browser-workbench.yml").read_text(encoding="utf-8")
         shared = (workflows / "website-publish.yml").read_text(encoding="utf-8")
         release = (workflows / "docs-release-publish.yml").read_text(encoding="utf-8")
@@ -137,7 +227,7 @@ class WebsiteImpactTests(unittest.TestCase):
         names = (
             "browser-workbench.yml", "site-homepage.yml",
             "docs-check.yml", "docs-examples.yml",
-            "browser-workbench-publish.yml", "site-homepage-publish.yml",
+            "website-deploy.yml", "rust-api-docs.yml",
             "website-ci.yml",
         )
         sources = {name: (root / name).read_text(encoding="utf-8") for name in names}
@@ -156,11 +246,11 @@ class WebsiteImpactTests(unittest.TestCase):
         self.assertIn("  workflow_call:\n", homepage)
         self.assertIn("    branches: [main]", homepage)
         self.assertNotIn("    branches: [dev, main]", homepage)
-        for name in ("browser-workbench-publish.yml", "site-homepage-publish.yml"):
-            adapter = sources[name]
-            self.assertIn("  push:\n    branches: [dev]", adapter)
-            self.assertIn("  workflow_dispatch:\n", adapter)
-            self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        adapter = sources["website-deploy.yml"]
+        self.assertIn("  push:\n    branches: [dev]", adapter)
+        self.assertIn("uses: ./.github/workflows/website-publish.yml", adapter)
+        self.assertIn("uses: ./.github/workflows/rust-api-docs.yml", adapter)
+        self.assertNotIn("\n  push:\n", sources["rust-api-docs.yml"])
         for workflow in ("site-homepage.yml", "browser-workbench.yml",
                          "docs-check.yml"):
             self.assertIn(f"uses: ./.github/workflows/{workflow}", website)

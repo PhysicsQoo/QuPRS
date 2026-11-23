@@ -404,8 +404,15 @@ main().catch(error=>{console.error(error);process.exitCode=1;});
     "Retired Python-only profiling must not return as a standalone Action");
   assert.ok(fs.existsSync(".diagnostics/python_reduction/paired_profile.py"),
     "Retain the original source-pinned manual research reproduction script");
-  assert.throws(() => checkBudget([...definitions, "unreviewed-extra.yml"]),
-    undefined, "New workflows require an explicit budget review");
+  // After workflow consolidation the inventory may be below its ceiling.
+  // Exercise a genuinely over-budget fixture rather than assuming that one
+  // additional entry must already exceed the approved maximum.
+  const overBudget = Array.from(
+    { length: Math.max(1, workflowBudget - definitions.length + 1) },
+    (_, index) => `unreviewed-extra-${index}.yml`,
+  );
+  assert.throws(() => checkBudget([...definitions, ...overBudget]),
+    undefined, "Over-budget workflows require an explicit budget review");
   console.log("Workflow inventory limit and retained research source PASS");
 }
 

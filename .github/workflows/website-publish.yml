@@ -238,6 +238,8 @@ jobs:
               test -f browser-site/index.html
               test -f browser-site/app.js
               test -f browser-site/worker.js
+              test -f browser-site/provenance.js
+              test -f browser-site/build-provenance.json
               test -f browser-site/pkg/quprs_web_bg.wasm
               test -f browser-site/engines/gpmc.wasm
               python3 source/scripts/web/stage-versioned-pages.py dev browser-site pages --sha "$GITHUB_SHA"
@@ -290,6 +292,9 @@ jobs:
         run: |
           set -euo pipefail
           # Publishing via GITHUB_TOKEN does not automatically trigger a Pages build.
+          # Request exactly one build. GitHub's generated Pages workflow can
+          # show a cancelled/success pair for one SHA; both are observational.
+          request_started=$SECONDS
           build_url="$(gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .url)"
           built=false
           for _ in $(seq 1 40); do
@@ -310,7 +315,7 @@ jobs:
               sleep 10
             done
             test "$matched" = true
-            for file in index.html app.js worker.js pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
+            for file in index.html app.js worker.js provenance.js build-provenance.json pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
               curl --fail --silent --show-error --max-time 30 "$public/$file?verify=$GITHUB_SHA" -o "$RUNNER_TEMP/public-asset"
               test "$(sha256sum "$RUNNER_TEMP/public-asset" | cut -d' ' -f1)" = "$(sha256sum "browser-site/$file" | cut -d' ' -f1)"
             done
@@ -330,6 +335,39 @@ jobs:
             echo "Verified public homepage: $public" >> "$GITHUB_STEP_SUMMARY"
           else
             exit 1
+          fi
+          # Diagnostic evidence only: built Pages API status and source/hash
+          # readback above remain the authoritative release checks.
+          pages_sha="$(git -C pages rev-parse HEAD)"
+          {
+            echo "### GitHub Pages publication trace"
+            echo "| Evidence | Value |"
+            echo "| --- | --- |"
+            echo "| Target | $TARGET |"
+            echo "| Validated source SHA | \`$GITHUB_SHA\` |"
+            echo "| Published gh-pages SHA | \`$pages_sha\` |"
+            echo "| Explicit Pages Build requests | 1 |"
+            echo "| Pages API build URL | $build_url |"
+            echo "| Request-to-public-verification elapsed | $((SECONDS-request_started)) s |"
+            echo "| Public exact-source/hash verification | PASS |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Pages creates its own dynamic workflow. Some SHA values receive
+          # paired cancelled/success runs; do not mistake an expected cancelled
+          # sibling for a failed current deployment or request a second build.
+          if runs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=gh-pages&per_page=100" 2>/dev/null)"; then
+            observed="$(printf '%s' "$runs_json" | jq -rc --arg sha "$pages_sha" '
+              [.workflow_runs[]? | select(
+                .name == "pages build and deployment" and
+                .head_branch == "gh-pages" and .head_sha == $sha
+              )] | {total:length,
+                     successful:map(select(.conclusion == "success"))|length,
+                     cancelled:map(select(.conclusion == "cancelled"))|length}
+            ' || true)"
+            if [[ -n "$observed" ]]; then
+              echo "Pages dynamic run snapshot for this SHA (informational): \`$observed\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "Pages dynamic run snapshot unavailable; exact public verification above still passed." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Publish immutable release and stable alias

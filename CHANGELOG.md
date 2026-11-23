@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+## v0.17.3 — Playground reproducibility, guarded inputs and site publication reliability (candidate)
+
+This v0.17.x maintenance candidate consolidates the already source-verified
+homepage, Browser Playground and GitHub Pages improvements made after the
+**signed v0.17.2** release. It does **not** change native Rust/Python quantum
+algorithms, public verifier APIs, numerical tolerances, WMC solver contract,
+EQ/NEQ/UNKNOWN semantics, dependencies, or the qualified platform matrix.
+
+- Preserve full main-branch ancestry when promoting the site changes from
+  `dev`, without overwriting either the signed v0.17.2 tree or its history.
+  Consolidate the existing Website CI and Dev publishing entrypoints and
+  preserve the exact-source, serialized gh-pages publication contract.
+  Add release-safe Pages build provenance and reuse Rust Browser Core caches
+  without skipping native, WASM, GPMC or Chromium validation.
+- Improve the Browser Playground's trusted result lifecycle and accessible
+  responsive QASM editors, including the circuit swap, caret position,
+  keyboard indentation/shortcuts and local JSON case import/export.
+  Restoring a prior report restores its requests only; prior verdicts are
+  not trusted and require a fresh browser-local verification.
+- Enforce a per-circuit 256 KiB UTF-8 admission limit consistently for
+  typed/pasted QASM, file uploads and JSON import/export. Include request
+  SHA-256, source-identified Rust/WASM and pinned GPMC binary provenance
+  in browser reports. Metadata records origin and is **not** a certified
+  mathematical proof, error bound or independent solver attestation.
+- Keep the 14 independently matrix-checked Browser examples, provenance
+  readback and actual Rust/WASM/original MPFR-GPMC differential tests.
+  The separately retained 22-case Stable-v0.17.2/Dev research comparison
+  reported matching observed verdicts and numerical estimates, but its
+  one-shot experimental workflow is **not** merged into this release.
+- Retain immutable `/playground/v0.17.0/` through `/playground/v0.17.2/`
+  historical snapshots. A new stable browser version is promoted only
+  after signed-tag release and independently verified Pages deployment.
+
+**Release gate:** align the shared Rust and Python version plus both Cargo
+lockfiles at `0.17.3`, with no third-party dependency drift. Require the
+existing source/native and Rust/WASM/GPMC/Chromium checks, Cargo lockfile
+parity, cross-platform wheels/sdist/crate and Release-Ready Main gates,
+followed by a separately approved signed RC/stable tag, both registries,
+GitHub Release and the exact-source immutable Playground/Docs publication.
+This candidate entry is **not** evidence that v0.17.3 has already been
+signed, published or promoted.
+
 ## v0.17.2 — Documentation, Browser Playground UX and CI reliability (release candidate)
 
 This patch candidate consolidates changes since the **signed v0.17.1** release.

@@ -38,9 +38,8 @@ jobs:
             .github/workflows/docs-check.yml \
             .github/workflows/website-ci.yml \
             .github/workflows/site-homepage.yml \
-            .github/workflows/site-homepage-publish.yml \
+            .github/workflows/website-deploy.yml \
             .github/workflows/browser-workbench.yml \
-            .github/workflows/browser-workbench-publish.yml \
             .github/workflows/website-publish.yml
       - name: Set up Python
         uses: actions/setup-python@v6

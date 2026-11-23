@@ -46,7 +46,7 @@
       });
     })();
   </script>
-  <link rel="stylesheet" href="style.css?v=20261120-shared-theme-v1">
+  <link rel="stylesheet" href="style.css?v=20261123-case-io">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to Playground</a>
@@ -71,7 +71,7 @@
     <h1>QuPRS Playground</h1>
     <p class="intro">Explore quantum circuit equivalence using Rust and WebAssembly. Write or load a pair of circuits, choose a verification method and inspect the result—all locally in your browser.</p>
     <div class="hero-tags" aria-label="Playground characteristics">
-      <span>Local computation</span><span>Rust + WASM</span><span>OpenQASM input</span>
+      <span>Local computation</span><span>Rust + WASM</span><span>OpenQASM input</span><span id="buildInfo" class="build-info">Local preview</span>
     </div>
     <p class="paper"><a href="https://doi.org/10.1007/978-3-032-22749-2_21">Equivalence Checking of Quantum Circuits via Path-Sum and Weighted Model Counting</a> · TACAS 2026 · <a href="https://github.com/PhysicsQoo/QuPRS">Source code</a></p>
   </header>
@@ -105,7 +105,7 @@
       </div>
       <div class="circuits" aria-labelledby="circuitsTitle">
         <section class="editor-panel" aria-labelledby="leftHeading">
-          <div class="editor-heading"><h3 id="leftHeading">Circuit A</h3><span class="pill">Left</span></div>
+          <div class="editor-heading"><h3 id="leftHeading">Circuit A</h3><span id="leftPosition" class="editor-position" role="status">Ln 1 · Col 1</span><span class="pill">Left</span></div>
           <label class="sr-only" for="left">Circuit A OpenQASM</label>
           <textarea id="left" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="editorHelp">OPENQASM 2.0;
 include "qelib1.inc";
@@ -117,7 +117,7 @@ h q[0];</textarea>
           </label>
         </section>
         <section class="editor-panel" aria-labelledby="rightHeading">
-          <div class="editor-heading"><h3 id="rightHeading">Circuit B</h3><span class="pill">Right</span></div>
+          <div class="editor-heading"><h3 id="rightHeading">Circuit B</h3><span id="rightPosition" class="editor-position" role="status">Ln 1 · Col 1</span><span class="pill">Right</span></div>
           <label class="sr-only" for="right">Circuit B OpenQASM</label>
           <textarea id="right" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="editorHelp">OPENQASM 2.0;
 include "qelib1.inc";
@@ -127,7 +127,7 @@ qreg q[1];</textarea>
           </label>
         </section>
       </div>
-      <p id="editorHelp" class="help">Both inputs are processed in this browser. Uploaded text is not sent to a verification server. Maximum upload size: 256 KiB.</p>
+      <p id="editorHelp" class="help">Both inputs are processed in this browser. Uploaded text is not sent to a verification server. Maximum input size: 256 KiB of UTF-8 per circuit, including manual text, uploads and JSON import. Press Tab to indent (or Shift+Tab to unindent selected lines); press Escape then Tab to leave an editor. Ctrl/Cmd+Enter runs the comparison.</p>
 
       <section class="settings panel" aria-labelledby="settingsHeading">
         <p class="section-kicker">Step 02 · Configure</p>
@@ -170,13 +170,18 @@ qreg q[1];</textarea>
       <button id="run" type="submit" class="primary">Compare circuits <span aria-hidden="true">→</span></button>
       <button id="stop" type="button" disabled>Stop computation</button>
       <button id="download" type="button" disabled>Download JSON report</button>
+      <button id="exportCase" type="button">Export case JSON</button>
+      <label class="file case-import" for="caseFile">Import case/report JSON (.json)
+        <input id="caseFile" type="file" accept=".json,application/json">
+      </label>
     </div>
+    <p class="help case-help">Case export saves both circuit sources and settings without running a solver. A completed report additionally records build-reported source/binary hashes and a request fingerprint (not a proof certificate). Importing a case or a previous report restores inputs only—it never trusts the imported verdict. Run Compare circuits to verify locally.</p>
   </form>
 
   <section class="result panel" id="results" aria-labelledby="resultsHeading" aria-live="polite">
     <div class="section-heading">
       <div><p class="section-kicker">Step 03 · Inspect</p><h2 id="resultsHeading">Verification result</h2></div>
-      <p id="state" class="run-state">Ready. Circuits stay on this device.</p>
+      <div class="run-state-group"><p id="state" class="run-state">Ready. Circuits stay on this device.</p><p id="progress" class="run-progress" role="timer" aria-live="off" hidden></p></div>
     </div>
     <p id="verdict" class="verdict"></p>
     <h3>Projective Hilbert–Schmidt distance</h3>
@@ -191,6 +196,6 @@ qreg q[1];</textarea>
     <span> · Runs locally in browser Workers</span>
   </footer>
 </main>
-<script type="module" src="app.js?v=20261120-browser-refine"></script>
+<script type="module" src="app.js?v=20261123-provenance-bounds"></script>
 </body>
 </html>

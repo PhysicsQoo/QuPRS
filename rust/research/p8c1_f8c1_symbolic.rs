@@ -277,3 +277,74 @@ pub(super) fn check_bucket_roots(
     }
     Ok(8)
 }
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    fn value(poly:&Poly,assignment:u16)->bool{
+        poly.iter().fold(false,|acc,&mon|acc^((mon&assignment)==mon))
+    }
+    #[test]
+    fn symbolic_boolean_ring_reduction_local_truth_table(){
+        let mut algebra=Algebra::new();
+        let x=Algebra::var(0).unwrap();
+        let y=Algebra::var(1).unwrap();
+        let xy=algebra.and(&x,&y).unwrap();
+        let sum=algebra.xor(&x,&y).unwrap();
+        let or=algebra.or(&x,&y).unwrap();
+        let not=algebra.not(&x).unwrap();
+        for input in 0..4u16{
+            let a=input&1!=0;let b=input&2!=0;
+            assert_eq!(value(&xy,input),a&b);
+            assert_eq!(value(&sum,input),a^b);
+            assert_eq!(value(&or,input),a|b);
+            assert_eq!(value(&not,input),!a);
+        }
+        assert_eq!(algebra.and(&x,&x).unwrap(),x,
+            "Boolean quotient x^2=x must hold symbolically");
+        assert_eq!(algebra.xor(&x,&x).unwrap(),Algebra::empty());
+    }
+    #[test]
+    fn symbolic_three_bit_adder_and_negation_local_truth_table(){
+        let mut algebra=Algebra::new();
+        let left=[Algebra::var(0).unwrap(),Algebra::var(1).unwrap(),
+            Algebra::var(2).unwrap()];
+        let right=[Algebra::var(3).unwrap(),Algebra::var(4).unwrap(),
+            Algebra::var(5).unwrap()];
+        let result=algebra.add3(&left,&right).unwrap();
+        let negative=algebra.negate3(&left).unwrap();
+        for pair in 0..64u16{
+            let l=(pair&7) as u8;
+            let r=((pair>>3)&7) as u8;
+            let sum=(0..3).fold(0u8,|acc,bit|
+                acc|((value(&result[bit],pair) as u8)<<bit));
+            let neg=(0..3).fold(0u8,|acc,bit|
+                acc|((value(&negative[bit],pair) as u8)<<bit));
+            assert_eq!(sum,(l+r)%8);
+            assert_eq!(neg,(8-l)%8);
+        }
+    }
+    #[test]
+    fn symbolic_xor_parity_to_z8_lifting_independent_local_identity(){
+        let mut algebra=Algebra::new();
+        // Boolean parity x XOR y = x+y-2*x*y (mod 8).
+        // The coefficient six is -2 in Z8; omitting the product is unsound.
+        let correct=Phase::from([(1u64,1u8),(2u64,1u8),(3u64,6u8)]);
+        let bits=phase_claim_to_bits(&correct,2,&mut algebra).unwrap();
+        let expected=algebra.xor(&Algebra::var(0).unwrap(),
+            &Algebra::var(1).unwrap()).unwrap();
+        assert_eq!(bits[0],expected);
+        assert_eq!(bits[1],Algebra::empty());
+        assert_eq!(bits[2],Algebra::empty());
+        let incorrect=Phase::from([(1u64,1u8),(2u64,1u8)]);
+        let bad=phase_claim_to_bits(&incorrect,2,&mut algebra).unwrap();
+        assert_ne!(bad,bits,"unsound omission of parity interaction detected");
+    }
+    #[test]
+    fn symbolic_expansion_budget_is_fail_closed(){
+        let mut exhausted=Algebra{remaining:0};
+        let one=Algebra::one();
+        assert_eq!(exhausted.and(&one,&one),Err(Error::UnknownResource));
+        assert_eq!(exhausted.xor(&one,&one),Err(Error::UnknownResource));
+    }
+}

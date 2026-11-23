@@ -23,10 +23,10 @@ pub(super) struct VerifiedBridge {
     pub(super) counted_nodes:usize,
     pub(super) early_leaves:usize,
 }
-fn four_root_coefficients(counts:&[u16;8])->[i128;4]{
+pub(super) fn four_root_coefficients(counts:&[u16;8])->[i128;4]{
     std::array::from_fn(|i|counts[i] as i128-counts[i+4] as i128)
 }
-fn real_coefficients(counts:&[u16;8])->Check<(i64,i64)>{
+pub(super) fn real_coefficients(counts:&[u16;8])->Check<(i64,i64)>{
     let four=four_root_coefficients(counts);
     // A physically diagonal Gram element is exactly real; this is also
     // an independent consistency check on the counting proof.

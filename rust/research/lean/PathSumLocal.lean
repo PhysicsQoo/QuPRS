@@ -14,6 +14,8 @@ Important trust boundary:
 -/
 import Init
 
+set_option autoImplicit false
+
 namespace QuPRS.P0
 
 def asNat (b : Bool) : Nat := if b then 1 else 0
@@ -136,7 +138,8 @@ theorem gate_cnf_iff (op : BoolOp) (a b z : Bool) :
 /-- Every admitted S8C1 gate has exactly one satisfying auxiliary output.
     Induction over an ordered, earlier-inputs-only DAG is the next lemma. -/
 theorem gate_unique_extension (op : BoolOp) (a b : Bool) :
-    ExistsUnique (fun z : Bool => gateCNF op a b z = true) := by
+    ∃ z : Bool, gateCNF op a b z = true ∧
+      ∀ w : Bool, gateCNF op a b w = true → w = z := by
   refine ⟨gateValue op a b, ?_, ?_⟩
   · exact (gate_cnf_iff op a b (gateValue op a b)).2 rfl
   · intro z hz

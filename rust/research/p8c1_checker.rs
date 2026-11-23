@@ -20,6 +20,8 @@ mod count_to_gram;
 #[cfg(test)]
 #[path = "p8c1_dense_oracle.rs"]
 mod dense_oracle;
+#[path = "p8c1_f8c1_chain.rs"]
+mod f8c1_chain;
 
 const MAX_SOURCE_BYTES: usize = 32_768;
 const MAX_PROOF_BYTES: usize = 1 << 20;
@@ -966,6 +968,32 @@ fn cli()->Check<usize> {
 }
 fn main()->ExitCode {
     let paths:Vec<_>=std::env::args().skip(1).collect();
+    if paths.len()==6 && paths[0]=="--chain" {
+        // Bounded finite full-chain admission: raw source -> every P8C1
+        // source prefix -> S8C1 Boolean DAG -> exact D8C1/M8D1 count.
+        // This does NOT certify arbitrary OpenQASM or third-party WMC.
+        let verdict=(||{
+            let src=read_limited(&paths[1],MAX_SOURCE_BYTES,Error::InvalidSource)?;
+            let p8=read_limited(&paths[2],MAX_PROOF_BYTES,Error::InvalidProof)?;
+            let s8=read_limited(&paths[3],65_536,Error::InvalidProof)?;
+            let trace=read_limited(&paths[4],65_536,Error::InvalidProof)?;
+            let proof=read_limited(&paths[5],256,Error::InvalidProof)?;
+            f8c1_chain::verify(&src,&p8,&s8,&trace,&proof)
+        })();
+        return match verdict{
+            Ok(result)=>{
+                println!(
+                    "SCOPED_F8C1_SOURCE_COUNT_CHAIN_EXACT \
+                     prefixes={} paired_assignments={} buckets=8 method={} \
+                     source_trust=BLOCKED",
+                    result.prefix_checks,result.pair_checks,
+                    if result.method==1{"M8D1"}else{"D8C1"}
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e)=>{println!("{}",e.label());ExitCode::from(e.exit_code())}
+        };
+    }
     if paths.len()==10 {
         // D8C1 certified eight-root counts for (i,i),(j,j),(i,j)
         // compose into a P8G1 Gram/PSD property without enumerating
@@ -2167,6 +2195,129 @@ mod tests {
         println!("P8W1_MUTATION_EXHAUSTIVE bytes=116 flips={rejects} accepted=0 sat_claim_rejected=true");
     }
 
+
+
+    #[test]
+    fn f8c1_bounded_end_to_end_source_to_exact_count_chain(){
+        let cases=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\n",
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\nh q[1];\ncz q[0],q[1];\ns q[0];\ngphase(pi/4);\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[3] q;\nh q[0];\ncx q[0],q[2];\nh q[1];\nt q[2];\ns q[1];\nx q[0];\ncz q[0],q[1];\nh q[2];\n".as_slice(),
+        ];
+        let mut cases_checked=0usize;
+        let mut prefixes=0usize;
+        let mut pair_assignments=0usize;
+        for src in cases {
+            let (p8,state)=source_proof_and_state(src);
+            let dim=1usize<<state.n;
+            for &(first,second) in &[(0usize,0usize),(0,1),(1,0)]{
+                for bad in [1u64,1u64<<(dim-1)]{
+                    let s8=two_copy_structural::encode(
+                        src,&p8,&state,first,second,bad).unwrap();
+                    let dag=two_copy_count_dag::emit(src,&p8,&s8).unwrap();
+                    let bundle=f8c1_chain::encode(src,&p8,&s8,&dag).unwrap();
+                    let got=f8c1_chain::verify(
+                        src,&p8,&s8,&dag,&bundle).unwrap();
+                    assert_eq!(got.method,1);
+                    assert_eq!((got.first,got.second,got.bad),(first,second,bad));
+                    assert_eq!(got.buckets,
+                        two_copy_count_dag::verify(src,&p8,&s8,&dag).unwrap().buckets);
+                    let tree=two_copy_count_trace::emit(src,&p8,&s8).unwrap();
+                    let tree_bundle=f8c1_chain::encode(src,&p8,&s8,&tree).unwrap();
+                    let tree_got=f8c1_chain::verify(
+                        src,&p8,&s8,&tree,&tree_bundle).unwrap();
+                    assert_eq!(got.buckets,tree_got.buckets);
+                    assert_eq!(tree_got.method,0);
+                    cases_checked+=2;
+                    prefixes+=got.prefix_checks;
+                    pair_assignments+=got.pair_checks;
+                }
+            }
+        }
+        assert_eq!(cases_checked,48);
+        println!(
+            "F8C1_BOUNDED_CHAIN_EXACT bundles={cases_checked} \
+             prefix_checks={prefixes} primary_pair_checks={pair_assignments} \
+             methods=M8D1_D8C1 exact_source_semantics=true full_source_trust=BLOCKED"
+        );
+    }
+    #[test]
+    fn f8c1_bundle_mutations_and_semantic_scope_fail_closed(){
+        let src=b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\n";
+        let (proof,state)=source_proof_and_state(src);
+        let structural=two_copy_structural::encode(
+            src,&proof,&state,0,1,1).unwrap();
+        let dag=two_copy_count_dag::emit(src,&proof,&structural).unwrap();
+        let accepted=f8c1_chain::encode(src,&proof,&structural,&dag).unwrap();
+        assert!(f8c1_chain::verify(
+            src,&proof,&structural,&dag,&accepted).is_ok());
+        let mut rejections=0usize;
+        for i in 0..accepted.len(){
+            for bit in 0..8{
+                let mut forged=accepted.clone();
+                forged[i]^=1<<bit;
+                assert_eq!(
+                    f8c1_chain::verify(src,&proof,&structural,&dag,&forged),
+                    Err(Error::InvalidProof),
+                    "single-bit F8C1 forgery accepted at byte {i}, bit {bit}");
+                rejections+=1;
+            }
+        }
+        assert!(f8c1_chain::verify(
+            &src[..src.len()-1],&proof,&structural,&dag,&accepted).is_err());
+        let mut badproof=proof.clone();badproof[8]^=1;
+        assert!(f8c1_chain::verify(
+            src,&badproof,&structural,&dag,&accepted).is_err());
+        let mut bads8=structural.clone();bads8[74]^=1;
+        assert!(f8c1_chain::verify(
+            src,&proof,&bads8,&dag,&accepted).is_err());
+        let mut badcount=dag.clone();badcount[dag.len()-1]^=1;
+        assert!(f8c1_chain::verify(
+            src,&proof,&structural,&badcount,&accepted).is_err());
+        assert_eq!(f8c1_chain::verify(
+            src,&proof,&structural,&dag,&accepted[..accepted.len()-1]),
+            Err(Error::InvalidProof));
+        for unsupported in [
+            b"OPENQASM 3.1;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nU(2*pi,0,0) q[0];\n".as_slice(),
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nctrl @ x q[0];\n".as_slice(),
+        ] {
+            assert_eq!(
+                f8c1_chain::verify(unsupported,&proof,&structural,&dag,&accepted),
+                Err(Error::InvalidProof),
+                "changed source must invalidate source-bound envelope");
+            assert_eq!(
+                f8c1_chain::encode(unsupported,&proof,&structural,&dag),
+                Err(Error::UnsupportedSource),
+                "unsupported versions or gates must not be re-admitted");
+        }
+        println!(
+            "F8C1_FORGERY_REJECTED bit_flips={rejections} \
+             source_proof_structure_count_mutations=true \
+             unsupported_source_fail_closed=true"
+        );
+    }
+    #[test]
+    fn f8c1_export_source_bound_fixture_when_requested(){
+        let Ok(dir)=std::env::var("F8C1_FIXTURE_DIR")else{return;};
+        let src=std::fs::read(format!("{dir}/h-1q.qasm")).unwrap();
+        let proof=std::fs::read(format!("{dir}/h-1q.p8c1")).unwrap();
+        let structure=std::fs::read(format!("{dir}/h-1q.s8c1")).unwrap();
+        let trace=std::fs::read(format!("{dir}/h-1q.m8d1")).unwrap();
+        let envelope=f8c1_chain::encode(&src,&proof,&structure,&trace).unwrap();
+        let checked=f8c1_chain::verify(
+            &src,&proof,&structure,&trace,&envelope).unwrap();
+        assert_eq!(checked.buckets,[1,0,0,0,0,0,0,0]);
+        std::fs::write(format!("{dir}/h-1q.f8c1"),&envelope).unwrap();
+        let mut tampered=envelope.clone();tampered[40]^=1;
+        std::fs::write(format!("{dir}/h-1q-forged.f8c1"),&tampered).unwrap();
+        println!(
+            "F8C1_EXPORTED source_prefixes={} paired_assignments={} \
+             envelope_bytes={} source_trust=BLOCKED",
+            checked.prefix_checks,checked.pair_checks,envelope.len()
+        );
+    }
 
     #[test]
     fn c8c1_source_bound_cnf_cross_checks(){

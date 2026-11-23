@@ -276,8 +276,19 @@ fn source(statements:&[&str],import_stdlib:bool,version:&str)->String{
 // Native production is an OBSERVATION, not the source definition.
 // Kept separate from the independent parser and its checked source trace.
 fn native_matrix(text:&str)->Result<M4,String>{
-    use quprs::{qasm::parse_qasm_str,PathSum};
-    let (ops,n)=parse_qasm_str(text)?;
+    let (ops,n)=quprs::qasm::parse_qasm_str(text)?;
+    source_native_matrix_from_ops(ops,n)
+}
+// New opt-in source-pinned adapter; keep the legacy native diagnostic above
+// to catch uncorrected strict phase behavior without hiding regressions.
+fn pinned_native_matrix(text:&str)->Result<M4,String>{
+    let (ops,n)=quprs::qasm::parse_qasm_str_source_pinned(text)?;
+    source_native_matrix_from_ops(ops,n)
+}
+fn source_native_matrix_from_ops(
+    ops:Vec<quprs::ir::QuantumOp>,n:usize
+)->Result<M4,String>{
+    use quprs::PathSum;
     if n!=2{return Err("native matrix diagnostic requires two qubits".into());}
     let mut pathsum=PathSum::new(2);
     pathsum.set_auto_reduce(false);
@@ -729,4 +740,63 @@ fn observed_source_prefix_lock_accepts_safe_gates_and_locates_mismatch(){
     let mismatch=first_native_prefix_mismatch(&late).unwrap().unwrap();
     assert_eq!(mismatch.0,1,"must locate first incorrect gate prefix");
     println!("PREFIX_LOCK_LATE_DEFECT_INDEX=1");
+}
+
+#[test]
+fn observed_pinned_source_prefix_certificate_eliminates_cancelled_phase_errors(){
+    // The source-authority trace is independent of all QuPRS APIs. Every
+    // prefix is source-digest bound and checked by exact Q(sqrt(2),i)
+    // arithmetic, then independently compared with opt-in native PathSum.
+    let cases=[
+        ("cancelled_final_source_error",source(&[
+            "U(2*pi,0,0) q[0];",
+            "U(2*pi,0,0) q[0];"
+        ],false,"OPENQASM 3.1;")),
+        ("mixed_U_u3",source(&[
+            "U(pi/2,0,0) q[0];",
+            "u3(0,pi,0) q[0];"
+        ],true,"OPENQASM 3.1;")),
+        ("entangled_clifford_T",source(&[
+            "h q[0];","t q[0];","cx q[0],q[1];"
+        ],true,"OPENQASM 3.1;")),
+        ("u3_strict_phase",source(&[
+            "u3(2*pi,0,0) q[0];","U(0,0,0) q[0];"
+        ],true,"OPENQASM 3.0;")),
+        ("late_phase_shift",source(&[
+            "h q[0];","U(2*pi,0,0) q[0];","h q[0];"
+        ],true,"OPENQASM 3.0;")),
+    ];
+    let mut prefixes_checked=0usize;
+    for (label,src) in cases {
+        let claim=emit_source_trace(&src).expect("independent source must admit");
+        let independently_checked=checked_source_trace(&src,&claim).unwrap();
+        let prefixes=source_prefixes(&src).unwrap();
+        assert_eq!(prefixes.len(),claim.prefix_matrices.len());
+        for (step,prefix) in prefixes.iter().enumerate(){
+            assert_eq!(
+                pinned_native_matrix(prefix).unwrap(),claim.prefix_matrices[step],
+                "source-prefix semantic mismatch: {label}, step {step}"
+            );
+            prefixes_checked+=1;
+        }
+        assert_eq!(pinned_native_matrix(&src).unwrap(),independently_checked);
+        let forged=src.replace("q[0]", "q[1]");
+        assert!(checked_source_trace(&forged,&claim).is_err(),
+            "source digest must bind proof to exact original bytes");
+    }
+    let old=source(&[
+        "U(2*pi,0,0) q[0];","U(2*pi,0,0) q[0];"
+    ],false,"OPENQASM 3.0;");
+    // Crucial negative control: old frontend passes final equality only
+    // because two source-phase errors cancel. The prefix checker rejects.
+    assert_eq!(native_matrix(&old).unwrap(),independently_checked_matrix(&old).unwrap());
+    assert!(first_native_prefix_mismatch(&old).unwrap().is_some());
+    assert!(source_prefixes(&old).unwrap().iter().all(|prefix|
+        pinned_native_matrix(prefix).unwrap()==independently_checked_matrix(prefix).unwrap()
+    ));
+    println!(
+        "PINNED_SOURCE_PREFIX_CERTIFICATE cases=5 prefixes={prefixes_checked} \
+         exact_matrix=true source_digest_binding=true cancelled_phase_error_detected=true \
+         isolated_source_trust=SCOPED_PASS"
+    );
 }

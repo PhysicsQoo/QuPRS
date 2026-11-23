@@ -244,6 +244,81 @@ function native(request){
   const downloaded=JSON.parse(fs.readFileSync(path.join(out,'downloaded-report.json'),'utf8'));
   assert.equal(typeof downloaded.request?.circuit1,'string','Export must retain circuit source for reproducibility');
   assert.equal(typeof downloaded.request?.distance_tolerance,'number');
+
+  // Versioned case exchange must work without a solver run. Reports are data,
+  // never imported verification certificates, even with forged verdicts.
+  const beforeCase={...downloaded.request};
+  const caseDownload=h.page.waitForEvent('download');
+  await h.page.locator('#exportCase').click();
+  await (await caseDownload).saveAs(path.join(out,'downloaded-case.json'));
+  const casePath=path.join(out,'downloaded-case.json');
+  const exportedCase=JSON.parse(fs.readFileSync(casePath,'utf8'));
+  assert.equal(exportedCase.format,'quprs-browser-case');
+  assert.equal(exportedCase.schema,1);
+  assert.deepEqual(exportedCase.request,beforeCase);
+  await h.page.locator('#left').fill(q('x q[0];'));
+  await h.page.locator('#caseFile').setInputFiles(casePath);
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported case'));
+  assert.equal(await h.page.locator('#left').inputValue(),beforeCase.circuit1);
+  assert.equal(await h.page.locator('#right').inputValue(),beforeCase.circuit2);
+  assert(await h.page.locator('#download').isDisabled(),'Import must not restore an old verified result');
+  assert.equal(await h.page.locator('#verdict').textContent(),'');
+  assert.equal(await h.page.locator('#results').getAttribute('data-status'),null);
+  const forged={...downloaded,status:'equivalent',distance_estimate:0,warning:'Verified proof'};
+  const forgedPath=path.join(out,'forged-report.json');
+  fs.writeFileSync(forgedPath,JSON.stringify(forged));
+  await h.page.locator('#caseFile').setInputFiles(forgedPath);
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported report'));
+  assert.equal(await h.page.locator('#verdict').textContent(),'',
+    'Untrusted report verdict must never be displayed as verified');
+  assert(await h.page.locator('#download').isDisabled());
+
+  for(const [name,payload] of [
+    ['unknown-schema',{...exportedCase,schema:2}],
+    ['invalid-mode',{...exportedCase,request:{...beforeCase,mode:'unsafe'}}],
+    ['invalid-tolerance',{...exportedCase,request:{...beforeCase,distance_tolerance:-1}}],
+    ['missing-request',{format:'quprs-browser-case',schema:1}],
+  ]){
+    const invalidPath=path.join(out,name+'.json');
+    fs.writeFileSync(invalidPath,JSON.stringify(payload));
+    await h.page.locator('#caseFile').setInputFiles(invalidPath);
+    await h.page.waitForFunction(()=>!document.querySelector('#inputError').hidden);
+    assert.equal(await h.page.locator('#left').inputValue(),beforeCase.circuit1,
+      name+' must not partially overwrite valid circuit inputs');
+    assert(await h.page.locator('#download').isDisabled());
+  }
+  const hugePath=path.join(out,'oversize-case.json');
+  fs.writeFileSync(hugePath,JSON.stringify(exportedCase)+' '.repeat(769*1024));
+  await h.page.locator('#caseFile').setInputFiles(hugePath);
+  await h.page.waitForFunction(()=>document.querySelector('#inputError').textContent.includes('768 KiB'));
+  assert.equal(await h.page.locator('#left').inputValue(),beforeCase.circuit1);
+  await h.page.locator('#caseFile').setInputFiles(casePath);
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported case'));
+
+  // Multi-line indentation, Shift+Tab reversal, caret status and a keyboard
+  // run shortcut use the native editor rather than a third-party dependency.
+  const editor=h.page.locator('#left');
+  const originalQasm=await editor.inputValue();
+  await editor.focus();
+  await editor.evaluate(field=>field.setSelectionRange(0,field.value.length));
+  await h.page.keyboard.press('Tab');
+  assert((await editor.inputValue()).startsWith('  OPENQASM'));
+  await h.page.keyboard.press('Shift+Tab');
+  assert.equal(await editor.inputValue(),originalQasm,'Shift+Tab should reverse multi-line indent');
+  await editor.evaluate(field=>{field.setSelectionRange(4,4);field.dispatchEvent(new Event('select'));});
+  assert((await h.page.locator('#leftPosition').textContent()).includes('Col 5'));
+  await editor.fill('OPENQASM 2.0;\\n  qreg q[1];');
+  await editor.focus();
+  await editor.evaluate(field=>field.setSelectionRange(field.value.length,field.value.length));
+  await h.page.keyboard.press('Enter');
+  assert((await editor.inputValue()).endsWith('\\n  '),'Enter should carry forward indentation');
+  await h.page.locator('#caseFile').setInputFiles(casePath);
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported case'));
+  await editor.focus();
+  await h.page.keyboard.press('Control+Enter');
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
+  assert(await h.page.locator('#download').isEnabled(),'Keyboard run must verify restored case locally');
+
   const file=path.join(out,'input.qasm');fs.writeFileSync(file,q('u1(0.000001) q[0];'));await h.page.locator('#leftFile').setInputFiles(file);await h.page.waitForFunction(()=>document.querySelector('#left').value.includes('0.000001'));
   await h.page.locator('#mode').selectOption('wmc');await h.page.locator('#run').click();await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
   assert((await h.page.locator('#distance').textContent()).includes('e-7'));

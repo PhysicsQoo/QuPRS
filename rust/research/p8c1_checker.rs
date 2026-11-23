@@ -2207,4 +2207,158 @@ mod tests {
         println!("C8C1_SOURCE_BOUND_CNF obligations={count} checked_exact_models=true tamper_reject=4 non_scalable=true");
     }
 
+
+    // Finite, test-only proof obligation: unlike the P8C1 replay and S8C1
+    // builder, this oracle decodes original source lines and executes
+    // *individual coherent paths*, without constructing ANF/Z8 polynomials.
+    // Do not promote this bounded audit to general QASM SourceTrust.
+    fn raw_source_path_semantics(
+        bytes:&[u8],input:usize,path_assignment:usize
+    )->(usize,usize,usize){
+        fn source_wire(token:&str,n:usize)->usize{
+            let digit=token.strip_prefix("q[")
+                .and_then(|s|s.strip_suffix(']')).expect("wire grammar");
+            let q:usize=digit.parse().expect("wire index");
+            assert!(q<n);q
+        }
+        let text=std::str::from_utf8(bytes).expect("utf8 source");
+        let mut lines=text.lines().map(str::trim).filter(|s|!s.is_empty());
+        assert_eq!(lines.next(),Some("OPENQASM 3.0;"));
+        assert_eq!(lines.next(),Some("include \"stdgates.inc\";"));
+        let declaration=lines.next().expect("qubits");
+        let n:usize=declaration.strip_prefix("qubit[")
+            .and_then(|s|s.strip_suffix("] q;"))
+            .expect("register declaration").parse().expect("qubit number");
+        assert!((1..=3).contains(&n) && input<(1<<n));
+        let mut basis=input;
+        let mut phase=0usize;
+        let mut fresh=0usize;
+        for instruction in lines {
+            if instruction=="gphase(pi/4);" {
+                phase=(phase+1)%8;
+                continue;
+            }
+            let bare=instruction.strip_suffix(';').expect("semicolon");
+            let (op,operand)=bare.split_once(' ').expect("gate operand");
+            match op {
+                "h"=>{
+                    let q=source_wire(operand,n);
+                    let before=(basis>>q)&1;
+                    let after=(path_assignment>>fresh)&1;
+                    phase=(phase+4*before*after)%8;
+                    basis=(basis&!(1usize<<q)) | (after<<q);
+                    fresh+=1;
+                }
+                "x"=>{
+                    let q=source_wire(operand,n);
+                    basis^=1usize<<q;
+                }
+                "cx"=>{
+                    let (l,r)=operand.split_once(',').expect("two wires");
+                    let c=source_wire(l,n);let t=source_wire(r,n);
+                    assert_ne!(c,t);
+                    if (basis>>c)&1==1 {basis^=1usize<<t;}
+                }
+                "cz"=>{
+                    let (l,r)=operand.split_once(',').expect("two wires");
+                    let c=source_wire(l,n);let t=source_wire(r,n);
+                    assert_ne!(c,t);
+                    phase=(phase+4*((basis>>c)&1)*((basis>>t)&1))%8;
+                }
+                "t" | "s" | "z"=>{
+                    let q=source_wire(operand,n);
+                    let coefficient=match op {"t"=>1,"s"=>2,_=>4};
+                    phase=(phase+coefficient*((basis>>q)&1))%8;
+                }
+                _=>panic!("unsupported independent source instruction"),
+            }
+        }
+        (basis,phase,fresh)
+    }
+
+    #[test]
+    fn independent_raw_source_to_s8c1_bucket_audit(){
+        // Every primary assignment, every ordered pair of basis inputs,
+        // eight phase buckets, and three bad masks are checked end-to-end.
+        // Reuse only the untrusted fixture emitter and the decoded Boolean
+        // network; the comparison oracle does not reuse P8C1/ANF/Z8 states.
+        let cases:[&[u8];4]=[
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\n",
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0],q[1];\nt q[1];\nh q[1];\ncz q[0],q[1];\ns q[0];\ngphase(pi/4);\n",
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[3] q;\nh q[0];\ncx q[0],q[2];\nh q[1];\nt q[2];\ns q[1];\nx q[0];\ncz q[0],q[1];\nh q[2];\n",
+            b"OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[1] q;\nh q[0];\nt q[0];\nh q[0];\nt q[0];\nh q[0];\nh q[0];\n",
+        ];
+        let mut obligations=0usize;
+        let mut primary_assignments=0usize;
+        let mut bucket_assertions=0usize;
+        for source in cases {
+            let (proof,state)=source_proof_and_state(source);
+            let h=state.paths;
+            assert!(h<=4 && state.n<=3);
+            let dim=1usize<<state.n;
+            let masks=[1u64,1u64<<(dim-1),(1u64<<dim)-1];
+            let path_mask=(1usize<<h)-1;
+            for first in 0..dim {
+                for second in 0..dim {
+                    for bad in masks {
+                        let claimed=two_copy_structural::encode(
+                            source,&proof,&state,first,second,bad
+                        ).unwrap();
+                        let network=two_copy_structural::verify_schema_without_enumeration(
+                            source,&proof,&claimed
+                        ).unwrap();
+                        assert_eq!(network.primary,2*h);
+                        for pair_paths in 0..(1usize<<(2*h)){
+                            let (left,p_left,left_h)=raw_source_path_semantics(
+                                source,first,pair_paths&path_mask);
+                            let (right,p_right,right_h)=raw_source_path_semantics(
+                                source,second,pair_paths>>h);
+                            assert_eq!(left_h,h);
+                            assert_eq!(right_h,h);
+                            let phase_difference=(p_right+8-p_left)%8;
+                            let eligible=left==right && (bad&(1u64<<left))!=0;
+                            let values=two_copy_structural::evaluate(
+                                &network,pair_paths
+                            ).unwrap();
+                            let mut matches=0;
+                            for bucket in 0..8 {
+                                let observed=values[network.bucket[bucket] as usize];
+                                let expected=eligible && phase_difference==bucket;
+                                assert_eq!(observed,expected,
+                                    "source path and structural bucket diverged");
+                                matches+=usize::from(observed);
+                                bucket_assertions+=1;
+                            }
+                            assert_eq!(matches,usize::from(eligible));
+                            primary_assignments+=1;
+                        }
+                        obligations+=1;
+                    }
+                }
+            }
+        }
+        assert_eq!(obligations,264);
+        // Soundness negative control: omitting the non-Clifford T phase in
+        // H;T;H would incorrectly change the eligible bucket from 5 to 4.
+        let source=cases[0];
+        let (proof,state)=source_proof_and_state(source);
+        let claimed=two_copy_structural::encode(
+            source,&proof,&state,0,0,2
+        ).unwrap();
+        let network=two_copy_structural::verify_schema_without_enumeration(
+            source,&proof,&claimed
+        ).unwrap();
+        let left_path=2usize;let right_path=3usize;
+        let values=two_copy_structural::evaluate(
+            &network,left_path|(right_path<<2)
+        ).unwrap();
+        assert!(values[network.bucket[5] as usize]);
+        assert!(!values[network.bucket[4] as usize]);
+        println!(
+            "SOURCE_TO_S8C1_INDEPENDENT_EXACT obligations={obligations} \
+             primary_assignments={primary_assignments} bucket_checks={bucket_assertions} \
+             h_max=4 nonclifford_phase_omission_detected=true source_trust=BLOCKED"
+        );
+    }
+
 }

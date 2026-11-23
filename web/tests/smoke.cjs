@@ -157,6 +157,42 @@ function native(request){
   await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
   assert((await h.page.locator('#verdict').textContent()).includes('Different beyond tolerance'),
     'Swapped asymmetric inputs must still execute correctly');
+  // Completed results must expire on the first change to an editor or an
+  // effective setting, without leaving a downloadable report or old verdict.
+  assert(await h.page.locator('#buildInfo').isVisible(),'Build identity should be visible');
+  await h.page.locator('#right').fill(q('x q[0];'));
+  assert.equal(await h.page.locator('#distance').textContent(),'—');
+  assert.equal(await h.page.locator('#verdict').textContent(),'');
+  assert(await h.page.locator('#download').isDisabled());
+  assert((await h.page.locator('#state').textContent()).includes('Run comparison again'));
+  assert.equal(await h.page.locator('#results').getAttribute('data-status'),null);
+  const active=await h.page.evaluate(()=>{
+    document.querySelector('#form').requestSubmit();
+    return {progress:!document.querySelector('#progress').hidden,
+      stop:!document.querySelector('#stop').disabled};
+  });
+  assert(active.progress&&active.stop,'Running UI must show elapsed budget and available Stop');
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
+  assert(await h.page.locator('#progress').isHidden(),'Elapsed timer must stop after completion');
+  assert(await h.page.locator('#download').isEnabled());
+  await h.page.locator('#epsilon').fill('1e-7');
+  assert(await h.page.locator('#download').isDisabled(),'Tolerance edit must invalidate prior report');
+  assert.equal(await h.page.locator('#distance').textContent(),'—');
+  await h.page.locator('#run').click();
+  await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
+  await h.page.locator('#mode').selectOption('reduction');
+  assert(await h.page.locator('#download').isDisabled(),'Method change must invalidate prior report');
+  // Native textarea indentation must generate the same input event as typing.
+  const edit=h.page.locator('#left');
+  await edit.focus();
+  await edit.evaluate(field=>field.setSelectionRange(field.value.length,field.value.length));
+  await h.page.keyboard.press('Tab');
+  assert((await edit.inputValue()).endsWith('  '),'Tab should indent QASM without moving focus');
+  assert.equal(await h.page.locator('#distance').textContent(),'—');
+  await h.page.keyboard.press('Escape');
+  await h.page.keyboard.press('Tab');
+  assert.notEqual(await h.page.evaluate(()=>document.activeElement.id),'left',
+    'Escape then Tab must let keyboard-only users leave the QASM editor');
   // Rejected browser inputs do not launch workers or create a report.
   await h.page.locator('[data-example-id="identity"]').click();
   await h.page.locator('#left').fill(' ');
@@ -205,6 +241,9 @@ function native(request){
   await h.page.locator('#run').click();await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
   assert((await h.page.locator('#distance').textContent()).includes('0'));
   const download=h.page.waitForEvent('download');await h.page.locator('#download').click();await (await download).saveAs(path.join(out,'downloaded-report.json'));
+  const downloaded=JSON.parse(fs.readFileSync(path.join(out,'downloaded-report.json'),'utf8'));
+  assert.equal(typeof downloaded.request?.circuit1,'string','Export must retain circuit source for reproducibility');
+  assert.equal(typeof downloaded.request?.distance_tolerance,'number');
   const file=path.join(out,'input.qasm');fs.writeFileSync(file,q('u1(0.000001) q[0];'));await h.page.locator('#leftFile').setInputFiles(file);await h.page.waitForFunction(()=>document.querySelector('#left').value.includes('0.000001'));
   await h.page.locator('#mode').selectOption('wmc');await h.page.locator('#run').click();await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');
   assert((await h.page.locator('#distance').textContent()).includes('e-7'));

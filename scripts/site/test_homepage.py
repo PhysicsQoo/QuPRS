@@ -43,10 +43,14 @@ class HomepageTests(unittest.TestCase):
                       "Homepage must link to the existing stable Rustdoc")
         self.assertFalse(any("pr-preview/" in url for url in parsed.urls),
                          "Internal PR previews must not appear on the public homepage")
-        self.assertEqual(parsed.urls.count("playground/"), 2,
-                         "Playground must be discoverable in top navigation and its card")
+        self.assertEqual(parsed.urls.count("playground/"), 3,
+                         "Playground must be discoverable in the hero, navigation and its card")
         self.assertIn('<a href="playground/">Playground</a>', html,
                       "Place the Playground entry in primary navigation")
+        self.assertIn('<a class="action primary" href="playground/">Try Browser Playground</a>', html)
+        self.assertIn('<a class="action secondary" href="docs/">Read documentation</a>', html)
+        self.assertLess(html.index('Try Browser Playground'), html.index('Explore QuPRS'),
+                        "Primary Playground CTA must appear in hero above resource cards")
         playground_card = re.search(
             r'<article class="card" data-index="02">(.*?)</article>', html, re.S
         )

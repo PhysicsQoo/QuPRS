@@ -168,6 +168,67 @@ theorem canonical_anf_coefficient_semantics_unique
       ← coefficient_eval_correct n b v]
   exact h v
 
+/-- Construct the canonical square-free ANF coefficient tree from an
+    arbitrary monomial-mask indexed Boolean coefficient function. -/
+def fromCoefficients : (n : Nat) →
+    (BoolVector n → Bool) → CanonicalANF n
+  | 0, c => .scalar (c PUnit.unit)
+  | n + 1, c =>
+      .split
+        (fromCoefficients n (fun mask => c (false, mask)))
+        (fromCoefficients n (fun mask => c (true, mask)))
+
+/-- The mask-indexed encoding is lossless for all variable counts:
+    selecting any coefficient after construction yields the original. -/
+theorem coefficient_roundtrip :
+    ∀ (n : Nat) (c : BoolVector n → Bool) (mask : BoolVector n),
+      coefficient n (fromCoefficients n c) mask = c mask := by
+  intro n
+  induction n with
+  | zero =>
+      intro c mask
+      cases mask
+      rfl
+  | succ n ih =>
+      intro c mask
+      rcases mask with ⟨head, tail⟩
+      cases head with
+      | false =>
+          exact ih (fun rest => c (false, rest)) tail
+      | true =>
+          exact ih (fun rest => c (true, rest)) tail
+
+/-- Strong form of canonical ANF uniqueness: two arbitrary coefficient
+    functions over the complete set of n-variable Boolean monomial masks
+    are extensionally equal if their GF(2) multilinear evaluations
+    agree for all valuations. This is not limited to pre-built trees. -/
+theorem masked_coefficients_unique
+    (n : Nat) (c d : BoolVector n → Bool)
+    (h : ∀ v : BoolVector n,
+      evalCoefficients n c v = evalCoefficients n d v) :
+    ∀ mask : BoolVector n, c mask = d mask := by
+  let ac := fromCoefficients n c
+  let ad := fromCoefficients n d
+  have hc : coefficient n ac = c := by
+    funext mask
+    exact coefficient_roundtrip n c mask
+  have hd : coefficient n ad = d := by
+    funext mask
+    exact coefficient_roundtrip n d mask
+  have semantic : ∀ v : BoolVector n,
+      evalANF n ac v = evalANF n ad v := by
+    intro v
+    rw [← coefficient_eval_correct n ac v,
+        ← coefficient_eval_correct n ad v, hc, hd]
+    exact h v
+  have equalTrees := canonical_anf_unique n ac ad semantic
+  intro mask
+  have heq := congrArg (fun t => coefficient n t mask) equalTrees
+  simpa [hc, hd] using heq
+
+#print axioms coefficient_roundtrip
+#print axioms masked_coefficients_unique
+
 #print axioms canonical_anf_unique
 #print axioms canonical_anf_exists
 #print axioms coefficient_eval_correct

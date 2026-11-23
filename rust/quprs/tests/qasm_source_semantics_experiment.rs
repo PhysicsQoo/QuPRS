@@ -166,3 +166,48 @@ fn strict_contract_u_and_u3_phase_must_be_distinct() {
         "strict source semantics require U(2*pi,0,0) and u3(2*pi,0,0) to differ"
     );
 }
+
+
+#[test]
+fn strict_source_pinned_admission_and_phase_lowering() {
+    use quprs::qasm::parse_qasm_str_source_pinned;
+    for case in admission_cases() {
+        let result=parse_qasm_str_source_pinned(case.source);
+        assert_eq!(result.is_ok(),case.reference_valid,
+            "version-pinned source gate mismatch: {}",case.name);
+    }
+    // Version 3.1 supports the same admitted finite unitary profile:
+    // the original version is not silently changed in proof evidence.
+    for version in ["3.0","3.1"] {
+        let builtin=format!("OPENQASM {version};\nqubit[1] q;\nU(2*pi,0,0) q[0];\n");
+        let (ops,n)=parse_qasm_str_source_pinned(&builtin).unwrap();
+        assert_eq!(n,1);
+        assert_eq!(ops.len(),2);
+        assert!(matches!(ops[0],QuantumOp::U(0,_,_,_)));
+        assert!(matches!(ops[1],QuantumOp::GlobalPhase(_)));
+        let compat=format!(
+            "OPENQASM {version};\ninclude \"stdgates.inc\";\nqubit[1] q;\nu3(2*pi,0,0) q[0];\n");
+        let (ops,n)=parse_qasm_str_source_pinned(&compat).unwrap();
+        assert_eq!(n,1);
+        assert_eq!(ops.len(),2);
+        assert!(matches!(ops[0],QuantumOp::U3(0,_,_,_)));
+        assert!(matches!(ops[1],QuantumOp::GlobalPhase(_)));
+    }
+    let qasm2="OPENQASM 2.0;\nqreg q[1];\nU(2*pi,0,0) q[0];\n";
+    assert_eq!(parse_qasm_str_source_pinned(qasm2).unwrap().0.len(),2);
+    // Fail-closed: controlled phases must not be hoisted as global phases;
+    // every source rejected here would need a separate scoped proof rule.
+    for body in [
+        "ctrl @ U(2*pi,0,0) q[0];",
+        "H q[0];",
+        "U(2*pi,0,0) q[0]; U(0,0,0) q[0];",
+        "gphase(pi/4); gphase(pi/4);",
+    ] {
+        let source=format!("OPENQASM 3.1;\nqubit[1] q;\n{body}\n");
+        assert!(parse_qasm_str_source_pinned(&source).is_err(),"{body}");
+    }
+    println!(
+        "STRICT_PINNED_SOURCE_ADMISSION cases=8 versions=2_u3_and_U \
+         qasm2_builtin=true controlled_fail_closed=true"
+    );
+}

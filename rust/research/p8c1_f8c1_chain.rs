@@ -61,6 +61,11 @@ fn independent_raw_source(src:&[u8])->Check<RawCircuit>{
         }else{
             let stmt=text.strip_suffix(';').ok_or(Error::InvalidSource)?;
             let (name,operand)=stmt.split_once(' ').ok_or(Error::InvalidSource)?;
+            // Modifiers are valid OpenQASM syntax but outside this scoped
+            // proof grammar; do not misclassify them as malformed source.
+            if matches!(name,"ctrl"|"negctrl"|"inv"|"pow"){
+                return Err(Error::UnsupportedSource);
+            }
             if operand.contains(char::is_whitespace){
                 return Err(Error::InvalidSource);
             }

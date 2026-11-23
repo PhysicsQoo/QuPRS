@@ -707,7 +707,7 @@ fn pinned_source_matrix(raw:&str,is_bra:bool)->[[Q8;2];2]{
 }
 
 #[test]
-fn strict_pinned_source_exact_matrix_and_bra_ket_contract(){
+fn observed_strict_pinned_source_exact_matrix_and_bra_ket_contract(){
     let mut exact_cases=0;
     for version in ["3.0","3.1"] {
         for case in cases() {

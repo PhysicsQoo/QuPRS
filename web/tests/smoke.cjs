@@ -336,7 +336,16 @@ function native(request){
   await h.page.keyboard.press('Enter');
   assert((await editor.inputValue()).endsWith('\n  '),'Enter should carry forward indentation');
   await h.page.locator('#caseFile').setInputFiles(casePath);
-  await h.page.waitForFunction(()=>document.querySelector('#state').textContent.includes('Imported case'));
+  // The same "Imported case" message may already be visible from a prior
+  // upload. Wait for the actual file handler to finish and restore both QASM
+  // editors, not a stale status string.
+  await h.page.waitForFunction(expected=>{
+    const file=document.querySelector('#caseFile');
+    return file.value==='' &&
+      document.querySelector('#left').value===expected.circuit1 &&
+      document.querySelector('#right').value===expected.circuit2 &&
+      document.querySelector('#state').textContent.includes('Imported case');
+  },beforeCase);
   await editor.focus();
   await h.page.keyboard.press('Control+Enter');
   await h.page.waitForFunction(()=>document.querySelector('#state').textContent==='Completed.');

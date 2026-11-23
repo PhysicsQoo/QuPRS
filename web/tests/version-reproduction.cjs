@@ -74,6 +74,18 @@ async function runVersion(root,prefix,requestList){
         request,request_sha256:sha256(JSON.stringify(request))});
     }
   }
+  // A mathematically different unitary can be considered within a user-supplied
+  // tolerance. Keep that tolerant verdict separate from exact matrix class.
+  for(const [id,epsilon,expectedClass] of [
+    ['t-different',0.37,'NEQ'],['t-different',0.40,'EQ'],
+    ['phase',4.9e-7,'NEQ'],['phase',5.1e-7,'EQ'],
+  ]){
+    const example=gallery.examples.find(x=>x.id===id);
+    const request={...canonical(example,'wmc'),distance_tolerance:epsilon};
+    requests.push({id:id+'/wmc/boundary-'+epsilon,example_id:id,
+      expected:example.expected,expected_verdict_class:expectedClass,
+      request,request_sha256:sha256(JSON.stringify(request))});
+  }
   const stableReports=await runVersion(stableRoot,'/QuPRS/playground/v0.17.2/',requests);
   const devReports=await runVersion(devRoot,'/QuPRS/playground/dev/',requests);
   const semanticChanges=[],distanceDrifts=[],rawChanges=[],errors=[],cases=[];
@@ -81,9 +93,10 @@ async function runVersion(root,prefix,requestList){
     const item=requests[i],a=stableReports[i],b=devReports[i];
     assert.equal(a.request_sha256,b.request_sha256);
     const classA=classification(a.status),classB=classification(b.status);
-    const expectedClass=item.expected==='different'?'NEQ':'EQ';
+    const expectedClass=item.expected_verdict_class??(item.expected==='different'?'NEQ':'EQ');
     const report={id:item.id,request_sha256:item.request_sha256,
-      expected_matrix_category:item.expected,stable:a,dev:b,
+      expected_matrix_category:item.expected,expected_tolerance_verdict:expectedClass,
+      stable:a,dev:b,
       category_stable:classA,category_dev:classB,
       semantic_agreement:classA===classB&&classA!=='INVALID'};
     cases.push(report);
@@ -114,7 +127,12 @@ async function runVersion(root,prefix,requestList){
       raw_verdict_or_approximation_changes:rawChanges,
       numeric_distance_drift_over_5e_minus_8:distanceDrifts,
       invalid_or_oracle_disagreements:errors,
-      distinct_requests:new Set(cases.map(x=>x.request_sha256)).size
+      distinct_requests:new Set(cases.map(x=>x.request_sha256)).size,
+      maximum_observed_distance_delta:Math.max(0,...cases.map(x=>x.distance_absolute_delta??0)),
+      stable_gpmc_invocations:stableReports.filter(x=>x.solver_invoked===true).length,
+      dev_gpmc_invocations:devReports.filter(x=>x.solver_invoked===true).length,
+      stable_unknown_count:stableReports.filter(x=>x.status==='unknown').length,
+      dev_unknown_count:devReports.filter(x=>x.status==='unknown').length,
     }
   };
   const out=process.env.QUWEB_QA_OUT||'web/test-results';

@@ -997,9 +997,9 @@ fn main()->ExitCode {
                     CoherentVerdict::ScopedSatisfied=>{
                         println!(
                             "SCOPED_F8G1_RANK2_PROPERTY_SAT \
-                             source_prefix_checks={} paired_path_checks={} \
+                             source_symbolic_checks={} root_symbolic_checks={} assignment_enumeration=0 \
                              proof_methods={} witness=not_required source_trust=BLOCKED",
-                            result.prefix_checks,result.path_pairs,
+                            result.prefix_checks,result.root_checks,
                             result.proof_method_mask
                         );
                         ExitCode::SUCCESS
@@ -1007,9 +1007,9 @@ fn main()->ExitCode {
                     CoherentVerdict::ScopedViolated{reason}=>{
                         println!(
                             "SCOPED_F8G1_RANK2_PROPERTY_VIOLATED reason={reason} \
-                             source_prefix_checks={} paired_path_checks={} \
+                             source_symbolic_checks={} root_symbolic_checks={} assignment_enumeration=0 \
                              proof_methods={} witness_checked={} source_trust=BLOCKED",
-                            result.prefix_checks,result.path_pairs,
+                            result.prefix_checks,result.root_checks,
                             result.proof_method_mask,
                             result.witness_gap.is_some()
                         );
@@ -1025,7 +1025,7 @@ fn main()->ExitCode {
     }
 
     if paths.len()==6 && paths[0]=="--chain" {
-        // Bounded finite full-chain admission: raw source -> every P8C1
+        // Bounded symbolic full-chain admission: raw source -> every P8C1
         // source prefix -> S8C1 Boolean DAG -> exact D8C1/M8D1 count.
         // This does NOT certify arbitrary OpenQASM or third-party WMC.
         let verdict=(||{
@@ -1040,9 +1040,9 @@ fn main()->ExitCode {
             Ok(result)=>{
                 println!(
                     "SCOPED_F8C1_SOURCE_COUNT_CHAIN_EXACT \
-                     prefixes={} paired_assignments={} buckets=8 method={} \
+                     source_symbolic_checks={} root_symbolic_checks={} assignment_enumeration=0 buckets=8 method={} \
                      source_trust=BLOCKED",
-                    result.prefix_checks,result.pair_checks,
+                    result.prefix_checks,result.root_checks,
                     if result.method==1{"M8D1"}else{"D8C1"}
                 );
                 ExitCode::SUCCESS
@@ -2263,7 +2263,7 @@ mod tests {
         ];
         let mut cases_checked=0usize;
         let mut prefixes=0usize;
-        let mut pair_assignments=0usize;
+        let mut root_checks=0usize;
         for src in cases {
             let (p8,state)=source_proof_and_state(src);
             let dim=1usize<<state.n;
@@ -2287,14 +2287,15 @@ mod tests {
                     assert_eq!(tree_got.method,0);
                     cases_checked+=2;
                     prefixes+=got.prefix_checks;
-                    pair_assignments+=got.pair_checks;
+                    assert_eq!(got.pair_checks,0);
+                    root_checks+=got.root_checks;
                 }
             }
         }
         assert_eq!(cases_checked,48);
         println!(
             "F8C1_BOUNDED_CHAIN_EXACT bundles={cases_checked} \
-             prefix_checks={prefixes} primary_pair_checks={pair_assignments} \
+             source_symbolic_checks={prefixes} root_symbolic_checks={root_checks} assignment_enumeration=0 \
              methods=M8D1_D8C1 exact_source_semantics=true full_source_trust=BLOCKED"
         );
     }
@@ -2369,7 +2370,7 @@ mod tests {
         let mut tampered=envelope.clone();tampered[40]^=1;
         std::fs::write(format!("{dir}/h-1q-forged.f8c1"),&tampered).unwrap();
         println!(
-            "F8C1_EXPORTED source_prefixes={} paired_assignments={} \
+            "F8C1_EXPORTED source_symbolic_checks={} root_symbolic_checks={} assignment_enumeration=0 \
              envelope_bytes={} source_trust=BLOCKED",
             checked.prefix_checks,checked.pair_checks,envelope.len()
         );
@@ -2434,7 +2435,7 @@ mod tests {
                         src,&p8,&spec,ss,tt,ff,&claim,&witness,&f8g).unwrap();
                     assert_eq!(result.verdict,verdict);
                     assert_eq!(f8g.len(),454);
-                    assert!(result.prefix_checks>0 && result.path_pairs>0);
+                    assert!(result.prefix_checks>0 && result.root_checks==24);
                     if verdict==CoherentVerdict::ScopedSatisfied{
                         assert_eq!(result.witness_gap,None);
                         sat_cases+=1;

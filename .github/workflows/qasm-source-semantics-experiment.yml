@@ -18,6 +18,7 @@ on:
       - rust/research/p8c1_two_copy_count_trace.rs
       - rust/research/p8c1_two_copy_count_dag.rs
       - rust/research/p8c1_f8c1_chain.rs
+      - rust/research/p8c1_f8c1_symbolic.rs
       - rust/research/p8c1_f8g1_property.rs
       - rust/research/p8c1_count_to_gram.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
@@ -77,7 +78,7 @@ jobs:
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/research/p8c1_two_copy_structural.rs \
-            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8g1_property.rs rust/research/p8c1_count_to_gram.rs \
+            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8c1_symbolic.rs rust/research/p8c1_f8g1_property.rs rust/research/p8c1_count_to_gram.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 

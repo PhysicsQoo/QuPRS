@@ -697,8 +697,9 @@ fn pinned_source_matrix(raw:&str,is_bra:bool)->[[Q8;2];2]{
     let mut ps=PathSum::new(1);
     ps.set_auto_reduce(false);
     if is_bra {
-        // Adjoint composition applies reversed source operation order.
-        for op in ops.iter().rev(){op.apply(&mut ps,true);}
+        // QuPRS Bra operations compose on the right; therefore the
+        // original source order yields G_1† ... G_m†, not the reversed list.
+        for op in &ops {op.apply(&mut ps,true);}
     } else {
         for op in &ops {op.apply(&mut ps,false);}
     }

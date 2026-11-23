@@ -238,6 +238,8 @@ jobs:
               test -f browser-site/index.html
               test -f browser-site/app.js
               test -f browser-site/worker.js
+              test -f browser-site/provenance.js
+              test -f browser-site/build-provenance.json
               test -f browser-site/pkg/quprs_web_bg.wasm
               test -f browser-site/engines/gpmc.wasm
               python3 source/scripts/web/stage-versioned-pages.py dev browser-site pages --sha "$GITHUB_SHA"
@@ -313,7 +315,7 @@ jobs:
               sleep 10
             done
             test "$matched" = true
-            for file in index.html app.js worker.js pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
+            for file in index.html app.js worker.js provenance.js build-provenance.json pkg/quprs_web_bg.wasm engines/gpmc.wasm; do
               curl --fail --silent --show-error --max-time 30 "$public/$file?verify=$GITHUB_SHA" -o "$RUNNER_TEMP/public-asset"
               test "$(sha256sum "$RUNNER_TEMP/public-asset" | cut -d' ' -f1)" = "$(sha256sum "browser-site/$file" | cut -d' ' -f1)"
             done

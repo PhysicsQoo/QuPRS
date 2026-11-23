@@ -1,6 +1,7 @@
 import {createWorkerHost} from './engines/host.js?v=20261115-quprs-source-mpfr-v2';
 import {EXAMPLES,CATEGORIES} from './examples.js';
-import {exportCase,importCase,MAX_CASE_BYTES} from './case-io.js';
+import {exportCase,importCase,normalizeRequest,assertCircuitText,MAX_CIRCUIT_BYTES,MAX_CASE_BYTES} from './case-io.js';
+import {readBuildIdentity,reportProvenance} from './provenance.js';
 
 const $=id=>document.getElementById(id);
 let host=null,last=null,pendingUploads=0;
@@ -51,20 +52,17 @@ function invalidateResult(){
     state('Inputs or settings changed. Run comparison again.','stale');
   }
 }
+const buildIdentity=readBuildIdentity(import.meta.url);
 function showBuildInfo(){
   const match=location.pathname.match(/\/playground\/(dev|v\d+\.\d+\.\d+)\/?$/);
   const label=match?.[1]==='dev'?'Dev preview':
     match?.[1]?.startsWith('v')?'Stable '+match[1]:'Local preview';
   const target=$('buildInfo');
   target.textContent=label;
-  // Reading the same-origin, immutable source marker is informational only.
-  fetch(new URL('./source-sha.txt',import.meta.url),{cache:'no-store'})
-    .then(response=>response.ok?response.text():null)
-    .then(source=>{
-      const sha=source?.trim();
-      if(sha && /^[0-9a-f]{40}$/i.test(sha))
-        target.textContent=label+' · source '+sha.slice(0,12);
-    }).catch(()=>{});
+  // A same-origin source marker is useful identification, not a proof.
+  buildIdentity.then(identity=>{
+    if(identity.source_sha)target.textContent=label+' · source '+identity.source_sha.slice(0,12);
+  }).catch(()=>{});
 }
 showBuildInfo();
 for(const id of [...editorIds,'epsilon','rr','mode','strategy']){
@@ -145,9 +143,16 @@ function validateRequest(){
   if(!rrText||!Number.isFinite(reduction)||reduction<0){
     return invalid('rr','Reduction coefficient tolerance must be a finite, non-negative number.');
   }
-  return {circuit1:$('left').value,circuit2:$('right').value,
+  const request={circuit1:$('left').value,circuit2:$('right').value,
     mode:$('mode').value,strategy:$('strategy').value,
     distance_tolerance:distance,rr_tolerance:reduction};
+  try{return normalizeRequest(request);}
+  catch(error){
+    const message=String(error.message||error);
+    const field=message.startsWith('Circuit A')?'left':
+      message.startsWith('Circuit B')?'right':null;
+    return invalid(field,message);
+  }
 }
 function loadExample(example){
   if(host||pendingUploads)return;
@@ -233,7 +238,7 @@ for(const side of editorIds){
     const file=event.target.files[0];
     if(!file)return;
     clearValidation();
-    if(file.size>256*1024||!/\.(qasm|txt)$/i.test(file.name)){
+    if(file.size>MAX_CIRCUIT_BYTES||!/\.(qasm|txt)$/i.test(file.name)){
       invalid(null,'Upload a .qasm or .txt file no larger than 256 KiB.');
       event.target.value='';
       return;
@@ -241,7 +246,11 @@ for(const side of editorIds){
     pendingUploads++;
     busy(false);
     try{
-      $(side).value=await file.text();
+      // Reject malformed UTF-8, empty files and oversized decoded content
+      // before mutating the active editor or replacing a prior result.
+      const text=new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());
+      assertCircuitText(text,side==='left'?'Circuit A':'Circuit B');
+      $(side).value=text;
       editorPosition(side);
       clearResult();
       state('Loaded Circuit '+(side==='left'?'A':'B')+' from a local file.','ready');
@@ -310,7 +319,8 @@ $('form').addEventListener('submit',async event=>{
     root.postMessage({request});
     const {report}=await host.result;
     // Keep the request used for the report so a downloaded file can be reproduced.
-    last={...report,wall_ms:performance.now()-start,request};
+    const provenance=await reportProvenance(request,buildIdentity);
+    last={...report,wall_ms:performance.now()-start,request,provenance};
     state('Completed.','completed');
     const approximateEq=report.rr_approximate &&
       (report.status==='equivalent'||report.status==='equivalent*');

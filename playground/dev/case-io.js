@@ -8,17 +8,23 @@ export const MAX_CASE_BYTES=768*1024;
 const modes=new Set(['hybrid','wmc','reduction']);
 const strategies=new Set(['difference','proportional','naive','straightforward']);
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const utf8=new TextEncoder();
+
+// One per-circuit byte and nonempty gate applies to manual text, file uploads
+// and imported JSON. Keep the limit in UTF-8 bytes, not JS UTF-16 length.
+export function assertCircuitText(text,label){
+  if(typeof text!=='string'||!text.trim())
+    throw new Error(label+' requires nonempty OpenQASM text.');
+  if(utf8.encode(text).byteLength>MAX_CIRCUIT_BYTES)
+    throw new Error(label+' exceeds the 256 KiB limit.');
+  return text;
+}
 
 export function normalizeRequest(request){
   if(!object(request))throw new Error('The JSON does not contain a comparison request.');
   const {circuit1,circuit2,mode,strategy,distance_tolerance,rr_tolerance}=request;
-  const utf8=new TextEncoder();
-  for(const [label,text] of [['Circuit A',circuit1],['Circuit B',circuit2]]){
-    if(typeof text!=='string'||!text.trim())
-      throw new Error(label+' requires nonempty OpenQASM text.');
-    if(utf8.encode(text).byteLength>MAX_CIRCUIT_BYTES)
-      throw new Error(label+' exceeds the 256 KiB limit.');
-  }
+  assertCircuitText(circuit1,'Circuit A');
+  assertCircuitText(circuit2,'Circuit B');
   if(!modes.has(mode))throw new Error('Unsupported verification mode.');
   if(!strategies.has(strategy))throw new Error('Unsupported WMC strategy.');
   if(typeof distance_tolerance!=='number'||!Number.isFinite(distance_tolerance)||

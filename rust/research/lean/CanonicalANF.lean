@@ -111,7 +111,7 @@ theorem canonical_anf_exists :
           dsimp [f0, fd]
           cases h0 : f (false, tail) <;>
             cases h1 : f (true, tail) <;>
-            simp [h0, h1]
+            simp
 
 /-- Coefficient extraction indexed by the Boolean monomial mask.
     A split has the coefficients for masks lacking the first variable
@@ -148,16 +148,10 @@ theorem coefficient_eval_correct :
       cases a with
       | split a0 a1 =>
         rcases v with ⟨x, xs⟩
-        change (evalCoefficients n (fun mask =>
-          coefficient (n + 1) (CanonicalANF.split a0 a1)
-            (false, mask)) xs).xor
-          (x && evalCoefficients n (fun mask =>
-            coefficient (n + 1) (CanonicalANF.split a0 a1)
-              (true, mask)) xs) =
+        change (evalCoefficients n (coefficient n a0) xs).xor
+          (x && evalCoefficients n (coefficient n a1) xs) =
           (evalANF n a0 xs).xor (x && evalANF n a1 xs)
-        simpa [coefficient] using congrArg₂
-          (fun p q : Bool => p.xor (x && q))
-          (ih a0 xs) (ih a1 xs)
+        rw [ih a0 xs, ih a1 xs]
 
 /-- A mask-indexed coefficient function determines the polynomial
     uniquely: no two different canonical coefficient trees can have

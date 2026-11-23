@@ -189,6 +189,24 @@ jobs:
           taskset -c "$core" node web/tests/counter.cjs
           python3 scripts/web/check-phase-weights.py verify "$RUNNER_TEMP/qa-results/phase-results.json"
           taskset -c "$core" node web/tests/smoke.cjs
+      # One-shot experimental audit on this research branch. Remove this
+      # temporary step before any production merge; no new workflow is needed.
+      - name: Same-runner signed Stable versus exact-source Dev scientific reproduction
+        if: github.event_name == 'pull_request'
+        env:
+          QUWEB_DIST: ${{ runner.temp }}/site
+          QUWEB_QA_OUT: ${{ runner.temp }}/qa-results
+          QUWEB_PLAYWRIGHT: ${{ runner.temp }}/qa/node_modules/playwright
+          QUWEB_EXPECTED_DEV_SHA: ${{ inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          git clone --quiet --filter=blob:none --sparse --depth=1 --single-branch --branch gh-pages \
+            https://github.com/PhysicsQoo/QuPRS.git "$RUNNER_TEMP/stable-pages"
+          git -C "$RUNNER_TEMP/stable-pages" sparse-checkout set playground/v0.17.2
+          test "$(tr -d '\r\n' < "$RUNNER_TEMP/stable-pages/playground/v0.17.2/source-sha.txt")" = \
+            733a8177eb1f0da47d09ab934f81d1ddf47ecd67
+          QUWEB_STABLE_ROOT="$RUNNER_TEMP/stable-pages/playground/v0.17.2" \
+            node web/tests/version-reproduction.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,11 +1,12 @@
 //! F8C1: bounded, source-bound end-to-end proof envelope (research only).
 //!
-//! The independent std-only checker replays a separate raw gate/path semantics,
-//! every P8C1 prefix frame, the complete S8C1 Boolean DAG, and the exact
-//! D8C1/M8D1 counts. It never accepts a solver-reported count.
+//! The independent checker validates each source/P8C1 prefix and every
+//! S8C1 bucket root using compositional GF(2) Boolean-ring polynomials
+//! with independent three-bit phase-addition rules. Exact D8C1/M8D1 counts
+//! are checked without trusting a solver.
 //!
-//! BOUNDED FINITE AUDIT: <=3 qubits, <=4 H paths, OPENQASM 3.0 H/X/CX/
-//! T/S/Z/CZ/gphase(pi/4). It exhaustively checks primary assignments.
+//! BOUNDED SYMBOLIC AUDIT: <=3 qubits, <=4 H paths, OPENQASM 3.0 H/X/CX/
+//! T/S/Z/CZ/gphase(pi/4). Primary path enumeration is test-only.
 //! QASM 3.1, QASM2, U/u3, controlled sources, symbolic parameters, and
 //! production SourceTrust are NOT certified by this envelope.
 use super::{
@@ -14,6 +15,8 @@ use super::{
     replay_state, evaluate_monomial, two_copy_structural,
     two_copy_count_trace, two_copy_count_dag,
 };
+#[path = "p8c1_f8c1_symbolic.rs"]
+mod symbolic;
 const MAGIC: &[u8;4]=b"F8C1";
 const LENGTH:usize=4+1+4*32+1+1+8+1+8*2;
 #[derive(Clone,Copy)]
@@ -179,7 +182,8 @@ fn check_all_prefixes(src:&[u8],proof:&[u8],raw:&RawCircuit)->Check<usize>{
 pub(super) struct ResultCounts{
     pub(super) buckets:[u16;8],
     pub(super) prefix_checks:usize,
-    pub(super) pair_checks:usize,
+    pub(super) pair_checks:usize, // zero in symbolic acceptance
+    pub(super) root_checks:usize,
     pub(super) method:u8,
     pub(super) first:usize,
     pub(super) second:usize,
@@ -193,7 +197,8 @@ fn layers(
     // transition replay; neither authority is simply assumed from a digest.
     let (_,state)=replay_state(src,proof)?;
     if state.n!=raw.n || state.paths!=raw.h{return Err(Error::InvalidProof);}
-    let prefix_checks=check_all_prefixes(src,proof,&raw)?;
+    let (source_symbolic,prefix_checks)=
+        symbolic::check_p8c1_prefixes(src,proof,&raw)?;
     let network=two_copy_structural::verify_schema_without_enumeration(
         src,proof,structure)?;
     let mut reader=Cursor::new(structure);
@@ -215,37 +220,13 @@ fn layers(
     }else if trace.starts_with(b"D8C1"){
         (two_copy_count_trace::verify(src,proof,structure,trace)?.buckets,0u8)
     }else{return Err(Error::InvalidProof);};
-    let mut counted=[0u16;8];
-    let mut pair_checks=0usize;
-    let h=raw.h;
-    let mask=(1usize<<h)-1;
-    for assign in 0..(1usize<<(2*h)){
-        let l=paths(&raw,first,assign&mask);
-        let r=paths(&raw,second,assign>>h);
-        let (lo,lp,lh)=*l.last().ok_or(Error::InvalidSource)?;
-        let (ro,rp,rh)=*r.last().ok_or(Error::InvalidSource)?;
-        if lh!=h || rh!=h{return Err(Error::InvalidProof);}
-        let eligible=lo==ro && (bad&(1u64<<lo))!=0;
-        let target=(rp+8-lp)%8;
-        let values=two_copy_structural::evaluate(&network,assign)?;
-        let mut roots=0usize;
-        for k in 0..8{
-            let actual=*values.get(network.bucket[k] as usize)
-                .ok_or(Error::InvalidProof)?;
-            let expected=eligible && target==k as u8;
-            if actual!=expected{return Err(Error::InvalidProof);}
-            if expected{
-                counted[k]=counted[k].checked_add(1)
-                    .ok_or(Error::UnknownResource)?;
-                roots+=1;
-            }
-        }
-        if roots!=usize::from(eligible){return Err(Error::InvalidProof);}
-        pair_checks+=1;
-    }
-    if claimed!=counted{return Err(Error::InvalidProof);}
+    // All-valuations identities are checked in the GF(2) Boolean ring,
+    // not by traversing the 2^(2h) primary-path assignment space.
+    let root_checks=symbolic::check_bucket_roots(
+        &source_symbolic,&network,first,second,bad)?;
     Ok(ResultCounts{
-        buckets:counted,prefix_checks,pair_checks,method,first,second,bad,
+        buckets:claimed,prefix_checks,pair_checks:0,root_checks,
+        method,first,second,bad,
     })
 }
 fn canonical(

@@ -1,5 +1,6 @@
 import {createWorkerHost} from './engines/host.js?v=20261115-quprs-source-mpfr-v2';
 import {EXAMPLES,CATEGORIES} from './examples.js';
+import {exportCase,importCase,MAX_CASE_BYTES} from './case-io.js';
 
 const $=id=>document.getElementById(id);
 let host=null,last=null,pendingUploads=0;
@@ -16,6 +17,8 @@ function busy(value){
   $('inputs').disabled=value;
   $('run').disabled=value||pendingUploads>0;
   $('stop').disabled=!value;
+  $('exportCase').disabled=value||pendingUploads>0;
+  $('caseFile').disabled=value||pendingUploads>0;
 }
 function clearValidation(){
   $('inputError').hidden=true;
@@ -68,23 +71,65 @@ for(const id of [...editorIds,'epsilon','rr','mode','strategy']){
   $(id).addEventListener('input',invalidateResult);
   $(id).addEventListener('change',invalidateResult);
 }
-// Keep the existing native editors; Tab indents without losing the input event.
+// Keep native textareas: expose the cursor, keyboard shortcuts and indentation
+// without a dependency on a code editor or off-device QASM parsing service.
+function editorPosition(id){
+  const field=$(id),prefix=field.value.slice(0,field.selectionStart);
+  const line=prefix.split('\n').length;
+  const col=prefix.length-prefix.lastIndexOf('\n');
+  $(id+'Position').textContent='Ln '+line+' · Col '+col;
+}
 for(const id of editorIds){
-  $(id).addEventListener('keydown',event=>{
-    const field=event.currentTarget;
+  const field=$(id);
+  const update=()=>editorPosition(id);
+  for(const type of ['input','click','keyup','select'])field.addEventListener(type,update);
+  field.addEventListener('keydown',event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){
+      event.preventDefault();
+      if(!host&&!pendingUploads)$('form').requestSubmit();
+      return;
+    }
     // Escape then Tab permits keyboard-only navigation out of the editor.
     if(event.key==='Escape'){field.dataset.nextTabLeaves='true';return;}
+    if(event.key==='Enter'&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey){
+      const prefix=field.value.slice(field.value.lastIndexOf('\n',field.selectionStart-1)+1,field.selectionStart);
+      const indent=prefix.match(/^[ \t]*/)?.[0]||'';
+      if(indent){
+        event.preventDefault();
+        field.setRangeText('\n'+indent,field.selectionStart,field.selectionEnd,'end');
+        field.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      return;
+    }
     if(event.key!=='Tab')return;
     if(field.dataset.nextTabLeaves==='true'){
       delete field.dataset.nextTabLeaves;
       return;
     }
-    if(event.shiftKey||event.altKey||event.ctrlKey||event.metaKey)return;
+    if(event.altKey||event.ctrlKey||event.metaKey)return;
     event.preventDefault();
-    field.setRangeText('  ',field.selectionStart,field.selectionEnd,'end');
+    const start=field.selectionStart,end=field.selectionEnd;
+    const lineStart=field.value.lastIndexOf('\n',start-1)+1;
+    const segment=field.value.slice(lineStart,end);
+    const multiline=field.value.slice(start,end).includes('\n');
+    if(event.shiftKey){
+      const unindented=segment.replace(/^(?: {1,2}|\t)/gm,'');
+      if(unindented===segment)return;
+      field.setRangeText(unindented,lineStart,end,'end');
+      if(multiline)field.setSelectionRange(lineStart,lineStart+unindented.length);
+      else{
+        const caret=Math.max(lineStart,start-(segment.length-unindented.length));
+        field.setSelectionRange(caret,caret);
+      }
+    }else if(multiline){
+      const indented=segment.replace(/^/gm,'  ');
+      field.setRangeText(indented,lineStart,end,'end');
+      field.setSelectionRange(lineStart,lineStart+indented.length);
+    }else field.setRangeText('  ',start,end,'end');
     field.dispatchEvent(new Event('input',{bubbles:true}));
   });
-  $(id).addEventListener('blur',event=>delete event.currentTarget.dataset.nextTabLeaves);
+  field.addEventListener('blur',event=>delete event.currentTarget.dataset.nextTabLeaves);
+  update();
 }
 function validateRequest(){
   clearValidation();
@@ -110,6 +155,7 @@ function loadExample(example){
   clearResult();
   $('left').value=example.circuit1;
   $('right').value=example.circuit2;
+  editorIds.forEach(editorPosition);
   $('mode').value=example.mode;
   $('strategy').value=example.strategy;
   $('epsilon').value=String(example.distance_tolerance);
@@ -175,6 +221,7 @@ $('swapCircuits').addEventListener('click',()=>{
   const left=$('left').value;
   $('left').value=$('right').value;
   $('right').value=left;
+  editorIds.forEach(editorPosition);
   clearValidation();
   clearResult();
   $('exampleDescription').textContent='Circuit order changed. Select an example to restore its original orientation.';
@@ -195,6 +242,7 @@ for(const side of editorIds){
     busy(false);
     try{
       $(side).value=await file.text();
+      editorPosition(side);
       clearResult();
       state('Loaded Circuit '+(side==='left'?'A':'B')+' from a local file.','ready');
     }catch(e){
@@ -206,6 +254,40 @@ for(const side of editorIds){
     }
   });
 }
+// Import only data from user-selected local JSON. A prior report's claimed
+// verdict, timings and distance are discarded; a fresh Worker run is required.
+$('caseFile').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];
+  if(!file)return;
+  if(host||pendingUploads){event.target.value='';return;}
+  if(!/\.json$/i.test(file.name)||file.size>MAX_CASE_BYTES){
+    invalid(null,'Import a .json case or report no larger than 768 KiB.');
+    event.target.value='';
+    return;
+  }
+  pendingUploads++;
+  busy(false);
+  try{
+    const {request,kind}=importCase(await file.text());
+    clearValidation();
+    clearResult();
+    $('left').value=request.circuit1;
+    $('right').value=request.circuit2;
+    $('mode').value=request.mode;
+    $('strategy').value=request.strategy;
+    $('epsilon').value=String(request.distance_tolerance);
+    $('rr').value=String(request.rr_tolerance);
+    editorIds.forEach(editorPosition);
+    $('exampleDescription').textContent='Imported '+kind+' inputs. The imported result is not trusted.';
+    state('Imported '+kind+' inputs and settings. Run comparison to verify locally.','ready');
+  }catch(e){
+    invalid(null,'Cannot import comparison: '+String(e.message||e));
+  }finally{
+    pendingUploads--;
+    busy(false);
+    event.target.value='';
+  }
+});
 $('stop').addEventListener('click',()=>host?.cancel());
 $('form').addEventListener('submit',async event=>{
   event.preventDefault();
@@ -272,12 +354,21 @@ $('form').addEventListener('submit',async event=>{
     busy(false);
   }
 });
-$('download').addEventListener('click',()=>{
-  if(!last)return;
-  const url=URL.createObjectURL(new Blob([JSON.stringify(last,null,2)],{type:'application/json'}));
+function downloadJSON(data,name){
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)+'\n'],{type:'application/json'}));
   const a=document.createElement('a');
   a.href=url;
-  a.download='quprs-browser-report.json';
+  a.download=name;
   a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$('exportCase').addEventListener('click',()=>{
+  if(host||pendingUploads)return;
+  const request=validateRequest();
+  if(!request)return;
+  try{downloadJSON(exportCase(request),'quprs-browser-case.json');}
+  catch(e){invalid(null,'Cannot export comparison: '+String(e.message||e));}
+});
+$('download').addEventListener('click',()=>{
+  if(last)downloadJSON(last,'quprs-browser-report.json');
 });

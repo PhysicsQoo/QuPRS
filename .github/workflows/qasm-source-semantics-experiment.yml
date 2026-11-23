@@ -19,6 +19,7 @@ on:
       - rust/research/p8c1_two_copy_count_dag.rs
       - rust/research/p8c1_f8c1_chain.rs
       - rust/research/p8c1_f8c1_symbolic.rs
+      - rust/research/lean/**
       - rust/research/p8c1_f8g1_property.rs
       - rust/research/p8c1_count_to_gram.rs
       - rust/quprs/tests/qasm_independent_source_kernel_experiment.rs
@@ -78,7 +79,7 @@ jobs:
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/research/p8c1_two_copy_structural.rs \
-            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8c1_symbolic.rs rust/research/p8c1_f8g1_property.rs rust/research/p8c1_count_to_gram.rs \
+            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8c1_symbolic.rs rust/research/p8c1_f8g1_property.rs rust/research/lean/PathSumLocal.lean rust/research/lean/lean-toolchain rust/research/p8c1_count_to_gram.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -603,9 +604,9 @@ jobs:
 
 
   standalone-no-native-prerequisites:
-    name: Standalone P8C1 verifier without QuPRS/Cargo/native libraries
+    name: Standalone P8C1 + Lean proof kernels (without QuPRS/Cargo/native libs)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@v4
@@ -614,6 +615,20 @@ jobs:
           submodules: false
       - name: Install stable Rust only
         uses: dtolnay/rust-toolchain@stable
+      - name: Kernel-check pinned Lean 4 local algebraic lemmas
+        run: |
+          set -euo pipefail
+          # Isolated research toolchain: no Lake or Mathlib and no changes
+          # to the Rust/Python production dependency graph.
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error             https://elan.lean-lang.org/elan-init.sh -o /tmp/qasm-elan-init.sh
+          sh /tmp/qasm-elan-init.sh -y --default-toolchain none
+          export PATH="$HOME/.elan/bin:$PATH"
+          cd rust/research/lean
+          test "$(cat lean-toolchain)" = "leanprover/lean4:v4.36.0"
+          lean --version
+          lean PathSumLocal.lean 2>&1 | tee /tmp/qasm-lean-local-proof.log
+          echo 'LEAN4_LOCAL_KERNEL_PROOFS_PASS pinned_toolchain=4.36.0 no_mathlib=true'
+
       - name: Build and test std-only independent verifier
         run: |
           set -euo pipefail

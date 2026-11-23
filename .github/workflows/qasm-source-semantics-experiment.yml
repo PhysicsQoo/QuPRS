@@ -642,8 +642,8 @@ jobs:
             exit 1
           fi
           anf_report_count="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-canonical-anf.log)"
-          test "$anf_report_count" -eq 6
-          echo 'LEAN4_CANONICAL_ANF_PROOFS_PASS theorem_axiom_reports=6'
+          test "$anf_report_count" -eq 12
+          echo 'LEAN4_CANONICAL_ANF_PROOFS_PASS theorem_axiom_reports=12'
 
       - name: Build and test std-only independent verifier
         run: |

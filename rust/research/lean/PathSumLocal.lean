@@ -15,6 +15,7 @@ Important trust boundary:
 import Init
 
 set_option autoImplicit false
+set_option warningAsError true
 
 namespace QuPRS.P0
 
@@ -205,5 +206,20 @@ theorem ordered_dag_unique_extension
             subst z'
             have htail : zs' = zs := unique zs' tail
             simp [htail]
+
+/- The printed dependency report is checked by CI. There must be
+   no sorryAx, compiler-trust shortcut or custom axioms in these proofs. -/
+#print axioms ripple8_correct
+#print axioms negate8_correct
+#print axioms phase_difference_correct
+#print axioms hPhase_correct
+#print axioms hStep_correct
+#print axioms xor_phase_lift
+#print axioms boolean_ring_and_idempotent
+#print axioms boolean_ring_xor_cancel
+#print axioms boolean_ring_or
+#print axioms gate_cnf_iff
+#print axioms gate_unique_extension
+#print axioms ordered_dag_unique_extension
 
 end QuPRS.P0

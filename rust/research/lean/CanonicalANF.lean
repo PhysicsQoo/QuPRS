@@ -226,6 +226,156 @@ theorem masked_coefficients_unique
   have heq := congrArg (fun t => coefficient n t mask) equalTrees
   simpa [hc, hd] using heq
 
+
+/- Multilinear GF(2) operator semantics. These constructions match
+   the Rust set-of-squarefree-monomials operations mathematically:
+   addition is coefficient parity and multiplication replaces a product
+   of overlapping variable masks with their union, using x*x=x.
+   The compiler/word-level Rust refinement remains a separate task. -/
+
+/-- Coefficient parity (symmetric difference of ANF monomials). -/
+def anfAdd : (n : Nat) → CanonicalANF n →
+    CanonicalANF n → CanonicalANF n
+  | 0, .scalar a, .scalar b => .scalar (a.xor b)
+  | n + 1, .split a0 a1, .split b0 b1 =>
+      .split (anfAdd n a0 b0) (anfAdd n a1 b1)
+
+/-- Square-free polynomial multiplication.
+    (a0+x*a1)(b0+x*b1)
+    = a0*b0 + x*(a0*b1 + a1*b0 + a1*b1) over the Boolean ring. -/
+def anfMultiply : (n : Nat) → CanonicalANF n →
+    CanonicalANF n → CanonicalANF n
+  | 0, .scalar a, .scalar b => .scalar (a && b)
+  | n + 1, .split a0 a1, .split b0 b1 =>
+      .split
+        (anfMultiply n a0 b0)
+        (anfAdd n
+          (anfAdd n
+            (anfMultiply n a0 b1)
+            (anfMultiply n a1 b0))
+          (anfMultiply n a1 b1))
+
+/-- ANF coefficient XOR is extensionally Boolean XOR for all n. -/
+theorem anfAdd_eval_correct :
+    ∀ (n : Nat) (a b : CanonicalANF n) (v : BoolVector n),
+      evalANF n (anfAdd n a b) v =
+        (evalANF n a v).xor (evalANF n b v) := by
+  intro n
+  induction n with
+  | zero =>
+      intro a b v
+      cases a
+      cases b
+      cases v
+      rfl
+  | succ n ih =>
+      intro a b v
+      cases a with
+      | split a0 a1 =>
+        cases b with
+        | split b0 b1 =>
+          rcases v with ⟨x, xs⟩
+          cases x with
+          | false =>
+              simpa [anfAdd, evalANF] using ih a0 b0 xs
+          | true =>
+              change
+                (evalANF n (anfAdd n a0 b0) xs).xor
+                  (evalANF n (anfAdd n a1 b1) xs) =
+                ((evalANF n a0 xs).xor (evalANF n a1 xs)).xor
+                  ((evalANF n b0 xs).xor (evalANF n b1 xs))
+              rw [ih a0 b0 xs, ih a1 b1 xs]
+              cases h0 : evalANF n a0 xs <;>
+                cases h1 : evalANF n a1 xs <;>
+                cases h2 : evalANF n b0 xs <;>
+                cases h3 : evalANF n b1 xs <;>
+                simp [h0, h1, h2, h3]
+
+/-- ANF product with x*x=x is extensionally Boolean AND for all n. -/
+theorem anfMultiply_eval_correct :
+    ∀ (n : Nat) (a b : CanonicalANF n) (v : BoolVector n),
+      evalANF n (anfMultiply n a b) v =
+        ((evalANF n a v) && (evalANF n b v)) := by
+  intro n
+  induction n with
+  | zero =>
+      intro a b v
+      cases a
+      cases b
+      cases v
+      rfl
+  | succ n ih =>
+      intro a b v
+      cases a with
+      | split a0 a1 =>
+        cases b with
+        | split b0 b1 =>
+          rcases v with ⟨x, xs⟩
+          cases x with
+          | false =>
+              simpa [anfMultiply, evalANF] using ih a0 b0 xs
+          | true =>
+              change
+                (evalANF n (anfMultiply n a0 b0) xs).xor
+                  (evalANF n (anfAdd n
+                    (anfAdd n (anfMultiply n a0 b1)
+                      (anfMultiply n a1 b0))
+                    (anfMultiply n a1 b1)) xs) =
+                ((evalANF n a0 xs).xor (evalANF n a1 xs)) &&
+                  ((evalANF n b0 xs).xor (evalANF n b1 xs))
+              rw [ih a0 b0 xs,
+                  anfAdd_eval_correct n _ _ xs,
+                  anfAdd_eval_correct n _ _ xs,
+                  ih a0 b1 xs, ih a1 b0 xs, ih a1 b1 xs]
+              cases h0 : evalANF n a0 xs <;>
+                cases h1 : evalANF n a1 xs <;>
+                cases h2 : evalANF n b0 xs <;>
+                cases h3 : evalANF n b1 xs <;>
+                simp [h0, h1, h2, h3]
+
+/-- No non-square-free monomials survive canonical multiplication.
+    In particular, f*f=f holds as a *coefficient identity*, not merely
+    as a list of examples or pointwise Boolean tests. -/
+theorem anfMultiply_idempotent (n : Nat) (a : CanonicalANF n) :
+    anfMultiply n a a = a := by
+  apply canonical_anf_unique n
+  intro v
+  rw [anfMultiply_eval_correct]
+  cases h : evalANF n a v <;> simp [h]
+
+/-- Multilinear polynomial addition cancels duplicate coefficient masks. -/
+theorem anfAdd_self_zero_eval (n : Nat) (a : CanonicalANF n)
+    (v : BoolVector n) :
+    evalANF n (anfAdd n a a) v = false := by
+  rw [anfAdd_eval_correct]
+  cases h : evalANF n a v <;> simp [h]
+
+/-- The ANF coefficient-by-monomial-mask model refines Boolean XOR. -/
+theorem masked_anf_add_eval_correct
+    (n : Nat) (a b : CanonicalANF n) (v : BoolVector n) :
+    evalCoefficients n (coefficient n (anfAdd n a b)) v =
+      (evalCoefficients n (coefficient n a) v).xor
+        (evalCoefficients n (coefficient n b) v) := by
+  rw [coefficient_eval_correct, coefficient_eval_correct,
+    coefficient_eval_correct, anfAdd_eval_correct]
+
+/-- The ANF coefficient-by-monomial-mask model refines Boolean AND
+    (the Rust monomial-bitwise-OR cross-product interpretation). -/
+theorem masked_anf_multiply_eval_correct
+    (n : Nat) (a b : CanonicalANF n) (v : BoolVector n) :
+    evalCoefficients n (coefficient n (anfMultiply n a b)) v =
+      ((evalCoefficients n (coefficient n a) v) &&
+       (evalCoefficients n (coefficient n b) v)) := by
+  rw [coefficient_eval_correct, coefficient_eval_correct,
+    coefficient_eval_correct, anfMultiply_eval_correct]
+
+#print axioms anfAdd_eval_correct
+#print axioms anfMultiply_eval_correct
+#print axioms anfMultiply_idempotent
+#print axioms anfAdd_self_zero_eval
+#print axioms masked_anf_add_eval_correct
+#print axioms masked_anf_multiply_eval_correct
+
 #print axioms coefficient_roundtrip
 #print axioms masked_coefficients_unique
 

@@ -1124,14 +1124,14 @@ theorem qexpr_canonical_table (n : Nat) (p : QExpr) (h : qBound n p) :
               refine ⟨0, fun i => if i = j then k else 0, fun _ _ => 0, ?_⟩
               intro x
               rw [quad_table_linear_basis n j k x hb]
-              simp [evalQ, atomVal, bit]
+              cases x j <;> simp [evalQ, atomVal, bit]
       | wire i =>
           cases b with
           | one =>
               refine ⟨0, fun j => if j = i then k else 0, fun _ _ => 0, ?_⟩
               intro x
               rw [quad_table_linear_basis n i k x ha]
-              simp [evalQ, atomVal, bit]
+              cases x i <;> simp [evalQ, atomVal, bit]
           | wire j =>
               by_cases he : i = j
               · subst j

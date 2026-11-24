@@ -407,6 +407,219 @@ def scan_paper_archive(tmp,known):
     return receipt
 
 
+
+# R28A: research-only gate-local paired path encoding and natural-weight
+# phase histogram. No change to QuPRS's native admission or phase IR.
+class WidePairCNF:
+    def __init__(self):
+        self.n=1
+        self.clauses=[(1,)]
+        self.cache={}
+    def fresh(self):
+        self.n+=1
+        return self.n
+    def enforce(self,l):
+        self.clauses.append((l,))
+    def eq(self,a,b):
+        if a!=b:self.clauses.extend(((-a,b),(a,-b)))
+    def and_(self,a,b):
+        if a==1:return b
+        if b==1:return a
+        if a==-1 or b==-1 or a==-b:return -1
+        if a==b:return a
+        key=("and",*sorted((a,b)))
+        if key not in self.cache:
+            c=self.fresh()
+            self.clauses.extend(((-c,a),(-c,b),(c,-a,-b)))
+            self.cache[key]=c
+        return self.cache[key]
+    def xor(self,a,b):
+        if a==b:return -1
+        if a==-b:return 1
+        if a==1:return -b
+        if b==1:return -a
+        if a==-1:return b
+        if b==-1:return a
+        key=("xor",*sorted((a,b)))
+        if key not in self.cache:
+            c=self.fresh()
+            self.clauses.extend(((-a,-b,-c),(a,b,-c),(-a,b,c),(a,-b,c)))
+            self.cache[key]=c
+        return self.cache[key]
+    def or_(self,a,b):
+        return -self.and_(-a,-b)
+    def add(self,a,b):
+        carry=-1;out=[]
+        for x,y in zip(a,b):
+            z=self.xor(x,y)
+            out.append(self.xor(z,carry))
+            carry=self.or_(self.and_(x,y),self.and_(z,carry))
+        return out
+
+
+WIDE_ANGLES={"-3*pi/2":-24,"pi/8":2,"pi/16":1,"-pi/16":-1,"-pi/8":-2,
+             "pi/4":4,"pi/2":8,"-pi/4":-4,"-pi/2":-8}
+
+
+def gate_local_pair(n,ops,pre,post,m):
+    """Cube pre/post only, shared input, full output equality.
+    RX/H choices are independent Boolean summation variables. All
+    other variables, including phase bits, are unique extensions.
+    Phase coefficient unit is pi/(2^(m-1)). Global Rz phases cancel."""
+    M=1<<m
+    assert 3<=m<=6 and n<=16
+    assert all(0<=i<n and b in (0,1) for pred in (pre,post) for i,b in pred.items())
+    c=WidePairCNF()
+    inputs=[(1 if pre[i] else -1) if i in pre else c.fresh() for i in range(n)]
+    primary=n-len(pre)
+    left=inputs[:];right=inputs[:]
+    phase={};constant=0
+    def term(l,k):
+        nonlocal constant
+        if l==1:constant=(constant+k)%M;return
+        if l==-1:return
+        if l<0:constant=(constant+k)%M;l=-l;k=-k
+        phase[l]=(phase.get(l,0)+k)%M
+    def angle_k(angle):
+        # Scale integer pi/16 coefficient exactly; reject non-integral.
+        v=WIDE_ANGLES[angle]*M
+        if v%32:raise ValueError("angle outside exact phase modulus")
+        return v//32
+    for op,a,qs in ops:
+        for wires,sign in ((left,1),(right,-1)):
+            i=qs[0];old=wires[i]
+            if op in ("rx","h"):
+                if op=="rx" and a!="pi/2":raise ValueError("unsupported rx")
+                new=c.fresh();primary+=1
+                l=c.xor(old,new) if op=="rx" else c.and_(old,new)
+                term(l,sign*(-M//4 if op=="rx" else M//2))
+                wires[i]=new
+            elif op=="x":wires[i]=-old
+            elif op=="cx":wires[qs[1]]=c.xor(old,wires[qs[1]])
+            elif op in ("s","t","tdg","rz"):
+                k=angle_k(a) if op=="rz" else {"s":M//4,"t":M//8,"tdg":-M//8}[op]
+                term(old,sign*k)
+            else:raise ValueError("unsupported gate "+op)
+    for a,b in zip(left,right):c.eq(a,b)
+    ok=1
+    for i,b in post.items():ok=c.and_(ok,left[i] if b else -left[i])
+    c.enforce(-ok)
+    # Balanced tree of modular sums. Merge identical literal terms first.
+    parts=[[1 if constant>>i&1 else -1 for i in range(m)]]
+    parts.extend([l if k>>i&1 else -1 for i in range(m)] for l,k in sorted(phase.items()) if k)
+    terms=len(parts)-1
+    while len(parts)>1:
+        parts=[c.add(parts[i],parts[i+1]) if i+1<len(parts) else parts[i] for i in range(0,len(parts),2)]
+    # Fresh positive, distinct phase-bit IDs even for constant/aliased bits.
+    bits=[c.fresh() for _ in range(m)]
+    for a,b in zip(bits,parts[0]):c.eq(a,b)
+    return c,bits,primary,terms
+
+
+def unpack_histogram(value,radix,M,max_models):
+    if value<0 or radix<=max_models:raise ValueError("invalid radix")
+    hist=[]
+    for _ in range(M):
+        value,digit=divmod(value,radix);hist.append(digit)
+    if value or sum(hist)>max_models:raise ValueError("histogram bound")
+    return hist
+
+
+def wide_count(gpmc,tmp,c,bits,primary,seconds):
+    from hoare_ganak_exact import parse_gpmc_integer,profile_gpmc,SolverSignalKilled
+    M=1<<len(bits);max_models=1<<primary;radix=max_models*2
+    # The bound uses true independent choices, not Tseitin variable count.
+    # Positive natural weights, no floating-point or negative coefficients.
+    weights="".join(f"c p weight {l} {radix**(1<<i)} 0\nc p weight {-l} 1 0\n" for i,l in enumerate(bits))
+    data=f"c t wmc\np cnf {c.n} {len(c.clauses)}\n"+weights+"".join(" ".join(map(str,cl))+" 0\n" for cl in c.clauses)
+    path=tmp/"wide-pair.cnf";path.write_text(data)
+    metrics=[];start=time.monotonic()
+    row=dict(primary=primary,vars=c.n,clauses=len(c.clauses),modulus=M,
+             radix_bits=primary+2,max_weight_bits=(radix**(M//2)).bit_length(),
+             cnf_sha256=hashlib.sha256(data.encode()).hexdigest(),status="UNKNOWN",coeff=None,hist=None)
+    try:
+        stdout=profile_gpmc([str(gpmc),"-mode=1","-natw",str(path)],seconds,tmp/"wide-resource.tsv",metrics)
+        packed=parse_gpmc_integer(stdout,"wmc",radix**M-1)
+        hist=unpack_histogram(packed,radix,M,max_models)
+        d=M//2;coeff=[hist[j]-hist[j+d] for j in range(d)]
+        row.update(status="EXACT_HISTOGRAM",hist=hist,coeff=coeff)
+    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+    except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+    row.update(root_s=time.monotonic()-start,queries=metrics)
+    return row
+
+
+def enumerate_hist(n,ops,pre,post,m):
+    """Small independent path enumeration, not CNF evaluation."""
+    M=1<<m;hist=[0]*M
+    for x in range(1<<n):
+        if not all(x>>i&1==b for i,b in pre.items()):continue
+        paths=[(x,0)]
+        for op,a,qs in ops:
+            i=qs[0];b=1<<i;nxt=[]
+            for z,p in paths:
+                old=int(bool(z&b))
+                if op in ("h","rx"):
+                    for new in (0,1):
+                        delta=(M//2)*old*new if op=="h" else (-M//4)*(old^new)
+                        nxt.append(((z&~b)|(new<<i),(p+delta)%M))
+                elif op=="x":nxt.append((z^b,p))
+                elif op=="cx":nxt.append((z^((1<<qs[1]) if old else 0),p))
+                else:
+                    k={"s":M//4,"t":M//8,"tdg":-M//8}.get(op)
+                    if op=="rz":k=WIDE_ANGLES[a]*M//32
+                    assert k is not None
+                    nxt.append((z,(p+k*old)%M))
+            paths=nxt
+        for z,p in paths:
+            if all(z>>i&1==b for i,b in post.items()):continue
+            for zz,q in paths:
+                if zz==z:hist[(p-q)%M]+=1
+    return hist
+
+
+def wide_contract(gpmc,tmp):
+    cases=[
+        ("hh",1,[("h",None,[0]),("h",None,[0])],{0:0},{0:0}),
+        ("hth",1,[("h",None,[0]),("t",None,[0]),("h",None,[0])],{0:0},{0:0}),
+        ("rx-rz",1,[("rx","pi/2",[0]),("rz","pi/16",[0]),("rx","pi/2",[0])],{0:0},{0:0}),
+        ("free-cx",2,[("h",None,[0]),("cx",None,[0,1]),("rz","-pi/8",[1]),("h",None,[1])],{},{1:0}),
+        ("free-unused",2,[("x",None,[0])],{},{0:0}),
+        ("empty-post",1,[("h",None,[0])],{},{}),
+    ]
+    checks=0
+    for m in (3,4,5,6):
+        for name,n,ops,p,q in cases:
+            try:c,bits,primary,terms=gate_local_pair(n,ops,p,q,m)
+            except ValueError:
+                assert name=="rx-rz" and m<5 or name=="free-cx" and m<4
+                continue
+            expected=enumerate_hist(n,ops,p,q,m)
+            row=wide_count(gpmc,tmp,c,bits,primary,10)
+            assert row["hist"]==expected,(name,m,row,expected)
+            checks+=1
+    print("HOARE_WIDE_CONTRACT "+json.dumps(dict(checks=checks,exact_histograms=True)),flush=True)
+
+
+def wide_paper_pilot(gpmc,tmp,data,name,blob):
+    n,_,ops=paper_parse(data)
+    m=5 if name=="noancilla" else 3
+    t=time.monotonic()
+    c,bits,primary,terms=gate_local_pair(n,ops,{4:0},{4:0},m)
+    prep=time.monotonic()-t
+    row=wide_count(gpmc,tmp,c,bits,primary,60)
+    h=sum(op=="rx" for op,_,_ in ops)
+    expected=[((4<<h) if name=="noancilla" else 0)]+[0]*((1<<(m-1))-1)
+    if row["coeff"] is not None:
+        assert row["coeff"]==expected,(name,row["coeff"],expected)
+    row.update(case=name,source_blob=blob,h=h,phase_terms=terms,encoding_s=prep,
+               expected_coeff=expected,verdict=("REFUTED" if any(expected) else "PROVED") if row["coeff"] is not None else "UNKNOWN")
+    # Full histogram can contain hundreds of large integers in future.
+    row.pop("hist")
+    print("HOARE_WIDE_PAPER "+json.dumps(row),flush=True)
+
+
+
 def paper_compare(gpmc):
     import quokka_sharp as qs
     from quokka_sharp import config
@@ -415,6 +628,7 @@ def paper_compare(gpmc):
     known={}
     with tempfile.TemporaryDirectory(prefix="hoare-paper-") as tmp:
         tmp=pathlib.Path(tmp)
+        wide_contract(gpmc,tmp)
         for name,file,blob,gates,bad_count in PAPER_FILES:
             path=tmp/file
             url=f"https://raw.githubusercontent.com/{PAPER_REPO}/{PAPER_HEAD}/benchmark/algorithm/origin/{file}"
@@ -426,6 +640,7 @@ def paper_compare(gpmc):
             assert oracle["gates"]==gates and len(oracle["bad_inputs"])==bad_count
             print("HOARE_PAPER_SOURCE "+json.dumps(dict(case=name,head=PAPER_HEAD,blob=blob,
                   sha256=hashlib.sha256(data).hexdigest(),oracle_s=time.monotonic()-t,**oracle)),flush=True)
+            wide_paper_pilot(gpmc,tmp,data,name,blob)
             for comp in (True,False):
                 row=dict(case=name,basis="comp" if comp else "pauli",source_blob=blob,expected=oracle["verdict"])
                 try:
@@ -442,7 +657,7 @@ def paper_compare(gpmc):
                 except Exception as e:
                     row.update(status="UNKNOWN_API_ERROR",error=type(e).__name__,detail=str(e)[-400:])
                 print("HOARE_PAPER_QUOKKA "+json.dumps(row),flush=True)
-        receipt=scan_paper_archive(tmp,known)
+        receipt=scan_paper_archive(tmp,known) if os.environ.get("HOARE_RETRY_PAPER_ARCHIVE")=="1" else dict(status="DEFERRED_AFTER_TIMEOUT",doi="10.5281/zenodo.19833587")
         # Keep machine-readable provenance; no untrusted archive execution.
         print("HOARE_PAPER_ARCHIVE "+json.dumps(receipt),flush=True)
 

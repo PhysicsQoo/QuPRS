@@ -189,6 +189,46 @@ def main():
                 print("HOARE_GANAK_EXACT " + json.dumps(row), flush=True)
         assert len(records) == 14 and len(direct) == 7
         print(f"HOARE_GANAK_PASS variants={len(records)} calls={calls} solver_wall_s={solver_seconds:.6f} modes=0,1 prob=0 symmetry=true signed=true")
+        # Scale pilot uses analytic raw coefficients, independently checked
+        # at small sizes in Rust. Same external solver; no DPLL expansion.
+        # Root-only two/four query comparison; negative known input is
+        # reconfirmed, not claimed to be a newly extracted witness.
+        scaled = []
+        with (directory / "scaled.tsv").open() as fh:
+            for name, route, n, h, scale, delta, expected, witness, vars_, clauses, encoding_us, status in csv.reader(fh, delimiter="\t"):
+                n,h,scale,vars_,clauses,encoding_us = map(int,(n,h,scale,vars_,clauses,encoding_us))
+                delta = list(map(int,delta.split(",")))
+                expected = tuple(map(int,expected.split(",")))
+                row = dict(case=name,route=route,n=n,h=h,vars=vars_,clauses=clauses,
+                           encoding_us=encoding_us,expected_raw=expected,known_witness=witness,
+                           status=status,two_status="NOT_RUN",four_status="NOT_RUN",witness_status="NOT_REQUIRED" if witness=="-" else "NOT_RUN")
+                if status=="READY":
+                    base=(directory/f"scale-{name}-{route}.cnf").read_text()
+                    for method,fn in [("two",two_weighted),("four",four_counts)]:
+                        start=time.monotonic()
+                        try:
+                            coeff=fn(base,delta)
+                            assert tuple(v*2**scale for v in coeff)==expected,(name,route,method,coeff,expected)
+                            row[method+"_status"]="PASS"
+                            row[method+"_coeff"]=coeff
+                        except (subprocess.TimeoutExpired,TimeoutError):
+                            row[method+"_status"]="UNKNOWN_TIMEOUT"
+                        row[method+"_root_s"]=round(time.monotonic()-start,6)
+                    if witness!="-" and row["two_status"]=="PASS":
+                        x=int(witness)
+                        prefix=[i+2 if x>>i&1 else -(i+2) for i in range(n)]
+                        try:
+                            assert any(two_weighted(base,delta,prefix))
+                            row["witness_status"]="PASS"
+                        except (subprocess.TimeoutExpired,TimeoutError):
+                            row["witness_status"]="UNKNOWN_TIMEOUT"
+                    row["status"]="PASS" if row["two_status"]==row["four_status"]=="PASS" and row["witness_status"] in ("PASS","NOT_REQUIRED") else "UNKNOWN_RESOURCE"
+                scaled.append(row)
+                print("HOARE_GANAK_SCALE "+json.dumps(row),flush=True)
+        assert len(scaled)==32
+        ok=sum(r["status"]=="PASS" for r in scaled)
+        print(f"HOARE_GANAK_SCALE_SUMMARY variants={len(scaled)} pass={ok} unknown={len(scaled)-ok} calls={calls} solver_wall_s={solver_seconds:.6f}")
+
 
 if __name__ == "__main__":
     main()

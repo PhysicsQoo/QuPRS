@@ -620,15 +620,19 @@ mod exact_property_cnf {
         c
     }
     fn two_copy(s:&Symbolic,p:&Anf,q:&Anf)->(Cnf,[Lit;3]){
+        two_copy_conj(s,std::slice::from_ref(p),std::slice::from_ref(q))
+    }
+    // Conjunction of small ANFs, without expanding products into a single ANF.
+    fn two_copy_conj(s:&Symbolic,p:&[Anf],q:&[Anf])->(Cnf,[Lit;3]){
         let mut c=Cnf::new(s.n+2*s.h);
         let left:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
         let right:Vec<_>=(0..s.n).map(|i|i as Lit+2)
             .chain((s.n+s.h..s.n+2*s.h).map(|i|i as Lit+2)).collect();
-        let pre=c.anf(p,&left[..s.n]);c.enforce(pre);
+        for condition in p{let pre=c.anf(condition,&left[..s.n]);c.enforce(pre);}
         let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&left)).collect();
         let w:Vec<_>=s.output.iter().map(|o|c.anf(o,&right)).collect();
         for (&a,&b) in z.iter().zip(&w){let d=c.xor(a,b);c.enforce(-d);}
-        let post=c.anf(q,&z);c.enforce(-post);
+        let post=q.iter().fold(ONE,|acc,condition|{let l=c.anf(condition,&z);c.and(acc,l)});c.enforce(-post);
         let a=c.phase(s,&left,false);
         let b=c.phase(s,&right,true);
         let delta=c.add3(a,b);
@@ -987,7 +991,7 @@ mod exact_property_cnf {
             ("omega",1,vec![G::H(0),G::S(0),G::H(0)],zero_pred.clone(),zero_pred.clone()),
             ("HTH",1,vec![G::H(0),G::T(0),G::H(0)],zero_pred.clone(),zero_pred.clone()),
             ("BV",3,vec![G::X(2),G::H(0),G::H(1),G::H(2),G::CX(0,2),G::H(0),G::H(1)],init3.clone(),Anf::from([1,3])),
-            ("GHZ",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3.clone(),Anf::from([0,1,2,4,5,6])),
+            ("GHZ",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3.clone(),Anf::from([0,1,2,3,4,5,6])),
             ("GHZ-negative",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3,zero_pred.clone()),
             ("free-input-negative",2,vec![G::CX(0,1)],all,Anf::from([0,2])),
         ];
@@ -996,6 +1000,7 @@ mod exact_property_cnf {
             let direct=native(n,&ops).unwrap();
             let (reduced,stats)=reduced_native(n,&ops).unwrap();
             let witnesses:Vec<_>=(0..1u64<<n).filter(|&x|violated(n,&ops,&p,&q,x)).map(|x|x.to_string()).collect();
+            assert_eq!(witnesses.is_empty(),matches!(name,"HH"|"BV"|"GHZ"),"fixture property intent: {name}");
             let witness_list=if witnesses.is_empty(){"-".to_owned()}else{witnesses.join(",")};
             for (route,s,scale) in [("direct",&direct,0),("rr",&reduced,stats.scale2)]{
                 let (c,d)=two_copy(s,&p,&q);
@@ -1010,6 +1015,147 @@ mod exact_property_cnf {
         }
         std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
         println!("HOARE_EXTERNAL_FIXTURES cases=7 variants=14");
+        export_scaled(&dir);
+    }
+
+
+    fn bit(i:usize,value:bool)->Anf {
+        if value{Anf::from([1u64<<i])}else{Anf::from([0,1u64<<i])}
+    }
+    fn equal_bits(i:usize,j:usize)->Anf{Anf::from([0,1u64<<i,1u64<<j])}
+    fn eval_conj(p:&[Anf],x:u64)->bool{p.iter().all(|f|eval(f,x))}
+    struct ScaleCase{
+        name:String,n:usize,ops:Vec<G>,p:Vec<Anf>,q:Vec<Anf>,
+        expected:[i128;2],known_witness:Option<u64>,
+    }
+    fn scaled_cases()->Vec<ScaleCase>{
+        let mut cases=Vec::new();
+        for n in [8usize,16]{
+            let mut ops=vec![G::H(0)];
+            ops.extend((1..n).map(|i|G::CX(0,i)));
+            let p=(0..n).map(|i|bit(i,false)).collect::<Vec<_>>();
+            let q=(1..n).map(|i|equal_bits(0,i)).collect::<Vec<_>>();
+            cases.push(ScaleCase{name:format!("GHZ{n}-correlation"),n,ops:ops.clone(),p:p.clone(),q,expected:[0,0],known_witness:None});
+            cases.push(ScaleCase{name:format!("GHZ{n}-negative"),n,ops,p,q:vec![bit(0,false)],expected:[1,0],known_witness:Some(0)});
+        }
+        for k in [4usize,8]{
+            let n=k+1;
+            let secret=(0..k).map(|i|i%2==0).collect::<Vec<_>>();
+            let mut ops=vec![G::X(k)];
+            ops.extend((0..n).map(G::H));
+            ops.extend((0..k).filter(|&i|secret[i]).map(|i|G::CX(i,k)));
+            ops.extend((0..k).map(G::H));
+            let p=(0..n).map(|i|bit(i,false)).collect::<Vec<_>>();
+            let q=(0..k).map(|i|bit(i,secret[i])).collect::<Vec<_>>();
+            let mut bad=q.clone();bad[0]=bit(0,!secret[0]);
+            cases.push(ScaleCase{name:format!("BV{k}-correct"),n,ops:ops.clone(),p:p.clone(),q,expected:[0,0],known_witness:None});
+            cases.push(ScaleCase{name:format!("BV{k}-negative"),n,ops,p,q:bad,expected:[1i128<<(2*k+1),0],known_witness:Some(0)});
+        }
+        for k in [2usize,4,5]{
+            // Controlled-S on each parity/ancilla pair, implemented using
+            // T(c) T(a) CX(c,a) Tdg(a) CX(c,a) between two H(a).
+            // c = x_i xor x_(i+k), computed/uncomputed reversibly.
+            let n=3*k;
+            let mut ops=Vec::new();
+            for i in 0..k{
+                let c=i;let a=2*k+i;
+                ops.extend([G::CX(i+k,c),G::H(a),G::T(c),G::T(a),G::CX(c,a)]);
+                ops.extend((0..7).map(|_|G::T(a)));
+                ops.extend([G::CX(c,a),G::H(a),G::CX(i+k,c)]);
+            }
+            let p=(2*k..n).map(|i|bit(i,false)).collect::<Vec<_>>();
+            let mut safe=p.clone();safe.extend((0..k).map(|i|equal_bits(i,i+k)));
+            let q=p.clone();
+            // Each parity vector has 2^k input preimages. Survival for
+            // fixed parity s is 2^-wt(s); raw violation over all data
+            // assignments = 2^k * (2^(3k) - 2^k 3^k).
+            let raw=(1i128<<k)*((1i128<<(3*k))-(1i128<<k)*3i128.pow(k as u32));
+            cases.push(ScaleCase{name:format!("CS-parity{k}-safe"),n,ops:ops.clone(),p:safe,q:q.clone(),expected:[0,0],known_witness:None});
+            cases.push(ScaleCase{name:format!("CS-parity{k}-negative"),n,ops,p,q,expected:[raw,0],known_witness:Some(1)});
+        }
+        for k in [4usize,8]{
+            let n=k;
+            let mut ops=Vec::new();
+            for i in 0..k{ops.extend([G::H(i),G::T(i),G::H(i)]);}
+            let p=(0..n).map(|i|bit(i,false)).collect::<Vec<_>>();
+            // Independent HTH survival raw norm = 2+sqrt(2).
+            let (mut a,mut b)=(1i128,0i128);
+            for _ in 0..k{(a,b)=(2*a+2*b,a+2*b);}
+            let expected=[(1i128<<(2*k))-a,-b];
+            cases.push(ScaleCase{name:format!("HTH-product{k}"),n,ops,p:p.clone(),q:p,expected,known_witness:Some(0)});
+        }
+        cases
+    }
+    fn raw_for_input(n:usize,ops:&[G],q:&[Anf],x:u64)->[i128;2]{
+        let mut a=0i128;let mut b=0i128;
+        for (z,v) in dense_state(n,ops,x).into_iter().enumerate(){
+            if eval_conj(q,z as u64){continue;}
+            // |v0+v1*w+v2*i+v3*w^3|² = A+B sqrt(2).
+            let [u,v,w,t]=v.map(i128::from);
+            a+=u*u+v*v+w*w+t*t;
+            b+=u*(v-t)+w*(v+t);
+        }
+        [a,b]
+    }
+    #[test]
+    fn hoare_scaled_property_contracts(){
+        // Named cases must have independent specified validity and
+        // counterexample expectations, not merely solver agreement.
+        for c in scaled_cases(){
+            assert!(c.n<=16&&c.ops.len()<=128);
+            if let Some(x)=c.known_witness{
+                assert!(eval_conj(&c.p,x));
+                assert_ne!(raw_for_input(c.n,&c.ops,&c.q,x),[0,0],"{}",c.name);
+            }else{
+                assert_eq!(c.expected,[0,0]);
+                // Positive universal cases checked by their analytic
+                // family identity; also independently check representative legal inputs.
+                for x in [0u64,1,(1u64<<c.n)-1]{
+                    if eval_conj(&c.p,x){assert_eq!(raw_for_input(c.n,&c.ops,&c.q,x),[0,0],"{}",c.name);}
+                }
+            }
+            // Exhaustive independent gate oracle for small representatives.
+            if c.n<=6{
+                let mut a=[0i128;2];
+                for x in 0..1u64<<c.n{
+                    if eval_conj(&c.p,x){
+                        let v=raw_for_input(c.n,&c.ops,&c.q,x);
+                        a[0]+=v[0];a[1]+=v[1];
+                    }
+                }
+                assert_eq!(a,c.expected,"{}",c.name);
+            }
+        }
+    }
+    fn export_scaled(dir:&std::path::Path){
+        let mut manifest=String::new();
+        for c in scaled_cases(){
+            // A separate bounded admission for the named benchmark family,
+            // not a widening of production or general verifier admission.
+            let h=c.ops.iter().filter(|g|matches!(g,G::H(_))).count();
+            assert!(c.n<=16&&h<=32&&c.n+h<=63&&c.ops.len()<=128);
+            let mut ps=PathSum::new(c.n);ps.set_auto_reduce(false);
+            for g in &c.ops{g.apply(&mut ps,false);}
+            let direct=compact(&ps,c.n).unwrap();
+            assert_eq!(direct.h,h);
+            let (rr,stats)=reduce_existing(ps,c.n).expect("bounded benchmark RR");
+            for (route,s,scale) in [("direct",&direct,0),("rr",&rr,stats.scale2)]{
+                let start=std::time::Instant::now();
+                let (cnf,d)=two_copy_conj(s,&c.p,&c.q);
+                let encoding_us=start.elapsed().as_micros();
+                // Resource limit is a reported outcome, not a pass.
+                let text=dimacs(&cnf,&[]);
+                let status=if let Some(text)=text{
+                    std::fs::write(dir.join(format!("scale-{}-{route}.cnf",c.name)),text).unwrap();
+                    "READY"
+                }else{"UNKNOWN_ENCODING_LIMIT"};
+                let witness=c.known_witness.map(|x|x.to_string()).unwrap_or("-".to_owned());
+                manifest.push_str(&format!("{}\t{route}\t{}\t{}\t{scale}\t{},{},{}\t{},{}\t{witness}\t{}\t{}\t{encoding_us}\t{status}\n",
+                    c.name,c.n,s.h,d[0],d[1],d[2],c.expected[0],c.expected[1],cnf.vars,cnf.clauses.len()));
+            }
+        }
+        std::fs::write(dir.join("scaled.tsv"),manifest).unwrap();
+        println!("HOARE_SCALED_FIXTURES cases=16 variants=32");
     }
 
 }

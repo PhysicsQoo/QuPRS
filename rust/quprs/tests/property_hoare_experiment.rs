@@ -1017,6 +1017,7 @@ mod exact_property_cnf {
         println!("HOARE_EXTERNAL_FIXTURES cases=7 variants=14");
         export_scaled(&dir);
         export_hybrid(&dir);
+        export_rare_wmc(&dir);
     }
 
 
@@ -2735,6 +2736,60 @@ mod exact_property_cnf {
         assert_ne!(r.answer,Answer::Proved);
         assert_eq!(r.sat_queries,0);
         println!("HOARE_ALGEBRAIC_SURVIVOR cases={cases} exact_per_input=true");
+    }
+
+
+    // Rare violations with an analytic exact coefficient and a unique
+    // legal input. No reduction or SAT shortcut in the exported CNF.
+    // For U=(HTH)^tensor k and B=not(all output bits one),
+    // leakage=((2-sqrt(2))/4)^k on |0...0>.
+    fn rare_wmc_cases()->Vec<ScaleCase>{
+        let mut cases=Vec::new();
+        for k in [1usize,4,8,12,16]{
+            let mut ops=Vec::new();
+            for i in 0..k{ops.extend([G::H(i),G::T(i),G::H(i)]);}
+            let p:Vec<_>=(0..k).map(|i|bit(i,false)).collect();
+            let (mut a,mut b)=(1i128,0i128);
+            for _ in 0..k{(a,b)=(2*a-2*b,2*b-a);}
+            let q=vec![Anf::from([0,(1u64<<k)-1])];
+            cases.push(ScaleCase{name:format!("rare-HTH{k}"),n:k,ops:ops.clone(),
+                p:p.clone(),q,expected:[a,b],known_witness:Some(0)});
+            // Positive control: identical circuit and precondition,
+            // universal postcondition. Still use the original CNF.
+            cases.push(ScaleCase{name:format!("rare-HTH{k}-safe"),n:k,ops,
+                p,q:vec![],expected:[0,0],known_witness:None});
+        }
+        cases
+    }
+    #[test]
+    fn hoare_pure_wmc_rare_intent(){
+        for c in rare_wmc_cases().into_iter().filter(|c|c.n<=8){
+            assert_eq!(raw_for_input(c.n,&c.ops,&c.q,0),c.expected);
+        }
+    }
+    fn export_rare_wmc(dir:&std::path::Path){
+        let mut manifest=String::new();
+        for c in rare_wmc_cases(){
+            // Explicitly bounded research-scale admission, not production.
+            let h=2*c.n;
+            assert!(c.n<=16&&h<=32&&c.n+h<=63);
+            let t=std::time::Instant::now();
+            let s=native(c.n,&c.ops).expect("rare unreduced native IR");
+            assert_eq!(s.h,h);
+            let build_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (cnf,d)=two_copy_conj(&s,&c.p,&c.q);
+            let status=if let Some(file)=dimacs(&cnf,&[]){
+                std::fs::write(dir.join(format!("pure-{}.cnf",c.name)),file).unwrap();
+                "READY"
+            }else{"UNKNOWN_ENCODING_LIMIT"};
+            let encoding_us=t.elapsed().as_micros();
+            let witness=c.known_witness.map(|x|x.to_string()).unwrap_or("-".to_owned());
+            manifest.push_str(&format!("{}\t{}\t{h}\t{},{},{}\t{},{}\t{witness}\t{build_us}\t{encoding_us}\t{status}\n",
+                c.name,c.n,d[0],d[1],d[2],c.expected[0],c.expected[1]));
+        }
+        std::fs::write(dir.join("pure-rare.tsv"),manifest).unwrap();
+        println!("HOARE_PURE_WMC_RARE_FIXTURES cases=10");
     }
 
 }

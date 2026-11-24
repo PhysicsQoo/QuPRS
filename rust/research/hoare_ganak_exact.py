@@ -229,6 +229,152 @@ def main():
         ok=sum(r["status"]=="PASS" for r in scaled)
         print(f"HOARE_GANAK_SCALE_SUMMARY variants={len(scaled)} pass={ok} unknown={len(scaled)-ok} calls={calls} solver_wall_s={solver_seconds:.6f}")
         run_hybrid(directory,tmp,deadline,two_weighted,pathlib.Path(sys.argv[3]).resolve())
+        # Separate bounded qualification budget; preserve all legacy regressions.
+        deadline = time.monotonic() + 45
+        run_pure_wmc(directory,two_weighted,deadline)
+
+
+
+def positive_surd(coeff):
+    """Sign of a+b sqrt(2) using integers only."""
+    a,b = coeff
+    if a == b == 0:
+        return False
+    if a >= 0 and b >= 0:
+        return True
+    if a <= 0 and b <= 0:
+        return False
+    return a*a > 2*b*b if a > 0 else 2*b*b > a*a
+
+
+def pure_wmc_decision(base, delta, n, solve, deadline, witness_seconds=2.0):
+    """Root decision independent of optional counterexample extraction.
+
+    A positive exact root is REFUTED even if witness reconstruction runs
+    out of budget. Invalid solver output or a negative squared norm is
+    an integrity failure, not UNKNOWN_RESOURCE.
+    """
+    row = dict(verdict="UNKNOWN", reason="ROOT_RESOURCE", coeff=None,
+               witness=None, witness_status="NOT_RUN", root_queries=0,
+               witness_queries=0, root_s=0.0, witness_s=0.0)
+    start=time.monotonic()
+    def query(prefix, end, field):
+        if time.monotonic() >= end:
+            raise TimeoutError("pure WMC stage budget")
+        row[field] += 1  # two-signed-count batches attempted
+        v=tuple(solve(base,delta,prefix))
+        if len(v)!=2 or any(type(c) is not int for c in v):
+            raise ValueError("invalid exact coefficient pair")
+        if any(v) and not positive_surd(v):
+            raise ValueError("negative squared leakage")
+        return v
+    try:
+        coeff=query([], deadline, "root_queries")
+    except (TimeoutError,subprocess.TimeoutExpired):
+        row["root_s"]=time.monotonic()-start
+        return row
+    row["root_s"]=time.monotonic()-start
+    row["coeff"]=coeff
+    row["verdict"]="REFUTED" if any(coeff) else "PROVED"
+    row["reason"]="EXACT_ROOT"
+    row["witness_status"]="NOT_REQUIRED" if not any(coeff) else "UNKNOWN_RESOURCE"
+    if not any(coeff):
+        return row
+    start=time.monotonic()
+    end=min(deadline,start+witness_seconds)
+    try:
+        prefix=[];x=0
+        for i in range(n):
+            l=i+2;prefix.append(-l)
+            if not any(query(prefix,end,"witness_queries")):
+                prefix[-1]=l;x|=1<<i
+        fixed=query(prefix,end,"witness_queries")
+        if not any(fixed):
+            raise ValueError("conditioned witness has zero leakage")
+        row["witness"]=x
+        row["witness_status"]="VERIFIED"
+        row["witness_coeff"]=fixed
+    except (TimeoutError,subprocess.TimeoutExpired):
+        pass
+    row["witness_s"]=time.monotonic()-start
+    return row
+
+
+def pure_wmc_contract_tests():
+    assert positive_surd((2,-1)) and positive_surd((-1,1))
+    assert not positive_surd((1,-1)) and not positive_surd((0,0))
+    # Root proof, root resource, witness resource and verified witness.
+    def fail(*args):
+        raise TimeoutError("synthetic budget")
+    end=time.monotonic()+10
+    z=pure_wmc_decision("",[],1,lambda *a:(0,0),end)
+    assert z["verdict"]=="PROVED" and z["witness_queries"]==0
+    z=pure_wmc_decision("",[],1,fail,end)
+    assert z["verdict"]=="UNKNOWN" and z["coeff"] is None
+    z=pure_wmc_decision("",[],1,lambda *a:(2,-1),end,0)
+    assert z["verdict"]=="REFUTED" and z["witness"] is None and z["witness_status"]=="UNKNOWN_RESOURCE"
+    def cond(base,delta,prefix):
+        return (0,0) if -2 in prefix else (2,-1)
+    z=pure_wmc_decision("",[],1,cond,end)
+    assert z["verdict"]=="REFUTED" and z["witness"]==1 and z["witness_status"]=="VERIFIED"
+    try:
+        pure_wmc_decision("",[],1,lambda *a:(1,-1),end)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("negative leakage accepted")
+
+
+def run_pure_wmc(directory, two_weighted, deadline):
+    """Standalone direct path; never consumes RR or SAT plans."""
+    pure_wmc_contract_tests()
+    cases=[]
+    with (directory/"hybrid.tsv").open() as f:
+        for name,n,nq,delta,expected,witnesses,build_us,direct_us,plan_us in csv.reader(f,delimiter="\t"):
+            cases.append((name,int(n),None,delta,expected,witnesses,int(build_us),
+                          int(direct_us),"READY",directory/f"hybrid-{name}-wmc.cnf"))
+    with (directory/"pure-rare.tsv").open() as f:
+        for name,n,h,delta,expected,witnesses,build_us,encoding_us,status in csv.reader(f,delimiter="\t"):
+            cases.append((name,int(n),int(h),delta,expected,witnesses,int(build_us),
+                          int(encoding_us),status,directory/f"pure-{name}.cnf"))
+    rows=[]
+    for name,n,h,delta,expected,witnesses,build_us,encoding_us,status,file in cases:
+        # Same per-case cap for all matched and rare cases; no hidden
+        # fallback, and no known witness supplied to the solver.
+        end=min(deadline,time.monotonic()+5.0)
+        if status!="READY":
+            row=dict(verdict="UNKNOWN",reason=status,coeff=None,witness=None,
+                     witness_status="NOT_RUN",root_queries=0,witness_queries=0,root_s=0.0,witness_s=0.0)
+        else:
+            row=pure_wmc_decision(file.read_text(),list(map(int,delta.split(","))),
+                                  n,two_weighted,end)
+        # Oracle access only after the route is complete.
+        target=tuple(map(int,expected.split(",")))
+        legal_witnesses=set() if witnesses=="-" else set(map(int,witnesses.split(",")))
+        truth="REFUTED" if any(target) else "PROVED"
+        if row["verdict"]!="UNKNOWN":
+            assert row["verdict"]==truth and row["coeff"]==target,(name,row,target)
+        if row["witness_status"]=="VERIFIED":
+            assert row["witness"] in legal_witnesses
+        if name.startswith("rare-") and row["witness_status"]=="VERIFIED":
+            assert row["witness_coeff"]==target
+        row.update(case=name,n=n,h=h,build_us=build_us,encoding_us=encoding_us,
+                   expected_raw=target,rr_calls=0,sat_queries=0,
+                   decision_total_s=build_us/1e6+encoding_us/1e6+row["root_s"])
+        rows.append(row)
+        print("HOARE_PURE_WMC "+json.dumps(row),flush=True)
+    assert len(rows)==26
+    def summary(rs):
+        return dict(cases=len(rs),decided=sum(r["verdict"]!="UNKNOWN" for r in rs),
+                    proved=sum(r["verdict"]=="PROVED" for r in rs),
+                    refuted=sum(r["verdict"]=="REFUTED" for r in rs),
+                    witnesses=sum(r["witness_status"]=="VERIFIED" for r in rs),
+                    witness_unknown=sum(r["witness_status"]=="UNKNOWN_RESOURCE" for r in rs),
+                    unknown=sum(r["verdict"]=="UNKNOWN" for r in rs),
+                    root_batches=sum(r["root_queries"] for r in rs),
+                    witness_batches=sum(r["witness_queries"] for r in rs))
+    print("HOARE_PURE_WMC_SUMMARY "+json.dumps(dict(matched=summary(rows[:16]),rare=summary(rows[16:]),
+          rr_calls=0,sat_queries=0)),flush=True)
 
 
 def parse_sat(rc, stdout, result, cnf):

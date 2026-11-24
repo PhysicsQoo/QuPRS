@@ -169,7 +169,7 @@ theorem orderedMaskWords_strict (width : Nat)
         ih (some a) h.2.2⟩
 
 inductive TermFrame16Result where
-  | accepted (masks : List Nat) (rest : WireBytes) (total local : Nat)
+  | accepted (masks : List Nat) (rest : WireBytes) (total frameUsed : Nat)
   | invalidProof
   | unknownResource
   deriving Repr, DecidableEq
@@ -177,30 +177,30 @@ inductive TermFrame16Result where
 /-- The order of the checks matches the bounded frame contract:
     read count, charge both limits, then parse masks. Width >16 is
     outside this symbolic specification (not general P8C1). -/
-def decodeTermFrame16 (width total local : Nat) (bs : WireBytes) :
+def decodeTermFrame16 (width total frameUsed : Nat) (bs : WireBytes) :
     TermFrame16Result :=
   if width ≤ 16 then
     match readLE 2 bs with
     | none => .invalidProof
     | some (count, tail) =>
-        if 32768 < total + count ∨ 256 < local + count then
+        if 32768 < total + count ∨ 256 < frameUsed + count then
           .unknownResource
         else
           match readOrderedMasks width count none tail with
           | none => .invalidProof
-          | some (ms, rest) => .accepted ms rest (total + count) (local + count)
+          | some (ms, rest) => .accepted ms rest (total + count) (frameUsed + count)
   else .invalidProof
 
 /-- Acceptance entails exact declared count/byte consumption,
     width, order and both budgets; no truncated list is accepted. -/
 theorem decodeTermFrame16_sound
-    (width total local : Nat) (bs : WireBytes)
-    (ms : List Nat) (rest : WireBytes) (total' local' : Nat)
-    (h : decodeTermFrame16 width total local bs =
-      .accepted ms rest total' local') :
+    (width total frameUsed : Nat) (bs : WireBytes)
+    (ms : List Nat) (rest : WireBytes) (total' frameUsed' : Nat)
+    (h : decodeTermFrame16 width total frameUsed bs =
+      .accepted ms rest total' frameUsed') :
     width ≤ 16 ∧ total' = total + ms.length ∧
-      local' = local + ms.length ∧ total' ≤ 32768 ∧
-      local' ≤ 256 ∧ bs.length = 2 + 8 * ms.length + rest.length ∧
+      frameUsed' = frameUsed + ms.length ∧ total' ≤ 32768 ∧
+      frameUsed' ≤ 256 ∧ bs.length = 2 + 8 * ms.length + rest.length ∧
       (∀ m ∈ ms, m < 2 ^ width) ∧
       ms.Pairwise (fun a b => a < b) := by
   by_cases hw : width ≤ 16
@@ -208,7 +208,7 @@ theorem decodeTermFrame16_sound
     | none => simp [decodeTermFrame16, hw, hh] at h
     | some p =>
         obtain ⟨count, tail⟩ := p
-        by_cases hb : 32768 < total + count ∨ 256 < local + count
+        by_cases hb : 32768 < total + count ∨ 256 < frameUsed + count
         · simp [decodeTermFrame16, hw, hh, hb] at h
         · cases ht : readOrderedMasks width count none tail with
           | none => simp [decodeTermFrame16, hw, hh, hb, ht] at h
@@ -226,28 +226,28 @@ theorem decodeTermFrame16_sound
 
 /-- A budget failure is reported before inspecting the mask payload. -/
 theorem decodeTermFrame16_resource
-    (width total local count : Nat) (bs tail : WireBytes)
+    (width total frameUsed count : Nat) (bs tail : WireBytes)
     (hw : width ≤ 16) (hh : readLE 2 bs = some (count, tail))
-    (hb : 32768 < total + count ∨ 256 < local + count) :
-    decodeTermFrame16 width total local bs = .unknownResource := by
+    (hb : 32768 < total + count ∨ 256 < frameUsed + count) :
+    decodeTermFrame16 width total frameUsed bs = .unknownResource := by
   simp [decodeTermFrame16, hw, hh, hb]
 
 /-- Trailing bytes belong to the caller's subsequent frame; this
     exact-frame wrapper rejects any trailing bytes. -/
-def decodeExactTermFrame16 (width total local : Nat) (bs : WireBytes) :
+def decodeExactTermFrame16 (width total frameUsed : Nat) (bs : WireBytes) :
     TermFrame16Result :=
-  match decodeTermFrame16 width total local bs with
+  match decodeTermFrame16 width total frameUsed bs with
   | .accepted ms [] t l => .accepted ms [] t l
   | .accepted _ (_ :: _) _ _ => .invalidProof
   | .invalidProof => .invalidProof
   | .unknownResource => .unknownResource
 
 theorem decodeExactTermFrame16_no_trailing
-    (width total local : Nat) (bs : WireBytes)
+    (width total frameUsed : Nat) (bs : WireBytes)
     (ms : List Nat) (rest : WireBytes) (t l : Nat)
-    (h : decodeExactTermFrame16 width total local bs =
+    (h : decodeExactTermFrame16 width total frameUsed bs =
       .accepted ms rest t l) : rest = [] := by
-  cases hf : decodeTermFrame16 width total local bs with
+  cases hf : decodeTermFrame16 width total frameUsed bs with
   | invalidProof => simp [decodeExactTermFrame16, hf] at h
   | unknownResource => simp [decodeExactTermFrame16, hf] at h
   | accepted xs tail t' l' =>

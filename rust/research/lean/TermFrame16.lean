@@ -769,6 +769,7 @@ theorem decodeStateFrame16_roundtrip
     (total + outputTermCount16 xs) (0 + outputTermCount16 xs)
     ps tail hw hp ht (by omega)
   have hg : 0 < n ∧ n + paths ≤ 16 := ⟨hn,hw⟩
+  simp only [Nat.zero_add] at hphase
   simp [decodeStateFrame16,encodeStateFrame16,List.append_assoc,
     hhead,hg,hout,hphase]
 

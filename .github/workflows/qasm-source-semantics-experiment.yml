@@ -724,8 +724,11 @@ jobs:
             exit 1
           fi
           hoare_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-hoare-composition.log)"
-          test "$hoare_reports" -eq 7
-          echo 'LEAN4_HOARE_COMPOSITION_PROOFS_PASS theorem_axiom_reports=7 natural_mass_only=true conditional_dispatch=true'
+          test "$hoare_reports" -eq 17
+          for theorem in mass_false first_failure_step first_failure_mass prefix_split positive_child zero_mass_member dispatch_sound sumBelow_congr sumBelow_all_zero sumBelow_delta sumBelow_nonneg sumBelow_zero_iff negacyclicDiffTerm_zero norm_constant norm_constant_nonneg norm_constant_zero_iff family_norm_constant_zero_iff; do
+            test "$(grep -Ec "^'QuPRS[.]HoareComposition[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-hoare-composition.log)" -eq 1
+          done
+          echo 'LEAN4_HOARE_COMPOSITION_PROOFS_PASS theorem_axiom_reports=17 natural_mass=true negacyclic_coefficients=true conditional_dispatch=true complex_embedding_formalized=false'
 
       - name: Build and test std-only independent verifier
         run: |

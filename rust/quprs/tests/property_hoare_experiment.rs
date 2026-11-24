@@ -1602,4 +1602,198 @@ mod exact_property_cnf {
         println!("HOARE_SCALED_FIXTURES cases=20 variants=92");
     }
 
+
+    // R12: prove cancellation on complete forbidden output fibers.
+    // A failed candidate or exhausted budget is NOT a counterexample.
+    #[derive(Default,Debug)]
+    struct FiberStats{
+        clauses_proved:usize, empty_guards:usize, queries:usize,
+        directions:Vec<u64>, visits:u64, peak_vars:usize, peak_clauses:usize,
+    }
+    fn fiber_candidates(s:&Symbolic,pairs:bool)->Vec<u64>{
+        if s.h==0||s.h>32||s.n+s.h>63{return vec![];}
+        let imask=(1u64<<s.n)-1;
+        let mut rows=Vec::new();
+        let mut affine=true;
+        for o in &s.output{
+            let mut row=0u64;
+            for &m in o{
+                if m&!imask==0{continue;}
+                if m.count_ones()!=1{affine=false;break;}
+                row^=m>>s.n;
+            }
+            if !affine{break;}
+            rows.push((row,false));
+        }
+        let basis=if affine{
+            affine_solve(rows,s.h).expect("homogeneous kernel").1
+        }else{(0..s.h).map(|i|1u64<<i).collect()};
+        let mut out=Vec::new();
+        // Singletons first, then kernel generators, then pair combinations.
+        for &b in &basis{if b.count_ones()==1{out.push(b);}}
+        if pairs{
+            for &b in &basis{if b.count_ones()>1{out.push(b);}}
+            for i in 0..basis.len(){for j in i+1..basis.len(){
+                if out.len()>=64{break;}
+                let b=basis[i]^basis[j];
+                if b!=0&&!out.contains(&b){out.push(b);}
+            }}
+        }
+        out.truncate(64);
+        out
+    }
+    fn fiber_guard(s:&Symbolic,p:&[Anf],q:&Anf)->(Cnf,Vec<Lit>,Vec<Lit>){
+        let mut c=Cnf::new(s.n+s.h);
+        let bits:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        for f in p{let l=c.anf(f,&bits[..s.n]);c.enforce(l);}
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&bits)).collect();
+        let post=c.anf(q,&z);c.enforce(-post);
+        (c,bits,z)
+    }
+    fn fiber_bad(c:&Cnf,bits:&[Lit],z:&[Lit],s:&Symbolic,d:u64)->Option<Cnf>{
+        if d==0||d>>s.h!=0{return None;}
+        let flip=d<<s.n;
+        let gap=translation_gap(&s.phase,flip,true)?;
+        if gap.len()>256{return None;}
+        let mut c=c.clone();
+        let shifted:Vec<_>=bits.iter().enumerate().map(|(i,&b)|if flip>>i&1!=0{-b}else{b}).collect();
+        let mut bad=ZERO;
+        for (o,&original) in s.output.iter().zip(z){
+            let other=c.anf(o,&shifted);
+            let neq=c.xor(original,other);
+            bad=c.or(bad,neq);
+        }
+        // translation_gap(...,true) = f(y xor d)-f(y)+4 mod 8.
+        // It must be identically zero on the complete forbidden fiber.
+        let diff=Symbolic{n:s.n,h:s.h,output:vec![],phase:gap};
+        for bit in c.phase(&diff,bits,false){bad=c.or(bad,bit);}
+        c.enforce(bad);
+        Some(c)
+    }
+    fn prove_fibers(s:&Symbolic,p:&[Anf],q:&[Anf],pairs:bool,budget:u64)->Option<FiberStats>{
+        if s.n==0||s.n+s.h>63||s.h>32||
+            p.iter().chain(q).flatten().any(|&m|m>>s.n!=0)||
+            p.iter().chain(q).map(|f|f.len()).sum::<usize>()>256||
+            s.phase.len()>256{return None;}
+        let mut fuel=budget;
+        let candidates=fiber_candidates(s,pairs);
+        let mut stats=FiberStats::default();
+        // Each violated conjunct is a union of complete output fibers.
+        // Prove zero separately for each; do NOT add overlapping risks.
+        for f in q{
+            let (base,bits,z)=fiber_guard(s,p,f);
+            stats.queries+=1;
+            stats.peak_vars=stats.peak_vars.max(base.vars);
+            stats.peak_clauses=stats.peak_clauses.max(base.clauses.len());
+            if count(&base,&[],&mut fuel,true)?==0{
+                stats.empty_guards+=1;stats.clauses_proved+=1;continue;
+            }
+            let mut found=false;
+            for &d in &candidates{
+                let Some(c)=fiber_bad(&base,&bits,&z,s,d) else{continue;};
+                if !c.bounded(){continue;}
+                stats.queries+=1;
+                stats.peak_vars=stats.peak_vars.max(c.vars);
+                stats.peak_clauses=stats.peak_clauses.max(c.clauses.len());
+                if count(&c,&[],&mut fuel,true)?==0{
+                    stats.directions.push(d);stats.clauses_proved+=1;
+                    found=true;break;
+                }
+            }
+            if !found{return None;}
+        }
+        stats.visits=budget-fuel;
+        Some(stats)
+    }
+    fn conditional_post_case(k:usize)->(Vec<G>,Vec<Anf>,Vec<Anf>,Vec<Anf>){
+        let mut ops=Vec::new();let mut p=Vec::new();
+        let mut q=Vec::new();let mut strict=Vec::new();
+        for i in 0..k{
+            let j=3*i;let c=j;let a=j+2;
+            ops.extend([G::CX(j+1,c),G::H(a),G::T(c),G::T(a),G::CX(c,a)]);
+            ops.extend((0..7).map(|_|G::T(a)));
+            ops.extend([G::CX(c,a),G::H(a),G::CX(j+1,c)]);
+            p.push(bit(a,false));
+            strict.push(bit(a,false));
+            // Only demand cleanup when the two OUTPUT data bits agree.
+            // Data are restored, but p does not constrain their parity.
+            q.push(Anf::from([0,1u64<<a,(1u64<<a)|(1u64<<j),(1u64<<a)|(1u64<<(j+1))]));
+        }
+        (ops,p,q,strict)
+    }
+    #[test]
+    fn hoare_forbidden_fiber_sat(){
+        let gates=[G::H(0),G::H(1),G::CX(0,1),G::CZ(0,1),G::T(0),G::S(1)];
+        let preds=[Anf::from([0]),Anf::from([0,1]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut cases=0;let mut valid=0;let mut proved=0;
+        for g in &gates{for h in &gates{
+            let ops=[G::H(0),g.clone(),h.clone()];
+            let s=native(2,&ops).unwrap();
+            for p in &preds{for q in &preds{
+                let truth=(0..4).all(|x|!violated(2,&ops,p,q,x));
+                if truth{valid+=1;}
+                if prove_fibers(&s,std::slice::from_ref(p),std::slice::from_ref(q),true,1_000_000).is_some(){
+                    assert!(truth,"unsound fiber proof");
+                    proved+=1;
+                }
+                cases+=1;
+            }}
+        }}
+        assert_eq!(cases,576);
+        assert!(proved>0&&proved<=valid);
+        println!("HOARE_FIBER_DIFFERENTIAL cases={cases} valid={valid} proved={proved} no_false_proof=true");
+
+        // Non-Clifford Fourier circuit with an invariant joint translation:
+        // H^2 exp(i*pi/4*(y0 xor y1)) H^2. Neither singleton works.
+        let ops=[G::H(0),G::H(1),G::CX(0,1),G::T(1),G::CX(0,1),G::H(0),G::H(1)];
+        let s=native(2,&ops).unwrap();
+        let p=vec![bit(0,false),bit(1,false)];let q=vec![equal_bits(0,1)];
+        assert_eq!(raw_for_input(2,&ops,&q,0),[0,0]);
+        assert!(prove_fibers(&s,&p,&q,false,2_000_000).is_none());
+        let joint=prove_fibers(&s,&p,&q,true,2_000_000).expect("joint translation");
+        assert_eq!(joint.directions,vec![3]);
+        let mut mutant=ops.to_vec();mutant.insert(5,G::T(0));
+        let bad=native(2,&mutant).unwrap();
+        assert_ne!(raw_for_input(2,&mutant,&q,0),[0,0]);
+        assert!(prove_fibers(&bad,&p,&q,true,2_000_000).is_none());
+        assert!(prove_fibers(&s,&p,&q,true,0).is_none());
+        println!("HOARE_FIBER_JOINT stats={joint:?} mutant_inconclusive=true");
+
+        for k in [1usize,2]{
+            let n=3*k;
+            let (ops,p,q,strict)=conditional_post_case(k);
+            let s=native(n,&ops).unwrap();
+            for x in (0..1u64<<n).filter(|&x|eval_conj(&p,x)){
+                assert_eq!(raw_for_input(n,&ops,&q,x),[0,0]);
+            }
+            assert_ne!(raw_for_input(n,&ops,&strict,1),[0,0]);
+            let t=std::time::Instant::now();
+            let proof=prove_fibers(&s,&p,&q,true,20_000_000).expect("conditional forbidden fibers");
+            let proof_us=t.elapsed().as_micros();
+            assert_eq!(proof.directions.len(),k);
+            assert!(prove_fibers(&s,&p,&strict,true,20_000_000).is_none());
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut ps,false);}
+            let (rr,st)=reduce_existing(ps.clone(),n).unwrap();
+            let (mono,mt)=reduce_existing(mono_substitute(ps.clone(),n,&p).unwrap(),n).unwrap();
+            let (masked,den)=masked_map(ps,n,&p,&q).unwrap();
+            let (masked,ms)=reduce_existing(masked,n).unwrap();
+            // Independently evaluate baseline exact counts where feasible.
+            // Dense truth above is exhaustive, not dependent on these counts.
+            for (route,state,pre,post,scale) in [
+                ("direct",&s,p.as_slice(),q.as_slice(),0),
+                ("rr",&rr,p.as_slice(),q.as_slice(),st.scale2 as i32),
+                ("mono-rr",&mono,p.as_slice(),q.as_slice(),mt.scale2 as i32),
+                ("masked-rr",&masked,&[][..],&[Anf::new()][..],ms.scale2 as i32-den)]{
+                let (cnf,d)=two_copy_conj(state,pre,post);
+                let mut fuel=5_000_000;
+                let ns=buckets(&cnf,d,&[],&mut fuel);
+                if let Some(ns)=ns{assert!(zero(ns));}
+                println!("HOARE_FIBER_BASELINE k={k} route={route} h={} vars={} clauses={} visits={} exact_count_completed={} scale={scale}",
+                    state.h,cnf.vars,cnf.clauses.len(),5_000_000-fuel,ns.is_some());
+            }
+            println!("HOARE_FIBER_CONDITIONAL k={k} h={} proof_us={proof_us} stats={proof:?} negative_inconclusive=true",s.h);
+        }
+    }
+
 }

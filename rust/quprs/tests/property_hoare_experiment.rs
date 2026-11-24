@@ -3382,6 +3382,198 @@ mod exact_property_cnf {
         println!("HOARE_QUOTIENT_PAIR checks={checks} exact=true");
     }
 
+
+    type AffForm=(u128,bool);
+    fn linear_form(f:&Anf,n:usize)->Option<AffForm>{
+        let mut mask=0u128;
+        for &m in f{
+            if m==0{continue;}
+            if m.count_ones()!=1||m.trailing_zeros() as usize>=n{return None;}
+            mask|=m as u128;
+        }
+        Some((mask,f.contains(&0)))
+    }
+    // RREF over original paired slots (x,y,y'). A free coordinate
+    // describes exactly one satisfying assignment, never a projection.
+    fn pair_rref(mut rows:Vec<AffForm>,width:usize)->Option<Vec<AffForm>>{
+        assert!(width<128);
+        let mut pivots=Vec::new();
+        // Prefer eliminating right-copy slots before left and input.
+        for j in (0..width).rev(){
+            let bit=1u128<<j;
+            let i=pivots.len();
+            if let Some(k)=(i..rows.len()).find(|&k|rows[k].0&bit!=0){
+                rows.swap(i,k);let row=rows[i];
+                for (l,r) in rows.iter_mut().enumerate(){
+                    if l!=i&&r.0&bit!=0{r.0^=row.0;r.1^=row.1;}
+                }
+                pivots.push(j);
+            }
+        }
+        if rows.iter().any(|&(m,b)|m==0&&b){return None;}
+        let mut forms=vec![(0,false);width];
+        let mut k=0;
+        for j in 0..width{
+            if !pivots.contains(&j){forms[j]=(1u128<<k,false);k+=1;}
+        }
+        for (i,&j) in pivots.iter().enumerate(){
+            let (m,b)=rows[i];
+            forms[j]=(0,b);
+            for t in 0..width{
+                if t!=j&&m>>t&1!=0{forms[j].0^=forms[t].0;}
+            }
+        }
+        Some(forms)
+    }
+    fn form_compose(mask:u128,constant:bool,forms:&[AffForm])->AffForm{
+        forms.iter().enumerate().filter(|(i,_)|mask>>i&1!=0)
+            .fold((0,constant),|(a,b),(_,f)|(a^f.0,b^f.1))
+    }
+    fn form_lit(c:&mut Cnf,cache:&mut BTreeMap<AffForm,Lit>,f:AffForm)->Lit{
+        if let Some(&l)=cache.get(&f){return l;}
+        let mut l=if f.1{ONE}else{ZERO};
+        for i in 0..128{
+            if f.0>>i&1!=0{l=c.xor(l,i as Lit+2);}
+        }
+        cache.insert(f,l);l
+    }
+    struct AffPair{cnf:Cnf,delta:[Lit;3],inputs:Vec<Lit>,primary:usize,terms:usize}
+    fn affine_quotient_pair(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<AffPair>{
+        let width=s.n+2*s.h;
+        if width>=128{return None;}
+        let input_mask=(1u128<<s.n)-1;
+        let right_mask=|m:u128|(m&input_mask)|((m&!input_mask)<<s.h);
+        let mut rows=Vec::new();
+        for f in p{let (m,b)=linear_form(f,s.n)?;rows.push((m,!b));}
+        let outputs:Vec<_>=s.output.iter().map(|f|linear_form(f,s.n+s.h)).collect::<Option<_>>()?;
+        for &(m,_) in &outputs{rows.push((m^right_mask(m),false));}
+        // A single affine postcondition can be absorbed as one affine
+        // violation equation. Nonlinear or conjunction posts stay in CNF.
+        if q.len()==1{
+            if let Some((m,b))=linear_form(&q[0],s.n){
+                let (mask,c)=form_compose(m,b,&outputs);
+                rows.push((mask,c));
+            }
+        }
+        let Some(forms)=pair_rref(rows,width) else{
+            let mut cnf=Cnf::new(0);cnf.enforce(ZERO);
+            return Some(AffPair{cnf,delta:[ZERO;3],inputs:vec![ZERO;s.n],primary:0,terms:0});
+        };
+        let primary=forms.iter().fold(0u128,|a,f|a|f.0).count_ones() as usize;
+        let mut cnf=Cnf::new(primary);
+        let mut cache=BTreeMap::new();
+        let inputs=forms[..s.n].iter().map(|&f|form_lit(&mut cnf,&mut cache,f)).collect();
+        let output_forms:Vec<_>=outputs.iter().map(|&(m,b)|form_compose(m,b,&forms)).collect();
+        let z:Vec<_>=output_forms.iter().map(|&f|form_lit(&mut cnf,&mut cache,f)).collect();
+        let post=q.iter().fold(ONE,|acc,f|{let v=cnf.anf(f,&z);cnf.and(acc,v)});
+        cnf.enforce(-post);
+        // Canonical products of affine Boolean forms. Products with
+        // complementary factors vanish; identical factors are idempotent.
+        // No potentially exponential ANF expansion is necessary.
+        let mut phase=BTreeMap::<Vec<AffForm>,u8>::new();
+        for negative in [false,true]{
+            for (&m,&k) in &s.phase{
+                let mask=if negative{right_mask(m as u128)}else{m as u128};
+                let mut key=Vec::new();let mut zero=false;
+                for (i,&f) in forms.iter().enumerate(){
+                    if mask>>i&1==0{continue;}
+                    if f==(0,false){zero=true;break;}
+                    if f!=(0,true){
+                        if key.contains(&(f.0,!f.1)){zero=true;break;}
+                        key.push(f);
+                    }
+                }
+                if zero{continue;}
+                key.sort_unstable();key.dedup();
+                let v=(phase.get(&key).copied().unwrap_or(0)+if negative{(8-k)%8}else{k})%8;
+                if v==0{phase.remove(&key);}else{phase.insert(key,v);}
+            }
+        }
+        let terms=phase.len();
+        let mut delta=[ZERO;3];
+        for (key,k) in phase{
+            let mut m=ONE;
+            for f in key{let l=form_lit(&mut cnf,&mut cache,f);m=cnf.and(m,l);}
+            let term=std::array::from_fn(|i|if k>>i&1!=0{m}else{ZERO});
+            delta=cnf.add3(delta,term);
+        }
+        Some(AffPair{cnf,delta,inputs,primary,terms})
+    }
+    #[test]
+    fn hoare_affine_quotient_exact(){
+        let circuits=[
+            vec![G::H(0),G::H(1),G::CX(0,1),G::T(1),G::H(0)],
+            vec![G::H(0),G::CZ(0,1),G::H(0),G::CX(0,1),G::X(1)],
+            vec![G::H(0),G::H(1),G::CX(1,0),G::S(0)],
+            vec![G::CX(0,1),G::CX(1,0),G::H(1),G::T(1),G::H(1)],
+        ];
+        let pres=[vec![],vec![bit(0,false)],vec![equal_bits(0,1)],vec![Anf::new()],
+            vec![bit(0,true),bit(0,false)],vec![Anf::from([1,2])]];
+        let posts=[vec![],vec![Anf::new()],vec![bit(0,false)],vec![equal_bits(0,1)],
+            vec![Anf::from([3])],vec![bit(0,false),bit(1,true)]];
+        let mut checks=0;
+        for ops in circuits{
+            let s=native(2,&ops).unwrap();
+            for p in &pres{for q in &posts{
+                let plan=affine_quotient_pair(&s,p,q).unwrap();
+                let (base,d)=two_copy_conj(&s,p,q);
+                let expected=buckets(&base,d,&[],&mut 20_000_000).unwrap();
+                assert_eq!(buckets(&plan.cnf,plan.delta,&[],&mut 20_000_000).unwrap(),expected);
+                checks+=1;
+                for x in 0..4u64{
+                    let units:Vec<_>=plan.inputs.iter().enumerate().map(|(i,&l)|if x>>i&1!=0{l}else{-l}).collect();
+                    let v=exact_pair_coeff(&plan.cnf,plan.delta,&units,&mut 20_000_000,&mut 0).unwrap();
+                    let expected=if eval_conj(p,x){raw_for_input(2,&ops,q,x)}else{[0,0]};
+                    assert_eq!(v,expected);checks+=1;
+                }
+            }}
+        }
+        let s=native(3,&[G::CCX(0,1,2)]).unwrap();
+        assert!(affine_quotient_pair(&s,&[],&[bit(2,false)]).is_none());
+        let s=native(2,&[G::H(0)]).unwrap();
+        assert!(affine_quotient_pair(&s,&[Anf::from([3])],&[]).is_none());
+        println!("HOARE_AFFINE_QUOTIENT checks={checks} bucket_and_conditioned_exact=true");
+    }
+    fn export_affine_benchmark(dir:&std::path::Path){
+        let mut manifest=String::new();
+        for n in [10usize,13,15]{
+            // Invertible output relabeling, so the original property is
+            // now parity(z0,z1)=0 rather than a literal. Both modes use
+            // this same actual circuit and predicate, not a surrogate.
+            let mut ops=scale_mixing(n,3);ops.push(G::CX(1,0));
+            let p:Vec<_>=(0..n).map(|i|bit(i,false)).collect();
+            let q=vec![equal_bits(0,1)];
+            let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+            let raw=raw_for_input(n,&ops,&q,0);
+            assert_eq!(raw,raw_for_input(n,&scale_mixing(n,3),&[bit(0,false)],0));
+            let name=format!("affine-mixing-{n}");
+            export_external_property(dir,&name,n,&ops,&p,&q);
+            let t=std::time::Instant::now();
+            let reduced=property_cone(n,&ops,&q).unwrap();
+            let cone_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let s=native(n,&reduced).unwrap();
+            let build_us=t.elapsed().as_micros();
+            let scale=h-s.h;
+            assert_eq!(raw_for_input(n,&reduced,&q,0).map(|v|v*(1i128<<scale)),raw);
+            assert!(quotient_pair(&s,&p,&q).is_none());
+            for mode in ["cone","affine"]{
+                let t=std::time::Instant::now();
+                let (c,d,primary,terms)=if mode=="affine"{
+                    let a=affine_quotient_pair(&s,&p,&q).unwrap();
+                    (a.cnf,a.delta,a.primary,a.terms)
+                }else{let (c,d)=two_copy_conj(&s,&p,&q);(c,d,s.n+2*s.h,s.phase.len()*2)};
+                let status=if let Some(text)=serialize_external(&c,&[]){
+                    std::fs::write(dir.join(format!("{mode}-{name}.cnf")),text).unwrap();"READY"
+                }else{"UNKNOWN_ENCODING_LIMIT"};
+                let enc_us=t.elapsed().as_micros();
+                manifest.push_str(&format!("{name}\t{mode}\t{h}\t{}\t{scale}\t{}\t{}\t{primary}\t{terms}\t{},{},{}\t{status}\t{cone_us}\t{build_us}\t{enc_us}\t{},{}\n",
+                    s.h,c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+            }
+        }
+        std::fs::write(dir.join("affine.tsv"),manifest).unwrap();
+    }
+
     fn export_cone_case(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf],
                         raw:[i128;2],manifest:&mut String,quotients:&mut String){
         let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
@@ -3472,6 +3664,7 @@ mod exact_property_cnf {
         std::fs::write(dir.join("residual.tsv"),residual).unwrap();
         std::fs::write(dir.join("cone.tsv"),cones).unwrap();
         std::fs::write(dir.join("quotient.tsv"),quotients).unwrap();
+        export_affine_benchmark(&dir);
         println!("HOARE_SCALE_DISCOVERY_FIXTURES cases=9 routes=45 cone_cases=3");
     }
 

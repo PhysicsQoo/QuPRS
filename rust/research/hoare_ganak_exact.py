@@ -505,7 +505,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         else:
             query_cap=120
             deadline=time.monotonic()+1050
-            run_quotient_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+            if os.environ.get("HOARE_LITERAL_QUOTIENT")=="1":
+                run_quotient_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+            else:
+                run_affine_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -913,6 +916,55 @@ def run_quotient_pilot(directory,solve,deadline,metrics):
         mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
         timeouts=sum(r["mode"]==mode and r["status"]=="ROOT_TIMEOUT" for r in rows))
         for mode in ("cone","quotient")})),flush=True)
+
+
+
+
+def run_affine_pilot(directory,solve,deadline,metrics):
+    fields="case mode h hr scale vars clauses primary phase_terms delta status cone_us build_us encoding_us expected".split()
+    with (directory/"affine.tsv").open() as f:
+        plans={(r["case"],r["mode"]):r for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
+    assert len(plans)==6
+    rows=[]
+    for name in sorted({name for name,_ in plans}):
+        cap=120 if name.endswith("-15") else 60
+        for rep in range(1 if cap==120 else 2):
+            for mode in (("cone","affine") if rep==0 else ("affine","cone")):
+                r=plans[(name,mode)]
+                target=tuple(map(int,r["expected"].split(",")))
+                assert r["expected"]==plans[(name,"cone")]["expected"]
+                row=dict(case=name,mode=mode,rep=rep,cap_s=cap,
+                    **{k:int(r[k]) for k in ("h","hr","scale","vars","clauses","primary","phase_terms")},
+                    expected_raw=target,coeff=None,status=r["status"],verdict="UNKNOWN",root_s=0.0,
+                    cnf_sha256=None,source_sha256=hashlib.sha256((directory/f"quokka-{name}.tsv").read_bytes()).hexdigest())
+                metrics.clear()
+                if r["status"]=="READY":
+                    data=(directory/f"{mode}-{name}.cnf").read_bytes()
+                    row["cnf_sha256"]=hashlib.sha256(data).hexdigest()
+                    start=time.monotonic();end=min(deadline,start+cap)
+                    if end<=start:row["status"]="GLOBAL_BUDGET_NOT_RUN"
+                    else:
+                        try:
+                            coeff=tuple(solve(data.decode(),list(map(int,r["delta"].split(","))),[],end))
+                            if any(coeff) and not positive_surd(coeff):raise ValueError("negative affine leakage")
+                            coeff=tuple(v*(1<<row["scale"]) for v in coeff)
+                            assert coeff==target,(name,mode,coeff,target)
+                            row.update(status="EXACT_ROOT",verdict="REFUTED" if any(coeff) else "PROVED",coeff=coeff)
+                        except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                        except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+                    row["root_s"]=time.monotonic()-start
+                row["queries"]=[dict(m) for m in metrics]
+                row["cpu_s"]=sum(m["user_s"]+m["system_s"] for m in metrics) if metrics and all(m["user_s"] is not None for m in metrics) else None
+                row["max_rss_kib"]=max(m["max_rss_kib"] for m in metrics) if metrics and all(m["max_rss_kib"] is not None for m in metrics) else None
+                row["prep_proxy_s"]=sum(int(r[k]) for k in ("cone_us","build_us","encoding_us"))/1e6
+                row["decision_proxy_s"]=row["root_s"]+row["prep_proxy_s"]
+                rows.append(row)
+                print("HOARE_AFFINE_PILOT "+json.dumps(row),flush=True)
+    assert len(rows)==10
+    print("HOARE_AFFINE_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
+        mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
+        timeouts=sum(r["mode"]==mode and r["status"]=="ROOT_TIMEOUT" for r in rows))
+        for mode in ("cone","affine")})),flush=True)
 
 
 

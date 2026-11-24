@@ -511,8 +511,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
                 run_affine_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
             elif os.environ.get("HOARE_PHASE_FACTOR")=="1":
                 run_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
-            else:
+            elif os.environ.get("HOARE_STREAMED_FACTOR")=="1":
                 run_streamed_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+            else:
+                run_conditioned_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -1012,7 +1014,7 @@ class FactorLimit(Exception):
     pass
 
 
-def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=524288,streamed=False):
+def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=524288,streamed=False,order=None):
     """Bounded exact variable elimination; return a ring element or UNKNOWN.
     The graph is built from affine-product scopes before any CNF construction.
     Work counts table-entry operations conservatively, not CPU instructions.
@@ -1020,6 +1022,7 @@ def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=5
     stats=dict(work=0,width=0,peak_entries=0,eliminated=0,isolated=0,components=0,streamed=streamed,peak_index_entries=0)
     factors=[]
     active=set(range(primary))
+    if order is not None:assert sorted(order)==list(range(primary))
     constant=RONE
     def charge(w):
         stats["work"]+=w
@@ -1074,7 +1077,7 @@ def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=5
                 fs=[f for f in factors if v in f[0]]
                 union=set().union(*(set(s) for s,_ in fs))
                 return (len(union),len(fs),v)
-            v=min(active,key=candidate)
+            v=min(active,key=candidate) if order is None else order[stats["eliminated"]]
             active.remove(v)
             hit=[f for f in factors if v in f[0]]
             if not hit:
@@ -1353,6 +1356,224 @@ def run_streamed_factor_pilot(directory,solve,deadline,metrics):
         mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
                   scale_decided=sum(r["mode"]==mode and r["case"] in baseline and r["verdict"]!="UNKNOWN" for r in rows))
         for mode in ("table","streamed","gpmc-fallback")})),flush=True)
+
+
+
+
+def scope_plan(primary,terms,heuristic,deadline):
+    """Simulate factor scopes only. No oracle or sampled solver timing."""
+    groups={}
+    for k,forms in terms:
+        mask=0
+        for m,b in forms:mask|=m
+        groups[mask]=groups.get(mask,0)+len(forms)+1
+    scopes=[m for m in groups if m]
+    work=sum((1<<m.bit_count())*cost for m,cost in groups.items())
+    width=max((m.bit_count() for m in groups),default=0)
+    active=set(range(primary));order=[]
+    while active:
+        if time.monotonic()>=deadline:raise FactorLimit("planning-time")
+        adjacency=[0]*primary
+        for m in scopes:
+            for v in mask_positions(m):adjacency[v]|=m&~(1<<v)
+        def rank(v):
+            mask=adjacency[v];w=mask.bit_count()+1 if mask else 0
+            incident=sum(bool(m>>v&1) for m in scopes)
+            missing=sum((mask&~adjacency[u]&~(1<<u)).bit_count() for u in mask_positions(mask))//2
+            if heuristic=="fill":return (missing,w,incident,v)
+            if heuristic=="work":return ((1<<w)*(incident+2),w,missing,v)
+            return (w,incident,v)
+        v=min(active,key=rank);active.remove(v);order.append(v)
+        hit=[m for m in scopes if m>>v&1]
+        if hit:
+            union=0
+            for m in hit:union|=m
+            w=union.bit_count();width=max(width,w)
+            work+=(1<<w)*(len(hit)+2)
+            scopes=[m for m in scopes if not m>>v&1]
+            remain=union&~(1<<v)
+            if remain:scopes.append(remain)
+    return dict(width=width,work=work,order=order,heuristic=heuristic)
+
+
+def condition_terms(primary,terms,cut,assignment):
+    """Exact restriction and compact reindexing. Each cut assignment
+    partitions the original Boolean domain; no additional factor of 2."""
+    fixed=sum(1<<v for v in cut)
+    value=sum(1<<v for i,v in enumerate(cut) if assignment>>i&1)
+    free=[v for v in range(primary) if not fixed>>v&1]
+    pos={v:i for i,v in enumerate(free)}
+    result={}
+    for k,forms in terms:
+        key=[];zero=False
+        for m,b in forms:
+            constant=b^((m&value).bit_count()&1)
+            mask=sum(1<<pos[v] for v in mask_positions(m&~fixed))
+            if mask==0:
+                if not constant:zero=True;break
+                continue
+            if (mask,1^constant) in key:zero=True;break
+            key.append((mask,constant))
+        if zero:continue
+        key=tuple(sorted(set(key)))
+        result[key]=(result.get(key,0)+k)%8
+    return len(free),[(k,list(key)) for key,k in sorted(result.items()) if k]
+
+
+def planned_factor(primary,terms,deadline,max_width=16,max_work=4_000_000,
+                   max_live=524288,allow_cut=True):
+    """Bounded structural planning then exact contraction of ALL branches.
+    No incomplete branch sum can yield a verdict. Planner wall time counts
+    toward the same deadline; operation budget counts contraction work."""
+    planning_start=time.monotonic()
+    planning_end=min(deadline,planning_start+3)
+    stats=dict(work=0,width=0,peak_entries=0,branches_done=0,branches=0,
+               cut=[],plans=0,planning_s=0.0,estimated_work=None,
+               estimated_width=None,heuristics=[])
+    best=None
+    def evaluate(cut):
+        nonlocal best
+        branches=[]
+        for a in range(1<<len(cut)):
+            n,ts=condition_terms(primary,terms,cut,a) if cut else (primary,terms)
+            options=[scope_plan(n,ts,h,planning_end) for h in ("width","fill","work")]
+            stats["plans"]+=len(options)
+            plan=min(options,key=lambda p:(p["width"]>max_width,
+                       p["work"] if p["width"]<=max_width else p["width"],p["width"],p["work"]))
+            branches.append((n,ts,plan))
+        width=max(p["width"] for _,_,p in branches)
+        work=sum(p["work"] for _,_,p in branches)
+        rank=(width>max_width,work>max_work if width<=max_width else False,
+              work if width<=max_width else width,width,work,len(cut),cut)
+        if best is None or rank<best[0]:best=(rank,cut,branches,width,work)
+    try:
+        evaluate(())
+        if allow_cut and (best[3]>max_width or best[4]>max_work):
+            # Predeclare a small candidate set from the original factor graph.
+            # High interaction degree first; tie-break by incident factor count.
+            scopes=[]
+            for _,fs in terms:
+                mask=0
+                for m,_ in fs:mask|=m
+                scopes.append(set(mask_positions(mask)))
+            def rank(v):
+                hit=[s for s in scopes if v in s]
+                return (-len(set().union(*hit)) if hit else 0,-len(hit),v)
+            candidates=sorted(range(primary),key=rank)[:8]
+            for v in candidates:evaluate((v,))
+            # Only attempt two-bit cuts if one-bit plans cannot fit.
+            if best[3]>max_width or best[4]>max_work:
+                for i,v in enumerate(candidates[:4]):
+                    for w in candidates[i+1:4]:evaluate(tuple(sorted((v,w))))
+    except FactorLimit:
+        pass
+    stats["planning_s"]=time.monotonic()-planning_start
+    if best is None:return None,stats,"planning-time"
+    _,cut,branches,width,work=best
+    stats.update(cut=list(cut),branches=len(branches),estimated_width=width,
+                 estimated_work=work,heuristics=[p["heuristic"] for _,_,p in branches])
+    if width>max_width:return None,stats,"planned-width"
+    # Work estimate ignores early zero and is deliberately conservative.
+    # Try a feasible-width plan even if estimated work exceeds the cap.
+    total=RZERO
+    for n,ts,plan in branches:
+        remaining=max_work-stats["work"]
+        if remaining<=0 or time.monotonic()>=deadline:return None,stats,"aggregate-work-or-time"
+        z,st,why=factor_sum(n,ts,deadline,max_width=max_width,max_work=remaining,
+                            max_live=max_live,streamed=True,order=plan["order"])
+        stats["work"]+=st["work"]
+        stats["width"]=max(stats["width"],st["width"])
+        stats["peak_entries"]=max(stats["peak_entries"],st["peak_entries"])
+        if z is None:return None,stats,"branch-"+why
+        total=radd(total,z);stats["branches_done"]+=1
+    return total,stats,"EXACT_CONDITIONED" if cut else "EXACT_PLANNED"
+
+
+def conditioning_contract():
+    import random
+    rng=random.Random(2627)
+    checks=0
+    for k in range(96):
+        n=1+k%6
+        terms=[(rng.randrange(8),[(rng.randrange(1<<n),rng.randrange(2))
+            for _ in range(rng.randrange(4))]) for _ in range(rng.randrange(10))]
+        expected=RZERO
+        for a in range(1<<n):
+            e=sum(c for c,fs in terms if all(((a&m).bit_count()&1)^b for m,b in fs))%8
+            expected=radd(expected,ROOTS[e])
+        # Exercise every branch of a predetermined cut independent of the
+        # heuristic, including complex partial sums (not leakage by itself).
+        cut=tuple(sorted(rng.sample(range(n),min(2,n))))
+        actual=RZERO
+        for a in range(1<<len(cut)):
+            m,ts=condition_terms(n,terms,cut,a)
+            z,_,_=factor_sum(m,ts,time.monotonic()+2,streamed=True)
+            assert z is not None
+            actual=radd(actual,z)
+        assert actual==expected;checks+=1
+        z,_,_=planned_factor(n,terms,time.monotonic()+3)
+        assert z==expected;checks+=1
+    # K5 interaction graph requires width5 for unconditioned elimination;
+    # a single fixed bit leaves K4. Exact sum from direct enumeration.
+    terms=[(1,[(1<<i,0),(1<<j,0)]) for i in range(5) for j in range(i+1,5)]
+    expected=RZERO
+    for a in range(32):expected=radd(expected,ROOTS[(a.bit_count()*(a.bit_count()-1)//2)%8])
+    z,_,_=planned_factor(5,terms,time.monotonic()+3,max_width=4,allow_cut=False)
+    assert z is None;checks+=1
+    z,st,_=planned_factor(5,terms,time.monotonic()+3,max_width=4)
+    assert z==expected and st["branches_done"]==2 and len(st["cut"])==1;checks+=1
+    z,st,_=planned_factor(5,terms,time.monotonic()+3,max_width=4,max_work=1)
+    assert z is None and st["branches_done"]<st["branches"];checks+=1
+    print("HOARE_CONDITIONING_CONTRACT checks="+str(checks),flush=True)
+
+
+def run_conditioned_factor_pilot(directory,solve,deadline,metrics):
+    factor_contract();conditioning_contract()
+    fields="case hr scale primary terms status prep_us expected".split()
+    with (directory/"factors.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    assert len(plans)==11
+    rows=[]
+    for i,r in enumerate(plans):
+        name=r["case"];target=tuple(map(int,r["expected"].split(",")))
+        primary=int(r["primary"]);scale=int(r["scale"])
+        data=(directory/f"factors-{name}.tsv").read_bytes() if r["status"]=="READY" else None
+        terms=[]
+        if data is not None:
+            for line in data.decode().splitlines():
+                k,*fs=line.split("\t");terms.append((int(k),[tuple(map(int,x.split(":"))) for x in fs]))
+            assert len(terms)==int(r["terms"])
+        modes=["streamed","planned","conditioned"]
+        if i%2:modes.reverse()
+        for mode in modes+ (["conditioned-12m"] if name=="affine-mixing-15" else []):
+            max_work=12_000_000 if mode.endswith("12m") else 4_000_000
+            row=dict(case=name,mode=mode,work_cap=max_work,width_cap=16,live_cap=524288,
+                     primary=primary,terms=int(r["terms"]),scale=scale,expected_raw=target,
+                     coeff=None,verdict="UNKNOWN",status=r["status"],prep_proxy_s=int(r["prep_us"])/1e6,
+                     factor_sha256=hashlib.sha256(data).hexdigest() if data is not None else None)
+            start=time.monotonic();end=min(deadline,start+15)
+            if r["status"]=="UNSAT_AFFINE":row.update(coeff=(0,0),status="EXACT_AFFINE_UNSAT")
+            elif data is not None:
+                if mode=="streamed":z,st,why=factor_sum(primary,terms,end,streamed=True)
+                else:z,st,why=planned_factor(primary,terms,end,max_work=max_work,allow_cut=mode!="planned")
+                row.update(stats=st,status=why)
+                if z is not None:
+                    assert z[2]==0 and z[3]==-z[1],(name,z)
+                    row["coeff"]=(z[0]*(1<<scale),z[1]*(1<<scale))
+            row["root_s"]=time.monotonic()-start
+            row["decision_proxy_s"]=row["root_s"]+row["prep_proxy_s"]
+            if row["coeff"] is not None:
+                assert row["coeff"]==target,(name,mode,row["coeff"],target)
+                assert not any(target) or positive_surd(target)
+                row["verdict"]="REFUTED" if any(target) else "PROVED"
+            if name.startswith("factor-"):assert row["verdict"]!="UNKNOWN",(name,row)
+            rows.append(row)
+            print("HOARE_CONDITIONED_FACTOR "+json.dumps(row),flush=True)
+    assert len(rows)==34
+    print("HOARE_CONDITIONED_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
+        mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
+                  scale_decided=sum(r["mode"]==mode and not r["case"].startswith("factor-") and r["verdict"]!="UNKNOWN" for r in rows))
+        for mode in ("streamed","planned","conditioned","conditioned-12m")})),flush=True)
 
 
 

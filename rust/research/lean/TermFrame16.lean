@@ -257,6 +257,288 @@ theorem decodeExactTermFrame16_no_trailing
           exact h.2.1
       | cons a as => simp [decodeExactTermFrame16, hf] at h
 
+/-- Fixed-size little-endian encoder. The roundtrip theorem below
+    explicitly requires the number to fit, avoiding silent truncation. -/
+def encodeLE : Nat → Nat → WireBytes
+  | 0, _ => []
+  | n + 1, v => UInt8.ofNat v :: encodeLE n (v / 256)
+
+theorem readLE_encodeLE (n v : Nat) (tail : WireBytes)
+    (h : v < 256 ^ n) :
+    readLE n (encodeLE n v ++ tail) = some (v, tail) := by
+  induction n generalizing v with
+  | zero =>
+      have hz : v = 0 := by
+        simp at h
+        omega
+      subst v
+      rfl
+  | succ n ih =>
+      have hd : v / 256 < 256 ^ n := by
+        rw [Nat.pow_succ] at h
+        omega
+      have hr := ih (v / 256) hd
+      have hb : (UInt8.ofNat v).toNat = v % 256 := by simp
+      simp only [encodeLE, List.cons_append, readLE, hr]
+      rw [hb, Nat.mod_add_div]
+
+def encodeMaskWords : List Nat → WireBytes
+  | [] => []
+  | m :: ms => encodeLE 8 m ++ encodeMaskWords ms
+
+theorem readOrderedMasks_encode
+    (width : Nat) (previous : Option Nat) (ms : List Nat)
+    (tail : WireBytes) (h : OrderedMaskWords width previous ms)
+    (hw : width ≤ 16) :
+    readOrderedMasks width ms.length previous
+      (encodeMaskWords ms ++ tail) = some (ms, tail) := by
+  induction ms generalizing previous with
+  | nil => rfl
+  | cons m rest ih =>
+      have hm : m < 256 ^ 8 := by
+        have hp : 2 ^ width ≤ 2 ^ 16 :=
+          Nat.pow_le_pow_right (by decide : 0 < 2) hw
+        have hb := h.1
+        have hconst : 2 ^ 16 ≤ 256 ^ 8 := by decide
+        omega
+      have hr := readLE_encodeLE 8 m (encodeMaskWords rest ++ tail) hm
+      have ht := ih (some m) h.2.2
+      have hg : m < 2 ^ width ∧ afterPrevious previous m := ⟨h.1,h.2.1⟩
+      simp [encodeMaskWords, List.append_assoc, readOrderedMasks,
+        hr, hg, ht]
+
+def encodeTermFrame16 (ms : List Nat) : WireBytes :=
+  encodeLE 2 ms.length ++ encodeMaskWords ms
+
+/-- Every valid canonical termset roundtrips, retaining the suffix
+    and both resource counters exactly. -/
+theorem decodeTermFrame16_roundtrip
+    (width total frameUsed : Nat) (ms : List Nat) (tail : WireBytes)
+    (hw : width ≤ 16) (ho : OrderedMaskWords width none ms)
+    (ht : total + ms.length ≤ 32768)
+    (hl : frameUsed + ms.length ≤ 256) :
+    decodeTermFrame16 width total frameUsed (encodeTermFrame16 ms ++ tail) =
+      .accepted ms tail (total + ms.length) (frameUsed + ms.length) := by
+  have hc : ms.length < 256 ^ 2 := by omega
+  have hh := readLE_encodeLE 2 ms.length (encodeMaskWords ms ++ tail) hc
+  have hm := readOrderedMasks_encode width none ms tail ho hw
+  have hb : ¬ (32768 < total + ms.length ∨ 256 < frameUsed + ms.length) := by
+    omega
+  simp [decodeTermFrame16, encodeTermFrame16, List.append_assoc,
+    hw, hh, hb, hm]
+
+/-- A phase entry uses an eight-byte mask and a one-byte nonzero Z8
+    coefficient. Numeric mask order, not coefficient order, matters. -/
+abbrev PhaseWords16 := List (Nat × Nat)
+
+def OrderedPhaseWords (width : Nat) (previous : Option Nat) :
+    PhaseWords16 → Prop
+  | [] => True
+  | (m,c) :: rest =>
+      (m < 2 ^ width ∧ afterPrevious previous m) ∧
+      (0 < c ∧ c < 8) ∧ OrderedPhaseWords width (some m) rest
+
+def readOrderedPhase (width : Nat) :
+    Nat → Option Nat → WireBytes → Option (PhaseWords16 × WireBytes)
+  | 0, _, bs => some ([], bs)
+  | n + 1, previous, bs =>
+      match readLE 8 bs with
+      | none => none
+      | some (m, tail) =>
+          match readLE 1 tail with
+          | none => none
+          | some (c, payload) =>
+              if (m < 2 ^ width ∧ afterPrevious previous m) ∧
+                  (0 < c ∧ c < 8) then
+                match readOrderedPhase width n (some m) payload with
+                | none => none
+                | some (ps, rest) => some ((m,c) :: ps, rest)
+              else none
+
+theorem readOrderedPhase_sound (width count : Nat)
+    (previous : Option Nat) (bs : WireBytes)
+    (ps : PhaseWords16) (rest : WireBytes)
+    (h : readOrderedPhase width count previous bs = some (ps,rest)) :
+    ps.length = count ∧ OrderedPhaseWords width previous ps ∧
+      bs.length = 9 * count + rest.length := by
+  induction count generalizing previous bs ps rest with
+  | zero =>
+      simp [readOrderedPhase] at h
+      obtain ⟨rfl,rfl⟩ := h
+      simp [OrderedPhaseWords]
+  | succ n ih =>
+      cases hm : readLE 8 bs with
+      | none => simp [readOrderedPhase,hm] at h
+      | some mp =>
+          obtain ⟨m,tail⟩ := mp
+          cases hc : readLE 1 tail with
+          | none => simp [readOrderedPhase,hm,hc] at h
+          | some cp =>
+              obtain ⟨c,payload⟩ := cp
+              by_cases hg : (m < 2 ^ width ∧ afterPrevious previous m) ∧
+                  (0 < c ∧ c < 8)
+              · cases hp : readOrderedPhase width n (some m) payload with
+                | none => simp [readOrderedPhase,hm,hc,hg,hp] at h
+                | some out =>
+                    obtain ⟨xs,endBytes⟩ := out
+                    simp [readOrderedPhase,hm,hc,hg,hp] at h
+                    obtain ⟨rfl,rfl⟩ := h
+                    obtain ⟨hl,ho,hr⟩ := ih (some m) payload xs endBytes hp
+                    have h8 := readLE_consumes 8 bs m tail hm
+                    have h1 := readLE_consumes 1 tail c payload hc
+                    exact ⟨by simp [hl],⟨hg.1,hg.2,ho⟩,by omega⟩
+              · simp [readOrderedPhase,hm,hc,hg] at h
+
+theorem orderedPhaseWords_masks (width : Nat) (previous : Option Nat)
+    (ps : PhaseWords16) (h : OrderedPhaseWords width previous ps) :
+    OrderedMaskWords width previous (ps.map Prod.fst) := by
+  induction ps generalizing previous with
+  | nil => trivial
+  | cons a rest ih =>
+      obtain ⟨m,c⟩ := a
+      exact ⟨h.1.1,h.1.2,ih (some m) h.2.2⟩
+
+theorem orderedPhaseWords_coefficients (width : Nat) (previous : Option Nat)
+    (ps : PhaseWords16) (h : OrderedPhaseWords width previous ps) :
+    ∀ p ∈ ps, 0 < p.2 ∧ p.2 < 8 := by
+  induction ps generalizing previous with
+  | nil => simp
+  | cons a rest ih =>
+      obtain ⟨m,c⟩ := a
+      intro p hp
+      rcases List.mem_cons.mp hp with he | ht
+      · subst p
+        exact h.2.1
+      · exact ih (some m) h.2.2 p ht
+
+inductive PhaseFrame16Result where
+  | accepted (phase : PhaseWords16) (rest : WireBytes) (total frameUsed : Nat)
+  | invalidProof
+  | unknownResource
+  deriving Repr, DecidableEq
+
+def decodePhaseFrame16 (width total frameUsed : Nat) (bs : WireBytes) :
+    PhaseFrame16Result :=
+  if width ≤ 16 then
+    match readLE 2 bs with
+    | none => .invalidProof
+    | some (count, tail) =>
+        if 32768 < total + count ∨ 256 < frameUsed + count then
+          .unknownResource
+        else
+          match readOrderedPhase width count none tail with
+          | none => .invalidProof
+          | some (ps,rest) =>
+              .accepted ps rest (total + count) (frameUsed + count)
+  else .invalidProof
+
+theorem decodePhaseFrame16_sound
+    (width total frameUsed : Nat) (bs : WireBytes)
+    (ps : PhaseWords16) (rest : WireBytes) (total' frameUsed' : Nat)
+    (h : decodePhaseFrame16 width total frameUsed bs =
+      .accepted ps rest total' frameUsed') :
+    width ≤ 16 ∧ total' = total + ps.length ∧
+      frameUsed' = frameUsed + ps.length ∧ total' ≤ 32768 ∧
+      frameUsed' ≤ 256 ∧ bs.length = 2 + 9 * ps.length + rest.length ∧
+      OrderedPhaseWords width none ps ∧
+      (ps.map Prod.fst).Pairwise (fun a b => a < b) ∧
+      (∀ p ∈ ps, 0 < p.2 ∧ p.2 < 8) := by
+  by_cases hw : width ≤ 16
+  · cases hh : readLE 2 bs with
+    | none => simp [decodePhaseFrame16,hw,hh] at h
+    | some p =>
+        obtain ⟨count,tail⟩ := p
+        by_cases hb : 32768 < total + count ∨ 256 < frameUsed + count
+        · simp [decodePhaseFrame16,hw,hh,hb] at h
+        · cases hp : readOrderedPhase width count none tail with
+          | none => simp [decodePhaseFrame16,hw,hh,hb,hp] at h
+          | some q =>
+              obtain ⟨xs,endBytes⟩ := q
+              simp [decodePhaseFrame16,hw,hh,hb,hp] at h
+              obtain ⟨rfl,rfl,rfl,rfl⟩ := h
+              obtain ⟨hl,ho,hc⟩ :=
+                readOrderedPhase_sound width count none tail xs endBytes hp
+              have hhead := readLE_consumes 2 bs count tail hh
+              exact ⟨hw,by rw [hl],by rw [hl],by omega,by omega,
+                by omega,ho,
+                orderedMaskWords_strict width none _
+                  (orderedPhaseWords_masks width none xs ho),
+                orderedPhaseWords_coefficients width none xs ho⟩
+  · simp [decodePhaseFrame16,hw] at h
+
+theorem decodePhaseFrame16_resource
+    (width total frameUsed count : Nat) (bs tail : WireBytes)
+    (hw : width ≤ 16) (hh : readLE 2 bs = some (count,tail))
+    (hb : 32768 < total + count ∨ 256 < frameUsed + count) :
+    decodePhaseFrame16 width total frameUsed bs = .unknownResource := by
+  simp [decodePhaseFrame16,hw,hh,hb]
+
+def encodePhaseWords : PhaseWords16 → WireBytes
+  | [] => []
+  | (m,c) :: ps => encodeLE 8 m ++ encodeLE 1 c ++ encodePhaseWords ps
+
+theorem readOrderedPhase_encode
+    (width : Nat) (previous : Option Nat) (ps : PhaseWords16)
+    (tail : WireBytes) (h : OrderedPhaseWords width previous ps)
+    (hw : width ≤ 16) :
+    readOrderedPhase width ps.length previous (encodePhaseWords ps ++ tail) =
+      some (ps,tail) := by
+  induction ps generalizing previous with
+  | nil => rfl
+  | cons a rest ih =>
+      obtain ⟨m,c⟩ := a
+      have hm : m < 256 ^ 8 := by
+        have hp : 2 ^ width ≤ 2 ^ 16 :=
+          Nat.pow_le_pow_right (by decide : 0 < 2) hw
+        have hb := h.1.1
+        have hconst : 2 ^ 16 ≤ 256 ^ 8 := by decide
+        omega
+      have hc : c < 256 ^ 1 := by
+        have hb := h.2.1.2
+        omega
+      have hr := readLE_encodeLE 8 m
+        (encodeLE 1 c ++ (encodePhaseWords rest ++ tail)) hm
+      have hcoef := readLE_encodeLE 1 c (encodePhaseWords rest ++ tail) hc
+      have hrest := ih (some m) h.2.2
+      have hg : (m < 2 ^ width ∧ afterPrevious previous m) ∧
+          (0 < c ∧ c < 8) := ⟨h.1,h.2.1⟩
+      simp [encodePhaseWords,List.append_assoc,readOrderedPhase,
+        hr,hcoef,hg,hrest]
+
+def encodePhaseFrame16 (ps : PhaseWords16) : WireBytes :=
+  encodeLE 2 ps.length ++ encodePhaseWords ps
+
+theorem decodePhaseFrame16_roundtrip
+    (width total frameUsed : Nat) (ps : PhaseWords16) (tail : WireBytes)
+    (hw : width ≤ 16) (ho : OrderedPhaseWords width none ps)
+    (ht : total + ps.length ≤ 32768)
+    (hl : frameUsed + ps.length ≤ 256) :
+    decodePhaseFrame16 width total frameUsed (encodePhaseFrame16 ps ++ tail) =
+      .accepted ps tail (total + ps.length) (frameUsed + ps.length) := by
+  have hc : ps.length < 256 ^ 2 := by omega
+  have hh := readLE_encodeLE 2 ps.length (encodePhaseWords ps ++ tail) hc
+  have hp := readOrderedPhase_encode width none ps tail ho hw
+  have hb : ¬ (32768 < total + ps.length ∨ 256 < frameUsed + ps.length) := by
+    omega
+  simp [decodePhaseFrame16,encodePhaseFrame16,List.append_assoc,
+    hw,hh,hb,hp]
+
+#print axioms readLE_encodeLE
+#print axioms readOrderedMasks_encode
+#print axioms decodeTermFrame16_roundtrip
+#print axioms readOrderedPhase_sound
+#print axioms orderedPhaseWords_masks
+#print axioms orderedPhaseWords_coefficients
+#print axioms decodePhaseFrame16_sound
+#print axioms decodePhaseFrame16_resource
+#print axioms readOrderedPhase_encode
+#print axioms decodePhaseFrame16_roundtrip
+
+#eval decodeTermFrame16 16 0 0 (encodeTermFrame16 [0,1,32768] ++ [42])
+#eval decodePhaseFrame16 16 3 3 (encodePhaseFrame16 [(0,1),(32768,7)] ++ [42])
+#eval decodePhaseFrame16 16 0 0 (encodePhaseFrame16 [(0,0)])
+#eval decodePhaseFrame16 16 0 0 (encodePhaseFrame16 [(0,8)])
+
 #print axioms readLE_sound
 #print axioms readLE_consumes
 #print axioms readLE_truncated

@@ -46,12 +46,12 @@ theorem sector_proved {X Z : Type} (pre : X → Prop)
     (transport : ∀ x z j, sgn (output z) * amp x z j =
       sgn (bx (input x) b) * amp x z j)
     (fixed : ∀ x, pre x → input x = e)
-    (matches : bx e b = q) :
+    (hmatches : bx e b = q) :
     ¬ Bad pre output q amp := by
   rintro ⟨x, z, j, hp, hn, ha⟩
   apply ha
   apply support_sector amp input output b transport x z j
-  rw [fixed x hp, matches]
+  rw [fixed x hp, hmatches]
   exact hn
 
 /-- Opposite-sector refutation requires a genuine admitted input and
@@ -67,8 +67,9 @@ theorem sector_refuted {X Z : Type} (pre : X → Prop)
     Bad pre output q amp := by
   rcases nonzero with ⟨z, j, ha⟩
   have hz : output z = bx (input x) b := by
-    by_contra hn
-    exact ha (support_sector amp input output b transport x z j hn)
+    by_cases he : output z = bx (input x) b
+    · exact he
+    · exact False.elim (ha (support_sector amp input output b transport x z j he))
   refine ⟨x, z, j, hp, ?_, ha⟩
   rw [hz, fixed x hp]
   exact opposite

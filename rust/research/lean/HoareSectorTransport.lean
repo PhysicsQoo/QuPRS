@@ -698,4 +698,227 @@ theorem phase_derivative_degree_bound (gs : List Gate) (d : State) :
 #print axioms trace_quad_sound
 #print axioms phase_derivative_degree_bound
 
+/-! Finite canonical quadratic table interpolation.
+    This theorem works for an explicitly bounded table of coefficients,
+    independent of the method that produced it. Linking QExpr/traceQuad
+    to this canonical table and its admitted wire bounds remains a
+    separate proof obligation. No statistical sampling assumption. -/
+
+def sumInt : Nat → (Nat → Int) → Int
+  | 0, _ => 0
+  | n+1, f => sumInt n f + f n
+
+theorem sumInt_zero (n : Nat) (f : Nat → Int)
+    (h : ∀ i, i < n → f i = 0) : sumInt n f = 0 := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      have ht := ih (fun i hi => h i (by omega))
+      have hn := h n (by omega)
+      simp [sumInt, ht, hn]
+
+theorem sumInt_single (n j : Nat) (v : Int) (hj : j < n) :
+    sumInt n (fun i => if i = j then v else 0) = v := by
+  induction n with
+  | zero => omega
+  | succ n ih =>
+      by_cases he : j = n
+      · subst j
+        have hz : sumInt n (fun i => if i = n then v else 0) = 0 := by
+          apply sumInt_zero
+          intro i hi
+          have hn : i ≠ n := by omega
+          simp [hn]
+        simp [sumInt, hz]
+      · have ht := ih (by omega : j < n)
+        have hn : n ≠ j := by omega
+        simp [sumInt, ht, hn]
+
+theorem sumInt_congr (n : Nat) (f g : Nat → Int)
+    (h : ∀ i, i < n → f i = g i) : sumInt n f = sumInt n g := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      simp only [sumInt]
+      rw [ih (fun i hi => h i (by omega)), h n (by omega)]
+
+theorem sumInt_mod_zero (n : Nat) (f : Nat → Int)
+    (h : ∀ i, i < n → f i % 8 = 0) : sumInt n f % 8 = 0 := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      have ht := ih (fun i hi => h i (by omega))
+      have hn := h n (by omega)
+      simp only [sumInt]
+      omega
+
+def unitState (j : Nat) : State := fun i => decide (i = j)
+
+def pairState (j k : Nat) : State :=
+  fun i => decide (i = j ∨ i = k)
+
+def rowEval (n : Nat) (q : Nat → Int) (x : State) : Int :=
+  sumInt n (fun j => if x j then q j else 0)
+
+theorem row_eval_zero (n : Nat) (q : Nat → Int) :
+    rowEval n q (fun _ => false) = 0 := by
+  apply sumInt_zero
+  intro i _
+  rfl
+
+theorem row_eval_unit (n j : Nat) (q : Nat → Int) :
+    rowEval n q (unitState j) = if j < n then q j else 0 := by
+  by_cases hj : j < n
+  · have h : rowEval n q (unitState j) =
+        sumInt n (fun i => if i = j then q j else 0) := by
+      apply sumInt_congr
+      intro i _
+      by_cases he : i = j
+      · subst i
+        simp [unitState]
+      · simp [unitState, he]
+    rw [h, sumInt_single n j (q j) hj]
+    simp [hj]
+  · have h : rowEval n q (unitState j) = 0 := by
+      apply sumInt_zero
+      intro i hi
+      have he : i ≠ j := by omega
+      simp [unitState, he]
+    simp [h, hj]
+
+def quadTable (c : Int) (l : Nat → Int) (q : Nat → Nat → Int) :
+    Nat → State → Int
+  | 0, _ => c
+  | n+1, x =>
+      quadTable c l q n x +
+        (if x n then l n + rowEval n (q n) x else 0)
+
+theorem quad_table_congr (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
+    (n : Nat) (x y : State) (h : ∀ i, i < n → x i = y i) :
+    quadTable c l q n x = quadTable c l q n y := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      have hr : rowEval n (q n) x = rowEval n (q n) y := by
+        apply sumInt_congr
+        intro i hi
+        rw [h i (by omega)]
+      simp only [quadTable]
+      rw [ih (fun i hi => h i (by omega)), h n (by omega), hr]
+
+theorem quad_table_zero (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
+    (n : Nat) : quadTable c l q n (fun _ => false) = c := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simp [quadTable, ih]
+
+theorem quad_table_unit (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
+    (n j : Nat) :
+    quadTable c l q n (unitState j) = c + (if j < n then l j else 0) := by
+  induction n with
+  | zero => simp [quadTable]
+  | succ n ih =>
+      by_cases he : j = n
+      · subst j
+        simp only [quadTable, ih, row_eval_unit]
+        have hu : unitState n n = true := by simp [unitState]
+        rw [hu]
+        simp <;> omega
+      · have hn : n ≠ j := by omega
+        have hs : j < n+1 ↔ j < n := by omega
+        simp only [quadTable, ih]
+        have hu : unitState j n = false := by simp [unitState, hn]
+        rw [hu]
+        simp [hs]
+
+theorem quad_table_pair (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
+    (n j k : Nat) (hj : j < k) (hk : k < n) :
+    quadTable c l q n (pairState j k) = c + l j + l k + q k j := by
+  induction n with
+  | zero => omega
+  | succ n ih =>
+      by_cases he : k = n
+      · subst k
+        have ht : quadTable c l q n (pairState j n) =
+            quadTable c l q n (unitState j) := by
+          apply quad_table_congr
+          intro i hi
+          have hn : i ≠ n := by omega
+          simp [pairState, unitState, hn]
+        have hr : rowEval n (q n) (pairState j n) =
+            rowEval n (q n) (unitState j) := by
+          apply sumInt_congr
+          intro i hi
+          have hn : i ≠ n := by omega
+          simp [pairState, unitState, hn]
+        simp only [quadTable]
+        rw [ht, hr, quad_table_unit, row_eval_unit]
+        simp [pairState, hj] <;> omega
+      · have hkn : k < n := by omega
+        have hnj : n ≠ j := by omega
+        have hnk : n ≠ k := by omega
+        simp only [quadTable, ih hkn]
+        have hp : pairState j k n = false := by simp [pairState, hnj, hnk]
+        rw [hp]
+        simp
+
+theorem quad_table_mod_constant (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
+    (n : Nat) (x : State)
+    (hl : ∀ i, i < n → l i % 8 = 0)
+    (hq : ∀ i j, i < n → j < i → q i j % 8 = 0) :
+    quadTable c l q n x % 8 = c % 8 := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      have ht := ih (fun i hi => hl i (by omega))
+        (fun i j hi hj => hq i j (by omega) hj)
+      have hn := hl n (by omega)
+      have hr : rowEval n (q n) x % 8 = 0 := by
+        apply sumInt_mod_zero
+        intro j hj
+        have hh := hq n j (by omega) hj
+        cases hx : x j <;> simp [hx, hh]
+      simp only [quadTable]
+      cases hx : x n <;> simp [hx] <;> omega
+
+/-- Exact interpolation: the zero, one-hot and two-hot sample values
+    imply a universal constant modulo 8 for every bounded table.
+    This conclusion is about all Boolean inputs, not just samples. -/
+theorem quadratic_interpolation_sound (c : Int) (l : Nat → Int)
+    (q : Nat → Nat → Int) (n : Nat) (v : Int)
+    (h0 : quadTable c l q n (fun _ => false) % 8 = v % 8)
+    (h1 : ∀ i, i < n → quadTable c l q n (unitState i) % 8 = v % 8)
+    (h2 : ∀ i j, j < i → i < n →
+      quadTable c l q n (pairState j i) % 8 = v % 8) :
+    ∀ x : State, quadTable c l q n x % 8 = v % 8 := by
+  rw [quad_table_zero] at h0
+  have hl : ∀ i, i < n → l i % 8 = 0 := by
+    intro i hi
+    have h := h1 i hi
+    rw [quad_table_unit] at h
+    simp [hi] at h
+    omega
+  have hq : ∀ i j, i < n → j < i → q i j % 8 = 0 := by
+    intro i j hi hj
+    have h := h2 i j hj hi
+    rw [quad_table_pair c l q n j i hj hi] at h
+    have ha := hl i hi
+    have hb := hl j (by omega)
+    omega
+  intro x
+  rw [quad_table_mod_constant c l q n x hl hq, h0]
+
+#print axioms sumInt_zero
+#print axioms sumInt_single
+#print axioms sumInt_congr
+#print axioms sumInt_mod_zero
+#print axioms row_eval_zero
+#print axioms row_eval_unit
+#print axioms quad_table_congr
+#print axioms quad_table_zero
+#print axioms quad_table_unit
+#print axioms quad_table_pair
+#print axioms quad_table_mod_constant
+#print axioms quadratic_interpolation_sound
+
 end QuPRS.SectorTransport

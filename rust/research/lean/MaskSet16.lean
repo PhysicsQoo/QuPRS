@@ -437,10 +437,11 @@ theorem sortedMaskConvolution16_correct
 
 /-- Direct bridge to Rust's (mask & assignment) == mask evaluator. -/
 theorem monomialTruth16_word (m word : Mask16) :
-    monomialTruth16 m (decodeMask16 word) = ((m &&& word) == m) := by
+    monomialTruth16 m (decodeMask16 word) =
+      decide ((m &&& word) = m) := by
   apply Bool.eq_iff_iff.mpr
   change monomialTruth16 m (decodeMask16 word) = true ↔
-    ((m &&& word) == m) = true
+    decide ((m &&& word) = m) = true
   rw [monomialTruth16_iff]
   constructor
   · intro h
@@ -452,9 +453,10 @@ theorem monomialTruth16_word (m word : Mask16) :
       · rfl
       · have hv := h i hm
         rw [hv]
-    exact beq_iff_eq.mpr he
+        rfl
+    exact decide_eq_true he
   · intro h i hm
-    have he : m &&& word = m := beq_iff_eq.mp h
+    have he : m &&& word = m := of_decide_eq_true h
     have hb := congrArg (fun x => decodeMask16 x i) he
     rw [decodeMask16_and, hm] at hb
     exact hb

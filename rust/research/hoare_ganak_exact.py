@@ -128,6 +128,9 @@ def main():
             return (count(base, list(prefix)+[-d0,-d1], negative_lit=d2, stage_deadline=stage_deadline),
                     count(base, list(prefix)+[d0,-d2], negative_lit=d1, stage_deadline=stage_deadline))
 
+        # Primary GPMC pilot uses a separate budget before Ganak regressions.
+        gpmc_rows=run_gpmc_pure(directory,pathlib.Path(sys.argv[4]).resolve(),tmp,time.monotonic()+45)
+        deadline=time.monotonic()+90
         # Qualify unweighted free variables, UNSAT and large integers.
         assert count("p cnf 3 1\n1 0\n", []) == 4
         assert count("p cnf 1 2\n1 0\n-1 0\n", []) == 0
@@ -231,7 +234,14 @@ def main():
         run_hybrid(directory,tmp,deadline,two_weighted,pathlib.Path(sys.argv[3]).resolve())
         # Separate bounded qualification budget; preserve all legacy regressions.
         deadline = time.monotonic() + 45
-        run_pure_wmc(directory,two_weighted,deadline)
+        ganak_rows=run_pure_wmc(directory,two_weighted,deadline)
+        paired=[]
+        for g,a in zip(gpmc_rows,ganak_rows,strict=True):
+            assert g['case']==a['case']
+            if g['verdict']!='UNKNOWN' and a['verdict']!='UNKNOWN':
+                assert g['coeff']==a['coeff'] and g['verdict']==a['verdict']
+                paired.append(dict(case=g['case'],gpmc_root_s=g['root_s'],ganak_root_s=a['root_s']))
+        print('HOARE_WMC_MATCHED_BACKENDS '+json.dumps(dict(paired=len(paired),rows=paired)),flush=True)
 
 
 
@@ -325,7 +335,7 @@ def pure_wmc_contract_tests():
         raise AssertionError("negative leakage accepted")
 
 
-def run_pure_wmc(directory, two_weighted, deadline):
+def run_pure_wmc(directory, two_weighted, deadline, backend="ganak-signed-rational"):
     """Standalone direct path; never consumes RR or SAT plans."""
     pure_wmc_contract_tests()
     cases=[]
@@ -358,7 +368,7 @@ def run_pure_wmc(directory, two_weighted, deadline):
             assert row["witness"] in legal_witnesses
         if name.startswith("rare-") and row["witness_status"]=="VERIFIED":
             assert row["witness_coeff"]==target
-        row.update(case=name,n=n,h=h,build_us=build_us,encoding_us=encoding_us,
+        row.update(backend=backend,case=name,n=n,h=h,build_us=build_us,encoding_us=encoding_us,
                    expected_raw=target,rr_calls=0,sat_queries=0,
                    decision_total_s=build_us/1e6+encoding_us/1e6+row["root_s"])
         rows.append(row)
@@ -373,8 +383,98 @@ def run_pure_wmc(directory, two_weighted, deadline):
                     unknown=sum(r["verdict"]=="UNKNOWN" for r in rs),
                     root_batches=sum(r["root_queries"] for r in rs),
                     witness_batches=sum(r["witness_queries"] for r in rs))
-    print("HOARE_PURE_WMC_SUMMARY "+json.dumps(dict(matched=summary(rows[:16]),rare=summary(rows[16:]),
+    print("HOARE_PURE_WMC_SUMMARY "+json.dumps(dict(backend=backend,matched=summary(rows[:16]),rare=summary(rows[16:]),
           rr_calls=0,sat_queries=0)),flush=True)
+    return rows
+
+
+
+def parse_gpmc_integer(stdout, mode, bound):
+    """GPMC mpz output (not MPFR). All packed weights are positive."""
+    lines=stdout.splitlines()
+    def one(prefix):
+        values=[l[len(prefix):].strip() for l in lines if l.startswith(prefix)]
+        if len(values)!=1:
+            raise ValueError("GPMC missing or conflicting "+prefix)
+        return values[0]
+    if any(l.startswith("c s approx") for l in lines):
+        raise ValueError("GPMC approximate count")
+    if one("c s type ")!=mode:
+        raise ValueError("GPMC wrong count mode")
+    raw=one("c s exact arb int ")
+    if not re.fullmatch(r"[0-9]+",raw):
+        raise ValueError("GPMC nonnegative integer expected")
+    value=int(raw)
+    if value>bound or one("s ")!=("SATISFIABLE" if value else "UNSATISFIABLE"):
+        raise ValueError("GPMC count/domain/status mismatch")
+    return value
+
+
+def unpack_pair(value, radix):
+    lo,hi=value%radix,value//radix
+    if hi>=radix:
+        raise ValueError("GPMC packed digit overflow")
+    return lo-hi
+
+
+def run_gpmc_pure(directory, exe, tmp, deadline):
+    """Two exact natural-weight queries, with arbitrary-precision packed counts.
+
+    Packing avoids negative weights and does not require complex MPFR
+    or a floating-point near-zero threshold. Every model contributes
+    either 1 or radix. radix=2^(CNF variables+1) exceeds either bucket.
+    """
+    query_file=pathlib.Path(tmp)/"gpmc-pure.cnf"
+    def count(base, assumptions, weighted_lit, end):
+        header,*clauses=base.splitlines()
+        p,kind,v,c=header.split();v,c=int(v),int(c)
+        assert (p,kind)==("p","cnf") and len(clauses)==c
+        assert all(0<abs(l)<=v for l in assumptions)
+        radix=1<<(v+1)
+        weights=""
+        mode="mc"
+        if weighted_lit is not None:
+            assert 0<abs(weighted_lit)<=v
+            mode="wmc"
+            weights=f"c p weight {weighted_lit} {radix} 0\nc p weight {-weighted_lit} 1 0\n"
+        query_file.write_text(f"c t {mode}\np cnf {v} {c+len(assumptions)}\n"+weights+
+            "".join(l+"\n" for l in clauses)+"".join(f"{l} 0\n" for l in assumptions))
+        remaining=min(deadline,end)-time.monotonic()
+        if remaining<=0:
+            raise TimeoutError("GPMC stage budget")
+        args=[str(exe),"-mode=1","-natw"] if mode=="wmc" else [str(exe),"-mode=0"]
+        proc=subprocess.run(args+[str(query_file)],capture_output=True,text=True,
+                            timeout=min(5,remaining),check=True)
+        result=parse_gpmc_integer(proc.stdout,mode,(1<<v)*(radix if mode=="wmc" else 1))
+        return result,radix
+    def solve(base,delta,prefix,end):
+        d0,d1,d2=delta
+        a,radix=count(base,list(prefix)+[-d0,-d1],d2,end)
+        b,rb=count(base,list(prefix)+[d0,-d2],d1,end)
+        assert radix==rb
+        return unpack_pair(a,radix),unpack_pair(b,radix)
+
+    # Runtime qualification includes free variables, both polarities,
+    # UNSAT and integer weights beyond IEEE-754 precision.
+    end=min(deadline,time.monotonic()+10)
+    assert count("p cnf 3 1\n1 0\n",[],None,end)[0]==4
+    assert count("p cnf 1 2\n1 0\n-1 0\n",[],None,end)[0]==0
+    for lit in (1,-1):
+        value,radix=count("p cnf 61 1\n1 0\n",[],lit,end)
+        assert value==(1<<60)*(radix if lit==1 else 1)
+    value,radix=count("p cnf 1 0\n",[],1,end)
+    assert unpack_pair(value,radix)==0
+    assert parse_gpmc_integer("s SATISFIABLE\nc s type wmc\nc s exact arb int 9007199254740993\n",
+                              "wmc",1<<60)==9007199254740993
+    for bad in ("s SATISFIABLE\nc s type wmc\nc s exact arb frac 1/1\n",
+                "s UNSATISFIABLE\nc s type wmc\nc s exact arb int 1\n"):
+        try:
+            parse_gpmc_integer(bad,"wmc",100)
+        except ValueError:
+            continue
+        raise AssertionError("accepted malformed GPMC output")
+    print("HOARE_GPMC_QUALIFICATION=PASS backend=mpz_natural_packed",flush=True)
+    return run_pure_wmc(directory,solve,deadline,backend="gpmc-mpz-packed")
 
 
 def parse_sat(rc, stdout, result, cnf):

@@ -92,7 +92,7 @@ jobs:
             --test property_hoare_experiment -- --nocapture \
             2>&1 | tee evidence/property-hoare.log
 
-      - name: Verify exact integer Ganak property counts
+      - name: Verify exact GPMC and Ganak property counts
         run: |
           set -euo pipefail
           mkdir -p evidence/hoare-exact-fixtures
@@ -109,7 +109,8 @@ jobs:
           chmod 700 "$tmp/ganak"
           dpkg-query -W minisat | tee evidence/hoare-sat-version.txt
           sha256sum "$(command -v minisat)" | tee evidence/hoare-sat-sha256.txt
-          python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures "$(command -v minisat)" \
+          python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/hoare-gpmc-release.json
+          python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures "$(command -v minisat)" "$tmp/gpmc" \
             2>&1 | tee evidence/hoare-ganak-exact.log
 
       - name: Observe native parser, CX and U/U3 phase behavior

@@ -3598,6 +3598,53 @@ mod exact_property_cnf {
         assert!(first_failure_plans(&s,&[],&[Anf::from([3])]).is_none());
         println!("HOARE_FIRST_FAILURE checks={checks} disjoint_exact=true");
     }
+
+    // R28E: original-source RR plan and original-source pure WMC.
+    // RR terminal refutations export a witness, not an invented norm.
+    fn export_dispatch_rr(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf],
+                          manifest:&mut String){
+        let t=std::time::Instant::now();
+        let initial=native(n,ops).expect("dispatch original IR");
+        let build_us=t.elapsed().as_micros();
+        let t=std::time::Instant::now();
+        let (base,d)=two_copy_conj(&initial,p,q);
+        let pure_status=if let Some(text)=serialize_external(&base,&[]){
+            std::fs::write(dir.join(format!("dispatch-pure-{name}.cnf")),text).unwrap();"READY"
+        }else{"UNKNOWN_ENCODING_LIMIT"};
+        let pure_us=t.elapsed().as_micros();
+        let t=std::time::Instant::now();
+        let input=HoareInput::build_scale(n,ops,p.to_vec(),q.to_vec());
+        let plan=input.as_ref().and_then(|input|hybrid_plan(input,true));
+        let mut status="UNKNOWN_REDUCTION_LIMIT";
+        let mut reason="admission-or-reduction";
+        let mut witness="-".to_owned();
+        let mut hr=initial.h;let mut scale=0;let mut hits=0;
+        let mut retained=0;let mut repr="none";
+        let mut delta="-".to_owned();let mut vars=0;let mut clauses=0;
+        let rr_us=t.elapsed().as_micros();
+        let t=std::time::Instant::now();
+        if let (Some(input),Some(plan))=(input.as_ref(),plan){
+            hr=plan.s.h;scale=plan.scale;hits=plan.hits;reason=plan.reason;
+            match plan.answer{
+                Answer::Proved=>status="PROVED",
+                Answer::Refuted(x)=>{status="REFUTED";witness=x.to_string();},
+                Answer::Unknown=>{
+                    let (c,d,kept,r)=adaptive_pair(input,&plan);
+                    retained=kept;repr=r;vars=c.vars;clauses=c.clauses.len();
+                    delta=format!("{},{},{}",d[0],d[1],d[2]);
+                    status="UNKNOWN_ENCODING_LIMIT";
+                    if let Some(text)=serialize_external(&c,&[]){
+                        std::fs::write(dir.join(format!("dispatch-rr-{name}.cnf")),text).unwrap();
+                        status="READY";
+                    }
+                }
+            }
+        }
+        let encoding_us=t.elapsed().as_micros();
+        manifest.push_str(&format!("{name}\t{}\t{hr}\t{scale}\t{hits}\t{retained}\t{repr}\t{status}\t{reason}\t{witness}\t{vars}\t{clauses}\t{delta}\t{rr_us}\t{encoding_us}\t{pure_status}\t{}\t{}\t{},{},{}\t{build_us}\t{pure_us}\n",
+            initial.h,base.vars,base.clauses.len(),d[0],d[1],d[2]));
+    }
+
     fn export_property_factor_benchmark(dir:&std::path::Path){
         let mut cases=Vec::new();
         for (name,n,ops,p,q,valid) in algorithmic_cases(){
@@ -3634,10 +3681,11 @@ mod exact_property_cnf {
             }
         }
         assert_eq!(cases.len(),20);
-        let mut manifest=String::new();let mut branches=String::new();
+        let mut manifest=String::new();let mut branches=String::new();let mut rr=String::new();
         for (name,n,ops,p,q,raw,oracle) in cases{
             let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
             export_external_property(dir,&name,n,&ops,&p,&q);
+            export_dispatch_rr(dir,&name,n,&ops,&p,&q,&mut rr);
             let t=std::time::Instant::now();
             let reduced=property_cone(n,&ops,&q).unwrap();
             let s=native(n,&reduced).unwrap();
@@ -3675,6 +3723,13 @@ mod exact_property_cnf {
         }
         std::fs::write(dir.join("property-factor.tsv"),manifest).unwrap();
         std::fs::write(dir.join("property-factor-branches.tsv"),branches).unwrap();
+        let ops=vec![G::H(0),G::H(0),G::H(0),G::T(0),G::H(0)];
+        let p=vec![bit(0,false)];let q=vec![bit(0,false)];
+        let raw=raw_for_input(1,&ops,&q,0);
+        assert_ne!(raw,[0,0]);
+        export_dispatch_rr(dir,"rr-residual-control",1,&ops,&p,&q,&mut rr);
+        std::fs::write(dir.join("dispatch-rr.tsv"),rr).unwrap();
+        std::fs::write(dir.join("dispatch-rr-control-oracle.tsv"),format!("{},{}\n",raw[0],raw[1])).unwrap();
     }
 
     fn export_phase_factors(dir:&std::path::Path,name:&str,s:&Symbolic,p:&[Anf],q:&[Anf],

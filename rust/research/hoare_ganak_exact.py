@@ -1758,6 +1758,8 @@ def dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline):
     x=None;status="WITNESS_INCOMPLETE"
     if len(candidates)==1 and time.monotonic()<end:
         x=candidates[0];method="unique-legal-input"
+    elif method=="rr":
+        x=result["attempts"][-1].get("witness_input");method="rr-original-input"
     elif method=="frontier" and result["attempts"][-1].get("witness_input") is not None:
         x=result["attempts"][-1]["witness_input"];method="frontier-diagonal"
     elif method=="factor":
@@ -1785,9 +1787,12 @@ def dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline):
                 return bool(any(z))
             x,calls,status=prefix_witness(n,legal,query,min(end,start+15))
             method="affine-prefix"
-    elif method=="gpmc":
-        data=(directory/f"property-base-{name}.cnf").read_text()
-        delta=list(map(int,r["delta"].split(",")))
+    elif method in ("gpmc","rr-wmc"):
+        if method=="rr-wmc":
+            rr=dispatch_rr_rows(directory)[name]
+            data=(directory/f"dispatch-rr-{name}.cnf").read_text();delta=list(map(int,rr["delta"].split(",")))
+        else:
+            data=(directory/f"property-base-{name}.cnf").read_text();delta=list(map(int,r["delta"].split(",")))
         def query(prefix,stop):
             try:
                 coeff=solve(data,delta,[i+2 if b else -(i+2) for i,b in prefix],stop)
@@ -1807,6 +1812,53 @@ def dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline):
 
 
 
+
+def dispatch_rr_rows(directory):
+    fields="case h hr scale hits retained representation status reason witness vars clauses delta rr_us encoding_us pure_status pure_vars pure_clauses pure_delta build_us pure_us".split()
+    with (directory/"dispatch-rr.tsv").open() as f:
+        rows={r["case"]:r for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
+    assert len(rows)==21
+    return rows
+
+
+def rr_terminal(r):
+    if r["status"]=="PROVED":
+        return dict(coeff=[0,0],status="RR_PROVED",terminal_verdict="PROVED")
+    if r["status"]=="REFUTED":
+        return dict(coeff=None,status="RR_REFUTED",terminal_verdict="REFUTED",witness_input=int(r["witness"]))
+    return dict(coeff=None,status="RR_INCONCLUSIVE",reason=r["reason"])
+
+
+def dispatch_count(directory,r,solve,deadline,metrics,reduced=False):
+    status=r["status"] if reduced else r["pure_status"]
+    if status!="READY":return dict(coeff=None,status=status)
+    kind="rr" if reduced else "pure"
+    data=(directory/f"dispatch-{kind}-{r['case']}.cnf").read_bytes()
+    delta=list(map(int,r["delta" if reduced else "pure_delta"].split(",")))
+    scale=int(r["scale"]) if reduced else 0
+    metrics.clear()
+    row=dict(coeff=None,status="UNKNOWN",cnf_sha256=hashlib.sha256(data).hexdigest())
+    try:
+        coeff=solve(data.decode(),delta,[],deadline)
+        assert not any(coeff) or positive_surd(coeff)
+        row.update(coeff=[v*(1<<scale) for v in coeff],status="EXACT_ROOT")
+    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+    except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+    row["queries"]=[dict(m) for m in metrics]
+    return row
+
+
+def dispatch_three_mode_control(directory,r,solve,deadline,metrics):
+    expected=list(map(int,(directory/"dispatch-rr-control-oracle.tsv").read_text().strip().split(",")))
+    assert r["status"]=="READY" and int(r["hr"])<int(r["h"]),r
+    pure=dispatch_count(directory,r,solve,min(deadline,time.monotonic()+10),metrics)
+    residual=dispatch_count(directory,r,solve,min(deadline,time.monotonic()+10),metrics,True)
+    assert pure["coeff"]==residual["coeff"]==expected,(r,pure,residual,expected)
+    print("HOARE_RR_RESIDUAL_CONTROL "+json.dumps(dict(case=r["case"],h=int(r["h"]),hr=int(r["hr"]),
+          scale=int(r["scale"]),pure=pure,residual=residual,expected=expected)),flush=True)
+
+
+
 def run_structure_dispatch(directory,solve,deadline,metrics):
     from hoare_quokka_compare import (load_case,cube,dispatch_policy,
                                         execute_routes,frontier_contract)
@@ -1818,6 +1870,9 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
     with (directory/"property-factor-branches.tsv").open() as f:
         branches=list(csv.DictReader(f,fieldnames=bf,delimiter="\t"))
     assert len(cases)==20
+    rr_rows=dispatch_rr_rows(directory)
+    dispatch_three_mode_control(directory,rr_rows["rr-residual-control"],solve,deadline,metrics)
+    pure_rows=[];rr_results=[]
     # Separate deliberate budget-exhaustion control, not a benchmark case.
     tasks=[(r,12_000_000,"exploratory-12M") for r in cases]
     tasks.append((next(r for r in cases if r["case"]=="BV4-correct"),0,"forced-limit-control"))
@@ -1835,10 +1890,16 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
         ops=[(op,None,list(args)) for op,*args in gates]
         admitted=cp is not None and cq is not None and all(op in ("h","x","cx","s","t","tdg") for op,_,_ in ops)
         routes,profile=dispatch_policy(n,int(r["h"]),len(ops),admitted,r["factor_status"]=="READY")
+        rr=rr_rows[name]
+        if configuration!="forced-limit-control":
+            routes.insert(0,"rr")
+            if rr["status"]=="READY" and (int(rr["hr"])<int(rr["h"]) or int(rr["retained"])>0):
+                routes.insert(-1,"rr-wmc")
         # Existing exports prepared offline; charge their recorded costs
         # to a proxy, not to a falsely claimed online end-to-end deadline.
         prep={"frontier":0.0,"factor":int(r["factor_us"])/1e6,
-              "gpmc":int(r["base_us"])/1e6}
+              "gpmc":int(r["base_us"])/1e6,"rr":int(rr["rr_us"])/1e6,
+              "rr-wmc":int(rr["encoding_us"])/1e6}
         def frontier(end):
             orientation="forward" if (1<<(n-len(cp))) < (1<<n)-(1<<(n-len(cq))) else "backward"
             v=frontier_contract(n,ops,cp,cq,3,orientation,min(end,time.monotonic()+15))
@@ -1879,31 +1940,46 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
             except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
             row["queries"]=[dict(m) for m in metrics]
             return row
-        result=execute_routes(routes,{"frontier":frontier,"factor":factor,"gpmc":gpmc},
+        result=execute_routes(routes,{"frontier":frontier,"factor":factor,"gpmc":gpmc,
+            "rr":lambda end:rr_terminal(rr),
+            "rr-wmc":lambda end:dispatch_count(directory,rr,solve,min(end,time.monotonic()+5),metrics,True)},
                               min(deadline,start+30))
         coeff=result["coeff"]
         if coeff is not None:assert tuple(coeff)==target,(name,result,target)
+        terminal=result.get("terminal_verdict")
+        if terminal is not None:assert terminal==("REFUTED" if any(target) else "PROVED")
         if configuration=="forced-limit-control":
             assert result["route"]=="gpmc" and len(result["attempts"])==2 and coeff==[0,0],result
         used=[a["route"] for a in result["attempts"]]
-        proxy=sum(prep[x] for x in used)+(int(r["common_us"])/1e6 if any(x!="frontier" for x in used) else 0)
+        proxy=sum(prep[x] for x in used)+(int(r["common_us"])/1e6 if any(x in ("factor","gpmc") for x in used) else 0)
         elapsed=time.monotonic()-start
         result.update(case=name,configuration=configuration,work_cap=work_cap,cap_s=30,
                       n=n,h=int(r["h"]),gates=len(ops),profile=profile,planned_routes=routes,
                       expected_coeff=target,source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
                       solve_dispatch_s=elapsed,prep_proxy_s=proxy,decision_proxy_s=elapsed+proxy,
-                      verdict="UNKNOWN" if coeff is None else "REFUTED" if any(coeff) else "PROVED")
+                      verdict=terminal or ("UNKNOWN" if coeff is None else "REFUTED" if any(coeff) else "PROVED"))
         rows.append(result)
         print("HOARE_STRUCTURE_DISPATCH "+json.dumps(result),flush=True)
         if result["verdict"]=="REFUTED":
             witness=dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline)
             result["witness"]=witness
             print("HOARE_STRUCTURE_WITNESS "+json.dumps(dict(case=name,configuration=configuration,source_sha256=result["source_sha256"],**witness)),flush=True)
+        if configuration!="forced-limit-control":
+            rr_verdict=rr["status"] if rr["status"] in ("PROVED","REFUTED") else "UNKNOWN"
+            rr_row=dict(case=name,mode="pure-rr",verdict=rr_verdict,status=rr["status"],h=int(rr["h"]),hr=int(rr["hr"]),hits=int(rr["hits"]),prep_s=int(rr["rr_us"])/1e6,witness=rr["witness"])
+            if rr_verdict!="UNKNOWN":assert rr_verdict==("REFUTED" if any(target) else "PROVED")
+            rr_results.append(rr_row);print("HOARE_THREE_MODE "+json.dumps(rr_row),flush=True)
+            st=time.monotonic()
+            pure=dispatch_count(directory,rr,solve,min(deadline,st+30),metrics)
+            if pure["coeff"] is not None:assert tuple(pure["coeff"])==target
+            pure.update(case=name,mode="pure-wmc",verdict="UNKNOWN" if pure["coeff"] is None else "REFUTED" if any(pure["coeff"]) else "PROVED",root_s=time.monotonic()-st,prep_s=(int(rr["build_us"])+int(rr["pure_us"]))/1e6)
+            pure_rows.append(pure);print("HOARE_THREE_MODE "+json.dumps(pure),flush=True)
     benchmark=rows[:-1]
+    print("HOARE_THREE_MODE_SUMMARY "+json.dumps({m:dict(cases=len(xs),decided=sum(x["verdict"]!="UNKNOWN" for x in xs),proved=sum(x["verdict"]=="PROVED" for x in xs),refuted=sum(x["verdict"]=="REFUTED" for x in xs)) for m,xs in (("pure-rr",rr_results),("pure-wmc",pure_rows),("hybrid",benchmark))}),flush=True)
     assert len(benchmark)==20
     print("HOARE_STRUCTURE_DISPATCH_SUMMARY "+json.dumps(dict(cases=len(benchmark),
         decided=sum(r["verdict"]!="UNKNOWN" for r in benchmark),
-        routes={k:sum(r["route"]==k for r in benchmark) for k in ("frontier","factor","gpmc","none")},
+        routes={k:sum(r["route"]==k for r in benchmark) for k in ("rr","frontier","factor","rr-wmc","gpmc","none")},
         forced_limit_fallback=rows[-1]["route"]=="gpmc",configuration="exploratory-12M",
         witnesses_verified=sum(r.get("witness",{}).get("status")=="VERIFIED" for r in benchmark),
         witnesses_required=sum(r["verdict"]=="REFUTED" for r in benchmark))),flush=True)

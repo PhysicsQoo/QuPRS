@@ -813,11 +813,13 @@ def execute_routes(routes,callbacks,deadline):
         row=callbacks[route](deadline)
         stop=time.monotonic()
         assert "coeff" in row
-        if stop>deadline and row["coeff"] is not None:
-            row=dict(row,coeff=None,status="LATE_EXACT_REJECTED")
+        terminal=row.get("terminal_verdict") in ("PROVED","REFUTED")
+        if stop>deadline and (row["coeff"] is not None or terminal):
+            row=dict(row,coeff=None,terminal_verdict=None,status="LATE_EXACT_REJECTED")
+            terminal=False
         attempts.append(dict(route=route,elapsed_s=stop-start,**row))
-        if row["coeff"] is not None:
-            return dict(route=route,status=row["status"],coeff=row["coeff"],attempts=attempts)
+        if row["coeff"] is not None or terminal:
+            return dict(route=route,status=row["status"],coeff=row["coeff"],terminal_verdict=row.get("terminal_verdict"),attempts=attempts)
     return dict(route="none",status="UNKNOWN_ALL_ROUTES",coeff=None,attempts=attempts)
 
 

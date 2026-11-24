@@ -666,8 +666,8 @@ jobs:
             exit 1
           fi
           frame_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-termframe16.log)"
-          test "$frame_reports" -eq 20
-          echo 'LEAN4_TERMFRAME16_PROOFS_PASS theorem_axiom_reports=20'
+          test "$frame_reports" -eq 25
+          echo 'LEAN4_TERMFRAME16_PROOFS_PASS theorem_axiom_reports=25'
 
       - name: Build and test std-only independent verifier
         run: |

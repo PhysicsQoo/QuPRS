@@ -556,4 +556,231 @@ theorem decodePhaseFrame16_roundtrip
 #eval decodeExactTermFrame16 15 0 0 [1,0,0,128,0,0,0,0,0,0]
 #eval decodeExactTermFrame16 16 0 0 [1,1]
 
+
+/- Compositional P8C1 per-gate state wire frame: one path count byte,
+   exactly n output ANFs, then one Z8 phase frame. The source replay
+   transition and digest binding are deliberately outside this lemma. -/
+abbrev OutputWords16 := List (List Nat)
+
+def outputTermCount16 : OutputWords16 → Nat
+  | [] => 0
+  | ms :: rest => ms.length + outputTermCount16 rest
+
+def OrderedOutputs16 (width : Nat) : OutputWords16 → Prop
+  | [] => True
+  | ms :: rest =>
+      OrderedMaskWords width none ms ∧ OrderedOutputs16 width rest
+
+theorem orderedMaskWords_from_pairwise
+    (width : Nat) (previous : Option Nat) (ms : List Nat)
+    (hb : ∀ m ∈ ms, m < 2 ^ width)
+    (hs : ms.Pairwise (fun a b : Nat => a < b))
+    (hp : ∀ m ∈ ms, afterPrevious previous m) :
+    OrderedMaskWords width previous ms := by
+  induction ms generalizing previous with
+  | nil => trivial
+  | cons m rest ih =>
+      have hd := List.pairwise_cons.mp hs
+      refine ⟨hb m (by simp), hp m (by simp), ?_⟩
+      apply ih (some m)
+      · intro x hx
+        exact hb x (List.mem_cons.mpr (Or.inr hx))
+      · exact hd.2
+      · intro x hx
+        exact hd.1 x hx
+
+inductive Outputs16Result where
+  | accepted (outputs : OutputWords16) (rest : WireBytes) (total frameUsed : Nat)
+  | invalidProof
+  | unknownResource
+  deriving Repr, DecidableEq
+
+def decodeOutputs16 (width : Nat) :
+    Nat → Nat → Nat → WireBytes → Outputs16Result
+  | 0, total, frameUsed, bs => .accepted [] bs total frameUsed
+  | n + 1, total, frameUsed, bs =>
+      match decodeTermFrame16 width total frameUsed bs with
+      | .invalidProof => .invalidProof
+      | .unknownResource => .unknownResource
+      | .accepted ms tail t f =>
+          match decodeOutputs16 width n t f tail with
+          | .invalidProof => .invalidProof
+          | .unknownResource => .unknownResource
+          | .accepted xs rest t' f' => .accepted (ms :: xs) rest t' f'
+
+/-- The n output fields share counters, consume exactly their declared
+    bytes, and contain only canonical ordered ANFs. -/
+theorem decodeOutputs16_sound
+    (width n total frameUsed : Nat) (bs : WireBytes)
+    (xs : OutputWords16) (rest : WireBytes) (t f : Nat)
+    (h : decodeOutputs16 width n total frameUsed bs =
+      .accepted xs rest t f) :
+    xs.length = n ∧ OrderedOutputs16 width xs ∧
+      t = total + outputTermCount16 xs ∧
+      f = frameUsed + outputTermCount16 xs ∧
+      bs.length = 2 * n + 8 * outputTermCount16 xs + rest.length := by
+  induction n generalizing total frameUsed bs xs rest t f with
+  | zero =>
+      simp [decodeOutputs16] at h
+      obtain ⟨rfl,rfl,rfl,rfl⟩ := h
+      simp [OrderedOutputs16,outputTermCount16]
+  | succ n ih =>
+      cases hh : decodeTermFrame16 width total frameUsed bs with
+      | invalidProof => simp [decodeOutputs16,hh] at h
+      | unknownResource => simp [decodeOutputs16,hh] at h
+      | accepted ms tail t0 f0 =>
+          cases ht : decodeOutputs16 width n t0 f0 tail with
+          | invalidProof => simp [decodeOutputs16,hh,ht] at h
+          | unknownResource => simp [decodeOutputs16,hh,ht] at h
+          | accepted ys endBytes t1 f1 =>
+              simp [decodeOutputs16,hh,ht] at h
+              obtain ⟨rfl,rfl,rfl,rfl⟩ := h
+              obtain ⟨_,h1,h2,_,_,hlen,hb,hs⟩ :=
+                decodeTermFrame16_sound width total frameUsed bs ms tail t0 f0 hh
+              obtain ⟨hl,ho,h3,h4,hrest⟩ := ih t0 f0 tail ys endBytes t1 f1 ht
+              have hmask : OrderedMaskWords width none ms :=
+                orderedMaskWords_from_pairwise width none ms hb hs
+                  (by intro m _; exact True.intro)
+              refine ⟨by simp [hl], ⟨hmask,ho⟩, ?_, ?_, ?_⟩
+              · simp only [outputTermCount16]; omega
+              · simp only [outputTermCount16]; omega
+              · simp only [outputTermCount16]; omega
+
+def encodeOutputs16 : OutputWords16 → WireBytes
+  | [] => []
+  | ms :: rest => encodeTermFrame16 ms ++ encodeOutputs16 rest
+
+theorem decodeOutputs16_roundtrip
+    (width total frameUsed : Nat) (xs : OutputWords16)
+    (tail : WireBytes) (hw : width ≤ 16)
+    (ho : OrderedOutputs16 width xs)
+    (ht : total + outputTermCount16 xs ≤ 32768)
+    (hf : frameUsed + outputTermCount16 xs ≤ 256) :
+    decodeOutputs16 width xs.length total frameUsed
+      (encodeOutputs16 xs ++ tail) =
+      .accepted xs tail (total + outputTermCount16 xs)
+        (frameUsed + outputTermCount16 xs) := by
+  induction xs generalizing total frameUsed with
+  | nil => simp [decodeOutputs16,encodeOutputs16,outputTermCount16]
+  | cons ms rest ih =>
+      have hc : outputTermCount16 (ms :: rest) =
+          ms.length + outputTermCount16 rest := rfl
+      have ht0 : total + ms.length ≤ 32768 := by omega
+      have hf0 : frameUsed + ms.length ≤ 256 := by omega
+      have ht1 : total + ms.length + outputTermCount16 rest ≤ 32768 := by omega
+      have hf1 : frameUsed + ms.length + outputTermCount16 rest ≤ 256 := by omega
+      have hfirst := decodeTermFrame16_roundtrip width total frameUsed
+        ms (encodeOutputs16 rest ++ tail) hw ho.1 ht0 hf0
+      have hrest := ih (total + ms.length) (frameUsed + ms.length)
+        ho.2 ht1 hf1
+      simp [decodeOutputs16,encodeOutputs16,List.append_assoc,
+        hfirst,hrest,outputTermCount16,Nat.add_assoc]
+
+inductive StateFrame16Result where
+  | accepted (paths : Nat) (outputs : OutputWords16)
+      (phase : PhaseWords16) (rest : WireBytes) (total : Nat)
+  | invalidProof
+  | unknownResource
+  deriving Repr, DecidableEq
+
+/-- Model only the admitted <=16-symbol profile. In contrast, Rust
+    P8C1 admits larger widths; this lemma is not a general parser proof.
+    The local frame counter starts at zero and is shared by all fields. -/
+def decodeStateFrame16 (n total : Nat) (bs : WireBytes) :
+    StateFrame16Result :=
+  match readLE 1 bs with
+  | none => .invalidProof
+  | some (paths,tail) =>
+      if 0 < n ∧ n + paths ≤ 16 then
+        match decodeOutputs16 (n + paths) n total 0 tail with
+        | .invalidProof => .invalidProof
+        | .unknownResource => .unknownResource
+        | .accepted xs payload t f =>
+            match decodePhaseFrame16 (n + paths) t f payload with
+            | .invalidProof => .invalidProof
+            | .unknownResource => .unknownResource
+            | .accepted ps rest t' _ =>
+                .accepted paths xs ps rest t'
+      else .invalidProof
+
+/-- Joint validity of the entire per-gate state; in particular the
+    phase terms cannot bypass the budget already consumed by ANFs. -/
+theorem decodeStateFrame16_sound
+    (n total : Nat) (bs : WireBytes) (paths : Nat)
+    (xs : OutputWords16) (ps : PhaseWords16)
+    (rest : WireBytes) (t : Nat)
+    (h : decodeStateFrame16 n total bs =
+      .accepted paths xs ps rest t) :
+    0 < n ∧ n + paths ≤ 16 ∧ xs.length = n ∧
+      OrderedOutputs16 (n + paths) xs ∧
+      OrderedPhaseWords (n + paths) none ps ∧
+      t = total + outputTermCount16 xs + ps.length ∧
+      t ≤ 32768 ∧ outputTermCount16 xs + ps.length ≤ 256 ∧
+      bs.length = 3 + 2 * n + 8 * outputTermCount16 xs +
+        9 * ps.length + rest.length := by
+  cases hh : readLE 1 bs with
+  | none => simp [decodeStateFrame16,hh] at h
+  | some head =>
+      obtain ⟨p,tail⟩ := head
+      by_cases hg : 0 < n ∧ n + p ≤ 16
+      · cases ho : decodeOutputs16 (n+p) n total 0 tail with
+        | invalidProof => simp [decodeStateFrame16,hh,hg,ho] at h
+        | unknownResource => simp [decodeStateFrame16,hh,hg,ho] at h
+        | accepted ys payload t0 f0 =>
+            cases hp : decodePhaseFrame16 (n+p) t0 f0 payload with
+            | invalidProof => simp [decodeStateFrame16,hh,hg,ho,hp] at h
+            | unknownResource => simp [decodeStateFrame16,hh,hg,ho,hp] at h
+            | accepted qs endBytes t1 f1 =>
+                simp [decodeStateFrame16,hh,hg,ho,hp] at h
+                obtain ⟨rfl,rfl,rfl,rfl,rfl⟩ := h
+                obtain ⟨hn,hy,ht,hf,hsize⟩ :=
+                  decodeOutputs16_sound (n+p) n total 0 tail ys payload t0 f0 ho
+                obtain ⟨_,ht',hf',hmax,hframe,hphase,hq,_,_⟩ :=
+                  decodePhaseFrame16_sound (n+p) t0 f0 payload qs endBytes t1 f1 hp
+                have hheader := readLE_consumes 1 bs p tail hh
+                exact ⟨hg.1,hg.2,hn,hy,hq,by omega,hmax,by omega,by omega⟩
+      · simp [decodeStateFrame16,hh,hg] at h
+
+def encodeStateFrame16 (paths : Nat) (xs : OutputWords16)
+    (ps : PhaseWords16) : WireBytes :=
+  encodeLE 1 paths ++ encodeOutputs16 xs ++ encodePhaseFrame16 ps
+
+/-- Every valid per-gate state roundtrips, with exact counters and
+    suffix. This composes both previously proved termset codecs. -/
+theorem decodeStateFrame16_roundtrip
+    (n total paths : Nat) (xs : OutputWords16) (ps : PhaseWords16)
+    (tail : WireBytes) (hn : 0 < n) (hw : n + paths ≤ 16)
+    (hl : xs.length = n)
+    (ho : OrderedOutputs16 (n + paths) xs)
+    (hp : OrderedPhaseWords (n + paths) none ps)
+    (ht : total + outputTermCount16 xs + ps.length ≤ 32768)
+    (hf : outputTermCount16 xs + ps.length ≤ 256) :
+    decodeStateFrame16 n total (encodeStateFrame16 paths xs ps ++ tail) =
+      .accepted paths xs ps tail (total + outputTermCount16 xs + ps.length) := by
+  have hpaths : paths < 256 ^ 1 := by omega
+  have hhead := readLE_encodeLE 1 paths
+    (encodeOutputs16 xs ++ (encodePhaseFrame16 ps ++ tail)) hpaths
+  have ht0 : total + outputTermCount16 xs ≤ 32768 := by omega
+  have hf0 : 0 + outputTermCount16 xs ≤ 256 := by omega
+  have hout := decodeOutputs16_roundtrip (n+paths) total 0 xs
+    (encodePhaseFrame16 ps ++ tail) hw ho ht0 hf0
+  rw [hl] at hout
+  have hphase := decodePhaseFrame16_roundtrip (n+paths)
+    (total + outputTermCount16 xs) (0 + outputTermCount16 xs)
+    ps tail hw hp ht (by omega)
+  have hg : 0 < n ∧ n + paths ≤ 16 := ⟨hn,hw⟩
+  simp [decodeStateFrame16,encodeStateFrame16,List.append_assoc,
+    hhead,hg,hout,hphase]
+
+#print axioms orderedMaskWords_from_pairwise
+#print axioms decodeOutputs16_sound
+#print axioms decodeOutputs16_roundtrip
+#print axioms decodeStateFrame16_sound
+#print axioms decodeStateFrame16_roundtrip
+
+#eval decodeStateFrame16 2 0
+  (encodeStateFrame16 1 [[1],[2,4]] [(0,1),(7,4)] ++ [42])
+#eval decodeStateFrame16 1 0
+  (encodeStateFrame16 16 [[1]] [])
+
 end QuPRS.P0

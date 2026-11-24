@@ -653,13 +653,13 @@ jobs:
           test "$word_report_count" -eq 14
           echo 'LEAN4_MASK16_PROOFS_PASS theorem_axiom_reports=14'
           LEAN_PATH=. lean MaskSet16.lean 2>&1 | tee /tmp/qasm-lean-maskset16.log
-          if grep -E 'sorryAx|Lean[.]trustCompiler' /tmp/qasm-lean-maskset16.log; then
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-maskset16.log; then
             echo 'Unexpected Lean finite mask-set theorem axiom dependency' >&2
             exit 1
           fi
           maskset_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-maskset16.log)"
-          test "$maskset_reports" -eq 13
-          echo 'LEAN4_MASKSET16_PROOFS_PASS theorem_axiom_reports=13'
+          test "$maskset_reports" -eq 23
+          echo 'LEAN4_MASKSET16_PROOFS_PASS theorem_axiom_reports=23'
 
       - name: Build and test std-only independent verifier
         run: |

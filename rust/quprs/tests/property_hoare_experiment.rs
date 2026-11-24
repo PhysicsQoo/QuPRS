@@ -1232,6 +1232,185 @@ mod exact_property_cnf {
         assert!(affine_pre(2,&[Anf::from([3])]).is_none());
         println!("HOARE_AFFINE_PRE_DIFFERENTIAL cases={cases} consistent_constraint_subsets={consistent} exact_paths_coefficients_witness=true");
     }
+
+    #[derive(Default,Debug)]
+    struct GuardPhaseStats{groups:usize,constant:usize,queries:usize,visits:u64}
+    // For each path monomial, its coefficient is a Z8 polynomial in
+    // original input bits. Prove constancy under the original precondition
+    // using exact SAT, not a sampled input. Preserve input labels and guard.
+    fn guard_phase(mut ps:PathSum,n:usize,p:&[Anf],grouped:bool,budget:u64)->Option<(PathSum,GuardPhaseStats)>{
+        let s=compact(&ps,n)?;
+        if n+s.h>63||(0..n+s.h).any(|i|!ps.v.path_vars.contains(&(i as u32)))||
+            p.iter().flatten().any(|&m|m>>n!=0)||s.phase.len()>256{return None;}
+        let mask=(1u64<<n)-1;
+        let mut base=Cnf::new(n);
+        let bits:Vec<_>=(0..n).map(|i|i as Lit+2).collect();
+        for pred in p{let l=base.anf(pred,&bits);base.enforce(l);}
+        let mut fuel=budget;
+        if count(&base,&[],&mut fuel,true)?==0{return None;}
+        let mut groups=BTreeMap::<(u64,u64),BTreeMap<u64,u8>>::new();
+        for (&m,&k) in &s.phase{
+            let key=(m&!mask,if grouped{0}else{m&mask});
+            groups.entry(key).or_default().insert(m&mask,k);
+        }
+        let mut out=BTreeMap::new();
+        let mut stats=GuardPhaseStats::default();
+        for ((path,_),poly) in groups{
+            stats.groups+=1;
+            let mut cnf=base.clone();
+            let mut value=[ZERO;3];
+            for (&m,&k) in &poly{
+                let l=cnf.monomial(m,&bits);
+                let term=std::array::from_fn(|i|if k>>i&1!=0{l}else{ZERO});
+                value=cnf.add3(value,term);
+            }
+            let mut constant=Some(0u8);
+            for (i,&l) in value.iter().enumerate(){
+                stats.queries+=2;
+                let yes=count(&cnf,&[l],&mut fuel,true)?;
+                let no=count(&cnf,&[-l],&mut fuel,true)?;
+                if yes==0&&no==0{return None;}
+                if yes!=0&&no!=0{constant=None;break;}
+                if yes!=0{if let Some(c)=constant.as_mut(){*c|=1<<i;}}
+            }
+            if let Some(c)=constant{
+                stats.constant+=1;
+                add_phase(&mut out,path,c);
+            }else{
+                for (m,k) in poly{add_phase(&mut out,m|path,k);}
+            }
+        }
+        // Rebuild exact native Z8 phase only; leave output and labels intact.
+        ps.p.terms.clear();
+        for (m,k) in out{
+            let mono=(0..n+s.h).filter(|&i|m>>i&1!=0).map(|i|i as u32).collect();
+            ps.p.add_term(mono,quprs::PhaseCoeff::new_constant(quprs::Rational::new(k as i64,8)));
+        }
+        stats.visits=budget-fuel;
+        Some((ps,stats))
+    }
+    fn nonlinear_cases()->Vec<ScaleCase>{
+        let mut cases=Vec::new();
+        for k in [1usize,2]{
+            let n=6*k;
+            let mut ops=Vec::new();
+            let mut p=Vec::new();
+            let mut safe=Vec::new();
+            for i in 0..k{
+                let j=6*i;let c=j+4;let a=j+5;
+                ops.extend([G::CCX(j,j+1,c),G::CCX(j+2,j+3,c),G::H(a),
+                    G::T(c),G::T(a),G::CX(c,a)]);
+                ops.extend((0..7).map(|_|G::T(a)));
+                ops.extend([G::CX(c,a),G::H(a),G::CCX(j+2,j+3,c),G::CCX(j,j+1,c)]);
+                p.extend([bit(c,false),bit(a,false)]);
+                safe.push(Anf::from([0,3u64<<j,12u64<<j]));
+            }
+            let q=p.clone();
+            safe.extend(p.clone());
+            let raw=(1i128<<(2*k))*(16i128.pow(k as u32)-13i128.pow(k as u32));
+            cases.push(ScaleCase{name:format!("CS-nonlinear{k}-safe"),n,ops:ops.clone(),p:safe,q:q.clone(),expected:[0,0],known_witness:None});
+            cases.push(ScaleCase{name:format!("CS-nonlinear{k}-negative"),n,ops,p,q,expected:[raw,0],known_witness:Some(3)});
+        }
+        cases
+    }
+    #[test]
+    fn hoare_guard_phase_nonlinear(){
+        // Differential admission, including non-affine predicates, and
+        // explicitly compare phase at each legal input/path before RR.
+        let gates=[G::H(0),G::H(1),G::CZ(0,1),G::CX(0,1),G::T(0),G::S(1)];
+        let mut cases=0;
+        for m in 1..16u64{
+            let p=vec![(0..4).filter(|i|m>>i&1!=0).collect::<Anf>()];
+            for g in &gates{for h in &gates{
+                let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+                for op in [G::H(0),g.clone(),h.clone()]{op.apply(&mut ps,false);}
+                let direct=compact(&ps,2).unwrap();
+                for grouped in [false,true]{
+                    let (special,_)=guard_phase(ps.clone(),2,&p,grouped,2_000_000).unwrap();
+                    let s=compact(&special,2).unwrap();
+                    for x in (0..4).filter(|&x|eval_conj(&p,x)){
+                        for y in 0..1u64<<s.h{assert_eq!(path(&s,x,y),path(&direct,x,y));}
+                    }
+                    let (r,stats)=reduce_existing(special,2).unwrap();
+                    for q in [Anf::from([0,1]),Anf::from([3])]{
+                        let (a,d)=two_copy_conj(&direct,&p,std::slice::from_ref(&q));
+                        let (b,e)=two_copy_conj(&r,&p,std::slice::from_ref(&q));
+                        assert_eq!(signed(buckets(&a,d,&[],&mut 20_000_000).unwrap()),
+                            signed(buckets(&b,e,&[],&mut 20_000_000).unwrap()).map(|v|v*(1i128<<stats.scale2)));
+                        cases+=1;
+                    }
+                }
+            }}
+        }
+        assert_eq!(cases,2160);
+        let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+        G::H(0).apply(&mut ps,false);
+        assert!(guard_phase(ps.clone(),2,&[Anf::new()],true,2_000_000).is_none());
+        assert!(guard_phase(ps,2,&[Anf::from([0])],true,0).is_none());
+        for c in nonlinear_cases(){
+            if c.name.ends_with("-safe"){assert!(affine_pre(c.n,&c.p).is_none());}
+            if let Some(x)=c.known_witness{
+                assert!(eval_conj(&c.p,x));
+                assert_ne!(raw_for_input(c.n,&c.ops,&c.q,x),[0,0]);
+            }
+            if c.n<=6{
+                let mut total=[0i128;2];
+                for x in (0..1u64<<c.n).filter(|&x|eval_conj(&c.p,x)){
+                    let a=raw_for_input(c.n,&c.ops,&c.q,x);
+                    total[0]+=a[0];total[1]+=a[1];
+                }
+                assert_eq!(total,c.expected);
+            }
+            let mut ps=PathSum::new(c.n);ps.set_auto_reduce(false);
+            for op in &c.ops{op.apply(&mut ps,false);}
+            let (term,_)=guard_phase(ps.clone(),c.n,&c.p,false,2_000_000).unwrap();
+            let (group,_)=guard_phase(ps,c.n,&c.p,true,2_000_000).unwrap();
+            let (term,_)=reduce_existing(term,c.n).unwrap();
+            let (group,_)=reduce_existing(group,c.n).unwrap();
+            if c.name.ends_with("-safe"){
+                assert!(term.h>0,"termwise baseline unexpectedly eliminates all paths");
+                assert_eq!(group.h,0,"grouped guard should unlock HH");
+            }else{assert!(group.h>0);}
+        }
+        println!("HOARE_GUARD_PHASE_DIFFERENTIAL cases={cases} nonlinear_family=true");
+    }
+    fn export_nonlinear(dir:&std::path::Path,manifest:&mut String){
+        for c in nonlinear_cases(){
+            let mut ps=PathSum::new(c.n);ps.set_auto_reduce(false);
+            for op in &c.ops{op.apply(&mut ps,false);}
+            let direct=compact(&ps,c.n).unwrap();
+            let t=std::time::Instant::now();
+            let (rr,rstats)=reduce_existing(ps.clone(),c.n).unwrap();
+            let rr_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (term,tstats)=guard_phase(ps.clone(),c.n,&c.p,false,2_000_000).unwrap();
+            let (term,trs)=reduce_existing(term,c.n).unwrap();
+            let term_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (group,gstats)=guard_phase(ps,c.n,&c.p,true,2_000_000).unwrap();
+            let g=compact(&group,c.n).unwrap();
+            let group_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (gr,grs)=reduce_existing(group,c.n).unwrap();
+            let gr_us=group_us+t.elapsed().as_micros();
+            println!("HOARE_GUARD_PHASE_STATS case={} termwise={tstats:?} grouped={gstats:?}",c.name);
+            for (route,s,scale,prep_us) in [
+                ("direct",&direct,0,0),("rr",&rr,rstats.scale2,rr_us),
+                ("term-rr",&term,trs.scale2,term_us),("guard",&g,0,group_us),
+                ("guard-rr",&gr,grs.scale2,gr_us)]{
+                let t=std::time::Instant::now();
+                let (cnf,d)=two_copy_conj(s,&c.p,&c.q);
+                let encoding_us=t.elapsed().as_micros();
+                let status=if let Some(text)=dimacs(&cnf,&[]){
+                    std::fs::write(dir.join(format!("scale-{}-{route}.cnf",c.name)),text).unwrap();
+                    "READY"
+                }else{"UNKNOWN_ENCODING_LIMIT"};
+                let witness=c.known_witness.map(|x|x.to_string()).unwrap_or("-".to_owned());
+                manifest.push_str(&format!("{}\t{route}\t{}\t{}\t{scale}\t{},{},{}\t{},{}\t{witness}\t{}\t{}\t{encoding_us}\t{status}\t{witness}\t{prep_us}\t{}\n",
+                    c.name,c.n,s.h,d[0],d[1],d[2],c.expected[0],c.expected[1],cnf.vars,cnf.clauses.len(),s.phase.len()));
+            }
+        }
+    }
     fn export_scaled(dir:&std::path::Path){
         let mut manifest=String::new();
         for c in scaled_cases(){
@@ -1277,8 +1456,9 @@ mod exact_property_cnf {
                     c.name,c.n,s.h,d[0],d[1],d[2],c.expected[0],c.expected[1],cnf.vars,cnf.clauses.len(),s.phase.len()));
             }
         }
+        export_nonlinear(dir,&mut manifest);
         std::fs::write(dir.join("scaled.tsv"),manifest).unwrap();
-        println!("HOARE_SCALED_FIXTURES cases=16 variants=64");
+        println!("HOARE_SCALED_FIXTURES cases=20 variants=84");
     }
 
 }

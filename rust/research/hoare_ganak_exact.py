@@ -225,7 +225,7 @@ def main():
                     row["status"]="PASS" if row["two_status"]==row["four_status"]=="PASS" and row["witness_status"] in ("PASS","NOT_REQUIRED") else "UNKNOWN_RESOURCE"
                 scaled.append(row)
                 print("HOARE_GANAK_SCALE "+json.dumps(row),flush=True)
-        assert len(scaled)==64
+        assert len(scaled)==84
         ok=sum(r["status"]=="PASS" for r in scaled)
         print(f"HOARE_GANAK_SCALE_SUMMARY variants={len(scaled)} pass={ok} unknown={len(scaled)-ok} calls={calls} solver_wall_s={solver_seconds:.6f}")
 

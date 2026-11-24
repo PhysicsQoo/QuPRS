@@ -307,4 +307,168 @@ theorem replay_constant_translation (gs : List Gate) (s t : State) (b : Bool)
 #print axioms replay_phase_shift
 #print axioms replay_constant_translation
 
+/-! Independent affine row-combination certificate.
+    Masks are Boolean functions restricted to the first n wires.
+    The selected original rows are determined by a Boolean list.
+    The checker verifies the combination and a separate legal witness;
+    no assumption about Gaussian elimination or completeness is needed.
+    This is a Lean reference checker, not a refinement of Python/Rust
+    packed masks or of the original circuit parser. -/
+
+def maskXor (a b : State) : State := fun i => bx (a i) (b i)
+
+def dot : Nat → State → State → Bool
+  | 0, _, _ => false
+  | n+1, m, x => bx (dot n m x) (m n && x n)
+
+theorem bx_and (a b c : Bool) :
+    (bx a b && c) = bx (a && c) (b && c) := by
+  cases a <;> cases b <;> cases c <;> decide
+
+theorem bx_zero_right (a : Bool) : bx a false = a := by
+  cases a <;> decide
+
+theorem dot_zero (n : Nat) (x : State) :
+    dot n (fun _ => false) x = false := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simp [dot, ih, bx]
+
+theorem dot_xor (n : Nat) (m s x : State) :
+    dot n (maskXor m s) x = bx (dot n m x) (dot n s x) := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      simp only [dot, maskXor]
+      rw [ih, bx_and]
+      exact bx_four (dot n m x) (dot n s x) (m n && x n) (s n && x n)
+
+def sameMask : Nat → State → State → Bool
+  | 0, _, _ => true
+  | n+1, m, s => sameMask n m s && decide (m n = s n)
+
+theorem sameMask_dot (n : Nat) (m s x : State)
+    (h : sameMask n m s = true) :
+    dot n m x = dot n s x := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      have hh : sameMask n m s = true ∧ m n = s n := by
+        simpa [sameMask] using h
+      simp only [dot]
+      rw [ih hh.1, hh.2]
+
+structure AffineRow where
+  mask : State
+  rhs : Bool
+
+def zeroRow : AffineRow := ⟨fun _ => false, false⟩
+
+def rowXor (a b : AffineRow) : AffineRow :=
+  ⟨maskXor a.mask b.mask, bx a.rhs b.rhs⟩
+
+def rowOK (n : Nat) (r : AffineRow) (x : State) : Prop :=
+  dot n r.mask x = r.rhs
+
+theorem row_zero_ok (n : Nat) (x : State) : rowOK n zeroRow x := by
+  exact dot_zero n x
+
+theorem row_xor_ok (n : Nat) (a b : AffineRow) (x : State)
+    (ha : rowOK n a x) (hb : rowOK n b x) : rowOK n (rowXor a b) x := by
+  unfold rowOK at ha hb ⊢
+  change dot n (maskXor a.mask b.mask) x = bx a.rhs b.rhs
+  rw [dot_xor, ha, hb]
+
+def combined : List AffineRow → List Bool → AffineRow
+  | [], _ => zeroRow
+  | _, [] => zeroRow
+  | r :: rs, b :: bs =>
+      if b then rowXor r (combined rs bs) else combined rs bs
+
+def affinePre (n : Nat) (rs : List AffineRow) (x : State) : Prop :=
+  ∀ r : AffineRow, r ∈ rs → rowOK n r x
+
+theorem combined_ok (n : Nat) (rs : List AffineRow) (bs : List Bool)
+    (x : State) (hp : affinePre n rs x) : rowOK n (combined rs bs) x := by
+  induction rs generalizing bs with
+  | nil => exact row_zero_ok n x
+  | cons r rs ih =>
+      have hr : rowOK n r x := hp r (by simp)
+      have ht : affinePre n rs x := by
+        intro a ha
+        exact hp a (List.mem_cons_of_mem _ ha)
+      cases bs with
+      | nil => exact row_zero_ok n x
+      | cons b bs =>
+          cases b with
+          | false =>
+              simpa [combined] using ih bs ht
+          | true =>
+              simpa [combined] using row_xor_ok n r (combined rs bs) x hr (ih bs ht)
+
+def checkCombination (n : Nat) (rs : List AffineRow) (bs : List Bool)
+    (s : State) (e : Bool) : Bool :=
+  let r := combined rs bs
+  decide (rs.length = bs.length) && (sameMask n r.mask s && decide (r.rhs = e))
+
+theorem combination_sound (n : Nat) (rs : List AffineRow) (bs : List Bool)
+    (s : State) (e : Bool)
+    (hc : checkCombination n rs bs s e = true) :
+    ∀ x, affinePre n rs x → dot n s x = e := by
+  have h : rs.length = bs.length ∧
+      (sameMask n (combined rs bs).mask s = true ∧ (combined rs bs).rhs = e) := by
+    simpa [checkCombination] using hc
+  intro x hp
+  have he := combined_ok n rs bs x hp
+  unfold rowOK at he
+  rw [← sameMask_dot n (combined rs bs).mask s x h.2.1, he, h.2.2]
+
+def checkWitness (n : Nat) (x : State) : List AffineRow → Bool
+  | [] => true
+  | r :: rs => decide (dot n r.mask x = r.rhs) && checkWitness n x rs
+
+theorem witness_sound (n : Nat) (rs : List AffineRow) (x : State)
+    (hc : checkWitness n x rs = true) : affinePre n rs x := by
+  induction rs with
+  | nil =>
+      intro r hr
+      simp at hr
+  | cons r rs ih =>
+      have h : dot n r.mask x = r.rhs ∧ checkWitness n x rs = true := by
+        simpa [checkWitness] using hc
+      intro a ha
+      rcases List.mem_cons.mp ha with he | ht
+      · subst a
+        exact h.1
+      · exact ih h.2 a ht
+
+/-- Connect the independent combination and witness checkers to the
+    existing terminal theorem. Transport and nonzero output remain
+    explicit semantic premises. -/
+theorem checked_affine_terminal_sound {Z : Type} (n : Nat)
+    (rs : List AffineRow) (bs : List Bool) (s w : State)
+    (amp : State → Z → Nat → Int) (output : Z → Bool)
+    (e b q : Bool)
+    (hc : checkCombination n rs bs s e = true)
+    (hw : checkWitness n w rs = true)
+    (transport : ∀ x z j, sgn (output z) * amp x z j =
+      sgn (bx (dot n s x) b) * amp x z j)
+    (nonzero : ∃ z j, amp w z j ≠ 0) :
+    Sound (Bad (affinePre n rs) output q amp) (terminal true e b q) := by
+  apply terminal_sound (affinePre n rs) amp (dot n s) output true e b q
+  intro _
+  exact ⟨transport, combination_sound n rs bs s e hc, w, witness_sound n rs w hw, nonzero⟩
+
+#print axioms bx_and
+#print axioms bx_zero_right
+#print axioms dot_zero
+#print axioms dot_xor
+#print axioms sameMask_dot
+#print axioms row_zero_ok
+#print axioms row_xor_ok
+#print axioms combined_ok
+#print axioms combination_sound
+#print axioms witness_sound
+#print axioms checked_affine_terminal_sound
+
 end QuPRS.SectorTransport

@@ -620,6 +620,171 @@ def wide_paper_pilot(gpmc,tmp,data,name,blob):
 
 
 
+
+# R28B: gate-local frontier contraction of the SAME paired path domain.
+# Forward: unnormalized U P U^dagger. Backward: U^dagger (I-Q) U.
+# Each H/RX gate contributes its numerator on both copies; defer 2^-h.
+# Exact dense/sparse density-operator propagation is established prior
+# art. This is a bounded alternative path-sum summation schedule, not a
+# claim of a novel density-matrix algorithm or large-width scalability.
+class FrontierLimit(Exception):
+    pass
+
+
+def frontier_contract(n,ops,pre,post,m,orientation,deadline,
+                      max_work=5_000_000,max_live=65536):
+    assert 3<=m<=6 and 0<n<=16 and orientation in ("forward","backward")
+    assert all(0<=i<n and b in (0,1) for p in (pre,post) for i,b in p.items())
+    M=1<<m;D=M//2;N=1<<n
+    zero=(0,)*D;one=(1,)+(0,)*(D-1)
+    stats=dict(work=0,peak_entries=0,peak_frontier=0,gates_done=0,h_done=0,
+               width_bound=2*n,orientation=orientation)
+    def matches(x,p):return all(x>>i&1==b for i,b in p.items())
+    def check():
+        if time.monotonic()>=deadline:raise FrontierLimit("time")
+    def charge(k):
+        stats["work"]+=k
+        if stats["work"]>max_work:raise FrontierLimit("work")
+        check()
+    def observe(old,new):
+        stats["peak_entries"]=max(stats["peak_entries"],old+new)
+        stats["peak_frontier"]=max(stats["peak_frontier"],old,new)
+        if old+new>max_live:raise FrontierLimit("live-entries")
+    def shift(a,k):
+        k%=M
+        if not k:return a
+        neg=k>=D;k%=D
+        out=tuple(-x for x in a[D-k:])+a[:D-k] if k else a
+        return tuple(-x for x in out) if neg else out
+    def add(a,b):return tuple(x+y for x,y in zip(a,b))
+    def accum(dst,key,val,old):
+        if val==zero:return
+        if key in dst:
+            val=add(dst[key],val)
+            if val==zero:del dst[key]
+            else:dst[key]=val
+        else:
+            observe(old,len(dst)+1)
+            dst[key]=val
+    def step_mix(front,bit,kind,sign):
+        # One local copy contraction. Every old wire value is summed
+        # exactly once into either new value; opposite copy retained.
+        charge(2*len(front))
+        out={}
+        for key,val in front.items():
+            old=int(bool(key&bit));base=key&~bit
+            if kind=="h":
+                accum(out,base,val,len(front))
+                accum(out,base|bit,shift(val,sign*(M//2)*old),len(front))
+            else:
+                accum(out,base,shift(val,sign*(-M//4)*old),len(front))
+                accum(out,base|bit,shift(val,sign*(-M//4)*(1-old)),len(front))
+        return out
+    start=time.monotonic()
+    front={}
+    try:
+        # No projection or averaging here: each legal basis input has
+        # coefficient one. A backward seed uses the entire bad projector.
+        for x in range(N):
+            if x%1024==0:check()
+            if (matches(x,pre) if orientation=="forward" else not matches(x,post)):
+                observe(0,len(front)+1);front[x|(x<<n)]=one
+        sign=1 if orientation=="forward" else -1
+        for op,a,qs in (ops if orientation=="forward" else reversed(ops)):
+            check();i=qs[0];b=1<<i
+            if op in ("h","rx"):
+                if op=="rx" and a!="pi/2":raise ValueError("unsupported rx")
+                front=step_mix(front,b,op,sign)
+                front=step_mix(front,b<<n,op,-sign)
+                stats["h_done"]+=1
+            elif op in ("x","cx"):
+                charge(len(front))
+                out={}
+                target=b if op=="x" else 1<<qs[1]
+                for key,val in front.items():
+                    flip=target if op=="x" or key&b else 0
+                    if op=="x" or key&(b<<n):flip|=target<<n
+                    observe(len(front),len(out)+1);out[key^flip]=val
+                front=out
+            elif op in ("s","t","tdg","rz"):
+                if op=="rz":
+                    v=WIDE_ANGLES[a]*M
+                    if v%32:raise ValueError("angle outside exact phase modulus")
+                    k=v//32
+                else:k={"s":M//4,"t":M//8,"tdg":-M//8}[op]
+                charge(len(front))
+                # Same pair key; only its root-of-unity coefficient changes.
+                # No second frontier map is allocated.
+                for key in front:
+                    delta=int(bool(key&b))-int(bool(key&(b<<n)))
+                    if delta:front[key]=shift(front[key],sign*k*delta)
+            else:raise ValueError("unsupported gate "+op)
+            stats["gates_done"]+=1
+        charge(N)
+        total=zero
+        trace=zero
+        for x in range(N):
+            v=front.get(x|(x<<n),zero)
+            trace=add(trace,v)
+            if (not matches(x,post) if orientation=="forward" else matches(x,pre)):
+                total=add(total,v)
+        seed_rank=(1<<(n-len(pre))) if orientation=="forward" else N-(1<<(n-len(post)))
+        assert trace==(seed_rank*(1<<stats["h_done"]),)+(0,)*(D-1),("trace",orientation,trace)
+        assert total[D//2]==0 and all(total[j]==-total[D-j] for j in range(1,D))
+        assert stats["h_done"]==sum(op in ("h","rx") for op,_,_ in ops)
+        return dict(status="EXACT_FRONTIER",coeff=list(total),stats=stats,root_s=time.monotonic()-start,
+                    verdict="REFUTED" if any(total) else "PROVED",trace_check=True)
+    except FrontierLimit as e:
+        return dict(status="FRONTIER_"+str(e).upper().replace("-","_"),coeff=None,stats=stats,
+                    root_s=time.monotonic()-start,verdict="UNKNOWN",trace_check=False)
+
+
+def frontier_contract_tests():
+    import random
+    rng=random.Random(2802)
+    checks=0
+    for m in (3,4,5,6):
+        for j in range(32):
+            n=1+j%3
+            ops=[]
+            for _ in range(1+j%8):
+                op=rng.choice(("h","rx","x","s","t","tdg","rz")+(("cx",) if n>1 else ()))
+                i=rng.randrange(n)
+                qs=[i];a=None
+                if op=="cx":qs.append(rng.choice([k for k in range(n) if k!=i]))
+                if op=="rx":a="pi/2"
+                if op=="rz":a=rng.choice([a for a,k in WIDE_ANGLES.items() if (k*(1<<m))%32==0])
+                ops.append((op,a,qs))
+            p={i:rng.randrange(2) for i in range(n) if rng.randrange(2)}
+            q={i:rng.randrange(2) for i in range(n) if rng.randrange(2)}
+            hist=enumerate_hist(n,ops,p,q,m);D=1<<(m-1)
+            expected=[hist[k]-hist[k+D] for k in range(D)]
+            for orientation in ("forward","backward"):
+                row=frontier_contract(n,ops,p,q,m,orientation,time.monotonic()+3)
+                assert row["coeff"]==expected and row["trace_check"],(n,m,ops,p,q,row,expected)
+                checks+=1
+    for kwargs in (dict(max_work=0),dict(max_live=1)):
+        row=frontier_contract(2,[("h",None,[0])],{}, {0:0},3,"forward",time.monotonic()+3,**kwargs)
+        assert row["coeff"] is None and row["verdict"]=="UNKNOWN"
+        checks+=1
+    row=frontier_contract(2,[],{}, {0:0},3,"forward",time.monotonic()-1)
+    assert row["status"]=="FRONTIER_TIME" and row["coeff"] is None
+    print("HOARE_FRONTIER_CONTRACT "+json.dumps(dict(checks=checks+1,exact_coefficients=True)),flush=True)
+
+
+def frontier_paper_pilot(data,name,blob):
+    n,_,ops=paper_parse(data);m=5 if name=="noancilla" else 3
+    h=sum(op=="rx" for op,_,_ in ops)
+    expected=[((4<<h) if name=="noancilla" else 0)]+[0]*((1<<(m-1))-1)
+    for orientation in ("forward","backward"):
+        row=frontier_contract(n,ops,{4:0},{4:0},m,orientation,time.monotonic()+30)
+        if row["coeff"] is not None:assert row["coeff"]==expected,(name,row,expected)
+        row.update(case=name,source_blob=blob,source_sha256=hashlib.sha256(data).hexdigest(),
+                   h=h,n=n,gates=len(ops),modulus=1<<m,expected_coeff=expected)
+        print("HOARE_FRONTIER_PAPER "+json.dumps(row),flush=True)
+
+
+
 def paper_compare(gpmc):
     import quokka_sharp as qs
     from quokka_sharp import config
@@ -629,6 +794,7 @@ def paper_compare(gpmc):
     with tempfile.TemporaryDirectory(prefix="hoare-paper-") as tmp:
         tmp=pathlib.Path(tmp)
         wide_contract(gpmc,tmp)
+        frontier_contract_tests()
         for name,file,blob,gates,bad_count in PAPER_FILES:
             path=tmp/file
             url=f"https://raw.githubusercontent.com/{PAPER_REPO}/{PAPER_HEAD}/benchmark/algorithm/origin/{file}"
@@ -640,7 +806,9 @@ def paper_compare(gpmc):
             assert oracle["gates"]==gates and len(oracle["bad_inputs"])==bad_count
             print("HOARE_PAPER_SOURCE "+json.dumps(dict(case=name,head=PAPER_HEAD,blob=blob,
                   sha256=hashlib.sha256(data).hexdigest(),oracle_s=time.monotonic()-t,**oracle)),flush=True)
-            wide_paper_pilot(gpmc,tmp,data,name,blob)
+            frontier_paper_pilot(data,name,blob)
+            if os.environ.get("HOARE_WIDE_PAPER_REPEAT")=="1":
+                wide_paper_pilot(gpmc,tmp,data,name,blob)
             for comp in (True,False):
                 row=dict(case=name,basis="comp" if comp else "pauli",source_blob=blob,expected=oracle["verdict"])
                 try:

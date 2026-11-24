@@ -2961,9 +2961,111 @@ mod exact_property_cnf {
         println!("HOARE_ADAPTIVE_PAIR checks={checks} exact_per_input=true");
     }
 
+
+    type HybridPair=(Cnf,[Lit;3],usize,&'static str);
+    // SAT proof on the same native checkpoint; then optional incremental
+    // partial cancellation on the exact ordered prefix retained by adaptive.
+    // SAT means a path exists, not that its quantum amplitude is nonzero.
+    fn sat_assisted_pair(input:&HoareInput,plan:&ResidualPlan,pair:HybridPair,
+                         proof_budget:u64,partial_budget:u64)
+        ->(Option<HybridPair>,usize,u64,usize,&'static str){
+        let mut report=PureRrReport{mode:PureRrMode::Sat,answer:Answer::Unknown,
+            reason:"sat-inconclusive",standard_runs:0,monomial_runs:0,
+            algebraic_trials:0,algebraic_hits:0,sat_queries:0,sat_visits:0,
+            directions:vec![],residual_h:plan.s.h};
+        let answer=if proof_budget==0{Answer::Unknown}else{sat_rr(&plan.s,&input.pre,&input.post,proof_budget,&mut report)};
+        let mut queries=report.sat_queries;
+        let proof_visits=report.sat_visits;
+        if answer==Answer::Proved{
+            return (None,queries,proof_visits,0,"sat-full-proof");
+        }
+        let kept=pair.2;
+        if kept>=4||kept>plan.directions.len()||partial_budget==0{
+            return (Some(pair),queries,proof_visits,0,"sat-keep-adaptive");
+        }
+        let prefix=&plan.directions[..kept];
+        let (base,_)=two_copy_conj(&plan.s,&input.pre,&input.post);
+        let allowed=|c:&Cnf|c.bounded()&&
+            (!base.bounded()||(c.vars<=base.vars.saturating_mul(2)&&
+                c.clauses.len()<=base.clauses.len().saturating_mul(2)));
+        let mut fuel=partial_budget;
+        let mut best:Option<HybridPair>=None;
+        for d in small_span_candidates(&plan.s).into_iter().take(8){
+            if fuel==0{break;}
+            if prefix.contains(&d){continue;}
+            let mut trial=prefix.to_vec();trial.push(d);
+            let Some((mut c,after,_))=multi_one(&plan.s,&input.pre,&input.post,&trial) else{continue;};
+            queries+=1;
+            match count(&c,&[after],&mut fuel,true){
+                Some(0)=>return (None,queries,proof_visits+partial_budget-fuel,0,"sat-prefix-proof"),
+                Some(_)=>{},
+                None=>break,
+            }
+            let Some((next,delta,_))=multi_two(&plan.s,&input.pre,&input.post,&trial) else{continue;};
+            if !allowed(&next){continue;}
+            let bits:Vec<_>=(0..plan.s.n+plan.s.h).map(|i|i as Lit+2).collect();
+            let mut cache=BTreeMap::new();
+            let Some(before)=survivor_dag(&mut c,&plan.s,&bits,prefix,0,&mut cache) else{continue;};
+            queries+=1;
+            match count(&c,&[before,-after],&mut fuel,true){
+                Some(v) if v>0=>{
+                    if best.as_ref().is_none_or(|(old,_,_,_)|
+                        next.vars+next.clauses.len()<old.vars+old.clauses.len()){
+                        best=Some((next,delta,kept+1,"sat-dag-extension"));
+                    }
+                },
+                Some(_)=>{},
+                None=>break,
+            }
+        }
+        let visits=proof_visits+partial_budget-fuel;
+        match best{
+            Some(next)=>(Some(next),queries,visits,1,"sat-partial-retained"),
+            None=>(Some(pair),queries,visits,0,"sat-keep-adaptive"),
+        }
+    }
+
+    #[test]
+    fn hoare_sat_assisted_residual_exact(){
+        let cases=[
+            (2,vec![G::H(0),G::CZ(0,1),G::H(0)],vec![bit(0,false)],vec![bit(0,false)]),
+            (2,vec![G::H(0),G::T(0),G::H(0),G::H(1)],vec![bit(0,false)],vec![bit(0,false)]),
+            (4,multi_direction_circuit(),(0..4).map(|i|bit(i,false)).collect(),vec![(1..8u64).collect::<Anf>()]),
+        ];
+        let mut checks=0;
+        for (n,ops,p,q) in cases{
+            let input=HoareInput::build(n,&ops,p,q).unwrap();
+            let plan=hybrid_plan(&input,true).unwrap();
+            for (pb,eb) in [(0,0),(200_000,50_000)]{
+                let pair=adaptive_pair(&input,&plan);
+                let kept=pair.2;
+                let (result,queries,visits,added,_)=sat_assisted_pair(&input,&plan,pair,pb,eb);
+                assert!(visits<=pb+eb&&added<=1);
+                if pb+eb==0{assert_eq!(queries,0);assert_eq!(result.as_ref().map(|x|x.2),Some(kept));}
+                for x in 0..1u64<<n{
+                    let expected=if eval_conj(&input.pre,x){raw_for_input(n,&ops,&input.post,x)}else{[0,0]};
+                    if let Some((ref c,d,k,_))=result{
+                        assert!(k>=kept);
+                        let prefix:Vec<_>=(0..n).map(|i|if x>>i&1!=0{i as Lit+2}else{-(i as Lit+2)}).collect();
+                        // The larger fixture is only tested on the known
+                        // legal input when counting would otherwise exceed
+                        // the independent small DPLL budget.
+                        if n>2&&!eval_conj(&input.pre,x){continue;}
+                        if n<=2{
+                            let v=exact_pair_coeff(c,d,&prefix,&mut 20_000_000,&mut 0).unwrap();
+                            assert_eq!(v.map(|a|a*(1i128<<plan.scale)),expected);
+                        }else{continue;}
+                    }else{assert_eq!(expected,[0,0]);}
+                    checks+=1;
+                }
+            }
+        }
+        println!("HOARE_SAT_ASSISTED_PAIR checks={checks} exact_per_input=true");
+    }
+
     fn emit_residual_plans(dir:&std::path::Path,name:&str,input:&HoareInput,
                            raw:[i128;2],witnesses:&str,manifest:&mut String){
-        for (mode,property) in [("standard",false),("property",true),("adaptive",true)]{
+        for (mode,property) in [("standard",false),("property",true),("adaptive",true),("sat-assisted",true)]{
             let t=std::time::Instant::now();
             let plan=hybrid_plan(input,property);
             let prep_us=t.elapsed().as_micros();
@@ -2972,6 +3074,7 @@ mod exact_property_cnf {
             let mut delta="-".to_owned();let mut witness="-".to_owned();
             let mut encoding_us=0;let mut reason="reduction-limit";
             let mut retained=0;let mut representation="none";
+            let mut sat_queries=0;let mut sat_visits=0;let mut sat_us=0;let mut sat_added=0;let mut sat_reason="not-run";
             let mut status="UNKNOWN_REDUCTION_LIMIT";
             if let Some(plan)=plan{
                 h=plan.s.h;scale=plan.scale;hits=plan.hits;trials=plan.trials;
@@ -2981,23 +3084,31 @@ mod exact_property_cnf {
                     Answer::Refuted(x)=>{status="REFUTED";witness=x.to_string();},
                     Answer::Unknown=>{
                         let start=std::time::Instant::now();
-                        let (c,d,kept,repr)=if mode=="adaptive"{adaptive_pair(input,&plan)}else{
+                        let pair=if mode=="adaptive"||mode=="sat-assisted"{adaptive_pair(input,&plan)}else{
                             let (c,d)=residual_pair(input,&plan);
                             (c,d,plan.hits,if plan.g.is_some(){"anf"}else{"native"})
                         };
-                        retained=kept;representation=repr;
-                        variables=c.vars;clauses=c.clauses.len();
-                        delta=format!("{},{},{}",d[0],d[1],d[2]);
-                        status="UNKNOWN_ENCODING_LIMIT";
-                        if let Some(text)=dimacs(&c,&[]){
-                            std::fs::write(dir.join(format!("residual-{name}-{mode}.cnf")),text).unwrap();
-                            status="READY";
-                        }
-                        encoding_us=start.elapsed().as_micros();
+                        let result=if mode=="sat-assisted"{
+                            let st=std::time::Instant::now();
+                            let (r,q,v,a,sr)=sat_assisted_pair(input,&plan,pair,200_000,50_000);
+                            sat_us=st.elapsed().as_micros();sat_queries=q;sat_visits=v;sat_added=a;sat_reason=sr;
+                            r
+                        }else{Some(pair)};
+                        if let Some((c,d,kept,repr))=result{
+                            retained=kept;representation=repr;
+                            variables=c.vars;clauses=c.clauses.len();
+                            delta=format!("{},{},{}",d[0],d[1],d[2]);
+                            status="UNKNOWN_ENCODING_LIMIT";
+                            if let Some(text)=dimacs(&c,&[]){
+                                std::fs::write(dir.join(format!("residual-{name}-{mode}.cnf")),text).unwrap();
+                                status="READY";
+                            }
+                        }else{status="PROVED";reason="sat-proof";representation="sat-proof";}
+                        encoding_us=start.elapsed().as_micros().saturating_sub(sat_us);
                     }
                 }
             }
-            manifest.push_str(&format!("{name}\t{mode}\t{}\t{}\t{h}\t{scale}\t{hits}\t{trials}\t{guard_terms}\t{variables}\t{clauses}\t{delta}\t{status}\t{witness}\t{prep_us}\t{encoding_us}\t{reason}\t{},{}\t{witnesses}\t{retained}\t{representation}\n",
+            manifest.push_str(&format!("{name}\t{mode}\t{}\t{}\t{h}\t{scale}\t{hits}\t{trials}\t{guard_terms}\t{variables}\t{clauses}\t{delta}\t{status}\t{witness}\t{prep_us}\t{encoding_us}\t{reason}\t{},{}\t{witnesses}\t{retained}\t{representation}\t{sat_queries}\t{sat_visits}\t{sat_us}\t{sat_added}\t{sat_reason}\n",
                 input.initial.n,input.initial.h,raw[0],raw[1]));
         }
     }

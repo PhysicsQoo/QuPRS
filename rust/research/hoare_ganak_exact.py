@@ -485,7 +485,7 @@ def run_residual_hybrid(directory,solve,deadline,direct_rows):
     direct={r["case"]:r for r in direct_rows}
     rows=[]
     with (directory/"residual.tsv").open() as f:
-        for name,mode,n,h0,h,scale,hits,trials,guard_terms,variables,clauses,delta,status,witness,prep_us,encoding_us,reason,expected,witnesses,retained,representation in csv.reader(f,delimiter="\t"):
+        for name,mode,n,h0,h,scale,hits,trials,guard_terms,variables,clauses,delta,status,witness,prep_us,encoding_us,reason,expected,witnesses,retained,representation,sat_queries,sat_visits,sat_us,sat_added,sat_reason in csv.reader(f,delimiter="\t"):
             n,h0,h,scale,hits,trials,guard_terms,variables,clauses,prep_us,encoding_us=map(int,(n,h0,h,scale,hits,trials,guard_terms,variables,clauses,prep_us,encoding_us))
             if status=="READY":
                 end=min(deadline,time.monotonic()+5)
@@ -511,14 +511,14 @@ def run_residual_hybrid(directory,solve,deadline,direct_rows):
                 assert row["witness"] in legal,(name,mode,row)
             row.update(case=name,mode=mode,route=route,initial_h=h0,residual_h=h,scale2=scale,
                 hits=hits,trials=trials,retained_hits=int(retained),representation=representation,guard_terms=guard_terms,vars=variables,clauses=clauses,
-                prep_us=prep_us,encoding_us=encoding_us,
-                decision_total_s=direct[name]["build_us"]/1e6+(prep_us+encoding_us)/1e6+row["root_s"],
+                prep_us=prep_us,encoding_us=encoding_us,sat_queries=int(sat_queries),sat_visits=int(sat_visits),sat_us=int(sat_us),sat_added=int(sat_added),sat_reason=sat_reason,
+                decision_total_s=direct[name]["build_us"]/1e6+(prep_us+encoding_us+int(sat_us))/1e6+row["root_s"],
                 direct_decision_s=direct[name]["decision_total_s"])
             rows.append(row)
             print("HOARE_RESIDUAL_HYBRID "+json.dumps(row),flush=True)
-    assert len(rows)==48
+    assert len(rows)==64
     summary={}
-    for mode in ("standard","property","adaptive"):
+    for mode in ("standard","property","adaptive","sat-assisted"):
         rs=[r for r in rows if r["mode"]==mode]
         summary[mode]=dict(cases=len(rs),decided=sum(r["verdict"]!="UNKNOWN" for r in rs),
             rr_terminal=sum(r["route"]=="RR_TERMINAL" for r in rs),
@@ -527,6 +527,11 @@ def run_residual_hybrid(directory,solve,deadline,direct_rows):
             partial_guard_count_routes=sum(r["root_queries"]>0 and r["retained_hits"]>0 for r in rs),
             rejected_growth=sum(r["representation"]=="native-reject-growth" for r in rs),
             retained_hits=sum(r["retained_hits"] for r in rs),
+            sat_proofs=sum(r["representation"]=="sat-proof" for r in rs),
+            sat_queries=sum(r["sat_queries"] for r in rs),
+            sat_visits=sum(r["sat_visits"] for r in rs),
+            sat_us=sum(r["sat_us"] for r in rs),
+            sat_added=sum(r["sat_added"] for r in rs),
             witnesses=sum(r["witness_status"]=="VERIFIED" for r in rs),
             root_batches=sum(r["root_queries"] for r in rs),
             decision_total_s=sum(r["decision_total_s"] for r in rs))

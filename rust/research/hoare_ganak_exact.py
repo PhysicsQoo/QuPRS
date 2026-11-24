@@ -513,8 +513,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
                 run_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
             elif os.environ.get("HOARE_STREAMED_FACTOR")=="1":
                 run_streamed_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
-            else:
+            elif os.environ.get("HOARE_CONDITIONED_FACTOR")=="1":
                 run_conditioned_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+            else:
+                run_property_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -1574,6 +1576,101 @@ def run_conditioned_factor_pilot(directory,solve,deadline,metrics):
         mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
                   scale_decided=sum(r["mode"]==mode and not r["case"].startswith("factor-") and r["verdict"]!="UNKNOWN" for r in rows))
         for mode in ("streamed","planned","conditioned","conditioned-12m")})),flush=True)
+
+
+
+
+def run_property_factor_pilot(directory,solve,deadline,metrics):
+    """Generalized affine conjunctions with a complete, original-guard
+    GPMC fallback. Partial branch sums never establish a verdict."""
+    factor_contract();conditioning_contract()
+    fields="case n h hr scale post_count branch_count factor_status cnf_status vars clauses delta common_us base_us factor_us expected oracle".split()
+    bf="case branch status primary terms".split()
+    with (directory/"property-factor.tsv").open() as f:
+        cases=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    with (directory/"property-factor-branches.tsv").open() as f:
+        branches=list(csv.DictReader(f,fieldnames=bf,delimiter="\t"))
+    assert len(cases)==14
+    rows=[]
+    for i,r in enumerate(cases):
+        name=r["case"];target=tuple(map(int,r["expected"].split(",")))
+        scale=int(r["scale"])
+        bs=[b for b in branches if b["case"]==name]
+        assert len(bs)==int(r["branch_count"])
+        assert [int(b["branch"]) for b in bs]==list(range(len(bs)))
+        for mode in (("hybrid","gpmc") if i%2==0 else ("gpmc","hybrid")):
+            row=dict(case=name,mode=mode,oracle=r["oracle"],expected_raw=target,coeff=None,
+                     verdict="UNKNOWN",status="NOT_RUN",scale=scale,post_count=int(r["post_count"]),
+                     branch_count=len(bs),branches_done=0,branch_stats=[],factor_work=0,factor_s=0.0,
+                     gpmc_s=0.0,queries=[],route="gpmc" if mode=="gpmc" else "factor",
+                     vars=int(r["vars"]),clauses=int(r["clauses"]),
+                     prep_proxy_s=int(r["common_us"])/1e6)
+            if mode=="hybrid":
+                start=time.monotonic()
+                end=min(deadline,start+15)
+                row["prep_proxy_s"]+=int(r["factor_us"])/1e6
+                if r["factor_status"]=="READY":
+                    total=RZERO
+                    for b in bs:
+                        st=dict(branch=int(b["branch"]),status=b["status"])
+                        if b["status"]=="UNSAT_AFFINE":
+                            z=RZERO
+                        else:
+                            remaining=4_000_000-row["factor_work"]
+                            if remaining<=0 or time.monotonic()>=end:
+                                row["status"]="BRANCH_AGGREGATE_LIMIT";break
+                            data=(directory/f"property-factor-{name}-{b['branch']}.tsv").read_bytes()
+                            terms=[]
+                            for line in data.decode().splitlines():
+                                k,*fs=line.split("\t");terms.append((int(k),[tuple(map(int,x.split(":"))) for x in fs]))
+                            assert len(terms)==int(b["terms"])
+                            z,stats,why=planned_factor(int(b["primary"]),terms,end,max_work=remaining)
+                            row["factor_work"]+=stats["work"]
+                            st.update(stats=stats,status=why,sha256=hashlib.sha256(data).hexdigest())
+                        row["branch_stats"].append(st)
+                        if z is None:
+                            row["status"]="INCOMPLETE_BRANCH";break
+                        assert z[2]==0 and z[3]==-z[1],(name,b,z)
+                        assert not any(z) or positive_surd((z[0],z[1])),(name,b,z)
+                        total=radd(total,z);row["branches_done"]+=1
+                    if row["branches_done"]==len(bs):
+                        row.update(coeff=(total[0]*(1<<scale),total[1]*(1<<scale)),status="EXACT_ALL_BRANCHES")
+                else:row["status"]="UNSUPPORTED_FACTOR"
+                row["factor_s"]=time.monotonic()-start
+                row["factor_status"]=row["status"]
+            if row["coeff"] is None:
+                if mode=="hybrid":row["route"]="gpmc-fallback"
+                row["prep_proxy_s"]+=int(r["base_us"])/1e6
+                metrics.clear()
+                start=time.monotonic()
+                end=min(deadline,start+30)
+                if r["cnf_status"]!="READY":row["status"]=r["cnf_status"]
+                elif end<=start:row["status"]="GLOBAL_BUDGET_NOT_RUN"
+                else:
+                    data=(directory/f"property-base-{name}.cnf").read_bytes()
+                    row["cnf_sha256"]=hashlib.sha256(data).hexdigest()
+                    try:
+                        coeff=tuple(solve(data.decode(),list(map(int,r["delta"].split(","))),[],end))
+                        row.update(coeff=tuple(v*(1<<scale) for v in coeff),status="EXACT_ROOT")
+                    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                    except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+                row["gpmc_s"]=time.monotonic()-start
+                row["queries"]=[dict(m) for m in metrics]
+            if row["coeff"] is not None:
+                assert row["coeff"]==target,(name,mode,row["coeff"],target)
+                assert not any(target) or positive_surd(target)
+                row["verdict"]="REFUTED" if any(target) else "PROVED"
+            row["decision_proxy_s"]=row["prep_proxy_s"]+row["factor_s"]+row["gpmc_s"]
+            rows.append(row)
+            print("HOARE_PROPERTY_FACTOR "+json.dumps(row),flush=True)
+    assert len(rows)==28
+    print("HOARE_PROPERTY_FACTOR_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
+        m:dict(decided=sum(r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows),
+               proved=sum(r["mode"]==m and r["verdict"]=="PROVED" for r in rows),
+               refuted=sum(r["mode"]==m and r["verdict"]=="REFUTED" for r in rows),
+               factor_only=sum(r["mode"]==m and r["route"]=="factor" for r in rows),
+               fallback=sum(r["mode"]==m and r["route"]=="gpmc-fallback" for r in rows))
+        for m in ("hybrid","gpmc")})),flush=True)
 
 
 

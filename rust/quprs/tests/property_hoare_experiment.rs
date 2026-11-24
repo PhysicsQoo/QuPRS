@@ -3440,6 +3440,9 @@ mod exact_property_cnf {
     type PhaseProducts=BTreeMap<Vec<AffForm>,u8>;
     struct AffPair{cnf:Cnf,delta:[Lit;3],inputs:Vec<Lit>,primary:usize,terms:usize,phase:Option<PhaseProducts>,unsat:bool}
     fn affine_quotient_pair(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<AffPair>{
+        affine_quotient_pair_prefix(s,p,q,&[])
+    }
+    fn affine_quotient_pair_prefix(s:&Symbolic,p:&[Anf],q:&[Anf],prefix:&[Anf])->Option<AffPair>{
         let width=s.n+2*s.h;
         if width>=128{return None;}
         let input_mask=(1u128<<s.n)-1;
@@ -3448,6 +3451,11 @@ mod exact_property_cnf {
         for f in p{let (m,b)=linear_form(f,s.n)?;rows.push((m,!b));}
         let outputs:Vec<_>=s.output.iter().map(|f|linear_form(f,s.n+s.h)).collect::<Option<_>>()?;
         for &(m,_) in &outputs{rows.push((m^right_mask(m),false));}
+        for f in prefix{
+            let (m,b)=linear_form(f,s.n)?;
+            let (mask,c)=form_compose(m,b,&outputs);
+            rows.push((mask,!c));
+        }
         // A single affine postcondition can be absorbed as one affine
         // violation equation. Nonlinear or conjunction posts stay in CNF.
         if q.len()==1{
@@ -3537,6 +3545,122 @@ mod exact_property_cnf {
         let s=native(2,&[G::H(0)]).unwrap();
         assert!(affine_quotient_pair(&s,&[Anf::from([3])],&[]).is_none());
         println!("HOARE_AFFINE_QUOTIENT checks={checks} bucket_and_conditioned_exact=true");
+    }
+
+
+    // The first failed postcondition partitions the violating output
+    // subspace into disjoint projectors. Unlike summing all failures,
+    // no basis output (or paired assignment) can be counted twice.
+    fn first_failure_plans(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<Vec<AffPair>>{
+        if q.is_empty(){return Some(vec![]);}
+        if q.len()>16||p.iter().any(|f|linear_form(f,s.n).is_none())
+            ||q.iter().any(|f|linear_form(f,s.n).is_none())
+            ||s.output.iter().any(|f|linear_form(f,s.n+s.h).is_none()){return None;}
+        (0..q.len()).map(|i|affine_quotient_pair_prefix(s,p,&q[i..i+1],&q[..i])).collect()
+    }
+    #[test]
+    fn hoare_first_failure_partition_exact(){
+        let circuits=[
+            vec![G::H(0),G::H(1),G::CX(0,1),G::T(1),G::H(0)],
+            vec![G::H(0),G::CZ(0,1),G::H(0),G::CX(0,1),G::X(1)],
+            vec![G::H(0),G::H(1),G::CX(1,0),G::S(0)],
+        ];
+        let pres=[vec![],vec![bit(0,false)],vec![equal_bits(0,1)],vec![Anf::new()]];
+        let posts=[vec![],vec![bit(0,false)],vec![bit(0,false),bit(1,true)],
+            vec![bit(0,false),bit(0,false)],vec![bit(0,false),bit(0,true)],
+            vec![equal_bits(0,1),bit(1,false),Anf::new()],vec![Anf::from([0])]];
+        let mut checks=0;
+        for ops in circuits{
+            let s=native(2,&ops).unwrap();
+            for p in &pres{for q in &posts{
+                let plans=first_failure_plans(&s,p,q).unwrap();
+                let (base,d)=two_copy_conj(&s,p,q);
+                let expected=buckets(&base,d,&[],&mut 20_000_000).unwrap();
+                let mut sum=[0u128;8];
+                for a in &plans{
+                    let v=buckets(&a.cnf,a.delta,&[],&mut 20_000_000).unwrap();
+                    for i in 0..8{sum[i]+=v[i];}
+                }
+                assert_eq!(sum,expected);checks+=1;
+                for x in 0..4u64{
+                    let mut sum=[0i128;2];
+                    for a in &plans{
+                        let units:Vec<_>=a.inputs.iter().enumerate().map(|(i,&l)|if x>>i&1!=0{l}else{-l}).collect();
+                        let v=exact_pair_coeff(&a.cnf,a.delta,&units,&mut 20_000_000,&mut 0).unwrap();
+                        sum[0]+=v[0];sum[1]+=v[1];
+                    }
+                    let expected=if eval_conj(p,x){raw_for_input(2,&ops,q,x)}else{[0,0]};
+                    assert_eq!(sum,expected);checks+=1;
+                }
+            }}
+        }
+        let s=native(2,&[G::H(0)]).unwrap();
+        assert!(first_failure_plans(&s,&[],&[Anf::from([3])]).is_none());
+        println!("HOARE_FIRST_FAILURE checks={checks} disjoint_exact=true");
+    }
+    fn export_property_factor_benchmark(dir:&std::path::Path){
+        let mut cases=Vec::new();
+        for (name,n,ops,p,q,valid) in algorithmic_cases(){
+            let mut expected=[0i128;2];
+            for x in 0..1u64<<n{
+                if eval_conj(&p,x){let v=raw_for_input(n,&ops,&q,x);expected[0]+=v[0];expected[1]+=v[1];}
+            }
+            assert_eq!(expected==[0,0],valid);
+            cases.push((name,n,ops,p,q,expected,"dense-all-inputs"));
+        }
+        for c in scaled_cases().into_iter().filter(|c|
+            c.name.starts_with("GHZ16-")||c.name.starts_with("BV8-")||c.name.starts_with("CS-parity4-")){
+            // GHZ/BV have exactly one legal input. CS-parity uses the
+            // independently derived family identity and witness contract.
+            let source=if c.name.starts_with("CS-parity"){"analytic-family"}else{"dense-unique-input"};
+            if source=="dense-unique-input"{
+                assert_eq!((0..1u64<<c.n).filter(|&x|eval_conj(&c.p,x)).count(),1);
+                assert!(eval_conj(&c.p,0));
+                assert_eq!(raw_for_input(c.n,&c.ops,&c.q,0),c.expected);
+            }else if let Some(x)=c.known_witness{
+                assert!(eval_conj(&c.p,x));assert_ne!(raw_for_input(c.n,&c.ops,&c.q,x),[0,0]);
+            }
+            cases.push((c.name,c.n,c.ops,c.p,c.q,c.expected,source));
+        }
+        assert_eq!(cases.len(),14);
+        let mut manifest=String::new();let mut branches=String::new();
+        for (name,n,ops,p,q,raw,oracle) in cases{
+            let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+            export_external_property(dir,&name,n,&ops,&p,&q);
+            let t=std::time::Instant::now();
+            let reduced=property_cone(n,&ops,&q).unwrap();
+            let s=native(n,&reduced).unwrap();
+            let scale=h-s.h;
+            let common_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (c,d)=two_copy_conj(&s,&p,&q);
+            let cnf_status=if let Some(data)=serialize_external(&c,&[]){
+                std::fs::write(dir.join(format!("property-base-{name}.cnf")),data).unwrap();"READY"
+            }else{"UNKNOWN_ENCODING_LIMIT"};
+            let base_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (status,count)=if let Some(plans)=first_failure_plans(&s,&p,&q){
+                let count=plans.len();
+                for (i,a) in plans.into_iter().enumerate(){
+                    let status=if a.unsat{"UNSAT_AFFINE"}else{
+                        let mut data=String::new();
+                        for (key,k) in a.phase.expect("fully absorbed first-failure branch"){
+                            data.push_str(&k.to_string());
+                            for (m,b) in key{data.push_str(&format!("\t{m}:{}",b as u8));}
+                            data.push('\n');
+                        }
+                        std::fs::write(dir.join(format!("property-factor-{name}-{i}.tsv")),data).unwrap();"READY"
+                    };
+                    branches.push_str(&format!("{name}\t{i}\t{status}\t{}\t{}\n",a.primary,a.terms));
+                }
+                ("READY",count)
+            }else{("UNSUPPORTED",0)};
+            let factor_us=t.elapsed().as_micros();
+            manifest.push_str(&format!("{name}\t{n}\t{h}\t{}\t{scale}\t{}\t{count}\t{status}\t{cnf_status}\t{}\t{}\t{},{},{}\t{common_us}\t{base_us}\t{factor_us}\t{},{}\t{oracle}\n",
+                s.h,q.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+        }
+        std::fs::write(dir.join("property-factor.tsv"),manifest).unwrap();
+        std::fs::write(dir.join("property-factor-branches.tsv"),branches).unwrap();
     }
 
     fn export_phase_factors(dir:&std::path::Path,name:&str,s:&Symbolic,p:&[Anf],q:&[Anf],
@@ -3709,6 +3833,7 @@ mod exact_property_cnf {
         export_affine_benchmark(&dir,&mut factors);
         export_factor_controls(&dir,&mut factors);
         std::fs::write(dir.join("factors.tsv"),factors).unwrap();
+        export_property_factor_benchmark(&dir);
         println!("HOARE_SCALE_DISCOVERY_FIXTURES cases=9 routes=45 cone_cases=3");
     }
 

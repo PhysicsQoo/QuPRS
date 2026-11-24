@@ -1590,10 +1590,11 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
         cases=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
     with (directory/"property-factor-branches.tsv").open() as f:
         branches=list(csv.DictReader(f,fieldnames=bf,delimiter="\t"))
-    assert len(cases)==14
+    assert len(cases)==20
     rows=[]
     for i,r in enumerate(cases):
         name=r["case"];target=tuple(map(int,r["expected"].split(",")))
+        cap=(120 if "15" in name else 60) if "mixing" in name else 30
         scale=int(r["scale"])
         bs=[b for b in branches if b["case"]==name]
         assert len(bs)==int(r["branch_count"])
@@ -1603,7 +1604,8 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
                      verdict="UNKNOWN",status="NOT_RUN",scale=scale,post_count=int(r["post_count"]),
                      branch_count=len(bs),branches_done=0,branch_stats=[],factor_work=0,factor_s=0.0,
                      gpmc_s=0.0,queries=[],route="gpmc" if mode=="gpmc" else "factor",
-                     vars=int(r["vars"]),clauses=int(r["clauses"]),
+                     vars=int(r["vars"]),clauses=int(r["clauses"]),gpmc_cap_s=cap,
+                     source_sha256=hashlib.sha256((directory/f"quokka-{name}.tsv").read_bytes()).hexdigest(),
                      prep_proxy_s=int(r["common_us"])/1e6)
             if mode=="hybrid":
                 start=time.monotonic()
@@ -1643,7 +1645,7 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
                 row["prep_proxy_s"]+=int(r["base_us"])/1e6
                 metrics.clear()
                 start=time.monotonic()
-                end=min(deadline,start+30)
+                end=min(deadline,start+cap)
                 if r["cnf_status"]!="READY":row["status"]=r["cnf_status"]
                 elif end<=start:row["status"]="GLOBAL_BUDGET_NOT_RUN"
                 else:
@@ -1663,7 +1665,7 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
             row["decision_proxy_s"]=row["prep_proxy_s"]+row["factor_s"]+row["gpmc_s"]
             rows.append(row)
             print("HOARE_PROPERTY_FACTOR "+json.dumps(row),flush=True)
-    assert len(rows)==28
+    assert len(rows)==40
     print("HOARE_PROPERTY_FACTOR_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
         m:dict(decided=sum(r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows),
                proved=sum(r["mode"]==m and r["verdict"]=="PROVED" for r in rows),

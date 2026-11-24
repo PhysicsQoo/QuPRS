@@ -3623,6 +3623,17 @@ mod exact_property_cnf {
             cases.push((c.name,c.n,c.ops,c.p,c.q,c.expected,source));
         }
         assert_eq!(cases.len(),14);
+        for n in [10usize,13,15]{
+            for affine in [false,true]{
+                let mut ops=scale_mixing(n,3);
+                let q=if affine{ops.push(G::CX(1,0));vec![equal_bits(0,1)]}else{vec![bit(0,false)]};
+                let name=if affine{format!("affine-mixing-{n}")}else{format!("mixing-{n}-3layer")};
+                let p=(0..n).map(|i|bit(i,false)).collect::<Vec<_>>();
+                let expected=raw_for_input(n,&ops,&q,0);
+                cases.push((name,n,ops,p,q,expected,"dense-unique-input"));
+            }
+        }
+        assert_eq!(cases.len(),20);
         let mut manifest=String::new();let mut branches=String::new();
         for (name,n,ops,p,q,raw,oracle) in cases{
             let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();

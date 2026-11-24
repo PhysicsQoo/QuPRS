@@ -255,3 +255,73 @@ def long_differential(directory,gpmc,tmp,solve,deadline,metrics):
           projected_decided=sum(p["projected"]!="UNKNOWN" for p in pairs),
           both_decided=sum(p["full"]!="UNKNOWN" and p["projected"]!="UNKNOWN" for p in pairs),
           root_only=True,offline_prep_proxy=True)),flush=True)
+
+
+def audit_fourier_heldout(directory):
+    """Freeze source bytes and exact oracle identity, without tuning."""
+    expected_hashes={
+        "fourier-6-safe":"97128085495b92604f781b62459713af4603035334336377a5d26ea10d5e2330",
+        "fourier-6-mutant":"5dffd3ce9d12b4a61ee1f8e4b110677ed4cf241442599f3446563d566387ca64",
+        "fourier-10-safe":"bd173ed0de8b4b5d3edfb228d7974cdf7a8f07b51efd1a10e00b1a8177b16dcd",
+        "fourier-10-mutant":"d68001952353c9ebf40813a37fbc6c943d40fad153693f9b965e70faad0a86a0",
+        "fourier-14-safe":"243ddd7d76947c93374c4b3c1209d45ce6d0bea0ab49c6d7717cd132558d9462",
+        "fourier-14-mutant":"c4f0de275a2d9d326cb3f0f7e247b71498e16bbc00b7f0d349a87c336c344895",
+        "fourier-18-safe":"dfb93e3f79b3c731760bfdb4c7cf4f910dc0deb006a29a8173b6d9665f0ca331",
+        "fourier-18-mutant":"a9318c0edbe5c6abf162aa987e1c6c392d5f01bb7354287229cea88b5ab5242e",
+        "fourier-20-safe":"d61f95a0c6724a770ae6664d682ab77744ca8228a2bb8b6b6d8344b911eff907",
+        "fourier-20-mutant":"905f0014ac09e44a7158916e3bd49503216717ee38a7f69d5bc6de6f9732d6a7",
+    }
+    def read(name,fields):
+        with (directory/name).open() as f:
+            return list(csv.DictReader(f,fieldnames=fields.split(),delimiter="\t"))
+    props=read("heldout.tsv","case circuit n h gates support pre rank expected_mass admission")
+    rr={r["case"]:r for r in read("dispatch-rr.tsv",
+        "case h hr scale hits retained representation status reason witness vars clauses delta rr_us encoding_us pure_status pure_vars pure_clauses pure_delta build_us pure_us")}
+    assert len(props)==20 and len(rr)==12 and len({r["case"] for r in props})==20
+    counts={"oracle":0,"native_export_attempts":0,"pure_ready":0,"rr_terminal":0,"unsupported_scope":0}
+    seen=set()
+    for r in props:
+        name=r["circuit"];case=r["case"];n=int(r["n"]);h=int(r["h"])
+        safe=name.endswith("-safe")
+        expected_mass=0 if safe else int(r["rank"])*(1<<h)
+        assert int(r["expected_mass"])==expected_mass and h==2*n
+        qasm=(directory/f"{name}.qasm").read_bytes()
+        spectrum=(directory/f"{name}.i64le").read_bytes()
+        spec_sha=hashlib.sha256(spectrum).hexdigest()
+        assert len(spectrum)==8*(1<<n) and spec_sha==expected_hashes[name]
+        seen.add(name)
+        source=(directory/f"quokka-{case}.tsv").read_bytes()
+        head,*gate_lines=source.decode().splitlines()
+        ns,pre,post=head.split("\t")
+        assert int(ns)==n and len(gate_lines)==int(r["gates"])
+        expected_pre=(";".join(f"0,{1<<i}" for i in range(n)) if r["pre"]=="cube"
+                      else ",".join(["0"]+[str(1<<i) for i in range(n)]))
+        assert pre==expected_pre and post==",".join(str(1<<i) for i in range(n))
+        regenerated=["OPENQASM 2.0;",'include "qelib1.inc";',f"qreg q[{n}];"]
+        for line in gate_lines:
+            op,*qs=line.split()
+            regenerated.append(op+" "+",".join(f"q[{q}]" for q in qs)+";")
+        assert qasm==("\n".join(regenerated)+"\n").encode()
+        row=dict(r,oracle_sha256=spec_sha,qasm_sha256=hashlib.sha256(qasm).hexdigest(),
+                 property_sha256=hashlib.sha256(source).hexdigest(),
+                 expected_verdict="PROVED" if safe else "REFUTED")
+        counts["oracle"]+=1
+        if r["admission"]=="NATIVE_EXPORT_ATTEMPTED":
+            z=rr[case];counts["native_export_attempts"]+=1
+            row.update(pure_status=z["pure_status"],rr_status=z["status"],rr_reason=z["reason"])
+            if z["pure_status"]=="READY":
+                counts["pure_ready"]+=1
+                row["cnf_sha256"]=hashlib.sha256((directory/f"dispatch-pure-{case}.cnf").read_bytes()).hexdigest()
+            if z["status"] in ("PROVED","REFUTED"):
+                assert z["status"]==row["expected_verdict"],(case,z)
+                if z["status"]=="REFUTED":
+                    w=int(z["witness"])
+                    assert 0<=w<1<<n and (w==0 if r["pre"]=="cube" else w.bit_count()%2==0)
+                counts["rr_terminal"]+=1
+        else:
+            assert r["admission"]=="UNSUPPORTED_SCOPE" and case not in rr
+            counts["unsupported_scope"]+=1
+        print("HOARE_FOURIER_HELDOUT_ADMISSION "+json.dumps(row),flush=True)
+    assert seen==set(expected_hashes) and counts["oracle"]==20 and counts["unsupported_scope"]==8
+    print("HOARE_FOURIER_HELDOUT_SUMMARY "+json.dumps(dict(counts,source_parser_certified=False,
+          solver_comparison_run=False,dispatcher_tuned=False)),flush=True)

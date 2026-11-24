@@ -9,6 +9,7 @@ on:
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/property_hoare_experiment.rs
       - rust/research/hoare_ganak_exact.py
+      - rust/research/hoare_quokka_compare.py
       - rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs
       - rust/quprs/tests/qasm_two_qubit_source_contract.rs
       - rust/quprs/tests/qasm_source_ir_certificate_experiment.rs
@@ -112,6 +113,17 @@ jobs:
           python3 scripts/install_gpmc_release.py --dest "$tmp/gpmc" | tee evidence/hoare-gpmc-release.json
           python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures "$(command -v minisat)" "$tmp/gpmc" \
             2>&1 | tee evidence/hoare-ganak-exact.log
+          # Reuse the same GPMC binary; isolate the upstream Python package.
+          python3 -m venv "$tmp/quokka-env"
+          "$tmp/quokka-env/bin/python" -m pip install --disable-pip-version-check numpy==2.2.6
+          "$tmp/quokka-env/bin/python" -m pip download --disable-pip-version-check --only-binary=:all: --no-deps --dest "$tmp" quokka_sharp==2.7.5
+          wheel="$(find "$tmp" -maxdepth 1 -name 'quokka_sharp-2.7.5-*.whl' -print -quit)"
+          test -n "$wheel"
+          echo "17ee064116300619d622e7806c30bd25e30ec68a4cf8b97677d5ae878e73c042  $wheel" | sha256sum -c -
+          "$tmp/quokka-env/bin/python" -m pip install --no-deps "$wheel"
+          "$tmp/quokka-env/bin/python" -m pip freeze | tee evidence/hoare-quokka-dependencies.txt
+          "$tmp/quokka-env/bin/python" rust/research/hoare_quokka_compare.py evidence/hoare-exact-fixtures "$tmp/gpmc" \
+            2>&1 | tee evidence/hoare-quokka.log
 
       - name: Observe native parser, CX and U/U3 phase behavior
         run: |

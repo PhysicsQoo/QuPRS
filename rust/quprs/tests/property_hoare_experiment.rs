@@ -2216,6 +2216,7 @@ mod exact_property_cnf {
         for (name,n,ops,p,q) in cases{
             // Independent small gate oracle: never supplied to dispatcher
             // until its verdict and witness have been produced.
+            export_external_property(dir,&name,n,&ops,&p,&q);
             let mut raw=[0i128;2];let mut witnesses=Vec::new();
             for x in (0..1u64<<n).filter(|&x|eval_conj(&p,x)){
                 let v=raw_for_input(n,&ops,&q,x);
@@ -2771,6 +2772,7 @@ mod exact_property_cnf {
         let mut manifest=String::new();
         for c in rare_wmc_cases(){
             // Explicitly bounded research-scale admission, not production.
+            export_external_property(dir,&c.name,c.n,&c.ops,&c.p,&c.q);
             let h=2*c.n;
             assert!(c.n<=16&&h<=32&&c.n+h<=63);
             let t=std::time::Instant::now();
@@ -2790,6 +2792,27 @@ mod exact_property_cnf {
         }
         std::fs::write(dir.join("pure-rare.tsv"),manifest).unwrap();
         println!("HOARE_PURE_WMC_RARE_FIXTURES cases=10");
+    }
+
+
+    // Export the original gate list and independent ANF predicates, not a
+    // QuPRS-reduced path sum or an equivalent-circuit surrogate.
+    fn export_external_property(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf]){
+        let anf=|fs:&[Anf]|fs.iter().map(|f|if f.is_empty(){"-".to_owned()}else{
+            f.iter().map(|m|m.to_string()).collect::<Vec<_>>().join(",")
+        }).collect::<Vec<_>>().join(";");
+        let mut s=format!("{n}\t{}\t{}\n",anf(p),anf(q));
+        for g in ops{
+            let line=match *g{
+                G::H(i)=>format!("h {i}"),G::X(i)=>format!("x {i}"),
+                G::Z(i)=>format!("z {i}"),G::S(i)=>format!("s {i}"),
+                G::T(i)=>format!("t {i}"),G::CX(i,j)=>format!("cx {i} {j}"),
+                G::CZ(i,j)=>format!("cz {i} {j}"),G::CCX(i,j,k)=>format!("ccx {i} {j} {k}"),
+                _=>panic!("unsupported external property gate"),
+            };
+            s.push_str(&line);s.push('\n');
+        }
+        std::fs::write(dir.join(format!("quokka-{name}.tsv")),s).unwrap();
     }
 
 }

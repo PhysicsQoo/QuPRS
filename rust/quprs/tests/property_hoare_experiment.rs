@@ -2480,4 +2480,261 @@ mod exact_property_cnf {
         println!("HOARE_THREE_MODE_SUMMARY cases=9 variants=27 rr_decided={rr_decided} hybrid_count={hybrid_count} reduced_count={reduced_count} reference_bucket_backend=true");
     }
 
+
+    // Independent pure reduction ablation. No calls to two-copy counting,
+    // WMC, dense-state enumeration, or exact_pair_coeff in these routes.
+    #[derive(Clone,Copy,Debug,PartialEq,Eq)]
+    enum PureRrMode { Standard, Property, Sat }
+    #[derive(Debug)]
+    struct PureRrReport {
+        mode:PureRrMode, answer:Answer, reason:&'static str,
+        standard_runs:usize, monomial_runs:usize, algebraic_trials:usize,
+        algebraic_hits:usize, sat_queries:usize, sat_visits:u64,
+        directions:Vec<u64>, residual_h:usize,
+    }
+    fn anf_xor(a:&Anf,b:&Anf)->Option<Anf>{
+        let out=a.symmetric_difference(b).copied().collect::<Anf>();
+        (out.len()<=256).then_some(out)
+    }
+    fn anf_not(a:&Anf)->Option<Anf>{anf_xor(a,&Anf::from([0]))}
+    fn anf_shift(a:&Anf,flip:u64)->Option<Anf>{
+        let mut out=Anf::new();let mut work=0u64;
+        for &m in a{
+            let v=m&flip;work=work.checked_add(1u64<<v.count_ones())?;
+            if work>4096{return None;}
+            let mut t=v;
+            loop{xor_insert(&mut out,(m&!flip)|t);if t==0{break;}t=(t-1)&v;}
+            if out.len()>256{return None;}
+        }
+        Some(out)
+    }
+    // Convert a Z8 polynomial into its three Boolean bit ANFs with exact
+    // ripple carry. Every product and sum is bounded; no truth table.
+    fn phase_bits(p:&BTreeMap<u64,u8>)->Option<[Anf;3]>{
+        let mut bits:[Anf;3]=std::array::from_fn(|_|Anf::new());
+        for (&m,&k) in p{
+            let mut carry=Anf::new();
+            for i in 0..3{
+                let term=if k>>i&1!=0{Anf::from([m])}else{Anf::new()};
+                let x=anf_xor(&bits[i],&term)?;
+                let next=if i<2{
+                    anf_xor(&mul_anf(&bits[i],&term)?,&mul_anf(&carry,&x)?)?
+                }else{Anf::new()};
+                bits[i]=anf_xor(&x,&carry)?;carry=next;
+            }
+        }
+        Some(bits)
+    }
+    fn property_guard(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<Anf>{
+        let mut pre=Anf::from([0]);let mut post=Anf::from([0]);
+        for f in p{pre=mul_anf(&pre,f)?;}
+        for f in q{post=mul_anf(&post,&compose_anf(f,&s.output)?)?;}
+        mul_anf(&pre,&anf_not(&post)?)
+    }
+    // Remove only currently surviving opposite-phase partners with the
+    // same complete output. The unchanged input is not part of the shift.
+    fn algebraic_delete(s:&Symbolic,g:&Anf,d:u64)->Option<Anf>{
+        if d==0||d>>s.h!=0||s.n+s.h>63{return None;}
+        let flip=d<<s.n;
+        let mut paired=anf_shift(g,flip)?;
+        for o in &s.output{
+            let diff=anf_xor(o,&anf_shift(o,flip)?)?;
+            paired=mul_anf(&paired,&anf_not(&diff)?)?;
+        }
+        let gap=translation_gap(&s.phase,flip,true)?;
+        for b in phase_bits(&gap)?{paired=mul_anf(&paired,&anf_not(&b)?)?;}
+        mul_anf(g,&anf_not(&paired)?)
+    }
+    fn algebraic_injective_paths(s:&Symbolic)->bool{
+        // Sufficient condition: output is affine in y with constant
+        // path coefficients, and that linear map has trivial kernel.
+        let imask=(1u64<<s.n)-1;let mut rows=Vec::new();
+        for o in &s.output{
+            let mut row=0u64;
+            for &m in o{
+                if m&!imask==0{continue;}
+                if m.count_ones()!=1{return false;}
+                row^=m>>s.n;
+            }
+            rows.push((row,false));
+        }
+        affine_solve(rows,s.h).is_some_and(|(_,basis)|basis.is_empty())
+    }
+    fn property_rr(s:&Symbolic,p:&[Anf],q:&[Anf],r:&mut PureRrReport)->Answer{
+        let Some(mut g)=property_guard(s,p,q) else{return Answer::Unknown;};
+        // Bounded, deterministic algebraic sequence, not exhaustive search.
+        // Continue from current survivor, never union stale masks.
+        for d in small_span_candidates(s).into_iter().take(24){
+            if g.is_empty(){break;}
+            r.algebraic_trials+=1;
+            let Some(next)=algebraic_delete(s,&g,d) else{continue;};
+            if next!=g{r.algebraic_hits+=1;r.directions.push(d);g=next;}
+        }
+        if g.is_empty(){r.reason="algebraic-survivor-zero";return Answer::Proved;}
+        if algebraic_injective_paths(s){
+            let a=*g.iter().min_by_key(|&&m|(m.count_ones(),m)).unwrap();
+            let x=a&((1u64<<s.n)-1);let y=a>>s.n;
+            if eval(&g,a)&&eval_conj(p,x)&&!eval_conj(q,path(s,x,y).0){
+                r.reason="injective-path-witness";return Answer::Refuted(x);
+            }
+        }
+        Answer::Unknown
+    }
+    fn sat_rr(s:&Symbolic,p:&[Anf],q:&[Anf],budget:u64,r:&mut PureRrReport)->Answer{
+        // Bounded one-copy SAT-only reference (same DPLL engine, sat_only=true).
+        // Each post conjunct is a union of entire fibers. No counting and
+        // no interpretation of a surviving path as a quantum counterexample.
+        let mut fuel=budget;
+        let ds:Vec<_>=small_span_candidates(s).into_iter().take(8).collect();
+        let mut proved=true;
+        'clauses:for post in q{
+            let mut plans=vec![vec![]];
+            for &d in &ds{plans.push(vec![d]);}
+            let mut pairs=0;
+            'pairs:for &d in &ds{for &e in &ds{
+                if d==e{continue;}
+                if pairs>=16{break 'pairs;}
+                pairs+=1;plans.push(vec![d,e]);
+            }}
+            for plan in plans{
+                if fuel==0{proved=false;break 'clauses;}
+                let Some((c,l,_))=multi_one(s,p,std::slice::from_ref(post),&plan) else{continue;};
+                r.sat_queries+=1;
+                match count(&c,&[l],&mut fuel,true){
+                    Some(0)=>{r.directions.extend(plan);continue 'clauses;},
+                    Some(_)=>{},
+                    None=>{proved=false;break 'clauses;},
+                }
+            }
+            proved=false;break;
+        }
+        r.sat_visits=budget-fuel;
+        if proved{r.reason="sat-survivor-unsat";Answer::Proved}
+        else{r.reason=if fuel==0{"sat-budget"}else{"sat-inconclusive"};Answer::Unknown}
+    }
+    fn run_pure_rr(input:&HoareInput,mode:PureRrMode,budget:u64)->PureRrReport{
+        let mut r=PureRrReport{mode,answer:Answer::Unknown,reason:"reduction-limit",
+            standard_runs:1,monomial_runs:0,algebraic_trials:0,algebraic_hits:0,
+            sat_queries:0,sat_visits:0,directions:vec![],residual_h:input.initial.h};
+        let Some((s,_))=reduce_existing(input.ps.clone(),input.initial.n) else{return r;};
+        r.residual_h=s.h;r.reason="rr-inconclusive";
+        if let Some((a,stop))=algebraic_terminal(&s,&input.pre,&input.post){
+            r.answer=a;r.reason=if stop==HoareStop::AlgebraicZero{"standard-zero"}else{"standard-witness"};return r;
+        }
+        if mode==PureRrMode::Standard{return r;}
+        // Try existing precondition-relative monomial substitution, then
+        // ordinary input-preserving RR. Retain the original guard/labels.
+        r.monomial_runs+=1;
+        let mut selected=s;
+        if let Some(ps)=mono_substitute(input.ps.clone(),input.initial.n,&input.pre){
+            r.standard_runs+=1;
+            if let Some((special,_))=reduce_existing(ps,input.initial.n){
+                if let Some((a,stop))=algebraic_terminal(&special,&input.pre,&input.post){
+                    r.answer=a;r.residual_h=special.h;
+                    r.reason=if stop==HoareStop::AlgebraicZero{"precondition-zero"}else{"precondition-witness"};
+                    return r;
+                }
+                if special.h<=selected.h{selected=special;}
+            }
+        }
+        r.residual_h=selected.h;
+        r.answer=property_rr(&selected,&input.pre,&input.post,&mut r);
+        if r.answer==Answer::Unknown&&mode==PureRrMode::Sat{
+            r.answer=sat_rr(&selected,&input.pre,&input.post,budget,&mut r);
+        }
+        r
+    }
+    #[test]
+    fn hoare_pure_rr_matched_corpus(){
+        let mut cases:Vec<AlgorithmCase>=algorithmic_cases();
+        cases.push(("GHZ3".into(),3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],
+            (0..3).map(|i|bit(i,false)).collect(),vec![equal_bits(0,1),equal_bits(0,2)],true));
+        cases.push(("HH".into(),1,vec![G::H(0),G::H(0)],vec![bit(0,false)],vec![bit(0,false)],true));
+        for k in [1usize,2]{
+            let (ops,p,q,strict)=conditional_post_case(k);
+            if k==2{cases.push(("CS2-strict".into(),3*k,ops.clone(),p.clone(),strict,false));}
+            cases.push((format!("CS{k}-conditional"),3*k,ops,p,q,true));
+        }
+        let ops=multi_direction_circuit();
+        let p:Vec<_>=(0..4).map(|i|bit(i,false)).collect();
+        let q=vec![(1..8u64).collect::<Anf>()];
+        cases.push(("joint-two-stage".into(),4,ops.clone(),p.clone(),q.clone(),true));
+        let mut mutant=ops;mutant.insert(mutant.len()-3,G::T(0));
+        cases.push(("joint-mutant".into(),4,mutant,p,q,false));
+        let c=scaled_cases().into_iter().find(|c|c.name=="HTH-product4").unwrap();
+        cases.push(("HTH4".into(),c.n,c.ops,c.p,c.q,false));
+        assert_eq!(cases.len(),16);
+        let mut definite=[0usize;3];let mut proofs=[0usize;3];let mut refutes=[0usize;3];
+        for (name,n,ops,p,q,valid) in cases{
+            let input=HoareInput::build(n,&ops,p,q).expect("common initial IR");
+            let expected=(0..1u64<<n).filter(|&x|eval_conj(&input.pre,x))
+                .all(|x|raw_for_input(n,&ops,&input.post,x)==[0,0]);
+            assert_eq!(valid,expected,"property intent {name}");
+            for (i,mode) in [PureRrMode::Standard,PureRrMode::Property,PureRrMode::Sat].into_iter().enumerate(){
+                let t=std::time::Instant::now();
+                let r=run_pure_rr(&input,mode,200_000);
+                let elapsed=t.elapsed().as_micros();
+                assert_eq!(r.mode,mode);
+                if mode!=PureRrMode::Sat{assert_eq!((r.sat_queries,r.sat_visits),(0,0));}
+                match r.answer{
+                    Answer::Proved=>{assert!(valid,"{name} {r:?}");proofs[i]+=1;definite[i]+=1;},
+                    Answer::Refuted(x)=>{assert!(!valid&&eval_conj(&input.pre,x));
+                        assert_ne!(raw_for_input(n,&ops,&input.post,x),[0,0]);refutes[i]+=1;definite[i]+=1;},
+                    Answer::Unknown=>{},
+                }
+                println!("HOARE_PURE_RR case={name} elapsed_us={elapsed} {r:?}");
+            }
+        }
+        assert!(definite[0]<=definite[1]&&definite[1]<=definite[2]);
+        println!("HOARE_PURE_RR_SUMMARY cases=16 variants=48 definite={definite:?} proved={proofs:?} refuted={refutes:?} wmc_calls=0 sat_backend=bounded_reference");
+    }
+    #[test]
+    fn hoare_algebraic_survivor_differential(){
+        // Independent finite model checks of one/two successive deletions.
+        // The oracle is test-only, outside the reduction entry.
+        let circuits=[vec![G::H(0),G::H(1),G::H(0)],
+            vec![G::H(0),G::T(0),G::H(0)],vec![G::H(0),G::CZ(0,1),G::H(0)]];
+        let preds=[Anf::from([0]),Anf::from([0,1]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut cases=0;
+        for ops in circuits{
+            let s=native(2,&ops).unwrap();
+            for p in &preds{for q in &preds{
+                let guard=property_guard(&s,std::slice::from_ref(p),std::slice::from_ref(q)).unwrap();
+                for d in 1..1u64<<s.h{
+                    let next=algebraic_delete(&s,&guard,d).unwrap();
+                    for e in 1..1u64<<s.h{
+                        let last=algebraic_delete(&s,&next,e).unwrap();
+                        for x in 0..4{
+                            let mut original=BTreeMap::<u64,Root>::new();
+                            let mut residual=BTreeMap::<u64,Root>::new();
+                            for y in 0..1u64<<s.h{
+                                let a=x|(y<<s.n);let (z,k)=path(&s,x,y);
+                                let (w,l)=path(&s,x,y^d);
+                                let active=eval(p,x)&&!eval(q,z);
+                                assert_eq!(eval(&guard,a),active);
+                                let remove=active&&eval(&guard,x|((y^d)<<s.n))&&z==w&&(l+8-k)%8==4;
+                                assert_eq!(eval(&next,a),active&&!remove);
+                                let (w,l)=path(&s,x,y^e);
+                                let remove2=eval(&next,a)&&eval(&next,x|((y^e)<<s.n))&&z==w&&(l+8-k)%8==4;
+                                assert_eq!(eval(&last,a),eval(&next,a)&&!remove2);
+                                if active{let v=original.entry(z).or_default();*v=add(*v,root(k));}
+                                if eval(&last,a){let v=residual.entry(z).or_default();*v=add(*v,root(k));}
+                            }
+                            for z in 0..4{assert_eq!(original.get(&z).copied().unwrap_or_default(),
+                                residual.get(&z).copied().unwrap_or_default());}
+                        }
+                        cases+=1;
+                    }
+                }
+            }}
+        }
+        assert_eq!(cases,1072);
+        // Zero SAT budget must not convert an inconclusive property to proof.
+        let input=HoareInput::build(1,&[G::H(0),G::T(0),G::H(0)],vec![bit(0,false)],vec![bit(0,false)]).unwrap();
+        let r=run_pure_rr(&input,PureRrMode::Sat,0);
+        assert_ne!(r.answer,Answer::Proved);
+        assert_eq!(r.sat_queries,0);
+        println!("HOARE_ALGEBRAIC_SURVIVOR cases={cases} exact_per_input=true");
+    }
+
 }

@@ -202,7 +202,9 @@ theorem sumBelow_delta (n j : Nat) (v : Int) (hj : j < n) :
 theorem sumBelow_nonneg (n : Nat) (f : Nat → Int)
     (h : ∀ i, i < n → 0 ≤ f i) : 0 ≤ sumBelow n f := by
   induction n with
-  | zero => decide
+  | zero =>
+      change (0 : Int) ≤ 0
+      exact Int.le_refl 0
   | succ n ih =>
       exact Int.add_nonneg (ih (fun i hi => h i (by omega))) (h n (by omega))
 

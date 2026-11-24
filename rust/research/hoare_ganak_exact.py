@@ -484,6 +484,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         raise AssertionError("accepted malformed GPMC output")
     print("HOARE_GPMC_QUALIFICATION=PASS backend=mpz_natural_packed",flush=True)
     rows=run_pure_wmc(directory,solve,deadline,backend="gpmc-mpz-packed")
+    from hoare_projected_count import z8_differential
+    z8_differential(directory,exe,tmp,rows)
     deadline=time.monotonic()+45
     run_residual_hybrid(directory,solve,deadline,rows)
     # Preserve the original discovery protocol on explicit request. Default

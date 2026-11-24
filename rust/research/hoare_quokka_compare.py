@@ -587,7 +587,8 @@ def wide_contract(gpmc,tmp):
         ("free-unused",2,[("x",None,[0])],{},{0:0}),
         ("empty-post",1,[("h",None,[0])],{},{}),
     ]
-    checks=0
+    from hoare_projected_count import projected_count
+    checks=projected_checks=0
     for m in (3,4,5,6):
         for name,n,ops,p,q in cases:
             try:c,bits,primary,terms=gate_local_pair(n,ops,p,q,m)
@@ -597,8 +598,16 @@ def wide_contract(gpmc,tmp):
             expected=enumerate_hist(n,ops,p,q,m)
             row=wide_count(gpmc,tmp,c,bits,primary,10)
             assert row["hist"]==expected,(name,m,row,expected)
+            base=f"p cnf {c.n} {len(c.clauses)}\n"+"".join(" ".join(map(str,cl))+" 0\n" for cl in c.clauses)
+            projected=projected_count(gpmc,tmp,base,bits,primary,time.monotonic()+10)
+            d=1<<(m-1)
+            assert projected["n0"]==expected[0] and projected["nd"]==expected[d],(name,m,projected,expected)
+            assert projected["mass"]==row["coeff"][0] and projected["verdict"]==("REFUTED" if any(row["coeff"]) else "PROVED")
+            print("HOARE_PROJECTED_WIDE "+json.dumps(dict(case=name,m=m,full_max_weight_bits=row["max_weight_bits"],**projected)),flush=True)
+            projected_checks+=1
             checks+=1
-    print("HOARE_WIDE_CONTRACT "+json.dumps(dict(checks=checks,exact_histograms=True)),flush=True)
+    print("HOARE_WIDE_CONTRACT "+json.dumps(dict(checks=checks,exact_histograms=True,projected_checks=projected_checks)),flush=True)
+    assert projected_checks==checks==21
 
 
 def wide_paper_pilot(gpmc,tmp,data,name,blob):

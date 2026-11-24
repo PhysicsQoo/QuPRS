@@ -785,6 +785,86 @@ def frontier_paper_pilot(data,name,blob):
 
 
 
+
+# R28C: deterministic, oracle-independent routing. Conservative structural
+# upper bounds, not learned performance predictions. Factor eligibility
+# comes from exact admission; full GPMC fallback never uses partial sums.
+def dispatch_policy(n,h,gates,frontier_admitted,factor_admitted):
+    bound=4**n
+    frontier_work=bound*(gates+3*h)+(1<<n)
+    routes=[]
+    if frontier_admitted and h>=24 and 2*bound<=65536 and frontier_work<=5_000_000:
+        routes.append("frontier")
+    if factor_admitted:routes.append("factor")
+    routes.append("gpmc")
+    return routes,dict(frontier_work_bound=frontier_work,frontier_entries_bound=2*bound,
+                      frontier_admitted=frontier_admitted,factor_admitted=factor_admitted)
+
+
+def execute_routes(routes,callbacks,deadline):
+    """Common solve deadline. No failed/partial result is reused. An exact
+    result arriving after the deadline is explicitly rejected."""
+    attempts=[]
+    for route in routes:
+        start=time.monotonic()
+        if start>=deadline:break
+        row=callbacks[route](deadline)
+        stop=time.monotonic()
+        assert "coeff" in row
+        if stop>deadline and row["coeff"] is not None:
+            row=dict(row,coeff=None,status="LATE_EXACT_REJECTED")
+        attempts.append(dict(route=route,elapsed_s=stop-start,**row))
+        if row["coeff"] is not None:
+            return dict(route=route,status=row["status"],coeff=row["coeff"],attempts=attempts)
+    return dict(route="none",status="UNKNOWN_ALL_ROUTES",coeff=None,attempts=attempts)
+
+
+def dispatch_contract_tests():
+    assert dispatch_policy(5,183,1305,True,False)[0]==["frontier","gpmc"]
+    assert dispatch_policy(15,45,175,True,True)[0]==["factor","gpmc"]
+    assert dispatch_policy(3,2,10,False,False)[0]==["gpmc"]
+    seen=[]
+    def incomplete(end):seen.append("factor");return dict(coeff=None,status="LIMIT")
+    def exact(end):seen.append("gpmc");return dict(coeff=[0,0],status="EXACT")
+    r=execute_routes(["factor","gpmc"],{"factor":incomplete,"gpmc":exact},time.monotonic()+1)
+    assert seen==["factor","gpmc"] and r["coeff"]==[0,0] and r["route"]=="gpmc"
+    seen.clear()
+    r=execute_routes(["gpmc"],{"gpmc":exact},time.monotonic()-1)
+    assert not seen and r["coeff"] is None
+    def late(end):
+        while time.monotonic()<end:pass
+        return dict(coeff=[0,0],status="EXACT")
+    r=execute_routes(["factor","gpmc"],{"factor":late,"gpmc":exact},time.monotonic()+.001)
+    assert r["coeff"] is None and r["attempts"][0]["status"]=="LATE_EXACT_REJECTED"
+    print("HOARE_DISPATCH_CONTRACT checks=6",flush=True)
+
+
+def dispatch_paper(gpmc,tmp,data,name,blob):
+    start=time.monotonic()
+    n,_,ops=paper_parse(data);m=5 if name=="noancilla" else 3
+    h=sum(op=="rx" for op,_,_ in ops)
+    routes,profile=dispatch_policy(n,h,len(ops),True,False)
+    expected=[((4<<h) if name=="noancilla" else 0)]+[0]*((1<<(m-1))-1)
+    def frontier(end):
+        r=frontier_contract(n,ops,{4:0},{4:0},m,"backward",min(end,time.monotonic()+15))
+        return dict(coeff=r["coeff"],status=r["status"],stats=r["stats"])
+    def wmc(end):
+        c,bits,primary,_=gate_local_pair(n,ops,{4:0},{4:0},m)
+        remaining=end-time.monotonic()
+        if remaining<=0:return dict(coeff=None,status="ENCODING_DEADLINE")
+        row=wide_count(gpmc,tmp,c,bits,primary,remaining)
+        row.pop("hist",None)
+        return row
+    row=execute_routes(routes,{"frontier":frontier,"gpmc":wmc},start+30)
+    if row["coeff"] is not None:assert row["coeff"]==expected,(name,row)
+    row.update(case=name,source_blob=blob,n=n,h=h,gates=len(ops),modulus=1<<m,
+               profile=profile,planned_routes=routes,expected_coeff=expected,cap_s=30,
+               elapsed_s=time.monotonic()-start,
+               verdict="UNKNOWN" if row["coeff"] is None else "REFUTED" if any(row["coeff"]) else "PROVED")
+    print("HOARE_DISPATCH_PAPER "+json.dumps(row),flush=True)
+
+
+
 def paper_compare(gpmc):
     import quokka_sharp as qs
     from quokka_sharp import config
@@ -795,6 +875,7 @@ def paper_compare(gpmc):
         tmp=pathlib.Path(tmp)
         wide_contract(gpmc,tmp)
         frontier_contract_tests()
+        dispatch_contract_tests()
         for name,file,blob,gates,bad_count in PAPER_FILES:
             path=tmp/file
             url=f"https://raw.githubusercontent.com/{PAPER_REPO}/{PAPER_HEAD}/benchmark/algorithm/origin/{file}"
@@ -806,7 +887,9 @@ def paper_compare(gpmc):
             assert oracle["gates"]==gates and len(oracle["bad_inputs"])==bad_count
             print("HOARE_PAPER_SOURCE "+json.dumps(dict(case=name,head=PAPER_HEAD,blob=blob,
                   sha256=hashlib.sha256(data).hexdigest(),oracle_s=time.monotonic()-t,**oracle)),flush=True)
-            frontier_paper_pilot(data,name,blob)
+            dispatch_paper(gpmc,tmp,data,name,blob)
+            if os.environ.get("HOARE_FRONTIER_REPEAT")=="1":
+                frontier_paper_pilot(data,name,blob)
             if os.environ.get("HOARE_WIDE_PAPER_REPEAT")=="1":
                 wide_paper_pilot(gpmc,tmp,data,name,blob)
             for comp in (True,False):

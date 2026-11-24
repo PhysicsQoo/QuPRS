@@ -515,8 +515,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
                 run_streamed_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
             elif os.environ.get("HOARE_CONDITIONED_FACTOR")=="1":
                 run_conditioned_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
-            else:
+            elif os.environ.get("HOARE_PROPERTY_FACTOR")=="1" or os.environ.get("HOARE_R27A_FULL")=="1":
                 run_property_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+            else:
+                run_structure_dispatch(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -1675,6 +1677,103 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
                factor_only=sum(r["mode"]==m and r["route"]=="factor" for r in rows),
                fallback=sum(r["mode"]==m and r["route"]=="gpmc-fallback" for r in rows))
         for m in ("hybrid","gpmc")})),flush=True)
+
+
+
+
+def run_structure_dispatch(directory,solve,deadline,metrics):
+    from hoare_quokka_compare import (load_case,cube,dispatch_policy,
+                                        execute_routes,frontier_contract)
+    factor_contract();conditioning_contract()
+    fields="case n h hr scale post_count branch_count factor_status cnf_status vars clauses delta common_us base_us factor_us expected oracle".split()
+    bf="case branch status primary terms".split()
+    with (directory/"property-factor.tsv").open() as f:
+        cases=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    with (directory/"property-factor-branches.tsv").open() as f:
+        branches=list(csv.DictReader(f,fieldnames=bf,delimiter="\t"))
+    assert len(cases)==20
+    # Separate deliberate budget-exhaustion control, not a benchmark case.
+    tasks=[(r,12_000_000,"exploratory-12M") for r in cases]
+    tasks.append((next(r for r in cases if r["case"]=="BV4-correct"),0,"forced-limit-control"))
+    rows=[]
+    for r,work_cap,configuration in tasks:
+        start=time.monotonic()
+        name=r["case"];target=tuple(map(int,r["expected"].split(",")))
+        scale=int(r["scale"])
+        bs=[b for b in branches if b["case"]==name]
+        assert len(bs)==int(r["branch_count"])
+        assert [int(b["branch"]) for b in bs]==list(range(len(bs)))
+        source=directory/f"quokka-{name}.tsv"
+        n,gates,p,q=load_case(source)
+        cp,cq=cube(p),cube(q)
+        ops=[(op,None,list(args)) for op,*args in gates]
+        admitted=cp is not None and cq is not None and all(op in ("h","x","cx","s","t","tdg") for op,_,_ in ops)
+        routes,profile=dispatch_policy(n,int(r["h"]),len(ops),admitted,r["factor_status"]=="READY")
+        # Existing exports prepared offline; charge their recorded costs
+        # to a proxy, not to a falsely claimed online end-to-end deadline.
+        prep={"frontier":0.0,"factor":int(r["factor_us"])/1e6,
+              "gpmc":int(r["base_us"])/1e6}
+        def frontier(end):
+            orientation="forward" if (1<<(n-len(cp))) < (1<<n)-(1<<(n-len(cq))) else "backward"
+            v=frontier_contract(n,ops,cp,cq,3,orientation,min(end,time.monotonic()+15))
+            coeff=v["coeff"]
+            return dict(coeff=None if coeff is None else [coeff[0],coeff[1]],status=v["status"],stats=v["stats"])
+        def factor(end):
+            end=min(end,time.monotonic()+15)
+            total=RZERO;work=0;done=0;stats=[]
+            for b in bs:
+                if b["status"]=="UNSAT_AFFINE":
+                    done+=1;continue
+                remaining=work_cap-work
+                if remaining<=0 or time.monotonic()>=end:break
+                data=(directory/f"property-factor-{name}-{b['branch']}.tsv").read_bytes()
+                terms=[]
+                for line in data.decode().splitlines():
+                    k,*fs=line.split("\t");terms.append((int(k),[tuple(map(int,x.split(":"))) for x in fs]))
+                assert len(terms)==int(b["terms"])
+                z,st,why=planned_factor(int(b["primary"]),terms,end,max_work=remaining)
+                work+=st["work"]
+                stats.append(dict(branch=int(b["branch"]),status=why,stats=st,sha256=hashlib.sha256(data).hexdigest()))
+                if z is None:break
+                assert z[2]==0 and z[3]==-z[1] and (not any(z) or positive_surd((z[0],z[1])))
+                total=radd(total,z);done+=1
+            return dict(coeff=[total[0]*(1<<scale),total[1]*(1<<scale)] if done==len(bs) else None,
+                        status="EXACT_ALL_BRANCHES" if done==len(bs) else "INCOMPLETE_BRANCH",
+                        work=work,branches_done=done,branches=len(bs),branch_stats=stats)
+        def gpmc(end):
+            if r["cnf_status"]!="READY":return dict(coeff=None,status=r["cnf_status"])
+            data=(directory/f"property-base-{name}.cnf").read_bytes()
+            metrics.clear()
+            row=dict(coeff=None,status="UNKNOWN",cnf_sha256=hashlib.sha256(data).hexdigest())
+            try:
+                coeff=tuple(solve(data.decode(),list(map(int,r["delta"].split(","))),[],end))
+                row.update(coeff=[v*(1<<scale) for v in coeff],status="EXACT_ROOT")
+            except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+            except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+            row["queries"]=[dict(m) for m in metrics]
+            return row
+        result=execute_routes(routes,{"frontier":frontier,"factor":factor,"gpmc":gpmc},
+                              min(deadline,start+30))
+        coeff=result["coeff"]
+        if coeff is not None:assert tuple(coeff)==target,(name,result,target)
+        if configuration=="forced-limit-control":
+            assert result["route"]=="gpmc" and len(result["attempts"])==2 and coeff==[0,0],result
+        used=[a["route"] for a in result["attempts"]]
+        proxy=sum(prep[x] for x in used)+(int(r["common_us"])/1e6 if any(x!="frontier" for x in used) else 0)
+        elapsed=time.monotonic()-start
+        result.update(case=name,configuration=configuration,work_cap=work_cap,cap_s=30,
+                      n=n,h=int(r["h"]),gates=len(ops),profile=profile,planned_routes=routes,
+                      expected_coeff=target,source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                      solve_dispatch_s=elapsed,prep_proxy_s=proxy,decision_proxy_s=elapsed+proxy,
+                      verdict="UNKNOWN" if coeff is None else "REFUTED" if any(coeff) else "PROVED")
+        rows.append(result)
+        print("HOARE_STRUCTURE_DISPATCH "+json.dumps(result),flush=True)
+    benchmark=rows[:-1]
+    assert len(benchmark)==20
+    print("HOARE_STRUCTURE_DISPATCH_SUMMARY "+json.dumps(dict(cases=len(benchmark),
+        decided=sum(r["verdict"]!="UNKNOWN" for r in benchmark),
+        routes={k:sum(r["route"]==k for r in benchmark) for k in ("frontier","factor","gpmc","none")},
+        forced_limit_fallback=rows[-1]["route"]=="gpmc",configuration="exploratory-12M")),flush=True)
 
 
 

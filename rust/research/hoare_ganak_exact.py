@@ -509,8 +509,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
                 run_quotient_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
             elif os.environ.get("HOARE_AFFINE_QUOTIENT")=="1":
                 run_affine_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
-            else:
+            elif os.environ.get("HOARE_PHASE_FACTOR")=="1":
                 run_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+            else:
+                run_streamed_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -1010,12 +1012,12 @@ class FactorLimit(Exception):
     pass
 
 
-def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=524288):
+def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=524288,streamed=False):
     """Bounded exact variable elimination; return a ring element or UNKNOWN.
     The graph is built from affine-product scopes before any CNF construction.
     Work counts table-entry operations conservatively, not CPU instructions.
     """
-    stats=dict(work=0,width=0,peak_entries=0,eliminated=0,isolated=0,components=0)
+    stats=dict(work=0,width=0,peak_entries=0,eliminated=0,isolated=0,components=0,streamed=streamed,peak_index_entries=0)
     factors=[]
     active=set(range(primary))
     constant=RONE
@@ -1082,25 +1084,67 @@ def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=5
             remain=tuple(i for i in union if i!=v)
             # Bound temporary index tables as well as ring entries.
             live=sum(len(t) for _,t in factors)
-            size=admit(union,live)
-            temporary=size*len(hit)+(1<<len(remain))
+            if streamed:
+                stats["width"]=max(stats["width"],len(union))
+                if len(union)>max_width:raise FactorLimit("width")
+                size=1<<len(union)
+                split=min(10,len(union))
+                block=1<<split
+                # For each factor, projection(a) = projection(lo) OR
+                # projection(hi); the two bit masks are disjoint.
+                # Count both maps and conservative construction scratch.
+                index_entries=(block+(size//block))*len(hit)
+                temporary=2*index_entries+(1<<len(remain))
+            else:
+                size=admit(union,live)
+                index_entries=size*len(hit)
+                temporary=index_entries+(1<<len(remain))
+            stats["peak_index_entries"]=max(stats["peak_index_entries"],index_entries)
             stats["peak_entries"]=max(stats["peak_entries"],live+temporary)
             if live+temporary>max_live:raise FactorLimit("live-entries")
             charge(size*(len(hit)+2))
-            maps=[projection(union,s) for s,_ in hit]
+            if streamed:
+                maps=[(projection(union[:split],s),projection(union[split:],s)) for s,_ in hit]
+            else:
+                maps=[projection(union,s) for s,_ in hit]
             out=[RZERO]*(1<<len(remain))
             pos=union.index(v);low=(1<<pos)-1
-            for a in range(size):
-                if a%1024==0:charge(0)
-                z=RONE
-                for (_,tab),idx in zip(hit,maps):
-                    z=rmul(z,tab[idx[a]])
-                    if z==RZERO:break
-                key=(a&low)|((a>>(pos+1))<<pos)
-                out[key]=radd(out[key],z)
+            if streamed:
+                # Keep only two small projection tables per factor.
+                # No full union-sized projection vector is materialized.
+                for hi in range(size//block):
+                    charge(0)
+                    group=[(tab,lo,high[hi]) for (_,tab),(lo,high) in zip(hit,maps)]
+                    for lo in range(block):
+                        a=(hi<<split)|lo
+                        z=RONE
+                        for tab,idx,offset in group:
+                            z=rmul(z,tab[idx[lo]|offset])
+                            if z==RZERO:break
+                        key=(a&low)|((a>>(pos+1))<<pos)
+                        out[key]=radd(out[key],z)
+                    del group
+            else:
+                for a in range(size):
+                    if a%1024==0:charge(0)
+                    z=RONE
+                    for (_,tab),idx in zip(hit,maps):
+                        z=rmul(z,tab[idx[a]])
+                        if z==RZERO:break
+                    key=(a&low)|((a>>(pos+1))<<pos)
+                    out[key]=radd(out[key],z)
             factors=[f for f in factors if v not in f[0]]
             if remain:factors.append((remain,out))
             else:constant=rmul(constant,out[0])
+            # Do not retain previous bucket tables or projection maps.
+            # Loop locals can otherwise hold a large old table alive.
+            del hit,maps,out
+            if streamed:
+                if "tab" in locals():del tab
+                if "idx" in locals():del idx
+            else:
+                if "tab" in locals():del tab
+                if "idx" in locals():del idx
             stats["eliminated"]+=1
         assert not factors
         return constant,stats,"EXACT_SUM"
@@ -1123,9 +1167,30 @@ def factor_contract():
             expected[e%4]+=1 if e<4 else -1
         z,_,_=factor_sum(n,terms,time.monotonic()+2)
         assert z==tuple(expected),(n,terms,z,expected)
-    z,_,why=factor_sum(3,[(1,[(7,0)])],time.monotonic()+1,max_width=1)
-    assert z is None and why=="width"
-    print("HOARE_FACTOR_CONTRACT checks=161",flush=True)
+        zs,_,_=factor_sum(n,terms,time.monotonic()+2,streamed=True)
+        assert zs==tuple(expected),(n,terms,zs,expected)
+    for streamed in (False,True):
+        z,_,why=factor_sum(3,[(1,[(7,0)])],time.monotonic()+1,max_width=1,streamed=streamed)
+        assert z is None and why=="width"
+    # Exercise the split on scopes above 10 bits independently of the
+    # sum implementation, including arbitrary gaps in global variable IDs.
+    for k in range(40):
+        outer=tuple(sorted(rng.sample(range(48),rng.randrange(11,17))))
+        inner=tuple(v for v in outer if rng.randrange(2))
+        split=10
+        a=projection(outer,inner)
+        lo=projection(outer[:split],inner)
+        hi=projection(outer[split:],inner)
+        assert all(v==lo[i%1024]|hi[i//1024] for i,v in enumerate(a))
+    # Same admitted polynomial, exact known sum, deliberately tiny
+    # index-table budget: streaming must succeed where full maps cannot.
+    terms=[(1,[(1<<i,0) for i in range(12)]) for _ in range(3)]
+    expected=radd((4095,0,0,0),ROOTS[3])
+    z,_,why=factor_sum(12,terms,time.monotonic()+2,max_live=9000)
+    assert z is None and why=="live-entries"
+    z,_,why=factor_sum(12,terms,time.monotonic()+2,max_live=9000,streamed=True)
+    assert z==expected,(z,why,expected)
+    print("HOARE_FACTOR_CONTRACT checks=364",flush=True)
 
 
 def run_factor_pilot(directory,solve,deadline,metrics):
@@ -1201,6 +1266,93 @@ def run_factor_pilot(directory,solve,deadline,metrics):
         mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
                   scale_decided=sum(r["mode"]==mode and r["case"] in baseline and r["verdict"]!="UNKNOWN" for r in rows))
         for mode in ("factor","gpmc")})),flush=True)
+
+
+
+
+def run_streamed_factor_pilot(directory,solve,deadline,metrics):
+    """Matched factor representation ablation under identical budgets.
+    All six original scale cases, two repetitions in reversed mode order.
+    Run GPMC only as explicit fallback if neither representation decides.
+    """
+    factor_contract()
+    ff="case hr scale primary terms status prep_us expected".split()
+    cf="case h hr gates gr scale vars clauses delta status cone_us build_us encoding_us expected".split()
+    af="case mode h hr scale vars clauses primary phase_terms delta status cone_us build_us encoding_us expected".split()
+    with (directory/"factors.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=ff,delimiter="\t"))
+    with (directory/"cone.tsv").open() as f:
+        baseline={r["case"]:r for r in csv.DictReader(f,fieldnames=cf,delimiter="\t")}
+    with (directory/"affine.tsv").open() as f:
+        baseline.update({r["case"]:r for r in csv.DictReader(f,fieldnames=af,delimiter="\t") if r["mode"]=="cone"})
+    assert len(plans)==11 and len(baseline)==6
+    rows=[]
+    for i,r in enumerate(plans):
+        name=r["case"];target=tuple(map(int,r["expected"].split(",")))
+        scale=int(r["scale"]);primary=int(r["primary"])
+        terms=[]
+        data=None
+        if r["status"]=="READY":
+            data=(directory/f"factors-{name}.tsv").read_bytes()
+            for line in data.decode().splitlines():
+                k,*fs=line.split("\t")
+                terms.append((int(k),[tuple(map(int,f.split(":"))) for f in fs]))
+            assert len(terms)==int(r["terms"])
+        cohort=[]
+        for rep in range(2 if name in baseline else 1):
+            order=("table","streamed") if (i+rep)%2==0 else ("streamed","table")
+            for mode in order:
+                row=dict(case=name,mode=mode,rep=rep,primary=primary,terms=int(r["terms"]),scale=scale,
+                         expected_raw=target,coeff=None,verdict="UNKNOWN",status=r["status"],
+                         prep_proxy_s=int(r["prep_us"])/1e6,
+                         factor_sha256=hashlib.sha256(data).hexdigest() if data is not None else None)
+                start=time.monotonic()
+                if r["status"]=="UNSAT_AFFINE":
+                    row.update(coeff=(0,0),status="EXACT_AFFINE_UNSAT")
+                elif data is not None:
+                    z,stats,why=factor_sum(primary,terms,min(deadline,start+15),streamed=mode=="streamed")
+                    row.update(stats=stats,status=why)
+                    if z is not None:
+                        assert z[2]==0 and z[3]==-z[1],(name,z)
+                        row["coeff"]=(z[0]*(1<<scale),z[1]*(1<<scale))
+                row["root_s"]=time.monotonic()-start
+                if row["coeff"] is not None:
+                    assert row["coeff"]==target,(name,mode,row["coeff"],target)
+                    assert not any(target) or positive_surd(target)
+                    row["verdict"]="REFUTED" if any(target) else "PROVED"
+                if name.startswith("factor-"):assert row["verdict"]!="UNKNOWN",(name,row)
+                row["decision_proxy_s"]=row["root_s"]+row["prep_proxy_s"]
+                rows.append(row);cohort.append(row)
+                print("HOARE_STREAMED_FACTOR "+json.dumps(row),flush=True)
+        if name in baseline and all(row["verdict"]=="UNKNOWN" for row in cohort if row["mode"]=="streamed"):
+            b=baseline[name];assert b["expected"]==r["expected"]
+            cap=120 if "15" in name else 60
+            row=dict(case=name,mode="gpmc-fallback",cap_s=cap,expected_raw=target,
+                     coeff=None,verdict="UNKNOWN",status=b["status"])
+            start=time.monotonic()
+            metrics.clear()
+            if b["status"]=="READY":
+                data=(directory/f"cone-{name}.cnf").read_bytes()
+                row["cnf_sha256"]=hashlib.sha256(data).hexdigest()
+                end=min(deadline,start+cap)
+                if end<=start:row["status"]="GLOBAL_BUDGET_NOT_RUN"
+                else:
+                    try:
+                        coeff=tuple(solve(data.decode(),list(map(int,b["delta"].split(","))),[],end))
+                        coeff=tuple(v*(1<<int(b["scale"])) for v in coeff)
+                        assert coeff==target,(name,coeff,target)
+                        row.update(coeff=coeff,status="EXACT_ROOT",verdict="REFUTED" if any(coeff) else "PROVED")
+                    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                    except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+            row["root_s"]=time.monotonic()-start
+            row["queries"]=[dict(m) for m in metrics]
+            rows.append(row)
+            print("HOARE_STREAMED_FACTOR "+json.dumps(row),flush=True)
+    assert sum(r["mode"] in ("table","streamed") for r in rows)==34
+    print("HOARE_STREAMED_FACTOR_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
+        mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
+                  scale_decided=sum(r["mode"]==mode and r["case"] in baseline and r["verdict"]!="UNKNOWN" for r in rows))
+        for mode in ("table","streamed","gpmc-fallback")})),flush=True)
 
 
 

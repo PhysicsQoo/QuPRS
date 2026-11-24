@@ -3438,7 +3438,7 @@ mod exact_property_cnf {
         cache.insert(f,l);l
     }
     type PhaseProducts=BTreeMap<Vec<AffForm>,u8>;
-    struct AffPair{cnf:Cnf,delta:[Lit;3],inputs:Vec<Lit>,primary:usize,terms:usize,phase:Option<PhaseProducts>,unsat:bool}
+    struct AffPair{cnf:Cnf,delta:[Lit;3],inputs:Vec<Lit>,primary:usize,terms:usize,phase:Option<PhaseProducts>,unsat:bool,input_forms:Vec<AffForm>}
     fn affine_quotient_pair(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<AffPair>{
         affine_quotient_pair_prefix(s,p,q,&[])
     }
@@ -3466,7 +3466,7 @@ mod exact_property_cnf {
         }
         let Some(forms)=pair_rref(rows,width) else{
             let mut cnf=Cnf::new(0);cnf.enforce(ZERO);
-            return Some(AffPair{cnf,delta:[ZERO;3],inputs:vec![ZERO;s.n],primary:0,terms:0,phase:None,unsat:true});
+            return Some(AffPair{cnf,delta:[ZERO;3],inputs:vec![ZERO;s.n],primary:0,terms:0,phase:None,unsat:true,input_forms:vec![]});
         };
         let primary=forms.iter().fold(0u128,|a,f|a|f.0).count_ones() as usize;
         let mut cnf=Cnf::new(primary);
@@ -3509,7 +3509,7 @@ mod exact_property_cnf {
         // Only export a guard-free phase model if the complete violation
         // predicate was absorbed by the affine equations.
         let phase=if q.len()==1&&linear_form(&q[0],s.n).is_some(){Some(phase)}else{None};
-        Some(AffPair{cnf,delta,inputs,primary,terms,phase,unsat:false})
+        Some(AffPair{cnf,delta,inputs,primary,terms,phase,unsat:false,input_forms:forms[..s.n].to_vec()})
     }
     #[test]
     fn hoare_affine_quotient_exact(){
@@ -3660,7 +3660,10 @@ mod exact_property_cnf {
                             for (m,b) in key{data.push_str(&format!("\t{m}:{}",b as u8));}
                             data.push('\n');
                         }
-                        std::fs::write(dir.join(format!("property-factor-{name}-{i}.tsv")),data).unwrap();"READY"
+                        std::fs::write(dir.join(format!("property-factor-{name}-{i}.tsv")),data).unwrap();
+                        let map=a.input_forms.iter().map(|&(m,b)|format!("{m}:{}",b as u8)).collect::<Vec<_>>().join("\t");
+                        std::fs::write(dir.join(format!("property-input-{name}-{i}.tsv")),map).unwrap();
+                        "READY"
                     };
                     branches.push_str(&format!("{name}\t{i}\t{status}\t{}\t{}\n",a.primary,a.terms));
                 }

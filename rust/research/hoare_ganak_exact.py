@@ -1681,10 +1681,136 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
 
 
 
+
+def restrict_affine_terms(primary,terms,forms,prefix):
+    """RREF original-input equations on existing free coordinates.
+    Return an exact bijective reparameterization, or None for UNSAT."""
+    rows=[(forms[i][0],forms[i][1]^b) for i,b in prefix]
+    pivots=[]
+    for j in reversed(range(primary)):
+        k=next((k for k in range(len(pivots),len(rows)) if rows[k][0]>>j&1),None)
+        if k is None:continue
+        i=len(pivots);rows[i],rows[k]=rows[k],rows[i]
+        m,b=rows[i]
+        rows=[(a^m,c^b) if l!=i and a>>j&1 else (a,c) for l,(a,c) in enumerate(rows)]
+        pivots.append(j)
+    if any(not m and b for m,b in rows):return None
+    free=[i for i in range(primary) if i not in pivots]
+    substitution=[(0,0)]*primary
+    for k,j in enumerate(free):substitution[j]=(1<<k,0)
+    for i,j in enumerate(pivots):
+        m,b=rows[i];mask=0
+        for k in free:
+            if m>>k&1:mask^=substitution[k][0]
+        substitution[j]=(mask,b)
+    result={}
+    for k,fs in terms:
+        key=[];vanish=False
+        for m,b in fs:
+            mask=0
+            for j in mask_positions(m):
+                a,c=substitution[j];mask^=a;b^=c
+            if not mask:
+                if not b:vanish=True;break
+                continue
+            if (mask,b^1) in key:vanish=True;break
+            key.append((mask,b))
+        if vanish:continue
+        key=tuple(sorted(set(key)))
+        result[key]=(result.get(key,0)+k)%8
+    return len(free),[(k,list(fs)) for fs,k in sorted(result.items()) if k]
+
+
+def witness_affine_contract():
+    import random
+    rng=random.Random(2804)
+    for _ in range(128):
+        n=rng.randrange(7);N=1<<n
+        forms=[(rng.randrange(N),rng.randrange(2)) for _ in range(3)]
+        terms=[(rng.randrange(8),[(rng.randrange(N),rng.randrange(2)) for _ in range(rng.randrange(4))]) for _ in range(8)]
+        prefix=[(i,rng.randrange(2)) for i in range(rng.randrange(4))]
+        expected=RZERO
+        for x in range(N):
+            if not all(((forms[i][0]&x).bit_count()%2)^forms[i][1]==b for i,b in prefix):continue
+            e=sum(k for k,fs in terms if all(((m&x).bit_count()%2)^b for m,b in fs))%8
+            expected=radd(expected,ROOTS[e])
+        r=restrict_affine_terms(n,terms,forms,prefix)
+        if r is None:assert expected==RZERO
+        else:
+            z,_,_=factor_sum(*r,time.monotonic()+2)
+            assert z==expected,(r,z,expected)
+    print("HOARE_WITNESS_AFFINE_CONTRACT checks=128",flush=True)
+
+
+def dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline):
+    from hoare_quokka_compare import evaluate,prefix_witness,verify_original_input
+    start=time.monotonic();end=min(deadline,start+30)
+    legal=lambda x:all(evaluate(f,x) for f in p)
+    post=lambda z:all(evaluate(f,z) for f in q)
+    name=r["case"];method=result["route"];calls=0;work=0
+    # The unique legal input is determined solely from P, not the oracle.
+    candidates=[]
+    for x in range(1<<n):
+        if x%1024==0 and time.monotonic()>=end:break
+        if legal(x):
+            candidates.append(x)
+            if len(candidates)==2:break
+    x=None;status="WITNESS_INCOMPLETE"
+    if len(candidates)==1 and time.monotonic()<end:
+        x=candidates[0];method="unique-legal-input"
+    elif method=="frontier" and result["attempts"][-1].get("witness_input") is not None:
+        x=result["attempts"][-1]["witness_input"];method="frontier-diagonal"
+    elif method=="factor":
+        # A fully summed positive disjoint branch is sufficient to select
+        # a witness; never use a partially contracted cutset branch.
+        hit=next((b for b in result["attempts"][-1]["branch_stats"] if any(b.get("coeff",[]))),None)
+        if hit is not None:
+            branch=hit["branch"]
+            b=next(b for b in bs if int(b["branch"])==branch)
+            data=(directory/f"property-factor-{name}-{branch}.tsv").read_text()
+            terms=[]
+            for line in data.splitlines():
+                k,*fs=line.split("\t");terms.append((int(k),[tuple(map(int,f.split(":"))) for f in fs]))
+            forms=[tuple(map(int,f.split(":"))) for f in (directory/f"property-input-{name}-{branch}.tsv").read_text().split("\t")]
+            assert len(forms)==n
+            def query(prefix,stop):
+                nonlocal work
+                a=restrict_affine_terms(int(b["primary"]),terms,forms,prefix)
+                if a is None:return False
+                if work>=12_000_000:return None
+                z,st,_=planned_factor(*a,stop,max_work=12_000_000-work)
+                work+=st["work"]
+                if z is None:return None
+                assert z[2]==0 and z[3]==-z[1] and (not any(z) or positive_surd((z[0],z[1])))
+                return bool(any(z))
+            x,calls,status=prefix_witness(n,legal,query,min(end,start+15))
+            method="affine-prefix"
+    elif method=="gpmc":
+        data=(directory/f"property-base-{name}.cnf").read_text()
+        delta=list(map(int,r["delta"].split(",")))
+        def query(prefix,stop):
+            try:
+                coeff=solve(data,delta,[i+2 if b else -(i+2) for i,b in prefix],stop)
+                assert not any(coeff) or positive_surd(coeff)
+                return bool(any(coeff))
+            except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):return None
+        x,calls,status=prefix_witness(n,legal,query,min(end,start+15))
+        method="gpmc-prefix"
+    if x is None:
+        row=dict(status=status)
+    else:
+        row=verify_original_input(n,ops,legal,post,3,x,end)
+        if row["status"] in ("ILLEGAL_INPUT","NO_VIOLATING_AMPLITUDE"):
+            raise AssertionError(("invalid reconstructed witness",name,row,x))
+    row.update(method=method,queries=calls,factor_work=work,witness_s=time.monotonic()-start)
+    return row
+
+
+
 def run_structure_dispatch(directory,solve,deadline,metrics):
     from hoare_quokka_compare import (load_case,cube,dispatch_policy,
                                         execute_routes,frontier_contract)
-    factor_contract();conditioning_contract()
+    factor_contract();conditioning_contract();witness_affine_contract()
     fields="case n h hr scale post_count branch_count factor_status cnf_status vars clauses delta common_us base_us factor_us expected oracle".split()
     bf="case branch status primary terms".split()
     with (directory/"property-factor.tsv").open() as f:
@@ -1717,7 +1843,7 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
             orientation="forward" if (1<<(n-len(cp))) < (1<<n)-(1<<(n-len(cq))) else "backward"
             v=frontier_contract(n,ops,cp,cq,3,orientation,min(end,time.monotonic()+15))
             coeff=v["coeff"]
-            return dict(coeff=None if coeff is None else [coeff[0],coeff[1]],status=v["status"],stats=v["stats"])
+            return dict(coeff=None if coeff is None else [coeff[0],coeff[1]],status=v["status"],stats=v["stats"],witness_input=v.get("witness_input"))
         def factor(end):
             end=min(end,time.monotonic()+15)
             total=RZERO;work=0;done=0;stats=[]
@@ -1736,6 +1862,7 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
                 stats.append(dict(branch=int(b["branch"]),status=why,stats=st,sha256=hashlib.sha256(data).hexdigest()))
                 if z is None:break
                 assert z[2]==0 and z[3]==-z[1] and (not any(z) or positive_surd((z[0],z[1])))
+                stats[-1]["coeff"]=list(z)
                 total=radd(total,z);done+=1
             return dict(coeff=[total[0]*(1<<scale),total[1]*(1<<scale)] if done==len(bs) else None,
                         status="EXACT_ALL_BRANCHES" if done==len(bs) else "INCOMPLETE_BRANCH",
@@ -1768,12 +1895,18 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
                       verdict="UNKNOWN" if coeff is None else "REFUTED" if any(coeff) else "PROVED")
         rows.append(result)
         print("HOARE_STRUCTURE_DISPATCH "+json.dumps(result),flush=True)
+        if result["verdict"]=="REFUTED":
+            witness=dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline)
+            result["witness"]=witness
+            print("HOARE_STRUCTURE_WITNESS "+json.dumps(dict(case=name,configuration=configuration,source_sha256=result["source_sha256"],**witness)),flush=True)
     benchmark=rows[:-1]
     assert len(benchmark)==20
     print("HOARE_STRUCTURE_DISPATCH_SUMMARY "+json.dumps(dict(cases=len(benchmark),
         decided=sum(r["verdict"]!="UNKNOWN" for r in benchmark),
         routes={k:sum(r["route"]==k for r in benchmark) for k in ("frontier","factor","gpmc","none")},
-        forced_limit_fallback=rows[-1]["route"]=="gpmc",configuration="exploratory-12M")),flush=True)
+        forced_limit_fallback=rows[-1]["route"]=="gpmc",configuration="exploratory-12M",
+        witnesses_verified=sum(r.get("witness",{}).get("status")=="VERIFIED" for r in benchmark),
+        witnesses_required=sum(r["verdict"]=="REFUTED" for r in benchmark))),flush=True)
 
 
 

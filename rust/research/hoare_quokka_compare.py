@@ -723,17 +723,19 @@ def frontier_contract(n,ops,pre,post,m,orientation,deadline,
         charge(N)
         total=zero
         trace=zero
+        witness_input=None
         for x in range(N):
             v=front.get(x|(x<<n),zero)
             trace=add(trace,v)
             if (not matches(x,post) if orientation=="forward" else matches(x,pre)):
                 total=add(total,v)
+                if orientation=="backward" and v!=zero and witness_input is None:witness_input=x
         seed_rank=(1<<(n-len(pre))) if orientation=="forward" else N-(1<<(n-len(post)))
         assert trace==(seed_rank*(1<<stats["h_done"]),)+(0,)*(D-1),("trace",orientation,trace)
         assert total[D//2]==0 and all(total[j]==-total[D-j] for j in range(1,D))
         assert stats["h_done"]==sum(op in ("h","rx") for op,_,_ in ops)
         return dict(status="EXACT_FRONTIER",coeff=list(total),stats=stats,root_s=time.monotonic()-start,
-                    verdict="REFUTED" if any(total) else "PROVED",trace_check=True)
+                    verdict="REFUTED" if any(total) else "PROVED",trace_check=True,witness_input=witness_input)
     except FrontierLimit as e:
         return dict(status="FRONTIER_"+str(e).upper().replace("-","_"),coeff=None,stats=stats,
                     root_s=time.monotonic()-start,verdict="UNKNOWN",trace_check=False)
@@ -839,6 +841,105 @@ def dispatch_contract_tests():
     print("HOARE_DISPATCH_CONTRACT checks=6",flush=True)
 
 
+
+# Independent original-circuit amplitude witness checker. This single-copy
+# evolution does not consult the paired count, reduced circuit, or oracle.
+# Each nonzero bad amplitude is itself a certificate target; denominator
+# is sqrt(2)^h. Replay is bounded, not a polynomial-size proof certificate.
+def verify_original_input(n,ops,pre,post,m,x,deadline,max_work=12_000_000):
+    if x<0 or x>=1<<n or not pre(x):
+        return dict(status="ILLEGAL_INPUT",work=0)
+    M=1<<m;D=M//2
+    zero=(0,)*D;one=(1,)+(0,)*(D-1)
+    v={x:one};h=0;work=0
+    def shift(a,k):
+        out=[0]*D
+        for i,c in enumerate(a):
+            j=(i+k)%M
+            out[j%D]+=c if j<D else -c
+        return tuple(out)
+    def add(dst,key,val):
+        val=tuple(a+b for a,b in zip(dst.get(key,zero),val))
+        if val==zero:dst.pop(key,None)
+        else:dst[key]=val
+    try:
+        for op,a,qs in ops:
+            if time.monotonic()>=deadline:raise FrontierLimit("time")
+            i=qs[0];b=1<<i
+            work+=len(v)*(2 if op in ("h","rx") else 1)
+            if work>max_work:raise FrontierLimit("work")
+            if op in ("h","rx"):
+                if op=="rx" and a!="pi/2":raise ValueError("unsupported rx")
+                out={};h+=1
+                for j,(z,val) in enumerate(v.items()):
+                    if j%1024==0 and time.monotonic()>=deadline:raise FrontierLimit("time")
+                    old=int(bool(z&b));base=z&~b
+                    for new in (0,1):
+                        k=(M//2)*old*new if op=="h" else (-M//4)*(old^new)
+                        add(out,base|(new<<i),shift(val,k) if k else val)
+                v=out
+            elif op in ("x","cx","ccx"):
+                target=1<<qs[-1]
+                controls=sum(1<<j for j in qs[:-1])
+                v={z^(target if (z&controls)==controls else 0):val for z,val in v.items()}
+            elif op in ("z","s","t","tdg","rz","cz"):
+                if op=="rz":
+                    k=WIDE_ANGLES[a]*M
+                    if k%32:raise ValueError("unsupported angle")
+                    k//=32
+                else:k={"z":M//2,"s":M//4,"t":M//8,"tdg":-M//8,"cz":M//2}[op]
+                mask=sum(1<<j for j in qs)
+                v={z:shift(val,k) if z&mask==mask else val for z,val in v.items()}
+            else:raise ValueError("unsupported gate "+op)
+        if time.monotonic()>=deadline:raise FrontierLimit("time")
+        bad=next(((z,val) for z,val in sorted(v.items()) if not post(z)),None)
+        if bad is None:return dict(status="NO_VIOLATING_AMPLITUDE",work=work)
+        z,val=bad
+        assert any(val)
+        return dict(status="VERIFIED",input=x,output=z,amplitude_numerator=list(val),
+                    sqrt2_denominator_power=h,modulus=M,work=work)
+    except FrontierLimit as e:
+        return dict(status="VERIFY_LIMIT_"+str(e).upper(),work=work)
+
+
+def prefix_witness(n,legal,query,deadline):
+    """Select an original-input prefix by exact nonnegative leakage.
+    Unknown preferred child may try the other; only a positive child
+    continues. No inference from SAT path existence or incomplete sums."""
+    prefix=[];calls=0
+    for i in range(n):
+        selected=None
+        for b in (0,1):
+            if time.monotonic()>=deadline:return None,calls,"WITNESS_TIMEOUT"
+            trial=prefix+[(i,b)]
+            positive=query(trial,deadline);calls+=1
+            if positive is True:selected=b;break
+        if selected is None:return None,calls,"WITNESS_INCOMPLETE"
+        prefix.append((i,selected))
+    x=sum(b<<i for i,b in prefix)
+    assert legal(x)
+    return x,calls,"CANDIDATE"
+
+
+def witness_contract_tests():
+    # Unknown on the preferred child must not be interpreted as zero.
+    f=lambda x:x==3
+    x,calls,status=prefix_witness(2,f,lambda p,e:None if p[-1][1]==0 else True,time.monotonic()+1)
+    assert (x,calls,status)==(3,4,"CANDIDATE")
+    x,calls,status=prefix_witness(2,f,lambda p,e:None,time.monotonic()+1)
+    assert x is None and status=="WITNESS_INCOMPLETE"
+    x,calls,status=prefix_witness(2,f,lambda p,e:True,time.monotonic()-1)
+    assert x is None and calls==0 and status=="WITNESS_TIMEOUT"
+    ops=[("h",None,[0]),("h",None,[0])]
+    assert verify_original_input(1,ops,lambda x:x==0,lambda z:z==0,3,0,time.monotonic()+1)["status"]=="NO_VIOLATING_AMPLITUDE"
+    assert verify_original_input(1,ops,lambda x:x==0,lambda z:z==0,3,1,time.monotonic()+1)["status"]=="ILLEGAL_INPUT"
+    row=verify_original_input(1,[("h",None,[0])],lambda x:x==0,lambda z:z==0,3,0,time.monotonic()+1)
+    assert row["status"]=="VERIFIED" and row["output"]==1 and row["amplitude_numerator"]==[1,0,0,0]
+    assert verify_original_input(1,ops,lambda x:True,lambda z:False,3,0,time.monotonic()+1,max_work=0)["status"]=="VERIFY_LIMIT_WORK"
+    print("HOARE_WITNESS_CONTRACT checks=7",flush=True)
+
+
+
 def dispatch_paper(gpmc,tmp,data,name,blob):
     start=time.monotonic()
     n,_,ops=paper_parse(data);m=5 if name=="noancilla" else 3
@@ -847,7 +948,7 @@ def dispatch_paper(gpmc,tmp,data,name,blob):
     expected=[((4<<h) if name=="noancilla" else 0)]+[0]*((1<<(m-1))-1)
     def frontier(end):
         r=frontier_contract(n,ops,{4:0},{4:0},m,"backward",min(end,time.monotonic()+15))
-        return dict(coeff=r["coeff"],status=r["status"],stats=r["stats"])
+        return dict(coeff=r["coeff"],status=r["status"],stats=r["stats"],witness_input=r.get("witness_input"))
     def wmc(end):
         c,bits,primary,_=gate_local_pair(n,ops,{4:0},{4:0},m)
         remaining=end-time.monotonic()
@@ -862,6 +963,11 @@ def dispatch_paper(gpmc,tmp,data,name,blob):
                elapsed_s=time.monotonic()-start,
                verdict="UNKNOWN" if row["coeff"] is None else "REFUTED" if any(row["coeff"]) else "PROVED")
     print("HOARE_DISPATCH_PAPER "+json.dumps(row),flush=True)
+    if row["verdict"]=="REFUTED":
+        x=row["attempts"][-1].get("witness_input")
+        t=time.monotonic()
+        witness=verify_original_input(n,ops,lambda x:not x&16,lambda z:not z&16,m,x,t+30) if x is not None else dict(status="WITNESS_INCOMPLETE")
+        print("HOARE_PAPER_WITNESS "+json.dumps(dict(case=name,source_blob=blob,witness_s=time.monotonic()-t,**witness)),flush=True)
 
 
 
@@ -876,6 +982,7 @@ def paper_compare(gpmc):
         wide_contract(gpmc,tmp)
         frontier_contract_tests()
         dispatch_contract_tests()
+        witness_contract_tests()
         for name,file,blob,gates,bad_count in PAPER_FILES:
             path=tmp/file
             url=f"https://raw.githubusercontent.com/{PAPER_REPO}/{PAPER_HEAD}/benchmark/algorithm/origin/{file}"

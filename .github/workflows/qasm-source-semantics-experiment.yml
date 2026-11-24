@@ -79,7 +79,7 @@ jobs:
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/research/p8c1_two_copy_structural.rs \
-            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8c1_symbolic.rs rust/research/p8c1_f8g1_property.rs rust/research/lean/PathSumLocal.lean rust/research/lean/CanonicalANF.lean rust/research/lean/BitMask16.lean rust/research/lean/lean-toolchain rust/research/p8c1_count_to_gram.rs \
+            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8c1_symbolic.rs rust/research/p8c1_f8g1_property.rs rust/research/lean/PathSumLocal.lean rust/research/lean/CanonicalANF.lean rust/research/lean/BitMask16.lean rust/research/lean/MaskSet16.lean rust/research/lean/lean-toolchain rust/research/p8c1_count_to_gram.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -644,7 +644,7 @@ jobs:
           anf_report_count="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-canonical-anf.log)"
           test "$anf_report_count" -eq 12
           echo 'LEAN4_CANONICAL_ANF_PROOFS_PASS theorem_axiom_reports=12'
-          lean BitMask16.lean 2>&1 | tee /tmp/qasm-lean-mask16.log
+          LEAN_PATH=. lean -o BitMask16.olean BitMask16.lean 2>&1 | tee /tmp/qasm-lean-mask16.log
           if grep -E 'sorryAx|Lean[.]trustCompiler' /tmp/qasm-lean-mask16.log; then
             echo 'Unexpected Lean 16-bit mask theorem axiom dependency' >&2
             exit 1
@@ -652,6 +652,14 @@ jobs:
           word_report_count="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-mask16.log)"
           test "$word_report_count" -eq 14
           echo 'LEAN4_MASK16_PROOFS_PASS theorem_axiom_reports=14'
+          LEAN_PATH=. lean MaskSet16.lean 2>&1 | tee /tmp/qasm-lean-maskset16.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler' /tmp/qasm-lean-maskset16.log; then
+            echo 'Unexpected Lean finite mask-set theorem axiom dependency' >&2
+            exit 1
+          fi
+          maskset_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-maskset16.log)"
+          test "$maskset_reports" -eq 10
+          echo 'LEAN4_MASKSET16_PROOFS_PASS theorem_axiom_reports=10'
 
       - name: Build and test std-only independent verifier
         run: |

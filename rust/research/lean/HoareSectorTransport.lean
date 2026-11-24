@@ -1203,4 +1203,202 @@ theorem bounded_qexpr_interpolation (n : Nat) (p : QExpr) (h : qBound n p)
 #print axioms qexpr_canonical_table
 #print axioms bounded_qexpr_interpolation
 
+/-! Finite wire support and circuit-level phase interpolation.
+    Only wire bounds are discharged here. Distinct-wire invertibility,
+    the Hadamard sandwich amplitude bridge, and native checker refinement
+    remain separate obligations. -/
+
+def gateBound (n : Nat) : Gate → Prop
+  | .flip a => a < n
+  | .cnot a b => a < n ∧ b < n
+  | .z a => a < n
+  | .s a => a < n
+  | .t a => a < n
+  | .cz a b => a < n ∧ b < n
+
+def formBound (n : Nat) : Form → Prop
+  | [] => True
+  | a :: rest => atomBound n a ∧ formBound n rest
+
+def frameBound (n : Nat) (f : Frame) : Prop :=
+  ∀ i, i < n → formBound n (f i)
+
+def gatesBound (n : Nat) : List Gate → Prop
+  | [] => True
+  | g :: gs => gateBound n g ∧ gatesBound n gs
+
+theorem form_bound_append (n : Nat) (a b : Form)
+    (ha : formBound n a) (hb : formBound n b) :
+    formBound n (a ++ b) := by
+  induction a with
+  | nil => exact hb
+  | cons c a ih =>
+      exact ⟨ha.1, ih ha.2⟩
+
+theorem four_poly_bound (n : Nat) (f : Form) (h : formBound n f) :
+    qBound n (fourPoly f) := by
+  induction f with
+  | nil => exact True.intro
+  | cons a f ih => exact ⟨h.1, ih h.2⟩
+
+theorem cross_four_bound (n : Nat) (a : Atom) (f : Form)
+    (ha : atomBound n a) (hf : formBound n f) :
+    qBound n (crossFour a f) := by
+  induction f with
+  | nil => exact True.intro
+  | cons b f ih => exact ⟨⟨ha, hf.1⟩, ih hf.2⟩
+
+theorem two_poly_bound (n : Nat) (f : Form) (h : formBound n f) :
+    qBound n (twoPoly f) := by
+  induction f with
+  | nil => exact True.intro
+  | cons a f ih =>
+      exact ⟨h.1, ih h.2, cross_four_bound n a f h.1 h.2⟩
+
+theorem identity_frame_bound (n : Nat) : frameBound n identityFrame := by
+  intro i hi
+  exact ⟨hi, True.intro⟩
+
+theorem advance_frame_bound (n : Nat) (g : Gate) (f : Frame)
+    (hg : gateBound n g) (hf : frameBound n f) :
+    frameBound n (advanceFrame g f) := by
+  intro i hi
+  cases g with
+  | flip a =>
+      by_cases he : i = a
+      · subst i
+        have hh : formBound n (Atom.one :: f a) := ⟨True.intro, hf a hi⟩
+        simpa [advanceFrame] using hh
+      · simpa [advanceFrame, he] using hf i hi
+  | cnot a b =>
+      by_cases he : i = b
+      · subst i
+        have ha : a < n := hg.1
+        simpa [advanceFrame] using form_bound_append n (f b) (f a) (hf b hi) (hf a ha)
+      · simpa [advanceFrame, he] using hf i hi
+  | z a => exact hf i hi
+  | s a => exact hf i hi
+  | t a => exact hf i hi
+  | cz a b => exact hf i hi
+
+theorem single_quad_bound (n : Nat) (k : Int) (f : Form) (d : Bool)
+    (h : formBound n f) : qBound n (singleQuad k f d) := by
+  cases d with
+  | false => exact True.intro
+  | true => exact ⟨True.intro, two_poly_bound n f h⟩
+
+theorem selected_four_bound (n : Nat) (d : Bool) (f : Form)
+    (h : formBound n f) : qBound n (selectedFour d f) := by
+  cases d with
+  | false => exact True.intro
+  | true => exact four_poly_bound n f h
+
+theorem local_quad_bound (n : Nat) (g : Gate) (f : Frame) (d : State)
+    (hg : gateBound n g) (hf : frameBound n f) :
+    qBound n (localQuad g f d) := by
+  cases g with
+  | flip a => exact True.intro
+  | cnot a b => exact True.intro
+  | z a => exact single_quad_bound n 4 (f a) (d a) (hf a hg)
+  | s a => exact single_quad_bound n 2 (f a) (d a) (hf a hg)
+  | t a => exact single_quad_bound n 1 (f a) (d a) (hf a hg)
+  | cz a b =>
+      exact ⟨selected_four_bound n (d a) (f b) (hf b hg.2),
+        selected_four_bound n (d b) (f a) (hf a hg.1), True.intro⟩
+
+theorem trace_quad_bound (n : Nat) (gs : List Gate) (f : Frame) (d : State)
+    (hg : gatesBound n gs) (hf : frameBound n f) :
+    qBound n (traceQuad gs f d) := by
+  induction gs generalizing f d with
+  | nil => exact True.intro
+  | cons g gs ih =>
+      exact ⟨local_quad_bound n g f d hg.1 hf,
+        ih (advanceFrame g f) (advanceDelta g d) hg.2
+          (advance_frame_bound n g f hg.1 hf)⟩
+
+def phaseDiff (gs : List Gate) (d x : State) : Int :=
+  (evalPhase gs (shifted x d) - evalPhase gs x) % 8
+
+theorem phase_diff_quad (gs : List Gate) (d x : State) :
+    phaseDiff gs d x = evalQ (traceQuad gs identityFrame d) x % 8 := by
+  unfold phaseDiff
+  rw [replay_phase_shift]
+  have h := trace_quad_sound gs identityFrame d x
+  rw [identity_frame_eval] at h
+  exact h.symm
+
+/-- Circuit-level interpolation: admitted finite wire indices ensure that
+    the exact phase derivative has bounded quadratic support. The
+    zero/one/two-hot sample premises are therefore sufficient for all
+    inputs, independently of any producer's polynomial normalization. -/
+theorem circuit_phase_interpolation (n : Nat) (gs : List Gate) (d : State)
+    (v : Int) (hg : gatesBound n gs)
+    (h0 : phaseDiff gs d (fun _ => false) = v % 8)
+    (h1 : ∀ i, i < n → phaseDiff gs d (unitState i) = v % 8)
+    (h2 : ∀ i j, j < i → i < n → phaseDiff gs d (pairState j i) = v % 8) :
+    ∀ x : State, phaseDiff gs d x = v % 8 := by
+  have hb := trace_quad_bound n gs identityFrame d hg (identity_frame_bound n)
+  have h0' : evalQ (traceQuad gs identityFrame d) (fun _ => false) % 8 = v % 8 := by
+    rw [← phase_diff_quad]
+    exact h0
+  have h1' : ∀ i, i < n →
+      evalQ (traceQuad gs identityFrame d) (unitState i) % 8 = v % 8 := by
+    intro i hi
+    rw [← phase_diff_quad]
+    exact h1 i hi
+  have h2' : ∀ i j, j < i → i < n →
+      evalQ (traceQuad gs identityFrame d) (pairState j i) % 8 = v % 8 := by
+    intro i j hj hi
+    rw [← phase_diff_quad]
+    exact h2 i j hj hi
+  intro x
+  rw [phase_diff_quad]
+  exact bounded_qexpr_interpolation n _ hb v h0' h1' h2' x
+
+/-- Compose the actual sample condition with the admitted basis-action
+    translation theorem. This is still a monomial basis-state result,
+    not an amplitude, normalization, or complete Hoare theorem. -/
+theorem sampled_constant_translation (n : Nat) (gs : List Gate)
+    (s t : State) (b : Bool) (hg : gatesBound n gs)
+    (ht : traceDelta gs s = t)
+    (h0 : phaseDiff gs s (fun _ => false) = 4 * bit b)
+    (h1 : ∀ i, i < n → phaseDiff gs s (unitState i) = 4 * bit b)
+    (h2 : ∀ i j, j < i → i < n → phaseDiff gs s (pairState j i) = 4 * bit b) :
+    ∀ x : State,
+      evalState gs (shifted x s) = shifted (evalState gs x) t ∧
+      phaseDiff gs s x = 4 * bit b := by
+  have hv : (4 * bit b) % 8 = 4 * bit b := by
+    cases b <;> decide
+  have h0' : phaseDiff gs s (fun _ => false) = (4 * bit b) % 8 := by
+    rw [hv]
+    exact h0
+  have h1' : ∀ i, i < n → phaseDiff gs s (unitState i) = (4 * bit b) % 8 := by
+    intro i hi
+    rw [hv]
+    exact h1 i hi
+  have h2' : ∀ i j, j < i → i < n →
+      phaseDiff gs s (pairState j i) = (4 * bit b) % 8 := by
+    intro i j hj hi
+    rw [hv]
+    exact h2 i j hj hi
+  have h := circuit_phase_interpolation n gs s (4 * bit b) hg h0' h1' h2'
+  intro x
+  constructor
+  · rw [replay_state_shift, ht]
+  · rw [h x, hv]
+
+#print axioms form_bound_append
+#print axioms four_poly_bound
+#print axioms cross_four_bound
+#print axioms two_poly_bound
+#print axioms identity_frame_bound
+#print axioms advance_frame_bound
+#print axioms single_quad_bound
+#print axioms selected_four_bound
+#print axioms local_quad_bound
+#print axioms trace_quad_bound
+#print axioms phase_diff_quad
+#print axioms circuit_phase_interpolation
+#print axioms sampled_constant_translation
+
 end QuPRS.SectorTransport

@@ -82,7 +82,7 @@ def main():
     solver_seconds = 0.0
     with tempfile.TemporaryDirectory(prefix="hoare-exact-") as tmp:
         query = pathlib.Path(tmp) / "query.cnf"
-        def count(base, assumptions, negative_lit=None):
+        def count(base, assumptions, negative_lit=None, stage_deadline=None):
             nonlocal calls, solver_seconds
             lines = base.splitlines()
             _, _, vs, cs = lines[0].split()
@@ -97,7 +97,7 @@ def main():
             query.write_text(f"c t {'wmc' if weighted else 'mc'}\np cnf {v} {c+len(assumptions)}\n" +
                              weights + "\n".join(lines[1:]) + "\n" +
                              "".join(f"{l} 0\n" for l in assumptions))
-            remaining = deadline - time.monotonic()
+            remaining = min(deadline, stage_deadline if stage_deadline is not None else deadline) - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("experiment budget")
             t = time.monotonic()
@@ -119,14 +119,14 @@ def main():
             values = [count(base, list(prefix) + [l if j >> i & 1 else -l
                       for i, l in enumerate(delta)]) for j in (0,4,1,3)]
             return (values[0]-values[1], values[2]-values[3])
-        def two_weighted(base, delta, prefix=()):
+        def two_weighted(base, delta, prefix=(), stage_deadline=None):
             # A=N0-N4: d0=d1=0, sign (-1)^d2.
             # B=N1-N3: d0=1,d2=0, sign (-1)^d1.
             # delta entries are signed literals; assign weights to literals
             # rather than variable IDs to support negated selectors.
             d0,d1,d2 = delta
-            return (count(base, list(prefix)+[-d0,-d1], negative_lit=d2),
-                    count(base, list(prefix)+[d0,-d2], negative_lit=d1))
+            return (count(base, list(prefix)+[-d0,-d1], negative_lit=d2, stage_deadline=stage_deadline),
+                    count(base, list(prefix)+[d0,-d2], negative_lit=d1, stage_deadline=stage_deadline))
 
         # Qualify unweighted free variables, UNSAT and large integers.
         assert count("p cnf 3 1\n1 0\n", []) == 4
@@ -262,7 +262,7 @@ def pure_wmc_decision(base, delta, n, solve, deadline, witness_seconds=2.0):
         if time.monotonic() >= end:
             raise TimeoutError("pure WMC stage budget")
         row[field] += 1  # two-signed-count batches attempted
-        v=tuple(solve(base,delta,prefix))
+        v=tuple(solve(base,delta,prefix,end))
         if len(v)!=2 or any(type(c) is not int for c in v):
             raise ValueError("invalid exact coefficient pair")
         if any(v) and not positive_surd(v):
@@ -313,7 +313,7 @@ def pure_wmc_contract_tests():
     assert z["verdict"]=="UNKNOWN" and z["coeff"] is None
     z=pure_wmc_decision("",[],1,lambda *a:(2,-1),end,0)
     assert z["verdict"]=="REFUTED" and z["witness"] is None and z["witness_status"]=="UNKNOWN_RESOURCE"
-    def cond(base,delta,prefix):
+    def cond(base,delta,prefix,end):
         return (0,0) if -2 in prefix else (2,-1)
     z=pure_wmc_decision("",[],1,cond,end)
     assert z["verdict"]=="REFUTED" and z["witness"]==1 and z["witness_status"]=="VERIFIED"

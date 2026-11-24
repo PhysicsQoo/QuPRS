@@ -148,7 +148,7 @@ def write_qasm(path,n,gates):
     path.write_text("\n".join(lines)+"\n")
 
 
-def compare(directory,gpmc,extended=False):
+def compare(directory,gpmc,extended=False,heldout=False):
     import quokka_sharp as qs
     from quokka_sharp import config
     vm=importlib.import_module("quokka_sharp.veri")
@@ -186,7 +186,15 @@ def compare(directory,gpmc,extended=False):
         with (directory/"property-factor.tsv").open() as f:
             cases=[(r["case"],tuple(map(int,r["expected"].split(",")))) for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")]
         assert len(cases)==20
-    deadline=time.monotonic()+(600 if extended else 90)
+    if heldout:
+        directory=directory/"fourier-heldout"
+        fields="case circuit n h gates support pre rank expected_mass admission".split()
+        with (directory/"heldout.tsv").open() as f:
+            cases=[(r["case"],(int(r["expected_mass"]),0)) for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")
+                   if r["admission"]=="NATIVE_EXPORT_ATTEMPTED"]
+        assert len(cases)==12
+    deadline=time.monotonic()+(480 if heldout else 600 if extended else 90)
+    marker="HOARE_FOURIER_QUOKKA" if heldout else "HOARE_QUOKKA_EXTENDED" if extended else "HOARE_QUOKKA"
     rows=[]
     with tempfile.TemporaryDirectory(prefix="hoare-quokka-") as tmp:
         qasm=pathlib.Path(tmp)/"property.qasm"
@@ -194,7 +202,7 @@ def compare(directory,gpmc,extended=False):
             n,gates,pre,post=load_case(directory/f"quokka-{name}.tsv")
             t=time.monotonic()
             adapted=adapt(n,gates,pre,post)
-            if extended and adapted is None:adapted=general_pre_monitor(n,gates,pre,post)
+            if (extended or heldout) and adapted is None:adapted=general_pre_monitor(n,gates,pre,post)
             adapter_s=time.monotonic()-t
             if adapted is None:
                 rows.append(dict(case=name,status="UNSUPPORTED_NONCUBE_PRE"))
@@ -208,10 +216,12 @@ def compare(directory,gpmc,extended=False):
                          exact_expected="REFUTED" if any(coeff) else "PROVED",
                          source_sha256=hashlib.sha256((directory/f"quokka-{name}.tsv").read_bytes()).hexdigest())
                 remaining=deadline-time.monotonic()
+                if heldout and remaining<32:
+                    raise RuntimeError("held-out Quokka global budget cannot provide full root cap")
                 if remaining<=0:
                     row["status"]="UNKNOWN_TIMEOUT"
                 else:
-                    cap=((120 if "15" in name else 60) if "mixing" in name else 30) if extended else 5
+                    cap=30 if heldout else ((120 if "15" in name else 60) if "mixing" in name else 30) if extended else 5
                     row["solver_cap_s"]=cap
                     config.CONFIG.update(FPE=D(tol),TIMEOUT=min(cap,remaining))
                     decimal.getcontext().prec=50
@@ -229,7 +239,9 @@ def compare(directory,gpmc,extended=False):
                         row.update(observation,verify_s=time.monotonic()-t,native_verdict=str(verdict))
                         row["status"]={"True":"PROVED_NUMERIC","False":"REFUTED_NUMERIC",
                                        "TIMEOUT":"UNKNOWN_TIMEOUT"}.get(str(verdict),"UNKNOWN_API")
-                        if verdict in ("True","False"):
+                        if heldout and row["verify_s"]>cap and str(verdict) in ("True","False"):
+                            row["status"]="UNKNOWN_LATE_NUMERIC"
+                        if verdict in ("True","False") and row["status"]!="UNKNOWN_LATE_NUMERIC":
                             prob=D(observation["prob"])
                             row["numeric_leakage"]=str(1-prob)
                             with decimal.localcontext() as ctx:
@@ -248,13 +260,13 @@ def compare(directory,gpmc,extended=False):
                     except Exception as e:
                         row.update(status="UNKNOWN_API_ERROR",error=type(e).__name__,detail=str(e)[-500:])
                 rows.append(row)
-                print(("HOARE_QUOKKA_EXTENDED " if extended else "HOARE_QUOKKA ")+json.dumps(row),flush=True)
+                print(marker+" "+json.dumps(row),flush=True)
     default=[r for r in rows if r.get("fpe")=="1e-12"]
     def tally(rs):
         return dict(cases=len(rs),agree=sum(r.get("agrees_exact") is True for r in rs),
                     disagree=sum(r.get("agrees_exact") is False for r in rs),
                     unknown=sum("agrees_exact" not in r for r in rs))
-    print(("HOARE_QUOKKA_EXTENDED_SUMMARY " if extended else "HOARE_QUOKKA_SUMMARY ")+json.dumps(dict(version=importlib.metadata.version("quokka_sharp"),
+    print(marker+"_SUMMARY "+json.dumps(dict(version=importlib.metadata.version("quokka_sharp"),
           default=tally(default),tolerances={t:tally([r for r in rows if r.get("fpe")==t])
           for t in ("1e-12","1e-16","1e-20")},unsupported=sum(r.get("status")=="UNSUPPORTED_NONCUBE_PRE" for r in rows),
           gpmc_sha256=hashlib.sha256(gpmc.read_bytes()).hexdigest())),flush=True)
@@ -1035,5 +1047,13 @@ def paper_compare(gpmc):
 if __name__=="__main__":
     directory=pathlib.Path(sys.argv[1]);gpmc=pathlib.Path(sys.argv[2]).resolve()
     compare(directory,gpmc)
-    compare(directory,gpmc,extended=True)
-    paper_compare(gpmc)
+    if os.environ.get("HOARE_FOURIER_COMPARE")=="1":
+        compare(directory,gpmc,heldout=True)
+        # Retain the wide count and structural correctness contracts,
+        # not the already-admitted historical paper timing pilot.
+        with tempfile.TemporaryDirectory(prefix="hoare-wide-contract-") as tmp:
+            wide_contract(gpmc,pathlib.Path(tmp))
+        frontier_contract_tests();dispatch_contract_tests();witness_contract_tests()
+    else:
+        compare(directory,gpmc,extended=True)
+        paper_compare(gpmc)

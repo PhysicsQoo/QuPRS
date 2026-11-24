@@ -9,6 +9,7 @@ on:
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/property_hoare_experiment.rs
       - rust/research/hoare_ganak_exact.py
+      - rust/research/hoare_projected_count.py
       - rust/research/hoare_quokka_compare.py
       - rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs
       - rust/quprs/tests/qasm_two_qubit_source_contract.rs
@@ -42,6 +43,7 @@ jobs:
     timeout-minutes: 40
     env:
       QUPRS_SOLVER_PROVISION: external
+      HOARE_FOURIER_COMPARE: '1'
       CARGO_TERM_COLOR: never
       RUST_BACKTRACE: '1'
     steps:

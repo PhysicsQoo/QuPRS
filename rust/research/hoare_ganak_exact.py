@@ -492,7 +492,15 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     run_residual_hybrid(directory,solve,deadline,rows)
     # Preserve the original discovery protocol on explicit request. Default
     # to the frozen long cohort rather than rerunning all 19 known timeouts.
-    if os.environ.get("HOARE_SCALE_DISCOVERY")=="1":
+    if os.environ.get("HOARE_FOURIER_COMPARE")=="1":
+        query_cap=30
+        deadline=time.monotonic()+1200
+        long_metrics=[]
+        profile_contract_tests(pathlib.Path(tmp),long_metrics)
+        run_structure_dispatch(directory/"fourier-heldout",solve,deadline,long_metrics,
+                               heldout=True,gpmc_exe=exe,tmp=tmp)
+        long_metrics=None
+    elif os.environ.get("HOARE_SCALE_DISCOVERY")=="1":
         query_cap=30
         deadline=time.monotonic()+1500
         run_scale_discovery(directory/"scale-discovery",solve,deadline)
@@ -1823,11 +1831,11 @@ def dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline):
 
 
 
-def dispatch_rr_rows(directory):
+def dispatch_rr_rows(directory,expected=21):
     fields="case h hr scale hits retained representation status reason witness vars clauses delta rr_us encoding_us pure_status pure_vars pure_clauses pure_delta build_us pure_us".split()
     with (directory/"dispatch-rr.tsv").open() as f:
         rows={r["case"]:r for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
-    assert len(rows)==21
+    assert len(rows)==expected
     return rows
 
 
@@ -1869,7 +1877,7 @@ def dispatch_three_mode_control(directory,r,solve,deadline,metrics):
 
 
 
-def run_structure_dispatch(directory,solve,deadline,metrics):
+def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc_exe=None,tmp=None):
     from hoare_quokka_compare import (load_case,cube,dispatch_policy,
                                         execute_routes,frontier_contract)
     factor_contract();conditioning_contract();witness_affine_contract()
@@ -1879,16 +1887,21 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
         cases=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
     with (directory/"property-factor-branches.tsv").open() as f:
         branches=list(csv.DictReader(f,fieldnames=bf,delimiter="\t"))
-    assert len(cases)==20
-    rr_rows=dispatch_rr_rows(directory)
-    dispatch_three_mode_control(directory,rr_rows["rr-residual-control"],solve,deadline,metrics)
-    pure_rows=[];rr_results=[]
-    # Separate deliberate budget-exhaustion control, not a benchmark case.
-    tasks=[(r,12_000_000,"exploratory-12M") for r in cases]
-    tasks.append((next(r for r in cases if r["case"]=="BV4-correct"),0,"forced-limit-control"))
+    assert len(cases)==(12 if heldout else 20)
+    rr_rows=dispatch_rr_rows(directory,12 if heldout else 21)
+    if not heldout:
+        dispatch_three_mode_control(directory,rr_rows["rr-residual-control"],solve,deadline,metrics)
+    pure_rows=[];rr_results=[];projected_rows=[]
+    # Frozen R28E policy, unchanged 12M work, 15s factor, 5s RR-WMC,
+    # shared 30s root cap. Held-out pilot excludes training controls.
+    tasks=[(r,12_000_000,"heldout-frozen-12M" if heldout else "exploratory-12M") for r in cases]
+    if not heldout:
+        tasks.append((next(r for r in cases if r["case"]=="BV4-correct"),0,"forced-limit-control"))
     rows=[]
     for r,work_cap,configuration in tasks:
         start=time.monotonic()
+        if heldout and deadline-start<93:
+            raise RuntimeError("held-out global budget cannot provide all three root caps")
         name=r["case"];target=tuple(map(int,r["expected"].split(",")))
         scale=int(r["scale"])
         bs=[b for b in branches if b["case"]==name]
@@ -1969,8 +1982,8 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
                       solve_dispatch_s=elapsed,prep_proxy_s=proxy,decision_proxy_s=elapsed+proxy,
                       verdict=terminal or ("UNKNOWN" if coeff is None else "REFUTED" if any(coeff) else "PROVED"))
         rows.append(result)
-        print("HOARE_STRUCTURE_DISPATCH "+json.dumps(result),flush=True)
-        if result["verdict"]=="REFUTED":
+        print(("HOARE_FOURIER_HYBRID " if heldout else "HOARE_STRUCTURE_DISPATCH ")+json.dumps(result),flush=True)
+        if not heldout and result["verdict"]=="REFUTED":
             witness=dispatch_witness(directory,r,result,bs,n,ops,p,q,solve,deadline)
             result["witness"]=witness
             print("HOARE_STRUCTURE_WITNESS "+json.dumps(dict(case=name,configuration=configuration,source_sha256=result["source_sha256"],**witness)),flush=True)
@@ -1978,12 +1991,40 @@ def run_structure_dispatch(directory,solve,deadline,metrics):
             rr_verdict=rr["status"] if rr["status"] in ("PROVED","REFUTED") else "UNKNOWN"
             rr_row=dict(case=name,mode="pure-rr",verdict=rr_verdict,status=rr["status"],h=int(rr["h"]),hr=int(rr["hr"]),hits=int(rr["hits"]),prep_s=int(rr["rr_us"])/1e6,witness=rr["witness"])
             if rr_verdict!="UNKNOWN":assert rr_verdict==("REFUTED" if any(target) else "PROVED")
-            rr_results.append(rr_row);print("HOARE_THREE_MODE "+json.dumps(rr_row),flush=True)
+            if heldout and rr_row["prep_s"]>30 and rr_verdict!="UNKNOWN":
+                rr_row.update(verdict="UNKNOWN",status="LATE_EXACT_REJECTED")
+            rr_results.append(rr_row);print(("HOARE_FOURIER_MODE " if heldout else "HOARE_THREE_MODE ")+json.dumps(rr_row),flush=True)
             st=time.monotonic()
             pure=dispatch_count(directory,rr,solve,min(deadline,st+30),metrics)
             if pure["coeff"] is not None:assert tuple(pure["coeff"])==target
+            if heldout and time.monotonic()-st>30 and pure["coeff"] is not None:
+                pure.update(coeff=None,status="LATE_EXACT_REJECTED")
             pure.update(case=name,mode="pure-wmc",verdict="UNKNOWN" if pure["coeff"] is None else "REFUTED" if any(pure["coeff"]) else "PROVED",root_s=time.monotonic()-st,prep_s=(int(rr["build_us"])+int(rr["pure_us"]))/1e6)
-            pure_rows.append(pure);print("HOARE_THREE_MODE "+json.dumps(pure),flush=True)
+            pure_rows.append(pure);print(("HOARE_FOURIER_MODE " if heldout else "HOARE_THREE_MODE ")+json.dumps(pure),flush=True)
+            if heldout:
+                from hoare_projected_count import projected_count
+                st=time.monotonic()
+                projected=dict(status=rr["pure_status"],mass=None,verdict="UNKNOWN",queries=[])
+                if rr["pure_status"]=="READY":
+                    base=(directory/f"dispatch-pure-{name}.cnf").read_text()
+                    bits=list(map(int,rr["pure_delta"].split(",")))
+                    v=int(base.splitlines()[0].split()[2])
+                    projected=projected_count(gpmc_exe,tmp,base,bits,v,st+30)
+                    if projected["mass"] is not None:
+                        assert projected["mass"]==target[0] and projected["verdict"]==("REFUTED" if any(target) else "PROVED")
+                        if time.monotonic()-st>30:
+                            projected.update(mass=None,verdict="UNKNOWN",status="LATE_EXACT_REJECTED")
+                projected.update(case=name,mode="pure-projected",root_s=time.monotonic()-st,prep_s=pure["prep_s"],cap_s=30)
+                projected_rows.append(projected)
+                print("HOARE_FOURIER_MODE "+json.dumps(projected),flush=True)
+    if heldout:
+        modes=(("pure-rr",rr_results),("pure-wmc",pure_rows),("pure-projected",projected_rows),("hybrid-frozen",rows))
+        assert all(len(xs)==12 for _,xs in modes)
+        print("HOARE_FOURIER_COMPARE_SUMMARY "+json.dumps(dict(modes={m:dict(cases=len(xs),
+              proved=sum(x["verdict"]=="PROVED" for x in xs),refuted=sum(x["verdict"]=="REFUTED" for x in xs),
+              unknown=sum(x["verdict"]=="UNKNOWN" for x in xs)) for m,xs in modes},
+              cap_s=30,root_only=True,offline_prep_proxy=True,fixed_arm_order=True,dispatcher_tuned=False)),flush=True)
+        return
     benchmark=rows[:-1]
     print("HOARE_THREE_MODE_SUMMARY "+json.dumps({m:dict(cases=len(xs),decided=sum(x["verdict"]!="UNKNOWN" for x in xs),proved=sum(x["verdict"]=="PROVED" for x in xs),refuted=sum(x["verdict"]=="REFUTED" for x in xs)) for m,xs in (("pure-rr",rr_results),("pure-wmc",pure_rows),("hybrid",benchmark))}),flush=True)
     assert len(benchmark)==20

@@ -3646,6 +3646,44 @@ mod exact_property_cnf {
             initial.h,base.vars,base.clauses.len(),d[0],d[1],d[2]));
     }
 
+    fn export_property_factor_case(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf],raw:[i128;2],oracle:&str,manifest:&mut String,branches:&mut String){
+        let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+        let t=std::time::Instant::now();
+        let reduced=property_cone(n,&ops,&q).unwrap();
+        let s=native(n,&reduced).unwrap();
+        let scale=h-s.h;
+        let common_us=t.elapsed().as_micros();
+        let t=std::time::Instant::now();
+        let (c,d)=two_copy_conj(&s,&p,&q);
+        let cnf_status=if let Some(data)=serialize_external(&c,&[]){
+            std::fs::write(dir.join(format!("property-base-{name}.cnf")),data).unwrap();"READY"
+        }else{"UNKNOWN_ENCODING_LIMIT"};
+        let base_us=t.elapsed().as_micros();
+        let t=std::time::Instant::now();
+        let (status,count)=if let Some(plans)=first_failure_plans(&s,&p,&q){
+            let count=plans.len();
+            for (i,a) in plans.into_iter().enumerate(){
+                let status=if a.unsat{"UNSAT_AFFINE"}else{
+                    let mut data=String::new();
+                    for (key,k) in a.phase.expect("fully absorbed first-failure branch"){
+                        data.push_str(&k.to_string());
+                        for (m,b) in key{data.push_str(&format!("\t{m}:{}",b as u8));}
+                        data.push('\n');
+                    }
+                    std::fs::write(dir.join(format!("property-factor-{name}-{i}.tsv")),data).unwrap();
+                    let map=a.input_forms.iter().map(|&(m,b)|format!("{m}:{}",b as u8)).collect::<Vec<_>>().join("\t");
+                    std::fs::write(dir.join(format!("property-input-{name}-{i}.tsv")),map).unwrap();
+                    "READY"
+                };
+                branches.push_str(&format!("{name}\t{i}\t{status}\t{}\t{}\n",a.primary,a.terms));
+            }
+            ("READY",count)
+        }else{("UNSUPPORTED",0)};
+        let factor_us=t.elapsed().as_micros();
+        manifest.push_str(&format!("{name}\t{n}\t{h}\t{}\t{scale}\t{}\t{count}\t{status}\t{cnf_status}\t{}\t{}\t{},{},{}\t{common_us}\t{base_us}\t{factor_us}\t{},{}\t{oracle}\n",
+            s.h,q.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+    }
+
     fn export_property_factor_benchmark(dir:&std::path::Path){
         let mut cases=Vec::new();
         for (name,n,ops,p,q,valid) in algorithmic_cases(){
@@ -3684,43 +3722,9 @@ mod exact_property_cnf {
         assert_eq!(cases.len(),20);
         let mut manifest=String::new();let mut branches=String::new();let mut rr=String::new();
         for (name,n,ops,p,q,raw,oracle) in cases{
-            let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
             export_external_property(dir,&name,n,&ops,&p,&q);
             export_dispatch_rr(dir,&name,n,&ops,&p,&q,&mut rr);
-            let t=std::time::Instant::now();
-            let reduced=property_cone(n,&ops,&q).unwrap();
-            let s=native(n,&reduced).unwrap();
-            let scale=h-s.h;
-            let common_us=t.elapsed().as_micros();
-            let t=std::time::Instant::now();
-            let (c,d)=two_copy_conj(&s,&p,&q);
-            let cnf_status=if let Some(data)=serialize_external(&c,&[]){
-                std::fs::write(dir.join(format!("property-base-{name}.cnf")),data).unwrap();"READY"
-            }else{"UNKNOWN_ENCODING_LIMIT"};
-            let base_us=t.elapsed().as_micros();
-            let t=std::time::Instant::now();
-            let (status,count)=if let Some(plans)=first_failure_plans(&s,&p,&q){
-                let count=plans.len();
-                for (i,a) in plans.into_iter().enumerate(){
-                    let status=if a.unsat{"UNSAT_AFFINE"}else{
-                        let mut data=String::new();
-                        for (key,k) in a.phase.expect("fully absorbed first-failure branch"){
-                            data.push_str(&k.to_string());
-                            for (m,b) in key{data.push_str(&format!("\t{m}:{}",b as u8));}
-                            data.push('\n');
-                        }
-                        std::fs::write(dir.join(format!("property-factor-{name}-{i}.tsv")),data).unwrap();
-                        let map=a.input_forms.iter().map(|&(m,b)|format!("{m}:{}",b as u8)).collect::<Vec<_>>().join("\t");
-                        std::fs::write(dir.join(format!("property-input-{name}-{i}.tsv")),map).unwrap();
-                        "READY"
-                    };
-                    branches.push_str(&format!("{name}\t{i}\t{status}\t{}\t{}\n",a.primary,a.terms));
-                }
-                ("READY",count)
-            }else{("UNSUPPORTED",0)};
-            let factor_us=t.elapsed().as_micros();
-            manifest.push_str(&format!("{name}\t{n}\t{h}\t{}\t{scale}\t{}\t{count}\t{status}\t{cnf_status}\t{}\t{}\t{},{},{}\t{common_us}\t{base_us}\t{factor_us}\t{},{}\t{oracle}\n",
-                s.h,q.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+            export_property_factor_case(dir,&name,n,&ops,&p,&q,raw,oracle,&mut manifest,&mut branches);
         }
         std::fs::write(dir.join("property-factor.tsv"),manifest).unwrap();
         std::fs::write(dir.join("property-factor-branches.tsv"),branches).unwrap();
@@ -3883,6 +3887,7 @@ mod exact_property_cnf {
             assert_eq!(fourier_middle_phase(&contract,x),(x,if x==7{4}else{0}));
         }
         let mut manifest=String::new();let mut rr=String::new();
+        let mut factors=String::new();let mut branches=String::new();
         for (n,support) in [(6usize,32usize),(10,373),(14,5669),(18,91852),(20,439756)]{
             let k=n-1;
             let mut pairs=BTreeSet::new();let mut triples=BTreeSet::new();
@@ -3963,12 +3968,15 @@ mod exact_property_cnf {
                     export_external_property(&dir,&id,n,&ops,&p,&q);
                     let status=if n<=16&&ops.len()<=512&&h<=48&&n+h<=63{
                         export_dispatch_rr(&dir,&id,n,&ops,&p,&q,&mut rr);
+                        export_property_factor_case(&dir,&id,n,&ops,&p,&q,[mass,0],"frozen-fourier-identity",&mut factors,&mut branches);
                         "NATIVE_EXPORT_ATTEMPTED"
                     }else{"UNSUPPORTED_SCOPE"};
                     manifest.push_str(&format!("{id}\t{name}\t{n}\t{h}\t{}\t{support}\t{pre}\t{rank}\t{mass}\t{status}\n",ops.len()));
                 }
             }
         }
+        std::fs::write(dir.join("property-factor.tsv"),factors).unwrap();
+        std::fs::write(dir.join("property-factor-branches.tsv"),branches).unwrap();
         std::fs::write(dir.join("heldout.tsv"),manifest).unwrap();
         std::fs::write(dir.join("dispatch-rr.tsv"),rr).unwrap();
         println!("HOARE_FOURIER_HELDOUT_FIXTURES properties=20 circuits=10 native_export_attempts=12 unsupported_scope=8 exact_ccz=true");

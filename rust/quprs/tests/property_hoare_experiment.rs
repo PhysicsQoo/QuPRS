@@ -1930,4 +1930,193 @@ mod exact_property_cnf {
         }
     }
 
+
+    // R14: bounded memoized survivor DAG. The base predicate is the full
+    // fiber (true), since cancellation preserves input and output.
+    // Memo keys are (prefix length, XOR shift), not arbitrary assignments.
+    // A maximum rank of 3 bounds distinct shifts by eight; at most four
+    // directions. This is a bounded optimization, not an unbounded solver.
+    fn direction_span(ds:&[u64])->Option<BTreeSet<u64>>{
+        if ds.len()>4||ds.iter().any(|&d|d==0){return None;}
+        let mut span=BTreeSet::from([0]);
+        for &d in ds{
+            let next:Vec<_>=span.iter().map(|&v|v^d).collect();
+            span.extend(next);
+            if span.len()>8{return None;}
+        }
+        Some(span)
+    }
+    fn survivor_dag(c:&mut Cnf,s:&Symbolic,bits:&[Lit],ds:&[u64],shift:u64,
+                    cache:&mut BTreeMap<(usize,u64),Lit>)->Option<Lit>{
+        if ds.is_empty(){return Some(ONE);}
+        let key=(ds.len(),shift);
+        if let Some(&l)=cache.get(&key){return Some(l);}
+        let (&d,prev)=ds.split_last()?;
+        let alive=survivor_dag(c,s,bits,prev,shift,cache)?;
+        let partner=survivor_dag(c,s,bits,prev,shift^d,cache)?;
+        let shifted:Vec<_>=bits.iter().enumerate().map(|(i,&l)|
+            if i>=s.n&&shift>>(i-s.n)&1!=0{-l}else{l}).collect();
+        let paired=cancel_lit(c,s,&shifted,d)?;
+        let remove=c.and(partner,paired);
+        let result=c.and(alive,-remove);
+        if !c.bounded()||cache.len()>=32{return None;}
+        cache.insert(key,result);
+        Some(result)
+    }
+    fn multi_one(s:&Symbolic,p:&[Anf],q:&[Anf],ds:&[u64])->Option<(Cnf,Lit,usize)>{
+        direction_span(ds)?;
+        if s.n+s.h>63||ds.iter().any(|&d|d>>s.h!=0){return None;}
+        let mut c=Cnf::new(s.n+s.h);
+        let bits:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        for f in p{let l=c.anf(f,&bits[..s.n]);c.enforce(l);}
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&bits)).collect();
+        let post=q.iter().fold(ONE,|a,f|{let l=c.anf(f,&z);c.and(a,l)});
+        c.enforce(-post);
+        let mut cache=BTreeMap::new();
+        let l=survivor_dag(&mut c,s,&bits,ds,0,&mut cache)?;
+        if !c.bounded(){return None;}
+        Some((c,l,cache.len()))
+    }
+    fn multi_two(s:&Symbolic,p:&[Anf],q:&[Anf],ds:&[u64])->Option<(Cnf,[Lit;3],usize)>{
+        direction_span(ds)?;
+        if s.n+s.h>63||ds.iter().any(|&d|d>>s.h!=0){return None;}
+        let (mut c,delta)=two_copy_conj(s,p,q);
+        let left:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        let right:Vec<_>=(0..s.n).map(|i|i as Lit+2)
+            .chain((s.n+s.h..s.n+2*s.h).map(|i|i as Lit+2)).collect();
+        let mut states=0;
+        for bits in [&left,&right]{
+            // Literal identities differ between the two path copies.
+            let mut cache=BTreeMap::new();
+            let l=survivor_dag(&mut c,s,bits,ds,0,&mut cache)?;
+            c.enforce(l);states+=cache.len();
+        }
+        if !c.bounded(){return None;}
+        Some((c,delta,states))
+    }
+    fn small_span_candidates(s:&Symbolic)->Vec<u64>{
+        let base=fiber_candidates(s,true);
+        // Complete the small span if it has <=64 elements. Otherwise use
+        // the existing bounded candidates. This includes joint directions
+        // beyond pairwise basis sums for small kernels.
+        let mut span=BTreeSet::from([0]);
+        for &d in &base{
+            let new:Vec<_>=span.iter().map(|&x|x^d).collect();
+            span.extend(new);
+            if span.len()>64{return base;}
+        }
+        let mut out:Vec<_>=span.into_iter().filter(|&d|d!=0).collect();
+        out.sort_by_key(|&d|(d.count_ones(),d));
+        out
+    }
+    #[derive(Debug)]
+    struct MultiChoice{directions:Vec<u64>,full:bool,queries:usize,visits:u64}
+    fn choose_multi(s:&Symbolic,p:&[Anf],q:&[Anf],budget:u64)->Option<MultiChoice>{
+        let mut fuel=budget;
+        let mut ds=Vec::new();
+        let mut queries=0;
+        let candidates=small_span_candidates(s);
+        let (c,l,_)=multi_one(s,p,q,&[])?;
+        queries+=1;
+        if count(&c,&[l],&mut fuel,true)?==0{
+            return Some(MultiChoice{directions:ds,full:true,queries,visits:budget-fuel});
+        }
+        // At each stage, test whether the new filter actually removes a
+        // surviving path. Prefer complete cancellation, else first progress.
+        // No full proof after incomplete SAT or a failed candidate.
+        for _ in 0..2{
+            let mut first=None;
+            for &d in &candidates{
+                if ds.contains(&d){continue;}
+                let mut trial=ds.clone();trial.push(d);
+                let Some((mut c,after,_))=multi_one(s,p,q,&trial) else{continue;};
+                let bits:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+                let mut cache=BTreeMap::new();
+                let Some(before)=survivor_dag(&mut c,s,&bits,&ds,0,&mut cache) else{continue;};
+                queries+=1;
+                if count(&c,&[before,-after],&mut fuel,true)?==0{continue;}
+                queries+=1;
+                if count(&c,&[after],&mut fuel,true)?==0{
+                    return Some(MultiChoice{directions:trial,full:true,queries,visits:budget-fuel});
+                }
+                if first.is_none(){first=Some(trial);}
+            }
+            let Some(next)=first else{break;};
+            ds=next;
+        }
+        if ds.is_empty(){None}else{Some(MultiChoice{directions:ds,full:false,queries,visits:budget-fuel})}
+    }
+    fn multi_direction_circuit()->Vec<G>{
+        // H^3 D H^3 with D phase
+        // 3 y0 + 7 y1 + y0 y1 + y0 y2 (mod 8).
+        // Scratch is initialized and uncomputed, so D is exact.
+        let mut ops=vec![G::H(0),G::H(1),G::H(2)];
+        ops.extend((0..3).map(|_|G::T(0)));
+        ops.extend((0..7).map(|_|G::T(1)));
+        for i in [1,2]{
+            ops.extend([G::CCX(0,i,3),G::T(3),G::CCX(0,i,3)]);
+        }
+        ops.extend([G::H(0),G::H(1),G::H(2)]);
+        ops
+    }
+    #[test]
+    fn hoare_multi_fiber_dag(){
+        let circuits=[
+            vec![G::H(0),G::H(1),G::H(0)],
+            vec![G::H(0),G::T(0),G::H(0)],
+            vec![G::H(0),G::CZ(0,1),G::H(0)],
+            vec![G::H(0),G::H(1),G::H(1)],
+        ];
+        let preds=[Anf::from([0]),Anf::from([0,1]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut cases=0;
+        for ops in &circuits{
+            let s=native(2,ops).unwrap();
+            for p in &preds{for q in &preds{
+                let p=std::slice::from_ref(p);let q=std::slice::from_ref(q);
+                let (a,d)=two_copy_conj(&s,p,q);
+                let exact=signed(buckets(&a,d,&[],&mut 20_000_000).unwrap());
+                for first in 1..1u64<<s.h{for second in 1..1u64<<s.h{
+                    let (r,e,_)=multi_two(&s,p,q,&[first,second]).unwrap();
+                    assert_eq!(exact,signed(buckets(&r,e,&[],&mut 20_000_000).unwrap()));
+                    for x in 0..4{
+                        let prefix=[if x&1!=0{2}else{-2},if x&2!=0{3}else{-3}];
+                        assert_eq!(signed(buckets(&a,d,&prefix,&mut 20_000_000).unwrap()),
+                            signed(buckets(&r,e,&prefix,&mut 20_000_000).unwrap()));
+                    }
+                    cases+=1;
+                }}
+            }}
+        }
+        assert_eq!(cases,1856);
+        assert!(direction_span(&[1,2,4,8]).is_none());
+        let ops=multi_direction_circuit();
+        let s=native(4,&ops).unwrap();
+        let p:Vec<_>=(0..4).map(|i|bit(i,false)).collect();
+        let q=vec![(1..8u64).collect::<Anf>()]; // at least one data bit set
+        assert_eq!(raw_for_input(4,&ops,&q,0),[0,0]);
+        // Check every possible nonzero direction, not just the heuristic.
+        for d in 1..1u64<<s.h{
+            let (c,l,_)=multi_one(&s,&p,&q,&[d]).unwrap();
+            assert_ne!(count(&c,&[l],&mut 2_000_000,true).unwrap(),0);
+        }
+        let (c,l,states)=multi_one(&s,&p,&q,&[1,7]).unwrap();
+        assert_eq!(count(&c,&[l],&mut 2_000_000,true),Some(0));
+        let t=std::time::Instant::now();
+        let result=choose_multi(&s,&p,&q,20_000_000).expect("two-direction candidate");
+        let elapsed=t.elapsed().as_micros();
+        assert!(result.full&&result.directions.len()==2);
+        let (r,e,two_states)=multi_two(&s,&p,&q,&result.directions).unwrap();
+        assert!(zero(buckets(&r,e,&[],&mut 20_000_000).unwrap()));
+        // A mutation changes the zero Fourier coefficient. The solver
+        // must not prove it. Check its actual dense norm independently.
+        let mut mutant=ops.clone();mutant.insert(mutant.len()-3,G::T(0));
+        assert_ne!(raw_for_input(4,&mutant,&q,0),[0,0]);
+        let m=native(4,&mutant).unwrap();
+        assert!(!choose_multi(&m,&p,&q,20_000_000).is_some_and(|v|v.full));
+        assert!(choose_multi(&s,&p,&q,0).is_none());
+        println!("HOARE_MULTI_FIBER_DIFFERENTIAL cases={cases} exact_per_input=true");
+        println!("HOARE_MULTI_FIBER_WITNESS n=4 h={} explicit_states={states} two_states={two_states} proof_us={elapsed} result={result:?} one_direction_impossible=true",
+            s.h);
+    }
+
 }

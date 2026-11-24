@@ -1598,8 +1598,9 @@ mod exact_property_cnf {
             }
         }
         export_nonlinear(dir,&mut manifest);
+        export_partial_fibers(dir,&mut manifest);
         std::fs::write(dir.join("scaled.tsv"),manifest).unwrap();
-        println!("HOARE_SCALED_FIXTURES cases=20 variants=92");
+        println!("HOARE_SCALED_FIXTURES cases=22 variants=96");
     }
 
 
@@ -1793,6 +1794,139 @@ mod exact_property_cnf {
                     state.h,cnf.vars,cnf.clauses.len(),5_000_000-fuel,ns.is_some());
             }
             println!("HOARE_FIBER_CONDITIONAL k={k} h={} proof_us={proof_us} stats={proof:?} negative_inconclusive=true",s.h);
+        }
+    }
+
+
+    // R13: remove a complete opposite-phase pair, even if other paths in
+    // the same fiber survive. The cancellation predicate is invariant
+    // under the selected involution. Both copies MUST use the filter.
+    fn cancel_lit(c:&mut Cnf,s:&Symbolic,bits:&[Lit],d:u64)->Option<Lit>{
+        if d==0||d>>s.h!=0||s.n+s.h>63{return None;}
+        let flip=d<<s.n;
+        let gap=translation_gap(&s.phase,flip,true)?;
+        if gap.len()>256{return None;}
+        let shifted:Vec<_>=bits.iter().enumerate().map(|(i,&l)|if flip>>i&1!=0{-l}else{l}).collect();
+        let mut good=ONE;
+        for o in &s.output{
+            let a=c.anf(o,bits);let b=c.anf(o,&shifted);
+            let diff=c.xor(a,b);good=c.and(good,-diff);
+        }
+        let diff=Symbolic{n:s.n,h:s.h,output:vec![],phase:gap};
+        for l in c.phase(&diff,bits,false){good=c.and(good,-l);}
+        Some(good)
+    }
+    fn residual_one(s:&Symbolic,p:&[Anf],q:&[Anf],d:u64)->Option<(Cnf,Lit)>{
+        let mut c=Cnf::new(s.n+s.h);
+        let bits:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        for f in p{let l=c.anf(f,&bits[..s.n]);c.enforce(l);}
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&bits)).collect();
+        let post=q.iter().fold(ONE,|a,f|{let l=c.anf(f,&z);c.and(a,l)});
+        c.enforce(-post);
+        let good=cancel_lit(&mut c,s,&bits,d)?;
+        Some((c,good))
+    }
+    fn residual_two(s:&Symbolic,p:&[Anf],q:&[Anf],d:u64)->Option<(Cnf,[Lit;3])>{
+        let (mut c,delta)=two_copy_conj(s,p,q);
+        let left:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        let right:Vec<_>=(0..s.n).map(|i|i as Lit+2)
+            .chain((s.n+s.h..s.n+2*s.h).map(|i|i as Lit+2)).collect();
+        for bits in [&left,&right]{
+            let good=cancel_lit(&mut c,s,bits,d)?;
+            c.enforce(-good);
+        }
+        Some((c,delta))
+    }
+    // Bounded candidate selection. SAT only establishes existence of a
+    // cancellable pair; it never refutes the property. Prefer full
+    // cancellation, otherwise retain the first partial candidate.
+    fn select_residual(s:&Symbolic,p:&[Anf],q:&[Anf],fuel:&mut u64)->Option<(u64,bool)>{
+        let mut partial=None;
+        for d in fiber_candidates(s,true){
+            let Some((c,good))=residual_one(s,p,q,d) else{continue;};
+            if !c.bounded(){continue;}
+            if count(&c,&[good],fuel,true)?==0{continue;}
+            if count(&c,&[-good],fuel,true)?==0{return Some((d,true));}
+            if partial.is_none(){partial=Some((d,false));}
+        }
+        partial
+    }
+    #[test]
+    fn hoare_partial_fiber_differential(){
+        let gates=[G::H(0),G::H(1),G::CX(0,1),G::CZ(0,1),G::T(0),G::S(1)];
+        let preds=[Anf::from([0]),Anf::from([0,1]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut cases=0;let mut partial=0;let mut full=0;
+        for g in &gates{for h in &gates{
+            let ops=[G::H(0),g.clone(),h.clone()];
+            let s=native(2,&ops).unwrap();
+            for p in &preds{for q in &preds{
+                let p=std::slice::from_ref(p);let q=std::slice::from_ref(q);
+                let (a,d)=two_copy_conj(&s,p,q);
+                let exact=signed(buckets(&a,d,&[],&mut 20_000_000).unwrap());
+                for dir in 1..1u64<<s.h{
+                    let (r,e)=residual_two(&s,p,q,dir).unwrap();
+                    assert_eq!(exact,signed(buckets(&r,e,&[],&mut 20_000_000).unwrap()));
+                    // Compare each original basis input separately to
+                    // catch accidental cancellation across input labels.
+                    for x in 0..4{
+                        let prefix=[if x&1!=0{2}else{-2},if x&2!=0{3}else{-3}];
+                        assert_eq!(signed(buckets(&a,d,&prefix,&mut 20_000_000).unwrap()),
+                            signed(buckets(&r,e,&prefix,&mut 20_000_000).unwrap()));
+                    }
+                    cases+=1;
+                }
+                if let Some((dir,all))=select_residual(&s,p,q,&mut 2_000_000){
+                    if all{assert_eq!(exact,[0;4]);full+=1;}else{partial+=1;}
+                    assert_ne!(dir,0);
+                }
+            }}
+        }}
+        assert!(partial+full>0);
+        println!("HOARE_PARTIAL_FIBER_DIFFERENTIAL directions={cases} selected_partial={partial} selected_full={full} exact_per_input=true");
+        for k in [1usize,2]{
+            let (ops,p,_,q)=conditional_post_case(k);
+            let s=native(3*k,&ops).unwrap();
+            let mut fuel=2_000_000;
+            let (dir,all)=select_residual(&s,&p,&q,&mut fuel).expect("partial strict cleanup");
+            assert!(!all);
+            let (c,d)=two_copy_conj(&s,&p,&q);
+            let (r,e)=residual_two(&s,&p,&q,dir).unwrap();
+            let mut a=20_000_000;let mut b=a;
+            let ca=signed(buckets(&c,d,&[],&mut a).unwrap());
+            let cb=signed(buckets(&r,e,&[],&mut b).unwrap());
+            assert_eq!(ca,cb);
+            assert_eq!(ca,[4i128.pow(k as u32)*(4i128.pow(k as u32)-3i128.pow(k as u32)),0,0,0]);
+            assert!(select_residual(&s,&p,&q,&mut 0).is_none());
+            println!("HOARE_PARTIAL_FIBER_STRICT k={k} direction={dir} search_visits={} direct_vars={} residual_vars={} direct_clauses={} residual_clauses={} direct_visits={} residual_visits={}",
+                2_000_000-fuel,c.vars,r.vars,c.clauses.len(),r.clauses.len(),20_000_000-a,20_000_000-b);
+        }
+    }
+    fn export_partial_fibers(dir:&std::path::Path,manifest:&mut String){
+        // Two matched negative cases, four variants only. Existing external
+        // regression matrix unchanged; same exact solver and total budget.
+        for k in [1usize,2]{
+            let n=3*k;
+            let (ops,p,_,q)=conditional_post_case(k);
+            let s=native(n,&ops).unwrap();
+            let t=std::time::Instant::now();
+            let (direction,all)=select_residual(&s,&p,&q,&mut 2_000_000).unwrap();
+            let prep_us=t.elapsed().as_micros();
+            assert!(!all);
+            let raw=4i128.pow(k as u32)*(4i128.pow(k as u32)-3i128.pow(k as u32));
+            assert_ne!(raw_for_input(n,&ops,&q,1),[0,0]);
+            let name=format!("partial-CS{k}-strict");
+            for route in ["direct","residual"]{
+                let t=std::time::Instant::now();
+                let (c,d)=if route=="direct"{two_copy_conj(&s,&p,&q)}
+                    else{residual_two(&s,&p,&q,direction).unwrap()};
+                let encoding_us=t.elapsed().as_micros();
+                let status=if let Some(text)=dimacs(&c,&[]){
+                    std::fs::write(dir.join(format!("scale-{name}-{route}.cnf")),text).unwrap();"READY"
+                }else{"UNKNOWN_ENCODING_LIMIT"};
+                let prep=if route=="direct"{0}else{prep_us};
+                manifest.push_str(&format!("{name}\t{route}\t{n}\t{}\t0\t{},{},{}\t{raw},0\t1\t{}\t{}\t{encoding_us}\t{status}\t1\t{prep}\t{}\n",
+                    s.h,d[0],d[1],d[2],c.vars,c.clauses.len(),s.phase.len()));
+            }
         }
     }
 

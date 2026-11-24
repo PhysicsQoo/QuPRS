@@ -47,10 +47,14 @@ theorem first_failure_step {α : Type} (xs : List α)
   induction xs with
   | nil => rfl
   | cons a xs ih =>
-      simp only [allGood] at ih
+      -- Rewrite the tail while its predicates still have exactly the
+      -- same syntax as the induction hypothesis. Boolean simplification
+      -- below is only needed for the current head contribution.
+      simp only [mass]
+      rw [ih]
       cases hg : g a <;> cases hb : b a <;>
         cases hc : allGood bs a <;>
-        simp [mass, allGood, hg, hb, hc] <;> omega
+        simp [allGood, hg, hb, hc] <;> omega
 
 /-- Earlier conjuncts must pass, so failure branches do not double count. -/
 theorem first_failure_mass {α : Type} (xs : List α)

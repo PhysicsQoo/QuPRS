@@ -387,6 +387,52 @@ mod tests{
         );
     }
     #[test]
+    fn symbolic_three_variable_all_polynomial_pairs_exact_coefficients(){
+        // All 256 canonical multilinear ANFs of 3 variables against all
+        // 256 others. Compare the actual Rust BTreeSet XOR/OR-convolution
+        // coefficients, not only pointwise evaluations, to an independent
+        // Möbius inversion of the expected Boolean truth functions.
+        let mut algebra=Algebra::new();
+        let mut checked=0usize;
+        for left_bits in 0..256u32 {
+            let left=coefficient_bits(3,left_bits);
+            let sq=algebra.and(&left,&left).unwrap();
+            assert_eq!(sq,left,"squarefree self-product changes coefficients");
+            assert!(algebra.xor(&left,&left).unwrap().is_empty());
+            for right_bits in 0..256u32 {
+                let right=coefficient_bits(3,right_bits);
+                let product=algebra.and(&left,&right).unwrap();
+                let symmetric=algebra.xor(&left,&right).unwrap();
+                let and_truth=(0..8u16).map(|bits|
+                    value(&left,bits)&&value(&right,bits))
+                    .collect::<Vec<_>>();
+                let xor_truth=(0..8u16).map(|bits|
+                    value(&left,bits)^value(&right,bits))
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    product,truth_to_masked_coefficients(3,&and_truth),
+                    "OR-convolution coefficient parity differs from reference"
+                );
+                assert_eq!(
+                    symmetric,truth_to_masked_coefficients(3,&xor_truth),
+                    "symmetric-difference coefficient parity differs"
+                );
+                let ascending=product.iter().copied().collect::<Vec<_>>();
+                assert!(ascending.windows(2).all(|w|w[0]<w[1]),
+                    "the actual BTreeSet output must be strictly ordered");
+                assert!(product.iter().all(|&m|m<8));
+                checked+=1;
+            }
+        }
+        assert_eq!(checked,65_536);
+        println!(
+            "ANF_MASKSET_3VAR_ALL_PAIRS pairs={checked} \
+             coefficient_vectors=256x256 checks=131072 \
+             sorted_unique=true mobius_reference=independent \
+             squarefree_self_product=true"
+        );
+    }
+    #[test]
     fn symbolic_bitmask_boolean_ops_truth_refinement(){
         let mut a=Algebra::new();
         let mut checks=0usize;

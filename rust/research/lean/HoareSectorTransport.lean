@@ -198,7 +198,7 @@ def localDelta (g : Gate) (x d : State) : Int :=
   | _ => 0
 
 theorem bx_flip (a b : Bool) :
-    !(bx a b) = bx (!a) b := by
+    (!(bx a b)) = bx (!a) b := by
   cases a <;> cases b <;> decide
 
 theorem bx_four (a b c d : Bool) :
@@ -212,13 +212,13 @@ theorem advance_shift (g : Gate) (x d : State) :
       funext i
       by_cases h : i = a
       · subst i
-        simpa only [advance, advanceDelta, shifted, if_pos rfl] using bx_flip (x a) (d a)
+        simpa [advance, advanceDelta, shifted] using bx_flip (x a) (d a)
       · simp [advance, advanceDelta, shifted, h]
   | cnot a b =>
       funext i
       by_cases h : i = b
       · subst i
-        simpa only [advance, advanceDelta, cnotState, shifted, if_pos rfl] using
+        simpa [advance, advanceDelta, cnotState, shifted] using
           bx_four (x b) (d b) (x a) (d a)
       · simp [advance, advanceDelta, cnotState, shifted, h]
   | z a => rfl

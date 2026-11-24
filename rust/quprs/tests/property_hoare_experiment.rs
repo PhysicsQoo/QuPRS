@@ -3201,10 +3201,101 @@ mod exact_property_cnf {
         }
         out
     }
+
+    // Backward support of a diagonal output projector. The whole
+    // diagonal block commutes, so support must not grow transitively
+    // inside a block merely because of the gate serialization order.
+    fn gate_support(g:&G)->Option<u64>{
+        Some(match *g{
+            G::H(i)|G::X(i)|G::Z(i)|G::S(i)|G::T(i)=>1u64<<i,
+            G::CX(i,j)|G::CZ(i,j)=>(1u64<<i)|(1u64<<j),
+            G::CCX(i,j,k)=>(1u64<<i)|(1u64<<j)|(1u64<<k),
+            _=>return None,
+        })
+    }
+    fn property_cone(n:usize,ops:&[G],q:&[Anf])->Option<Vec<G>>{
+        if n==0||n>16||q.iter().flatten().any(|&m|m>>n!=0)
+            ||!ops.iter().all(|g|admitted(n,std::slice::from_ref(g))){return None;}
+        let mut support=q.iter().flatten().fold(0u64,|a,&m|a|m);
+        let mut out=Vec::new();
+        let mut i=ops.len();
+        while i>0{
+            if diagonal(&ops[i-1]){
+                let entry=support;
+                let mut expanded=entry;
+                while i>0&&diagonal(&ops[i-1]){
+                    i-=1;
+                    let mask=gate_support(&ops[i])?;
+                    if mask&entry!=0{out.push(ops[i].clone());expanded|=mask;}
+                }
+                support=expanded;
+            }else{
+                i-=1;
+                let mask=gate_support(&ops[i])?;
+                if mask&support!=0{out.push(ops[i].clone());support|=mask;}
+            }
+        }
+        out.reverse();Some(out)
+    }
+    #[test]
+    fn hoare_property_cone_exact(){
+        let mut checks=0;
+        let posts=[vec![],vec![Anf::new()],vec![bit(0,false)],vec![bit(2,true)],
+            vec![equal_bits(0,2)],vec![Anf::from([0,3])],vec![bit(0,false),bit(1,true)]];
+        let circuits=[
+            vec![G::H(0),G::H(1),G::H(2),G::CZ(0,1),G::CZ(1,2),G::T(1),G::H(0)],
+            vec![G::H(0),G::T(2),G::CCX(0,1,2),G::CX(2,0),G::H(1),G::S(2)],
+            scale_mixing(3,3),
+            vec![G::X(2),G::H(1),G::CZ(1,2),G::S(0),G::H(2),G::H(0)],
+        ];
+        for ops in circuits{
+            let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+            for q in &posts{
+                let cone=property_cone(3,&ops,q).unwrap();
+                let hc=cone.iter().filter(|g|matches!(g,G::H(_))).count();
+                for x in 0..8{
+                    assert_eq!(raw_for_input(3,&cone,q,x).map(|v|v*(1i128<<(h-hc))),
+                               raw_for_input(3,&ops,q,x));
+                    checks+=1;
+                }
+            }
+        }
+        // Do not introduce dependence on a spectator via transitive CZ
+        // closure: CZ(1,2) commutes with the whole diagonal block.
+        let ops=vec![G::H(0),G::H(1),G::H(2),G::CZ(1,2),G::CZ(0,1),G::H(0)];
+        let cone=property_cone(3,&ops,&[bit(0,false)]).unwrap();
+        assert!(!cone.contains(&G::CZ(1,2))&&!cone.contains(&G::H(2)));
+        println!("HOARE_PROPERTY_CONE checks={checks} exact_per_input=true");
+    }
+    fn export_cone_case(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf],
+                        raw:[i128;2],manifest:&mut String){
+        let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+        let t=std::time::Instant::now();
+        let reduced=property_cone(n,ops,q).unwrap();
+        let cone_us=t.elapsed().as_micros();
+        let hr=reduced.iter().filter(|g|matches!(g,G::H(_))).count();
+        let scale=h-hr;
+        // Unique legal input in the frozen scale cohort; oracle is not
+        // part of either solver's decision or timing.
+        assert_eq!(raw_for_input(n,&reduced,q,0).map(|v|v*(1i128<<scale)),raw);
+        let t=std::time::Instant::now();
+        let s=native(n,&reduced).unwrap();
+        let build_us=t.elapsed().as_micros();
+        assert_eq!(s.h,hr);
+        let t=std::time::Instant::now();
+        let (c,d)=two_copy_conj(&s,p,q);
+        let status=if let Some(text)=serialize_external(&c,&[]){
+            std::fs::write(dir.join(format!("cone-{name}.cnf")),text).unwrap();"READY"
+        }else{"UNKNOWN_ENCODING_LIMIT"};
+        let encoding_us=t.elapsed().as_micros();
+        manifest.push_str(&format!("{name}\t{h}\t{hr}\t{}\t{}\t{scale}\t{}\t{}\t{},{},{}\t{status}\t{cone_us}\t{build_us}\t{encoding_us}\t{},{}\n",
+            ops.len(),reduced.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+    }
+
     fn export_scale_benchmark(dir:&std::path::Path){
         let dir=dir.join("scale-discovery");
         std::fs::create_dir_all(&dir).unwrap();
-        let mut direct=String::new();let mut residual=String::new();
+        let mut direct=String::new();let mut residual=String::new();let mut cones=String::new();
         let mut cases=Vec::new();
         for n in [8usize,10,12]{
             let v=scale_mixing(n,2);
@@ -3242,6 +3333,7 @@ mod exact_property_cnf {
             let encoding_us=t.elapsed().as_micros();
             direct.push_str(&format!("{name}\t{n}\t{h}\t{}\t{}\t{}\t{},{},{}\t{status}\t{build_us}\t{encoding_us}\t{oracle_us}\t{},{}\t{witness}\n",
                 ops.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+            if name.starts_with("mixing"){export_cone_case(&dir,&name,n,&ops,&p,&q,raw,&mut cones);}
             if let Some(input)=HoareInput::build_scale(n,&ops,p,q){
                 emit_residual_plans(&dir,&name,&input,raw,witness,&mut residual,true);
             }else{
@@ -3255,7 +3347,8 @@ mod exact_property_cnf {
         }
         std::fs::write(dir.join("direct.tsv"),direct).unwrap();
         std::fs::write(dir.join("residual.tsv"),residual).unwrap();
-        println!("HOARE_SCALE_DISCOVERY_FIXTURES cases=9 routes=45");
+        std::fs::write(dir.join("cone.tsv"),cones).unwrap();
+        println!("HOARE_SCALE_DISCOVERY_FIXTURES cases=9 routes=45 cone_cases=3");
     }
 
 }

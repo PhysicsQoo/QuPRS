@@ -496,7 +496,11 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         query_cap=200
         deadline=time.monotonic()+1800
         long_metrics=[]
+        profile_contract_tests(pathlib.Path(tmp),long_metrics)
         run_scale_long(directory/"scale-discovery",solve,deadline,long_metrics)
+        query_cap=60
+        deadline=time.monotonic()+330
+        run_cone_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -632,24 +636,30 @@ def run_scale_discovery(directory,solve,deadline):
 
 
 
+class SolverSignalKilled(RuntimeError):
+    pass
+
+
 def profile_gpmc(args, seconds, metrics_path, records):
     """GNU time around a single bounded solver subprocess, including timeout.
     RSS is the reported maximum for this invocation, not Python/CNF memory.
-    Exit 124 is a timer outcome; unexpected exits fail the experiment.
+    A verbose GNU timeout signal receipt distinguishes timer escalation
+    from an unattributed SIGKILL. Neither produces a quantum verdict.
     """
     metrics_path.unlink(missing_ok=True)
     cmd=["/usr/bin/time","-q","-f","%U\t%S\t%M","-o",str(metrics_path),
-         "timeout","--foreground","--signal=TERM","--kill-after=1s",f"{seconds:.6f}s",
+         "timeout","--verbose","--foreground","--signal=TERM","--kill-after=1s",f"{seconds:.6f}s",
          *args]
     start=time.monotonic()
     p=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                       text=True,start_new_session=True)
+                       text=True,start_new_session=True,env=dict(os.environ,LC_ALL="C"))
     outer=False
     try:
         stdout,stderr=p.communicate(timeout=seconds+3)
     except subprocess.TimeoutExpired:
         outer=True
-        os.killpg(p.pid,signal.SIGKILL)
+        try:os.killpg(p.pid,signal.SIGKILL)
+        except ProcessLookupError:pass
         stdout,stderr=p.communicate()
     row=dict(wall_s=time.monotonic()-start,exit=p.returncode,
              user_s=None,system_s=None,max_rss_kib=None,status="EXIT")
@@ -657,11 +667,17 @@ def profile_gpmc(args, seconds, metrics_path, records):
         parts=metrics_path.read_text().strip().split("\t")
         if len(parts)==3:
             row.update(user_s=float(parts[0]),system_s=float(parts[1]),max_rss_kib=int(parts[2]))
-    if outer or p.returncode==124:
+    notices=[l for l in stderr.splitlines() if re.match(r"^timeout: sending signal (TERM|KILL) to command ",l)]
+    row.update(timer_notices=notices,outer_deadline=outer,stderr_tail=stderr[-1000:])
+    expired=bool(notices) and row["wall_s"]>=max(0,seconds-.1)
+    if outer or (expired and p.returncode in (124,137,-9)):
         row["status"]="TIMEOUT"
         records.append(row)
         raise TimeoutError("profiled GPMC root deadline")
-    # 137 may be external OOM or SIGKILL: never silently call it a timeout.
+    if p.returncode in (137,-9):
+        row["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        records.append(row)
+        raise SolverSignalKilled("SIGKILL without timer receipt; OOM not established")
     if p.returncode:
         row["status"]="SOLVER_ERROR"
         records.append(row)
@@ -735,6 +751,8 @@ def run_scale_long(directory,solve,deadline,metrics):
                     row.update(coeff=coeff,verdict="REFUTED" if any(coeff) else "PROVED",status="EXACT_ROOT")
                 except (TimeoutError,subprocess.TimeoutExpired):
                     row["status"]="ROOT_TIMEOUT"
+                except SolverSignalKilled:
+                    row["status"]="ROOT_SIGNAL_KILL"
                 row["root_s"]=time.monotonic()-start
         if row["verdict"]!="UNKNOWN":
             assert row["verdict"]==("REFUTED" if any(target) else "PROVED")
@@ -753,11 +771,87 @@ def run_scale_long(directory,solve,deadline,metrics):
             summary[str(cap)][mode]=dict(attempts=len(rs),decided=sum(r["verdict"]!="UNKNOWN" for r in rs),
                 timeouts=sum(r["status"]=="ROOT_TIMEOUT" for r in rs),
                 not_run=sum(r["status"]=="GLOBAL_BUDGET_NOT_RUN" for r in rs),
+                signal_kills=sum(r["status"]=="ROOT_SIGNAL_KILL" for r in rs),
                 completed_root_s=[r["root_s"] for r in rs if r["status"]=="EXACT_ROOT"],
                 terminal=sum(r["root_batches"]==0 and r["verdict"]!="UNKNOWN" for r in rs))
     print("HOARE_SCALE_LONG_SUMMARY "+json.dumps(dict(summary=summary,attempts=len(rows),
           frozen_discovery_head="1bc06be95734f54c0ba229b4c9560ec19cb6de32",
           repeated_scope="solver-only",backend="gpmc-mpz-packed")),flush=True)
+
+
+
+
+def profile_contract_tests(tmp,metrics):
+    path=tmp/"profile-contract.tsv"
+    for program,expected in (
+        ("import time; time.sleep(10)","TIMEOUT"),
+        ("import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(10)","TIMEOUT"),
+        ("import os,signal; os.kill(os.getpid(),signal.SIGKILL)","UNATTRIBUTED_SIGNAL_KILL"),
+    ):
+        metrics.clear()
+        try:
+            profile_gpmc([sys.executable,"-c",program],.4,path,metrics)
+        except (TimeoutError,SolverSignalKilled):
+            assert len(metrics)==1 and metrics[0]["status"]==expected,metrics
+        else:
+            raise AssertionError("resource contract expected termination")
+        print("HOARE_RESOURCE_CONTRACT "+json.dumps(metrics[0]),flush=True)
+    metrics.clear()
+
+
+def run_cone_pilot(directory,solve,deadline,metrics):
+    """Three property-cone cases, direct controls for the two larger sizes.
+    Mixing10 direct is already repeated in the preceding long cohort."""
+    fields="case h hr gates gr scale vars clauses delta status cone_us build_us encoding_us expected".split()
+    df="case n h gates vars clauses delta status build_us encoding_us oracle_us expected witnesses".split()
+    with (directory/"cone.tsv").open() as f:
+        cones=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    with (directory/"direct.tsv").open() as f:
+        direct={r["case"]:r for r in csv.DictReader(f,fieldnames=df,delimiter="\t")}
+    assert len(cones)==3
+    rows=[]
+    for i,c in enumerate(cones):
+        name=c["case"]
+        base=direct[name]
+        assert c["expected"]==base["expected"]
+        b=dict(base,hr=base["h"],gr=base["gates"],scale="0",cone_us="0")
+        cases=[("cone",c)] if i==0 else ([("direct",b),("cone",c)] if i%2 else [("cone",c),("direct",b)])
+        for mode,r in cases:
+            metrics.clear()
+            target=tuple(map(int,base["expected"].split(",")))
+            row=dict(case=name,mode=mode,n=int(base["n"]),h=int(r["h"]),hr=int(r["hr"]),
+                gates=int(r["gates"]),gr=int(r["gr"]),scale=int(r["scale"]),
+                vars=int(r["vars"]),clauses=int(r["clauses"]),cone_us=int(r["cone_us"]),
+                build_us=int(r["build_us"]),encoding_us=int(r["encoding_us"]),
+                expected_raw=target,coeff=None,status=r["status"],verdict="UNKNOWN",root_s=0.0,
+                cnf_sha256=None,source_sha256=hashlib.sha256((directory/f"quokka-{name}.tsv").read_bytes()).hexdigest())
+            if r["status"]=="READY":
+                data=(directory/f"{mode}-{name}.cnf").read_bytes()
+                row["cnf_sha256"]=hashlib.sha256(data).hexdigest()
+                start=time.monotonic();end=min(deadline,start+60)
+                if end<=start:row["status"]="GLOBAL_BUDGET_NOT_RUN"
+                else:
+                    try:
+                        raw=tuple(solve(data.decode(),list(map(int,r["delta"].split(","))),[],end))
+                        if any(raw) and not positive_surd(raw):raise ValueError("negative cone leakage")
+                        coeff=tuple(v*(1<<row["scale"]) for v in raw)
+                        assert coeff==target,(name,mode,coeff,target)
+                        row.update(status="EXACT_ROOT",verdict="REFUTED" if any(coeff) else "PROVED",coeff=coeff)
+                    except (TimeoutError,subprocess.TimeoutExpired):
+                        row["status"]="ROOT_TIMEOUT"
+                    except SolverSignalKilled:
+                        row["status"]="ROOT_SIGNAL_KILL"
+                row["root_s"]=time.monotonic()-start
+            row["queries"]=[dict(m) for m in metrics]
+            row["cpu_s"]=sum(m["user_s"]+m["system_s"] for m in metrics) if metrics and all(m["user_s"] is not None for m in metrics) else None
+            row["max_rss_kib"]=max(m["max_rss_kib"] for m in metrics) if metrics and all(m["max_rss_kib"] is not None for m in metrics) else None
+            row["decision_proxy_s"]=row["root_s"]+sum(row[k] for k in ("cone_us","build_us","encoding_us"))/1e6
+            rows.append(row)
+            print("HOARE_CONE_PILOT "+json.dumps(row),flush=True)
+    assert len(rows)==5
+    print("HOARE_CONE_PILOT_SUMMARY "+json.dumps(dict(cases=3,routes=5,cap_s=60,
+          cone_decided=sum(r["mode"]=="cone" and r["verdict"]!="UNKNOWN" for r in rows),
+          direct_decided=sum(r["mode"]=="direct" and r["verdict"]!="UNKNOWN" for r in rows))),flush=True)
 
 
 

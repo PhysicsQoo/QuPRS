@@ -4,6 +4,8 @@ import decimal
 import hashlib
 from fractions import Fraction
 import json
+import os
+import signal
 import pathlib
 import re
 import subprocess
@@ -426,6 +428,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     """
     query_file=pathlib.Path(tmp)/"gpmc-pure.cnf"
     query_cap=5
+    long_metrics=None
     def count(base, assumptions, weighted_lit, end):
         header,*clauses=base.splitlines()
         p,kind,v,c=header.split();v,c=int(v),int(c)
@@ -444,9 +447,14 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         if remaining<=0:
             raise TimeoutError("GPMC stage budget")
         args=[str(exe),"-mode=1","-natw"] if mode=="wmc" else [str(exe),"-mode=0"]
-        proc=subprocess.run(args+[str(query_file)],capture_output=True,text=True,
-                            timeout=min(query_cap,remaining),check=True)
-        result=parse_gpmc_integer(proc.stdout,mode,(1<<v)*(radix if mode=="wmc" else 1))
+        if long_metrics is None:
+            proc=subprocess.run(args+[str(query_file)],capture_output=True,text=True,
+                                timeout=min(query_cap,remaining),check=True)
+            stdout=proc.stdout
+        else:
+            stdout=profile_gpmc(args+[str(query_file)],min(query_cap,remaining),
+                                pathlib.Path(tmp)/"gpmc-resource.tsv",long_metrics)
+        result=parse_gpmc_integer(stdout,mode,(1<<v)*(radix if mode=="wmc" else 1))
         return result,radix
     def solve(base,delta,prefix,end):
         d0,d1,d2=delta
@@ -478,10 +486,18 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     rows=run_pure_wmc(directory,solve,deadline,backend="gpmc-mpz-packed")
     deadline=time.monotonic()+45
     run_residual_hybrid(directory,solve,deadline,rows)
-    # Separate root-only discovery, not charged to prior pilot budgets.
-    query_cap=30
-    deadline=time.monotonic()+1500
-    run_scale_discovery(directory/"scale-discovery",solve,deadline)
+    # Preserve the original discovery protocol on explicit request. Default
+    # to the frozen long cohort rather than rerunning all 19 known timeouts.
+    if os.environ.get("HOARE_SCALE_DISCOVERY")=="1":
+        query_cap=30
+        deadline=time.monotonic()+1500
+        run_scale_discovery(directory/"scale-discovery",solve,deadline)
+    else:
+        query_cap=200
+        deadline=time.monotonic()+1800
+        long_metrics=[]
+        run_scale_long(directory/"scale-discovery",solve,deadline,long_metrics)
+        long_metrics=None
     return rows
 
 
@@ -612,6 +628,136 @@ def run_scale_discovery(directory,solve,deadline):
             observed_over_10s=sum(r["root_s"]>=10 for r in rs))
     hard=sorted({r["case"] for r in rows if r["root_s"]>=1 or r["status"]=="ROOT_TIMEOUT"})
     print("HOARE_SCALE_DISCOVERY_SUMMARY "+json.dumps(dict(modes=modes,hard_candidates=hard,cap_s=30,repeat=1)),flush=True)
+
+
+
+
+def profile_gpmc(args, seconds, metrics_path, records):
+    """GNU time around a single bounded solver subprocess, including timeout.
+    RSS is the reported maximum for this invocation, not Python/CNF memory.
+    Exit 124 is a timer outcome; unexpected exits fail the experiment.
+    """
+    metrics_path.unlink(missing_ok=True)
+    cmd=["/usr/bin/time","-q","-f","%U\t%S\t%M","-o",str(metrics_path),
+         "timeout","--foreground","--signal=TERM","--kill-after=1s",f"{seconds:.6f}s",
+         *args]
+    start=time.monotonic()
+    p=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                       text=True,start_new_session=True)
+    outer=False
+    try:
+        stdout,stderr=p.communicate(timeout=seconds+3)
+    except subprocess.TimeoutExpired:
+        outer=True
+        os.killpg(p.pid,signal.SIGKILL)
+        stdout,stderr=p.communicate()
+    row=dict(wall_s=time.monotonic()-start,exit=p.returncode,
+             user_s=None,system_s=None,max_rss_kib=None,status="EXIT")
+    if metrics_path.is_file():
+        parts=metrics_path.read_text().strip().split("\t")
+        if len(parts)==3:
+            row.update(user_s=float(parts[0]),system_s=float(parts[1]),max_rss_kib=int(parts[2]))
+    if outer or p.returncode==124:
+        row["status"]="TIMEOUT"
+        records.append(row)
+        raise TimeoutError("profiled GPMC root deadline")
+    # 137 may be external OOM or SIGKILL: never silently call it a timeout.
+    if p.returncode:
+        row["status"]="SOLVER_ERROR"
+        records.append(row)
+        raise subprocess.CalledProcessError(p.returncode,cmd,stdout,stderr)
+    row["status"]="COMPLETED"
+    records.append(row)
+    return stdout
+
+
+def run_scale_long(directory,solve,deadline,metrics):
+    """Frozen R25A representative cohort; repeated solver-only observations.
+    Source/preparation is regenerated once and reported separately, not
+    falsely treated as independently repeated pipeline timing.
+    """
+    df="case n h gates vars clauses delta status build_us encoding_us oracle_us expected witnesses".split()
+    rf="case mode n h0 h scale hits trials guard_terms vars clauses delta status witness prep_us encoding_us reason expected witnesses retained representation sat_queries sat_visits sat_us sat_added sat_reason".split()
+    with (directory/"direct.tsv").open() as f:
+        direct={r["case"]:r for r in csv.DictReader(f,fieldnames=df,delimiter="\t")}
+    with (directory/"residual.tsv").open() as f:
+        residual={(r["case"],r["mode"]):r for r in csv.DictReader(f,fieldnames=rf,delimiter="\t")}
+    assert len(direct)==9 and len(residual)==36
+    short=("uncompute-8-safe","uncompute-10-mutant","mixing-10-3layer")
+    modes=("direct","standard","sat-assisted")
+    schedule=[]
+    for rep in range(2):
+        cases=short if rep==0 else tuple(reversed(short))
+        for name in cases:
+            i=short.index(name)
+            order=modes[i:]+modes[:i]
+            if rep:order=tuple(reversed(order))
+            schedule.extend((name,mode,rep,60,j) for j,mode in enumerate(order))
+    schedule.extend(("uncompute-12-safe",mode,0,200,j) for j,mode in enumerate(("standard","direct","sat-assisted")))
+    assert len(schedule)==21 and sum(cap for _,_,_,cap,_ in schedule)==1680
+    rows=[]
+    for name,mode,rep,cap,order in schedule:
+        base=direct[name]
+        r=dict(base,mode="direct",scale="0",prep_us="0",sat_us="0",retained="0",
+               representation="original",witness="-") if mode=="direct" else residual[(name,mode)]
+        target=tuple(map(int,base["expected"].split(",")))
+        assert r["expected"]==base["expected"]
+        source=(directory/f"quokka-{name}.tsv").read_bytes()
+        row=dict(case=name,mode=mode,rep=rep,cap_s=cap,order=order,n=int(base["n"]),
+                 initial_h=int(base["h"]),residual_h=int(r["h"]),gates=int(base["gates"]),
+                 vars=int(r["vars"]),clauses=int(r["clauses"]),scale=int(r["scale"]),
+                 expected_raw=target,source_sha256=hashlib.sha256(source).hexdigest(),
+                 representation=r["representation"],retained=int(r["retained"]),
+                 status=r["status"],verdict="UNKNOWN",coeff=None,root_s=0.0,
+                 root_batches=0,cnf_sha256=None,delta=r["delta"],
+                 build_us=int(base["build_us"]),prep_us=int(r["prep_us"]),
+                 encoding_us=int(r["encoding_us"]),sat_us=int(r["sat_us"]),
+                 oracle_us=int(base["oracle_us"]))
+        metrics.clear()
+        if r["status"] in ("PROVED","REFUTED"):
+            row["verdict"]=r["status"]
+            if r["status"]=="REFUTED":assert r["witness"]=="0"
+        elif r["status"]=="READY":
+            file=directory/(f"direct-{name}.cnf" if mode=="direct" else f"residual-{name}-{mode}.cnf")
+            data=file.read_bytes()
+            row["cnf_sha256"]=hashlib.sha256(data).hexdigest()
+            start=time.monotonic()
+            end=min(deadline,start+cap)
+            if end<=start:
+                row["status"]="GLOBAL_BUDGET_NOT_RUN"
+            else:
+                row["root_batches"]=1
+                try:
+                    coeff=tuple(solve(data.decode(),list(map(int,r["delta"].split(","))),[],end))
+                    if any(coeff) and not positive_surd(coeff):raise ValueError("negative scale leakage")
+                    coeff=tuple(v*(1<<row["scale"]) for v in coeff)
+                    assert coeff==target,(name,mode,coeff,target)
+                    row.update(coeff=coeff,verdict="REFUTED" if any(coeff) else "PROVED",status="EXACT_ROOT")
+                except (TimeoutError,subprocess.TimeoutExpired):
+                    row["status"]="ROOT_TIMEOUT"
+                row["root_s"]=time.monotonic()-start
+        if row["verdict"]!="UNKNOWN":
+            assert row["verdict"]==("REFUTED" if any(target) else "PROVED")
+        row["queries"]=[dict(m) for m in metrics]
+        row["cpu_s"]=sum(m["user_s"]+m["system_s"] for m in metrics) if metrics and all(m["user_s"] is not None for m in metrics) else None
+        row["max_rss_kib"]=max(m["max_rss_kib"] for m in metrics) if metrics and all(m["max_rss_kib"] is not None for m in metrics) else None
+        row["prep_proxy_s"]=sum(row[x] for x in ("build_us","prep_us","encoding_us","sat_us"))/1e6
+        row["decision_proxy_s"]=row["root_s"]+row["prep_proxy_s"]
+        rows.append(row)
+        print("HOARE_SCALE_LONG "+json.dumps(row),flush=True)
+    summary={}
+    for cap in (60,200):
+        summary[str(cap)]={}
+        for mode in modes:
+            rs=[r for r in rows if r["cap_s"]==cap and r["mode"]==mode]
+            summary[str(cap)][mode]=dict(attempts=len(rs),decided=sum(r["verdict"]!="UNKNOWN" for r in rs),
+                timeouts=sum(r["status"]=="ROOT_TIMEOUT" for r in rs),
+                not_run=sum(r["status"]=="GLOBAL_BUDGET_NOT_RUN" for r in rs),
+                completed_root_s=[r["root_s"] for r in rs if r["status"]=="EXACT_ROOT"],
+                terminal=sum(r["root_batches"]==0 and r["verdict"]!="UNKNOWN" for r in rs))
+    print("HOARE_SCALE_LONG_SUMMARY "+json.dumps(dict(summary=summary,attempts=len(rows),
+          frozen_discovery_head="1bc06be95734f54c0ba229b4c9560ec19cb6de32",
+          repeated_scope="solver-only",backend="gpmc-mpz-packed")),flush=True)
 
 
 

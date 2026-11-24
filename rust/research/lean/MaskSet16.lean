@@ -15,8 +15,9 @@ namespace QuPRS.P0
 abbrev Mask16 := BitVec 16
 abbrev MaskTerms16 := List Mask16
 
-def monomialTruth16 (m : Mask16) (v : Fin 16 → Bool) : Bool :=
-  decide (evalMonomial16 m v)
+noncomputable def monomialTruth16 (m : Mask16) (v : Fin 16 → Bool) : Bool := by
+  classical
+  exact decide (evalMonomial16 m v)
 
 def evalMaskTerms16 : MaskTerms16 → (Fin 16 → Bool) → Bool
   | [], _ => false
@@ -29,7 +30,7 @@ theorem evalMaskTerms16_append
     evalMaskTerms16 (p ++ q) v =
       (evalMaskTerms16 p v).xor (evalMaskTerms16 q v) := by
   induction p with
-  | nil => rfl
+  | nil => simp [evalMaskTerms16]
   | cons m ms ih =>
       change (monomialTruth16 m v).xor (evalMaskTerms16 (ms ++ q) v) =
         ((monomialTruth16 m v).xor (evalMaskTerms16 ms v)).xor
@@ -45,6 +46,7 @@ theorem monomialTruth16_or
     (a b : Mask16) (v : Fin 16 → Bool) :
     monomialTruth16 (multiplyMonomials16 a b) v =
       ((monomialTruth16 a v) && (monomialTruth16 b v)) := by
+  classical
   simp [monomialTruth16, evalMonomial16_product_iff]
 
 /-- Distributivity of one monomial over GF(2) parity. -/
@@ -53,7 +55,7 @@ theorem evalMaskTerms16_monomial_map
     evalMaskTerms16 (p.map (multiplyMonomials16 a)) v =
       ((monomialTruth16 a v) && evalMaskTerms16 p v) := by
   induction p with
-  | nil => rfl
+  | nil => simp [evalMaskTerms16]
   | cons m ms ih =>
       change
         (monomialTruth16 (multiplyMonomials16 a m) v).xor
@@ -109,11 +111,23 @@ theorem evalMaskTerms16_toggle
   | cons a rest ih =>
       by_cases h : m = a
       · subst a
-        simp only [toggleMask16, if_pos rfl, evalMaskTerms16]
+        have heq : toggleMask16 m (m :: rest) = rest := by
+          simp [toggleMask16]
+        rw [heq]
+        change evalMaskTerms16 rest v =
+          (monomialTruth16 m v).xor
+            ((monomialTruth16 m v).xor (evalMaskTerms16 rest v))
         cases monomialTruth16 m v <;>
           cases evalMaskTerms16 rest v <;>
           decide
-      · simp only [toggleMask16, if_neg h, evalMaskTerms16]
+      · have heq : toggleMask16 m (a :: rest) =
+            a :: toggleMask16 m rest := by
+          simp [toggleMask16, h]
+        rw [heq]
+        change (monomialTruth16 a v).xor
+          (evalMaskTerms16 (toggleMask16 m rest) v) =
+          (monomialTruth16 m v).xor
+            ((monomialTruth16 a v).xor (evalMaskTerms16 rest v))
         rw [ih]
         cases monomialTruth16 m v <;>
           cases monomialTruth16 a v <;>

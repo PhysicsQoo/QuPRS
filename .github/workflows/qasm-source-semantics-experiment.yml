@@ -79,7 +79,7 @@ jobs:
             rust/quprs/tests/qasm_source_ir_certificate_experiment.rs \
             rust/research/p8c1_checker.rs rust/research/p8c1_dense_oracle.rs rust/research/p8c1_two_copy_wmc.rs rust/research/p8c1_two_copy_cnf.rs \
             rust/research/p8c1_two_copy_structural.rs \
-            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8c1_symbolic.rs rust/research/p8c1_f8g1_property.rs rust/research/lean/PathSumLocal.lean rust/research/lean/CanonicalANF.lean rust/research/lean/BitMask16.lean rust/research/lean/MaskSet16.lean rust/research/lean/TermFrame16.lean rust/research/lean/lean-toolchain rust/research/p8c1_count_to_gram.rs \
+            rust/research/p8c1_two_copy_count_trace.rs rust/research/p8c1_two_copy_count_dag.rs rust/research/p8c1_f8c1_chain.rs rust/research/p8c1_f8c1_symbolic.rs rust/research/p8c1_f8g1_property.rs rust/research/lean/PathSumLocal.lean rust/research/lean/CanonicalANF.lean rust/research/lean/BitMask16.lean rust/research/lean/MaskSet16.lean rust/research/lean/TermFrame16.lean rust/research/lean/Replay16.lean rust/research/lean/lean-toolchain rust/research/p8c1_count_to_gram.rs \
             rust/quprs/tests/qasm_independent_source_kernel_experiment.rs \
             > evidence/source-sha256.txt
 
@@ -660,7 +660,7 @@ jobs:
           maskset_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-maskset16.log)"
           test "$maskset_reports" -eq 23
           echo 'LEAN4_MASKSET16_PROOFS_PASS theorem_axiom_reports=23'
-          LEAN_PATH=. lean TermFrame16.lean 2>&1 | tee /tmp/qasm-lean-termframe16.log
+          LEAN_PATH=. lean -o TermFrame16.olean TermFrame16.lean 2>&1 | tee /tmp/qasm-lean-termframe16.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-termframe16.log; then
             echo 'Unexpected Lean term-frame theorem axiom dependency' >&2
             exit 1
@@ -668,6 +668,14 @@ jobs:
           frame_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-termframe16.log)"
           test "$frame_reports" -eq 25
           echo 'LEAN4_TERMFRAME16_PROOFS_PASS theorem_axiom_reports=25'
+          LEAN_PATH=. lean Replay16.lean 2>&1 | tee /tmp/qasm-lean-replay16.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-replay16.log; then
+            echo 'Unexpected Lean replay theorem axiom dependency' >&2
+            exit 1
+          fi
+          replay_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-replay16.log)"
+          test "$replay_reports" -eq 7
+          echo 'LEAN4_REPLAY16_PROOFS_PASS theorem_axiom_reports=7'
 
       - name: Build and test std-only independent verifier
         run: |

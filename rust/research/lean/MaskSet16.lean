@@ -451,13 +451,13 @@ theorem monomialTruth16_word (m word : Mask16) :
       cases hm : decodeMask16 m i
       · rfl
       · have hv := h i hm
-        simp [hv]
-    simp [he]
+        rw [hv]
+    exact beq_iff_eq.mpr he
   · intro h i hm
-    have he : m &&& word = m := by simpa using h
+    have he : m &&& word = m := beq_iff_eq.mp h
     have hb := congrArg (fun x => decodeMask16 x i) he
     rw [decodeMask16_and, hm] at hb
-    simpa using hb
+    exact hb
 
 #print axioms monomialTruth16_iff
 #print axioms sortedToggle16_membership_limited

@@ -1016,6 +1016,7 @@ mod exact_property_cnf {
         std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
         println!("HOARE_EXTERNAL_FIXTURES cases=7 variants=14");
         export_scaled(&dir);
+        export_hybrid(&dir);
     }
 
 
@@ -2117,6 +2118,85 @@ mod exact_property_cnf {
         println!("HOARE_MULTI_FIBER_DIFFERENTIAL cases={cases} exact_per_input=true");
         println!("HOARE_MULTI_FIBER_WITNESS n=4 h={} explicit_states={states} two_states={two_states} proof_us={elapsed} result={result:?} one_direction_impossible=true",
             s.h);
+    }
+
+
+    // R15: export solver-neutral candidate plans without using DPLL
+    // or the expected answer to choose a candidate. The external driver
+    // makes all routing decisions from the actual SAT responses.
+    fn export_hybrid(dir:&std::path::Path){
+        let mut cases:Vec<(String,usize,Vec<G>,Vec<Anf>,Vec<Anf>)>=Vec::new();
+        cases.push(("GHZ3".into(),3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],
+            (0..3).map(|i|bit(i,false)).collect(),vec![equal_bits(0,1),equal_bits(0,2)]));
+        cases.push(("HH".into(),1,vec![G::H(0),G::H(0)],vec![bit(0,false)],vec![bit(0,false)]));
+        for k in [1usize,2]{
+            let (ops,p,q,strict)=conditional_post_case(k);
+            if k==2{cases.push(("CS2-strict".into(),3*k,ops.clone(),p.clone(),strict));}
+            cases.push((format!("CS{k}-conditional"),3*k,ops,p,q));
+        }
+        let ops=multi_direction_circuit();
+        let p:Vec<_>=(0..4).map(|i|bit(i,false)).collect();
+        let q=vec![(1..8u64).collect::<Anf>()];
+        cases.push(("joint-two-stage".into(),4,ops.clone(),p.clone(),q.clone()));
+        let mut mutant=ops;mutant.insert(mutant.len()-3,G::T(0));
+        cases.push(("joint-mutant".into(),4,mutant,p,q));
+        let c=scaled_cases().into_iter().find(|c|c.name=="HTH-product4").unwrap();
+        cases.push(("HTH4".into(),c.n,c.ops,c.p,c.q));
+        assert_eq!(cases.len(),8);
+        let mut manifest=String::new();let mut plans=String::new();
+        for (name,n,ops,p,q) in cases{
+            // Independent small gate oracle: never supplied to dispatcher
+            // until its verdict and witness have been produced.
+            let mut raw=[0i128;2];let mut witnesses=Vec::new();
+            for x in (0..1u64<<n).filter(|&x|eval_conj(&p,x)){
+                let v=raw_for_input(n,&ops,&q,x);
+                raw[0]+=v[0];raw[1]+=v[1];
+                if v!=[0,0]{witnesses.push(x.to_string());}
+            }
+            let witness=if witnesses.is_empty(){"-".to_owned()}else{witnesses.join(",")};
+            let t=std::time::Instant::now();
+            let s=native(n,&ops).unwrap();
+            let build_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (c,d)=two_copy_conj(&s,&p,&q);
+            std::fs::write(dir.join(format!("hybrid-{name}-wmc.cnf")),dimacs(&c,&[]).unwrap()).unwrap();
+            let direct_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let candidates=small_span_candidates(&s);
+            for (j,f) in q.iter().enumerate(){
+                let (base,bits,z)=fiber_guard(&s,&p,f);
+                let mut emit=|kind:&str,ds:&str,c:&Cnf,units:&[Lit]|{
+                    if let Some(text)=dimacs(c,units){
+                        let file=format!("hybrid-{name}-{j}-{kind}-{ds}.cnf");
+                        std::fs::write(dir.join(&file),text).unwrap();
+                        plans.push_str(&format!("{name}\t{j}\t{kind}\t{ds}\t{file}\n"));
+                    }
+                };
+                emit("guard","0",&base,&[]);
+                for &d in candidates.iter().take(8){
+                    if let Some(c)=fiber_bad(&base,&bits,&z,&s,d){emit("single",&d.to_string(),&c,&[]);}
+                }
+                // Bounded precompiled candidates, no oracle-guided order.
+                // Include at most 16 ordered pairs for each conjunct.
+                let mut pairs=0;
+                'outer:for &d in candidates.iter().take(8){
+                    for &e in candidates.iter().take(8){
+                        if d==e{continue;}
+                        if pairs>=16{break 'outer;}
+                        pairs+=1;
+                        if let Some((c,l,_))=multi_one(&s,&p,std::slice::from_ref(f),&[d,e]){
+                            emit("multi",&format!("{d}-{e}"),&c,&[l]);
+                        }
+                    }
+                }
+            }
+            let plan_us=t.elapsed().as_micros();
+            manifest.push_str(&format!("{name}\t{n}\t{}\t{},{},{}\t{},{}\t{witness}\t{build_us}\t{direct_us}\t{plan_us}\n",
+                q.len(),d[0],d[1],d[2],raw[0],raw[1]));
+        }
+        std::fs::write(dir.join("hybrid.tsv"),manifest).unwrap();
+        std::fs::write(dir.join("hybrid-plan.tsv"),plans).unwrap();
+        println!("HOARE_HYBRID_FIXTURES cases=8 external_plan_only=true");
     }
 
 }

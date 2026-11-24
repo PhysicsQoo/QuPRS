@@ -228,6 +228,156 @@ def main():
         assert len(scaled)==96
         ok=sum(r["status"]=="PASS" for r in scaled)
         print(f"HOARE_GANAK_SCALE_SUMMARY variants={len(scaled)} pass={ok} unknown={len(scaled)-ok} calls={calls} solver_wall_s={solver_seconds:.6f}")
+        run_hybrid(directory,tmp,deadline,two_weighted,pathlib.Path(sys.argv[3]).resolve())
+
+
+def parse_sat(rc, stdout, result, cnf):
+    # MiniSat's SAT competition exit codes. UNSAT is trusted solver
+    # evidence, not a proof certificate. SAT assignments are checked.
+    lines = result.splitlines()
+    statuses = [l.strip() for l in stdout.splitlines()
+                if l.strip() in ("SATISFIABLE", "UNSATISFIABLE", "INDETERMINATE")]
+    if rc == 20 and lines == ["UNSAT"] and statuses == ["UNSATISFIABLE"]:
+        return False
+    if rc != 10 or not lines or lines[0] != "SAT" or statuses != ["SATISFIABLE"]:
+        raise ValueError("unqualified SAT output/exit")
+    values = [int(v) for v in " ".join(lines[1:]).split()]
+    if not values or values[-1] != 0 or 0 in values[:-1]:
+        raise ValueError("malformed SAT assignment")
+    header, *clauses = cnf.splitlines()
+    p, typ, vs, cs = header.split()
+    assert p == "p" and typ == "cnf" and len(clauses) == int(cs)
+    model = set(values[:-1])
+    if any(-l in model or abs(l) > int(vs) for l in model):
+        raise ValueError("invalid SAT assignment")
+    for clause in clauses:
+        lits = list(map(int, clause.split()))
+        if not lits or lits[-1] != 0 or not any(l in model for l in lits[:-1]):
+            raise ValueError("SAT model fails CNF")
+    return True
+
+def sat_parser_tests():
+    f = "p cnf 1 1\n1 0\n"
+    assert parse_sat(10,"SATISFIABLE\n","SAT\n1 0\n",f) is True
+    assert parse_sat(20,"UNSATISFIABLE\n","UNSAT\n",f) is False
+    for rc,out,result in [(0,"UNSATISFIABLE\n","UNSAT\n"),
+                          (20,"SATISFIABLE\n","UNSAT\n"),
+                          (10,"SATISFIABLE\n","SAT\n-1 0\n"),
+                          (10,"SATISFIABLE\n","SAT\n1 -1 0\n")]:
+        try:
+            parse_sat(rc,out,result,f)
+        except ValueError:
+            continue
+        raise AssertionError("accepted invalid SAT response")
+
+def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
+    sat_parser_tests()
+    sat_file = pathlib.Path(tmp)/"hybrid-sat.cnf"
+    result_file = pathlib.Path(tmp)/"hybrid-sat.result"
+    def sat(cnf, local_deadline):
+        # No result is reused between subprocesses. Timeout is UNKNOWN,
+        # never UNSAT. Other malformed responses fail the qualification.
+        remaining=min(deadline,local_deadline)-time.monotonic()
+        if remaining<=0:
+            return None
+        sat_file.write_text(cnf)
+        result_file.unlink(missing_ok=True)
+        try:
+            r=subprocess.run([str(sat_exe),"-verb=0",str(sat_file),str(result_file)],
+                             capture_output=True,text=True,timeout=min(1,remaining))
+        except subprocess.TimeoutExpired:
+            return None
+        if not result_file.is_file():
+            raise ValueError("missing MiniSat result")
+        return parse_sat(r.returncode,r.stdout,result_file.read_text(),cnf)
+    assert sat("p cnf 1 1\n1 0\n",time.monotonic()+2) is True
+    assert sat("p cnf 1 2\n1 0\n-1 0\n",time.monotonic()+2) is False
+    assert sat("p cnf 1 1\n1 0\n",time.monotonic()-1) is None
+    plans={}
+    with (directory/"hybrid-plan.tsv").open() as f:
+        for name,j,kind,ds,file in csv.reader(f,delimiter="\t"):
+            plans.setdefault((name,int(j)),[]).append((kind,ds,file))
+    def wmc_verdict(base,delta,n):
+        coeff=two_weighted(base,delta)
+        if not any(coeff):
+            return "PROVED",None,coeff,0.0
+        t=time.monotonic()
+        prefix=[];witness=0
+        for i in range(n):
+            l=i+2;prefix.append(-l)
+            if not any(two_weighted(base,delta,prefix)):
+                prefix[-1]=l;witness|=1<<i
+        assert any(two_weighted(base,delta,prefix))
+        return "REFUTED",witness,coeff,time.monotonic()-t
+    records=[]
+    with (directory/"hybrid.tsv").open() as f:
+        for name,n,nq,delta,expected,witnesses,build_us,direct_us,plan_us in csv.reader(f,delimiter="\t"):
+            n,nq,build_us,direct_us,plan_us=map(int,(n,nq,build_us,direct_us,plan_us))
+            delta=list(map(int,delta.split(",")))
+            base=(directory/f"hybrid-{name}-wmc.cnf").read_text()
+            # Matched direct baseline, complete verdict and witness.
+            t=time.monotonic()
+            try:
+                dv,dw,dc,dw_s=wmc_verdict(base,delta,n)
+            except (TimeoutError,subprocess.TimeoutExpired):
+                dv,dw,dc,dw_s="UNKNOWN",None,None,0.0
+            direct_s=time.monotonic()-t
+            # No access to expected verdict, coefficients or witness
+            # when selecting a route. Partial residual filters opt-in
+            # only, not used in this default dispatcher.
+            t=time.monotonic()
+            local_deadline=min(deadline,t+0.5)
+            queries=0;used=[];complete=True
+            for j in range(nq):
+                proved=False
+                for kind,ds,file in plans.get((name,j),[]):
+                    if queries>=24 or time.monotonic()>=local_deadline:
+                        break
+                    queries+=1
+                    outcome=sat((directory/file).read_text(),local_deadline)
+                    if outcome is False:
+                        used.append((j,kind,ds));proved=True;break
+                    if outcome is None:
+                        break
+                if not proved:
+                    complete=False;break
+            sat_s=time.monotonic()-t
+            fallback_s=0.0;hw_s=0.0
+            if complete:
+                hv,hw,hc="PROVED",None,(0,0)
+                route="SAT_"+max((x[1] for x in used),key=lambda k:{"guard":0,"single":1,"multi":2}[k],default="guard").upper()
+            else:
+                route="DIRECT_WMC_FALLBACK"
+                t=time.monotonic()
+                try:
+                    hv,hw,hc,hw_s=wmc_verdict(base,delta,n)
+                except (TimeoutError,subprocess.TimeoutExpired):
+                    hv,hw,hc,hw_s="UNKNOWN",None,None,0.0
+                fallback_s=time.monotonic()-t
+            # Oracle check only after both routes finish.
+            expected=tuple(map(int,expected.split(",")))
+            witnesses=set() if witnesses=="-" else set(map(int,witnesses.split(",")))
+            truth="REFUTED" if witnesses else "PROVED"
+            for verdict,witness,coeff in [(dv,dw,dc),(hv,hw,hc)]:
+                if verdict=="UNKNOWN":
+                    continue
+                assert verdict==truth and tuple(coeff)==expected,(name,verdict,truth,coeff,expected)
+                assert (witness in witnesses) if witnesses else witness is None
+            row=dict(case=name,route=route,verdict=hv,direct_verdict=dv,
+                     witness=hw,direct_witness=dw,proofs=used,sat_queries=queries,
+                     build_us=build_us,direct_encoding_us=direct_us,plan_export_us=plan_us,
+                     sat_s=round(sat_s,6),fallback_s=round(fallback_s,6),
+                     direct_solver_s=round(direct_s,6),direct_witness_s=round(dw_s,6),
+                     hybrid_witness_s=round(hw_s,6),
+                     direct_total_s=round((build_us+direct_us)/1e6+direct_s,6),
+                     hybrid_total_s=round((build_us+direct_us+plan_us)/1e6+sat_s+fallback_s,6))
+            print("HOARE_HYBRID "+json.dumps(row),flush=True)
+            records.append(row)
+    assert len(records)==8
+    print("HOARE_HYBRID_SUMMARY "+json.dumps(dict(cases=len(records),
+          completed=sum(r["verdict"]!="UNKNOWN" and r["direct_verdict"]!="UNKNOWN" for r in records),
+          sat_proofs=sum(r["route"].startswith("SAT_") for r in records),
+          fallback=sum(r["route"]=="DIRECT_WMC_FALLBACK" for r in records))),flush=True)
 
 
 if __name__ == "__main__":

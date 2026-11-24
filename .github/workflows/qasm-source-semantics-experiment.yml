@@ -63,7 +63,7 @@ jobs:
       - name: Install native build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev
+          sudo apt-get install -y cmake pkg-config libgmp-dev libmpfr-dev zlib1g-dev minisat=1:2.2.1-8build1
 
       - name: Record source and toolchain
         run: |
@@ -107,7 +107,9 @@ jobs:
           echo "bea7150787a1e8f2b1bd658cb5a3c227d631d25054f5ff77ce23422e1c8b040c  $tmp/ganak.tar.gz" | sha256sum -c -
           tar -xOzf "$tmp/ganak.tar.gz" ganak > "$tmp/ganak"
           chmod 700 "$tmp/ganak"
-          python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures \
+          dpkg-query -W minisat | tee evidence/hoare-sat-version.txt
+          sha256sum "$(command -v minisat)" | tee evidence/hoare-sat-sha256.txt
+          python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures "$(command -v minisat)" \
             2>&1 | tee evidence/hoare-ganak-exact.log
 
       - name: Observe native parser, CX and U/U3 phase behavior

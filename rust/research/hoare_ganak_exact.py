@@ -425,6 +425,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     either 1 or radix. radix=2^(CNF variables+1) exceeds either bucket.
     """
     query_file=pathlib.Path(tmp)/"gpmc-pure.cnf"
+    query_cap=5
     def count(base, assumptions, weighted_lit, end):
         header,*clauses=base.splitlines()
         p,kind,v,c=header.split();v,c=int(v),int(c)
@@ -444,7 +445,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             raise TimeoutError("GPMC stage budget")
         args=[str(exe),"-mode=1","-natw"] if mode=="wmc" else [str(exe),"-mode=0"]
         proc=subprocess.run(args+[str(query_file)],capture_output=True,text=True,
-                            timeout=min(5,remaining),check=True)
+                            timeout=min(query_cap,remaining),check=True)
         result=parse_gpmc_integer(proc.stdout,mode,(1<<v)*(radix if mode=="wmc" else 1))
         return result,radix
     def solve(base,delta,prefix,end):
@@ -477,6 +478,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     rows=run_pure_wmc(directory,solve,deadline,backend="gpmc-mpz-packed")
     deadline=time.monotonic()+45
     run_residual_hybrid(directory,solve,deadline,rows)
+    # Separate root-only discovery, not charged to prior pilot budgets.
+    query_cap=30
+    deadline=time.monotonic()+1500
+    run_scale_discovery(directory/"scale-discovery",solve,deadline)
     return rows
 
 
@@ -536,6 +541,77 @@ def run_residual_hybrid(directory,solve,deadline,direct_rows):
             root_batches=sum(r["root_queries"] for r in rs),
             decision_total_s=sum(r["decision_total_s"] for r in rs))
     print("HOARE_RESIDUAL_HYBRID_SUMMARY "+json.dumps(summary),flush=True)
+
+
+
+
+def run_scale_discovery(directory,solve,deadline):
+    """Root-only difficulty discovery. Fixed ladder, rotated route order."""
+    direct_fields="case n h gates vars clauses delta status build_us encoding_us oracle_us expected witnesses".split()
+    residual_fields="case mode n h0 h scale hits trials guard_terms vars clauses delta status witness prep_us encoding_us reason expected witnesses retained representation sat_queries sat_visits sat_us sat_added sat_reason".split()
+    with (directory/"direct.tsv").open() as f:
+        direct=list(csv.DictReader(f,fieldnames=direct_fields,delimiter="\t"))
+    with (directory/"residual.tsv").open() as f:
+        residual=list(csv.DictReader(f,fieldnames=residual_fields,delimiter="\t"))
+    assert len(direct)==9 and len(residual)==36
+    rows=[]
+    for i,base in enumerate(direct):
+        name=base["case"]
+        candidates=[dict(base,mode="direct",scale="0",prep_us="0",sat_us="0",
+                         retained="0",representation="original",witness="-")]
+        candidates.extend(r for r in residual if r["case"]==name)
+        assert len(candidates)==5
+        k=i%5
+        for order,r in enumerate(candidates[k:]+candidates[:k]):
+            target=tuple(map(int,base["expected"].split(",")))
+            assert r["expected"]==base["expected"]
+            result=dict(case=name,mode=r["mode"],order=order,n=int(base["n"]),
+                initial_h=int(base["h"]),residual_h=int(r["h"]),gates=int(base["gates"]),
+                vars=int(r["vars"]),clauses=int(r["clauses"]),representation=r["representation"],
+                retained=int(r["retained"]),root_s=0.0,root_batches=0,coeff=None,
+                build_us=int(base["build_us"]),prep_us=int(r["prep_us"]),
+                encoding_us=int(r["encoding_us"]),sat_us=int(r["sat_us"]),
+                oracle_us=int(base["oracle_us"]),status=r["status"],verdict="UNKNOWN")
+            if r["status"] in ("PROVED","REFUTED"):
+                result["verdict"]=r["status"]
+                if r["status"]=="REFUTED":
+                    assert r["witness"]=="0"
+            elif r["status"]=="READY":
+                start=time.monotonic()
+                end=min(deadline,start+30)
+                if end>start:
+                    result["root_batches"]=1
+                    file=directory/(f"direct-{name}.cnf" if r["mode"]=="direct" else f"residual-{name}-{r['mode']}.cnf")
+                    try:
+                        coeff=tuple(solve(file.read_text(),list(map(int,r["delta"].split(","))),[],end))
+                        if any(coeff) and not positive_surd(coeff):
+                            raise ValueError("negative scale leakage")
+                        coeff=tuple(v*(1<<int(r["scale"])) for v in coeff)
+                        assert coeff==target,(name,r["mode"],coeff,target)
+                        result.update(coeff=coeff,verdict="REFUTED" if any(coeff) else "PROVED",status="EXACT_ROOT")
+                    except (TimeoutError,subprocess.TimeoutExpired):
+                        result["status"]="ROOT_TIMEOUT"
+                else:
+                    result["status"]="GLOBAL_BUDGET_NOT_RUN"
+                result["root_s"]=time.monotonic()-start
+            if result["verdict"]!="UNKNOWN":
+                assert result["verdict"]==("REFUTED" if any(target) else "PROVED")
+            result["decision_total_s"]=result["root_s"]+sum(result[x] for x in ("build_us","prep_us","encoding_us","sat_us"))/1e6
+            rows.append(result)
+            print("HOARE_SCALE_DISCOVERY "+json.dumps(result),flush=True)
+    assert len(rows)==45
+    modes={}
+    for mode in ("direct","standard","property","adaptive","sat-assisted"):
+        rs=[r for r in rows if r["mode"]==mode]
+        modes[mode]=dict(cases=len(rs),decided=sum(r["verdict"]!="UNKNOWN" for r in rs),
+            timeouts=sum(r["status"]=="ROOT_TIMEOUT" for r in rs),
+            encoding_or_reduction_unknown=sum(r["status"] in ("UNKNOWN_ENCODING_LIMIT","UNKNOWN_REDUCTION_LIMIT") for r in rs),
+            global_not_run=sum(r["status"]=="GLOBAL_BUDGET_NOT_RUN" for r in rs),
+            root_batches=sum(r["root_batches"] for r in rs),
+            completed_over_1s=sum(r["status"]=="EXACT_ROOT" and r["root_s"]>=1 for r in rs),
+            observed_over_10s=sum(r["root_s"]>=10 for r in rs))
+    hard=sorted({r["case"] for r in rows if r["root_s"]>=1 or r["status"]=="ROOT_TIMEOUT"})
+    print("HOARE_SCALE_DISCOVERY_SUMMARY "+json.dumps(dict(modes=modes,hard_candidates=hard,cap_s=30,repeat=1)),flush=True)
 
 
 

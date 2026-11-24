@@ -799,7 +799,11 @@ mod exact_property_cnf {
     // No projected counting is necessary because gate auxiliaries have
     // unique extension. External exact solver integration remains separate.
     fn dimacs(c:&Cnf,assumptions:&[Lit])->Option<String>{
-        if !c.bounded()||assumptions.iter().any(|&l|l==0||l.unsigned_abs() as usize>c.vars){return None;}
+        if !c.bounded(){return None;}
+        serialize_external(c,assumptions)
+    }
+    fn serialize_external(c:&Cnf,assumptions:&[Lit])->Option<String>{
+        if c.vars>4096||c.clauses.len()+assumptions.len()>32768||assumptions.iter().any(|&l|l==0||l.unsigned_abs() as usize>c.vars){return None;}
         let mut out=format!("p cnf {} {}\n",c.vars,c.clauses.len()+assumptions.len());
         for clause in &c.clauses{
             for l in clause{out.push_str(&format!("{l} "));}
@@ -1018,6 +1022,7 @@ mod exact_property_cnf {
         export_scaled(&dir);
         export_hybrid(&dir);
         export_rare_wmc(&dir);
+        export_scale_benchmark(&dir);
     }
 
 
@@ -2225,7 +2230,7 @@ mod exact_property_cnf {
             }
             let witness=if witnesses.is_empty(){"-".to_owned()}else{witnesses.join(",")};
             let input=HoareInput::build(n,&ops,p.clone(),q.clone()).unwrap();
-            emit_residual_plans(dir,&name,&input,raw,&witness,&mut residual_manifest);
+            emit_residual_plans(dir,&name,&input,raw,&witness,&mut residual_manifest,false);
             let t=std::time::Instant::now();
             let s=native(n,&ops).unwrap();
             let build_us=t.elapsed().as_micros();
@@ -2308,7 +2313,16 @@ mod exact_property_cnf {
     struct HoareInput { ps:PathSum, initial:Symbolic, pre:Vec<Anf>, post:Vec<Anf> }
     impl HoareInput {
         fn build(n:usize,ops:&[G],pre:Vec<Anf>,post:Vec<Anf>)->Option<Self>{
-            if !admitted(n,ops)||pre.iter().chain(&post).flatten().any(|&m|m>>n!=0)
+            if !admitted(n,ops){return None;}
+            Self::build_scoped(n,ops,pre,post)
+        }
+        fn build_scale(n:usize,ops:&[G],pre:Vec<Anf>,post:Vec<Anf>)->Option<Self>{
+            let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+            if !admitted(n,&[])||h>48||n+h>63||ops.len()>512||!ops.iter().all(|g|admitted(n,std::slice::from_ref(g))){return None;}
+            Self::build_scoped(n,ops,pre,post)
+        }
+        fn build_scoped(n:usize,ops:&[G],pre:Vec<Anf>,post:Vec<Anf>)->Option<Self>{
+            if pre.iter().chain(&post).flatten().any(|&m|m>>n!=0)
                 ||pre.iter().chain(&post).map(|f|f.len()).sum::<usize>()>128{return None;}
             let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
             for g in ops{g.apply(&mut ps,false);}
@@ -3064,7 +3078,7 @@ mod exact_property_cnf {
     }
 
     fn emit_residual_plans(dir:&std::path::Path,name:&str,input:&HoareInput,
-                           raw:[i128;2],witnesses:&str,manifest:&mut String){
+                           raw:[i128;2],witnesses:&str,manifest:&mut String,scale_export:bool){
         for (mode,property) in [("standard",false),("property",true),("adaptive",true),("sat-assisted",true)]{
             let t=std::time::Instant::now();
             let plan=hybrid_plan(input,property);
@@ -3099,7 +3113,7 @@ mod exact_property_cnf {
                             variables=c.vars;clauses=c.clauses.len();
                             delta=format!("{},{},{}",d[0],d[1],d[2]);
                             status="UNKNOWN_ENCODING_LIMIT";
-                            if let Some(text)=dimacs(&c,&[]){
+                            if let Some(text)=if scale_export{serialize_external(&c,&[])}else{dimacs(&c,&[])}{
                                 std::fs::write(dir.join(format!("residual-{name}-{mode}.cnf")),text).unwrap();
                                 status="READY";
                             }
@@ -3152,6 +3166,96 @@ mod exact_property_cnf {
             }
         }
         println!("HOARE_GUARDED_PAIR checks={checks} exact_per_input=true");
+    }
+
+
+    // Predeclared scale ladder. Exact dense Z8 gate oracle uses a unique
+    // legal input and no PathSum or WMC. Do not select by observed speed.
+    fn scale_mixing(n:usize,layers:usize)->Vec<G>{
+        let mut ops=Vec::new();
+        for layer in 0..layers{
+            ops.extend((0..n).map(G::H));
+            if layer+1==layers{break;}
+            for i in 0..n{
+                ops.push(G::T(i));
+                if (i+layer)%3==0{ops.push(G::S(i));}
+            }
+            let mut edges=BTreeSet::new();
+            for i in 0..n{
+                for j in [(i+1)%n,(i+2+layer)%n,(i+n/2)%n]{
+                    if i!=j{edges.insert((i.min(j),i.max(j)));}
+                }
+            }
+            ops.extend(edges.into_iter().map(|(i,j)|G::CZ(i,j)));
+        }
+        ops
+    }
+    fn scale_inverse(ops:&[G])->Vec<G>{
+        let mut out=Vec::new();
+        for g in ops.iter().rev(){
+            match *g{
+                G::T(i)=>out.extend((0..7).map(|_|G::T(i))),
+                G::S(i)=>out.extend((0..3).map(|_|G::S(i))),
+                _=>out.push(g.clone()),
+            }
+        }
+        out
+    }
+    fn export_scale_benchmark(dir:&std::path::Path){
+        let dir=dir.join("scale-discovery");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut direct=String::new();let mut residual=String::new();
+        let mut cases=Vec::new();
+        for n in [8usize,10,12]{
+            let v=scale_mixing(n,2);
+            let inverse=scale_inverse(&v);
+            for mutant in [false,true]{
+                let mut ops=v.clone();
+                if mutant{ops.push(G::Z(0));}
+                ops.extend(inverse.clone());
+                let name=format!("uncompute-{n}-{}",if mutant{"mutant"}else{"safe"});
+                let q=(0..n).map(|i|bit(i,false)).collect::<Vec<_>>();
+                cases.push((name,n,ops,q,Some(mutant)));
+            }
+        }
+        for n in [10usize,13,15]{
+            cases.push((format!("mixing-{n}-3layer"),n,scale_mixing(n,3),vec![bit(0,false)],None));
+        }
+        for (name,n,ops,q,intent) in cases{
+            let p:Vec<_>=(0..n).map(|i|bit(i,false)).collect();
+            let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+            assert!(h<=48&&n+h<=63&&ops.len()<=512);
+            let t=std::time::Instant::now();
+            let raw=raw_for_input(n,&ops,&q,0);
+            let oracle_us=t.elapsed().as_micros();
+            if let Some(bad)=intent{assert_eq!(raw!=[0,0],bad,"{name}");}
+            let witness=if raw==[0,0]{"-"}else{"0"};
+            let t=std::time::Instant::now();
+            let s=native(n,&ops).expect("scaled original exact IR");
+            let build_us=t.elapsed().as_micros();
+            assert_eq!(s.h,h);
+            let t=std::time::Instant::now();
+            let (c,d)=two_copy_conj(&s,&p,&q);
+            let status=if let Some(text)=serialize_external(&c,&[]){
+                std::fs::write(dir.join(format!("direct-{name}.cnf")),text).unwrap();"READY"
+            }else{"UNKNOWN_ENCODING_LIMIT"};
+            let encoding_us=t.elapsed().as_micros();
+            direct.push_str(&format!("{name}\t{n}\t{h}\t{}\t{}\t{}\t{},{},{}\t{status}\t{build_us}\t{encoding_us}\t{oracle_us}\t{},{}\t{witness}\n",
+                ops.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+            if let Some(input)=HoareInput::build_scale(n,&ops,p,q){
+                emit_residual_plans(&dir,&name,&input,raw,witness,&mut residual,true);
+            }else{
+                for mode in ["standard","property","adaptive","sat-assisted"]{
+                    residual.push_str(&format!("{name}\t{mode}\t{n}\t{h}\t{h}\t0\t0\t0\t0\t0\t0\t-\tUNKNOWN_REDUCTION_LIMIT\t-\t0\t0\tscale-admission\t{},{}\t{witness}\t0\tnone\t0\t0\t0\t0\tnot-run\n",raw[0],raw[1]));
+                }
+            }
+            export_external_property(&dir,&name,n,&ops,&(0..n).map(|i|bit(i,false)).collect::<Vec<_>>(),
+                // Export same predicate from independently declared family.
+                &if name.starts_with("uncompute"){(0..n).map(|i|bit(i,false)).collect()}else{vec![bit(0,false)]});
+        }
+        std::fs::write(dir.join("direct.tsv"),direct).unwrap();
+        std::fs::write(dir.join("residual.tsv"),residual).unwrap();
+        println!("HOARE_SCALE_DISCOVERY_FIXTURES cases=9 routes=45");
     }
 
 }

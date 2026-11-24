@@ -938,4 +938,267 @@ theorem quadratic_interpolation_sound (c : Int) (l : Nat → Int)
 #print axioms quad_table_mod_constant
 #print axioms quadratic_interpolation_sound
 
+/-! Bounded expression to canonical triangular coefficient table.
+    All equalities here are exact Int equalities, not just mod 8.
+    Wire admission is explicit; the next layer must establish it for
+    traceQuad from the original gate list and finite frame.
+    A zero scalar does not bypass syntactic wire admission. -/
+
+def atomBound (n : Nat) : Atom → Prop
+  | .one => True
+  | .wire i => i < n
+
+def qBound (n : Nat) : QExpr → Prop
+  | .constant _ => True
+  | .linear _ a => atomBound n a
+  | .pair _ a b => atomBound n a ∧ atomBound n b
+  | .add a b => qBound n a ∧ qBound n b
+  | .scale _ a => qBound n a
+
+theorem sumInt_add (n : Nat) (f g : Nat → Int) :
+    sumInt n (fun i => f i + g i) = sumInt n f + sumInt n g := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      simp only [sumInt, ih]
+      omega
+
+theorem sumInt_scale (n : Nat) (k : Int) (f : Nat → Int) :
+    sumInt n (fun i => k * f i) = k * sumInt n f := by
+  induction n with
+  | zero => simp [sumInt]
+  | succ n ih => simp only [sumInt, ih, Int.mul_add]
+
+theorem row_eval_add (n : Nat) (a b : Nat → Int) (x : State) :
+    rowEval n (fun i => a i + b i) x = rowEval n a x + rowEval n b x := by
+  unfold rowEval
+  rw [← sumInt_add]
+  apply sumInt_congr
+  intro i _
+  cases x i <;> simp
+
+theorem row_eval_scale (n : Nat) (k : Int) (a : Nat → Int) (x : State) :
+    rowEval n (fun i => k * a i) x = k * rowEval n a x := by
+  unfold rowEval
+  rw [← sumInt_scale]
+  apply sumInt_congr
+  intro i _
+  cases x i <;> simp
+
+theorem row_eval_const_zero (n : Nat) (x : State) :
+    rowEval n (fun _ => 0) x = 0 := by
+  apply sumInt_zero
+  intro i _
+  cases x i <;> rfl
+
+theorem row_eval_select (n j : Nat) (k : Int) (x : State) (hj : j < n) :
+    rowEval n (fun i => if i = j then k else 0) x =
+      (if x j then k else 0) := by
+  unfold rowEval
+  calc
+    sumInt n (fun i => if x i then (if i = j then k else 0) else 0) =
+        sumInt n (fun i => if i = j then (if x j then k else 0) else 0) := by
+          apply sumInt_congr
+          intro i _
+          by_cases he : i = j
+          · subst i
+            simp
+          · simp [he]
+    _ = _ := sumInt_single n j (if x j then k else 0) hj
+
+theorem quad_table_add (c d : Int) (l m : Nat → Int) (q r : Nat → Nat → Int)
+    (n : Nat) (x : State) :
+    quadTable (c+d) (fun i => l i + m i) (fun i j => q i j + r i j) n x =
+      quadTable c l q n x + quadTable d m r n x := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      simp only [quadTable, ih, row_eval_add]
+      cases x n <;> simp <;> omega
+
+theorem quad_table_scale (k c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
+    (n : Nat) (x : State) :
+    quadTable (k*c) (fun i => k * l i) (fun i j => k * q i j) n x =
+      k * quadTable c l q n x := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      simp only [quadTable, ih, row_eval_scale]
+      cases x n <;> simp [Int.mul_add]
+
+theorem quad_table_const (c : Int) (n : Nat) (x : State) :
+    quadTable c (fun _ => 0) (fun _ _ => 0) n x = c := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      simp only [quadTable, ih, row_eval_const_zero]
+      cases x n <;> simp
+
+/-- One nonzero triangular row, with every other row zero. -/
+theorem quad_table_single_row (n j : Nat) (k : Int) (r : Nat → Int) (x : State) :
+    quadTable 0 (fun i => if i = j then k else 0)
+      (fun i t => if i = j then r t else 0) n x =
+    (if j < n then (if x j then k + rowEval j r x else 0) else 0) := by
+  induction n with
+  | zero =>
+      rw [lt_select_false j 0 _ 0 (by omega)] <;> rfl
+  | succ n ih =>
+      by_cases he : n = j
+      · subst j
+        simp only [quadTable, ih]
+        rw [lt_select_false n n _ 0 (by omega),
+            lt_select_true n (n+1) _ 0 (by omega)] <;> simp
+      · have hr : rowEval n (fun t => if n = j then r t else 0) x = 0 := by
+          apply sumInt_zero
+          intro i _
+          simp [he]
+        simp only [quadTable, ih, hr]
+        have hz : (if n = j then k else 0) = 0 := by simp [he]
+        rw [hz]
+        by_cases hj : j < n
+        · rw [lt_select_true j n _ 0 hj,
+              lt_select_true j (n+1) _ 0 (by omega)]
+          cases x n <;> simp
+        · rw [lt_select_false j n _ 0 hj,
+              lt_select_false j (n+1) _ 0 (by omega)]
+          cases x n <;> simp
+
+theorem quad_table_linear_basis (n j : Nat) (k : Int) (x : State) (hj : j < n) :
+    quadTable 0 (fun i => if i = j then k else 0) (fun _ _ => 0) n x =
+      k * bit (x j) := by
+  have ht : quadTable 0 (fun i => if i = j then k else 0) (fun _ _ => 0) n x =
+      quadTable 0 (fun i => if i = j then k else 0)
+        (fun i t => if i = j then (0 : Int) else 0) n x := by
+    have h : (fun (_ : Nat) (_ : Nat) => (0 : Int)) =
+        (fun i (_ : Nat) => if i = j then (0 : Int) else 0) := by
+      funext i t
+      simp
+    rw [← h]
+  rw [ht, quad_table_single_row, lt_select_true j n _ 0 hj, row_eval_const_zero]
+  cases x j <;> simp [bit]
+
+theorem quad_table_pair_basis (n i j : Nat) (k : Int) (x : State)
+    (hj : j < i) (hi : i < n) :
+    quadTable 0 (fun _ => 0)
+      (fun a b => if a = i then (if b = j then k else 0) else 0) n x =
+      k * bit (x i) * bit (x j) := by
+  have h : (fun (_ : Nat) => (0 : Int)) =
+      (fun a => if a = i then (0 : Int) else 0) := by
+    funext a
+    simp
+  rw [h, quad_table_single_row, lt_select_true i n _ 0 hi, row_eval_select i j k x hj]
+  cases x i <;> cases x j <;> simp [bit]
+
+/-- A bounded QExpr has a canonical triangular table with exact integer
+    semantics on all states. No enumeration or choice of a table by an
+    untrusted producer is assumed. -/
+theorem qexpr_canonical_table (n : Nat) (p : QExpr) (h : qBound n p) :
+    ∃ c : Int, ∃ l : Nat → Int, ∃ q : Nat → Nat → Int,
+      ∀ x : State, evalQ p x = quadTable c l q n x := by
+  induction p with
+  | constant k =>
+      exact ⟨k, fun _ => 0, fun _ _ => 0, fun x => (quad_table_const k n x).symm⟩
+  | linear k a =>
+      cases a with
+      | one =>
+          refine ⟨k, fun _ => 0, fun _ _ => 0, ?_⟩
+          intro x
+          rw [quad_table_const]
+          simp [evalQ, atomVal, bit]
+      | wire i =>
+          refine ⟨0, fun j => if j = i then k else 0, fun _ _ => 0, ?_⟩
+          intro x
+          exact (quad_table_linear_basis n i k x h).symm
+  | pair k a b =>
+      have ha : atomBound n a := h.1
+      have hb : atomBound n b := h.2
+      cases a with
+      | one =>
+          cases b with
+          | one =>
+              refine ⟨k, fun _ => 0, fun _ _ => 0, ?_⟩
+              intro x
+              rw [quad_table_const]
+              simp [evalQ, atomVal, bit]
+          | wire j =>
+              refine ⟨0, fun i => if i = j then k else 0, fun _ _ => 0, ?_⟩
+              intro x
+              rw [quad_table_linear_basis n j k x hb]
+              simp [evalQ, atomVal, bit]
+      | wire i =>
+          cases b with
+          | one =>
+              refine ⟨0, fun j => if j = i then k else 0, fun _ _ => 0, ?_⟩
+              intro x
+              rw [quad_table_linear_basis n i k x ha]
+              simp [evalQ, atomVal, bit]
+          | wire j =>
+              by_cases he : i = j
+              · subst j
+                refine ⟨0, fun j => if j = i then k else 0, fun _ _ => 0, ?_⟩
+                intro x
+                rw [quad_table_linear_basis n i k x ha]
+                simp only [evalQ, atomVal]
+                cases x i <;> simp [bit]
+              · by_cases hj : j < i
+                · refine ⟨0, fun _ => 0,
+                    fun a b => if a = i then (if b = j then k else 0) else 0, ?_⟩
+                  intro x
+                  exact (quad_table_pair_basis n i j k x hj ha).symm
+                · have hi : i < j := by omega
+                  refine ⟨0, fun _ => 0,
+                    fun a b => if a = j then (if b = i then k else 0) else 0, ?_⟩
+                  intro x
+                  rw [quad_table_pair_basis n j i k x hi hb]
+                  simp only [evalQ, atomVal]
+                  cases x i <;> cases x j <;> simp [bit]
+  | add a b ihA ihB =>
+      obtain ⟨c, l, q, hp⟩ := ihA h.1
+      obtain ⟨d, m, r, hr⟩ := ihB h.2
+      refine ⟨c+d, fun i => l i + m i, fun i j => q i j + r i j, ?_⟩
+      intro x
+      simp only [evalQ, hp x, hr x, quad_table_add]
+  | scale k a ih =>
+      obtain ⟨c, l, q, hp⟩ := ih h
+      refine ⟨k*c, fun i => k * l i, fun i j => k * q i j, ?_⟩
+      intro x
+      simp only [evalQ, hp x, quad_table_scale]
+
+theorem bounded_qexpr_interpolation (n : Nat) (p : QExpr) (h : qBound n p)
+    (v : Int)
+    (h0 : evalQ p (fun _ => false) % 8 = v % 8)
+    (h1 : ∀ i, i < n → evalQ p (unitState i) % 8 = v % 8)
+    (h2 : ∀ i j, j < i → i < n → evalQ p (pairState j i) % 8 = v % 8) :
+    ∀ x : State, evalQ p x % 8 = v % 8 := by
+  obtain ⟨c, l, q, he⟩ := qexpr_canonical_table n p h
+  have h0' : quadTable c l q n (fun _ => false) % 8 = v % 8 := by
+    rw [← he]
+    exact h0
+  have h1' : ∀ i, i < n → quadTable c l q n (unitState i) % 8 = v % 8 := by
+    intro i hi
+    rw [← he]
+    exact h1 i hi
+  have h2' : ∀ i j, j < i → i < n → quadTable c l q n (pairState j i) % 8 = v % 8 := by
+    intro i j hj hi
+    rw [← he]
+    exact h2 i j hj hi
+  intro x
+  rw [he]
+  exact quadratic_interpolation_sound c l q n v h0' h1' h2' x
+
+#print axioms sumInt_add
+#print axioms sumInt_scale
+#print axioms row_eval_add
+#print axioms row_eval_scale
+#print axioms row_eval_const_zero
+#print axioms row_eval_select
+#print axioms quad_table_add
+#print axioms quad_table_scale
+#print axioms quad_table_const
+#print axioms quad_table_single_row
+#print axioms quad_table_linear_basis
+#print axioms quad_table_pair_basis
+#print axioms qexpr_canonical_table
+#print axioms bounded_qexpr_interpolation
+
 end QuPRS.SectorTransport

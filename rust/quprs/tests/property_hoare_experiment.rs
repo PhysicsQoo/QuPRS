@@ -1023,6 +1023,7 @@ mod exact_property_cnf {
         export_hybrid(&dir);
         export_rare_wmc(&dir);
         export_scale_benchmark(&dir);
+        export_fourier_heldout(&dir);
     }
 
 
@@ -3840,6 +3841,137 @@ mod exact_property_cnf {
         let qus=t.elapsed().as_micros();
         quotients.push_str(&format!("{name}\t{h}\t{hr}\t{}\t{}\t{scale}\t{}\t{}\t{},{},{}\t{qs}\t{cone_us}\t{build_us}\t{qus}\t{},{}\t{primary}\t{terms}\n",
             ops.len(),reduced.len(),qc.vars,qc.clauses.len(),qd[0],qd[1],qd[2],raw[0],raw[1]));
+    }
+
+
+    // Frozen P1 Fourier parity family. Do not tune the dispatcher on this
+    // cohort. QASM and analytic oracle are exported even when the existing
+    // native research admission rejects a size. Typed gates are not a
+    // source-parser certificate.
+    fn fourier_ccz(a:usize,b:usize,c:usize,ops:&mut Vec<G>){
+        // 4abc = a+b+c-(a xor b)-(a xor c)-(b xor c)+(a xor b xor c) mod 8.
+        // T dagger is Z S T, exactly (no relative/global phase).
+        ops.extend([G::T(a),G::T(b),G::T(c)]);
+        for (u,v) in [(a,b),(a,c),(b,c)]{
+            ops.extend([G::CX(u,v),G::Z(v),G::S(v),G::T(v),G::CX(u,v)]);
+        }
+        ops.extend([G::CX(a,c),G::CX(b,c),G::T(c),G::CX(b,c),G::CX(a,c)]);
+    }
+
+    fn fourier_middle_phase(ops:&[G],x:u64)->(u64,u8){
+        let mut y=x;let mut p=0u8;
+        for op in ops{
+            let bit=|i:usize|((y>>i)&1) as u8;
+            match *op{
+                G::CX(a,b)=>y^=(bit(a) as u64)<<b,
+                G::CZ(a,b)=>p=(p+4*bit(a)*bit(b))%8,
+                G::Z(a)=>p=(p+4*bit(a))%8,
+                G::S(a)=>p=(p+2*bit(a))%8,
+                G::T(a)=>p=(p+bit(a))%8,
+                _=>panic!("non-diagonal-or-permutation middle gate"),
+            }
+        }
+        (y,p)
+    }
+
+    fn export_fourier_heldout(root:&std::path::Path){
+        let dir=root.join("fourier-heldout");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut contract=Vec::new();fourier_ccz(0,1,2,&mut contract);
+        assert_eq!(contract.len(),23);
+        for x in 0..8u64{
+            assert_eq!(fourier_middle_phase(&contract,x),(x,if x==7{4}else{0}));
+        }
+        let mut manifest=String::new();let mut rr=String::new();
+        for (n,support) in [(6usize,32usize),(10,373),(14,5669),(18,91852),(20,439756)]{
+            let k=n-1;
+            let mut pairs=BTreeSet::new();let mut triples=BTreeSet::new();
+            for j in 0..k{
+                let mut a=[j,(j+1)%k];a.sort();pairs.insert(a);
+                let mut b=[j,(j+1)%k,(j+3)%k];b.sort();triples.insert(b);
+            }
+            assert_eq!((pairs.len(),triples.len()),(k,k));
+            let parity=Anf::from_iter((0..n).map(|i|1u64<<i));
+            for safe in [true,false]{
+                let variant=if safe{"safe"}else{"mutant"};
+                let name=format!("fourier-{n}-{variant}");
+                let mut middle:Vec<G>=(1..n).map(|i|G::CX(0,i)).collect();
+                if safe{middle.push(G::Z(0));}
+                for &[a,b] in &pairs{middle.push(G::CZ(a+1,b+1));}
+                for &[a,b,c] in &triples{fourier_ccz(a+1,b+1,c+1,&mut middle);}
+                middle.extend((1..n).rev().map(|i|G::CX(0,i)));
+                let mut ops:Vec<G>=(0..n).map(G::H).collect();
+                ops.extend(middle.clone());ops.extend((0..n).map(G::H));
+                let h=2*n;
+                assert_eq!(ops.len(),2*n+2*k+24*k+usize::from(safe));
+                let mut qasm=format!("OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[{n}];\n");
+                for op in &ops{
+                    let line=match *op{
+                        G::H(i)=>format!("h q[{i}];"),G::Z(i)=>format!("z q[{i}];"),
+                        G::S(i)=>format!("s q[{i}];"),G::T(i)=>format!("t q[{i}];"),
+                        G::CX(a,b)=>format!("cx q[{a}],q[{b}];"),
+                        G::CZ(a,b)=>format!("cz q[{a}],q[{b}];"),
+                        _=>unreachable!(),
+                    };
+                    qasm.push_str(&line);qasm.push('\n');
+                }
+                std::fs::write(dir.join(format!("{name}.qasm")),qasm).unwrap();
+                // Independent phase truth table, then unnormalized integer
+                // Walsh transform. Verify serialized gate construction for
+                // every middle basis input at the native admitted sizes.
+                let mut v=Vec::with_capacity(1usize<<n);
+                for x in 0..1u64<<n{
+                    let b=x&1;let y=|i:usize|((x>>(i+1))&1)^b;
+                    let mut f=if safe{b}else{0};
+                    for &[a,b] in &pairs{f^=y(a)&y(b);}
+                    for &[a,b,c] in &triples{f^=y(a)&y(b)&y(c);}
+                    if n<=14{assert_eq!(fourier_middle_phase(&middle,x),(x,4*f as u8));}
+                    v.push(if f==0{1i64}else{-1});
+                }
+                for j in 0..n{
+                    let d=1usize<<j;
+                    for base in (0..v.len()).step_by(2*d){
+                        for a in base..base+d{
+                            let (u,w)=(v[a],v[a+d]);v[a]=u+w;v[a+d]=u-w;
+                        }
+                    }
+                }
+                assert_eq!(v.iter().filter(|&&a|a!=0).count(),support);
+                assert_eq!(v.iter().map(|&a|(a as i128)*(a as i128)).sum::<i128>(),1i128<<h);
+                for (z,&a) in v.iter().enumerate(){
+                    if a!=0{assert_eq!(z.count_ones()%2,if safe{1}else{0});}
+                }
+                // Independently propagate the full decomposed gate circuit
+                // for every input at the smallest size, not just its phase.
+                if n==6{
+                    for x in 0..1u64<<n{
+                        for (z,a) in dense_state(n,&ops,x).into_iter().enumerate(){
+                            assert_eq!(a,[v[z^(x as usize)],0,0,0]);
+                        }
+                    }
+                }
+                let mut bytes=Vec::with_capacity(8*v.len());
+                for a in v{bytes.extend(a.to_le_bytes());}
+                std::fs::write(dir.join(format!("{name}.i64le")),bytes).unwrap();
+                let q=vec![parity.clone()];
+                for pre in ["cube","even"]{
+                    let id=format!("{name}-{pre}");
+                    let p=if pre=="cube"{(0..n).map(|i|bit(i,false)).collect::<Vec<_>>()}
+                        else{let mut even=parity.clone();even.insert(0);vec![even]};
+                    let rank=if pre=="cube"{1i128}else{1i128<<(n-1)};
+                    let mass=if safe{0}else{rank*(1i128<<h)};
+                    export_external_property(&dir,&id,n,&ops,&p,&q);
+                    let status=if n<=16&&ops.len()<=512&&h<=48&&n+h<=63{
+                        export_dispatch_rr(&dir,&id,n,&ops,&p,&q,&mut rr);
+                        "NATIVE_EXPORT_ATTEMPTED"
+                    }else{"UNSUPPORTED_SCOPE"};
+                    manifest.push_str(&format!("{id}\t{name}\t{n}\t{h}\t{}\t{support}\t{pre}\t{rank}\t{mass}\t{status}\n",ops.len()));
+                }
+            }
+        }
+        std::fs::write(dir.join("heldout.tsv"),manifest).unwrap();
+        std::fs::write(dir.join("dispatch-rr.tsv"),rr).unwrap();
+        println!("HOARE_FOURIER_HELDOUT_FIXTURES properties=20 circuits=10 native_export_attempts=12 unsupported_scope=8 exact_ccz=true");
     }
 
     fn export_scale_benchmark(dir:&std::path::Path){

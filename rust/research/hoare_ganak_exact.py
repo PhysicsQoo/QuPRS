@@ -369,6 +369,10 @@ def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
     with (directory/"hybrid-plan.tsv").open() as f:
         for name,j,kind,ds,file in csv.reader(f,delimiter="\t"):
             plans.setdefault((name,int(j)),[]).append((kind,ds,file))
+    rr_plans={}
+    with (directory/"hybrid-rr.tsv").open() as f:
+        for name,status,h,scale,delta,variables,clauses,prep_us in csv.reader(f,delimiter="\t"):
+            rr_plans[name]=(status,int(h),int(scale),delta,int(variables),int(clauses),int(prep_us))
     def wmc_verdict(base,delta,n):
         coeff=two_weighted(base,delta)
         if not any(coeff):
@@ -394,6 +398,22 @@ def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
             except (TimeoutError,subprocess.TimeoutExpired):
                 dv,dw,dc,dw_s="UNKNOWN",None,None,0.0
             direct_s=time.monotonic()-t
+            status,rh,scale,rd,rv,rcs,rprep=rr_plans[name]
+            rr_verdict,rr_witness,rr_coeff,rr_witness_s="UNKNOWN",None,None,0.0
+            rr_solver_s=0.0
+            if status=="READY":
+                rr_base=(directory/f"hybrid-{name}-rr.cnf").read_text()
+                t=time.monotonic()
+                try:
+                    rr_verdict,rr_witness,rr_coeff,rr_witness_s=wmc_verdict(rr_base,list(map(int,rd.split(","))),n)
+                    rr_coeff=tuple(v*2**scale for v in rr_coeff)
+                except (TimeoutError,subprocess.TimeoutExpired):
+                    rr_verdict,rr_witness,rr_coeff,rr_witness_s="UNKNOWN",None,None,0.0
+                rr_solver_s=time.monotonic()-t
+            rr_row=dict(status=status,verdict=rr_verdict,witness=rr_witness,coeff=rr_coeff,
+                        h=rh,scale=scale,vars=rv,clauses=rcs,prep_us=rprep,
+                        solver_s=round(rr_solver_s,6),witness_s=round(rr_witness_s,6),
+                        total_s=round(rprep/1e6+rr_solver_s,6))
             # Matched same-run ablation. Both policies use the same plan,
             # exact fallback and resource caps; pruning only avoids calls.
             def dispatch(screened):
@@ -447,7 +467,7 @@ def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
             expected=tuple(map(int,expected.split(",")))
             witnesses=set() if witnesses=="-" else set(map(int,witnesses.split(",")))
             truth="REFUTED" if witnesses else "PROVED"
-            for verdict,witness,coeff in [(dv,dw,dc)]+[
+            for verdict,witness,coeff in [(dv,dw,dc),(rr_verdict,rr_witness,rr_coeff)]+[
                     (r["verdict"],r["witness"],r["coeff"]) for r in (plain,screened)]:
                 if verdict=="UNKNOWN":
                     continue
@@ -456,13 +476,15 @@ def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
             row=dict(case=name,direct_verdict=dv,direct_witness=dw,
                      build_us=build_us,direct_encoding_us=direct_us,plan_export_us=plan_us,
                      direct_total_s=round((build_us+direct_us)/1e6+direct_s,6),
-                     plain=plain,screened=screened)
+                     plain=plain,screened=screened,standard_rr=rr_row)
             print("HOARE_SCREENED_HYBRID "+json.dumps(row),flush=True)
             records.append(row)
-    assert len(records)==8
+    assert len(records)==16
     assert sum(r["screened"]["skipped"] for r in records)>0
     print("HOARE_SCREENED_HYBRID_SUMMARY "+json.dumps(dict(cases=len(records),
           completed=sum(r["direct_verdict"]!="UNKNOWN" and all(r[k]["verdict"]!="UNKNOWN" for k in ("plain","screened")) for r in records),
+          standard_rr_completed=sum(r["standard_rr"]["verdict"]!="UNKNOWN" for r in records),
+          all_four_completed=sum(r["direct_verdict"]!="UNKNOWN" and all(r[k]["verdict"]!="UNKNOWN" for k in ("plain","screened","standard_rr")) for r in records),
           plain_queries=sum(r["plain"]["sat_queries"] for r in records),
           screened_queries=sum(r["screened"]["sat_queries"] for r in records),
           skipped=sum(r["screened"]["skipped"] for r in records),

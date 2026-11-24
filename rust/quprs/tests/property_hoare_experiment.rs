@@ -2124,6 +2124,73 @@ mod exact_property_cnf {
     // R15: export solver-neutral candidate plans without using DPLL
     // or the expected answer to choose a candidate. The external driver
     // makes all routing decisions from the actual SAT responses.
+    // R17: algorithm-level properties, not merely equality to a reference
+    // circuit. Each family has an independently specified negative case.
+    type AlgorithmCase=(String,usize,Vec<G>,Vec<Anf>,Vec<Anf>,bool);
+    fn algorithmic_cases()->Vec<AlgorithmCase>{
+        let mut cases=Vec::new();
+        for c in scaled_cases().into_iter().filter(|c|c.name=="BV4-correct"||c.name=="BV4-negative"){
+            let valid=c.name=="BV4-correct";
+            cases.push((c.name,c.n,c.ops,c.p,c.q,valid));
+        }
+        // Two data qubits, one Grover iteration, unique marked item 11.
+        // Oracle CZ; diffusion up to global phase.
+        let init2=vec![bit(0,false),bit(1,false)];
+        let goal=vec![bit(0,true),bit(1,true)];
+        let diffusion=[G::H(0),G::H(1),G::X(0),G::X(1),G::CZ(0,1),
+                       G::X(0),G::X(1),G::H(0),G::H(1)];
+        for marked in [true,false]{
+            let mut ops=vec![G::H(0),G::H(1)];
+            if marked{ops.push(G::CZ(0,1));}
+            ops.extend(diffusion.iter().cloned());
+            cases.push((if marked{"Grover2-marked"}else{"Grover2-no-oracle"}.into(),
+                2,ops,init2.clone(),goal.clone(),marked));
+        }
+        // GHZ+ satisfies X^⊗4=+1. Append H^4 to measure X in the Z basis.
+        // Z0 mutation changes that eigenvalue without changing Z correlation.
+        let init4=(0..4).map(|i|bit(i,false)).collect::<Vec<_>>();
+        let parity=vec![Anf::from([0,1,2,4,8])];
+        for positive in [true,false]{
+            let mut ops=vec![G::H(0),G::CX(0,1),G::CX(0,2),G::CX(0,3)];
+            if !positive{ops.push(G::Z(0));}
+            ops.extend((0..4).map(G::H));
+            cases.push((if positive{"GHZ4-X-stabilizer"}else{"GHZ4-phase-mutant"}.into(),
+                4,ops,init4.clone(),parity.clone(),positive));
+        }
+        // Reversible half adder: input (a,b,0), output (a,s=a xor b,c=ab).
+        // c=a*(1 xor s), equivalently c xor a xor a*s=0.
+        for correct in [true,false]{
+            let mut ops=vec![];
+            if correct{ops.push(G::CCX(0,1,2));}
+            ops.push(G::CX(0,1));
+            cases.push((if correct{"HalfAdder-arithmetic"}else{"HalfAdder-no-carry"}.into(),
+                3,ops,vec![bit(2,false)],vec![Anf::from([0,1,3,4])],correct));
+        }
+        cases
+    }
+    #[test]
+    fn hoare_algorithmic_property_intent(){
+        let cases=algorithmic_cases();
+        assert_eq!(cases.len(),8);
+        for (name,n,ops,p,q,valid) in cases{
+            assert!(admitted(n,&ops));
+            let legal:Vec<_>=(0..1u64<<n).filter(|&x|eval_conj(&p,x)).collect();
+            assert!(!legal.is_empty());
+            let witnesses:Vec<_>=legal.iter().copied().filter(|&x|raw_for_input(n,&ops,&q,x)!=[0,0]).collect();
+            assert_eq!(witnesses.is_empty(),valid,"independent property intent {name}");
+            if name=="Grover2-no-oracle"{
+                // Uniform state: 3 of 4 bad basis outcomes, raw scale 2^6.
+                assert_eq!(raw_for_input(n,&ops,&q,0),[48,0]);
+            }
+            if name=="GHZ4-phase-mutant"{
+                // Odd X parity with probability 1, raw scale 2^5.
+                assert_eq!(raw_for_input(n,&ops,&q,0),[32,0]);
+            }
+            if name=="HalfAdder-no-carry"{assert_eq!(witnesses,vec![3]);}
+            println!("HOARE_ALGORITHM_PROPERTY name={name} n={n} legal={} violations={} expected_valid={valid}",legal.len(),witnesses.len());
+        }
+    }
+
     fn export_hybrid(dir:&std::path::Path){
         let mut cases:Vec<(String,usize,Vec<G>,Vec<Anf>,Vec<Anf>)>=Vec::new();
         cases.push(("GHZ3".into(),3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],
@@ -2142,8 +2209,9 @@ mod exact_property_cnf {
         cases.push(("joint-mutant".into(),4,mutant,p,q));
         let c=scaled_cases().into_iter().find(|c|c.name=="HTH-product4").unwrap();
         cases.push(("HTH4".into(),c.n,c.ops,c.p,c.q));
-        assert_eq!(cases.len(),8);
-        let mut manifest=String::new();let mut plans=String::new();let mut symbolic=String::new();
+        cases.extend(algorithmic_cases().into_iter().map(|(name,n,ops,p,q,_)|(name,n,ops,p,q)));
+        assert_eq!(cases.len(),16);
+        let mut manifest=String::new();let mut plans=String::new();let mut symbolic=String::new();let mut rr_manifest=String::new();
         for (name,n,ops,p,q) in cases{
             // Independent small gate oracle: never supplied to dispatcher
             // until its verdict and witness have been produced.
@@ -2161,6 +2229,21 @@ mod exact_property_cnf {
             let (c,d)=two_copy_conj(&s,&p,&q);
             std::fs::write(dir.join(format!("hybrid-{name}-wmc.cnf")),dimacs(&c,&[]).unwrap()).unwrap();
             let direct_us=t.elapsed().as_micros();
+            // Matched standard native RR baseline. Charge separate source
+            // construction, reduction and CNF serialization to this route.
+            let t=std::time::Instant::now();
+            let rr=reduced_native(n,&ops).and_then(|(r,stats)|{
+                let (c,d)=two_copy_conj(&r,&p,&q);
+                let cnf=dimacs(&c,&[])?;
+                Some((r.h,stats.scale2,c.vars,c.clauses.len(),d,cnf))
+            });
+            if let Some((h,scale,vars,clauses,d,cnf))=rr{
+                std::fs::write(dir.join(format!("hybrid-{name}-rr.cnf")),cnf).unwrap();
+                rr_manifest.push_str(&format!("{name}\tREADY\t{h}\t{scale}\t{},{},{}\t{vars}\t{clauses}\t{}\n",
+                    d[0],d[1],d[2],t.elapsed().as_micros()));
+            }else{
+                rr_manifest.push_str(&format!("{name}\tUNKNOWN_RESOURCE\t0\t0\t-\t0\t0\t{}\n",t.elapsed().as_micros()));
+            }
             let t=std::time::Instant::now();
             let anf_text=|fs:&[Anf]|fs.iter().map(|f|if f.is_empty(){"-".to_owned()}else{
                 f.iter().map(|m|m.to_string()).collect::<Vec<_>>().join(",")
@@ -2203,7 +2286,8 @@ mod exact_property_cnf {
         std::fs::write(dir.join("hybrid.tsv"),manifest).unwrap();
         std::fs::write(dir.join("hybrid-plan.tsv"),plans).unwrap();
         std::fs::write(dir.join("hybrid-symbolic.tsv"),symbolic).unwrap();
-        println!("HOARE_HYBRID_FIXTURES cases=8 external_plan_only=true");
+        std::fs::write(dir.join("hybrid-rr.tsv"),rr_manifest).unwrap();
+        println!("HOARE_HYBRID_FIXTURES cases=16 external_plan_only=true standard_rr=true");
     }
 
 }

@@ -521,6 +521,12 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
                 run_property_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
             else:
                 run_structure_dispatch(directory/"scale-discovery",solve,deadline,long_metrics)
+                # Frozen paired root benchmark; keep the preceding dispatch
+                # experiment unchanged, give each arm the same root budget.
+                from hoare_projected_count import long_differential
+                query_cap=60
+                deadline=time.monotonic()+660
+                long_differential(directory/"scale-discovery",exe,tmp,solve,deadline,long_metrics)
         long_metrics=None
     return rows
 

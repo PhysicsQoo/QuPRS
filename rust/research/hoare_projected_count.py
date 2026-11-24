@@ -152,3 +152,106 @@ def z8_differential(directory,gpmc,tmp,baseline):
     print("HOARE_PROJECTED_Z8_SUMMARY "+json.dumps(dict(cases=len(cases),matched_roots=roots,
           prefix_checks=prefix_checks)),flush=True)
     assert roots==26 and prefix_checks==24,(roots,prefix_checks)
+
+
+def long_differential(directory,gpmc,tmp,solve,deadline,metrics):
+    """Matched root-only A/B then B/A on a frozen long-case subset.
+
+    Identical source, CNF, phase selectors, radix, GPMC binary and
+    per-arm wall deadline. Existing full Z8 solve first query equals
+    the projected query; the full arm must also complete its second
+    query. Exports are offline, so timings are NOT end-to-end.
+    """
+    def manifest(name,fields):
+        with (directory/name).open() as f:
+            return {r["case"]:r for r in csv.DictReader(f,fieldnames=fields.split(),delimiter="\t")}
+    rr=manifest("dispatch-rr.tsv","case h hr scale hits retained representation status reason witness vars clauses delta rr_us encoding_us pure_status pure_vars pure_clauses pure_delta build_us pure_us")
+    prop=manifest("property-factor.tsv","case n h hr scale post_count branch_count factor_status cnf_status vars clauses delta common_us base_us factor_us expected oracle")
+    cone=manifest("cone.tsv","case h hr gates gr scale vars clauses delta status cone_us build_us encoding_us expected")
+    # Predeclared from historical long-cohort evidence, before this run:
+    # two direct cases near the 30s decision boundary; one faster cone
+    # control; one harder cone. All selected properties are negative.
+    cases=[
+        ("mixing-10-3layer","direct",30),
+        ("affine-mixing-10","direct",30),
+        ("mixing-10-3layer","cone",15),
+        ("mixing-13-3layer","cone",60),
+    ]
+    rows=[]
+    solver_sha=hashlib.sha256(pathlib.Path(gpmc).read_bytes()).hexdigest()
+    for rep in range(2):
+        for i,(name,route,cap) in enumerate(cases):
+            target=tuple(map(int,prop[name]["expected"].split(",")))
+            if route=="direct":
+                r=rr[name];status=r["pure_status"];delta=r["pure_delta"];scale=0
+                path=directory/f"dispatch-pure-{name}.cnf"
+                prep=(int(r["build_us"])+int(r["pure_us"]))/1e6
+            else:
+                r=cone[name];status=r["status"];delta=r["delta"];scale=int(r["scale"])
+                path=directory/f"cone-{name}.cnf"
+                prep=sum(int(r[k]) for k in ("cone_us","build_us","encoding_us"))/1e6
+                assert r["expected"]==prop[name]["expected"]
+            assert status=="READY",(name,route,status)
+            base=path.read_text();bits=list(map(int,delta.split(",")))
+            v=int(base.splitlines()[0].split()[2])
+            first_query,radix,bound=projected_query(base,bits,v)
+            first_sha=hashlib.sha256(first_query.encode()).hexdigest()
+            src_sha=hashlib.sha256((directory/f"quokka-{name}.tsv").read_bytes()).hexdigest()
+            order=("full","projected") if (i+rep)%2==0 else ("projected","full")
+            for position,arm in enumerate(order):
+                metrics.clear()
+                start=time.monotonic()
+                # A global cap cannot silently shorten one arm.
+                if deadline-start<cap+2:
+                    raise RuntimeError("long differential global budget insufficient")
+                end=start+cap
+                row=dict(case=name,route=route,repeat=rep,position=position,arm=arm,
+                         cap_s=cap,cnf_sha256=hashlib.sha256(base.encode()).hexdigest(),
+                         source_sha256=src_sha,solver_sha256=solver_sha,
+                         first_query_sha256=first_sha,radix_bits=radix.bit_length(),
+                         scale=scale,expected_mass=target[0],prep_proxy_s=prep,
+                         status="UNKNOWN",verdict="UNKNOWN",mass=None,coeff=None)
+                if arm=="full":
+                    from hoare_ganak_exact import SolverSignalKilled
+                    try:
+                        raw=tuple(solve(base,bits,[],end))
+                        coeff=tuple(x*(1<<scale) for x in raw)
+                        assert coeff==target,(name,route,coeff,target)
+                        row.update(status="EXACT_FULL",coeff=coeff,mass=coeff[0],
+                                   verdict="REFUTED" if any(coeff) else "PROVED")
+                    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                    except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+                    row["queries"]=[dict(m) for m in metrics]
+                else:
+                    p=projected_count(gpmc,tmp,base,bits,v,end)
+                    assert p["query_sha256"]==first_sha
+                    row.update(status=p["status"],verdict=p["verdict"],queries=p["queries"])
+                    if p["mass"] is not None:
+                        row["mass"]=p["mass"]*(1<<scale)
+                        assert row["mass"]==target[0] and row["verdict"]==("REFUTED" if any(target) else "PROVED")
+                elapsed=time.monotonic()-start
+                qs=row["queries"]
+                row.update(root_s=elapsed,decision_proxy_s=prep+elapsed,
+                           attempted_queries=len(qs),
+                           completed_queries=sum(q["status"]=="COMPLETED" for q in qs),
+                           cpu_s=sum(q["user_s"]+q["system_s"] for q in qs) if qs and all(q["user_s"] is not None and q["system_s"] is not None for q in qs) else None,
+                           max_rss_kib=max(q["max_rss_kib"] for q in qs) if qs and all(q["max_rss_kib"] is not None for q in qs) else None)
+                rows.append(row)
+                print("HOARE_PROJECTED_LONG "+json.dumps(row),flush=True)
+    assert len(rows)==16
+    pairs=[]
+    for rep in range(2):
+        for name,route,cap in cases:
+            f,p=(next(r for r in rows if (r["case"],r["route"],r["repeat"],r["arm"])==(name,route,rep,a)) for a in ("full","projected"))
+            if f["mass"] is not None and p["mass"] is not None:
+                assert f["mass"]==p["mass"] and f["verdict"]==p["verdict"]
+            pairs.append(dict(case=name,route=route,repeat=rep,cap_s=cap,
+                              full=f["verdict"],projected=p["verdict"],
+                              full_status=f["status"],projected_status=p["status"],
+                              full_s=f["root_s"],projected_s=p["root_s"],
+                              speedup=f["root_s"]/p["root_s"] if f["mass"] is not None and p["mass"] is not None else None))
+    print("HOARE_PROJECTED_LONG_SUMMARY "+json.dumps(dict(pairs=pairs,
+          full_decided=sum(p["full"]!="UNKNOWN" for p in pairs),
+          projected_decided=sum(p["projected"]!="UNKNOWN" for p in pairs),
+          both_decided=sum(p["full"]!="UNKNOWN" and p["projected"]!="UNKNOWN" for p in pairs),
+          root_only=True,offline_prep_proxy=True)),flush=True)

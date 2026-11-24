@@ -471,4 +471,228 @@ theorem checked_affine_terminal_sound {Z : Type} (n : Nat)
 #print axioms witness_sound
 #print axioms checked_affine_terminal_sound
 
+/-! Quadratic degree bound for the exact derivative of a monomial
+    Clifford+T circuit. The symbolic affine frame is deliberately a
+    list of XOR atoms, not the producer's packed masks. QExpr can only
+    express constants, linear and quadratic monomials and their linear
+    combinations. Repeated wire indices are harmless on Boolean inputs.
+    This is a reference semantics theorem, not a complexity claim for
+    this list representation or a packed-mask implementation refinement. -/
+
+inductive Atom where
+  | wire (i : Nat)
+  | one
+
+def atomVal (a : Atom) (x : State) : Bool :=
+  match a with
+  | .wire i => x i
+  | .one => true
+
+abbrev Form := List Atom
+
+def formVal (f : Form) (x : State) : Bool :=
+  match f with
+  | [] => false
+  | a :: rest => bx (atomVal a x) (formVal rest x)
+
+inductive QExpr where
+  | constant (k : Int)
+  | linear (k : Int) (a : Atom)
+  | pair (k : Int) (a b : Atom)
+  | add (a b : QExpr)
+  | scale (k : Int) (a : QExpr)
+
+def evalQ (q : QExpr) (x : State) : Int :=
+  match q with
+  | .constant k => k
+  | .linear k a => k * bit (atomVal a x)
+  | .pair k a b => k * bit (atomVal a x) * bit (atomVal b x)
+  | .add a b => evalQ a x + evalQ b x
+  | .scale k a => k * evalQ a x
+
+theorem bx_assoc (a b c : Bool) :
+    bx (bx a b) c = bx a (bx b c) := by
+  cases a <;> cases b <;> cases c <;> decide
+
+theorem form_append (a b : Form) (x : State) :
+    formVal (a ++ b) x = bx (formVal a x) (formVal b x) := by
+  induction a with
+  | nil => rfl
+  | cons c a ih =>
+      simp only [List.cons_append, formVal, ih]
+      exact (bx_assoc (atomVal c x) (formVal a x) (formVal b x)).symm
+
+def fourPoly : Form → QExpr
+  | [] => .constant 0
+  | a :: f => .add (.linear 4 a) (fourPoly f)
+
+def crossFour (a : Atom) : Form → QExpr
+  | [] => .constant 0
+  | b :: f => .add (.pair 4 a b) (crossFour a f)
+
+def twoPoly : Form → QExpr
+  | [] => .constant 0
+  | a :: f => .add (.linear 2 a) (.add (twoPoly f) (.scale (-1) (crossFour a f)))
+
+theorem four_poly_sound (f : Form) (x : State) :
+    evalQ (fourPoly f) x % 8 = (4 * bit (formVal f x)) % 8 := by
+  induction f with
+  | nil => rfl
+  | cons a f ih =>
+      cases ha : atomVal a x <;> cases hf : formVal f x <;>
+        simp [hf, bit] at ih <;>
+        simp [fourPoly, evalQ, formVal, ha, hf, bx, bit] <;> omega
+
+theorem cross_four_eval (a : Atom) (f : Form) (x : State) :
+    evalQ (crossFour a f) x =
+      if atomVal a x then evalQ (fourPoly f) x else 0 := by
+  induction f with
+  | nil => cases ha : atomVal a x <;> simp [crossFour, fourPoly, evalQ, ha]
+  | cons b f ih =>
+      cases ha : atomVal a x <;>
+        simp [ha] at ih <;>
+        simp [crossFour, fourPoly, evalQ, ha, bit, ih]
+
+theorem two_poly_sound (f : Form) (x : State) :
+    evalQ (twoPoly f) x % 8 = (2 * bit (formVal f x)) % 8 := by
+  induction f with
+  | nil => rfl
+  | cons a f ih =>
+      have h4 := four_poly_sound f x
+      have hc := cross_four_eval a f x
+      cases ha : atomVal a x <;> cases hf : formVal f x <;>
+        simp [hf, bit] at ih h4 <;>
+        simp [ha] at hc <;>
+        simp [twoPoly, evalQ, formVal, ha, hf, bx, bit, hc] <;> omega
+
+abbrev Frame := Nat → Form
+
+def evalFrame (f : Frame) (x : State) : State :=
+  fun i => formVal (f i) x
+
+def identityFrame : Frame := fun i => [.wire i]
+
+def advanceFrame (g : Gate) (f : Frame) : Frame :=
+  match g with
+  | .flip a => fun i => if i = a then .one :: f i else f i
+  | .cnot a b => fun i => if i = b then f i ++ f a else f i
+  | _ => f
+
+theorem identity_frame_eval (x : State) : evalFrame identityFrame x = x := by
+  funext i
+  simp [evalFrame, identityFrame, formVal, atomVal, bx_zero_right]
+
+theorem advance_frame_eval (g : Gate) (f : Frame) (x : State) :
+    evalFrame (advanceFrame g f) x = advance g (evalFrame f x) := by
+  cases g with
+  | flip a =>
+      funext i
+      by_cases h : i = a <;>
+        simp [advanceFrame, evalFrame, advance, formVal, atomVal, bx, h]
+  | cnot a b =>
+      funext i
+      by_cases h : i = b <;>
+        simp [advanceFrame, evalFrame, advance, cnotState, form_append, h]
+  | z a => rfl
+  | s a => rfl
+  | t a => rfl
+  | cz a b => rfl
+
+def singleQuad (k : Int) (f : Form) (d : Bool) : QExpr :=
+  if d then .add (.constant k) (.scale (-k) (twoPoly f)) else .constant 0
+
+theorem single_quad_sound (k : Int) (f : Form) (d : Bool) (x : State)
+    (hk : k = 1 ∨ k = 2 ∨ k = 4) :
+    evalQ (singleQuad k f d) x % 8 =
+      singleDelta k (formVal f x) d % 8 := by
+  cases d with
+  | false => rfl
+  | true =>
+      have h := two_poly_sound f x
+      rcases hk with he | he | he <;> subst k <;>
+        cases hv : formVal f x <;>
+        simp [hv, bit] at h <;>
+        simp [singleQuad, evalQ, singleDelta, hv, bit] <;> omega
+
+def selectedFour (d : Bool) (f : Form) : QExpr :=
+  if d then fourPoly f else .constant 0
+
+theorem selected_four_sound (d : Bool) (f : Form) (x : State) :
+    evalQ (selectedFour d f) x % 8 =
+      (4 * bit d * bit (formVal f x)) % 8 := by
+  cases d with
+  | false => simp [selectedFour, evalQ, bit]
+  | true => simpa [selectedFour, bit] using four_poly_sound f x
+
+def localQuad (g : Gate) (f : Frame) (d : State) : QExpr :=
+  match g with
+  | .z a => singleQuad 4 (f a) (d a)
+  | .s a => singleQuad 2 (f a) (d a)
+  | .t a => singleQuad 1 (f a) (d a)
+  | .cz a b =>
+      .add (selectedFour (d a) (f b))
+        (.add (selectedFour (d b) (f a)) (.constant (4 * bit (d a) * bit (d b))))
+  | _ => .constant 0
+
+theorem local_quad_sound (g : Gate) (f : Frame) (d x : State) :
+    evalQ (localQuad g f d) x % 8 =
+      localDelta g (evalFrame f x) d % 8 := by
+  cases g with
+  | flip a => rfl
+  | cnot a b => rfl
+  | z a =>
+      exact single_quad_sound 4 (f a) (d a) x (Or.inr (Or.inr rfl))
+  | s a =>
+      exact single_quad_sound 2 (f a) (d a) x (Or.inr (Or.inl rfl))
+  | t a =>
+      exact single_quad_sound 1 (f a) (d a) x (Or.inl rfl)
+  | cz a b =>
+      have ha := selected_four_sound (d a) (f b) x
+      have hb := selected_four_sound (d b) (f a) x
+      cases hda : d a <;> cases hdb : d b <;>
+        simp [hda, hdb, bit] at ha hb <;>
+        simp [localQuad, localDelta, evalQ, evalFrame, hda, hdb, bit] <;> omega
+
+def traceQuad : List Gate → Frame → State → QExpr
+  | [], _, _ => .constant 0
+  | g :: gs, f, d =>
+      .add (localQuad g f d) (traceQuad gs (advanceFrame g f) (advanceDelta g d))
+
+theorem trace_quad_sound (gs : List Gate) (f : Frame) (d x : State) :
+    evalQ (traceQuad gs f d) x % 8 = tracePhase gs (evalFrame f x) d % 8 := by
+  induction gs generalizing f d with
+  | nil => rfl
+  | cons g gs ih =>
+      have hl := local_quad_sound g f d x
+      have ht := ih (advanceFrame g f) (advanceDelta g d)
+      rw [advance_frame_eval] at ht
+      simp only [traceQuad, evalQ, tracePhase]
+      omega
+
+/-- Existence of a degree <= 2 Boolean polynomial modulo 8 for the
+    concrete derivative of every finite gate sequence in this grammar.
+    This proves the degree premise, not yet interpolation soundness. -/
+theorem phase_derivative_degree_bound (gs : List Gate) (d : State) :
+    ∃ q : QExpr, ∀ x : State,
+      (evalPhase gs (shifted x d) - evalPhase gs x) % 8 = evalQ q x % 8 := by
+  refine ⟨traceQuad gs identityFrame d, ?_⟩
+  intro x
+  rw [replay_phase_shift]
+  have h := trace_quad_sound gs identityFrame d x
+  rw [identity_frame_eval] at h
+  exact h.symm
+
+#print axioms bx_assoc
+#print axioms form_append
+#print axioms four_poly_sound
+#print axioms cross_four_eval
+#print axioms two_poly_sound
+#print axioms identity_frame_eval
+#print axioms advance_frame_eval
+#print axioms single_quad_sound
+#print axioms selected_four_sound
+#print axioms local_quad_sound
+#print axioms trace_quad_sound
+#print axioms phase_derivative_degree_bound
+
 end QuPRS.SectorTransport

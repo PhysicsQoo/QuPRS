@@ -195,12 +195,12 @@ def main():
         # reconfirmed, not claimed to be a newly extracted witness.
         scaled = []
         with (directory / "scaled.tsv").open() as fh:
-            for name, route, n, h, scale, delta, expected, witness, vars_, clauses, encoding_us, status in csv.reader(fh, delimiter="\t"):
+            for name, route, n, h, scale, delta, expected, witness, vars_, clauses, encoding_us, status, query_witness, prep_us, phase_terms in csv.reader(fh, delimiter="\t"):
                 n,h,scale,vars_,clauses,encoding_us = map(int,(n,h,scale,vars_,clauses,encoding_us))
                 delta = list(map(int,delta.split(",")))
                 expected = tuple(map(int,expected.split(",")))
                 row = dict(case=name,route=route,n=n,h=h,vars=vars_,clauses=clauses,
-                           encoding_us=encoding_us,expected_raw=expected,known_witness=witness,
+                           encoding_us=encoding_us,prep_us=int(prep_us),phase_terms=int(phase_terms),expected_raw=expected,known_witness=witness,query_witness=query_witness,
                            status=status,two_status="NOT_RUN",four_status="NOT_RUN",witness_status="NOT_REQUIRED" if witness=="-" else "NOT_RUN")
                 if status=="READY":
                     base=(directory/f"scale-{name}-{route}.cnf").read_text()
@@ -215,7 +215,7 @@ def main():
                             row[method+"_status"]="UNKNOWN_TIMEOUT"
                         row[method+"_root_s"]=round(time.monotonic()-start,6)
                     if witness!="-" and row["two_status"]=="PASS":
-                        x=int(witness)
+                        x=int(query_witness)
                         prefix=[i+2 if x>>i&1 else -(i+2) for i in range(n)]
                         try:
                             assert any(two_weighted(base,delta,prefix))
@@ -225,7 +225,7 @@ def main():
                     row["status"]="PASS" if row["two_status"]==row["four_status"]=="PASS" and row["witness_status"] in ("PASS","NOT_REQUIRED") else "UNKNOWN_RESOURCE"
                 scaled.append(row)
                 print("HOARE_GANAK_SCALE "+json.dumps(row),flush=True)
-        assert len(scaled)==32
+        assert len(scaled)==64
         ok=sum(r["status"]=="PASS" for r in scaled)
         print(f"HOARE_GANAK_SCALE_SUMMARY variants={len(scaled)} pass={ok} unknown={len(scaled)-ok} calls={calls} solver_wall_s={solver_seconds:.6f}")
 

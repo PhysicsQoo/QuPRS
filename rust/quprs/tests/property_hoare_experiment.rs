@@ -1127,6 +1127,111 @@ mod exact_property_cnf {
             }
         }
     }
+    // Exact affine input parameterization. Keep original input label slots
+    // so existing RR still protects them. Fix unused pivot slots to zero:
+    // each legal original input has exactly one encoded input.
+    struct AffinePre{offset:u64,basis:Vec<u64>,free:Vec<usize>,n:usize}
+    impl AffinePre{
+        fn free_mask(&self)->u64{self.free.iter().fold(0,|m,&i|m|(1u64<<i))}
+        fn decode(&self,encoded:u64)->u64{
+            self.free.iter().zip(&self.basis).fold(self.offset,|x,(&i,&b)|if encoded>>i&1!=0{x^b}else{x})
+        }
+        fn guard(&self)->Vec<Anf>{
+            let m=self.free_mask();
+            (0..self.n).filter(|&i|m>>i&1==0).map(|i|bit(i,false)).collect()
+        }
+    }
+    fn affine_pre(n:usize,p:&[Anf])->Option<AffinePre>{
+        if n==0||n>16{return None;}
+        let mut rows=Vec::new();
+        for f in p{
+            let mut mask=0;
+            for &m in f{
+                if m>>n!=0||m.count_ones()>1{return None;}
+                mask|=m;
+            }
+            rows.push((mask,!f.contains(&0)));
+        }
+        let (offset,basis)=affine_solve(rows,n)?;
+        // affine_solve uses ascending pivot columns. Each kernel basis
+        // vector has its distinguished free bit as the highest set bit.
+        let free:Vec<_>=basis.iter().map(|&b|(63-b.leading_zeros()) as usize).collect();
+        let model=AffinePre{offset,basis,free,n};
+        let mask=model.free_mask();
+        if model.free.len()!=mask.count_ones() as usize||model.offset&mask!=0||
+            model.free.iter().zip(&model.basis).any(|(&i,&b)|b&mask!=1u64<<i) {return None;}
+        Some(model)
+    }
+    fn specialize_affine(mut ps:PathSum,n:usize,p:&[Anf])->Option<(PathSum,AffinePre)>{
+        let model=affine_pre(n,p)?;
+        for i in 0..n{
+            if model.free_mask()>>i&1!=0{continue;}
+            let mut replacement=rustc_hash::FxHashSet::default();
+            if model.offset>>i&1!=0{replacement.insert(vec![]);}
+            for (&j,&v) in model.free.iter().zip(&model.basis){
+                if v>>i&1!=0{replacement.insert(vec![j as u32]);}
+            }
+            // Guard against dense affine substitution and term growth.
+            if replacement.len()>8{return None;}
+            ps.f.substitute_var_with_poly(i as u32,&replacement);
+            ps.p.substitute_var_with_poly(i as u32,&replacement);
+            let state=compact(&ps,n)?;
+            if state.phase.len()+state.output.iter().map(|f|f.len()).sum::<usize>()>256{return None;}
+        }
+        Some((ps,model))
+    }
+    #[test]
+    fn hoare_affine_pre_parameterization(){
+        // All subsets of the six nontrivial equations on two input bits.
+        // Validate the representation, including inconsistent preconditions,
+        // against direct truth evaluation rather than just the same RREF.
+        let eqs:Vec<Anf>=(1..4u64).flat_map(|m|{
+            let f:Anf=(0..2).filter(|&i|m>>i&1!=0).map(|i|1u64<<i).collect();
+            let mut g=f.clone();g.insert(0);[f,g]
+        }).collect();
+        let gates=[G::H(0),G::H(1),G::CX(0,1),G::CZ(0,1),G::T(0),G::S(1)];
+        let posts=[Anf::from([0,1]),Anf::from([0,2]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut cases=0;let mut consistent=0;
+        for m in 0..64u64{
+            let p:Vec<_>=eqs.iter().enumerate().filter(|(i,_)|m>>i&1!=0).map(|(_,f)|f.clone()).collect();
+            let legal:BTreeSet<_>=(0..4).filter(|&x|eval_conj(&p,x)).collect();
+            let Some(model)=affine_pre(2,&p) else{assert!(legal.is_empty());continue;};
+            let coded:Vec<_>=(0..4).filter(|&x|x&!model.free_mask()==0).collect();
+            assert_eq!(coded.len(),legal.len());
+            assert_eq!(coded.iter().map(|&x|model.decode(x)).collect::<BTreeSet<_>>(),legal);
+            consistent+=1;
+            for g in &gates{for h in &gates{
+                let ops=[G::H(0),g.clone(),h.clone()];
+                let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+                for op in &ops{op.apply(&mut ps,false);}
+                let direct=compact(&ps,2).unwrap();
+                let (special,model)=specialize_affine(ps,2,&p).unwrap();
+                let a=compact(&special,2).unwrap();
+                for &x in &coded{for y in 0..1u64<<a.h{
+                    assert_eq!(path(&direct,model.decode(x),y),path(&a,x,y));
+                }}
+                let (r,stats)=reduce_existing(special,2).unwrap();
+                for q in &posts{
+                    let (c,d)=two_copy_conj(&direct,&p,std::slice::from_ref(q));
+                    let orig=signed(buckets(&c,d,&[],&mut 20_000_000).unwrap());
+                    for (s,scale) in [(&a,0),(&r,stats.scale2)]{
+                        let (c,d)=two_copy_conj(s,&model.guard(),std::slice::from_ref(q));
+                        let res=signed(buckets(&c,d,&[],&mut 20_000_000).unwrap());
+                        assert_eq!(orig,res.map(|v|v*(1i128<<scale)));
+                        for &x in &coded{
+                            let prefix:Vec<_>=(0..2).map(|i|if x>>i&1!=0{i as i32+2}else{-(i as i32+2)}).collect();
+                            let coeff=signed(buckets(&c,d,&prefix,&mut 20_000_000).unwrap());
+                            assert_eq!(coeff==[0;4],!violated(2,&ops,&Anf::from([0]),q,model.decode(x)));
+                        }
+                    }
+                    cases+=1;
+                }
+            }}
+        }
+        assert_eq!(cases,consistent*36*4);
+        assert!(affine_pre(2,&[Anf::from([3])]).is_none());
+        println!("HOARE_AFFINE_PRE_DIFFERENTIAL cases={cases} consistent_constraint_subsets={consistent} exact_paths_coefficients_witness=true");
+    }
     fn export_scaled(dir:&std::path::Path){
         let mut manifest=String::new();
         for c in scaled_cases(){
@@ -1138,10 +1243,27 @@ mod exact_property_cnf {
             for g in &c.ops{g.apply(&mut ps,false);}
             let direct=compact(&ps,c.n).unwrap();
             assert_eq!(direct.h,h);
-            let (rr,stats)=reduce_existing(ps,c.n).expect("bounded benchmark RR");
-            for (route,s,scale) in [("direct",&direct,0),("rr",&rr,stats.scale2)]{
+            let t=std::time::Instant::now();
+            let (rr,stats)=reduce_existing(ps.clone(),c.n).expect("bounded benchmark RR");
+            let rr_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (special,model)=specialize_affine(ps,c.n,&c.p).expect("affine benchmark precondition");
+            let pre=compact(&special,c.n).unwrap();
+            let pre_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (pre_rr,pre_stats)=reduce_existing(special,c.n).expect("bounded precondition RR");
+            let pre_rr_us=pre_us+t.elapsed().as_micros();
+            let guard=model.guard();
+            if let Some(x)=c.known_witness{
+                assert_eq!(model.decode(x&model.free_mask()),x);
+            }
+            for (route,s,scale,p,prep_us,param) in [
+                ("direct",&direct,0,&c.p,0,false),
+                ("rr",&rr,stats.scale2,&c.p,rr_us,false),
+                ("pre",&pre,0,&guard,pre_us,true),
+                ("pre-rr",&pre_rr,pre_stats.scale2,&guard,pre_rr_us,true)]{
                 let start=std::time::Instant::now();
-                let (cnf,d)=two_copy_conj(s,&c.p,&c.q);
+                let (cnf,d)=two_copy_conj(s,p,&c.q);
                 let encoding_us=start.elapsed().as_micros();
                 // Resource limit is a reported outcome, not a pass.
                 let text=dimacs(&cnf,&[]);
@@ -1150,12 +1272,13 @@ mod exact_property_cnf {
                     "READY"
                 }else{"UNKNOWN_ENCODING_LIMIT"};
                 let witness=c.known_witness.map(|x|x.to_string()).unwrap_or("-".to_owned());
-                manifest.push_str(&format!("{}\t{route}\t{}\t{}\t{scale}\t{},{},{}\t{},{}\t{witness}\t{}\t{}\t{encoding_us}\t{status}\n",
-                    c.name,c.n,s.h,d[0],d[1],d[2],c.expected[0],c.expected[1],cnf.vars,cnf.clauses.len()));
+                let query_witness=c.known_witness.map(|x|if param{x&model.free_mask()}else{x}).map(|x|x.to_string()).unwrap_or("-".to_owned());
+                manifest.push_str(&format!("{}\t{route}\t{}\t{}\t{scale}\t{},{},{}\t{},{}\t{witness}\t{}\t{}\t{encoding_us}\t{status}\t{query_witness}\t{prep_us}\t{}\n",
+                    c.name,c.n,s.h,d[0],d[1],d[2],c.expected[0],c.expected[1],cnf.vars,cnf.clauses.len(),s.phase.len()));
             }
         }
         std::fs::write(dir.join("scaled.tsv"),manifest).unwrap();
-        println!("HOARE_SCALED_FIXTURES cases=16 variants=32");
+        println!("HOARE_SCALED_FIXTURES cases=16 variants=64");
     }
 
 }

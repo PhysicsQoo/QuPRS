@@ -39,6 +39,14 @@ theorem mass_false {α : Type} (xs : List α) (w : α → Nat) :
   | nil => rfl
   | cons a xs ih => simp [mass, ih]
 
+/-- Local disjointness identity. Split only independent Boolean variables,
+    never applications of predicates that also occur in the tail. -/
+private theorem first_failure_head (g b c : Bool) (w : Nat) :
+    (if g && !(b && c) then w else 0) =
+      (if g && !b then w else 0) +
+      (if (g && b) && !c then w else 0) := by
+  cases g <;> cases b <;> cases c <;> simp
+
 theorem first_failure_step {α : Type} (xs : List α)
     (g b : α → Bool) (w : α → Nat) (bs : List (α → Bool)) :
     mass xs (fun x => g x && !(allGood (b :: bs) x)) w =
@@ -47,14 +55,16 @@ theorem first_failure_step {α : Type} (xs : List α)
   induction xs with
   | nil => rfl
   | cons a xs ih =>
-      -- Rewrite the tail while its predicates still have exactly the
-      -- same syntax as the induction hypothesis. Boolean simplification
-      -- below is only needed for the current head contribution.
+      -- Keep the recursive predicates opaque. Prove the head identity
+      -- separately and combine it with the exact tail equality.
+      have hh :
+          (if g a && !(allGood (b :: bs) a) then w a else 0) =
+            (if g a && !(b a) then w a else 0) +
+            (if (g a && b a) && !(allGood bs a) then w a else 0) :=
+        first_failure_head (g a) (b a) (allGood bs a) (w a)
       simp only [mass]
-      rw [ih]
-      cases hg : g a <;> cases hb : b a <;>
-        cases hc : allGood bs a <;>
-        simp [allGood, hg, hb, hc] <;> omega
+      rw [ih, hh]
+      ac_rfl
 
 /-- Earlier conjuncts must pass, so failure branches do not double count. -/
 theorem first_failure_mass {α : Type} (xs : List α)

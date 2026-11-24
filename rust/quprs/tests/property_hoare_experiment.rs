@@ -1374,6 +1374,135 @@ mod exact_property_cnf {
         }
         println!("HOARE_GUARD_PHASE_DIFFERENTIAL cases={cases} nonlinear_family=true");
     }
+
+    // Stronger falsification baseline: a Boolean equation p=1 permits
+    // replacing a complete input monomial M by the XOR of remaining terms.
+    // Every replacement is valid only under the unchanged precondition.
+    fn xor_insert(f:&mut Anf,m:u64){if !f.insert(m){f.remove(&m);}}
+    fn mul_anf(a:&Anf,b:&Anf)->Option<Anf>{
+        if a.len().checked_mul(b.len())?>4096{return None;}
+        let mut out=Anf::new();
+        for &x in a{for &y in b{xor_insert(&mut out,x|y);}}
+        if out.len()>256{return None;}Some(out)
+    }
+    fn lift_anf(a:&Anf)->Option<BTreeMap<u64,u8>>{
+        let mut out=BTreeMap::new();
+        for &m in a{
+            // Boolean XOR lifted exactly to Z8: a+b-2ab.
+            let old=out.clone();
+            add_phase(&mut out,m,1);
+            for (q,k) in old{add_phase(&mut out,q|m,(8-(2*k)%8)%8);}
+            if out.len()>256{return None;}
+        }
+        Some(out)
+    }
+    fn mono_substitute(mut ps:PathSum,n:usize,p:&[Anf])->Option<PathSum>{
+        let mut s=compact(&ps,n)?;
+        for pred in p{
+            let mut equation=pred.clone();xor_insert(&mut equation,0);
+            let Some(m)=equation.iter().copied().filter(|&v|v!=0).max_by_key(|&v|(v.count_ones(),v)) else{
+                if equation.contains(&0){return None;}continue;
+            };
+            if m>>n!=0||equation.iter().any(|&v|v>>n!=0){return None;}
+            equation.remove(&m);
+            let lifted=lift_anf(&equation)?;
+            for output in &mut s.output{
+                let old=std::mem::take(output);
+                for t in old{
+                    if t&m==m{
+                        for &r in &equation{xor_insert(output,(t&!m)|r);}
+                    }else{xor_insert(output,t);}
+                }
+                if output.len()>256{return None;}
+            }
+            let old=std::mem::take(&mut s.phase);
+            for (t,k) in old{
+                if t&m==m{
+                    for (&r,&v) in &lifted{add_phase(&mut s.phase,(t&!m)|r,(k*v)%8);}
+                }else{add_phase(&mut s.phase,t,k);}
+            }
+            if s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>()>256{return None;}
+        }
+        ps.p.terms.clear();
+        for (m,k) in s.phase{
+            ps.p.add_term((0..n+s.h).filter(|&i|m>>i&1!=0).map(|i|i as u32).collect(),
+                quprs::PhaseCoeff::new_constant(quprs::Rational::new(k as i64,8)));
+        }
+        for (dst,src) in ps.f.functions.iter_mut().zip(s.output){
+            *dst=src.into_iter().map(|m|(0..n+s.h).filter(|&i|m>>i&1!=0).map(|i|i as u32).collect()).collect();
+        }
+        Some(ps)
+    }
+    // Construct the complete masked map (I-Q)SP using Fourier indicators.
+    // Each added path variable contributes 2 times the indicator. For the
+    // raw squared norm, divide by 4 per mask variable after standard RR.
+    // This is an explicit Fourier-mask baseline, NOT a general SOP package.
+    fn compose_anf(f:&Anf,outputs:&[Anf])->Option<Anf>{
+        let mut out=Anf::new();
+        for &m in f{
+            if m>>outputs.len()!=0{return None;}
+            let mut prod=Anf::from([0]);
+            for (i,o) in outputs.iter().enumerate(){if m>>i&1!=0{prod=mul_anf(&prod,o)?;}}
+            for t in prod{xor_insert(&mut out,t);}
+            if out.len()>256{return None;}
+        }
+        Some(out)
+    }
+    fn masked_map(mut ps:PathSum,n:usize,p:&[Anf],q:&[Anf])->Option<(PathSum,i32)>{
+        let s=compact(&ps,n)?;
+        let mut post=Anf::from([0]);
+        for f in q{post=mul_anf(&post,&compose_anf(f,&s.output)?)?;}
+        let mut violations:Vec<Anf>=p.iter().map(|f|{
+            let mut f=f.clone();xor_insert(&mut f,0);f
+        }).collect();
+        violations.push(post);
+        let g=violations.len() as i32;
+        if n+s.h+g as usize>63{return None;}
+        for f in violations{
+            let y=ps.v.get_fresh_var();
+            for m in f{
+                let mut mono:Vec<_>=(0..n+s.h).filter(|&i|m>>i&1!=0).map(|i|i as u32).collect();
+                mono.push(y);ps.p.add_term(mono,quprs::PhaseCoeff::HALF);
+            }
+        }
+        Some((ps,2*g))
+    }
+    fn scaled_eq(a:[i128;4],b:[i128;4],scale:i32){
+        if scale>=0{assert_eq!(a,b.map(|v|v*(1i128<<scale)));}
+        else{assert_eq!(a.map(|v|v*(1i128<<(-scale))),b);}
+    }
+    #[test]
+    fn hoare_strong_baseline_differential(){
+        let gates=[G::H(0),G::H(1),G::CZ(0,1),G::CX(0,1),G::T(0),G::S(1)];
+        let mut cases=0;
+        for p in [Anf::from([0,3]),Anf::from([1,2]),Anf::from([0,1]),Anf::from([3])]{
+            let p=vec![p];
+            for g in &gates{for h in &gates{
+                let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+                for op in [g.clone(),h.clone()]{op.apply(&mut ps,false);}
+                let direct=compact(&ps,2).unwrap();
+                let sub=mono_substitute(ps.clone(),2,&p).unwrap();
+                let specialized=compact(&sub,2).unwrap();
+                for x in (0..4).filter(|&x|eval_conj(&p,x)){
+                    for y in 0..1u64<<direct.h{assert_eq!(path(&direct,x,y),path(&specialized,x,y));}
+                }
+                let (sub,st)=reduce_existing(sub,2).unwrap();
+                for q in [vec![Anf::from([0,1])],vec![Anf::from([3])]]{
+                    let (a,d)=two_copy_conj(&direct,&p,&q);
+                    let exact=signed(buckets(&a,d,&[],&mut 20_000_000).unwrap());
+                    let (a,d)=two_copy_conj(&sub,&p,&q);
+                    scaled_eq(exact,signed(buckets(&a,d,&[],&mut 20_000_000).unwrap()),st.scale2 as i32);
+                    let (masked,den)=masked_map(ps.clone(),2,&p,&q).unwrap();
+                    let (masked,ms)=reduce_existing(masked,2).unwrap();
+                    let (a,d)=two_copy_conj(&masked,&[],&[Anf::new()]);
+                    scaled_eq(exact,signed(buckets(&a,d,&[],&mut 20_000_000).unwrap()),ms.scale2 as i32-den);
+                    cases+=1;
+                }
+            }}
+        }
+        assert_eq!(cases,288);
+        println!("HOARE_STRONG_BASELINE_DIFFERENTIAL cases={cases} exact_masked_and_monomial=true");
+    }
     fn export_nonlinear(dir:&std::path::Path,manifest:&mut String){
         for c in nonlinear_cases(){
             let mut ps=PathSum::new(c.n);ps.set_auto_reduce(false);
@@ -1387,6 +1516,14 @@ mod exact_property_cnf {
             let (term,trs)=reduce_existing(term,c.n).unwrap();
             let term_us=t.elapsed().as_micros();
             let t=std::time::Instant::now();
+            let sub=mono_substitute(ps.clone(),c.n,&c.p).unwrap();
+            let (sub,ss)=reduce_existing(sub,c.n).unwrap();
+            let sub_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
+            let (masked,den)=masked_map(ps.clone(),c.n,&c.p,&c.q).unwrap();
+            let (masked,ms)=reduce_existing(masked,c.n).unwrap();
+            let masked_us=t.elapsed().as_micros();
+            let t=std::time::Instant::now();
             let (group,gstats)=guard_phase(ps,c.n,&c.p,true,2_000_000).unwrap();
             let g=compact(&group,c.n).unwrap();
             let group_us=t.elapsed().as_micros();
@@ -1394,12 +1531,16 @@ mod exact_property_cnf {
             let (gr,grs)=reduce_existing(group,c.n).unwrap();
             let gr_us=group_us+t.elapsed().as_micros();
             println!("HOARE_GUARD_PHASE_STATS case={} termwise={tstats:?} grouped={gstats:?}",c.name);
-            for (route,s,scale,prep_us) in [
-                ("direct",&direct,0,0),("rr",&rr,rstats.scale2,rr_us),
-                ("term-rr",&term,trs.scale2,term_us),("guard",&g,0,group_us),
-                ("guard-rr",&gr,grs.scale2,gr_us)]{
+            let empty:Vec<Anf>=vec![];
+            let never=vec![Anf::new()];
+            for (route,s,scale,prep_us,p,q) in [
+                ("direct",&direct,0,0,&c.p,&c.q),("rr",&rr,rstats.scale2 as i32,rr_us,&c.p,&c.q),
+                ("term-rr",&term,trs.scale2 as i32,term_us,&c.p,&c.q),("guard",&g,0,group_us,&c.p,&c.q),
+                ("guard-rr",&gr,grs.scale2 as i32,gr_us,&c.p,&c.q),
+                ("mono-rr",&sub,ss.scale2 as i32,sub_us,&c.p,&c.q),
+                ("masked-rr",&masked,ms.scale2 as i32-den,masked_us,&empty,&never)]{
                 let t=std::time::Instant::now();
-                let (cnf,d)=two_copy_conj(s,&c.p,&c.q);
+                let (cnf,d)=two_copy_conj(s,p,q);
                 let encoding_us=t.elapsed().as_micros();
                 let status=if let Some(text)=dimacs(&cnf,&[]){
                     std::fs::write(dir.join(format!("scale-{}-{route}.cnf",c.name)),text).unwrap();
@@ -1458,7 +1599,7 @@ mod exact_property_cnf {
         }
         export_nonlinear(dir,&mut manifest);
         std::fs::write(dir.join("scaled.tsv"),manifest).unwrap();
-        println!("HOARE_SCALED_FIXTURES cases=20 variants=84");
+        println!("HOARE_SCALED_FIXTURES cases=20 variants=92");
     }
 
 }

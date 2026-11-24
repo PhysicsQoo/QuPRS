@@ -547,7 +547,7 @@ theorem cross_four_eval (a : Atom) (f : Form) (x : State) :
     evalQ (crossFour a f) x =
       if atomVal a x then evalQ (fourPoly f) x else 0 := by
   induction f with
-  | nil => cases ha : atomVal a x <;> simp [crossFour, fourPoly, evalQ, ha]
+  | nil => cases ha : atomVal a x <;> simp [crossFour, fourPoly, evalQ]
   | cons b f ih =>
       cases ha : atomVal a x <;>
         simp [ha] at ih <;>
@@ -612,7 +612,7 @@ theorem single_quad_sound (k : Int) (f : Form) (d : Bool) (x : State)
       rcases hk with he | he | he <;> subst k <;>
         cases hv : formVal f x <;>
         simp [hv, bit] at h <;>
-        simp [singleQuad, evalQ, singleDelta, hv, bit] <;> omega
+        simp [singleQuad, evalQ, singleDelta, bit] <;> omega
 
 def selectedFour (d : Bool) (f : Form) : QExpr :=
   if d then fourPoly f else .constant 0
@@ -649,9 +649,12 @@ theorem local_quad_sound (g : Gate) (f : Frame) (d x : State) :
   | cz a b =>
       have ha := selected_four_sound (d a) (f b) x
       have hb := selected_four_sound (d b) (f a) x
+      change (evalQ (selectedFour (d a) (f b)) x +
+        (evalQ (selectedFour (d b) (f a)) x + 4 * bit (d a) * bit (d b))) % 8 =
+        (4 * (bit (d a) * bit (formVal (f b) x) +
+          bit (d b) * bit (formVal (f a) x) + bit (d a) * bit (d b))) % 8
       cases hda : d a <;> cases hdb : d b <;>
-        simp [hda, hdb, bit] at ha hb <;>
-        simp [localQuad, localDelta, evalQ, evalFrame, hda, hdb, bit] <;> omega
+        simp [hda, hdb, bit] at ha hb ⊢ <;> omega
 
 def traceQuad : List Gate → Frame → State → QExpr
   | [], _, _ => .constant 0

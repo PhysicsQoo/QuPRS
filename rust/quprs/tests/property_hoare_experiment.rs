@@ -476,3 +476,311 @@ fn hoare_radical_large_block(){
     assert_eq!(quadratic_norm(vec![(3,true)],2,&q),Some(4));
     println!("HOARE_RADICAL_40V direct_pair_domain=2^80 symbolic_block_no_enumeration=true");
 }
+
+
+// R4: solver-neutral exact Hoare baseline, no new reduction rules.
+// ANF p and q represent arbitrary diagonal Boolean projectors.
+// Tseitin clauses have unique extension; exact complex WMC is reduced
+// to eight ordinary #SAT counts. The small DPLL backend is test-only.
+mod exact_property_cnf {
+    use super::*;
+    type Anf = BTreeSet<u64>;
+    type Lit = i32;
+    const ONE: Lit = 1;
+    const ZERO: Lit = -1;
+
+    #[derive(Clone)]
+    struct Cnf { vars: usize, clauses: Vec<Vec<Lit>> }
+    impl Cnf {
+        fn new(primary: usize) -> Self {
+            Self { vars: primary+1, clauses: vec![vec![ONE]] }
+        }
+        fn fresh(&mut self) -> Lit {
+            self.vars += 1;
+            self.vars as Lit
+        }
+        fn and(&mut self,a:Lit,b:Lit)->Lit {
+            if a==ZERO||b==ZERO||a == -b{return ZERO;}
+            if a==ONE||a==b{return b;}
+            if b==ONE{return a;}
+            let z=self.fresh();
+            self.clauses.extend([vec![-z,a],vec![-z,b],vec![z,-a,-b]]);
+            z
+        }
+        fn xor(&mut self,a:Lit,b:Lit)->Lit {
+            if a==b{return ZERO;}
+            if a == -b{return ONE;}
+            if a==ZERO{return b;}
+            if b==ZERO{return a;}
+            if a==ONE{return -b;}
+            if b==ONE{return -a;}
+            let z=self.fresh();
+            self.clauses.extend([vec![-a,-b,-z],vec![a,b,-z],vec![a,-b,z],vec![-a,b,z]]);
+            z
+        }
+        fn or(&mut self,a:Lit,b:Lit)->Lit { -self.and(-a,-b) }
+        fn monomial(&mut self,m:u64,bits:&[Lit])->Lit {
+            bits.iter().enumerate().filter(|(i,_)|m>>i&1!=0)
+                .fold(ONE,|a,(_,b)|self.and(a,*b))
+        }
+        fn anf(&mut self,p:&Anf,bits:&[Lit])->Lit {
+            p.iter().fold(ZERO,|a,&m|{let b=self.monomial(m,bits);self.xor(a,b)})
+        }
+        fn add3(&mut self,a:[Lit;3],b:[Lit;3])->[Lit;3]{
+            let mut carry=ZERO;
+            let mut out=[ZERO;3];
+            for i in 0..3 {
+                let t=self.xor(a[i],b[i]);
+                out[i]=self.xor(t,carry);
+                if i<2{
+                    let ab=self.and(a[i],b[i]);
+                    let tc=self.and(t,carry);
+                    carry=self.or(ab,tc);
+                }
+            }
+            out
+        }
+        fn phase(&mut self,s:&Symbolic,bits:&[Lit],negative:bool)->[Lit;3]{
+            let mut acc=[ZERO;3];
+            for (&m,&k) in &s.phase{
+                let v=self.monomial(m,bits);
+                let k=if negative{(8-k)%8}else{k};
+                let term=std::array::from_fn(|i|if k>>i&1!=0{v}else{ZERO});
+                acc=self.add3(acc,term);
+            }
+            acc
+        }
+        fn enforce(&mut self,l:Lit){self.clauses.push(vec![l]);}
+        fn bounded(&self)->bool{self.vars<=512&&self.clauses.len()<=4096}
+    }
+    fn eval(p:&Anf,x:u64)->bool{p.iter().fold(false,|v,&m|v^(x&m==m))}
+    fn lit_value(l:Lit,a:&[i8])->i8{
+        let v=a[l.unsigned_abs() as usize];
+        if l<0{-v}else{v}
+    }
+    fn assign(l:Lit,a:&mut [i8])->bool{
+        let i=l.unsigned_abs() as usize;
+        let v=if l>0{1}else{-1};
+        if a[i]!=0&&a[i]!=v{return false;}
+        a[i]=v;true
+    }
+    // Exact DPLL with unit propagation, conflict pruning and free-variable
+    // counting. SAT uses the same engine with early success. No floating
+    // weights, no assignment-table CNF, no external solver dependency.
+    // Fuel counts clause visits across all recursive calls and queries.
+    fn dpll(c:&Cnf,mut a:Vec<i8>,fuel:&mut u64,sat_only:bool)->Option<u128>{
+        loop{
+            let mut changed=false;
+            let mut choice=None::<(usize,Lit)>;
+            for clause in &c.clauses{
+                *fuel=fuel.checked_sub(1)?;
+                let mut open=0usize;
+                let mut first=0;
+                let mut satisfied=false;
+                for &l in clause{
+                    match lit_value(l,&a){
+                        1=>{satisfied=true;break;}
+                        0=>{open+=1;if first==0{first=l;}}
+                        _=>{}
+                    }
+                }
+                if satisfied{continue;}
+                if open==0{return Some(0);}
+                if open==1{
+                    if !assign(first,&mut a){return Some(0);}
+                    changed=true;
+                }else if choice.is_none_or(|(n,_)|open<n){choice=Some((open,first));}
+            }
+            if changed{continue;}
+            let Some((_,l))=choice else{
+                return if sat_only{Some(1)}else{1u128.checked_shl(a[1..].iter().filter(|&&x|x==0).count() as u32)};
+            };
+            let mut left=a.clone();assign(l,&mut left);
+            let n=dpll(c,left,fuel,sat_only)?;
+            if sat_only&&n!=0{return Some(1);}
+            assign(-l,&mut a);
+            return n.checked_add(dpll(c,a,fuel,sat_only)?);
+        }
+    }
+    fn count(c:&Cnf,assumptions:&[Lit],fuel:&mut u64,sat_only:bool)->Option<u128>{
+        if !c.bounded(){return None;}
+        let mut a=vec![0;c.vars+1];
+        for &l in assumptions{
+            if l==0||l.unsigned_abs() as usize>c.vars{return None;}
+            if !assign(l,&mut a){return Some(0);}
+        }
+        dpll(c,a,fuel,sat_only)
+    }
+    fn guard_cnf(s:&Symbolic,p:&Anf,q:&Anf)->Cnf{
+        let mut c=Cnf::new(s.n+s.h);
+        let bits:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        let pre=c.anf(p,&bits[..s.n]);c.enforce(pre);
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&bits)).collect();
+        let post=c.anf(q,&z);c.enforce(-post);
+        c
+    }
+    fn two_copy(s:&Symbolic,p:&Anf,q:&Anf)->(Cnf,[Lit;3]){
+        let mut c=Cnf::new(s.n+2*s.h);
+        let left:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        let right:Vec<_>=(0..s.n).map(|i|i as Lit+2)
+            .chain((s.n+s.h..s.n+2*s.h).map(|i|i as Lit+2)).collect();
+        let pre=c.anf(p,&left[..s.n]);c.enforce(pre);
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&left)).collect();
+        let w:Vec<_>=s.output.iter().map(|o|c.anf(o,&right)).collect();
+        for (&a,&b) in z.iter().zip(&w){let d=c.xor(a,b);c.enforce(-d);}
+        let post=c.anf(q,&z);c.enforce(-post);
+        let a=c.phase(s,&left,false);
+        let b=c.phase(s,&right,true);
+        let delta=c.add3(a,b);
+        (c,delta)
+    }
+    fn buckets(c:&Cnf,delta:[Lit;3],prefix:&[Lit],fuel:&mut u64)->Option<[u128;8]>{
+        let mut ns=[0;8];
+        for (j,n) in ns.iter_mut().enumerate(){
+            let mut units=prefix.to_vec();
+            units.extend(delta.iter().enumerate().map(|(i,&l)|if j>>i&1!=0{l}else{-l}));
+            *n=count(c,&units,fuel,false)?;
+        }
+        Some(ns)
+    }
+    fn zero(n:[u128;8])->bool{(0..4).all(|i|n[i]==n[i+4])}
+    #[derive(Debug,PartialEq,Eq)]
+    enum SolverRoute { SatUnsat, ExactCount, Unknown }
+    #[derive(Debug)]
+    struct ResultRecord {
+        answer:Answer, route:SolverRoute, variables:usize, clauses:usize, visits:u64,
+    }
+    fn verify_anf(n:usize,ops:&[G],p:&Anf,q:&Anf,budget:u64)->ResultRecord{
+        let mut fuel=budget;
+        let mut size=(0,0);
+        let result=(||->Option<(Answer,SolverRoute)>{
+            if !admitted(n,ops)||p.iter().chain(q).any(|&m|m>>n!=0){return None;}
+            // Bound experimental input/phase size before CNF construction.
+            // The existing native PathSum builder itself is not a resource-certified parser.
+            if p.len()+q.len()>128{return None;}
+            let s=native(n,ops)?;
+            if s.output.iter().map(|o|o.len()).sum::<usize>()+s.phase.len()>256{return None;}
+            let guard=guard_cnf(&s,p,q);size=(guard.vars,guard.clauses.len());
+            if count(&guard,&[],&mut fuel,true)?==0{return Some((Answer::Proved,SolverRoute::SatUnsat));}
+            let (c,d)=two_copy(&s,p,q);size=(c.vars,c.clauses.len());
+            if zero(buckets(&c,d,&[],&mut fuel)?){return Some((Answer::Proved,SolverRoute::ExactCount));}
+            // Condition on input bits. A nonzero parent sum is a sum of
+            // nonnegative child risks, so at least one branch is nonzero.
+            let mut prefix=Vec::new();let mut x=0u64;
+            for i in 0..n{
+                let l=i as Lit+2;
+                prefix.push(-l);
+                if zero(buckets(&c,d,&prefix,&mut fuel)?){
+                    *prefix.last_mut()?=l;x|=1u64<<i;
+                }
+            }
+            // Reconfirm the fully fixed counterexample using the solver.
+            if !eval(p,x)||zero(buckets(&c,d,&prefix,&mut fuel)?){return None;}
+            Some((Answer::Refuted(x),SolverRoute::ExactCount))
+        })().unwrap_or((Answer::Unknown,SolverRoute::Unknown));
+        ResultRecord{answer:result.0,route:result.1,variables:size.0,clauses:size.1,visits:budget-fuel}
+    }
+    fn direct_buckets(s:&Symbolic,p:&Anf,q:&Anf)->[u128;8]{
+        let mut n=[0;8];
+        for x in (0..1u64<<s.n).filter(|&x|eval(p,x)){
+            for y in 0..1u64<<s.h{
+                let (z,k)=path(s,x,y);
+                if eval(q,z){continue;}
+                for w in 0..1u64<<s.h{
+                    let (z2,l)=path(s,x,w);
+                    if z==z2{n[(k+8-l)%8]+=1;}
+                }
+            }
+        }
+        n
+    }
+    fn violated(n:usize,ops:&[G],p:&Anf,q:&Anf,x:u64)->bool{
+        eval(p,x)&&dense_state(n,ops,x).iter().enumerate().any(|(z,a)|!eval(q,z as u64)&&*a!=[0;4])
+    }
+    fn check_case(n:usize,ops:&[G],p:&Anf,q:&Anf)->ResultRecord{
+        let s=native(n,ops).unwrap();
+        let (c,d)=two_copy(&s,p,q);
+        let exact=buckets(&c,d,&[],&mut 20_000_000).expect("exact baseline fuel");
+        assert_eq!(exact,direct_buckets(&s,p,q));
+        let expected=(0..1u64<<n).any(|x|violated(n,ops,p,q,x));
+        let r=verify_anf(n,ops,p,q,20_000_000);
+        match r.answer{
+            Answer::Proved=>assert!(!expected),
+            Answer::Refuted(x)=>assert!(expected&&violated(n,ops,p,q,x)),
+            Answer::Unknown=>panic!("unexpected unknown: {r:?}"),
+        }
+        assert_eq!(zero(exact),!expected);
+        r
+    }
+    #[test]
+    fn hoare_cnf_backend_truth_tables(){
+        let mut c=Cnf::new(2);
+        let a=2;let b=3;
+        let and=c.and(a,b);let xor=c.xor(a,b);
+        for x in 0..4{
+            let assumptions=[if x&1!=0{a}else{-a},if x&2!=0{b}else{-b}];
+            assert_eq!(count(&c,&assumptions,&mut 1000,false),Some(1));
+            for (l,v) in [(and,x==3),(xor,x==1||x==2)]{
+                let mut units=assumptions.to_vec();units.push(if v{l}else{-l});
+                assert_eq!(count(&c,&units,&mut 1000,false),Some(1));
+                *units.last_mut().unwrap() *= -1;
+                assert_eq!(count(&c,&units,&mut 1000,false),Some(0));
+            }
+        }
+        assert_eq!(count(&c,&[],&mut 1000,false),Some(4));
+        assert_eq!(count(&c,&[],&mut 0,false),None);
+    }
+    #[test]
+    fn hoare_cnf_all_two_qubit_anf_pairs(){
+        let gates=[G::H(0),G::H(1),G::X(0),G::CX(0,1),G::T(0),G::S(1)];
+        let predicates:Vec<Anf>=(0..16).map(|mask|(0..4).filter(|i|mask>>i&1!=0).collect()).collect();
+        // All 16 Boolean functions on two bits; 12 representative circuits.
+        let circuits:Vec<Vec<G>>=gates.iter().cloned().map(|g|vec![g])
+            .chain(gates.iter().cloned().map(|g|vec![G::H(0),g])).collect();
+        let mut sat=0;let mut counted=0;let mut cases=0;
+        for ops in circuits{for p in &predicates{for q in &predicates{
+            let r=check_case(2,&ops,p,q);
+            match r.route{SolverRoute::SatUnsat=>sat+=1,SolverRoute::ExactCount=>counted+=1,_=>unreachable!()}
+            cases+=1;
+        }}}
+        assert_eq!(cases,3072);
+        println!("HOARE_CNF_ANF cases={cases} sat_unsat={sat} exact_count={counted}");
+    }
+    #[test]
+    fn hoare_cnf_property_corpus(){
+        let all=Anf::from([0]);
+        let zero0=Anf::from([0,1]);
+        let zero3=Anf::from([0,8]);
+        let ghz=vec![G::H(0),G::CX(0,1),G::CX(0,2)];
+        let pghz=Anf::from([0,1,2,4,3,5,6,7]); // |000>
+        let equal=Anf::from([0,1,2,4,3,5,6]); // 000 or 111
+        let bv=vec![G::X(2),G::H(0),G::H(1),G::H(2),G::CX(0,2),G::H(0),G::H(1)];
+        let pbv=pghz.clone();
+        let bv_out=Anf::from([1,3]); // bit0=1, bit1=0
+        let adder=vec![G::CCX(0,1,2),G::CX(0,1)];
+        let pa=Anf::from([0,4]); // carry initially zero
+        let qa=Anf::from([0,6]); // not (sum AND carry)
+        let uncompute=vec![G::CCX(0,1,3),G::CX(3,2),G::CCX(0,1,3)];
+        let cases=[
+            ("GHZ-correlation",3,ghz.clone(),pghz.clone(),equal,true),
+            ("GHZ-negative",3,ghz,pghz,zero0.clone(),false),
+            ("BV-output",3,bv.clone(),pbv.clone(),bv_out,true),
+            ("BV-negative",3,bv,pbv,zero0.clone(),false),
+            ("half-adder",3,adder.clone(),pa.clone(),qa,true),
+            ("half-adder-negative",3,adder,pa,Anf::from([0,4]),false),
+            ("uncompute",4,uncompute.clone(),zero3.clone(),zero3.clone(),true),
+            ("uncompute-omitted",4,uncompute[..2].to_vec(),zero3.clone(),zero3,false),
+            ("HH-interference",1,vec![G::H(0),G::H(0)],zero0.clone(),zero0.clone(),true),
+            ("HTH-nonzero",1,vec![G::H(0),G::T(0),G::H(0)],zero0.clone(),zero0,false),
+            ("empty-pre",1,vec![G::H(0)],Anf::new(),all.clone(),true),
+        ];
+        for (name,n,ops,p,q,valid) in cases{
+            let r=check_case(n,&ops,&p,&q);
+            assert_eq!(r.answer==Answer::Proved,valid,"{name}");
+            if name=="HH-interference"||name=="BV-output"{assert_eq!(r.route,SolverRoute::ExactCount);}
+            println!("HOARE_CNF_CORPUS case={name} answer={:?} route={:?} vars={} clauses={} visits={}",r.answer,r.route,r.variables,r.clauses,r.visits);
+        }
+        assert_eq!(verify_anf(1,&[G::H(0)],&all,&Anf::new(),0).answer,Answer::Unknown);
+        assert_eq!(verify_anf(1,&[G::H(0)],&Anf::from([2]),&all,1000).answer,Answer::Unknown);
+    }
+}

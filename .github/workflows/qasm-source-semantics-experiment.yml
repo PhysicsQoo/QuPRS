@@ -658,8 +658,8 @@ jobs:
             exit 1
           fi
           maskset_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-maskset16.log)"
-          test "$maskset_reports" -eq 10
-          echo 'LEAN4_MASKSET16_PROOFS_PASS theorem_axiom_reports=10'
+          test "$maskset_reports" -eq 13
+          echo 'LEAN4_MASKSET16_PROOFS_PASS theorem_axiom_reports=13'
 
       - name: Build and test std-only independent verifier
         run: |

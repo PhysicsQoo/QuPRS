@@ -19,7 +19,7 @@ noncomputable def monomialTruth16 (m : Mask16) (v : Fin 16 → Bool) : Bool := b
   classical
   exact decide (evalMonomial16 m v)
 
-def evalMaskTerms16 : MaskTerms16 → (Fin 16 → Bool) → Bool
+noncomputable def evalMaskTerms16 : MaskTerms16 → (Fin 16 → Bool) → Bool
   | [], _ => false
   | m :: rest, v =>
       (monomialTruth16 m v).xor (evalMaskTerms16 rest v)

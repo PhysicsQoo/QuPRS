@@ -2290,4 +2290,194 @@ mod exact_property_cnf {
         println!("HOARE_HYBRID_FIXTURES cases=16 external_plan_only=true standard_rr=true");
     }
 
+
+    // Three-mode research contract. The initial native PathSum is shared
+    // and never auto-reduced; each route receives the same original spec.
+    // This bounded reference uses exact bucket #SAT (not external WMC).
+    // Advanced property RR / SAT discovery are deliberately not enabled yet.
+    #[derive(Clone,Copy,Debug,PartialEq,Eq)]
+    enum HoareMode { RrStandard, Wmc, HybridStandard }
+    #[derive(Debug,PartialEq,Eq)]
+    enum HoareStop { AlgebraicZero, AlgebraicWitness, RrInconclusive,
+        ExactCount, CountLimit, ReductionLimit }
+    struct HoareInput { ps:PathSum, initial:Symbolic, pre:Vec<Anf>, post:Vec<Anf> }
+    impl HoareInput {
+        fn build(n:usize,ops:&[G],pre:Vec<Anf>,post:Vec<Anf>)->Option<Self>{
+            if !admitted(n,ops)||pre.iter().chain(&post).flatten().any(|&m|m>>n!=0)
+                ||pre.iter().chain(&post).map(|f|f.len()).sum::<usize>()>128{return None;}
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for g in ops{g.apply(&mut ps,false);}
+            let initial=compact(&ps,n)?;
+            if initial.h!=ops.iter().filter(|g|matches!(g,G::H(_))).count()
+                ||initial.output.iter().map(|f|f.len()).sum::<usize>()+initial.phase.len()>256{return None;}
+            Some(Self{ps,initial,pre,post})
+        }
+    }
+    #[derive(Debug)]
+    struct HoareDecision {
+        mode:HoareMode, answer:Answer, stop:HoareStop,
+        rr_calls:usize, rr_stats:Option<RrStats>,
+        count_batches:usize, count_visits:u64, witness_batches:usize,
+        initial_h:usize, residual_h:usize, scale2:u32,
+        coefficients:Option<[i128;2]>,
+    }
+    // Canonical Boolean guard, not a SAT or counting query.
+    // Use only a bounded ANF composition; overflow is inconclusive.
+    fn algebraic_terminal(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<(Answer,HoareStop)>{
+        let mut a=Anf::from([0]);
+        for f in p{a=mul_anf(&a,f)?;}
+        let mut b=Anf::from([0]);
+        for f in q{b=mul_anf(&b,&compose_anf(f,&s.output)?)?;}
+        xor_insert(&mut b,0);
+        let bad=mul_anf(&a,&b)?;
+        if bad.is_empty(){return Some((Answer::Proved,HoareStop::AlgebraicZero));}
+        if s.h==0{
+            // A minimum-degree monomial supplies an algebraic witness:
+            // it is the only monomial contained in that assignment.
+            // No enumeration, SAT, or coefficient counting is needed.
+            let x=*bad.iter().min_by_key(|&&m|(m.count_ones(),m))?;
+            if eval(&bad,x)&&eval_conj(p,x)&&!eval_conj(q,path(s,x,0).0){
+                return Some((Answer::Refuted(x),HoareStop::AlgebraicWitness));
+            }
+        }
+        None
+    }
+    fn exact_pair_coeff(c:&Cnf,d:[Lit;3],prefix:&[Lit],fuel:&mut u64,
+                        batches:&mut usize)->Option<[i128;2]>{
+        *batches+=1;
+        let ns=buckets(c,d,prefix,fuel)?;
+        if ns.iter().any(|&v|v>i64::MAX as u128)
+            ||(0..8).any(|i|ns[i]!=ns[(8-i)%8]){return None;}
+        let a=ns[0] as i128-ns[4] as i128;
+        let b=ns[1] as i128-ns[3] as i128;
+        // Exact sign of a+b*sqrt(2), with checked bounded integer squares.
+        let negative=if a<0&&b<=0{true}else if a<=0&&b<0{true}
+            else if a<0&&b>0{a*a>2*b*b}
+            else if a>0&&b<0{a*a<2*b*b}else{false};
+        if negative{return None;}
+        Some([a,b])
+    }
+    fn count_reference(s:&Symbolic,p:&[Anf],q:&[Anf],scale:u32,
+                       budget:u64,r:&mut HoareDecision){
+        let (c,d)=two_copy_conj(s,p,q);
+        let mut fuel=budget;
+        let root=exact_pair_coeff(&c,d,&[],&mut fuel,&mut r.count_batches);
+        if let Some(coeff)=root{
+            if let Some(factor)=1i128.checked_shl(scale){
+                if let (Some(a),Some(b))=(coeff[0].checked_mul(factor),coeff[1].checked_mul(factor)){
+                    r.coefficients=Some([a,b]);
+                    if coeff==[0,0]{
+                        r.answer=Answer::Proved;r.stop=HoareStop::ExactCount;
+                    }else{
+                        let mut prefix=Vec::new();let mut x=0u64;
+                        let mut ok=true;
+                        for i in 0..s.n{
+                            let l=i as Lit+2;prefix.push(-l);
+                            match exact_pair_coeff(&c,d,&prefix,&mut fuel,&mut r.witness_batches){
+                                Some([0,0])=>{*prefix.last_mut().unwrap()=l;x|=1u64<<i;},
+                                Some(_)=>{},
+                                None=>{ok=false;break;}
+                            }
+                        }
+                        if ok&&eval_conj(p,x)&&exact_pair_coeff(&c,d,&prefix,&mut fuel,&mut r.witness_batches)
+                            .is_some_and(|v|v!=[0,0]){
+                            r.answer=Answer::Refuted(x);r.stop=HoareStop::ExactCount;
+                        }
+                    }
+                }
+            }
+        }
+        r.count_visits=budget-fuel;
+    }
+    fn run_hoare_mode(input:&HoareInput,mode:HoareMode,budget:u64)->HoareDecision{
+        let h=input.initial.h;
+        let mut r=HoareDecision{mode,answer:Answer::Unknown,stop:HoareStop::CountLimit,
+            rr_calls:0,rr_stats:None,count_batches:0,count_visits:0,witness_batches:0,
+            initial_h:h,residual_h:h,scale2:0,coefficients:None};
+        if mode==HoareMode::Wmc{
+            // No RR, guard fast path, or SAT-only calls.
+            count_reference(&input.initial,&input.pre,&input.post,0,budget,&mut r);
+            return r;
+        }
+        r.rr_calls+=1;
+        let Some((residual,stats))=reduce_existing(input.ps.clone(),input.initial.n) else{
+            r.stop=HoareStop::ReductionLimit;return r;
+        };
+        r.residual_h=residual.h;r.scale2=stats.scale2;r.rr_stats=Some(stats);
+        if let Some((answer,stop))=algebraic_terminal(&residual,&input.pre,&input.post){
+            r.answer=answer;r.stop=stop;return r;
+        }
+        if mode==HoareMode::RrStandard{
+            r.stop=HoareStop::RrInconclusive;return r;
+        }
+        // Same counting implementation, actual RR residual only.
+        count_reference(&residual,&input.pre,&input.post,r.scale2,budget,&mut r);
+        r
+    }
+    #[test]
+    fn hoare_three_mode_reference_contract(){
+        let z=vec![bit(0,false)];let all=vec![];let impossible=vec![Anf::new()];
+        let cases=vec![
+            ("HH",1,vec![G::H(0),G::H(0)],z.clone(),z.clone()),
+            ("X",1,vec![G::X(0)],z.clone(),z.clone()),
+            ("H",1,vec![G::H(0)],z.clone(),z.clone()),
+            ("HTH",1,vec![G::H(0),G::T(0),G::H(0)],z.clone(),z.clone()),
+            ("HHH",1,vec![G::H(0),G::H(0),G::H(0)],z.clone(),z.clone()),
+            ("empty-pre",1,vec![G::H(0)],impossible,z.clone()),
+            ("all-post",1,vec![G::H(0)],all.clone(),all.clone()),
+            ("free-cx",2,vec![G::CX(0,1)],vec![bit(1,false)],vec![bit(1,false)]),
+            ("bell",2,vec![G::H(0),G::CX(0,1)],vec![bit(0,false),bit(1,false)],vec![equal_bits(0,1)]),
+        ];
+        let mut rr_decided=0;let mut hybrid_count=0;let mut reduced_count=0;
+        for (name,n,ops,p,q) in cases{
+            let input=HoareInput::build(n,&ops,p,q).unwrap();
+            let mut expected=[0i128;2];
+            for x in (0..1u64<<n).filter(|&x|eval_conj(&input.pre,x)){
+                let a=raw_for_input(n,&ops,&input.post,x);
+                expected[0]+=a[0];expected[1]+=a[1];
+            }
+            for mode in [HoareMode::RrStandard,HoareMode::Wmc,HoareMode::HybridStandard]{
+                let r=run_hoare_mode(&input,mode,5_000_000);
+                assert_eq!(r.mode,mode);
+                assert_eq!(r.initial_h,input.initial.h);
+                match r.answer{
+                    Answer::Proved=>assert_eq!(expected,[0,0],"{name} {mode:?}"),
+                    Answer::Refuted(x)=>{assert!(eval_conj(&input.pre,x));assert_ne!(raw_for_input(n,&ops,&input.post,x),[0,0]);},
+                    Answer::Unknown=>assert_eq!(mode,HoareMode::RrStandard,"{name} {r:?}"),
+                }
+                if let Some(v)=r.coefficients{assert_eq!(v,expected,"{name} {mode:?}");}
+                match mode{
+                    HoareMode::RrStandard=>{
+                        assert_eq!((r.rr_calls,r.count_batches,r.witness_batches),(1,0,0));
+                        if r.answer!=Answer::Unknown{rr_decided+=1;}
+                    },
+                    HoareMode::Wmc=>{
+                        assert_eq!((r.rr_calls,r.residual_h,r.scale2),(0,r.initial_h,0));
+                        assert_eq!(r.count_batches,1);
+                        assert_eq!(r.coefficients,Some(expected));
+                    },
+                    HoareMode::HybridStandard=>{
+                        assert_eq!(r.rr_calls,1);
+                        if r.count_batches>0{
+                            hybrid_count+=1;
+                            assert_eq!(r.coefficients,Some(expected));
+                            if r.residual_h<r.initial_h{reduced_count+=1;}
+                        }else{assert_eq!(r.witness_batches,0);}
+                    },
+                }
+                println!("HOARE_THREE_MODE case={name} {r:?}");
+            }
+            // The initial representation must not be mutated by either route.
+            assert_eq!(input.initial.h,compact(&input.ps,n).unwrap().h);
+        }
+        assert!(rr_decided>0&&rr_decided<9&&hybrid_count>0&&reduced_count>0);
+        let input=HoareInput::build(1,&[G::H(0),G::T(0),G::H(0)],z.clone(),z).unwrap();
+        for mode in [HoareMode::Wmc,HoareMode::HybridStandard]{
+            let r=run_hoare_mode(&input,mode,0);
+            assert_eq!(r.answer,Answer::Unknown);assert_eq!(r.stop,HoareStop::CountLimit);
+        }
+        assert!(HoareInput::build(1,&[],vec![Anf::from([2])],vec![]).is_none());
+        println!("HOARE_THREE_MODE_SUMMARY cases=9 variants=27 rr_decided={rr_decided} hybrid_count={hybrid_count} reduced_count={reduced_count} reference_bucket_backend=true");
+    }
+
 }

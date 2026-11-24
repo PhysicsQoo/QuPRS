@@ -2845,7 +2845,7 @@ mod exact_property_cnf {
     }
     struct ResidualPlan{
         answer:Answer,s:Symbolic,scale:u32,g:Option<Anf>,
-        hits:usize,trials:usize,reason:&'static str,
+        hits:usize,trials:usize,reason:&'static str,directions:Vec<u64>,
     }
     fn hybrid_plan(input:&HoareInput,property:bool)->Option<ResidualPlan>{
         let n=input.initial.n;
@@ -2859,7 +2859,7 @@ mod exact_property_cnf {
                 if let Some((special,ss))=reduce_existing(ps,n){
                     if let Some((a,_))=algebraic_terminal(&special,&input.pre,&input.post){
                         return Some(ResidualPlan{answer:a,s:special,scale:ss.scale2,g:None,
-                            hits:0,trials:0,reason:"precondition-terminal"});
+                            hits:0,trials:0,reason:"precondition-terminal",directions:vec![]});
                     }
                     if special.h<=s.h{s=special;stats=ss;}
                 }
@@ -2875,17 +2875,95 @@ mod exact_property_cnf {
                 answer=guard_terminal(&s,&input.pre,&input.post,guard,&mut r);
             }
             return Some(ResidualPlan{answer,s,scale:stats.scale2,g,
-                hits:r.algebraic_hits,trials:r.algebraic_trials,reason:r.reason});
+                hits:r.algebraic_hits,trials:r.algebraic_trials,reason:r.reason,directions:r.directions});
         }
-        Some(ResidualPlan{answer,s,scale:stats.scale2,g:None,hits:0,trials:0,reason})
+        Some(ResidualPlan{answer,s,scale:stats.scale2,g:None,hits:0,trials:0,reason,directions:vec![]})
     }
     fn residual_pair(input:&HoareInput,plan:&ResidualPlan)->(Cnf,[Lit;3]){
         if let Some(ref g)=plan.g{guarded_pair(&plan.s,g)}
         else{two_copy_conj(&plan.s,&input.pre,&input.post)}
     }
+
+    // Bounded representation selection on the selected native RR
+    // checkpoint. Every prefix of the cancellation sequence is sound.
+    // No rerun on the unreduced input; rejection is explicit telemetry.
+    fn adaptive_pair(input:&HoareInput,plan:&ResidualPlan)->(Cnf,[Lit;3],usize,&'static str){
+        let (base,delta)=two_copy_conj(&plan.s,&input.pre,&input.post);
+        if plan.directions.is_empty(){return (base,delta,0,"native-no-hit");}
+        // Pilot structural budget, not a claimed runtime predictor.
+        // Keep the DPLL/encoder admission cap; do not enlarge it to hide
+        // the explosion. Prefer more retained steps within 2x each dimension.
+        let admissible=|c:&Cnf|c.bounded()&&
+            (!base.bounded()||(c.vars<=base.vars.saturating_mul(2)&&
+                c.clauses.len()<=base.clauses.len().saturating_mul(2)));
+        let score=|c:&Cnf|c.vars.saturating_add(c.clauses.len());
+        let mut best:Option<(Cnf,[Lit;3],usize,&'static str)>=None;
+        let mut consider=|c:Cnf,d:[Lit;3],k:usize,repr:&'static str|{
+            if admissible(&c)&&best.as_ref().is_none_or(|(old,_,ok,_)|
+                k>*ok||(k==*ok&&score(&c)<score(old))){
+                best=Some((c,d,k,repr));
+            }
+        };
+        if let Some(ref g)=plan.g{
+            let (c,d)=guarded_pair(&plan.s,g);
+            consider(c,d,plan.directions.len(),"anf-full");
+        }
+        // DAG avoids materializing the expanded Boolean polynomial.
+        // Reuse native original predicates on the selected symbolic
+        // checkpoint. Cancellation pairs preserve the complete output,
+        // hence the forbidden guard is constant on every removed pair.
+        for k in 1..=plan.directions.len().min(4){
+            if let Some((c,d,_))=multi_two(&plan.s,&input.pre,&input.post,&plan.directions[..k]){
+                consider(c,d,k,"dag-prefix");
+            }
+        }
+        best.unwrap_or((base,delta,0,"native-reject-growth"))
+    }
+
+    #[test]
+    fn hoare_adaptive_pair_exact(){
+        let circuits=[
+            vec![G::H(0),G::CZ(0,1),G::H(0)],
+            vec![G::H(0),G::T(0),G::H(0),G::H(1)],
+            vec![G::H(0),G::H(1),G::H(0)],
+        ];
+        let mut checks=0;
+        for ops in circuits{
+            let input=HoareInput::build(2,&ops,vec![bit(0,false)],vec![bit(0,false)]).unwrap();
+            let plan=hybrid_plan(&input,true).unwrap();
+            let (c,d,kept,_)=adaptive_pair(&input,&plan);
+            assert!(kept<=plan.hits);
+            assert!(c.bounded());
+            for x in 0..4u64{
+                let prefix:Vec<_>=(0..2).map(|i|if x>>i&1!=0{i as Lit+2}else{-(i as Lit+2)}).collect();
+                let v=exact_pair_coeff(&c,d,&prefix,&mut 20_000_000,&mut 0).unwrap();
+                let expected=if eval_conj(&input.pre,x){raw_for_input(2,&ops,&input.post,x)}else{[0,0]};
+                assert_eq!(v.map(|a|a*(1i128<<plan.scale)),expected);
+                checks+=1;
+            }
+            // Independent comparison of expanded guard and DAG for
+            // a real single-direction cancellation, on every legal x.
+            let s=&input.initial;
+            let g=property_guard(s,&input.pre,&input.post).unwrap();
+            for dir in 1..1u64<<s.h{
+                let Some(ng)=algebraic_delete(s,&g,dir) else{continue;};
+                let Some((dag,dd,_))=multi_two(s,&input.pre,&input.post,&[dir]) else{continue;};
+                let (anf,ad)=guarded_pair(s,&ng);
+                if !anf.bounded(){continue;}
+                for x in 0..4u64{
+                    let prefix:Vec<_>=(0..2).map(|i|if x>>i&1!=0{i as Lit+2}else{-(i as Lit+2)}).collect();
+                    let a=exact_pair_coeff(&anf,ad,&prefix,&mut 20_000_000,&mut 0).unwrap();
+                    let b=exact_pair_coeff(&dag,dd,&prefix,&mut 20_000_000,&mut 0).unwrap();
+                    assert_eq!(a,b);checks+=1;
+                }
+            }
+        }
+        println!("HOARE_ADAPTIVE_PAIR checks={checks} exact_per_input=true");
+    }
+
     fn emit_residual_plans(dir:&std::path::Path,name:&str,input:&HoareInput,
                            raw:[i128;2],witnesses:&str,manifest:&mut String){
-        for (mode,property) in [("standard",false),("property",true)]{
+        for (mode,property) in [("standard",false),("property",true),("adaptive",true)]{
             let t=std::time::Instant::now();
             let plan=hybrid_plan(input,property);
             let prep_us=t.elapsed().as_micros();
@@ -2893,6 +2971,7 @@ mod exact_property_cnf {
             let mut guard_terms=0;let mut variables=0;let mut clauses=0;
             let mut delta="-".to_owned();let mut witness="-".to_owned();
             let mut encoding_us=0;let mut reason="reduction-limit";
+            let mut retained=0;let mut representation="none";
             let mut status="UNKNOWN_REDUCTION_LIMIT";
             if let Some(plan)=plan{
                 h=plan.s.h;scale=plan.scale;hits=plan.hits;trials=plan.trials;
@@ -2902,7 +2981,11 @@ mod exact_property_cnf {
                     Answer::Refuted(x)=>{status="REFUTED";witness=x.to_string();},
                     Answer::Unknown=>{
                         let start=std::time::Instant::now();
-                        let (c,d)=residual_pair(input,&plan);
+                        let (c,d,kept,repr)=if mode=="adaptive"{adaptive_pair(input,&plan)}else{
+                            let (c,d)=residual_pair(input,&plan);
+                            (c,d,plan.hits,if plan.g.is_some(){"anf"}else{"native"})
+                        };
+                        retained=kept;representation=repr;
                         variables=c.vars;clauses=c.clauses.len();
                         delta=format!("{},{},{}",d[0],d[1],d[2]);
                         status="UNKNOWN_ENCODING_LIMIT";
@@ -2914,7 +2997,7 @@ mod exact_property_cnf {
                     }
                 }
             }
-            manifest.push_str(&format!("{name}\t{mode}\t{}\t{}\t{h}\t{scale}\t{hits}\t{trials}\t{guard_terms}\t{variables}\t{clauses}\t{delta}\t{status}\t{witness}\t{prep_us}\t{encoding_us}\t{reason}\t{},{}\t{witnesses}\n",
+            manifest.push_str(&format!("{name}\t{mode}\t{}\t{}\t{h}\t{scale}\t{hits}\t{trials}\t{guard_terms}\t{variables}\t{clauses}\t{delta}\t{status}\t{witness}\t{prep_us}\t{encoding_us}\t{reason}\t{},{}\t{witnesses}\t{retained}\t{representation}\n",
                 input.initial.n,input.initial.h,raw[0],raw[1]));
         }
     }

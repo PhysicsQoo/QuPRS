@@ -3267,8 +3267,123 @@ mod exact_property_cnf {
         assert!(!cone.contains(&G::CZ(1,2))&&!cone.contains(&G::H(2)));
         println!("HOARE_PROPERTY_CONE checks={checks} exact_per_input=true");
     }
+
+    // Exact bijective quotient of the two-copy Boolean domain. Restricted
+    // to constant/single-variable output ANFs and cube preconditions.
+    // Each shared output identifies the two path slots, never projects
+    // away an unconstrained summation variable. No multiplicity factor.
+    fn literal_output(f:&Anf)->Option<(Option<usize>,bool)>{
+        let nonconstant:Vec<_>=f.iter().copied().filter(|&m|m!=0).collect();
+        let neg=f.contains(&0);
+        match nonconstant.as_slice(){
+            []=>Some((None,neg)),
+            [m] if m.count_ones()==1=>Some((Some(m.trailing_zeros() as usize),neg)),
+            _=>None,
+        }
+    }
+    fn quotient_pair(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<(Cnf,[Lit;3],usize,usize)>{
+        let mut fixed=BTreeMap::<usize,bool>::new();
+        for f in p{
+            let (i,neg)=literal_output(f)?;
+            if let Some(i)=i{
+                if i>=s.n{return None;}
+                let v=!neg;
+                if fixed.insert(i,v).is_some_and(|old|old!=v){return None;}
+            }else if !neg{return None;}
+        }
+        let mut shared=BTreeSet::new();
+        for o in &s.output{
+            if let Some(i)=literal_output(o)?.0{
+                if i>=s.n+s.h{return None;}
+                shared.insert(i);
+            }
+        }
+        // Single literal post: violation fixes its output variable, before
+        // either phase is compiled. All other predicates remain explicit.
+        if q.len()==1{
+            if let Some((Some(i),neg))=literal_output(&q[0]){
+                if i>=s.n{return None;}
+                if let (Some(j),out_neg)=literal_output(&s.output[i])?{
+                    let v=neg^out_neg;
+                    if fixed.insert(j,v).is_some_and(|old|old!=v){
+                        let mut c=Cnf::new(0);c.enforce(ZERO);
+                        return Some((c,[ZERO;3],0,0));
+                    }
+                }
+            }
+        }
+        let mut c=Cnf::new(0);
+        let mut left=Vec::new();let mut right=Vec::new();
+        for i in 0..s.n+s.h{
+            let l=match fixed.get(&i){Some(true)=>ONE,Some(false)=>ZERO,None=>c.fresh()};
+            let r=if i<s.n||shared.contains(&i){l}else{c.fresh()};
+            left.push(l);right.push(r);
+        }
+        let primary=c.vars-1;
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&left)).collect();
+        let post=q.iter().fold(ONE,|acc,f|{let v=c.anf(f,&z);c.and(acc,v)});
+        c.enforce(-post);
+        // Combine both phase polynomials after alias/fixed-bit substitution.
+        // Keys are sorted variable IDs, not masks, to admit >64 pair slots.
+        let mut phase=BTreeMap::<Vec<Lit>,u8>::new();
+        for (bits,negative) in [(&left,false),(&right,true)]{
+            for (&m,&k) in &s.phase{
+                let mut key=Vec::new();let mut zero=false;
+                for (i,&l) in bits.iter().enumerate(){
+                    if m>>i&1==0{continue;}
+                    if l==ZERO{zero=true;break;}
+                    if l!=ONE{key.push(l);}
+                }
+                if zero{continue;}
+                key.sort_unstable();key.dedup();
+                let v=(phase.get(&key).copied().unwrap_or(0)+if negative{(8-k)%8}else{k})%8;
+                if v==0{phase.remove(&key);}else{phase.insert(key,v);}
+            }
+        }
+        let terms=phase.len();
+        let mut delta=[ZERO;3];
+        for (key,k) in phase{
+            let m=key.into_iter().fold(ONE,|a,b|c.and(a,b));
+            let term=std::array::from_fn(|i|if k>>i&1!=0{m}else{ZERO});
+            delta=c.add3(delta,term);
+        }
+        Some((c,delta,primary,terms))
+    }
+    #[test]
+    fn hoare_quotient_pair_exact(){
+        let cases=[
+            vec![G::H(0),G::T(0),G::H(0),G::H(1)],
+            vec![G::H(0),G::CZ(0,1),G::H(0)],
+            vec![G::H(0),G::X(0),G::H(1),G::CZ(0,1)],
+            vec![G::H(0),G::H(1),G::CZ(0,1),G::H(0),G::H(1)],
+        ];
+        let posts=[vec![],vec![Anf::new()],vec![bit(0,false)],vec![bit(1,true)],
+            vec![equal_bits(0,1)],vec![Anf::from([3])],vec![bit(0,false),bit(1,false)]];
+        let mut checks=0;
+        for ops in cases{
+            let s=native(2,&ops).unwrap();
+            for q in &posts{
+                for x in 0..4{
+                    let p:Vec<_>=(0..2).map(|i|bit(i,x>>i&1!=0)).collect();
+                    let (c,d,_,_)=quotient_pair(&s,&p,q).unwrap();
+                    let v=exact_pair_coeff(&c,d,&[],&mut 20_000_000,&mut 0).unwrap();
+                    assert_eq!(v,raw_for_input(2,&ops,q,x));checks+=1;
+                }
+                // Non-fixed original inputs remain shared and counted once.
+                let (c,d,_,_)=quotient_pair(&s,&[],q).unwrap();
+                let mut expected=[0i128;2];
+                for x in 0..4{let v=raw_for_input(2,&ops,q,x);expected[0]+=v[0];expected[1]+=v[1];}
+                assert_eq!(exact_pair_coeff(&c,d,&[],&mut 20_000_000,&mut 0).unwrap(),expected);
+                checks+=1;
+            }
+        }
+        let s=native(2,&[G::CX(0,1)]).unwrap();
+        assert!(quotient_pair(&s,&[],&[bit(1,false)]).is_none());
+        println!("HOARE_QUOTIENT_PAIR checks={checks} exact=true");
+    }
+
     fn export_cone_case(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf],
-                        raw:[i128;2],manifest:&mut String){
+                        raw:[i128;2],manifest:&mut String,quotients:&mut String){
         let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
         let t=std::time::Instant::now();
         let reduced=property_cone(n,ops,q).unwrap();
@@ -3290,12 +3405,20 @@ mod exact_property_cnf {
         let encoding_us=t.elapsed().as_micros();
         manifest.push_str(&format!("{name}\t{h}\t{hr}\t{}\t{}\t{scale}\t{}\t{}\t{},{},{}\t{status}\t{cone_us}\t{build_us}\t{encoding_us}\t{},{}\n",
             ops.len(),reduced.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
+        let t=std::time::Instant::now();
+        let (qc,qd,primary,terms)=quotient_pair(&s,p,q).expect("scale literal output quotient");
+        let qs=if let Some(text)=serialize_external(&qc,&[]){
+            std::fs::write(dir.join(format!("quotient-{name}.cnf")),text).unwrap();"READY"
+        }else{"UNKNOWN_ENCODING_LIMIT"};
+        let qus=t.elapsed().as_micros();
+        quotients.push_str(&format!("{name}\t{h}\t{hr}\t{}\t{}\t{scale}\t{}\t{}\t{},{},{}\t{qs}\t{cone_us}\t{build_us}\t{qus}\t{},{}\t{primary}\t{terms}\n",
+            ops.len(),reduced.len(),qc.vars,qc.clauses.len(),qd[0],qd[1],qd[2],raw[0],raw[1]));
     }
 
     fn export_scale_benchmark(dir:&std::path::Path){
         let dir=dir.join("scale-discovery");
         std::fs::create_dir_all(&dir).unwrap();
-        let mut direct=String::new();let mut residual=String::new();let mut cones=String::new();
+        let mut direct=String::new();let mut residual=String::new();let mut cones=String::new();let mut quotients=String::new();
         let mut cases=Vec::new();
         for n in [8usize,10,12]{
             let v=scale_mixing(n,2);
@@ -3333,7 +3456,7 @@ mod exact_property_cnf {
             let encoding_us=t.elapsed().as_micros();
             direct.push_str(&format!("{name}\t{n}\t{h}\t{}\t{}\t{}\t{},{},{}\t{status}\t{build_us}\t{encoding_us}\t{oracle_us}\t{},{}\t{witness}\n",
                 ops.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
-            if name.starts_with("mixing"){export_cone_case(&dir,&name,n,&ops,&p,&q,raw,&mut cones);}
+            if name.starts_with("mixing"){export_cone_case(&dir,&name,n,&ops,&p,&q,raw,&mut cones,&mut quotients);}
             if let Some(input)=HoareInput::build_scale(n,&ops,p,q){
                 emit_residual_plans(&dir,&name,&input,raw,witness,&mut residual,true);
             }else{
@@ -3348,6 +3471,7 @@ mod exact_property_cnf {
         std::fs::write(dir.join("direct.tsv"),direct).unwrap();
         std::fs::write(dir.join("residual.tsv"),residual).unwrap();
         std::fs::write(dir.join("cone.tsv"),cones).unwrap();
+        std::fs::write(dir.join("quotient.tsv"),quotients).unwrap();
         println!("HOARE_SCALE_DISCOVERY_FIXTURES cases=9 routes=45 cone_cases=3");
     }
 

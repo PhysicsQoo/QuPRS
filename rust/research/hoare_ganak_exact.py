@@ -497,10 +497,15 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         deadline=time.monotonic()+1800
         long_metrics=[]
         profile_contract_tests(pathlib.Path(tmp),long_metrics)
-        run_scale_long(directory/"scale-discovery",solve,deadline,long_metrics)
-        query_cap=60
-        deadline=time.monotonic()+330
-        run_cone_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+        if os.environ.get("HOARE_SCALE_LONG")=="1":
+            run_scale_long(directory/"scale-discovery",solve,deadline,long_metrics)
+            query_cap=60
+            deadline=time.monotonic()+330
+            run_cone_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+        else:
+            query_cap=120
+            deadline=time.monotonic()+1050
+            run_quotient_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -852,6 +857,62 @@ def run_cone_pilot(directory,solve,deadline,metrics):
     print("HOARE_CONE_PILOT_SUMMARY "+json.dumps(dict(cases=3,routes=5,cap_s=60,
           cone_decided=sum(r["mode"]=="cone" and r["verdict"]!="UNKNOWN" for r in rows),
           direct_decided=sum(r["mode"]=="direct" and r["verdict"]!="UNKNOWN" for r in rows))),flush=True)
+
+
+
+
+def run_quotient_pilot(directory,solve,deadline,metrics):
+    """Matched same-run cone vs quotient; two reversed repeats at 60s
+    for 10q and 13q, single 120s attempt each at 15q."""
+    fields="case h hr gates gr scale vars clauses delta status cone_us build_us encoding_us expected".split()
+    def read(name,extra):
+        with (directory/name).open() as f:
+            return {r["case"]:r for r in csv.DictReader(f,fieldnames=fields+extra,delimiter="\t")}
+    cone=read("cone.tsv",[]); quotient=read("quotient.tsv",["primary","phase_terms"])
+    assert set(cone)==set(quotient) and len(cone)==3
+    rows=[]
+    for name in sorted(cone):
+        cap=120 if name.startswith("mixing-15") else 60
+        for rep in range(1 if cap==120 else 2):
+            order=("cone","quotient") if rep==0 else ("quotient","cone")
+            for mode in order:
+                r=(cone if mode=="cone" else quotient)[name]
+                target=tuple(map(int,cone[name]["expected"].split(",")))
+                assert r["expected"]==cone[name]["expected"]
+                row=dict(case=name,mode=mode,rep=rep,cap_s=cap,h=int(r["h"]),hr=int(r["hr"]),
+                    vars=int(r["vars"]),clauses=int(r["clauses"]),scale=int(r["scale"]),
+                    primary=int(r["primary"]) if "primary" in r else None,
+                    phase_terms=int(r["phase_terms"]) if "phase_terms" in r else None,
+                    expected_raw=target,coeff=None,status=r["status"],verdict="UNKNOWN",root_s=0.0,
+                    cnf_sha256=None,source_sha256=hashlib.sha256((directory/f"quokka-{name}.tsv").read_bytes()).hexdigest())
+                metrics.clear()
+                if r["status"]=="READY":
+                    data=(directory/f"{mode}-{name}.cnf").read_bytes()
+                    row["cnf_sha256"]=hashlib.sha256(data).hexdigest()
+                    start=time.monotonic();end=min(deadline,start+cap)
+                    if end<=start:row["status"]="GLOBAL_BUDGET_NOT_RUN"
+                    else:
+                        try:
+                            coeff=tuple(solve(data.decode(),list(map(int,r["delta"].split(","))),[],end))
+                            if any(coeff) and not positive_surd(coeff):raise ValueError("negative quotient leakage")
+                            coeff=tuple(v*(1<<row["scale"]) for v in coeff)
+                            assert coeff==target,(name,mode,coeff,target)
+                            row.update(status="EXACT_ROOT",verdict="REFUTED" if any(coeff) else "PROVED",coeff=coeff)
+                        except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                        except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+                    row["root_s"]=time.monotonic()-start
+                row["queries"]=[dict(m) for m in metrics]
+                row["cpu_s"]=sum(m["user_s"]+m["system_s"] for m in metrics) if metrics and all(m["user_s"] is not None for m in metrics) else None
+                row["max_rss_kib"]=max(m["max_rss_kib"] for m in metrics) if metrics and all(m["max_rss_kib"] is not None for m in metrics) else None
+                row["prep_proxy_s"]=sum(int(r[k]) for k in ("cone_us","build_us","encoding_us"))/1e6
+                row["decision_proxy_s"]=row["root_s"]+row["prep_proxy_s"]
+                rows.append(row)
+                print("HOARE_QUOTIENT_PILOT "+json.dumps(row),flush=True)
+    assert len(rows)==10
+    print("HOARE_QUOTIENT_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
+        mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
+        timeouts=sum(r["mode"]==mode and r["status"]=="ROOT_TIMEOUT" for r in rows))
+        for mode in ("cone","quotient")})),flush=True)
 
 
 

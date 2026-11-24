@@ -454,7 +454,7 @@ theorem monomialTruth16_word (m word : Mask16) :
         simp [hv]
     simp [he]
   · intro h i hm
-    have he : m &&& word = m := of_beq_eq_true h
+    have he : m &&& word = m := by simpa using h
     have hb := congrArg (fun x => decodeMask16 x i) he
     rw [decodeMask16_and, hm] at hb
     simpa using hb

@@ -2212,7 +2212,7 @@ mod exact_property_cnf {
         cases.push(("HTH4".into(),c.n,c.ops,c.p,c.q));
         cases.extend(algorithmic_cases().into_iter().map(|(name,n,ops,p,q,_)|(name,n,ops,p,q)));
         assert_eq!(cases.len(),16);
-        let mut manifest=String::new();let mut plans=String::new();let mut symbolic=String::new();let mut rr_manifest=String::new();
+        let mut manifest=String::new();let mut plans=String::new();let mut symbolic=String::new();let mut rr_manifest=String::new();let mut residual_manifest=String::new();
         for (name,n,ops,p,q) in cases{
             // Independent small gate oracle: never supplied to dispatcher
             // until its verdict and witness have been produced.
@@ -2224,6 +2224,8 @@ mod exact_property_cnf {
                 if v!=[0,0]{witnesses.push(x.to_string());}
             }
             let witness=if witnesses.is_empty(){"-".to_owned()}else{witnesses.join(",")};
+            let input=HoareInput::build(n,&ops,p.clone(),q.clone()).unwrap();
+            emit_residual_plans(dir,&name,&input,raw,&witness,&mut residual_manifest);
             let t=std::time::Instant::now();
             let s=native(n,&ops).unwrap();
             let build_us=t.elapsed().as_micros();
@@ -2286,6 +2288,7 @@ mod exact_property_cnf {
                 q.len(),d[0],d[1],d[2],raw[0],raw[1]));
         }
         std::fs::write(dir.join("hybrid.tsv"),manifest).unwrap();
+        std::fs::write(dir.join("residual.tsv"),residual_manifest).unwrap();
         std::fs::write(dir.join("hybrid-plan.tsv"),plans).unwrap();
         std::fs::write(dir.join("hybrid-symbolic.tsv"),symbolic).unwrap();
         std::fs::write(dir.join("hybrid-rr.tsv"),rr_manifest).unwrap();
@@ -2562,8 +2565,8 @@ mod exact_property_cnf {
         }
         affine_solve(rows,s.h).is_some_and(|(_,basis)|basis.is_empty())
     }
-    fn property_rr(s:&Symbolic,p:&[Anf],q:&[Anf],r:&mut PureRrReport)->Answer{
-        let Some(mut g)=property_guard(s,p,q) else{return Answer::Unknown;};
+    fn residual_guard(s:&Symbolic,p:&[Anf],q:&[Anf],r:&mut PureRrReport)->Option<Anf>{
+        let mut g=property_guard(s,p,q)?;
         // Bounded, deterministic algebraic sequence, not exhaustive search.
         // Continue from current survivor, never union stale masks.
         for d in small_span_candidates(s).into_iter().take(24){
@@ -2572,6 +2575,13 @@ mod exact_property_cnf {
             let Some(next)=algebraic_delete(s,&g,d) else{continue;};
             if next!=g{r.algebraic_hits+=1;r.directions.push(d);g=next;}
         }
+        Some(g)
+    }
+    fn property_rr(s:&Symbolic,p:&[Anf],q:&[Anf],r:&mut PureRrReport)->Answer{
+        let Some(g)=residual_guard(s,p,q,r) else{return Answer::Unknown;};
+        guard_terminal(s,p,q,&g,r)
+    }
+    fn guard_terminal(s:&Symbolic,p:&[Anf],q:&[Anf],g:&Anf,r:&mut PureRrReport)->Answer{
         if g.is_empty(){r.reason="algebraic-survivor-zero";return Answer::Proved;}
         if algebraic_injective_paths(s){
             let a=*g.iter().min_by_key(|&&m|(m.count_ones(),m)).unwrap();
@@ -2813,6 +2823,141 @@ mod exact_property_cnf {
             s.push_str(&line);s.push('\n');
         }
         std::fs::write(dir.join(format!("quokka-{name}.tsv")),s).unwrap();
+    }
+
+
+    // R24: preserve the *actual* current survivor on both path copies.
+    // No OR over old masks, no original-IR fallback. Keep shared input x.
+    fn guarded_pair(s:&Symbolic,g:&Anf)->(Cnf,[Lit;3]){
+        let mut c=Cnf::new(s.n+2*s.h);
+        let l:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        let r:Vec<_>=(0..s.n).map(|i|i as Lit+2)
+            .chain((s.n+s.h..s.n+2*s.h).map(|i|i as Lit+2)).collect();
+        let a=c.anf(g,&l);c.enforce(a);
+        let b=c.anf(g,&r);c.enforce(b);
+        for o in &s.output{
+            let a=c.anf(o,&l);let b=c.anf(o,&r);
+            let d=c.xor(a,b);c.enforce(-d);
+        }
+        let a=c.phase(s,&l,false);let b=c.phase(s,&r,true);
+        let delta=c.add3(a,b);
+        (c,delta)
+    }
+    struct ResidualPlan{
+        answer:Answer,s:Symbolic,scale:u32,g:Option<Anf>,
+        hits:usize,trials:usize,reason:&'static str,
+    }
+    fn hybrid_plan(input:&HoareInput,property:bool)->Option<ResidualPlan>{
+        let n=input.initial.n;
+        let (mut s,mut stats)=reduce_existing(input.ps.clone(),n)?;
+        let mut answer=Answer::Unknown;let mut reason="standard-residual";
+        if let Some((a,_))=algebraic_terminal(&s,&input.pre,&input.post){
+            answer=a;reason="standard-terminal";
+        }
+        if property&&answer==Answer::Unknown{
+            if let Some(ps)=mono_substitute(input.ps.clone(),n,&input.pre){
+                if let Some((special,ss))=reduce_existing(ps,n){
+                    if let Some((a,_))=algebraic_terminal(&special,&input.pre,&input.post){
+                        return Some(ResidualPlan{answer:a,s:special,scale:ss.scale2,g:None,
+                            hits:0,trials:0,reason:"precondition-terminal"});
+                    }
+                    if special.h<=s.h{s=special;stats=ss;}
+                }
+            }
+            let mut r=PureRrReport{mode:PureRrMode::Property,answer:Answer::Unknown,
+                reason:"property-residual",standard_runs:0,monomial_runs:0,
+                algebraic_trials:0,algebraic_hits:0,sat_queries:0,sat_visits:0,
+                directions:vec![],residual_h:s.h};
+            // If bounded ANF construction fails, keep the selected native
+            // RR residual with the original predicates, not the original IR.
+            let g=residual_guard(&s,&input.pre,&input.post,&mut r);
+            if let Some(ref guard)=g{
+                answer=guard_terminal(&s,&input.pre,&input.post,guard,&mut r);
+            }
+            return Some(ResidualPlan{answer,s,scale:stats.scale2,g,
+                hits:r.algebraic_hits,trials:r.algebraic_trials,reason:r.reason});
+        }
+        Some(ResidualPlan{answer,s,scale:stats.scale2,g:None,hits:0,trials:0,reason})
+    }
+    fn residual_pair(input:&HoareInput,plan:&ResidualPlan)->(Cnf,[Lit;3]){
+        if let Some(ref g)=plan.g{guarded_pair(&plan.s,g)}
+        else{two_copy_conj(&plan.s,&input.pre,&input.post)}
+    }
+    fn emit_residual_plans(dir:&std::path::Path,name:&str,input:&HoareInput,
+                           raw:[i128;2],witnesses:&str,manifest:&mut String){
+        for (mode,property) in [("standard",false),("property",true)]{
+            let t=std::time::Instant::now();
+            let plan=hybrid_plan(input,property);
+            let prep_us=t.elapsed().as_micros();
+            let mut h=input.initial.h;let mut scale=0;let mut hits=0;let mut trials=0;
+            let mut guard_terms=0;let mut variables=0;let mut clauses=0;
+            let mut delta="-".to_owned();let mut witness="-".to_owned();
+            let mut encoding_us=0;let mut reason="reduction-limit";
+            let mut status="UNKNOWN_REDUCTION_LIMIT";
+            if let Some(plan)=plan{
+                h=plan.s.h;scale=plan.scale;hits=plan.hits;trials=plan.trials;
+                guard_terms=plan.g.as_ref().map_or(0,|g|g.len());reason=plan.reason;
+                match plan.answer{
+                    Answer::Proved=>status="PROVED",
+                    Answer::Refuted(x)=>{status="REFUTED";witness=x.to_string();},
+                    Answer::Unknown=>{
+                        let start=std::time::Instant::now();
+                        let (c,d)=residual_pair(input,&plan);
+                        variables=c.vars;clauses=c.clauses.len();
+                        delta=format!("{},{},{}",d[0],d[1],d[2]);
+                        status="UNKNOWN_ENCODING_LIMIT";
+                        if let Some(text)=dimacs(&c,&[]){
+                            std::fs::write(dir.join(format!("residual-{name}-{mode}.cnf")),text).unwrap();
+                            status="READY";
+                        }
+                        encoding_us=start.elapsed().as_micros();
+                    }
+                }
+            }
+            manifest.push_str(&format!("{name}\t{mode}\t{}\t{}\t{h}\t{scale}\t{hits}\t{trials}\t{guard_terms}\t{variables}\t{clauses}\t{delta}\t{status}\t{witness}\t{prep_us}\t{encoding_us}\t{reason}\t{},{}\t{witnesses}\n",
+                input.initial.n,input.initial.h,raw[0],raw[1]));
+        }
+    }
+    #[test]
+    fn hoare_guarded_residual_pair_exact(){
+        // Verify the two-copy guard really constrains both y and y', not
+        // just one. Use independent exact dense gate oracle on each x.
+        let cases=[
+            (2,vec![G::H(0),G::CZ(0,1),G::H(0)],vec![bit(0,false)],vec![bit(0,false)]),
+            (2,vec![G::H(0),G::T(0),G::H(0),G::H(1)],vec![bit(0,false)],vec![bit(0,false)]),
+            (2,vec![G::H(0),G::H(0),G::H(1)],vec![bit(0,false)],vec![bit(1,false)]),
+        ];
+        let mut checks=0;
+        for (n,ops,p,q) in cases{
+            let input=HoareInput::build(n,&ops,p,q).unwrap();
+            for property in [false,true]{
+                let plan=hybrid_plan(&input,property).unwrap();
+                let (c,d)=residual_pair(&input,&plan);
+                for x in 0..1u64<<n{
+                    let prefix:Vec<_>=(0..n).map(|i|if x>>i&1!=0{i as Lit+2}else{-(i as Lit+2)}).collect();
+                    let mut batches=0;
+                    let coeff=exact_pair_coeff(&c,d,&prefix,&mut 20_000_000,&mut batches).unwrap();
+                    let expected=if eval_conj(&input.pre,x){raw_for_input(n,&ops,&input.post,x)}else{[0,0]};
+                    assert_eq!(coeff.map(|v|v*(1i128<<plan.scale)),expected);
+                    checks+=1;
+                }
+            }
+            // Directly exercise partial cancellation on the original guard,
+            // independent of the planner's early terminal decisions.
+            let s=&input.initial;
+            let g=property_guard(s,&input.pre,&input.post).unwrap();
+            for dir in 1..1u64<<s.h{
+                let Some(g)=algebraic_delete(s,&g,dir) else{continue;};
+                let (c,d)=guarded_pair(s,&g);
+                for x in 0..1u64<<n{
+                    let prefix:Vec<_>=(0..n).map(|i|if x>>i&1!=0{i as Lit+2}else{-(i as Lit+2)}).collect();
+                    let coeff=exact_pair_coeff(&c,d,&prefix,&mut 20_000_000,&mut 0).unwrap();
+                    let expected=if eval_conj(&input.pre,x){raw_for_input(n,&ops,&input.post,x)}else{[0,0]};
+                    assert_eq!(coeff,expected);checks+=1;
+                }
+            }
+        }
+        println!("HOARE_GUARDED_PAIR checks={checks} exact_per_input=true");
     }
 
 }

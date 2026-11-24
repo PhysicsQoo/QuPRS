@@ -474,7 +474,62 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             continue
         raise AssertionError("accepted malformed GPMC output")
     print("HOARE_GPMC_QUALIFICATION=PASS backend=mpz_natural_packed",flush=True)
-    return run_pure_wmc(directory,solve,deadline,backend="gpmc-mpz-packed")
+    rows=run_pure_wmc(directory,solve,deadline,backend="gpmc-mpz-packed")
+    deadline=time.monotonic()+45
+    run_residual_hybrid(directory,solve,deadline,rows)
+    return rows
+
+
+
+def run_residual_hybrid(directory,solve,deadline,direct_rows):
+    direct={r["case"]:r for r in direct_rows}
+    rows=[]
+    with (directory/"residual.tsv").open() as f:
+        for name,mode,n,h0,h,scale,hits,trials,guard_terms,variables,clauses,delta,status,witness,prep_us,encoding_us,reason,expected,witnesses in csv.reader(f,delimiter="\t"):
+            n,h0,h,scale,hits,trials,guard_terms,variables,clauses,prep_us,encoding_us=map(int,(n,h0,h,scale,hits,trials,guard_terms,variables,clauses,prep_us,encoding_us))
+            if status=="READY":
+                end=min(deadline,time.monotonic()+5)
+                row=pure_wmc_decision((directory/f"residual-{name}-{mode}.cnf").read_text(),
+                    list(map(int,delta.split(","))),n,solve,end)
+                for key in ("coeff","witness_coeff"):
+                    if row.get(key) is not None:
+                        row[key]=tuple(v*(1<<scale) for v in row[key])
+                route="GUARDED_RESIDUAL" if guard_terms else "NATIVE_RR_RESIDUAL"
+            else:
+                row=dict(verdict=status if status in ("PROVED","REFUTED") else "UNKNOWN",
+                    reason=reason,coeff=None,witness=None if witness=="-" else int(witness),
+                    witness_status="VERIFIED" if witness!="-" else "NOT_REQUIRED" if status=="PROVED" else "NOT_RUN",
+                    root_queries=0,witness_queries=0,root_s=0.0,witness_s=0.0)
+                route="RR_TERMINAL" if status in ("PROVED","REFUTED") else status
+            target=tuple(map(int,expected.split(",")))
+            legal=set() if witnesses=="-" else set(map(int,witnesses.split(",")))
+            if row["verdict"]!="UNKNOWN":
+                assert row["verdict"]==("REFUTED" if any(target) else "PROVED"),(name,mode,row)
+            if row["coeff"] is not None:
+                assert row["coeff"]==target,(name,mode,row,target)
+            if row["witness_status"]=="VERIFIED":
+                assert row["witness"] in legal,(name,mode,row)
+            row.update(case=name,mode=mode,route=route,initial_h=h0,residual_h=h,scale2=scale,
+                hits=hits,trials=trials,guard_terms=guard_terms,vars=variables,clauses=clauses,
+                prep_us=prep_us,encoding_us=encoding_us,
+                decision_total_s=direct[name]["build_us"]/1e6+(prep_us+encoding_us)/1e6+row["root_s"],
+                direct_decision_s=direct[name]["decision_total_s"])
+            rows.append(row)
+            print("HOARE_RESIDUAL_HYBRID "+json.dumps(row),flush=True)
+    assert len(rows)==32
+    summary={}
+    for mode in ("standard","property"):
+        rs=[r for r in rows if r["mode"]==mode]
+        summary[mode]=dict(cases=len(rs),decided=sum(r["verdict"]!="UNKNOWN" for r in rs),
+            rr_terminal=sum(r["route"]=="RR_TERMINAL" for r in rs),
+            count_routes=sum(r["root_queries"]>0 for r in rs),
+            reduced_count_routes=sum(r["root_queries"]>0 and (r["residual_h"]<r["initial_h"] or r["hits"]>0) for r in rs),
+            partial_guard_count_routes=sum(r["root_queries"]>0 and r["hits"]>0 for r in rs),
+            witnesses=sum(r["witness_status"]=="VERIFIED" for r in rs),
+            root_batches=sum(r["root_queries"] for r in rs),
+            decision_total_s=sum(r["decision_total_s"] for r in rs))
+    print("HOARE_RESIDUAL_HYBRID_SUMMARY "+json.dumps(summary),flush=True)
+
 
 
 def parse_sat(rc, stdout, result, cnf):

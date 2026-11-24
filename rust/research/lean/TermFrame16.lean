@@ -254,7 +254,7 @@ theorem decodeExactTermFrame16_no_trailing
       cases tail with
       | nil =>
           simp [decodeExactTermFrame16, hf] at h
-          exact h.2.1.symm
+          exact h.2.1
       | cons a as => simp [decodeExactTermFrame16, hf] at h
 
 #print axioms readLE_sound

@@ -327,3 +327,152 @@ fn hoare_fourier_parity_16q(){
     assert_eq!(verify_parity_oracle(16,&ops,p,&[14,14],3,false),Answer::Unknown);
     println!("HOARE_PARITY_16Q free_data=14 hadamards=4 direct_two_copy_domain=4194304");
 }
+
+
+// Experimental quadratic output-fiber norm rule. This eliminates a block
+// in the probability/zero-verdict domain, not in the amplitude domain.
+// All coefficients and GF(2) operations are exact.
+fn parity(v:u64)->bool{v.count_ones()%2!=0}
+fn affine_solve(mut rows:Vec<(u64,bool)>,n:usize)->Option<(u64,Vec<u64>)>{
+    assert!(n<=63);
+    let mut pivots=Vec::new();
+    for j in 0..n{
+        let bit=1u64<<j;
+        let i=pivots.len();
+        if let Some(k)=(i..rows.len()).find(|&k|rows[k].0&bit!=0){
+            rows.swap(i,k);
+            let row=rows[i];
+            for (l,r) in rows.iter_mut().enumerate(){
+                if l!=i && r.0&bit!=0{r.0^=row.0;r.1^=row.1;}
+            }
+            pivots.push(j);
+        }
+    }
+    if rows.iter().any(|&(m,b)|m==0&&b){return None;}
+    let particular=pivots.iter().enumerate().fold(0,|v,(i,&j)|v|((rows[i].1 as u64)<<j));
+    let kernel=(0..n).filter(|j|!pivots.contains(j)).map(|j|{
+        pivots.iter().enumerate().fold(1u64<<j,|v,(i,&k)|v|(((rows[i].0>>j)&1)<<k))
+    }).collect();
+    Some((particular,kernel))
+}
+fn lift(coords:u64,basis:&[u64])->u64{
+    basis.iter().enumerate().fold(0,|v,(j,&b)|if coords>>j&1!=0{v^b}else{v})
+}
+fn q4(poly:&BTreeMap<u64,u8>,v:u64)->u8{
+    poly.iter().filter(|(m,_)|v&**m==**m).fold(0,|a,(_,c)|(a+*c)%4)
+}
+fn quadratic_norm(rows:Vec<(u64,bool)>,h:usize,poly:&BTreeMap<u64,u8>)->Option<u128>{
+    // q(0)=0; singleton coefficients arbitrary Z4, quadratic
+    // coefficients even. Anything else falls back to the general solver.
+    if h>63||rows.iter().any(|&(m,_)|m>>h!=0)||
+        poly.iter().any(|(&m,&c)|m==0||m>>h!=0||c>=4||
+            m.count_ones()>2||(m.count_ones()==2&&c%2!=0)){return None;}
+    let Some((t0,kernel))=affine_solve(rows,h) else{return Some(0);};
+    let k=kernel.len();
+    let bilinear=|u:u64,v:u64|{
+        let b=(q4(poly,u^v)+8-q4(poly,u)-q4(poly,v))%4;
+        debug_assert_eq!(b%2,0);
+        b==2
+    };
+    let radical_rows:Vec<_>=kernel.iter().map(|&u|{
+        let m=kernel.iter().enumerate().fold(0,|m,(j,&v)|m|((bilinear(u,v) as u64)<<j));
+        (m,false)
+    }).collect();
+    let (_,radical)=affine_solve(radical_rows,k).expect("homogeneous system");
+    // The restricted quadratic function is a character on the radical.
+    // Checking a basis suffices. The coset offset t0 is essential.
+    if radical.iter().any(|&r|q4(poly,t0^lift(r,&kernel))!=q4(poly,t0)){
+        return Some(0);
+    }
+    Some(1u128<<(k+radical.len()))
+}
+fn native_quadratic_fiber_norm(s:&Symbolic,x:u64,z:u64)->Option<u128>{
+    if x>=1u64<<s.n||z>=1u64<<s.n{return None;}
+    let p=Cube{mask:(1u64<<s.n)-1,value:x};
+    let mut rows=Vec::new();
+    for (i,terms) in s.output.iter().enumerate(){
+        let terms=specialize_bool(terms,p);
+        let mut row=0;
+        let mut rhs=z>>i&1!=0;
+        for m in terms{
+            if m==0{rhs=!rhs;}
+            else if m.count_ones()==1{row|=m>>s.n;}
+            else{return None;}
+        }
+        rows.push((row,rhs));
+    }
+    let mut q=BTreeMap::new();
+    for (m,c) in specialize_phase(&s.phase,p){
+        // Arbitrary input-only/global phase disappears in the norm.
+        if m==0{continue;}
+        if c%2!=0{return None;}
+        q.insert(m>>s.n,c/2);
+    }
+    quadratic_norm(rows,s.h,&q)
+}
+#[test]
+fn hoare_radical_all_three_variable_quadratics(){
+    let mut cases=0;let mut zeros=0;
+    for a in 0..8u64{for b in 0..8u64{
+        for linear in 0..64u64{for cross in 0..8u64{
+            let mut q=BTreeMap::new();
+            for j in 0..3{let c=((linear>>(2*j))&3) as u8;if c!=0{q.insert(1<<j,c);}}
+            for (j,m) in [3,5,6].into_iter().enumerate(){if cross>>j&1!=0{q.insert(m,2);}}
+            for z in 0..4u64{
+                let fiber:Vec<_>=(0..8).filter(|&t|parity(a&t)==(z&1!=0)&&parity(b&t)==(z&2!=0)).collect();
+                let mut re=0i64;let mut im=0i64;
+                for t in &fiber{
+                    match q4(&q,*t){0=>re+=1,1=>im+=1,2=>re-=1,3=>im-=1,_=>unreachable!()}
+                }
+                let exact=(re*re+im*im) as u128;
+                assert_eq!(quadratic_norm(vec![(a,z&1!=0),(b,z&2!=0)],3,&q),Some(exact));
+                if !fiber.is_empty(){cases+=1;if exact==0{zeros+=1;}}
+            }
+        }}
+    }}
+    assert_eq!((cases,zeros),(108032,27713));
+    println!("HOARE_RADICAL_EXHAUSTIVE reachable={cases} zero={zeros} nonzero={} including_unreachable=true",cases-zeros);
+}
+#[test]
+fn hoare_radical_native_pathsum(){
+    let gates=[G::H(0),G::H(1),G::X(0),G::CX(0,1),G::S(0),G::CZ(0,1),G::Z(1)];
+    let mut cases=0;
+    for g in &gates{for h in &gates{for j in &gates{
+        let ops=[g.clone(),h.clone(),j.clone()];
+        let s=native(2,&ops).unwrap();
+        for x in 0..4{
+            let dense=dense_state(2,&ops,x);
+            for z in 0..4{
+                let amp=dense[z as usize];
+                // Clifford phases here are even eighth-root indices.
+                assert_eq!((amp[1],amp[3]),(0,0));
+                let norm=(amp[0]*amp[0]+amp[2]*amp[2]) as u128;
+                assert_eq!(native_quadratic_fiber_norm(&s,x,z),Some(norm));
+                cases+=1;
+            }
+        }
+    }}}
+    assert_eq!(cases,5488);
+    let s=native(1,&[G::H(0),G::T(0),G::H(0)]).unwrap();
+    assert_eq!(native_quadratic_fiber_norm(&s,0,0),None);
+    // Input-only odd phase is safe to drop in a fixed-input norm.
+    let s=native(1,&[G::T(0),G::H(0)]).unwrap();
+    assert_eq!(native_quadratic_fiber_norm(&s,1,0),Some(1));
+    println!("HOARE_RADICAL_NATIVE cases={cases} exact_dense_agreement=true unsupported_odd_path_phase=true");
+}
+#[test]
+fn hoare_radical_large_block(){
+    // Abstract affine-quadratic path-sum fiber: not a source-circuit
+    // benchmark. 40 path variables, 20 independent bilinear pairs.
+    let mut q=BTreeMap::new();
+    for j in 0..20{q.insert((1u64<<(2*j))|(1u64<<(2*j+1)),2);}
+    assert_eq!(quadratic_norm(vec![],40,&q),Some(1u128<<40));
+    assert_eq!(quadratic_norm(vec![],40,&BTreeMap::new()),Some(1u128<<80));
+    q.clear();q.insert(1,2);
+    assert_eq!(quadratic_norm(vec![],40,&q),Some(0));
+    // Offset-dependent radical character on t1 xor t2=1.
+    let q=BTreeMap::from([(1,1),(2,1)]);
+    assert_eq!(quadratic_norm(vec![(3,false)],2,&q),Some(0));
+    assert_eq!(quadratic_norm(vec![(3,true)],2,&q),Some(4));
+    println!("HOARE_RADICAL_40V direct_pair_domain=2^80 symbolic_block_no_enumeration=true");
+}

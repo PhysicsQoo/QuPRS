@@ -732,6 +732,17 @@ jobs:
             test "$(grep -Ec "^'QuPRS[.]HoareComposition[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-hoare-composition.log)" -eq 1
           done
           echo 'LEAN4_HOARE_COMPOSITION_PROOFS_PASS theorem_axiom_reports=17 natural_mass=true negacyclic_coefficients=true conditional_dispatch=true complex_embedding_formalized=false'
+          lean HoareSectorTransport.lean 2>&1 | tee /tmp/qasm-lean-hoare-sector.log
+          if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-hoare-sector.log; then
+            echo 'Unexpected sector transport theorem axiom dependency' >&2
+            exit 1
+          fi
+          sector_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-hoare-sector.log)"
+          test "$sector_reports" -eq 11
+          for theorem in sign_mul opposite_sign_zero support_sector sector_proved sector_refuted terminal_unknown terminal_sound bit_xor single_phase_shift cz_phase_shift even_xor_mod8; do
+            test "$(grep -Ec "^'QuPRS[.]SectorTransport[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-hoare-sector.log)" -eq 1
+          done
+          echo 'LEAN4_HOARE_SECTOR_TRANSPORT_PROOFS_PASS theorem_axiom_reports=11 conditional_support=true terminal_sound=true local_z8=true gate_replay_formalized=false complex_embedding_formalized=false'
 
       - name: Build and test std-only independent verifier
         run: |

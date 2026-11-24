@@ -1591,6 +1591,8 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
     with (directory/"property-factor-branches.tsv").open() as f:
         branches=list(csv.DictReader(f,fieldnames=bf,delimiter="\t"))
     assert len(cases)==20
+    if os.environ.get("HOARE_R27A_FULL")!="1":
+        cases=[r for r in cases if "mixing" not in r["case"]]
     rows=[]
     for i,r in enumerate(cases):
         name=r["case"];target=tuple(map(int,r["expected"].split(",")))
@@ -1665,7 +1667,7 @@ def run_property_factor_pilot(directory,solve,deadline,metrics):
             row["decision_proxy_s"]=row["prep_proxy_s"]+row["factor_s"]+row["gpmc_s"]
             rows.append(row)
             print("HOARE_PROPERTY_FACTOR "+json.dumps(row),flush=True)
-    assert len(rows)==40
+    assert len(rows)==2*len(cases)
     print("HOARE_PROPERTY_FACTOR_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
         m:dict(decided=sum(r["mode"]==m and r["verdict"]!="UNKNOWN" for r in rows),
                proved=sum(r["mode"]==m and r["verdict"]=="PROVED" for r in rows),

@@ -193,6 +193,11 @@ def compare(directory,gpmc,extended=False,heldout=False):
             cases=[(r["case"],(int(r["expected_mass"]),0)) for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")
                    if r["admission"]=="NATIVE_EXPORT_ATTEMPTED"]
         assert len(cases)==12
+        if os.environ.get("HOARE_FOURIER_LONG")=="1":
+            selected={f"fourier-{n}-{v}-even" for n in (10,14) for v in ("safe","mutant")}
+            cases=[(name,coeff) for name,coeff in cases if name in selected]
+            assert len(cases)==4 and {name for name,_ in cases}==selected
+    heldout_long=heldout and os.environ.get("HOARE_FOURIER_LONG")=="1"
     deadline=time.monotonic()+(480 if heldout else 600 if extended else 90)
     marker="HOARE_FOURIER_QUOKKA" if heldout else "HOARE_QUOKKA_EXTENDED" if extended else "HOARE_QUOKKA"
     rows=[]
@@ -216,12 +221,12 @@ def compare(directory,gpmc,extended=False,heldout=False):
                          exact_expected="REFUTED" if any(coeff) else "PROVED",
                          source_sha256=hashlib.sha256((directory/f"quokka-{name}.tsv").read_bytes()).hexdigest())
                 remaining=deadline-time.monotonic()
-                if heldout and remaining<32:
+                cap=(60 if n==10 else 120) if heldout_long else 30 if heldout else ((120 if "15" in name else 60) if "mixing" in name else 30) if extended else 5
+                if heldout and remaining<cap+2:
                     raise RuntimeError("held-out Quokka global budget cannot provide full root cap")
                 if remaining<=0:
                     row["status"]="UNKNOWN_TIMEOUT"
                 else:
-                    cap=30 if heldout else ((120 if "15" in name else 60) if "mixing" in name else 30) if extended else 5
                     row["solver_cap_s"]=cap
                     config.CONFIG.update(FPE=D(tol),TIMEOUT=min(cap,remaining))
                     decimal.getcontext().prec=50

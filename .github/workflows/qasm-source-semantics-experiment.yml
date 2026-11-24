@@ -44,6 +44,7 @@ jobs:
     env:
       QUPRS_SOLVER_PROVISION: external
       HOARE_FOURIER_COMPARE: '1'
+      HOARE_FOURIER_LONG: '1'
       CARGO_TERM_COLOR: never
       RUST_BACKTRACE: '1'
     steps:

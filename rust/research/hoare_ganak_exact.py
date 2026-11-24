@@ -493,12 +493,13 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     # Preserve the original discovery protocol on explicit request. Default
     # to the frozen long cohort rather than rerunning all 19 known timeouts.
     if os.environ.get("HOARE_FOURIER_COMPARE")=="1":
-        query_cap=30
+        heldout_long=os.environ.get("HOARE_FOURIER_LONG")=="1"
+        query_cap=120 if heldout_long else 30
         deadline=time.monotonic()+1200
         long_metrics=[]
         profile_contract_tests(pathlib.Path(tmp),long_metrics)
         run_structure_dispatch(directory/"fourier-heldout",solve,deadline,long_metrics,
-                               heldout=True,gpmc_exe=exe,tmp=tmp)
+                               heldout=True,gpmc_exe=exe,tmp=tmp,heldout_long=heldout_long)
         long_metrics=None
     elif os.environ.get("HOARE_SCALE_DISCOVERY")=="1":
         query_cap=30
@@ -1877,7 +1878,7 @@ def dispatch_three_mode_control(directory,r,solve,deadline,metrics):
 
 
 
-def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc_exe=None,tmp=None):
+def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc_exe=None,tmp=None,heldout_long=False):
     from hoare_quokka_compare import (load_case,cube,dispatch_policy,
                                         execute_routes,frontier_contract)
     factor_contract();conditioning_contract();witness_affine_contract()
@@ -1889,6 +1890,12 @@ def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc
         branches=list(csv.DictReader(f,fieldnames=bf,delimiter="\t"))
     assert len(cases)==(12 if heldout else 20)
     rr_rows=dispatch_rr_rows(directory,12 if heldout else 21)
+    if heldout_long:
+        assert heldout
+        # Frozen from the 30s pilot before any longer solver invocation.
+        selected={f"fourier-{n}-{v}-even" for n in (10,14) for v in ("safe","mutant")}
+        cases=[r for r in cases if r["case"] in selected]
+        assert {r["case"] for r in cases}==selected and len(cases)==4
     if not heldout:
         dispatch_three_mode_control(directory,rr_rows["rr-residual-control"],solve,deadline,metrics)
     pure_rows=[];rr_results=[];projected_rows=[]
@@ -1900,9 +1907,10 @@ def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc
     rows=[]
     for r,work_cap,configuration in tasks:
         start=time.monotonic()
-        if heldout and deadline-start<93:
-            raise RuntimeError("held-out global budget cannot provide all three root caps")
         name=r["case"];target=tuple(map(int,r["expected"].split(",")))
+        cap=(60 if int(r["n"])==10 else 120) if heldout_long else 30
+        if heldout and deadline-start<3*(cap+3):
+            raise RuntimeError("held-out global budget cannot provide all three root caps")
         scale=int(r["scale"])
         bs=[b for b in branches if b["case"]==name]
         assert len(bs)==int(r["branch_count"])
@@ -1966,7 +1974,7 @@ def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc
         result=execute_routes(routes,{"frontier":frontier,"factor":factor,"gpmc":gpmc,
             "rr":lambda end:rr_terminal(rr),
             "rr-wmc":lambda end:dispatch_count(directory,rr,solve,min(end,time.monotonic()+5),metrics,True)},
-                              min(deadline,start+30))
+                              min(deadline,start+cap))
         coeff=result["coeff"]
         if coeff is not None:assert tuple(coeff)==target,(name,result,target)
         terminal=result.get("terminal_verdict")
@@ -1976,7 +1984,7 @@ def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc
         used=[a["route"] for a in result["attempts"]]
         proxy=sum(prep[x] for x in used)+(int(r["common_us"])/1e6 if any(x in ("factor","gpmc") for x in used) else 0)
         elapsed=time.monotonic()-start
-        result.update(case=name,configuration=configuration,work_cap=work_cap,cap_s=30,
+        result.update(case=name,configuration=configuration,work_cap=work_cap,cap_s=cap,
                       n=n,h=int(r["h"]),gates=len(ops),profile=profile,planned_routes=routes,
                       expected_coeff=target,source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
                       solve_dispatch_s=elapsed,prep_proxy_s=proxy,decision_proxy_s=elapsed+proxy,
@@ -1991,39 +1999,49 @@ def run_structure_dispatch(directory,solve,deadline,metrics,*,heldout=False,gpmc
             rr_verdict=rr["status"] if rr["status"] in ("PROVED","REFUTED") else "UNKNOWN"
             rr_row=dict(case=name,mode="pure-rr",verdict=rr_verdict,status=rr["status"],h=int(rr["h"]),hr=int(rr["hr"]),hits=int(rr["hits"]),prep_s=int(rr["rr_us"])/1e6,witness=rr["witness"])
             if rr_verdict!="UNKNOWN":assert rr_verdict==("REFUTED" if any(target) else "PROVED")
-            if heldout and rr_row["prep_s"]>30 and rr_verdict!="UNKNOWN":
+            if heldout and rr_row["prep_s"]>cap and rr_verdict!="UNKNOWN":
                 rr_row.update(verdict="UNKNOWN",status="LATE_EXACT_REJECTED")
             rr_results.append(rr_row);print(("HOARE_FOURIER_MODE " if heldout else "HOARE_THREE_MODE ")+json.dumps(rr_row),flush=True)
-            st=time.monotonic()
-            pure=dispatch_count(directory,rr,solve,min(deadline,st+30),metrics)
-            if pure["coeff"] is not None:assert tuple(pure["coeff"])==target
-            if heldout and time.monotonic()-st>30 and pure["coeff"] is not None:
-                pure.update(coeff=None,status="LATE_EXACT_REJECTED")
-            pure.update(case=name,mode="pure-wmc",verdict="UNKNOWN" if pure["coeff"] is None else "REFUTED" if any(pure["coeff"]) else "PROVED",root_s=time.monotonic()-st,prep_s=(int(rr["build_us"])+int(rr["pure_us"]))/1e6)
-            pure_rows.append(pure);print(("HOARE_FOURIER_MODE " if heldout else "HOARE_THREE_MODE ")+json.dumps(pure),flush=True)
-            if heldout:
-                from hoare_projected_count import projected_count
+            # P1-C reverses direct-arm order across the safe/mutant pair.
+            # This is one attempt per property, not repeated A/B-B/A trials.
+            arms=("projected","full") if heldout_long and "-mutant-" in name else ("full","projected") if heldout else ("full",)
+            prep_s=(int(rr["build_us"])+int(rr["pure_us"]))/1e6
+            for position,arm in enumerate(arms):
                 st=time.monotonic()
-                projected=dict(status=rr["pure_status"],mass=None,verdict="UNKNOWN",queries=[])
-                if rr["pure_status"]=="READY":
-                    base=(directory/f"dispatch-pure-{name}.cnf").read_text()
-                    bits=list(map(int,rr["pure_delta"].split(",")))
-                    v=int(base.splitlines()[0].split()[2])
-                    projected=projected_count(gpmc_exe,tmp,base,bits,v,st+30)
-                    if projected["mass"] is not None:
-                        assert projected["mass"]==target[0] and projected["verdict"]==("REFUTED" if any(target) else "PROVED")
-                        if time.monotonic()-st>30:
-                            projected.update(mass=None,verdict="UNKNOWN",status="LATE_EXACT_REJECTED")
-                projected.update(case=name,mode="pure-projected",root_s=time.monotonic()-st,prep_s=pure["prep_s"],cap_s=30)
-                projected_rows.append(projected)
-                print("HOARE_FOURIER_MODE "+json.dumps(projected),flush=True)
+                if heldout and deadline-st<cap+2:
+                    raise RuntimeError("held-out global budget cannot provide full arm cap")
+                if arm=="full":
+                    pure=dispatch_count(directory,rr,solve,min(deadline,st+cap),metrics)
+                    if pure["coeff"] is not None:assert tuple(pure["coeff"])==target
+                    if heldout and time.monotonic()-st>cap and pure["coeff"] is not None:
+                        pure.update(coeff=None,status="LATE_EXACT_REJECTED")
+                    pure.update(case=name,mode="pure-wmc",verdict="UNKNOWN" if pure["coeff"] is None else "REFUTED" if any(pure["coeff"]) else "PROVED",root_s=time.monotonic()-st,prep_s=prep_s,cap_s=cap,position=position)
+                    pure_rows.append(pure)
+                    print(("HOARE_FOURIER_MODE " if heldout else "HOARE_THREE_MODE ")+json.dumps(pure),flush=True)
+                else:
+                    from hoare_projected_count import projected_count
+                    projected=dict(status=rr["pure_status"],mass=None,verdict="UNKNOWN",queries=[])
+                    if rr["pure_status"]=="READY":
+                        base=(directory/f"dispatch-pure-{name}.cnf").read_text()
+                        bits=list(map(int,rr["pure_delta"].split(",")))
+                        v=int(base.splitlines()[0].split()[2])
+                        projected=projected_count(gpmc_exe,tmp,base,bits,v,st+cap)
+                        if projected["mass"] is not None:
+                            assert projected["mass"]==target[0] and projected["verdict"]==("REFUTED" if any(target) else "PROVED")
+                            if time.monotonic()-st>cap:
+                                projected.update(mass=None,verdict="UNKNOWN",status="LATE_EXACT_REJECTED")
+                    projected.update(case=name,mode="pure-projected",root_s=time.monotonic()-st,prep_s=prep_s,cap_s=cap,position=position)
+                    projected_rows.append(projected)
+                    print("HOARE_FOURIER_MODE "+json.dumps(projected),flush=True)
     if heldout:
         modes=(("pure-rr",rr_results),("pure-wmc",pure_rows),("pure-projected",projected_rows),("hybrid-frozen",rows))
-        assert all(len(xs)==12 for _,xs in modes)
+        assert all(len(xs)==(4 if heldout_long else 12) for _,xs in modes)
         print("HOARE_FOURIER_COMPARE_SUMMARY "+json.dumps(dict(modes={m:dict(cases=len(xs),
               proved=sum(x["verdict"]=="PROVED" for x in xs),refuted=sum(x["verdict"]=="REFUTED" for x in xs),
               unknown=sum(x["verdict"]=="UNKNOWN" for x in xs)) for m,xs in modes},
-              cap_s=30,root_only=True,offline_prep_proxy=True,fixed_arm_order=True,dispatcher_tuned=False)),flush=True)
+              cap_s=[60,120] if heldout_long else 30,root_only=True,offline_prep_proxy=True,
+              fixed_arm_order=not heldout_long,hybrid_first=True,heldout_long=heldout_long,
+              repetitions_per_property=1,dispatcher_tuned=False)),flush=True)
         return
     benchmark=rows[:-1]
     print("HOARE_THREE_MODE_SUMMARY "+json.dumps({m:dict(cases=len(xs),decided=sum(x["verdict"]!="UNKNOWN" for x in xs),proved=sum(x["verdict"]=="PROVED" for x in xs),refuted=sum(x["verdict"]=="REFUTED" for x in xs)) for m,xs in (("pure-rr",rr_results),("pure-wmc",pure_rows),("hybrid",benchmark))}),flush=True)

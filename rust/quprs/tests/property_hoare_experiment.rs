@@ -980,15 +980,15 @@ mod exact_property_cnf {
         let Some(dir)=std::env::var_os("HOARE_EXACT_FIXTURE_DIR") else{return;};
         let dir=std::path::PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let zero=Anf::from([0,1]);let all=Anf::from([0]);
+        let zero_pred=Anf::from([0,1]);let all=Anf::from([0]);
         let init3=Anf::from([0,1,2,3,4,5,6,7]);
         let cases=[
-            ("HH",1,vec![G::H(0),G::H(0)],zero.clone(),zero.clone()),
-            ("omega",1,vec![G::H(0),G::S(0),G::H(0)],zero.clone(),zero.clone()),
-            ("HTH",1,vec![G::H(0),G::T(0),G::H(0)],zero.clone(),zero.clone()),
+            ("HH",1,vec![G::H(0),G::H(0)],zero_pred.clone(),zero_pred.clone()),
+            ("omega",1,vec![G::H(0),G::S(0),G::H(0)],zero_pred.clone(),zero_pred.clone()),
+            ("HTH",1,vec![G::H(0),G::T(0),G::H(0)],zero_pred.clone(),zero_pred.clone()),
             ("BV",3,vec![G::X(2),G::H(0),G::H(1),G::H(2),G::CX(0,2),G::H(0),G::H(1)],init3.clone(),Anf::from([1,3])),
             ("GHZ",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3.clone(),Anf::from([0,1,2,4,5,6])),
-            ("GHZ-negative",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3,zero.clone()),
+            ("GHZ-negative",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3,zero_pred.clone()),
             ("free-input-negative",2,vec![G::CX(0,1)],all,Anf::from([0,2])),
         ];
         let mut manifest=String::new();

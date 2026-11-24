@@ -254,11 +254,11 @@ def parse_sat(rc, stdout, result, cnf):
         lits = list(map(int, clause.split()))
         if not lits or lits[-1] != 0 or not any(l in model for l in lits[:-1]):
             raise ValueError("SAT model fails CNF")
-    return True
+    return frozenset(model)
 
 def sat_parser_tests():
     f = "p cnf 1 1\n1 0\n"
-    assert parse_sat(10,"SATISFIABLE\n","SAT\n1 0\n",f) is True
+    assert parse_sat(10,"SATISFIABLE\n","SAT\n1 0\n",f) == frozenset({1})
     assert parse_sat(20,"UNSATISFIABLE\n","UNSAT\n",f) is False
     for rc,out,result in [(0,"UNSATISFIABLE\n","UNSAT\n"),
                           (20,"SATISFIABLE\n","UNSAT\n"),
@@ -270,8 +270,80 @@ def sat_parser_tests():
             continue
         raise AssertionError("accepted invalid SAT response")
 
+
+def decode_anfs(text):
+    return tuple(tuple(map(int,f.split(","))) if f!="-" else ()
+                 for f in text.split(";")) if text else ()
+
+def load_symbolic(directory):
+    symbols={}
+    with (directory/"hybrid-symbolic.tsv").open() as f:
+        for name,n,h,out,phase,pre,post in csv.reader(f,delimiter="\t"):
+            symbols[name]=(int(n),int(h),decode_anfs(out),
+                           tuple(tuple(map(int,t.split(":"))) for t in phase.split(",") if t),
+                           decode_anfs(pre),decode_anfs(post))
+    return symbols
+
+def eval_anf(f,bits):
+    return sum(bits&m==m for m in f)%2
+
+class Countermodels:
+    """Only reject candidates. A proof still requires actual solver UNSAT."""
+    def __init__(self,symbolic,j):
+        self.n,self.h,self.out,self.phase,self.pre,self.post=symbolic
+        self.j=j
+        self.models=[]
+        self.path_cache={}
+        self.live_cache={}
+    def path(self,x,y):
+        key=(x,y)
+        if key not in self.path_cache:
+            bits=x|(y<<self.n)
+            z=sum(eval_anf(f,bits)<<i for i,f in enumerate(self.out))
+            k=sum(c for m,c in self.phase if bits&m==m)%8
+            self.path_cache[key]=(z,k)
+        return self.path_cache[key]
+    def survives(self,x,y,ds):
+        key=(x,y,ds)
+        if key not in self.live_cache:
+            if not ds:
+                live=True
+            else:
+                prev,d=ds[:-1],ds[-1]
+                z,k=self.path(x,y)
+                w,l=self.path(x,y^d)
+                paired=z==w and (l-k)%8==4
+                live=self.survives(x,y,prev) and not (
+                    paired and self.survives(x,y^d,prev))
+            self.live_cache[key]=live
+        return self.live_cache[key]
+    def add(self,model,ds):
+        # The MiniSat model was checked on every CNF clause. Unassigned
+        # variables can be completed with zero without falsifying clauses.
+        x=sum((i+2 in model)<<i for i in range(self.n))
+        y=sum((self.n+i+2 in model)<<i for i in range(self.h))
+        z,_=self.path(x,y)
+        assert all(eval_anf(f,x) for f in self.pre)
+        assert not eval_anf(self.post[self.j],z)
+        assert self.survives(x,y,ds),("countermodel does not survive",x,y,ds)
+        if (x,y) not in self.models:
+            self.models.append((x,y))
+    def rejects(self,ds):
+        return any(self.survives(x,y,ds) for x,y in self.models)
+
+def screening_model_tests():
+    # Paths 0..3; f=[0,4,4,4]. First survivor step removes one pair.
+    cm=Countermodels((1,2,((),),((1,4),(2,4),(3,4)),((0,),),((),)),0)
+    assert cm.path(0,0)==(0,0) and cm.path(0,3)==(0,4)
+    cm.add(frozenset({2,3,4}),())
+    assert cm.rejects((1,))
+    assert cm.rejects((1,2)) # overlapping pairs cannot be removed twice
+    # Countermodels belong only to their conjunct, never another post.
+
 def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
     sat_parser_tests()
+    screening_model_tests()
+    symbolic=load_symbolic(directory)
     sat_file = pathlib.Path(tmp)/"hybrid-sat.cnf"
     result_file = pathlib.Path(tmp)/"hybrid-sat.result"
     def sat(cnf, local_deadline):
@@ -290,7 +362,7 @@ def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
         if not result_file.is_file():
             raise ValueError("missing MiniSat result")
         return parse_sat(r.returncode,r.stdout,result_file.read_text(),cnf)
-    assert sat("p cnf 1 1\n1 0\n",time.monotonic()+2) is True
+    assert sat("p cnf 1 1\n1 0\n",time.monotonic()+2) == frozenset({1})
     assert sat("p cnf 1 2\n1 0\n-1 0\n",time.monotonic()+2) is False
     assert sat("p cnf 1 1\n1 0\n",time.monotonic()-1) is None
     plans={}
@@ -322,62 +394,80 @@ def run_hybrid(directory, tmp, deadline, two_weighted, sat_exe):
             except (TimeoutError,subprocess.TimeoutExpired):
                 dv,dw,dc,dw_s="UNKNOWN",None,None,0.0
             direct_s=time.monotonic()-t
-            # No access to expected verdict, coefficients or witness
-            # when selecting a route. Partial residual filters opt-in
-            # only, not used in this default dispatcher.
-            t=time.monotonic()
-            local_deadline=min(deadline,t+0.5)
-            queries=0;used=[];complete=True
-            for j in range(nq):
-                proved=False
-                for kind,ds,file in plans.get((name,j),[]):
-                    if queries>=24 or time.monotonic()>=local_deadline:
-                        break
-                    queries+=1
-                    outcome=sat((directory/file).read_text(),local_deadline)
-                    if outcome is False:
-                        used.append((j,kind,ds));proved=True;break
-                    if outcome is None:
-                        break
-                if not proved:
-                    complete=False;break
-            sat_s=time.monotonic()-t
-            fallback_s=0.0;hw_s=0.0
-            if complete:
-                hv,hw,hc="PROVED",None,(0,0)
-                route="SAT_"+max((x[1] for x in used),key=lambda k:{"guard":0,"single":1,"multi":2}[k],default="guard").upper()
-            else:
-                route="DIRECT_WMC_FALLBACK"
+            # Matched same-run ablation. Both policies use the same plan,
+            # exact fallback and resource caps; pruning only avoids calls.
+            def dispatch(screened):
                 t=time.monotonic()
-                try:
-                    hv,hw,hc,hw_s=wmc_verdict(base,delta,n)
-                except (TimeoutError,subprocess.TimeoutExpired):
-                    hv,hw,hc,hw_s="UNKNOWN",None,None,0.0
-                fallback_s=time.monotonic()-t
+                local_deadline=min(deadline,t+0.5)
+                queries=0;skipped=0;used=[];complete=True
+                for j in range(nq):
+                    cm=Countermodels(symbolic[name],j) if screened else None
+                    proved=False
+                    for kind,ds,file in plans.get((name,j),[]):
+                        if queries>=24 or time.monotonic()>=local_deadline:
+                            break
+                        directions=() if kind=="guard" else tuple(map(int,ds.split("-")))
+                        if cm is not None and cm.rejects(directions):
+                            skipped+=1
+                            continue
+                        queries+=1
+                        outcome=sat((directory/file).read_text(),local_deadline)
+                        if outcome is False:
+                            used.append((j,kind,ds));proved=True;break
+                        if outcome is None:
+                            break
+                        if cm is not None:
+                            cm.add(outcome,directions)
+                    if not proved:
+                        complete=False;break
+                sat_s=time.monotonic()-t
+                fallback_s=0.0;hw_s=0.0
+                if complete:
+                    hv,hw,hc="PROVED",None,(0,0)
+                    route="SAT_"+max((x[1] for x in used),key=lambda k:{"guard":0,"single":1,"multi":2}[k],default="guard").upper()
+                else:
+                    route="DIRECT_WMC_FALLBACK"
+                    t=time.monotonic()
+                    try:
+                        hv,hw,hc,hw_s=wmc_verdict(base,delta,n)
+                    except (TimeoutError,subprocess.TimeoutExpired):
+                        hv,hw,hc,hw_s="UNKNOWN",None,None,0.0
+                    fallback_s=time.monotonic()-t
+                return dict(route=route,verdict=hv,witness=hw,coeff=hc,
+                            proofs=used,sat_queries=queries,skipped=skipped,
+                            sat_s=round(sat_s,6),fallback_s=round(fallback_s,6),
+                            witness_s=round(hw_s,6),
+                            total_s=round((build_us+direct_us+plan_us)/1e6+sat_s+fallback_s,6))
+            # Alternate order to reduce systematic warm-up bias.
+            if len(records)%2:
+                screened=dispatch(True);plain=dispatch(False)
+            else:
+                plain=dispatch(False);screened=dispatch(True)
             # Oracle check only after both routes finish.
             expected=tuple(map(int,expected.split(",")))
             witnesses=set() if witnesses=="-" else set(map(int,witnesses.split(",")))
             truth="REFUTED" if witnesses else "PROVED"
-            for verdict,witness,coeff in [(dv,dw,dc),(hv,hw,hc)]:
+            for verdict,witness,coeff in [(dv,dw,dc)]+[
+                    (r["verdict"],r["witness"],r["coeff"]) for r in (plain,screened)]:
                 if verdict=="UNKNOWN":
                     continue
                 assert verdict==truth and tuple(coeff)==expected,(name,verdict,truth,coeff,expected)
                 assert (witness in witnesses) if witnesses else witness is None
-            row=dict(case=name,route=route,verdict=hv,direct_verdict=dv,
-                     witness=hw,direct_witness=dw,proofs=used,sat_queries=queries,
+            row=dict(case=name,direct_verdict=dv,direct_witness=dw,
                      build_us=build_us,direct_encoding_us=direct_us,plan_export_us=plan_us,
-                     sat_s=round(sat_s,6),fallback_s=round(fallback_s,6),
-                     direct_solver_s=round(direct_s,6),direct_witness_s=round(dw_s,6),
-                     hybrid_witness_s=round(hw_s,6),
                      direct_total_s=round((build_us+direct_us)/1e6+direct_s,6),
-                     hybrid_total_s=round((build_us+direct_us+plan_us)/1e6+sat_s+fallback_s,6))
-            print("HOARE_HYBRID "+json.dumps(row),flush=True)
+                     plain=plain,screened=screened)
+            print("HOARE_SCREENED_HYBRID "+json.dumps(row),flush=True)
             records.append(row)
     assert len(records)==8
-    print("HOARE_HYBRID_SUMMARY "+json.dumps(dict(cases=len(records),
-          completed=sum(r["verdict"]!="UNKNOWN" and r["direct_verdict"]!="UNKNOWN" for r in records),
-          sat_proofs=sum(r["route"].startswith("SAT_") for r in records),
-          fallback=sum(r["route"]=="DIRECT_WMC_FALLBACK" for r in records))),flush=True)
+    assert sum(r["screened"]["skipped"] for r in records)>0
+    print("HOARE_SCREENED_HYBRID_SUMMARY "+json.dumps(dict(cases=len(records),
+          completed=sum(r["direct_verdict"]!="UNKNOWN" and all(r[k]["verdict"]!="UNKNOWN" for k in ("plain","screened")) for r in records),
+          plain_queries=sum(r["plain"]["sat_queries"] for r in records),
+          screened_queries=sum(r["screened"]["sat_queries"] for r in records),
+          skipped=sum(r["screened"]["skipped"] for r in records),
+          plain_proofs=sum(r["plain"]["route"].startswith("SAT_") for r in records),
+          screened_proofs=sum(r["screened"]["route"].startswith("SAT_") for r in records))),flush=True)
 
 
 if __name__ == "__main__":

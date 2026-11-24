@@ -2143,7 +2143,7 @@ mod exact_property_cnf {
         let c=scaled_cases().into_iter().find(|c|c.name=="HTH-product4").unwrap();
         cases.push(("HTH4".into(),c.n,c.ops,c.p,c.q));
         assert_eq!(cases.len(),8);
-        let mut manifest=String::new();let mut plans=String::new();
+        let mut manifest=String::new();let mut plans=String::new();let mut symbolic=String::new();
         for (name,n,ops,p,q) in cases{
             // Independent small gate oracle: never supplied to dispatcher
             // until its verdict and witness have been produced.
@@ -2162,6 +2162,12 @@ mod exact_property_cnf {
             std::fs::write(dir.join(format!("hybrid-{name}-wmc.cnf")),dimacs(&c,&[]).unwrap()).unwrap();
             let direct_us=t.elapsed().as_micros();
             let t=std::time::Instant::now();
+            let anf_text=|fs:&[Anf]|fs.iter().map(|f|if f.is_empty(){"-".to_owned()}else{
+                f.iter().map(|m|m.to_string()).collect::<Vec<_>>().join(",")
+            }).collect::<Vec<_>>().join(";");
+            let phase=s.phase.iter().map(|(m,k)|format!("{m}:{k}")).collect::<Vec<_>>().join(",");
+            symbolic.push_str(&format!("{name}\t{n}\t{}\t{}\t{phase}\t{}\t{}\n",
+                s.h,anf_text(&s.output),anf_text(&p),anf_text(&q)));
             let candidates=small_span_candidates(&s);
             for (j,f) in q.iter().enumerate(){
                 let (base,bits,z)=fiber_guard(&s,&p,f);
@@ -2196,6 +2202,7 @@ mod exact_property_cnf {
         }
         std::fs::write(dir.join("hybrid.tsv"),manifest).unwrap();
         std::fs::write(dir.join("hybrid-plan.tsv"),plans).unwrap();
+        std::fs::write(dir.join("hybrid-symbolic.tsv"),symbolic).unwrap();
         println!("HOARE_HYBRID_FIXTURES cases=8 external_plan_only=true");
     }
 

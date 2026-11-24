@@ -812,24 +812,41 @@ theorem quad_table_zero (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
   | zero => rfl
   | succ n ih => simp [quadTable, ih]
 
+private theorem lt_select_true (a b : Nat) (u v : Int) (h : a < b) :
+    (if a < b then u else v) = u := by
+  split
+  · rfl
+  · contradiction
+
+private theorem lt_select_false (a b : Nat) (u v : Int) (h : ¬ a < b) :
+    (if a < b then u else v) = v := by
+  split
+  · contradiction
+  · rfl
+
 theorem quad_table_unit (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
     (n j : Nat) :
     quadTable c l q n (unitState j) = c + (if j < n then l j else 0) := by
   induction n with
-  | zero => simp [quadTable]
+  | zero =>
+      rw [lt_select_false j 0 (l j) 0 (by omega)]
+      simp [quadTable]
   | succ n ih =>
       by_cases he : j = n
       · subst j
-        simp only [quadTable, ih, row_eval_unit]
         have hu : unitState n n = true := by simp [unitState]
-        rw [hu]
-        simp <;> omega
+        simp only [quadTable, ih, row_eval_unit, hu]
+        rw [lt_select_false n n (l n) 0 (by omega),
+            lt_select_false n n (q n n) 0 (by omega),
+            lt_select_true n (n+1) (l n) 0 (by omega)] <;> simp
       · have hn : n ≠ j := by omega
-        have hs : j < n+1 ↔ j < n := by omega
-        simp only [quadTable, ih]
         have hu : unitState j n = false := by simp [unitState, hn]
-        rw [hu]
-        simp [hs]
+        simp only [quadTable, ih, hu]
+        by_cases hj : j < n
+        · rw [lt_select_true j n (l j) 0 hj,
+              lt_select_true j (n+1) (l j) 0 (by omega)] <;> simp
+        · rw [lt_select_false j n (l j) 0 hj,
+              lt_select_false j (n+1) (l j) 0 (by omega)] <;> simp
 
 theorem quad_table_pair (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
     (n j k : Nat) (hj : j < k) (hk : k < n) :
@@ -851,16 +868,16 @@ theorem quad_table_pair (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
           intro i hi
           have hn : i ≠ n := by omega
           simp [pairState, unitState, hn]
-        simp only [quadTable]
+        have hp : pairState j n n = true := by simp [pairState]
+        simp only [quadTable, hp]
         rw [ht, hr, quad_table_unit, row_eval_unit]
-        simp [pairState, hj] <;> omega
+        rw [lt_select_true j n (l j) 0 hj,
+            lt_select_true j n (q n j) 0 hj] <;> simp <;> omega
       · have hkn : k < n := by omega
         have hnj : n ≠ j := by omega
         have hnk : n ≠ k := by omega
-        simp only [quadTable, ih hkn]
         have hp : pairState j k n = false := by simp [pairState, hnj, hnk]
-        rw [hp]
-        simp
+        simp only [quadTable, ih hkn, hp] <;> simp
 
 theorem quad_table_mod_constant (c : Int) (l : Nat → Int) (q : Nat → Nat → Int)
     (n : Nat) (x : State)
@@ -877,9 +894,9 @@ theorem quad_table_mod_constant (c : Int) (l : Nat → Int) (q : Nat → Nat →
         apply sumInt_mod_zero
         intro j hj
         have hh := hq n j (by omega) hj
-        cases hx : x j <;> simp [hx, hh]
+        cases x j <;> simp [hh]
       simp only [quadTable]
-      cases hx : x n <;> simp [hx] <;> omega
+      cases x n <;> simp <;> omega
 
 /-- Exact interpolation: the zero, one-hot and two-hot sample values
     imply a universal constant modulo 8 for every bounded table.
@@ -896,7 +913,7 @@ theorem quadratic_interpolation_sound (c : Int) (l : Nat → Int)
     intro i hi
     have h := h1 i hi
     rw [quad_table_unit] at h
-    simp [hi] at h
+    rw [lt_select_true i n (l i) 0 hi] at h
     omega
   have hq : ∀ i j, i < n → j < i → q i j % 8 = 0 := by
     intro i j hi hj

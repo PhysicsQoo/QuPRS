@@ -1052,8 +1052,9 @@ def paper_compare(gpmc):
 if __name__=="__main__":
     directory=pathlib.Path(sys.argv[1]);gpmc=pathlib.Path(sys.argv[2]).resolve()
     compare(directory,gpmc)
-    if os.environ.get("HOARE_FOURIER_COMPARE")=="1":
-        compare(directory,gpmc,heldout=True)
+    if os.environ.get("HOARE_SECTOR_TRANSPORT")=="1" or os.environ.get("HOARE_FOURIER_COMPARE")=="1":
+        if os.environ.get("HOARE_SECTOR_TRANSPORT")!="1":
+            compare(directory,gpmc,heldout=True)
         # Retain the wide count and structural correctness contracts,
         # not the already-admitted historical paper timing pilot.
         with tempfile.TemporaryDirectory(prefix="hoare-wide-contract-") as tmp:

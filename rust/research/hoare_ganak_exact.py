@@ -488,11 +488,17 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     z8_differential(directory,exe,tmp,rows)
     from hoare_projected_count import audit_fourier_heldout
     audit_fourier_heldout(directory/"fourier-heldout")
+    if os.environ.get("HOARE_SECTOR_TRANSPORT")=="1":
+        from hoare_sector_transport import run_fourier
+        run_fourier(directory/"fourier-heldout")
     deadline=time.monotonic()+45
     run_residual_hybrid(directory,solve,deadline,rows)
     # Preserve the original discovery protocol on explicit request. Default
     # to the frozen long cohort rather than rerunning all 19 known timeouts.
-    if os.environ.get("HOARE_FOURIER_COMPARE")=="1":
+    if os.environ.get("HOARE_SECTOR_TRANSPORT")=="1":
+        # Prior long/held-out comparisons are frozen; no repeated timing.
+        pass
+    elif os.environ.get("HOARE_FOURIER_COMPARE")=="1":
         heldout_long=os.environ.get("HOARE_FOURIER_LONG")=="1"
         query_cap=120 if heldout_long else 30
         deadline=time.monotonic()+1200

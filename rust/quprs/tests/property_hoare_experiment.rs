@@ -974,4 +974,42 @@ mod exact_property_cnf {
         assert_eq!(verify_anf(1,&[G::H(0)],&all,&Anf::new(),0).answer,Answer::Unknown);
         assert_eq!(verify_anf(1,&[G::H(0)],&Anf::from([2]),&all,1000).answer,Answer::Unknown);
     }
+
+    #[test]
+    fn hoare_export_external_exact_fixtures(){
+        let Some(dir)=std::env::var_os("HOARE_EXACT_FIXTURE_DIR") else{return;};
+        let dir=std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zero=Anf::from([0,1]);let all=Anf::from([0]);
+        let init3=Anf::from([0,1,2,3,4,5,6,7]);
+        let cases=[
+            ("HH",1,vec![G::H(0),G::H(0)],zero.clone(),zero.clone()),
+            ("omega",1,vec![G::H(0),G::S(0),G::H(0)],zero.clone(),zero.clone()),
+            ("HTH",1,vec![G::H(0),G::T(0),G::H(0)],zero.clone(),zero.clone()),
+            ("BV",3,vec![G::X(2),G::H(0),G::H(1),G::H(2),G::CX(0,2),G::H(0),G::H(1)],init3.clone(),Anf::from([1,3])),
+            ("GHZ",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3.clone(),Anf::from([0,1,2,4,5,6])),
+            ("GHZ-negative",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],init3,zero.clone()),
+            ("free-input-negative",2,vec![G::CX(0,1)],all,Anf::from([0,2])),
+        ];
+        let mut manifest=String::new();
+        for (name,n,ops,p,q) in cases{
+            let direct=native(n,&ops).unwrap();
+            let (reduced,stats)=reduced_native(n,&ops).unwrap();
+            let witnesses:Vec<_>=(0..1u64<<n).filter(|&x|violated(n,&ops,&p,&q,x)).map(|x|x.to_string()).collect();
+            let witness_list=if witnesses.is_empty(){"-".to_owned()}else{witnesses.join(",")};
+            for (route,s,scale) in [("direct",&direct,0),("rr",&reduced,stats.scale2)]{
+                let (c,d)=two_copy(s,&p,&q);
+                let ns=buckets(&c,d,&[],&mut 20_000_000).unwrap();
+                assert_eq!(ns,direct_buckets(s,&p,&q));
+                assert_eq!(zero(ns),witnesses.is_empty());
+                let id=format!("{name}-{route}");
+                std::fs::write(dir.join(format!("{id}.cnf")),dimacs(&c,&[]).unwrap()).unwrap();
+                let counts=ns.iter().map(|x|x.to_string()).collect::<Vec<_>>().join(",");
+                manifest.push_str(&format!("{name}\t{route}\t{n}\t{scale}\t{},{},{}\t{counts}\t{witness_list}\n",d[0],d[1],d[2]));
+            }
+        }
+        std::fs::write(dir.join("manifest.tsv"),manifest).unwrap();
+        println!("HOARE_EXTERNAL_FIXTURES cases=7 variants=14");
+    }
+
 }

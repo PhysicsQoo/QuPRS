@@ -8,6 +8,7 @@ on:
     paths:
       - rust/quprs/tests/qasm_source_semantics_experiment.rs
       - rust/quprs/tests/property_hoare_experiment.rs
+      - rust/research/hoare_ganak_exact.py
       - rust/quprs/tests/qasm_strict_unitary_matrix_oracle.rs
       - rust/quprs/tests/qasm_two_qubit_source_contract.rs
       - rust/quprs/tests/qasm_source_ir_certificate_experiment.rs
@@ -90,6 +91,24 @@ jobs:
           cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
             --test property_hoare_experiment -- --nocapture \
             2>&1 | tee evidence/property-hoare.log
+
+      - name: Verify exact integer Ganak property counts
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/hoare-exact-fixtures
+          HOARE_EXACT_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/hoare-exact-fixtures" \
+            cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+              --test property_hoare_experiment hoare_export_external_exact_fixtures -- --nocapture
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-time 60 \
+            https://github.com/meelgroup/ganak/releases/download/release/v2.8.0/ganak-v2.8.0-linux-amd64.tar.gz \
+            -o "$tmp/ganak.tar.gz"
+          echo "bea7150787a1e8f2b1bd658cb5a3c227d631d25054f5ff77ce23422e1c8b040c  $tmp/ganak.tar.gz" | sha256sum -c -
+          tar -xOzf "$tmp/ganak.tar.gz" ganak > "$tmp/ganak"
+          chmod 700 "$tmp/ganak"
+          python3 rust/research/hoare_ganak_exact.py "$tmp/ganak" evidence/hoare-exact-fixtures \
+            2>&1 | tee evidence/hoare-ganak-exact.log
 
       - name: Observe native parser, CX and U/U3 phase behavior
         run: |

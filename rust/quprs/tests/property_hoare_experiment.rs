@@ -650,19 +650,19 @@ mod exact_property_cnf {
     struct ResultRecord {
         answer:Answer, route:SolverRoute, variables:usize, clauses:usize, visits:u64,
     }
-    fn verify_anf(n:usize,ops:&[G],p:&Anf,q:&Anf,budget:u64)->ResultRecord{
+    fn solve_symbolic(s:&Symbolic,p:&Anf,q:&Anf,budget:u64)->ResultRecord{
+        let n=s.n;
         let mut fuel=budget;
         let mut size=(0,0);
         let result=(||->Option<(Answer,SolverRoute)>{
-            if !admitted(n,ops)||p.iter().chain(q).any(|&m|m>>n!=0){return None;}
+            if p.iter().chain(q).any(|&m|m>>n!=0){return None;}
             // Bound experimental input/phase size before CNF construction.
             // The existing native PathSum builder itself is not a resource-certified parser.
             if p.len()+q.len()>128{return None;}
-            let s=native(n,ops)?;
             if s.output.iter().map(|o|o.len()).sum::<usize>()+s.phase.len()>256{return None;}
-            let guard=guard_cnf(&s,p,q);size=(guard.vars,guard.clauses.len());
+            let guard=guard_cnf(s,p,q);size=(guard.vars,guard.clauses.len());
             if count(&guard,&[],&mut fuel,true)?==0{return Some((Answer::Proved,SolverRoute::SatUnsat));}
-            let (c,d)=two_copy(&s,p,q);size=(c.vars,c.clauses.len());
+            let (c,d)=two_copy(s,p,q);size=(c.vars,c.clauses.len());
             if zero(buckets(&c,d,&[],&mut fuel)?){return Some((Answer::Proved,SolverRoute::ExactCount));}
             // Condition on input bits. A nonzero parent sum is a sum of
             // nonnegative child risks, so at least one branch is nonzero.
@@ -679,6 +679,197 @@ mod exact_property_cnf {
             Some((Answer::Refuted(x),SolverRoute::ExactCount))
         })().unwrap_or((Answer::Unknown,SolverRoute::Unknown));
         ResultRecord{answer:result.0,route:result.1,variables:size.0,clauses:size.1,visits:budget-fuel}
+    }
+    fn unknown()->ResultRecord{
+        ResultRecord{answer:Answer::Unknown,route:SolverRoute::Unknown,variables:0,clauses:0,visits:0}
+    }
+    fn verify_anf(n:usize,ops:&[G],p:&Anf,q:&Anf,budget:u64)->ResultRecord{
+        if !admitted(n,ops)||p.iter().chain(q).any(|&m|m>>n!=0){return unknown();}
+        match native(n,ops){
+            Some(s)=>solve_symbolic(&s,p,q,budget),
+            None=>unknown(),
+        }
+    }
+
+    // Same existing native rules, but only accept HH when both eliminated
+    // labels are internal. Trial on a clone; never retain an input pivot.
+    // Reduction is applied before building the property guard.
+    // scale2 is the exponent of the factor multiplying squared UNNORMALIZED
+    // residual amplitudes to obtain squared UNNORMALIZED original amplitudes.
+    #[derive(Default,Debug)]
+    struct RrStats { elim:usize, hh:usize, omega:usize, input_pivot_rejected:usize, scale2:u32 }
+    fn compact(ps:&PathSum,n:usize)->Option<Symbolic>{
+        if ps.rr_approximate||ps.rr_tolerance!=0.0||!ps.v.continuous_vars.is_empty(){return None;}
+        let live=&ps.v.path_vars;
+        if (0..n).any(|i|!live.contains(&(i as u32))){return None;}
+        let mut ids:Vec<u32>=live.iter().copied().collect();ids.sort_unstable();
+        if ids.len()>63||ids.len()<n{return None;}
+        let map:BTreeMap<_,_>=ids.iter().enumerate().map(|(i,&v)|(v,i)).collect();
+        let mask=|m:&[u32]|->Option<u64>{
+            let mut out=0;
+            for v in m{out|=1u64<<*map.get(v)?;}
+            Some(out)
+        };
+        let output=ps.f.functions.iter().map(|p|p.iter().map(|m|mask(m)).collect::<Option<BTreeSet<_>>>()).collect::<Option<Vec<_>>>()?;
+        if output.len()!=n{return None;}
+        let mut phase=BTreeMap::new();
+        for (m,c) in &ps.p.terms{
+            if c.radians.is_some()||!c.symbols.is_empty(){return None;}
+            let num=8i128*c.constant.numer as i128;
+            let den=c.constant.denom as i128;
+            if den==0||num%den!=0{return None;}
+            let k=(num/den).rem_euclid(8) as u8;
+            if k!=0{phase.insert(mask(m)?,k);}
+        }
+        Some(Symbolic{n,h:ids.len()-n,output,phase})
+    }
+    fn reduce_existing(mut ps:PathSum,n:usize)->Option<(Symbolic,RrStats)>{
+        let mut stats=RrStats::default();
+        for _ in 0..32{
+            let before=ps.v.path_vars.len();
+            let snapshot=compact(&ps,n)?;
+            if snapshot.output.iter().map(|p|p.len()).sum::<usize>()+snapshot.phase.len()>256{return None;}
+            let candidates=ps.get_reducible_vars();
+            if candidates.is_empty(){return Some((snapshot,stats));}
+            if ps.try_reduce_elim(&candidates){
+                let removed=before.checked_sub(ps.v.path_vars.len())?;
+                if removed==0{return None;}
+                stats.elim+=removed;stats.scale2+=2*removed as u32;continue;
+            }
+            if ps.try_reduce_omega(&candidates){
+                if before.checked_sub(ps.v.path_vars.len())?!=1{return None;}
+                stats.omega+=1;stats.scale2+=1;continue;
+            }
+            let mut accepted=false;
+            for y in candidates{
+                let mut trial=ps.clone();
+                if trial.try_reduce_hh(&[y]){
+                    let removed:Vec<_>=ps.v.path_vars.difference(&trial.v.path_vars).copied().collect();
+                    if removed.len()==1{
+                        // Existing HH may pivot on original input x_i.
+                        // It substitutes x_i but leaves its label live.
+                        // Reject this trial; use unchanged original state.
+                        stats.input_pivot_rejected+=1;
+                        continue;
+                    }
+                    if removed.len()!=2||!removed.contains(&y)||removed.iter().any(|&v|(v as usize)<n)
+                        ||!trial.v.path_vars.is_subset(&ps.v.path_vars){return None;}
+                    ps=trial;stats.hh+=1;stats.scale2+=2;accepted=true;break;
+                }
+            }
+            if !accepted{return Some((snapshot,stats));}
+        }
+        None
+    }
+    fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{
+        if !admitted(n,ops){return None;}
+        let mut ps=PathSum::new(n);
+        ps.set_auto_reduce(false);
+        for g in ops{g.apply(&mut ps,false);}
+        reduce_existing(ps,n)
+    }
+    fn signed(ns:[u128;8])->[i128;4]{
+        std::array::from_fn(|i|ns[i] as i128-ns[i+4] as i128)
+    }
+    fn compare_rr(n:usize,ops:&[G],p:&Anf,q:&Anf)->(ResultRecord,ResultRecord,RrStats,usize,usize){
+        let direct=native(n,ops).unwrap();
+        let (reduced,stats)=reduced_native(n,ops).unwrap();
+        let (c,d)=two_copy(&direct,p,q);
+        let (cr,dr)=two_copy(&reduced,p,q);
+        let a=signed(buckets(&c,d,&[],&mut 20_000_000).unwrap());
+        let b=signed(buckets(&cr,dr,&[],&mut 20_000_000).unwrap());
+        assert_eq!(a,b.map(|v|v*(1i128<<stats.scale2)));
+        let x=solve_symbolic(&direct,p,q,20_000_000);
+        let y=solve_symbolic(&reduced,p,q,20_000_000);
+        let expected=(0..1u64<<n).any(|x|violated(n,ops,p,q,x));
+        for r in [&x,&y]{
+            match r.answer{
+                Answer::Proved=>assert!(!expected),
+                Answer::Refuted(w)=>assert!(expected&&violated(n,ops,p,q,w)),
+                Answer::Unknown=>panic!("unexpected unknown: {r:?}"),
+            }
+        }
+        (x,y,stats,direct.h,reduced.h)
+    }
+    // Standard unweighted DIMACS per bucket and conditioned input prefix.
+    // No projected counting is necessary because gate auxiliaries have
+    // unique extension. External exact solver integration remains separate.
+    fn dimacs(c:&Cnf,assumptions:&[Lit])->Option<String>{
+        if !c.bounded()||assumptions.iter().any(|&l|l==0||l.unsigned_abs() as usize>c.vars){return None;}
+        let mut out=format!("p cnf {} {}\n",c.vars,c.clauses.len()+assumptions.len());
+        for clause in &c.clauses{
+            for l in clause{out.push_str(&format!("{l} "));}
+            out.push_str("0\n");
+        }
+        for l in assumptions{out.push_str(&format!("{l} 0\n"));}
+        Some(out)
+    }
+    fn parse_own_dimacs(text:&str)->Cnf{
+        let mut lines=text.lines();
+        let header:Vec<_>=lines.next().unwrap().split_whitespace().collect();
+        assert_eq!(&header[..2],["p","cnf"]);
+        let vars=header[2].parse().unwrap();
+        let expected:usize=header[3].parse().unwrap();
+        let clauses:Vec<Vec<Lit>>=lines.map(|line|{
+            let mut row:Vec<Lit>=line.split_whitespace().map(|l|l.parse().unwrap()).collect();
+            assert_eq!(row.pop(),Some(0));
+            assert!(row.iter().all(|l|*l!=0&&l.unsigned_abs() as usize<=vars));
+            row
+        }).collect();
+        assert_eq!(clauses.len(),expected);Cnf{vars,clauses}
+    }
+    #[test]
+    fn hoare_standard_rr_and_dimacs(){
+        let all=Anf::from([0]);let zero=Anf::from([0,1]);
+        let cases=[
+            ("HH",1,vec![G::H(0),G::H(0)],zero.clone(),zero.clone()),
+            ("omega",1,vec![G::H(0),G::S(0),G::H(0)],zero.clone(),zero.clone()),
+            ("HTH",1,vec![G::H(0),G::T(0),G::H(0)],zero.clone(),zero.clone()),
+            ("BV",3,vec![G::X(2),G::H(0),G::H(1),G::H(2),G::CX(0,2),G::H(0),G::H(1)],
+                Anf::from([0,1,2,3,4,5,6,7]),Anf::from([1,3])),
+            ("GHZ",3,vec![G::H(0),G::CX(0,1),G::CX(0,2)],Anf::from([0,1,2,3,4,5,6,7]),Anf::from([0,1,2,4,3,5,6])),
+        ];
+        for (name,n,ops,p,q) in cases{
+            let (a,b,stats,h,hr)=compare_rr(n,&ops,&p,&q);
+            if name=="HH"{assert_eq!((h,hr,stats.hh),(2,0,1));}
+            if name=="omega"{assert_eq!((h,hr,stats.omega),(2,1,1));}
+            let s=native(n,&ops).unwrap();let (c,d)=two_copy(&s,&p,&q);
+            let expected=buckets(&c,d,&[],&mut 20_000_000).unwrap();
+            for j in 0..8{
+                let units:Vec<_>=d.iter().enumerate().map(|(i,&l)|if j>>i&1!=0{l}else{-l}).collect();
+                let serialized=dimacs(&c,&units).unwrap();
+                let parsed=parse_own_dimacs(&serialized);
+                assert_eq!(count(&parsed,&[],&mut 20_000_000,false),Some(expected[j]));
+            }
+            println!("HOARE_RR_BASELINE case={name} h={h}->{hr} vars={}->{} clauses={}->{} visits={}->{} stats={stats:?}",a.variables,b.variables,a.clauses,b.clauses,a.visits,b.visits);
+        }
+        // Synthetic input-dependent projector, not a unitary circuit.
+        // S|x>=Σ_y(-1)^(xy)|x>; removing y without preserving [x=0]
+        // would lose the zero column. Existing input pivot must be rejected.
+        let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+        let y=ps.v.get_fresh_var();
+        ps.p.add_term(vec![0,y],quprs::pathsum::PhaseCoeff::HALF);
+        let (s,stats)=reduce_existing(ps,1).unwrap();
+        assert_eq!(s.h,1);assert_eq!(stats.input_pivot_rejected,1);
+        let (c,d)=two_copy(&s,&all,&zero);
+        assert!(zero_buckets_for_test(&c,d));
+    }
+    fn zero_buckets_for_test(c:&Cnf,d:[Lit;3])->bool{
+        zero(buckets(c,d,&[],&mut 20_000_000).unwrap())
+    }
+    #[test]
+    fn hoare_standard_rr_differential(){
+        let gates=[G::H(0),G::H(1),G::CX(0,1),G::CZ(0,1),G::T(0),G::S(1)];
+        let preds:Vec<Anf>=(0..16).map(|mask|(0..4).filter(|i|mask>>i&1!=0).collect()).collect();
+        let mut cases=0;
+        for g in &gates{for h in &gates{
+            let ops=[G::H(0),g.clone(),h.clone()];
+            for p in &preds{for q in &preds{
+                compare_rr(2,&ops,p,q);cases+=1;
+            }}
+        }}
+        assert_eq!(cases,9216);
+        println!("HOARE_RR_DIFFERENTIAL cases={cases} exact_scaled_violation_and_witness=true");
     }
     fn direct_buckets(s:&Symbolic,p:&Anf,q:&Anf)->[u128;8]{
         let mut n=[0;8];

@@ -3437,7 +3437,8 @@ mod exact_property_cnf {
         }
         cache.insert(f,l);l
     }
-    struct AffPair{cnf:Cnf,delta:[Lit;3],inputs:Vec<Lit>,primary:usize,terms:usize}
+    type PhaseProducts=BTreeMap<Vec<AffForm>,u8>;
+    struct AffPair{cnf:Cnf,delta:[Lit;3],inputs:Vec<Lit>,primary:usize,terms:usize,phase:Option<PhaseProducts>,unsat:bool}
     fn affine_quotient_pair(s:&Symbolic,p:&[Anf],q:&[Anf])->Option<AffPair>{
         let width=s.n+2*s.h;
         if width>=128{return None;}
@@ -3457,7 +3458,7 @@ mod exact_property_cnf {
         }
         let Some(forms)=pair_rref(rows,width) else{
             let mut cnf=Cnf::new(0);cnf.enforce(ZERO);
-            return Some(AffPair{cnf,delta:[ZERO;3],inputs:vec![ZERO;s.n],primary:0,terms:0});
+            return Some(AffPair{cnf,delta:[ZERO;3],inputs:vec![ZERO;s.n],primary:0,terms:0,phase:None,unsat:true});
         };
         let primary=forms.iter().fold(0u128,|a,f|a|f.0).count_ones() as usize;
         let mut cnf=Cnf::new(primary);
@@ -3491,13 +3492,16 @@ mod exact_property_cnf {
         }
         let terms=phase.len();
         let mut delta=[ZERO;3];
-        for (key,k) in phase{
+        for (key,&k) in &phase{
             let mut m=ONE;
-            for f in key{let l=form_lit(&mut cnf,&mut cache,f);m=cnf.and(m,l);}
+            for &f in key{let l=form_lit(&mut cnf,&mut cache,f);m=cnf.and(m,l);}
             let term=std::array::from_fn(|i|if k>>i&1!=0{m}else{ZERO});
             delta=cnf.add3(delta,term);
         }
-        Some(AffPair{cnf,delta,inputs,primary,terms})
+        // Only export a guard-free phase model if the complete violation
+        // predicate was absorbed by the affine equations.
+        let phase=if q.len()==1&&linear_form(&q[0],s.n).is_some(){Some(phase)}else{None};
+        Some(AffPair{cnf,delta,inputs,primary,terms,phase,unsat:false})
     }
     #[test]
     fn hoare_affine_quotient_exact(){
@@ -3534,7 +3538,43 @@ mod exact_property_cnf {
         assert!(affine_quotient_pair(&s,&[Anf::from([3])],&[]).is_none());
         println!("HOARE_AFFINE_QUOTIENT checks={checks} bucket_and_conditioned_exact=true");
     }
-    fn export_affine_benchmark(dir:&std::path::Path){
+
+    fn export_phase_factors(dir:&std::path::Path,name:&str,s:&Symbolic,p:&[Anf],q:&[Anf],
+                            scale:usize,raw:[i128;2],prep_us:u128,manifest:&mut String){
+        let t=std::time::Instant::now();
+        let plan=affine_quotient_pair(s,p,q).expect("affine factor admission");
+        let mut data=String::new();
+        let status=if plan.unsat{"UNSAT_AFFINE"}else if let Some(phase)=&plan.phase{
+            for (key,k) in phase{
+                data.push_str(&k.to_string());
+                for &(mask,b) in key{data.push_str(&format!("\t{mask}:{}",b as u8));}
+                data.push('\n');
+            }
+            std::fs::write(dir.join(format!("factors-{name}.tsv")),data).unwrap();
+            "READY"
+        }else{"UNSUPPORTED_GUARD"};
+        let prep=prep_us+t.elapsed().as_micros();
+        manifest.push_str(&format!("{name}\t{}\t{scale}\t{}\t{}\t{status}\t{prep}\t{},{}\n",
+            s.h,plan.primary,plan.terms,raw[0],raw[1]));
+    }
+    fn export_factor_controls(dir:&std::path::Path,manifest:&mut String){
+        let cases=[
+            ("factor-HTH",1,vec![G::H(0),G::T(0),G::H(0)],vec![bit(0,false)],vec![bit(0,false)]),
+            ("factor-HH-safe",1,vec![G::H(0),G::H(0)],vec![bit(0,false)],vec![bit(0,false)]),
+            ("factor-parity-free",2,vec![G::H(0),G::T(0),G::CX(0,1),G::H(0)],vec![equal_bits(0,1)],vec![equal_bits(0,1)]),
+            ("factor-inconsistent",1,vec![G::H(0)],vec![bit(0,false),bit(0,true)],vec![bit(0,false)]),
+            ("factor-universal-post",1,vec![G::H(0)],vec![],vec![Anf::from([0])]),
+        ];
+        for (name,n,ops,p,q) in cases{
+            let mut raw=[0i128;2];
+            for x in 0..1u64<<n{if eval_conj(&p,x){let v=raw_for_input(n,&ops,&q,x);raw[0]+=v[0];raw[1]+=v[1];}}
+            let t=std::time::Instant::now();
+            let s=native(n,&ops).unwrap();
+            export_phase_factors(dir,name,&s,&p,&q,0,raw,t.elapsed().as_micros(),manifest);
+        }
+    }
+
+    fn export_affine_benchmark(dir:&std::path::Path,factors:&mut String){
         let mut manifest=String::new();
         for n in [10usize,13,15]{
             // Invertible output relabeling, so the original property is
@@ -3557,6 +3597,7 @@ mod exact_property_cnf {
             let scale=h-s.h;
             assert_eq!(raw_for_input(n,&reduced,&q,0).map(|v|v*(1i128<<scale)),raw);
             assert!(quotient_pair(&s,&p,&q).is_none());
+            export_phase_factors(dir,&name,&s,&p,&q,scale,raw,cone_us+build_us,factors);
             for mode in ["cone","affine"]{
                 let t=std::time::Instant::now();
                 let (c,d,primary,terms)=if mode=="affine"{
@@ -3575,7 +3616,7 @@ mod exact_property_cnf {
     }
 
     fn export_cone_case(dir:&std::path::Path,name:&str,n:usize,ops:&[G],p:&[Anf],q:&[Anf],
-                        raw:[i128;2],manifest:&mut String,quotients:&mut String){
+                        raw:[i128;2],manifest:&mut String,quotients:&mut String,factors:&mut String){
         let h=ops.iter().filter(|g|matches!(g,G::H(_))).count();
         let t=std::time::Instant::now();
         let reduced=property_cone(n,ops,q).unwrap();
@@ -3589,6 +3630,7 @@ mod exact_property_cnf {
         let s=native(n,&reduced).unwrap();
         let build_us=t.elapsed().as_micros();
         assert_eq!(s.h,hr);
+        export_phase_factors(dir,name,&s,p,q,scale,raw,cone_us+build_us,factors);
         let t=std::time::Instant::now();
         let (c,d)=two_copy_conj(&s,p,q);
         let status=if let Some(text)=serialize_external(&c,&[]){
@@ -3610,7 +3652,7 @@ mod exact_property_cnf {
     fn export_scale_benchmark(dir:&std::path::Path){
         let dir=dir.join("scale-discovery");
         std::fs::create_dir_all(&dir).unwrap();
-        let mut direct=String::new();let mut residual=String::new();let mut cones=String::new();let mut quotients=String::new();
+        let mut direct=String::new();let mut residual=String::new();let mut cones=String::new();let mut quotients=String::new();let mut factors=String::new();
         let mut cases=Vec::new();
         for n in [8usize,10,12]{
             let v=scale_mixing(n,2);
@@ -3648,7 +3690,7 @@ mod exact_property_cnf {
             let encoding_us=t.elapsed().as_micros();
             direct.push_str(&format!("{name}\t{n}\t{h}\t{}\t{}\t{}\t{},{},{}\t{status}\t{build_us}\t{encoding_us}\t{oracle_us}\t{},{}\t{witness}\n",
                 ops.len(),c.vars,c.clauses.len(),d[0],d[1],d[2],raw[0],raw[1]));
-            if name.starts_with("mixing"){export_cone_case(&dir,&name,n,&ops,&p,&q,raw,&mut cones,&mut quotients);}
+            if name.starts_with("mixing"){export_cone_case(&dir,&name,n,&ops,&p,&q,raw,&mut cones,&mut quotients,&mut factors);}
             if let Some(input)=HoareInput::build_scale(n,&ops,p,q){
                 emit_residual_plans(&dir,&name,&input,raw,witness,&mut residual,true);
             }else{
@@ -3664,7 +3706,9 @@ mod exact_property_cnf {
         std::fs::write(dir.join("residual.tsv"),residual).unwrap();
         std::fs::write(dir.join("cone.tsv"),cones).unwrap();
         std::fs::write(dir.join("quotient.tsv"),quotients).unwrap();
-        export_affine_benchmark(&dir);
+        export_affine_benchmark(&dir,&mut factors);
+        export_factor_controls(&dir,&mut factors);
+        std::fs::write(dir.join("factors.tsv"),factors).unwrap();
         println!("HOARE_SCALE_DISCOVERY_FIXTURES cases=9 routes=45 cone_cases=3");
     }
 

@@ -507,8 +507,10 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             deadline=time.monotonic()+1050
             if os.environ.get("HOARE_LITERAL_QUOTIENT")=="1":
                 run_quotient_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
-            else:
+            elif os.environ.get("HOARE_AFFINE_QUOTIENT")=="1":
                 run_affine_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
+            else:
+                run_factor_pilot(directory/"scale-discovery",solve,deadline,long_metrics)
         long_metrics=None
     return rows
 
@@ -965,6 +967,240 @@ def run_affine_pilot(directory,solve,deadline,metrics):
         mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
         timeouts=sum(r["mode"]==mode and r["status"]=="ROOT_TIMEOUT" for r in rows))
         for mode in ("cone","affine")})),flush=True)
+
+
+
+
+# Exact Z[w] (w^4=-1), with no float arithmetic in the sum.
+RZERO=(0,0,0,0)
+RONE=(1,0,0,0)
+ROOTS=tuple(tuple((1 if j<4 else -1) if i==j%4 else 0 for i in range(4)) for j in range(8))
+
+
+def radd(a,b):
+    return tuple(x+y for x,y in zip(a,b))
+
+
+def rmul(a,b):
+    if a==RZERO or b==RZERO:return RZERO
+    if a==RONE:return b
+    if b==RONE:return a
+    if not any(a[1:]):return tuple(a[0]*x for x in b)
+    if not any(b[1:]):return tuple(b[0]*x for x in a)
+    x,y,z,t=a;u,v,w,s=b
+    return (x*u-y*s-z*w-t*v,x*v+y*u-z*s-t*w,
+            x*w+y*v+z*u-t*s,x*s+y*w+z*v+t*u)
+
+
+def mask_positions(m):
+    return tuple(i for i in range(m.bit_length()) if m>>i&1)
+
+
+def projection(outer,inner):
+    """Index of an outer assignment in the ordered inner scope."""
+    index=[0]
+    pos={v:i for i,v in enumerate(inner)}
+    for v in outer:
+        b=1<<pos[v] if v in pos else 0
+        index.extend([x|b for x in index])
+    return index
+
+
+class FactorLimit(Exception):
+    pass
+
+
+def factor_sum(primary,terms,deadline,max_width=16,max_work=4_000_000,max_live=524288):
+    """Bounded exact variable elimination; return a ring element or UNKNOWN.
+    The graph is built from affine-product scopes before any CNF construction.
+    Work counts table-entry operations conservatively, not CPU instructions.
+    """
+    stats=dict(work=0,width=0,peak_entries=0,eliminated=0,isolated=0,components=0)
+    factors=[]
+    active=set(range(primary))
+    constant=RONE
+    def charge(w):
+        stats["work"]+=w
+        if stats["work"]>max_work or time.monotonic()>=deadline:
+            raise FactorLimit("work-or-time")
+    def admit(scope,live):
+        stats["width"]=max(stats["width"],len(scope))
+        if len(scope)>max_width:raise FactorLimit("width")
+        size=1<<len(scope)
+        stats["peak_entries"]=max(stats["peak_entries"],live+size)
+        if live+size>max_live:raise FactorLimit("live-entries")
+        return size
+    try:
+        grouped={}
+        for k,forms in terms:
+            scope=0
+            assert 0<=k<8
+            for m,b in forms:
+                assert m>>primary==0 and b in (0,1)
+                scope|=m
+            grouped.setdefault(scope,[]).append((k,forms))
+        # Connected components are descriptive; disjoint components
+        # contract independently under the same bucket elimination loop.
+        unseen=set(active)
+        scopes=[set(mask_positions(m)) for m in grouped]
+        while unseen:
+            comp={min(unseen)}
+            while True:
+                nxt=comp.union(*(s for s in scopes if s&comp))
+                if nxt==comp:break
+                comp=nxt
+            unseen-=comp
+            stats["components"]+=1
+        live=0
+        for mask,group in sorted(grouped.items()):
+            scope=mask_positions(mask)
+            size=admit(scope,live)
+            charge(size*max(1,sum(len(fs)+1 for _,fs in group)))
+            local={v:i for i,v in enumerate(scope)}
+            packed=[(k,[(sum(1<<local[v] for v in mask_positions(m)),b) for m,b in fs]) for k,fs in group]
+            tab=[]
+            for a in range(size):
+                if a%1024==0:charge(0)
+                exponent=sum(k for k,fs in packed if all(((a&m).bit_count()&1)^b for m,b in fs))%8
+                tab.append(ROOTS[exponent])
+            if not scope:constant=rmul(constant,tab[0])
+            else:factors.append((scope,tab));live+=size
+        while active:
+            if constant==RZERO:return RZERO,stats,"EXACT_ZERO"
+            # Minimum union width, then number of factors, then stable ID.
+            def candidate(v):
+                fs=[f for f in factors if v in f[0]]
+                union=set().union(*(set(s) for s,_ in fs))
+                return (len(union),len(fs),v)
+            v=min(active,key=candidate)
+            active.remove(v)
+            hit=[f for f in factors if v in f[0]]
+            if not hit:
+                constant=tuple(2*x for x in constant);stats["isolated"]+=1
+                stats["eliminated"]+=1;continue
+            union=tuple(sorted(set().union(*(set(s) for s,_ in hit))))
+            remain=tuple(i for i in union if i!=v)
+            # Bound temporary index tables as well as ring entries.
+            live=sum(len(t) for _,t in factors)
+            size=admit(union,live)
+            temporary=size*len(hit)+(1<<len(remain))
+            stats["peak_entries"]=max(stats["peak_entries"],live+temporary)
+            if live+temporary>max_live:raise FactorLimit("live-entries")
+            charge(size*(len(hit)+2))
+            maps=[projection(union,s) for s,_ in hit]
+            out=[RZERO]*(1<<len(remain))
+            pos=union.index(v);low=(1<<pos)-1
+            for a in range(size):
+                if a%1024==0:charge(0)
+                z=RONE
+                for (_,tab),idx in zip(hit,maps):
+                    z=rmul(z,tab[idx[a]])
+                    if z==RZERO:break
+                key=(a&low)|((a>>(pos+1))<<pos)
+                out[key]=radd(out[key],z)
+            factors=[f for f in factors if v not in f[0]]
+            if remain:factors.append((remain,out))
+            else:constant=rmul(constant,out[0])
+            stats["eliminated"]+=1
+        assert not factors
+        return constant,stats,"EXACT_SUM"
+    except FactorLimit as e:
+        return None,stats,str(e)
+
+
+def factor_contract():
+    import random
+    rng=random.Random(2626)
+    # Independent direct phase evaluation, including constant and affine
+    # factors, free/unused variables, products and complex intermediate sums.
+    for k in range(160):
+        n=k%7
+        terms=[(rng.randrange(8),[(rng.randrange(1<<n),rng.randrange(2))
+               for _ in range(rng.randrange(4))]) for _ in range(rng.randrange(12))]
+        expected=[0]*4
+        for a in range(1<<n):
+            e=sum(c for c,fs in terms if all(((a&m).bit_count()%2)^b for m,b in fs))%8
+            expected[e%4]+=1 if e<4 else -1
+        z,_,_=factor_sum(n,terms,time.monotonic()+2)
+        assert z==tuple(expected),(n,terms,z,expected)
+    z,_,why=factor_sum(3,[(1,[(7,0)])],time.monotonic()+1,max_width=1)
+    assert z is None and why=="width"
+    print("HOARE_FACTOR_CONTRACT checks=161",flush=True)
+
+
+def run_factor_pilot(directory,solve,deadline,metrics):
+    factor_contract()
+    ff="case hr scale primary terms status prep_us expected".split()
+    cf="case h hr gates gr scale vars clauses delta status cone_us build_us encoding_us expected".split()
+    af="case mode h hr scale vars clauses primary phase_terms delta status cone_us build_us encoding_us expected".split()
+    with (directory/"factors.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=ff,delimiter="\t"))
+    with (directory/"cone.tsv").open() as f:
+        baseline={r["case"]:r for r in csv.DictReader(f,fieldnames=cf,delimiter="\t")}
+    with (directory/"affine.tsv").open() as f:
+        baseline.update({r["case"]:r for r in csv.DictReader(f,fieldnames=af,delimiter="\t") if r["mode"]=="cone"})
+    assert len(plans)==11 and len(baseline)==6
+    rows=[]
+    for i,r in enumerate(plans):
+        name=r["case"];target=tuple(map(int,r["expected"].split(",")))
+        scale=int(r["scale"]);primary=int(r["primary"])
+        modes=("factor","gpmc") if i%2==0 else ("gpmc","factor")
+        if name not in baseline:modes=("factor",)
+        for mode in modes:
+            row=dict(case=name,mode=mode,primary=primary,terms=int(r["terms"]),scale=scale,
+                     expected_raw=target,coeff=None,verdict="UNKNOWN",status=r["status"],
+                     root_s=0.0,prep_proxy_s=int(r["prep_us"])/1e6,queries=[])
+            start=time.monotonic()
+            if mode=="factor":
+                if r["status"]=="UNSAT_AFFINE":
+                    row.update(coeff=(0,0),status="EXACT_AFFINE_UNSAT")
+                elif r["status"]=="READY":
+                    data=(directory/f"factors-{name}.tsv").read_bytes()
+                    row["factor_sha256"]=hashlib.sha256(data).hexdigest()
+                    terms=[]
+                    for line in data.decode().splitlines():
+                        k,*fs=line.split("\t")
+                        terms.append((int(k),[tuple(map(int,f.split(":"))) for f in fs]))
+                    assert len(terms)==int(r["terms"])
+                    z,stats,why=factor_sum(primary,terms,min(deadline,start+15))
+                    row.update(stats=stats,status=why)
+                    if z is not None:
+                        assert z[2]==0 and z[3]==-z[1],(name,z)
+                        row["coeff"]=(z[0]*(1<<scale),z[1]*(1<<scale))
+            else:
+                b=baseline[name];assert b["expected"]==r["expected"]
+                row.update(vars=int(b["vars"]),clauses=int(b["clauses"]),
+                    prep_proxy_s=sum(int(b[k]) for k in ("cone_us","build_us","encoding_us"))/1e6)
+                metrics.clear()
+                cap=120 if "15" in name else 60
+                row["cap_s"]=cap
+                if b["status"]=="READY":
+                    data=(directory/f"cone-{name}.cnf").read_bytes()
+                    row["cnf_sha256"]=hashlib.sha256(data).hexdigest()
+                    end=min(deadline,start+cap)
+                    if end<=start:row["status"]="GLOBAL_BUDGET_NOT_RUN"
+                    else:
+                        try:
+                            coeff=tuple(solve(data.decode(),list(map(int,b["delta"].split(","))),[],end))
+                            row.update(coeff=tuple(v*(1<<int(b["scale"])) for v in coeff),status="EXACT_ROOT")
+                        except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                        except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+                row["queries"]=[dict(m) for m in metrics]
+                row["max_rss_kib"]=max(m["max_rss_kib"] for m in metrics) if metrics and all(m["max_rss_kib"] is not None for m in metrics) else None
+            row["root_s"]=time.monotonic()-start
+            if row["coeff"] is not None:
+                assert row["coeff"]==target,(name,mode,row["coeff"],target)
+                assert not any(target) or positive_surd(target)
+                row["verdict"]="REFUTED" if any(target) else "PROVED"
+            if name.startswith("factor-"):assert row["verdict"]!="UNKNOWN",(name,row)
+            row["decision_proxy_s"]=row["root_s"]+row["prep_proxy_s"]
+            rows.append(row)
+            print("HOARE_FACTOR_PILOT "+json.dumps(row),flush=True)
+    assert len(rows)==17
+    print("HOARE_FACTOR_SUMMARY "+json.dumps(dict(attempts=len(rows),modes={
+        mode:dict(decided=sum(r["mode"]==mode and r["verdict"]!="UNKNOWN" for r in rows),
+                  scale_decided=sum(r["mode"]==mode and r["case"] in baseline and r["verdict"]!="UNKNOWN" for r in rows))
+        for mode in ("factor","gpmc")})),flush=True)
 
 
 

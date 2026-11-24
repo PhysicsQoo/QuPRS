@@ -151,6 +151,59 @@ theorem evalMaskTerms16_normalize
         (monomialTruth16 m v).xor (evalMaskTerms16 rest v)
       rw [evalMaskTerms16_toggle, ih]
 
+/-- Toggle can only introduce the chosen mask; all other masks were
+    already present in the original list. -/
+theorem toggleMask16_membership_limited
+    (m x : Mask16) (p : MaskTerms16)
+    (h : x ∈ toggleMask16 m p) : x = m ∨ x ∈ p := by
+  induction p with
+  | nil =>
+      simp [toggleMask16] at h
+      exact Or.inl h
+  | cons a rest ih =>
+      by_cases eq : m = a
+      · subst a
+        have hx : x ∈ rest := by simpa [toggleMask16] using h
+        exact Or.inr (by simp [hx])
+      · have hx : x = a ∨ x ∈ toggleMask16 m rest := by
+          simpa [toggleMask16, eq] using h
+        rcases hx with hxa | htail
+        · exact Or.inr (by simp [hxa])
+        · rcases ih htail with hm | hr
+          · exact Or.inl hm
+          · exact Or.inr (by simp [hr])
+
+/-- The coefficient toggle preserves a collection of distinct masks. -/
+theorem toggleMask16_nodup
+    (m : Mask16) (p : MaskTerms16) (h : p.Nodup) :
+    (toggleMask16 m p).Nodup := by
+  induction p with
+  | nil => simp [toggleMask16]
+  | cons a rest ih =>
+      have hr : rest.Nodup := (List.nodup_cons.mp h).2
+      have ha : a ∉ rest := (List.nodup_cons.mp h).1
+      by_cases eq : m = a
+      · subst a
+        simpa [toggleMask16] using hr
+      · have hn : a ∉ toggleMask16 m rest := by
+          intro hx
+          rcases toggleMask16_membership_limited m a rest hx with hm | hrest
+          · exact eq hm.symm
+          · exact ha hrest
+        have hresult : (a :: toggleMask16 m rest).Nodup :=
+          List.nodup_cons.mpr ⟨hn, ih hr⟩
+        simpa [toggleMask16, eq] using hresult
+
+/-- Parity normalization produces a coefficient set with no duplicates.
+    This does not assert any ordering of the terms. -/
+theorem parityNormalize16_nodup (p : MaskTerms16) :
+    (parityNormalize16 p).Nodup := by
+  induction p with
+  | nil => simp [parityNormalize16]
+  | cons m rest ih =>
+      simpa [parityNormalize16] using
+        toggleMask16_nodup m (parityNormalize16 rest) ih
+
 /-- The abstract XOR operator for BTreeSet-like coefficient parity. -/
 def maskXor16 (p q : MaskTerms16) : MaskTerms16 :=
   parityNormalize16 (p ++ q)
@@ -186,6 +239,9 @@ theorem maskConvolution16_self_idempotent_eval
   rw [maskConvolution16_sound]
   cases evalMaskTerms16 p v <;> decide
 
+#print axioms toggleMask16_membership_limited
+#print axioms toggleMask16_nodup
+#print axioms parityNormalize16_nodup
 #print axioms evalMaskTerms16_append
 #print axioms monomialTruth16_or
 #print axioms evalMaskTerms16_monomial_map

@@ -155,7 +155,7 @@ fn pair_zero(s:&Symbolic,p:Cube,q:Cube)->bool{
     total==[0;4]
 }
 // Independent direct gate-by-gate state vector, same exact ring but no PathSum.
-fn dense(n:usize,ops:&[G],x:u64,q:Cube)->bool{
+fn dense_state(n:usize,ops:&[G],x:u64)->Vec<Root>{
     let mut v=vec![[0;4];1<<n];v[x as usize]=root(0);
     for g in ops{
         let old=v.clone();
@@ -174,7 +174,10 @@ fn dense(n:usize,ops:&[G],x:u64,q:Cube)->bool{
             };
         }
     }
-    v.iter().enumerate().all(|(z,a)|q.accepts(z as u64)||*a==[0;4])
+    v
+}
+fn dense(n:usize,ops:&[G],x:u64,q:Cube)->bool{
+    dense_state(n,ops,x).iter().enumerate().all(|(z,a)|q.accepts(z as u64)||*a==[0;4])
 }
 #[test]
 fn hoare_guard_phase_oracle_and_interference(){
@@ -183,7 +186,7 @@ fn hoare_guard_phase_oracle_and_interference(){
     let ops=[G::H(1),G::CZ(0,1),G::H(1)];
     assert_eq!(verify(2,&ops,Some(p),a,0),(Answer::Proved,Route::PhaseOracle));
     assert_eq!(verify(2,&ops,Some(a),a,16),(Answer::Refuted(1),Route::ExactResidual));
-    assert_eq!(verify(2,&[G::H(0),G::H(0)],Some(Cube{mask:1,value:0}),Cube{mask:1,value:0},4),(Answer::Proved,Route::ExactResidual));
+    assert_eq!(verify(2,&[G::H(0),G::H(0),G::X(1)],Some(Cube{mask:1,value:0}),Cube{mask:1,value:0},8),(Answer::Proved,Route::ExactResidual));
     assert_eq!(verify(2,&[G::CX(0,1),G::T(1)],Some(p),a,0),(Answer::Proved,Route::Guard));
     assert_eq!(verify(2,&ops,None,a,0),(Answer::Proved,Route::EmptyPre));
     assert_eq!(verify(2,&ops,Some(a),a,0),(Answer::Unknown,Route::Resource));
@@ -220,4 +223,107 @@ fn hoare_large_symbolic_precondition(){
     let q=Cube{mask:1<<15,value:0};
     assert_eq!(verify(16,&ops,Some(p),q,0),(Answer::Proved,Route::PhaseOracle));
     println!("HOARE_SYMBOLIC_16Q free_inputs=14 baseline_two_copy_assignments=262144 residual_budget=0");
+}
+
+
+// Fourier-support specialization: for H_A D H_A, affine parity
+// assertion r dot z=b holds iff prefix phase f(y xor r)-f(y)=4b mod 8.
+// The prefix includes the phase 4 a dot y from the fixed ancilla input.
+// This is a symmetry/commutation criterion, not a novelty claim.
+fn add_phase(poly:&mut BTreeMap<u64,u8>,m:u64,c:u8){
+    let v=(poly.get(&m).copied().unwrap_or(0)+c)%8;
+    if v==0{poly.remove(&m);}else{poly.insert(m,v);}
+}
+fn translation_gap(phase:&BTreeMap<u64,u8>,flip:u64,b:bool)->Option<BTreeMap<u64,u8>>{
+    let mut gap=BTreeMap::new();
+    let mut work=0u64;
+    for (&m,&c) in phase{
+        add_phase(&mut gap,m,(8-c)%8);
+        // Substitute y_i -> 1-y_i over Z8, not XOR on coefficients.
+        let flipped=m&flip;
+        work=work.checked_add(1u64<<flipped.count_ones())?;
+        if work>1_000_000{return None;}
+        let mut sub=flipped;
+        loop{
+            add_phase(&mut gap,(m&!flip)|sub,
+                if sub.count_ones()%2==0{c}else{(8-c)%8});
+            if sub==0{break;}
+            sub=(sub-1)&flipped;
+        }
+    }
+    if b{add_phase(&mut gap,0,4);}
+    Some(gap)
+}
+fn verify_parity_oracle(n:usize,ops:&[G],p:Cube,anc:&[usize],r:u64,b:bool)->Answer{
+    let k=anc.len();
+    if !admitted(n,ops)||!p.valid(n)||k==0||k>5||r>=(1u64<<k)
+        ||ops.len()<2*k||anc.iter().any(|&a|a>=n)
+        ||anc.iter().copied().collect::<BTreeSet<_>>().len()!=k{
+        return Answer::Unknown;
+    }
+    for (j,&a) in anc.iter().enumerate(){
+        if ops[j]!=G::H(a)||ops[ops.len()-k+j]!=G::H(a)||p.mask>>a&1==0{
+            return Answer::Unknown;
+        }
+    }
+    if !ops[k..ops.len()-k].iter().all(diagonal){return Answer::Unknown;}
+    let Some(s)=native(n,&ops[..ops.len()-k]) else{return Answer::Unknown;};
+    if s.h!=k{return Answer::Unknown;}
+    // Check native output labels before assuming each fresh variable is
+    // the corresponding Fourier input and data wires remain unchanged.
+    for i in 0..n{
+        let id=anc.iter().position(|&a|a==i).map_or(i,|j|n+j);
+        if s.output[i]!=BTreeSet::from([1u64<<id]){return Answer::Unknown;}
+    }
+    let phase=specialize_phase(&s.phase,p);
+    let Some(gap)=translation_gap(&phase,r<<n,b) else{return Answer::Unknown;};
+    // Uniqueness of multilinear Boolean polynomial over Z8:
+    // a minimum-cardinality nonzero monomial m evaluates nonzero at m,
+    // because every proper subset coefficient is zero.
+    match gap.keys().min_by_key(|m|m.count_ones()).copied(){
+        None=>Answer::Proved,
+        Some(m)=>Answer::Refuted(p.value|(m&((1u64<<n)-1))),
+    }
+}
+fn parity_dense(n:usize,ops:&[G],x:u64,anc:&[usize],r:u64,b:bool)->bool{
+    dense_state(n,ops,x).iter().enumerate().all(|(z,a)|{
+        let y=anc.iter().enumerate().fold(0u64,|y,(j,&i)|y|(((z>>i&1) as u64)<<j));
+        *a==[0;4]||((y&r).count_ones()%2!=0)==b
+    })
+}
+#[test]
+fn hoare_fourier_parity_differential(){
+    let anc=[1,2];
+    let gates=[G::Z(1),G::S(1),G::T(2),G::CZ(1,2),G::CZ(0,1),G::CZ(0,2),G::T(0)];
+    let mut cases=0;let mut proved=0;let mut refuted=0;
+    for g in &gates{for h in &gates{
+        let ops=[G::H(1),G::H(2),g.clone(),h.clone(),G::H(1),G::H(2)];
+        for a in 0..4u64{for (mask,value) in [(0,0),(1,0),(1,1)]{
+            let p=Cube{mask:6|mask,value:(a<<1)|value};
+            for r in 0..4{for b in [false,true]{
+                let expected=(0..8).filter(|&x|p.accepts(x))
+                    .find(|&x|!parity_dense(3,&ops,x,&anc,r,b));
+                match verify_parity_oracle(3,&ops,p,&anc,r,b){
+                    Answer::Proved=>{assert!(expected.is_none());proved+=1;}
+                    Answer::Refuted(x)=>{assert!(p.accepts(x)&&!parity_dense(3,&ops,x,&anc,r,b));refuted+=1;}
+                    Answer::Unknown=>panic!("admitted parity instance returned unknown"),
+                }
+                cases+=1;
+            }}
+        }}
+    }}
+    assert_eq!(cases,4704);
+    println!("HOARE_PARITY_DIFFERENTIAL cases={cases} proved={proved} refuted={refuted} no_path_enumeration_in_verifier=true");
+}
+#[test]
+fn hoare_fourier_parity_16q(){
+    let anc=[14,15];
+    // Conditional Z on both ancilla gives output (x_0,x_0):
+    // parity zero holds for every data input, but either bit individually fails.
+    let ops=[G::H(14),G::H(15),G::CZ(0,14),G::CZ(0,15),G::H(14),G::H(15)];
+    let p=Cube{mask:(1<<14)|(1<<15),value:0};
+    assert_eq!(verify_parity_oracle(16,&ops,p,&anc,3,false),Answer::Proved);
+    assert_eq!(verify_parity_oracle(16,&ops,p,&anc,1,false),Answer::Refuted(1));
+    assert_eq!(verify_parity_oracle(16,&ops,p,&[14,14],3,false),Answer::Unknown);
+    println!("HOARE_PARITY_16Q free_data=14 hadamards=4 direct_two_copy_domain=4194304");
 }

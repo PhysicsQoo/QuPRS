@@ -2671,6 +2671,96 @@ mod exact_property_cnf {
         }
         r
     }
+
+    // Native affine precondition ablation. The circuit computes the
+    // parity of k data inputs, applies controlled-S to an H-prepared
+    // ancilla, and uncomputes parity. An extra T is a negative control.
+    // Only native PhasePolynomial/BooleanState substitution and existing
+    // RR are under test; the old exact dense oracle is independent.
+    #[test]
+    fn hoare_native_affine_rr_ablation(){
+        let mut cases=0usize;
+        let mut improved=0usize;
+        let mut per_input_checks=0usize;
+        for k in 2..=4usize{
+            let n=k+1;
+            let a=k;
+            for mutated in [false,true]{
+                let mut ops=Vec::new();
+                for j in 1..k{ops.push(G::CX(j,0));}
+                ops.extend([G::H(a),G::T(0),G::T(a),G::CX(0,a)]);
+                ops.extend((0..7).map(|_|G::T(a)));
+                ops.push(G::CX(0,a));
+                if mutated{ops.push(G::T(a));}
+                ops.push(G::H(a));
+                for j in (1..k).rev(){ops.push(G::CX(j,0));}
+                let parity:Anf=(0..k).map(|i|1u64<<i).collect();
+                let mut even=parity.clone();even.insert(0);
+                let post=vec![bit(a,false)];
+                let pres=[
+                    ("even",vec![bit(a,false),even.clone()]),
+                    ("odd",vec![bit(a,false),parity.clone()]),
+                    ("unrestricted",vec![bit(a,false)]),
+                    ("redundant-even",vec![bit(a,false),even.clone(),even.clone()]),
+                ];
+                for (label,pre) in pres{
+                    let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+                    for op in &ops{op.apply(&mut ps,false);}
+                    let direct=compact(&ps,n).unwrap();
+                    let t=std::time::Instant::now();
+                    let (standard,st)=reduce_existing(ps.clone(),n).unwrap();
+                    let std_ns=t.elapsed().as_nanos();
+                    let t=std::time::Instant::now();
+                    let (special,model)=specialize_affine(ps.clone(),n,&pre).unwrap();
+                    let specialized=compact(&special,n).unwrap();
+                    let (affine,at)=reduce_existing(special,n).unwrap();
+                    let affine_ns=t.elapsed().as_nanos();
+                    let t=std::time::Instant::now();
+                    let mono=mono_substitute(ps,n,&pre).and_then(|p|reduce_existing(p,n));
+                    let mono_ns=t.elapsed().as_nanos();
+                    let legal:BTreeSet<_>=(0..1u64<<n).filter(|&x|eval_conj(&pre,x)).collect();
+                    let coded:Vec<_>=(0..1u64<<n).filter(|&x|x&!model.free_mask()==0).collect();
+                    assert_eq!(coded.len(),legal.len());
+                    assert_eq!(coded.iter().map(|&x|model.decode(x)).collect::<BTreeSet<_>>(),legal);
+                    let mut valid=true;
+                    // The two-copy root oracle checks each original input
+                    // and its unique encoded representative, including
+                    // the existing RR normalization ledger.
+                    let (sc,sd)=two_copy_conj(&standard,&pre,&post);
+                    let (ac,ad)=two_copy_conj(&affine,&model.guard(),&post);
+                    let mono_pair=mono.as_ref().map(|(s,stats)|{
+                        let (c,d)=two_copy_conj(s,&pre,&post);
+                        (c,d,stats.scale2)
+                    });
+                    for x in coded{
+                        let original=model.decode(x);
+                        for y in 0..1u64<<specialized.h{
+                            assert_eq!(path(&direct,original,y),path(&specialized,x,y));
+                        }
+                        let expected=raw_for_input(n,&ops,&post,original);
+                        valid &= expected==[0,0];
+                        let units=|v:u64|->Vec<i32>{(0..n).map(|i|if v>>i&1!=0{i as i32+2}else{-(i as i32+2)}).collect()};
+                        let s=exact_pair_coeff(&sc,sd,&units(original),&mut 20_000_000,&mut 0).unwrap();
+                        let b=exact_pair_coeff(&ac,ad,&units(x),&mut 20_000_000,&mut 0).unwrap();
+                        assert_eq!(s.map(|v|v*(1i128<<st.scale2)),expected);
+                        assert_eq!(b.map(|v|v*(1i128<<at.scale2)),expected);
+                        if let Some((c,d,scale))=&mono_pair{
+                            let m=exact_pair_coeff(c,*d,&units(original),&mut 20_000_000,&mut 0).unwrap();
+                            assert_eq!(m.map(|v|v*(1i128<<*scale)),expected);
+                        }
+                        per_input_checks+=1;
+                    }
+                    assert_eq!(valid,!mutated&&(label=="even"||label=="redundant-even"));
+                    if affine.h<standard.h{improved+=1;}
+                    println!("HOARE_NATIVE_AFFINE_RR k={k} mutated={mutated} pre={label} legal={} valid={valid} initial_h={} standard_h={} affine_h={} mono_h={:?} standard_ns={std_ns} affine_ns={affine_ns} mono_ns={mono_ns} standard_scale2={} affine_scale2={}",legal.len(),direct.h,standard.h,affine.h,mono.as_ref().map(|(s,_)|s.h),st.scale2,at.scale2);
+                    cases+=1;
+                }
+            }
+        }
+        assert_eq!(cases,24);
+        println!("HOARE_NATIVE_AFFINE_RR_SUMMARY cases={cases} improved={improved} per_input_checks={per_input_checks} native_ir=true");
+    }
+
     #[test]
     fn hoare_pure_rr_matched_corpus(){
         let mut cases:Vec<AlgorithmCase>=algorithmic_cases();

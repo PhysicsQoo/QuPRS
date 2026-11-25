@@ -37,8 +37,7 @@ theorem projection_entry {A X Z Y : Type} [Zero A] [DecidableEq Z]
       mask (pre x && !(post z)) (entry true (out x y) z a) := by
   by_cases h : out x y = z
   · simp [entry, guard, mask, h]
-  · cases hp : pre x <;> cases hq : post z <;>
-      simp [entry, guard, mask, h, hp, hq]
+  · simp [entry, mask, h]
 
 theorem mask_add {A : Type} [Zero A] [Add A]
     (h00 : (0 : A) + 0 = 0) (g : Bool) (a b : A) :
@@ -78,9 +77,9 @@ theorem hh_branch {A Z : Type} [Zero A] [Add A] [Neg A] [DecidableEq Z]
     hhBranch g out a q t z =
       if t = q then entry (g t) (out t) z (a t+a t) else 0 := by
   by_cases h : t = q
-  · simp only [hhBranch, if_pos h]
+  · simp only [hhBranch, ite_eq_left h]
     exact elim_entry h00 (g t) (out t) z (a t)
-  · simp only [hhBranch, if_neg h]
+  · simp only [hhBranch, ite_eq_right h]
     exact cancel_entry h00 hneg (g t) (out t) z (a t)
 
 theorem hh_substitute {A Z : Type} [Zero A] [Add A] [Neg A] [DecidableEq Z]

@@ -2846,6 +2846,118 @@ mod exact_property_cnf {
         println!("HOARE_NATIVE_LINKED_AFFINE_SUMMARY cases={cases} checks={checks} affine_wins={affine_wins} repeat_ties={repeat_ties} order_sensitive_families={order_sensitive} contradictions=3");
     }
 
+
+    // Use existing two-copy semantics with only the free input coordinates
+    // allocated. Fixed pivot slots are literal ZERO, not unconstrained
+    // auxiliary variables. Keep the original output width for postconditions.
+    fn affine_free_pair(s:&Symbolic,model:&AffinePre,q:&[Anf])->Option<(Cnf,[Lit;3])>{
+        if s.n!=model.n{return None;}
+        let free=model.free_mask();
+        // A pivot slot may not remain in the specialized native IR.
+        let pivot=((1u64<<s.n)-1)&!free;
+        if s.output.iter().flatten().any(|&m|m&pivot!=0)||
+            s.phase.keys().any(|&m|m&pivot!=0){return None;}
+        let f=model.free.len();
+        let mut c=Cnf::new(f+2*s.h);
+        let mut left=vec![ZERO;s.n];
+        for (i,&j) in model.free.iter().enumerate(){left[j]=i as Lit+2;}
+        let mut right=left.clone();
+        left.extend((f..f+s.h).map(|i|i as Lit+2));
+        right.extend((f+s.h..f+2*s.h).map(|i|i as Lit+2));
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&left)).collect();
+        let w:Vec<_>=s.output.iter().map(|o|c.anf(o,&right)).collect();
+        for (&a,&b) in z.iter().zip(&w){let d=c.xor(a,b);c.enforce(-d);}
+        let post=q.iter().fold(ONE,|acc,p|{let t=c.anf(p,&z);c.and(acc,t)});
+        c.enforce(-post);
+        let a=c.phase(s,&left,false);let b=c.phase(s,&right,true);
+        let d=c.add3(a,b);
+        Some((c,d))
+    }
+
+    #[test]
+    fn hoare_native_affine_free_input_ablation(){
+        let mut cases=0usize;let mut conditioned=0usize;
+        for k in 3..=5usize{
+            let n=k+1;let a=k;
+            for reverse in [false,true]{
+                let mut pre=vec![bit(a,false)];
+                let mut chain:Vec<_>=(0..k-1).map(|i|equal_bits(i,i+1)).collect();
+                if reverse{chain.reverse();}
+                pre.extend(chain);
+                for mutated in [false,true]{
+                    let mut ops=vec![G::CX(k-1,0),G::H(a),G::T(0),G::T(a),G::CX(0,a)];
+                    ops.extend((0..7).map(|_|G::T(a)));
+                    ops.push(G::CX(0,a));
+                    if mutated{ops.push(G::T(a));}
+                    ops.extend([G::H(a),G::CX(k-1,0)]);
+                    let post=vec![bit(a,false)];
+                    let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+                    for op in &ops{op.apply(&mut ps,false);}
+                    let ta=std::time::Instant::now();
+                    let (special,model)=specialize_affine(ps.clone(),n,&pre).unwrap();
+                    let (affine,ast)=reduce_existing(special,n).unwrap();
+                    let affine_ns=ta.elapsed().as_nanos();
+                    let tm=std::time::Instant::now();
+                    let mut current=ps;let mut sweeps=0;
+                    let mut stable=false;
+                    for _ in 0..=k{
+                        let before=compact(&current,n).unwrap();
+                        let next=mono_substitute(current,n,&pre).unwrap();
+                        let after=compact(&next,n).unwrap();
+                        sweeps+=1;
+                        stable=before.phase==after.phase&&before.output==after.output&&before.h==after.h;
+                        current=next;
+                        if stable{break;}
+                    }
+                    assert!(stable);
+                    let (mono,mst)=reduce_existing(current,n).unwrap();
+                    let mono_ns=tm.elapsed().as_nanos();
+                    assert_eq!(affine.h,mono.h);
+                    let legal:Vec<_>=(0..1u64<<n).filter(|&x|eval_conj(&pre,x)).collect();
+                    assert_eq!(legal.len(),2);
+                    let mut expected=[0i128;2];
+                    for &x in &legal{
+                        let v=raw_for_input(n,&ops,&post,x);
+                        expected[0]+=v[0];expected[1]+=v[1];
+                    }
+                    assert_eq!(expected==[0,0],!mutated);
+                    let (mc,md)=two_copy_conj(&mono,&pre,&post);
+                    let (pc,pd)=two_copy_conj(&affine,&model.guard(),&post);
+                    let (fc,fd)=affine_free_pair(&affine,&model,&post).unwrap();
+                    let mut sizes=Vec::new();
+                    for (c,d,scale) in [(&mc,md,mst.scale2),(&pc,pd,ast.scale2),(&fc,fd,ast.scale2)]{
+                        let mut fuel=20_000_000;
+                        let value=exact_pair_coeff(c,d,&[],&mut fuel,&mut 0).unwrap();
+                        assert_eq!(value.map(|v|v*(1i128<<scale)),expected);
+                        sizes.push((c.vars,c.clauses.len(),20_000_000-fuel));
+                    }
+                    for u in 0..1u64<<model.free.len(){
+                        let x=model.free.iter().enumerate().fold(0u64,|m,(i,&j)|m|(((u>>i)&1)<<j));
+                        let original=model.decode(x);
+                        let units=|v:u64,w:usize|->Vec<Lit>{(0..w).map(|i|if v>>i&1!=0{i as Lit+2}else{-(i as Lit+2)}).collect()};
+                        let expected=raw_for_input(n,&ops,&post,original);
+                        for (c,d,scale,prefix) in [
+                            (&mc,md,mst.scale2,units(original,n)),
+                            (&pc,pd,ast.scale2,units(x,n)),
+                            (&fc,fd,ast.scale2,units(u,model.free.len()))]{
+                            let value=exact_pair_coeff(c,d,&prefix,&mut 20_000_000,&mut 0).unwrap();
+                            assert_eq!(value.map(|v|v*(1i128<<scale)),expected);
+                            conditioned+=1;
+                        }
+                    }
+                    // Exactly rank many fixed input slots removed; the
+                    // output constraints still use the full original z.
+                    assert_eq!(pc.vars-fc.vars,n-model.free.len());
+                    println!("HOARE_NATIVE_AFFINE_FREE k={k} reverse={reverse} mutated={mutated} free={} h={} sweeps={sweeps} affine_ns={affine_ns} mono_ns={mono_ns} mono_size={:?} padded_size={:?} free_size={:?}",model.free.len(),affine.h,sizes[0],sizes[1],sizes[2]);
+                    cases+=1;
+                }
+            }
+        }
+        assert_eq!(cases,12);
+        assert_eq!(conditioned,72);
+        println!("HOARE_NATIVE_AFFINE_FREE_SUMMARY cases={cases} conditioned={conditioned} native_ir=true exact_root=true free_coordinate_encoding=true");
+    }
+
     #[test]
     fn hoare_pure_rr_matched_corpus(){
         let mut cases:Vec<AlgorithmCase>=algorithmic_cases();

@@ -420,7 +420,7 @@ def unpack_pair(value, radix):
 
 
 
-def run_factor_pilot(directory, exe, tmp):
+def run_amplitude_factor_pilot(directory, exe, tmp):
     """Bounded, exact natural-integer class weights; no float fallback."""
     manifest = list(csv.reader((directory/"native-factor.tsv").open(), delimiter="\t"))
     rows = {}
@@ -641,7 +641,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         deadline=time.monotonic()+60
         run_dual_mask_wmc(directory,count,deadline)
     if (directory/"native-factor.tsv").is_file():
-        run_factor_pilot(directory,exe,tmp)
+        run_amplitude_factor_pilot(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

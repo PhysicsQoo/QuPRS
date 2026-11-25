@@ -869,6 +869,7 @@ def run_rus_composite(directory,exe,tmp):
     def align(a,s):
         for _ in range(s):a=rus_mul(a,[0,1,0,-1])
         return a
+    cert_start=time.monotonic_ns()
     cert={}
     with (directory/"native-rus-composite-cert.tsv").open() as f:
         for name,h0,h,scale,branch,a,t in csv.reader(f,delimiter="\t"):
@@ -882,6 +883,7 @@ def run_rus_composite(directory,exe,tmp):
             q=inner(t,t);assert rus_gram_real_sign(q)>0
             cert[name]=dict(h0=h0,h=h,scale=scale,branch=branch,p=p,t=t,a=a,T=q)
     assert tuple(cert)==names
+    print("HOARE_RUS_COMPOSITE_CERT_READ_VERIFY "+json.dumps(dict(ns=time.monotonic_ns()-cert_start)),flush=True)
     # Scope is constructed by the fixed source generator, not accepted from
     # an external certificate. Fail closed on altered branch/domain/order.
     def admit(scope,k,branch,domain,post):
@@ -911,12 +913,14 @@ def run_rus_composite(directory,exe,tmp):
         S=prod([[2*v for v in q["p"]] for q in b]);T=prod([q["T"] for q in b])
         # Independent exact reference contraction, using original local
         # gate amplitudes and literal target, not the encoded phase bins.
+        contraction_start=time.monotonic_ns()
         w=[[inner([q["t"][z],q["t"][z+2]],[q["a"][z],q["a"][z+2]]) for z in range(2)] for q in b]
         v=w[0]
         for u in w[1:]:
             v=[rus_mul([a+c for a,c in zip(v[0],v[1])],u[0]),
                rus_mul([a-c if mut else a+c for a,c in zip(v[0],v[1])],u[1])]
         oracle=[a+c for a,c in zip(*v)]
+        contraction_ns=time.monotonic_ns()-contraction_start
         weights={l:B**(1<<i) for i,l in enumerate(dl)}
         weights.update({l:w for i,l,w in mag});weights.update({-l:1 for l in lits})
         header,*clauses=(directory/f"{name}.cnf").read_text().splitlines()
@@ -924,7 +928,7 @@ def run_rus_composite(directory,exe,tmp):
         path=pathlib.Path(tmp)/"rus-composite.cnf"
         path.write_text("c t wmc\n"+header+"\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"\n".join(clauses)+"\n")
         r=dict(case=name,k=k,mutant=bool(mut),h=h,primary=primary,vars=vs,clauses=cs,encode_ns=enc,checks=checks,
-               query_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN",verdict="UNKNOWN")
+               query_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN",verdict="UNKNOWN",contraction_ns=contraction_ns)
         try:
             remaining=90-(time.monotonic()-start)
             if remaining<=0:raise TimeoutError("composite scheduling deadline")

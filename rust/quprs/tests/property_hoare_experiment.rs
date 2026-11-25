@@ -3247,6 +3247,7 @@ struct RusCompositeBlock {
 }
 fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
     assert_eq!(blocks.len(),6);
+    let cert_start=std::time::Instant::now();
     let mut cert=String::new();let mut manifest=String::new();
     let fmt=|a:&[Root;4]|a.iter().flatten().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
     for b in blocks{
@@ -3259,6 +3260,8 @@ fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
         assert!(p.iter().any(|&v|v!=0));
         cert.push_str(&format!("{}\t{}\t{}\t{}\t1\t{}\t{}\n",b.name,b.h0,b.s.h,b.scale,fmt(&b.a),fmt(&b.target)));
     }
+    let certificate_ns=cert_start.elapsed().as_nanos();
+    println!("HOARE_RUS_COMPOSITE_CERT_VERIFY ns={certificate_ns}");
     std::fs::write(dir.join("native-rus-composite-cert.tsv"),cert).unwrap();
     for k in [2usize,4,6]{
         let bs=&blocks[..k];let h=bs.iter().map(|b|b.s.h).sum::<usize>();
@@ -3309,6 +3312,7 @@ fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
             let radix=(1u128<<primary).checked_mul(maxprod).unwrap()+1;
             let enc=now.elapsed().as_nanos();
             // Independent exact nonnegative phase-bin chain contraction.
+            let contraction_start=std::time::Instant::now();
             let mut dp=[[0u128;8];2];dp[0][0]=1;
             for b in bs{
                 let mut local=[[0u128;8];2];
@@ -3326,10 +3330,32 @@ fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
             }
             let expected:Vec<_>=(0..8).map(|i|dp[0][i]+dp[1][i]).collect();
             assert!(expected.iter().all(|&v|v<radix));
-            let checks=1024usize;let mut seed=0x434552544752414du64;
-            for _ in 0..checks{
+            let contraction_ns=contraction_start.elapsed().as_nanos();
+            // Uniform samples alone can miss all admitted paths at k=6.
+            // Construct a bounded local valid pool and combine independently.
+            let pools=bs.iter().map(|b|{
+                let mut pool=Vec::new();
+                for x in 0..2u64{for y in 0..1u64<<b.s.h{
+                    let(z,_)=path(&b.s,2*x,y);
+                    if z&1==0{continue;}
+                    for c in 0..4usize{
+                        if b.target[(2*x+(z>>1)) as usize][c]!=0{pool.push((x,y,c));}
+                    }
+                }}
+                assert!(!pool.is_empty());pool
+            }).collect::<Vec<_>>();
+            let checks=1280usize;let mut seed=0x434552544752414du64;
+            let(mut admitted,mut rejected,mut targeted)=(0usize,0usize,0usize);
+            for sample in 0..checks{
                 seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                let a=(seed^(seed>>29))&((1u64<<primary)-1);
+                let a=if sample<1024{(seed^(seed>>29))&((1u64<<primary)-1)}else{
+                    let mut a=0u64;let mut off=k;
+                    for (i,pool) in pools.iter().enumerate(){
+                        seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                        let(x,y,c)=pool[((seed^(seed>>32))%(pool.len() as u64)) as usize];
+                        a|=x<<i;a|=y<<off;a|=(c as u64)<<(k+h+2*i);off+=bs[i].s.h;
+                    }a
+                };
                 let mut off=k;let(mut e,mut last)=(0usize,0usize);let mut valid=true;let mut mags=Vec::new();
                 for (i,b) in bs.iter().enumerate(){
                     let x=a>>i&1;let y=(a>>off)&((1<<b.s.h)-1);off+=b.s.h;
@@ -3341,8 +3367,10 @@ fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
                     mags.push(w.unsigned_abs());
                     e=(e+p+8-c+if w<0{4}else{0}+if mutant{4*last*z}else{0})%8;last=z;
                 }
+                if sample>=1024{assert!(valid);targeted+=1;}
                 let v=factor_up(&f.c,primary,a);
-                if !valid{assert!(v.is_none());}else{
+                if !valid{rejected+=1;assert!(v.is_none());}else{
+                    admitted+=1;
                     let v=v.unwrap();let digit=aliases.iter().enumerate().fold(0usize,|r,(i,&l)|r|(usize::from(lit_value(l,&v)==1)<<i));assert_eq!(digit,e);
                     for (i,&w) in mags.iter().enumerate(){
                         let active=mag.iter().filter(|&&(j,l,_)|j==i&&lit_value(l,&v)==1).collect::<Vec<_>>();
@@ -3351,7 +3379,11 @@ fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
                 }
             }
             let name=format!("rus-composite-{k}-{}",if mutant{"cz-chain"}else{"source"});
-            let body=dimacs(&f.c,&[]).unwrap();
+            assert_eq!(targeted,256);assert!(admitted>=256&&rejected>0);
+            assert_eq!(admitted+rejected,checks);
+            // This is an external solver export, not the small DPLL lane.
+            let body=serialize_external(&f.c,&[]).expect("composite external serializer cap");
+            println!("HOARE_RUS_COMPOSITE_COVERAGE case={name} admitted={admitted} rejected={rejected} targeted={targeted} contraction_ns={contraction_ns}");
             std::fs::write(dir.join(format!("{name}.cnf")),body).unwrap();
             let ds=aliases.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(",");
             let ms=mag.iter().map(|(i,l,w)|format!("{i}:{l}:{w}")).collect::<Vec<_>>().join(",");
@@ -3429,7 +3461,10 @@ fn rus_export(dir:&std::path::Path){
             let a:Root=std::array::from_fn(|j|reduced_hist[8*i+j] as i64-reduced_hist[8*i+j+4] as i64);
             assert_eq!(align(a),d,"RUS complete fibre alignment {name} {i}");
         }
-        let a=std::array::from_fn(|i|dense_state(2,&gates,(2*(i/2)) as u64)[2*(i%2)+1]);
+        let cert_start=std::time::Instant::now();
+        let columns=[dense_state(2,&gates,0),dense_state(2,&gates,2)];
+        let a=std::array::from_fn(|i|columns[i/2][2*(i%2)+1]);
+        println!("HOARE_RUS_COMPOSITE_CERT_BUILD case={name} ns={}",cert_start.elapsed().as_nanos());
         let t=rus_target(name);
         let target=if name=="Figure10a"||name=="Figure10c"{t.map(rus_conj)}else{t};
         composite.push(RusCompositeBlock{name:name.to_owned(),s:Symbolic{n:reduced.n,h:reduced.h,output:reduced.output.clone(),phase:reduced.phase.clone()},hist:reduced_hist,h0:h,scale:scale2,a,target});

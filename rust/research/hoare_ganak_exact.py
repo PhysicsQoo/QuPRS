@@ -673,8 +673,15 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_dual_mask_wmc(directory,count,deadline)
     if (directory/"native-factor.tsv").is_file():
         run_amplitude_factor_pilot(directory,exe,tmp)
-        for repeat_round in range(4):
-            run_amplitude_factor_pilot(directory,exe,tmp,repeat_round=repeat_round)
+        # The paired timing cohort is opt-in; keep ordinary exact regressions.
+        repeat_flag=os.environ.get("HOARE_FACTOR_REPEATS","0")
+        if repeat_flag not in ("0","1"):
+            raise ValueError("HOARE_FACTOR_REPEATS must be 0 or 1")
+        if repeat_flag=="1":
+            for repeat_round in range(4):
+                run_amplitude_factor_pilot(directory,exe,tmp,repeat_round=repeat_round)
+        else:
+            print("HOARE_FACTOR_REPEAT_SKIPPED opt_in=HOARE_FACTOR_REPEATS=1",flush=True)
     if (directory/"native-multi-factor.tsv").is_file():
         run_amplitude_factor_pilot(directory,exe,tmp,multi=True)
     if (directory/"native-affine-wmc.tsv").is_file():

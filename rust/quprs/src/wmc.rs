@@ -357,7 +357,7 @@ impl WmcManager {
             return out;
         }
         #[cfg(feature="high-precision-gpmc")]
-        if adapter.id()=="gpmc" {
+        if matches!(adapter.id(), "gpmc" | "rawmocs") {
             if let Some(ref precise)=self.precise_weights {
                 return problem.serialize_precise_gpmc(precise);
             }
@@ -435,7 +435,7 @@ impl WmcManager {
     ) -> Result<crate::precision_count::PrintedCount> {
         let adapter = crate::solver_adapter::distance_adapter_for(tool_name, digits)?;
         self.run_solver_with_parser(
-            adapter, deadline, crate::precision_count::parse_stdout_optional, Some(prepared_cnf),
+            adapter, deadline, |stdout| adapter.parse_printed(stdout), Some(prepared_cnf),
         )
     }
 
@@ -447,7 +447,7 @@ impl WmcManager {
         adapter: &dyn crate::solver_adapter::SolverAdapter,
         deadline: Option<crate::clock::Instant>,
     ) -> Result<crate::precision_count::PrintedCount> {
-        self.run_solver_with_parser(adapter, deadline, crate::precision_count::parse_stdout_optional, None)
+        self.run_solver_with_parser(adapter, deadline, |stdout| adapter.parse_printed(stdout), None)
     }
 
     pub(crate) fn solve_with_adapter(

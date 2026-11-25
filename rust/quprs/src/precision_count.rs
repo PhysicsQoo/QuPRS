@@ -134,6 +134,49 @@ fn parse_line_with_precision(
     }))
 }
 
+/// Strict two-record RaWMoCS protocol; SAT and numerical zero are distinct.
+/// Visible decimal units are transport diagnostics, not certified arithmetic.
+pub fn parse_rawmocs_stdout(stdout: &str) -> Result<(bool, PrintedCount)> {
+    let lines: Vec<_> = stdout.lines().collect();
+    if lines.len() != 2 {
+        return Err(anyhow!("RaWMoCS requires exactly two output records"));
+    }
+    let sat = match lines[0] {
+        "s SATISFIABLE" => true,
+        "s UNSATISFIABLE" => false,
+        _ => return Err(anyhow!("RaWMoCS invalid Boolean status")),
+    };
+    let fields: Vec<_> = lines[1].split_whitespace().collect();
+    if fields.len() != 5 || fields[..3] != ["c", "r", "mpfr"]
+        || fields[3..].iter().any(|s| s.contains('/')) {
+        return Err(anyhow!("RaWMoCS invalid MPFR count record"));
+    }
+    let (real, real_half_unit) = component(fields[3])?;
+    let (imag, imag_half_unit) = component(fields[4])?;
+    if !sat && (!real.is_zero() || !imag.is_zero()) {
+        return Err(anyhow!("RaWMoCS UNSAT with nonzero count"));
+    }
+    Ok((sat, PrintedCount { real, imag, real_half_unit, imag_half_unit,
+                            format_name: "rawmocs-mpfr".to_string() }))
+}
+
+#[cfg(test)]
+#[test]
+fn rawmocs_protocol_preserves_sat_zero_and_rejects_partial_or_invalid_output() {
+    let (sat, zero) = parse_rawmocs_stdout("s SATISFIABLE\nc r mpfr 0 0\n").unwrap();
+    let (unsat, other) = parse_rawmocs_stdout("s UNSATISFIABLE\nc r mpfr 0 0\n").unwrap();
+    assert!(sat && !unsat);
+    assert_eq!(zero, other);
+    let (_, count) = parse_rawmocs_stdout("s SATISFIABLE\nc r mpfr -1.25e-2 3.0e1\n").unwrap();
+    assert_eq!(count.real.to_string(), "-1/80");
+    assert_eq!(count.imag.to_string(), "30");
+    for invalid in ["s SATISFIABLE\n", "s UNKNOWN\nc r mpfr 0 0\n",
+        "s UNSATISFIABLE\nc r mpfr 0 1\n", "s SATISFIABLE\nc r mpfr NaN 0\n",
+        "s SATISFIABLE\nc r mpfr 1/2 0\n", "s SATISFIABLE\nc r mpfr 0 0\nextra\n"] {
+        assert!(parse_rawmocs_stdout(invalid).is_err(), "{invalid}");
+    }
+}
+
 pub fn parse_stdout_optional(stdout: &str) -> Result<Option<PrintedCount>> {
     let mut precision: Option<i32> = None;
     for line in stdout.lines() {

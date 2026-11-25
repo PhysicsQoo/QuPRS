@@ -18,6 +18,7 @@ on:
       - 'GPMC'           # Solver submodule revision affects measured workloads.
       - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
       - 'research/rawmocs_integration/codspeed_existing.py'
+      - 'research/rawmocs_integration/codspeed_native.py'
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - '.github/scripts/ci-impact-reuse.cjs'
@@ -1452,6 +1453,80 @@ jobs:
           path: |
             .rawmocs-codspeed/
             codspeed-rawmocs.generated.yml
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  rawmocs-native-hybrid-simulation:
+    name: Native Rust Hybrid / GPMC vs RaWMoCS Simulation
+    if: github.ref == 'refs/heads/experiment/rawmocs-integration'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          path: .rawmocs
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .rawmocs/crates/rawmocs-cli -> target
+      - name: Build pinned release executables
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc pkg-config
+          python -m pip install numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+          cargo build --locked --release --manifest-path .rawmocs/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+      - name: Build native verifier and test strict adapter
+        env:
+          QUPRS_SOLVER_PROVISION: external
+        run: |
+          cargo test --locked --manifest-path rust/Cargo.toml -p quprs --lib rawmocs
+          cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example rawmocs_native_pair
+      - name: Qualify native Hybrid cases
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+        run: python research/rawmocs_integration/codspeed_native.py prepare
+      - name: Measure complete native Hybrid CPU including child solver
+        timeout-minutes: 8
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          config: codspeed-rawmocs-native.generated.yml
+      - name: Verify native Simulation verdict parity
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+        run: python research/rawmocs_integration/codspeed_native.py verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-native-hybrid-simulation
+          path: |
+            .rawmocs-native-codspeed/
+            codspeed-rawmocs-native.generated.yml
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14

@@ -747,7 +747,7 @@ fn check_equivalence_with_distance_mode(
         // High-precision source weights are selected only for GPMC's
         // projective-distance mode. All other modes retain their fast path.
         #[cfg(feature="high-precision-gpmc")]
-        if tool_name == "gpmc" {
+        if matches!(tool_name, "gpmc" | "rawmocs") {
             // Unweighted CNFs have no phase input to approximate. In
             // particular, retain exact identity proofs for arbitrarily tight
             // distance requests without asking MPFR for unused precision.

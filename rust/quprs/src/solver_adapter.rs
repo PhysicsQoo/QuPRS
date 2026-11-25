@@ -19,6 +19,9 @@ pub(crate) trait SolverAdapter: Sync {
     fn executable_path(&self) -> String;
     fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String);
     fn preflight(&self, _path: &str, _deadline: Option<Instant>) -> Result<()> { Ok(()) }
+    fn parse_printed(&self, stdout: &str) -> Result<Option<crate::precision_count::PrintedCount>> {
+        crate::precision_count::parse_stdout_optional(stdout)
+    }
     fn parse_count(&self, stdout: &str) -> Result<Option<Complex<f64>>> {
         let mut count = None;
         for line in stdout.lines() {
@@ -34,15 +37,18 @@ pub(crate) trait SolverAdapter: Sync {
 }
 pub(crate) struct GpmcAdapter;
 pub(crate) struct GanakAdapter;
+pub(crate) struct RawmocsAdapter;
 /// Optional 90-digit GPMC arithmetic; default complex GPMC uses 30 digits.
 pub(crate) struct GpmcDistanceHighPrecisionAdapter;
 static GPMC: GpmcAdapter = GpmcAdapter;
 static GANAK: GanakAdapter = GanakAdapter;
+static RAWMOCS: RawmocsAdapter = RawmocsAdapter;
 static GPMC_DISTANCE_HIGH: GpmcDistanceHighPrecisionAdapter = GpmcDistanceHighPrecisionAdapter;
 pub(crate) fn adapter_for(id: &str) -> Result<&'static dyn SolverAdapter> {
     match id {
         "gpmc" => Ok(&GPMC),
         "ganak" => Ok(&GANAK),
+        "rawmocs" => Ok(&RAWMOCS),
         _ => Err(anyhow!(crate::solver_result::SolverFailure::new(
             crate::solver_result::SolverFailureKind::Unsupported,
             id,
@@ -85,6 +91,38 @@ impl SolverAdapter for GpmcAdapter {
     fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String) {
         (format!("c p weight {} {:.16e} {:.16e} 0\n", var, weight.re, weight.im),
          format!("c p weight -{} 1.0 0.0 0\n", var))
+    }
+}
+// Experimental native external transport. An explicit executable is mandatory;
+// never search PATH or provision an unverified binary.
+impl SolverAdapter for RawmocsAdapter {
+    fn id(&self) -> &'static str { "rawmocs" }
+    fn arguments(&self) -> &'static [&'static str] { &["--digits", "30", "--timeout-ms", "86400000"] }
+    fn capabilities(&self) -> SolverCapabilities { GpmcAdapter.capabilities() }
+    fn executable_path(&self) -> String {
+        std::env::var("QUPRS_RAWMOCS_PATH").unwrap_or_default()
+    }
+    fn preflight(&self, path: &str, _deadline: Option<Instant>) -> Result<()> {
+        let path = Path::new(path);
+        if !path.is_absolute() || !path.is_file() {
+            return Err(anyhow!("RaWMoCS requires an explicit absolute QUPRS_RAWMOCS_PATH executable"));
+        }
+        Ok(())
+    }
+    fn weight_lines(&self, var: i32, weight: Complex<f64>) -> (String, String) {
+        GpmcAdapter.weight_lines(var, weight)
+    }
+    fn parse_printed(&self, stdout: &str) -> Result<Option<crate::precision_count::PrintedCount>> {
+        Ok(Some(crate::precision_count::parse_rawmocs_stdout(stdout)?.1))
+    }
+    fn parse_count(&self, stdout: &str) -> Result<Option<Complex<f64>>> {
+        use num_traits::ToPrimitive;
+        let (_, count) = crate::precision_count::parse_rawmocs_stdout(stdout)?;
+        let re = count.real.to_f64().filter(|x| x.is_finite())
+            .ok_or_else(|| anyhow!("RaWMoCS real count outside finite binary64"))?;
+        let im = count.imag.to_f64().filter(|x| x.is_finite())
+            .ok_or_else(|| anyhow!("RaWMoCS imaginary count outside finite binary64"))?;
+        Ok(Some(Complex::new(re, im)))
     }
 }
 impl SolverAdapter for GanakAdapter {
@@ -156,6 +194,20 @@ mod tests {
                     .unwrap_err().to_string().contains("conflicting counts"));
             }
         }
+    }
+    #[test]
+    fn rawmocs_adapter_is_explicit_and_uses_same_weight_grammar() {
+        let raw = adapter_for("rawmocs").unwrap();
+        let gpmc = adapter_for("gpmc").unwrap();
+        assert_eq!(raw.capabilities(), gpmc.capabilities());
+        assert_eq!(raw.weight_lines(1, Complex::new(-0.5, 0.25)),
+                   gpmc.weight_lines(1, Complex::new(-0.5, 0.25)));
+        assert_eq!(raw.arguments()[..2], ["--digits", "30"]);
+        assert!(raw.preflight("", None).is_err());
+        assert!(raw.preflight("rawmocs", None).is_err());
+        assert!(distance_adapter_for("rawmocs", 90).is_err());
+        assert!(raw.parse_count("s SATISFIABLE\nc r mpfr 1.5 -2.5\n").is_ok());
+        assert!(raw.parse_printed("c r mpfr 0 0\n").is_err());
     }
     struct MockAdapter;
     impl SolverAdapter for MockAdapter {

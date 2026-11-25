@@ -3088,6 +3088,172 @@ fn qft_complex_export(dir:&std::path::Path){
 // Bounded generated multi-coefficient targets. Compare canonical coefficient
 // lookup to a factored target term selector with deliberate multiplicity.
 // No production parser, RR, or normalization changes.
+
+// Pinned RUS research contract: parse the two gate blocks, never silently
+// treat measurement/while as a unitary. Targets below transcribe hash-pinned
+// HSL basis columns; the separate source oracle checked the third input.
+fn rus_block(src:&str)->Vec<(String,Vec<usize>)>{
+    src.lines().map(|l|l.split("//").next().unwrap().trim())
+        .filter(|l|!l.is_empty()&&!l.starts_with("OPENQASM")&&!l.starts_with("include")&&
+            !l.starts_with("qubit")&&!l.starts_with("bit")&&!l.starts_with("while")&&*l!="}")
+        .map(|l|{
+            let (g,a)=l.strip_suffix(';').unwrap().split_once(' ').unwrap();
+            let ids=a.split(',').map(|v|v.trim().strip_prefix("qb[").unwrap().strip_suffix(']').unwrap().parse::<usize>().unwrap()).collect::<Vec<_>>();
+            assert!(ids.iter().all(|&i|i<2));
+            assert!(match g{"h"|"x"|"z"|"t"|"tdg"|"s"|"sdg"=>ids.len()==1,"cx"|"cz"=>ids.len()==2&&ids[0]!=ids[1],_=>false});
+            (g.to_owned(),ids)
+        }).collect()
+}
+fn rus_mul(a:Root,b:Root)->Root{
+    let mut r=[0;4];for (j,v) in b.into_iter().enumerate(){let t=shift(a,j);for i in 0..4{r[i]+=t[i]*v;}}r
+}
+fn rus_conj(a:Root)->Root{[a[0],-a[3],-a[2],-a[1]]}
+fn rus_eval(ops:&[(String,Vec<usize>)],x:usize,y:usize)->(usize,usize){
+    let(mut z,mut e,mut j)=(2*x,0usize,0usize);
+    for (g,a) in ops{let i=a[0];let q=z>>i&1;
+        match g.as_str(){
+            "h"=>{let v=y>>j&1;j+=1;e+=4*q*v;z=(z&!(1<<i))|(v<<i);}
+            "x"=>z^=1<<i,
+            "cx"=>z^=q<<a[1],
+            "cz"=>e+=4*q*(z>>a[1]&1),
+            _=>e+=q*match g.as_str(){"t"=>1,"tdg"=>7,"s"=>2,"sdg"=>6,"z"=>4,_=>unreachable!()},
+        }
+    }(z,e%8)
+}
+fn rus_weight(t:&[Root;4],fibre:usize,e:usize,ob:usize,c:usize)->i64{
+    if ob==3{return if fibre==0{root(e)[c]}else{0};}
+    let i=ob+1;
+    if fibre==i{shift(t[0],e)[c]}
+    else if fibre==0{-shift(t[i],e)[c]}else{0}
+}
+fn rus_target(name:&str)->[Root;4]{
+    let zero=[0;4];let one=root(0);
+    match name{
+        "Figure7"=>[one,[2,1,0,1],[2,-1,0,-1],[-1,0,0,0]],
+        "Figure8"=>[one,[0,1,0,1],[0,1,0,1],one],
+        _=>{let (a,b)=match name{"Figure9"=>(1,2),"Figure10a"=>(3,2),"Figure10b"=>(4,1),"Figure10c"=>(5,2),_=>unreachable!()};
+            [[a,0,b,0],zero,zero,[a,0,-b,0]]}
+    }
+}
+fn rus_export(dir:&std::path::Path){
+    let src=std::path::PathBuf::from(std::env::var_os("HOARE_FACTOR_SOURCE_DIR").expect("pinned RUS source directory"));
+    let mut manifest=String::new();
+    for (name,h,expected_ops,corr) in [("Figure7",7usize,14usize,true),("Figure8",3,8,false),("Figure9",5,13,false),
+        ("Figure10a",9,21,false),("Figure10b",17,37,true),("Figure10c",16,33,false)]{
+        let source=std::fs::read_to_string(src.join(format!("rus-{name}-circuit.qasm"))).unwrap();
+        let blocks=source.split("outcome[0] = measure qb[0];").collect::<Vec<_>>();
+        assert_eq!(blocks.len(),3);let ops=rus_block(blocks[0]);let retry=rus_block(blocks[1]);
+        assert!(blocks[2].lines().all(|l|{let t=l.split("//").next().unwrap().trim();t.is_empty()||t=="}"}));
+        assert_eq!(ops.len(),expected_ops);assert_eq!(ops.iter().filter(|(g,_)|g=="h").count(),h);
+        if corr{assert_eq!(retry[0],("z".to_owned(),vec![1]));}
+        assert_eq!(&retry[usize::from(corr)..],ops.as_slice());
+        // Dagger phases expanded exactly using existing native gates.
+        let mut gates=Vec::new();for (g,a) in &ops{let i=a[0];match g.as_str(){
+            "h"=>gates.push(G::H(i)),"x"=>gates.push(G::X(i)),"z"=>gates.push(G::Z(i)),
+            "t"=>gates.push(G::T(i)),"tdg"=>gates.extend(std::iter::repeat(G::T(i)).take(7)),
+            "s"=>gates.push(G::S(i)),"sdg"=>gates.extend(std::iter::repeat(G::S(i)).take(3)),
+            "cx"=>gates.push(G::CX(i,a[1])),"cz"=>gates.push(G::CZ(i,a[1])),_=>unreachable!(),
+        }}
+        let now=std::time::Instant::now();
+        let s=native(2,&gates).expect("exact unreduced native RUS path sum");
+        assert_eq!(s.h,h);let prep_ns=now.elapsed().as_nanos();
+        let mut hist=[0u64;64];
+        for x in 0..2{for y in 0..1usize<<h{
+            let(z,e)=rus_eval(&ops,x,y);assert_eq!(path(&s,(2*x) as u64,y as u64),(z as u64,e));
+            hist[32*x+8*z+e]+=1;
+        }}
+        for x in 0..2{let dense=dense_state(2,&gates,(2*x) as u64);
+            for z in 0..4{let a:Root=std::array::from_fn(|j|hist[32*x+8*z+j] as i64-hist[32*x+8*z+j+4] as i64);
+                assert_eq!(a,dense[z]);}}
+        let raw=rus_target(name);let identity=[root(0),[0;4],[0;4],root(0)];
+        let mut obligations=vec![("raw",0usize,false,identity),("original-post",1,false,raw),("corrected-failure",0,corr,identity)];
+        if name=="Figure10a"||name=="Figure10c"{obligations.push(("corrected-post",1,false,raw.map(rus_conj)));}
+        if corr{obligations.push(("omit-Z-correction",0,false,identity));}
+        for (label,branch,correct,t) in obligations{
+            let is_raw=label=="raw";let primary=1+h+if is_raw{0}else{4};
+            let now=std::time::Instant::now();
+            let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+            let bits:Vec<Lit>=vec![ZERO,2].into_iter().chain((0..h).map(|i|(3+i) as Lit)).collect();
+            let p=mod_phase(&mut f,&s.phase,&bits,3,"factor").unwrap();
+            let z=s.output.iter().map(|a|f.anf(a,&bits,true).unwrap()).collect::<Vec<_>>();
+            let mut magnitude=Vec::<(Lit,i64)>::new();
+            let (digit_lits,expected,radix)=if is_raw{
+                // Raw packed histogram: exponent + 8*z + 32*x.
+                let roots=p.iter().copied().chain(z.iter().copied()).chain([2]).collect::<Vec<_>>();
+                let aliases=roots.iter().map(|&l|f.alias(l).unwrap()).collect::<Vec<_>>();
+                (aliases,hist.to_vec(),(2u64<<h)+1)
+            }else{
+                f.c.enforce(if branch==1{z[0]}else{-z[0]});
+                let mut p=p.clone();if correct{p[2]=f.gate(true,p[2],z[1]).unwrap();}
+                let sel:Vec<Lit>=(0..4).map(|i|(3+h+i) as Lit).collect();
+                // Index bits: fibre (data output, original input), phase,
+                // minor/anchor code, coefficient code. Exact table only 512 rows.
+                let roots=vec![z[1],2].into_iter().chain(p.iter().copied()).chain(sel.iter().copied()).collect::<Vec<_>>();
+                let tab=(0..512usize).map(|i|rus_weight(&t,i&3,(i>>2)&7,(i>>5)&3,(i>>7)&3)).collect::<Vec<_>>();
+                let max=tab.iter().map(|v|v.unsigned_abs()).max().unwrap();
+                assert!(max>0&&max<=5);
+                let lookup=|f:&mut FactorPilot,test:&dyn Fn(i64)->bool|{
+                    let mut a:Vec<bool>=tab.iter().map(|&v|test(v)).collect();
+                    for i in 0..9{for j in 0..512{if j>>i&1!=0{let v=a[j^(1<<i)];a[j]^=v;}}}
+                    let anf=a.iter().enumerate().filter_map(|(i,&v)|v.then_some(i as u64)).collect::<Anf>();
+                    f.anf(&anf,&roots,true).unwrap()
+                };
+                let mut enabled=ZERO;
+                for m in 1..=max{
+                    if !tab.iter().any(|v|v.unsigned_abs()==m){continue;}
+                    let l=lookup(&mut f,&|v|v.unsigned_abs()==m);
+                    enabled=f.gate(true,enabled,l).unwrap();magnitude.push((f.alias(l).unwrap(),m as i64));
+                }
+                f.c.enforce(enabled);
+                let sign=lookup(&mut f,&|v|v<0);
+                let roots=vec![sign,sel[2],sel[3],sel[0],sel[1]];
+                let aliases=roots.iter().map(|&l|f.alias(l).unwrap()).collect::<Vec<_>>();
+                let mut expected=vec![0u64;32];
+                for fibre in 0..4{let x=fibre/2;let out=fibre%2;let z=2*out+branch;
+                    for e0 in 0..8{let e=(e0+if correct{4*out}else{0})%8;
+                        for ob in 0..4{for c in 0..4{
+                            let w=rus_weight(&t,fibre,e,ob,c);
+                            let digit=8*ob+2*c+usize::from(w<0);
+                            expected[digit]+=hist[32*x+8*z+e0]*w.unsigned_abs();
+                        }}
+                    }
+                }
+                (aliases,expected,(2u64<<h)*max+1)
+            };
+            assert!(f.bounded());assert!(expected.iter().all(|&x|x<radix));
+            let encode_ns=now.elapsed().as_nanos();
+            // Exhaustive small raw domains, deterministic bounded samples otherwise.
+            let samples=if primary<=10{1usize<<primary}else{1024};
+            let mut seed=0x52555331u32;
+            for i in 0..samples{
+                seed=seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let a=if primary<=10{i}else{(seed as usize)&((1<<primary)-1)};
+                let x=a&1;let y=(a>>1)&((1<<h)-1);let (z,e)=rus_eval(&ops,x,y);
+                let ob=(a>>(1+h))&3;let c=(a>>(3+h))&3;
+                let w=if is_raw{1}else if z&1!=branch{0}else{rus_weight(&t,2*x+(z>>1),(e+if correct{4*(z>>1)}else{0})%8,ob,c)};
+                let v=factor_up(&f.c,primary,a as u64);
+                if w==0{assert!(v.is_none());}else{
+                    let v=v.unwrap();
+                    let digit=digit_lits.iter().enumerate().fold(0usize,|r,(i,&l)|r|((usize::from(lit_value(l,&v)==1))<<i));
+                    assert_eq!(digit,if is_raw{32*x+8*z+e}else{8*ob+2*c+usize::from(w<0)});
+                    if !is_raw{let active=magnitude.iter().filter(|&&(l,_)|lit_value(l,&v)==1).collect::<Vec<_>>();
+                        assert_eq!(active.len(),1);assert_eq!(active[0].1,w.abs());}
+                }
+            }
+            let case=format!("rus-{name}-{label}");
+            std::fs::write(dir.join(format!("{case}.cnf")),dimacs(&f.c,&[]).unwrap()).unwrap();
+            let ds=digit_lits.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+            let ms=if magnitude.is_empty(){"-".to_owned()}else{magnitude.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",")};
+            let ex=expected.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+            let target=t.iter().flatten().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+            manifest.push_str(&format!("{case}\t{name}\t{label}\t{h}\t{branch}\t{}\t{primary}\t{}\t{}\t{radix}\t{ds}\t{ms}\t{ex}\t{target}\t{prep_ns}\t{encode_ns}\t{samples}\n",usize::from(correct),f.c.vars,f.c.clauses.len()));
+            println!("HOARE_RUS_EXPORT case={case} vars={} clauses={} checks={samples}",f.c.vars,f.c.clauses.len());
+        }
+    }
+    assert_eq!(manifest.lines().count(),22);
+    std::fs::write(dir.join("native-rus.tsv"),manifest).unwrap();
+}
+
 fn sparse_target_export(dir:&std::path::Path){
     let mut manifest=String::new();
     for n in [2usize,4]{
@@ -3738,6 +3904,7 @@ fn partition_export(dir:&std::path::Path){
         partition_export(&dir);
         qft_complex_export(&dir);
         sparse_target_export(&dir);
+        rus_export(&dir);
         export_native_gse_wmc(&dir);
     }
 

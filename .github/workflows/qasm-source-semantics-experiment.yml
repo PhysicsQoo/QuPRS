@@ -147,6 +147,37 @@ jobs:
           test "$(git hash-object "$factor_dir/mogrover-4.qasm")" = 56e26972835eb604ee7ffd005ae0f10cdd081697
           test "$(git hash-object "$factor_dir/multi-4-pre.hsl")" = 2b1c53ee628ef52edeeb09bf0dc70f1d601f968c
           test "$(git hash-object "$factor_dir/multi-4-post.hsl")" = 5e63ffba67c329e6fcb14693122c35cd0f004728
+          rus_base="https://raw.githubusercontent.com/fmlab-iis/AutoQ/7eed39ad7ba5615a87c3f532a24f866e08967c12/benchmarks/all/RUS"
+          fetch_rus() {
+            curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-time 60 "$rus_base/$1/$2" -o "$factor_dir/rus-$1-$2"
+            test "$(git hash-object "$factor_dir/rus-$1-$2")" = "$3"
+          }
+          fetch_rus Figure7 circuit.qasm 2e5c57f98b61c5bd1b6f4ca0be0fc543f150a18f
+          fetch_rus Figure7 pre.hsl d98d1c1a8aba09a32795780bb39bb9230bac074f
+          fetch_rus Figure7 post.hsl 2df4171fb1df65dc9b54cd556bc4b611f1b032b0
+          fetch_rus Figure7 loop-invariant.hsl fd996b91506f906d9aaa0e6e8eaadcebc541e463
+          fetch_rus Figure8 circuit.qasm 710f494a1e9771d8ca5d3d6bc342476c19c86802
+          fetch_rus Figure8 pre.hsl d98d1c1a8aba09a32795780bb39bb9230bac074f
+          fetch_rus Figure8 post.hsl 9be2760603d331ed289c26ce88ef379cfe6d5897
+          fetch_rus Figure8 loop-invariant.hsl dcee53ce94a13a3f9077eb0772f36af0993ad62c
+          fetch_rus Figure9 circuit.qasm cc059a14a61517bd9a4af883bbf10eebb4eb6647
+          fetch_rus Figure9 pre.hsl d98d1c1a8aba09a32795780bb39bb9230bac074f
+          fetch_rus Figure9 post.hsl 414311003d1f13290a26544b0f5bc51f55c42138
+          fetch_rus Figure9 loop-invariant.hsl de4e722073f2c24718f7d242569157f9d384b22d
+          fetch_rus Figure10a circuit.qasm 5b40ab38ac1e472b2cc63fc8bd881e9b16dbd9ca
+          fetch_rus Figure10a pre.hsl d98d1c1a8aba09a32795780bb39bb9230bac074f
+          fetch_rus Figure10a post.hsl b8f96c89d51fab2be48502a649143814fda2aaef
+          fetch_rus Figure10a loop-invariant.hsl a680a42e33dddf39d874ef0eb44d4d74e002a91e
+          fetch_rus Figure10a post_corrected.hsl 2d58ae24f8cc5ff4db8acf7819b58586a047b24d
+          fetch_rus Figure10b circuit.qasm f1b684419a656dbdb3bf279e037fb978f48ecac4
+          fetch_rus Figure10b pre.hsl d98d1c1a8aba09a32795780bb39bb9230bac074f
+          fetch_rus Figure10b post.hsl f5396ffd137b9964af88b5abbb98f746fb85fb27
+          fetch_rus Figure10b loop-invariant.hsl a09f2cc09880594872921b3c041c40a1822785e5
+          fetch_rus Figure10c circuit.qasm 3079180c201cbe0ae7439c3353240f79dbe2d2f1
+          fetch_rus Figure10c pre.hsl d98d1c1a8aba09a32795780bb39bb9230bac074f
+          fetch_rus Figure10c post.hsl 96e4042a9cc51b2fb9ce718abf759b59ff189158
+          fetch_rus Figure10c loop-invariant.hsl 3ac67137361c8e09d157691fe4174e2c5e988c72
+          fetch_rus Figure10c post_corrected.hsl 16927a2f226f1024a13b0adce453e45691584ab2
           sha256sum "$factor_dir/"* | tee evidence/hoare-factor-source-sha256.txt
           HOARE_FACTOR_SOURCE_DIR="$factor_dir" \
           HOARE_EXACT_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/hoare-exact-fixtures" \

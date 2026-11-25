@@ -830,6 +830,138 @@ def run_qft_complex_pilot(directory,exe,tmp):
             print("HOARE_QFT_COMPLEX_GPMC "+json.dumps(result),flush=True)
 
 
+
+def rus_mul(a,b):
+    r=[0]*4
+    for i,u in enumerate(a):
+        for j,v in enumerate(b):
+            r[(i+j)%4]+=u*v*(-1 if i+j>=4 else 1)
+    return r
+
+
+def rus_conj(a):
+    return [a[0],-a[3],-a[2],-a[1]]
+
+
+def run_rus_pilot(directory,exe,tmp):
+    """Positive-integer packed raw and anchor-linear counts; no postselection
+    norm shortcut. HSL basis-column targets are hash-pinned transcriptions."""
+    with (directory/"native-rus.tsv").open() as f:
+        rows=list(csv.reader(f,delimiter="\t"))
+    assert len(rows)==22 and len({r[0] for r in rows})==22
+    raw={}
+    result={}
+    start=time.monotonic()
+    for case,name,label,h,branch,correct,primary,vs,cs,B,ds,ms,expected,target,prep,enc,checks in rows:
+        h,branch,correct,primary,vs,cs,B,prep,enc,checks=map(int,(h,branch,correct,primary,vs,cs,B,prep,enc,checks))
+        assert 0<h<=17 and 0<vs<=10000 and 0<cs<=40000
+        is_raw=label=="raw"
+        assert primary==1+h+(0 if is_raw else 4)
+        digit_lits=list(map(int,ds.split(",")))
+        magnitude=[] if ms=="-" else [tuple(map(int,v.split(":"))) for v in ms.split(",")]
+        expected=list(map(int,expected.split(",")))
+        t=list(map(int,target.split(",")))
+        assert len(t)==16
+        t=[t[i:i+4] for i in range(0,16,4)]
+        assert len(digit_lits)==(6 if is_raw else 5)
+        digits=1<<len(digit_lits)
+        assert len(expected)==digits and all(0<=v<B for v in expected)
+        assert (not magnitude)==is_raw
+        lits=digit_lits+[l for l,w in magnitude]
+        assert len(lits)==len(set(lits)) and all(0<l<=vs for l in lits)
+        assert all(1<=w<=5 for l,w in magnitude)
+        assert B==(2<<h)*(max(w for l,w in magnitude) if magnitude else 1)+1
+        weights={l:B**(1<<i) for i,l in enumerate(digit_lits)}
+        weights.update(magnitude)
+        weights.update({-l:1 for l in lits})
+        header,*clauses=(directory/f"{case}.cnf").read_text().splitlines()
+        assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+        body="c t wmc\n"+header+"\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"\n".join(clauses)+"\n"
+        path=pathlib.Path(tmp)/"rus-pilot.cnf"
+        path.write_text(body)
+        row=dict(case=case,name=name,label=label,h=h,primary=primary,vars=vs,clauses=cs,prep_ns=prep,encode_ns=enc,checks=checks,
+                 query_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN")
+        try:
+            remaining=120-(time.monotonic()-start)
+            if remaining<=0:raise TimeoutError("RUS scheduling deadline")
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(path)],min(5,remaining),pathlib.Path(tmp)/"rus-time.tsv",row["metrics"])
+            value=parse_gpmc_integer(out,"wmc",B**digits-1)
+            packed_bits=value.bit_length()
+            counts=[]
+            for _ in range(digits):
+                counts.append(value%B);value//=B
+            assert value==0 and counts==expected
+            row.update(status="EXACT",packed_bits=packed_bits,digits=counts)
+            if is_raw:
+                assert sum(counts)==2<<h
+                raw[name]=counts
+            else:
+                signed=[counts[i]-counts[i+1] for i in range(0,32,2)]
+                minors=[signed[i:i+4] for i in range(0,12,4)]
+                anchor=signed[12:16]
+                w=sum(v*v for v in signed[:12])
+                real=rus_mul(anchor,rus_conj(t[0]))
+                nonzero=any(anchor)
+                complex_ok=nonzero and w==0
+                real_ok=complex_ok and real==rus_conj(real)
+                row.update(minors=minors,anchor=anchor,residual=w,anchor_nonzero=nonzero,
+                           ray_verdict="PROVED" if complex_ok else "REFUTED",
+                           real_verdict="PROVED" if real_ok else "REFUTED")
+                # Recompute from independently solver-counted raw fibres,
+                # not from the expected histogram.
+                if name in raw:
+                    a=[]
+                    for fibre in range(4):
+                        x,z=divmod(fibre,2)
+                        base=32*x+8*(2*z+branch)
+                        q=[raw[name][base+j]-raw[name][base+j+4] for j in range(4)]
+                        if correct and z:q=[-v for v in q]
+                        a.append(q)
+                    assert a[0]==anchor
+                    for i in range(1,4):
+                        assert minors[i-1]==[u-v for u,v in zip(rus_mul(t[0],a[i]),rus_mul(t[i],a[0]))]
+                    row["raw_crosscheck"]=True
+                result[(name,label)]=row
+        except (TimeoutError,subprocess.TimeoutExpired):
+            row["status"]="TIMEOUT"
+        except SolverSignalKilled:
+            row["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        print("HOARE_RUS_GPMC "+json.dumps(row),flush=True)
+    # Probability and retry certificates use actual raw branch counts.
+    p_expected={"Figure7":(7,0,8),"Figure8":(3,0,4),"Figure9":(5,0,8),
+                "Figure10a":(13,0,16),"Figure10b":(102,17,128),"Figure10c":(58,29,128)}
+    for name,counts in raw.items():
+        h=next(int(r[3]) for r in rows if r[1]==name)
+        S=[];F=[]
+        for x in range(2):
+            for z in range(2):
+                for branch,dst in ((1,S),(0,F)):
+                    base=32*x+8*(2*z+branch)
+                    dst.append([counts[base+j]-counts[base+j+4] for j in range(4)])
+        if name in ("Figure7","Figure10b"):
+            F[1]=[-v for v in F[1]];F[3]=[-v for v in F[3]]
+        def inner(a,b):
+            terms=[rus_mul(rus_conj(x),y) for x,y in zip(a,b)]
+            return [sum(t[j] for t in terms) for j in range(4)]
+        den=1<<h
+        a,b,d=p_expected[name]
+        assert 0<a and b>=0 and a*a>=0 and (d-a)>0 and (d-a)**2>2*b*b
+        assert den%d==0
+        p=[a*(den//d),b*(den//d),0,-b*(den//d)]
+        assert inner(S[:2],S[:2])==inner(S[2:],S[2:])==p
+        assert inner(S[:2],S[2:])==[0]*4
+        assert F[0]==F[3] and not any(F[1]) and not any(F[2])
+        assert rus_mul(F[0],rus_conj(F[0]))==[den-p[0],-p[1],0,-p[3]]
+        print("HOARE_RUS_RETRY "+json.dumps(dict(name=name,success_numerator=p,denominator=den,
+             corrected_failure_scalar=F[0],physical_termination="PROVED")),flush=True)
+    wanted={("Figure10a","original-post"):18432,("Figure10c","original-post"):1638400,
+            ("Figure7","omit-Z-correction"):64,("Figure10b","omit-Z-correction"):106496}
+    for key,row in result.items():
+        assert row["residual"]==wanted.get(key,0) and row["anchor_nonzero"]
+        assert row["real_verdict"]=="REFUTED"
+    print("HOARE_RUS_GPMC_SUMMARY "+json.dumps(dict(expected=22,raw_exact=len(raw),linear_exact=len(result),
+         crosschecked=sum(bool(r.get("raw_crosscheck")) for r in result.values()))),flush=True)
+
 def run_sparse_target_pilot(directory,exe,tmp):
     """Bounded canonical target coefficient lookup versus term selector."""
     with (directory/"native-sparse-target.tsv").open() as f:
@@ -1142,6 +1274,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_qft_complex_pilot(directory,exe,tmp)
     if (directory/"native-sparse-target.tsv").is_file():
         run_sparse_target_pilot(directory,exe,tmp)
+    if (directory/"native-rus.tsv").is_file():
+        run_rus_pilot(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

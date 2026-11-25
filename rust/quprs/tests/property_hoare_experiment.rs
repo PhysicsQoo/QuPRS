@@ -676,7 +676,7 @@ mod exact_property_cnf {
                 for (m,w) in [(vec![],offset),(vec![u],1),(vec![0,u],1),(vec![y],1),(vec![u,y],d/2)]{
                     ps.p.add_term(m,quprs::PhaseCoeff::new_constant(quprs::Rational::new(w,d)));
                 }
-                let masks=[vec![],vec![Anf::from([4])],vec![Anf::from([0,4])],vec![Anf::new()]];
+                let masks=[vec![],vec![Anf::from([4])],vec![Anf::from([1,4])],vec![Anf::new()]];
                 // All masks use dense [x,u,y] positions despite high stable IDs.
                 for a in &masks{for b in &masks{
                     let guard=|g:&[Anf],v:u64|g.iter().all(|p|eval(p,v));
@@ -716,7 +716,96 @@ mod exact_property_cnf {
                 assert_eq!(count(&c,&[-sign],&mut 0,false),None);
             }
         }
+        assert_eq!((checks,zero,positive),(1728,60,516));
+        // All-zero phase is NOT an inactive path. With one free hidden
+        // bit, the unmasked amplitude is 2 for each original input.
+        let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+        let y=ps.v.get_fresh_var();
+        ps.p.terms.clear();
+        for (a,b,expected) in [
+            (vec![],vec![],0u128),
+            (vec![],vec![Anf::new()],8),
+            (vec![],vec![Anf::from([2])],2),
+            (vec![Anf::new()],vec![Anf::new()],0),
+        ]{
+            for (flip,cancel) in [(None,false),(None,true),(Some(y),true)]{
+                let (c,sign,d)=dual_mask_native_cnf(&ps,&a,&b,flip,cancel).unwrap();
+                assert_eq!(d,2);
+                let mut fuel=100_000;
+                let plus=count(&c,&[-sign],&mut fuel,false).unwrap();
+                let minus=count(&c,&[sign],&mut fuel,false).unwrap();
+                assert!(plus>=minus);assert_eq!(plus-minus,expected);
+            }
+        }
         println!("HOARE_NATIVE_DUAL_MASK checks={checks} zero={zero} positive={positive} high_ids=true");
+        println!("HOARE_NATIVE_DUAL_MASK_ZERO_PHASE checks=12");
+    }
+
+    // Bounded external pilot: export exactly the same original fiber
+    // and guards for all three encoders. Counts are independently
+    // computed on the finite phase formulas, not from the CNF.
+    fn export_native_dual_mask_wmc(dir:&std::path::Path){
+        let mut manifest=String::new();
+        for (name,a,b,offset,zero_phase) in [
+            ("phase-all",0usize,0usize,1i64,false),
+            ("phase-one-sided",0,3,1,false),
+            ("phase-asymmetric",0,1,1,false),
+            ("phase-xor",2,1,0,false),
+            ("zero-phase-overlap",0,1,0,true),
+            ("empty",3,3,0,true),
+        ]{
+            let d=if zero_phase{2i64}else{8};
+            let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+            let u=ps.v.get_fresh_var();let y=ps.v.get_fresh_var();
+            ps.f.functions[0]=rustc_hash::FxHashSet::from_iter([vec![0],vec![u]]);
+            if !zero_phase{
+                for (m,w) in [(vec![],offset),(vec![u],1),(vec![0,u],1),(vec![y],1),(vec![u,y],d/2)]{
+                    ps.p.add_term(m,quprs::PhaseCoeff::new_constant(quprs::Rational::new(w,d)));
+                }
+            }
+            let masks=[vec![],vec![Anf::from([4])],vec![Anf::from([1,4])],vec![Anf::new()]];
+            let guard=|g:usize,v:u64|match g{0=>true,1=>v&4!=0,2=>(v&1!=0)^(v&4!=0),_=>false};
+            let phase=|v:u64|{let x=v&1;let q=(v>>1)&1;let t=(v>>2)&1;
+                if zero_phase{0}else{(offset+(q*(1+x)+t) as i64+d/2*(q*t) as i64).rem_euclid(d)}
+            };
+            for (route,flip,cancel) in [("full",None,false),("identity",None,true),("flip",Some(y),true)]{
+                let mut terms=Vec::new();
+                for v in 0..8u64{
+                    let w=if flip.is_some(){v^4}else{v};
+                    let x=v&1;let z=x^((v>>1)&1);
+                    let pa=phase(w);let pb=(-phase(v)).rem_euclid(d);
+                    let ga=guard(a,w);let gb=guard(b,v);
+                    if cancel&&ga&&gb&&pa==pb{continue;}
+                    if ga{terms.push((x,z,pa,1i64));}
+                    if gb{terms.push((x,z,pb,-1i64));}
+                }
+                let mut pairs=[[0u128;2];2];
+                for &(x,z,p,s) in &terms{for &(xx,zz,q,t) in &terms{
+                    if x!=xx||z!=zz{continue;}
+                    let delta=(p-q).rem_euclid(d);
+                    if delta!=0&&delta!=d/2{continue;}
+                    let sign=s*t*if delta==0{1}else{-1};
+                    pairs[x as usize][usize::from(sign<0)]+=1;
+                }}
+                let start=std::time::Instant::now();
+                let (c,sign,actual)=dual_mask_native_cnf(&ps,&masks[a],&masks[b],flip,cancel).unwrap();
+                let encode_ns=start.elapsed().as_nanos();
+                assert_eq!(actual,d as u32);
+                for x in 0..2{
+                    let input=if x==0{-2}else{2};
+                    let mut fuel=4_000_000;
+                    assert_eq!(count(&c,&[input,-sign],&mut fuel,false),Some(pairs[x][0]));
+                    assert_eq!(count(&c,&[input,sign],&mut fuel,false),Some(pairs[x][1]));
+                    assert!(pairs[x][0]>=pairs[x][1]);
+                }
+                let id=format!("dual-mask-{name}-{route}");
+                std::fs::write(dir.join(format!("{id}.cnf")),dimacs(&c,&[]).unwrap()).unwrap();
+                manifest.push_str(&format!("{name}\t{route}\t{sign}\t7\t{}\t{}\t{encode_ns}\t{}\t{}\t{}\t{}\n",
+                    c.vars,c.clauses.len(),pairs[0][0],pairs[0][1],pairs[1][0],pairs[1][1]));
+            }
+        }
+        std::fs::write(dir.join("native-dual-mask.tsv"),manifest).unwrap();
+        println!("HOARE_NATIVE_DUAL_MASK_EXPORT cases=6 variants=18 primary=7");
     }
 
     #[test]
@@ -2228,6 +2317,7 @@ mod exact_property_cnf {
         export_scale_benchmark(&dir);
         export_fourier_heldout(&dir);
         export_native_affine_wmc(&dir);
+        export_native_dual_mask_wmc(&dir);
         export_native_gse_wmc(&dir);
     }
 

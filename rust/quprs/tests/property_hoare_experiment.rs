@@ -2648,7 +2648,7 @@ fn factor_export(dir:&std::path::Path){
 
 // Research-only sign-phase HH admission; preserve native pivot selection.
 // Budget counts affected monomial products, not full-polynomial products.
-fn multi_rr(mut ps:PathSum,n:usize,label:&str)->Option<(Symbolic,u32,usize)>{
+fn partition_advance(mut ps:PathSum,n:usize,label:&str,work_limit:usize)->Option<(PathSum,u32,usize,usize,bool)>{
     let(mut scale,mut steps,mut work)=(0u32,0usize,0usize);
     for _ in 0..32{
         let s=compact(&ps,n)?;
@@ -2682,7 +2682,7 @@ fn multi_rr(mut ps:PathSum,n:usize,label:&str)->Option<(Symbolic,u32,usize)>{
                 pairs=pairs.checked_add(product)?;max_pairs=max_pairs.max(product);
             }
             let next=work.checked_add(pairs)?;
-            if upper>30000||max_pairs>2_000_000||next>4_000_000{
+            if upper>30000||max_pairs>2_000_000||next>work_limit.min(4_000_000){
                 blocked=true;
                 println!("HOARE_MULTI_RR_BLOCK case={label} step={steps} y={y} v={v} upper={upper} pairs={pairs}");
                 continue;
@@ -2699,30 +2699,38 @@ fn multi_rr(mut ps:PathSum,n:usize,label:&str)->Option<(Symbolic,u32,usize)>{
             ps=trial;scale+=2;steps+=1;work=next;hit=true;break;
         }
         if hit{continue;}
-        if blocked{return None;}
-        return Some((s,scale,steps));
+        return Some((ps,scale,steps,work,blocked));
     }
     None
 }
+fn multi_rr(ps:PathSum,n:usize,label:&str)->Option<(Symbolic,u32,usize)>{
+    let (ps,scale,steps,_,blocked)=partition_advance(ps,n,label,4_000_000)?;
+    if blocked{return None;}
+    Some((compact(&ps,n)?,scale,steps))
+}
+
 fn multi_target(k:usize,x:u64,z:u64)->i128{
     let mask=(1u64<<k)-1;
     if z&mask!=x||z>>(2*k)!=1u64<<(k-2){return 0;}
     if (z>>k)&mask==x{if k==3{11}else{251}}
     else if k==3{-1}else{-13}
 }
-fn multi_encode(s:&Symbolic,copies:usize,factored:bool)->Option<FactorPilotEncoding>{
-    if s.n!=8||s.h!=7||!(copies==1||copies==2)||
-        s.phase.values().any(|&v|v!=4)||s.output.len()!=8||
-        s.phase.keys().chain(s.output.iter().flatten()).any(|&m|m>>15!=0)||
-        s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>()>8192{return None;}
-    let k=3usize;let primary=k+s.h*copies;
+fn multi_encode_domain(s:&Symbolic,copies:usize,factored:bool,k:usize,mask:u64,val:u64)->Option<FactorPilotEncoding>{
+    if !(k==3||k==4)||s.n!=3*k-1||s.h!=(if k==3{7}else{16}){return None;}
+    if !(copies==1||copies==2)||(k==4&&copies!=1)||mask>>k!=0||val&!mask!=0||
+        s.phase.values().any(|&v|v!=4)||s.output.len()!=s.n||
+        s.phase.keys().chain(s.output.iter().flatten()).any(|&m|m>>(s.n+s.h)!=0)||
+        s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>()>(if k==3{8192}else{30000}){return None;}
+    let free:Vec<_>=(0..k).filter(|&i|mask>>i&1==0).collect();
+    let inputs:Vec<Lit>=(0..s.n).map(|i|if i>=k{ZERO}else if mask>>i&1!=0{if val>>i&1!=0{ONE}else{ZERO}}else{(2+free.iter().position(|&j|j==i).unwrap()) as Lit}).collect();
+    let primary=free.len()+s.h*copies;
     let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
     let sign:Anf=s.phase.keys().copied().collect();
     let mut phases=Vec::new();let mut outputs=Vec::new();
     for j in 0..copies{
         // All source columns share the original input bits.
-        let bits:Vec<Lit>=(0..s.n).map(|i|if i<k{(2+i) as Lit}else{ZERO})
-            .chain((0..s.h).map(|i|(2+k+j*s.h+i) as Lit)).collect();
+        let bits:Vec<Lit>=inputs.iter().copied()
+            .chain((0..s.h).map(|i|(2+free.len()+j*s.h+i) as Lit)).collect();
         phases.push(f.anf(&sign,&bits,factored)?);
         let mut z=Vec::new();for a in &s.output{z.push(f.anf(a,&bits,factored)?);}
         outputs.push(z);
@@ -2731,12 +2739,13 @@ fn multi_encode(s:&Symbolic,copies:usize,factored:bool)->Option<FactorPilotEncod
     if copies==1{
         let z=&outputs[0];let p=phases[0];let mut sup=ONE;let mut mark=ONE;
         for i in 0..k{
-            let a=f.gate(true,z[i],(i+2) as Lit)?;sup=f.gate(false,sup,-a)?;
-            let b=f.gate(true,z[k+i],(i+2) as Lit)?;mark=f.gate(false,mark,-b)?;
+            let a=f.gate(true,z[i],inputs[i])?;sup=f.gate(false,sup,-a)?;
+            let b=f.gate(true,z[k+i],inputs[i])?;mark=f.gate(false,mark,-b)?;
         }
         for i in 2*k..s.n{sup=f.gate(false,sup,if i==s.n-1{z[i]}else{-z[i]})?;}
         if sup!=ONE{f.c.enforce(sup);}
-        for (a,b,w) in [(mark,-p,11),(mark,p,-11),(-mark,p,1),(-mark,-p,-1)]{
+        let (hi,lo)=if k==3{(11,1)}else{(251,13)};
+        for (a,b,w) in [(mark,-p,hi),(mark,p,-hi),(-mark,p,lo),(-mark,-p,-lo)]{
             let l=f.gate(false,a,b)?;classes.push((f.alias(l)?,w));
         }
     }else{
@@ -2750,6 +2759,10 @@ fn multi_encode(s:&Symbolic,copies:usize,factored:bool)->Option<FactorPilotEncod
     if !f.bounded(){return None;}
     Some(FactorPilotEncoding{cnf:f.c,classes,primary})
 }
+fn multi_encode(s:&Symbolic,copies:usize,factored:bool)->Option<FactorPilotEncoding>{
+    multi_encode_domain(s,copies,factored,3,0,0)
+}
+
 fn multi_export(dir:&std::path::Path){
     let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
     let srcdir=std::path::PathBuf::from(srcdir);
@@ -2856,6 +2869,149 @@ fn multi_export(dir:&std::path::Path){
     std::fs::write(dir.join("native-multi-factor.tsv"),manifest).unwrap();
 }
 
+
+// Original input variables remain in native path_vars even when fixed.
+// Specialization changes only the phase/output polynomials, not hidden IDs.
+fn partition_fix(mut ps:PathSum,mask:u64,val:u64)->Option<PathSum>{
+    if mask>>4!=0||val&!mask!=0{return None;}
+    let before=compact(&ps,11)?;
+    let ids=native_ids(&ps)?;
+    let cube=Cube{mask,value:val};
+    let expected_output:Vec<_>=before.output.iter().map(|a|specialize_bool(a,cube)).collect();
+    let expected_phase=specialize_phase(&before.phase,cube);
+    if expected_phase.values().any(|&p|p!=4){return None;}
+    // Rebuild from the independently specialized compact polynomial;
+    // original stable IDs are retained, including fixed input labels.
+    let stable=|m:u64|->Vec<u32>{
+        ids.iter().enumerate().filter_map(|(i,&id)|(m>>i&1!=0).then_some(id)).collect()
+    };
+    for (i,a) in expected_output.iter().enumerate(){
+        ps.f.functions[i].clear();
+        for &m in a{ps.f.functions[i].insert(stable(m));}
+    }
+    ps.p.terms.clear();
+    for &m in expected_phase.keys(){
+        ps.p.add_term(stable(m),quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,2)));
+    }
+    let after=compact(&ps,11)?;
+    assert_eq!(after.output,expected_output);assert_eq!(after.phase,expected_phase);
+    assert_eq!(native_ids(&ps)?,ids);
+    Some(ps)
+}
+fn partition_export(dir:&std::path::Path){
+    let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
+    let n=11usize;let k=4usize;
+    let source=std::fs::read_to_string(std::path::PathBuf::from(srcdir).join("mogrover-4.qasm")).unwrap();
+    let ops=factor_source_ops(&source,n);
+    assert_eq!((ops.len(),ops.iter().filter(|g|matches!(g,G::H(_))).count()),(120,30));
+    let base_start=std::time::Instant::now();
+    let mut base=PathSum::new(n);base.set_auto_reduce(false);
+    for i in k..n{base.f.functions[i].clear();}
+    for g in &ops{
+        g.apply(&mut base,false);
+        assert!(base.p.terms.len()+base.f.functions.iter().map(|a|a.len()).sum::<usize>()<=30000);
+    }
+    let base_ns=base_start.elapsed().as_nanos();
+    let dense:Vec<_>=(0..16u64).map(|x|dense_state(n,&ops,x)).collect();
+    let mut manifest=String::new();
+    for strategy in ["fixed","restart","resume"]{
+        let mut stack=Vec::new();
+        if strategy=="fixed"{
+            for x in (0..16u64).rev(){stack.push((partition_fix(base.clone(),15,x).unwrap(),15u64,x,0u32));}
+        }else{stack.push((base.clone(),0u64,0u64,0u32));}
+        let mut seen=BTreeSet::new();let(mut nodes,mut leaves,mut steps,mut work,mut peak)=(0usize,0usize,0usize,0usize,0usize);
+        let(mut rr_ns,mut encode_ns,mut oracle_ns)=(0u128,0u128,0u128);
+        let mut exported=0usize;
+        while let Some((ps,mask,val,prior_scale))=stack.pop(){
+            nodes+=1;assert!(nodes<=31);
+            let label=format!("partition-{strategy}-{mask}-{val}");
+            let start=std::time::Instant::now();
+            let advanced=partition_advance(ps,n,&label,24_000_000usize.saturating_sub(work));
+            rr_ns+=start.elapsed().as_nanos();
+            let mut accepted=None;
+            if let Some((ps,scale,done,pairs,blocked))=advanced{
+                steps+=done;work+=pairs;assert!(work<=24_000_000);
+                let total_scale=prior_scale+scale;
+                let s=compact(&ps,n).unwrap();
+                peak=peak.max(s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>());
+                if s.h==16&&total_scale==14{accepted=Some(s);}
+                else if mask!=15&&strategy!="fixed"&&blocked{
+                    let i=(0..4).find(|&j|mask>>j&1==0).unwrap();
+                    let bit=1u64<<i;let child_mask=mask|bit;
+                    let start=std::time::Instant::now();
+                    for child_val in [val|bit,val]{
+                        let (p,sc)=if strategy=="resume"{
+                            (partition_fix(ps.clone(),bit,child_val&bit).unwrap(),total_scale)
+                        }else{(partition_fix(base.clone(),child_mask,child_val).unwrap(),0)};
+                        stack.push((p,child_mask,child_val,sc));
+                    }
+                    rr_ns+=start.elapsed().as_nanos();
+                    continue;
+                }
+            }
+            leaves+=1;assert!(leaves<=16);
+            let xs:Vec<_>=(0..16u64).filter(|x|x&mask==val).collect();
+            assert!(!xs.is_empty());
+            for &x in &xs{assert!(seen.insert(x),"overlapping input partition");}
+            let norm=(xs.len() as u128)*65536;
+            let Some(s)=accepted else{
+                manifest.push_str(&format!("{strategy}\t{label}\t{mask}\t{val}\t{}\tRR_LIMIT\t0\t0\t0\t0\t-\t0\t0\t{norm}\n",xs.len()));
+                continue;
+            };
+            let now=std::time::Instant::now();
+            let(mut cp,mut cm)=(0u128,0u128);
+            // Complete per-original-input independent zeta-transform histogram.
+            for &x in &xs{
+                let cube=Cube{mask:(1<<n)-1,value:x};
+                let t=Symbolic{n:s.n,h:s.h,output:s.output.iter().map(|a|specialize_bool(a,cube)).collect(),phase:specialize_phase(&s.phase,cube)};
+                let hist=factor_hist(&t);let mut sn=0i128;let mut tn=0i128;
+                for (z,&(p,m)) in hist.iter().enumerate(){
+                    let a=p as i128-m as i128;let target=multi_target(k,x,z as u64);
+                    let d=dense[x as usize][z];assert_eq!(d[1..],[0,0,0]);
+                    assert_eq!(a*128,i128::from(d[0]));assert_eq!(a,target);
+                    sn+=a*a;tn+=target*target;
+                    if target>0{cp+=p*target as u128;cm+=m*target as u128;}
+                    else if target<0{cp+=m*(-target) as u128;cm+=p*(-target) as u128;}
+                }
+                assert_eq!((sn,tn),(65536,65536));
+            }
+            assert_eq!(cp-cm,norm);oracle_ns+=now.elapsed().as_nanos();
+            let now=std::time::Instant::now();
+            let e=multi_encode_domain(&s,1,true,k,mask,val);
+            let enc_ns=now.elapsed().as_nanos();encode_ns+=enc_ns;
+            let Some(e)=e else{
+                manifest.push_str(&format!("{strategy}\t{label}\t{mask}\t{val}\t{}\tENCODER_LIMIT\t0\t0\t0\t{enc_ns}\t-\t{cp}\t{cm}\t{norm}\n",xs.len()));
+                continue;
+            };
+            let free:Vec<_>=(0..k).filter(|&i|mask>>i&1==0).collect();
+            assert_eq!(e.primary,free.len()+16);
+            let now=std::time::Instant::now();
+            for j in 0..32u64{
+                let x=xs[j as usize%xs.len()];let y=(1009*j+31)&65535;
+                let a=free.iter().enumerate().fold(0u64,|v,(i,&bit)|v|(((x>>bit)&1)<<i))|(y<<free.len());
+                let(z,p)=path(&s,x,y);assert!(p==0||p==4);
+                let w=multi_target(k,x,z)*if p==0{1}else{-1};
+                let v=factor_up(&e.cnf,e.primary,a);
+                if w==0{assert!(v.is_none());}else{
+                    let v=v.unwrap();let active:Vec<_>=e.classes.iter().filter(|&&(l,_)|lit_value(l,&v)==1).collect();
+                    assert_eq!(active.len(),1);assert_eq!(i128::from(active[0].1),w);
+                }
+            }
+            oracle_ns+=now.elapsed().as_nanos();
+            let mut dimacs=format!("p cnf {} {}\n",e.cnf.vars,e.cnf.clauses.len());
+            for cl in &e.cnf.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=e.cnf.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
+            std::fs::write(dir.join(format!("{label}.cnf")),dimacs).unwrap();
+            let classes=e.classes.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",");
+            manifest.push_str(&format!("{strategy}\t{label}\t{mask}\t{val}\t{}\tREADY\t{}\t{}\t{}\t{enc_ns}\t{classes}\t{cp}\t{cm}\t{norm}\n",xs.len(),e.primary,e.cnf.vars,e.cnf.clauses.len()));
+            exported+=1;
+            println!("HOARE_PARTITION_LEAF case={label} inputs={} terms={} vars={} clauses={} cp={cp} cm={cm}",xs.len(),s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>(),e.cnf.vars,e.cnf.clauses.len());
+        }
+        assert_eq!(seen,(0..16u64).collect::<BTreeSet<_>>());
+        println!("HOARE_PARTITION_NATIVE strategy={strategy} nodes={nodes} leaves={leaves} exported={exported} steps={steps} pairs={work} terminal_peak={peak} base_ns={base_ns} rr_ns={rr_ns} encode_ns={encode_ns} oracle_ns={oracle_ns}");
+    }
+    std::fs::write(dir.join("native-partition.tsv"),manifest).unwrap();
+}
+
     #[test]
     fn hoare_export_external_exact_fixtures(){
         let Some(dir)=std::env::var_os("HOARE_EXACT_FIXTURE_DIR") else{return;};
@@ -2901,6 +3057,7 @@ fn multi_export(dir:&std::path::Path){
         export_native_dual_mask_wmc(&dir);
         factor_export(&dir);
         multi_export(&dir);
+        partition_export(&dir);
         export_native_gse_wmc(&dir);
     }
 

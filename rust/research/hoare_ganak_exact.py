@@ -516,6 +516,78 @@ def run_amplitude_factor_pilot(directory, exe, tmp, repeat_round=None, multi=Fal
               expected=8,exported=len(rows),exact=sum(r["status"]=="EXACT" for r in rows.values()),
               matched=matched)),flush=True)
 
+
+def run_partition_pilot(directory, exe, tmp):
+    """Separate source-only partition pilot. Unknown leaves never certify a cover."""
+    with (directory/"native-partition.tsv").open() as f:
+        manifest=list(csv.reader(f,delimiter="\t"))
+    assert len({r[1] for r in manifest})==len(manifest)
+    assert {r[0] for r in manifest}=={"fixed","restart","resume"}
+    for strategy in ("fixed","restart","resume"):
+        cohort=[r for r in manifest if r[0]==strategy]
+        assert 1<=len(cohort)<=16
+        coverage=set()
+        decided=set()
+        residual=0
+        start=time.monotonic()
+        solver_seconds=0.0
+        max_rss=0
+        for route,name,mask,val,inputs,state,primary,vs,cs,encode_ns,classes,ep,em,norm in cohort:
+            mask,val,inputs,primary,vs,cs,encode_ns,ep,em,norm=map(int,(mask,val,inputs,primary,vs,cs,encode_ns,ep,em,norm))
+            assert 0<=mask<=15 and 0<=val<=15 and val&~mask==0
+            xs={x for x in range(16) if x&mask==val}
+            assert xs and len(xs)==inputs and norm==65536*inputs
+            assert not coverage.intersection(xs)
+            coverage.update(xs)
+            row=dict(strategy=route,case=name,mask=mask,value=val,inputs=inputs,
+                     norm=norm,primary=primary,vars=vs,clauses=cs,encode_ns=encode_ns,status=state,metrics=[])
+            if state=="READY":
+                assert primary==16+4-mask.bit_count() and 0<vs<=10000 and 0<cs<=40000
+                weights=[(int(l),int(w)) for l,w in (s.split(":") for s in classes.split(","))]
+                assert len(weights)==4 and len({l for l,w in weights})==4 and sorted(w for l,w in weights)==[-251,-13,13,251]
+                assert all(0<l<=vs for l,w in weights)
+                bound=(1<<primary)*251
+                radix=bound+1
+                natural={l:abs(w)*(radix if w<0 else 1) for l,w in weights}
+                for l,w in weights:natural.setdefault(-l,1)
+                base=(directory/f"{name}.cnf").read_text()
+                header,*clauses=base.splitlines()
+                assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+                query=pathlib.Path(tmp)/"partition-pilot.cnf"
+                weights_text="".join(f"c p weight {l} {w} 0\n" for l,w in sorted(natural.items()))
+                query.write_text("c t wmc\n"+header+"\n"+weights_text+"\n".join(clauses)+"\n")
+                row["query_sha256"]=hashlib.sha256(query.read_bytes()).hexdigest()
+                remaining=120-(time.monotonic()-start)
+                if remaining<=0:
+                    row["status"]="TOTAL_DEADLINE"
+                else:
+                    try:
+                        out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(10,remaining),
+                                         pathlib.Path(tmp)/"partition-time.tsv",row["metrics"])
+                        value=parse_gpmc_integer(out,"wmc",bound*(radix+1))
+                        plus,minus=value%radix,value//radix
+                        assert plus+minus<=bound and (plus,minus)==(ep,em)
+                        w=2*(norm-(plus-minus))
+                        assert w==0
+                        row.update(status="EXACT",plus=plus,minus=minus,residual=w)
+                        decided.update(xs);residual+=w
+                    except (TimeoutError,subprocess.TimeoutExpired):
+                        row["status"]="TIMEOUT"
+                    except SolverSignalKilled:
+                        row["status"]="UNATTRIBUTED_SIGNAL_KILL"
+                for m in row["metrics"]:
+                    solver_seconds+=m["wall_s"]
+                    max_rss=max(max_rss,m["max_rss_kib"] or 0)
+            else:
+                assert state in ("RR_LIMIT","ENCODER_LIMIT")
+            print("HOARE_PARTITION_GPMC "+json.dumps(row),flush=True)
+        assert coverage==set(range(16))
+        print("HOARE_PARTITION_GPMC_SUMMARY "+json.dumps(dict(
+            strategy=strategy,leaves=len(cohort),coverage=len(coverage),decided_inputs=len(decided),
+            residual=residual if decided==coverage else None,
+            verdict="PROVED" if decided==coverage else "UNKNOWN",
+            solver_s=solver_seconds,solver_peak_rss_kib=max_rss)),flush=True)
+
 def run_dual_mask_wmc(directory, count, deadline):
     """Bounded native dual-mask pilot, exact MPZ weights, original input witness."""
     rows = []
@@ -684,6 +756,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             print("HOARE_FACTOR_REPEAT_SKIPPED opt_in=HOARE_FACTOR_REPEATS=1",flush=True)
     if (directory/"native-multi-factor.tsv").is_file():
         run_amplitude_factor_pilot(directory,exe,tmp,multi=True)
+    if (directory/"native-partition.tsv").is_file():
+        run_partition_pilot(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

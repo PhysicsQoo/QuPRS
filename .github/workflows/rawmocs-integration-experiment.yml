@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: [e2e, qpeinexact22-432, grover6-432, gf2-7-333]
+        case: [e2e, qpeinexact22-432, grover6-432, gf2-7-333, fallback, qft16-memory, qft20, qft22, qpeinexact20, grover6, qaoa9, vqe8, qnn8, wstate8, qft20-negative]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,7 +60,7 @@ jobs:
           cmake --build .gpmc/build --target gpmc-bin --parallel 2
           .rawmocs/crates/rawmocs-cli/target/release/rawmocs --version
       - name: Build current QuPRS source exporter
-        if: matrix.case != 'e2e'
+        if: contains(fromJSON('["qpeinexact22-432","grover6-432","gf2-7-333"]'), matrix.case)
         run: |
           set -euo pipefail
           bridge=.rawmocs/crates/rawmocs-cli/tools/repro/quprs_long_tail_source_bridge.rs
@@ -68,6 +68,7 @@ jobs:
           cp "$bridge" rust/quprs/examples/
           cargo build --locked --release --no-default-features --manifest-path rust/Cargo.toml -p quprs --example quprs_long_tail_source_bridge
       - name: Run scoped boundary conformance and comparison
+        if: contains(fromJSON('["e2e","qpeinexact22-432","grover6-432","gf2-7-333"]'), matrix.case)
         env:
           PYTHONHASHSEED: '0'
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
@@ -89,6 +90,25 @@ jobs:
             --exporter rust/target/release/examples/quprs_long_tail_source_bridge \
             --oracle .rawmocs/crates/rawmocs-cli/tools/repro \
             --out .integration-evidence/comparison
+      - name: Build expanded native cohort verifier
+        if: "!contains(fromJSON('[\"e2e\",\"qpeinexact22-432\",\"grover6-432\",\"gf2-7-333\",\"fallback\"]'), matrix.case)"
+        env:
+          QUPRS_SOLVER_PROVISION: external
+        run: cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example rawmocs_cohort
+      - name: Run expanded cohort or exact fallback controls
+        if: "!contains(fromJSON('[\"e2e\",\"qpeinexact22-432\",\"grover6-432\",\"gf2-7-333\"]'), matrix.case)"
+        env:
+          PYTHONHASHSEED: '0'
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+          CASE: ${{ matrix.case }}
+        run: |
+          mkdir -p .integration-evidence
+          git rev-parse HEAD > .integration-evidence/quprs-revision.txt
+          git -C .rawmocs rev-parse HEAD > .integration-evidence/rawmocs-revision.txt
+          git -C .gpmc rev-parse HEAD > .integration-evidence/gpmc-revision.txt
+          python research/rawmocs_integration/expanded_cohort.py --case "$CASE" \
+            --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs --gpmc .gpmc/build/gpmc \
+            --bin rust/target/release/examples/rawmocs_cohort --out .integration-evidence/expanded
       - uses: actions/upload-artifact@v4
         if: always()
         with:

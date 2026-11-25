@@ -843,11 +843,11 @@ def rus_conj(a):
     return [a[0],-a[3],-a[2],-a[1]]
 
 
-def run_rus_pilot(directory,exe,tmp,rr=False):
+def run_rus_pilot(directory,exe,tmp,route="direct"):
     """Positive-integer packed raw and anchor-linear counts; no postselection
     norm shortcut. HSL basis-column targets are hash-pinned transcriptions."""
-    route="rr" if rr else "direct"
-    with (directory/("native-rus-rr.tsv" if rr else "native-rus.tsv")).open() as f:
+    assert route in ("direct","fixed","rr")
+    with (directory/("native-rus.tsv" if route=="direct" else f"native-rus-{route}.tsv")).open() as f:
         rows=list(csv.reader(f,delimiter="\t"))
     assert len(rows)==22 and len({r[0] for r in rows})==22
     raw={}
@@ -861,7 +861,7 @@ def run_rus_pilot(directory,exe,tmp,rr=False):
         h,branch,correct,primary,vs,cs,B,prep,enc,checks=map(int,(h,branch,correct,primary,vs,cs,B,prep,enc,checks))
         h0,scale2=map(int,(h0,scale2))
         assert 0<=h<=h0<=17 and 0<=scale2<=2*(h0-h)
-        assert rr or (h==h0 and scale2==0)
+        assert route=="rr" or (h==h0 and scale2==0)
         assert 0<vs<=10000 and 0<cs<=40000
         is_raw=label=="raw"
         assert primary==1+h+(0 if is_raw else 4)
@@ -975,7 +975,7 @@ def run_rus_pilot(directory,exe,tmp,rr=False):
         assert row["real_verdict"]=="REFUTED"
     print("HOARE_RUS_GPMC_SUMMARY "+json.dumps(dict(route=route,expected=22,raw_exact=len(raw),linear_exact=len(result),
          crosschecked=sum(bool(r.get("raw_crosscheck")) for r in result.values()))),flush=True)
-    return aligned_raw,result
+    return aligned_raw,result,raw
 
 def run_sparse_target_pilot(directory,exe,tmp):
     """Bounded canonical target coefficient lookup versus term selector."""
@@ -1290,16 +1290,20 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     if (directory/"native-sparse-target.tsv").is_file():
         run_sparse_target_pilot(directory,exe,tmp)
     if (directory/"native-rus.tsv").is_file():
-        direct,dr=run_rus_pilot(directory,exe,tmp)
-        if (directory/"native-rus-rr.tsv").is_file():
-            reduced,rr=run_rus_pilot(directory,exe,tmp,rr=True)
+        direct,dr,digits=run_rus_pilot(directory,exe,tmp)
+        for route in ("fixed","rr"):
+            if not (directory/f"native-rus-{route}.tsv").is_file():continue
+            reduced,rr,other_digits=run_rus_pilot(directory,exe,tmp,route=route)
             raw_pairs=direct.keys() & reduced.keys()
             linear_pairs=dr.keys() & rr.keys()
-            for k in raw_pairs:assert direct[k]==reduced[k]
+            for k in raw_pairs:
+                assert direct[k]==reduced[k]
+                if route=="fixed":assert digits[k]==other_digits[k]
             for k in linear_pairs:
                 for field in ("aligned_anchor","aligned_minors","aligned_residual","ray_verdict","real_verdict"):
                     assert dr[k][field]==rr[k][field]
-            print("HOARE_RUS_RR_PARITY "+json.dumps(dict(raw_pairs=len(raw_pairs),linear_pairs=len(linear_pairs))),flush=True)
+                if route=="fixed":assert dr[k]["digits"]==rr[k]["digits"]
+            print("HOARE_RUS_ABLATION_PARITY "+json.dumps(dict(route=route,raw_pairs=len(raw_pairs),linear_pairs=len(linear_pairs))),flush=True)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

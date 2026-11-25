@@ -3138,7 +3138,7 @@ fn rus_target(name:&str)->[Root;4]{
 fn rus_export(dir:&std::path::Path){
     let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
     let src=std::path::PathBuf::from(srcdir);
-    let mut manifest=String::new();let mut rr_manifest=String::new();
+    let mut manifest=String::new();let mut rr_manifest=String::new();let mut fixed_manifest=String::new();
     for (name,h,expected_ops,corr) in [("Figure7",7usize,14usize,true),("Figure8",3,8,false),("Figure9",5,13,false),
         ("Figure10a",9,21,false),("Figure10b",17,37,true),("Figure10c",16,33,false)]{
         let source=std::fs::read_to_string(src.join(format!("rus-{name}-circuit.qasm"))).unwrap();
@@ -3171,6 +3171,9 @@ fn rus_export(dir:&std::path::Path){
         let rr_start=std::time::Instant::now();
         let mut ps=PathSum::new(2);ps.set_auto_reduce(false);ps.f.functions[0].clear();
         for g in &gates{g.apply(&mut ps,false);}
+        let fixed=compact(&ps,2).unwrap();
+        let fixed_prep_ns=rr_start.elapsed().as_nanos();
+        assert_eq!(fixed.h,h);
         let mut frame=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
         let(mut scale2,mut rr_steps,mut elim,mut hh,mut omega)=(0u32,0usize,0usize,0usize,0usize);
         for _ in 0..32{
@@ -3198,8 +3201,15 @@ fn rus_export(dir:&std::path::Path){
             assert_eq!(align(a),d,"RUS complete fibre alignment {name} {i}");
         }
         println!("HOARE_RUS_RR case={name} h0={h} h={} scale2={scale2} steps={rr_steps} elim={elim} hh={hh} omega={omega} prep_ns={rr_prep_ns}",reduced.h);
+        let mut fixed_hist=[0u64;64];
+        for x in 0..2{for y in 0..1usize<<fixed.h{
+            let(z,e)=path(&fixed,(2*x) as u64,y as u64);
+            assert_eq!((z as usize,e),rus_eval(&ops,x,y));
+            fixed_hist[32*x+8*z as usize+e]+=1;
+        }}
+        assert_eq!(fixed_hist,hist,"early specialization must preserve every raw path");
         let h0=h;
-        for (route,s,hist,scale2,prep_ns) in [("direct",s,hist,0u32,prep_ns),("rr",reduced,reduced_hist,scale2,rr_prep_ns)]{
+        for (route,s,hist,scale2,prep_ns) in [("direct",s,hist,0u32,prep_ns),("fixed",fixed,fixed_hist,0u32,fixed_prep_ns),("rr",reduced,reduced_hist,scale2,rr_prep_ns)]{
         let h=s.h;
         let raw=rus_target(name);let identity=[root(0),[0;4],[0;4],root(0)];
         let mut obligations=vec![("raw",0usize,false,identity),("original-post",1,false,raw),("corrected-failure",0,corr,identity)];
@@ -3276,13 +3286,13 @@ fn rus_export(dir:&std::path::Path){
                         assert_eq!(active.len(),1);assert_eq!(active[0].1,w.abs());}
                 }
             }
-            let case=if route=="direct"{format!("rus-{name}-{label}")}else{format!("rus-rr-{name}-{label}")};
+            let case=if route=="direct"{format!("rus-{name}-{label}")}else{format!("rus-{route}-{name}-{label}")};
             std::fs::write(dir.join(format!("{case}.cnf")),dimacs(&f.c,&[]).unwrap()).unwrap();
             let ds=digit_lits.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
             let ms=if magnitude.is_empty(){"-".to_owned()}else{magnitude.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",")};
             let ex=expected.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
             let target=t.iter().flatten().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
-            let dest=if route=="direct"{&mut manifest}else{&mut rr_manifest};
+            let dest=match route{"direct"=>&mut manifest,"fixed"=>&mut fixed_manifest,_=>&mut rr_manifest};
             dest.push_str(&format!("{case}\t{name}\t{label}\t{h}\t{branch}\t{}\t{primary}\t{}\t{}\t{radix}\t{ds}\t{ms}\t{ex}\t{target}\t{prep_ns}\t{encode_ns}\t{samples}\t{h0}\t{scale2}\n",usize::from(correct),f.c.vars,f.c.clauses.len()));
             println!("HOARE_RUS_EXPORT case={case} vars={} clauses={} checks={samples}",f.c.vars,f.c.clauses.len());
         }
@@ -3291,6 +3301,8 @@ fn rus_export(dir:&std::path::Path){
     assert_eq!(manifest.lines().count(),22);assert_eq!(rr_manifest.lines().count(),22);
     std::fs::write(dir.join("native-rus.tsv"),manifest).unwrap();
     std::fs::write(dir.join("native-rus-rr.tsv"),rr_manifest).unwrap();
+    assert_eq!(fixed_manifest.lines().count(),22);
+    std::fs::write(dir.join("native-rus-fixed.tsv"),fixed_manifest).unwrap();
 }
 
 fn sparse_target_export(dir:&std::path::Path){

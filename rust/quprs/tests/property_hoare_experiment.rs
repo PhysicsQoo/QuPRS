@@ -1356,6 +1356,132 @@ mod exact_property_cnf {
         }
     }
 
+
+    // Guard-selected elimination, native P/f substitution only.
+    // The full survivor is retained in the external frame: it is not
+    // interchangeable with an arbitrary extra mask on another property.
+    // This step integrates one selected branch, not two. Raw scale2=0.
+    #[derive(Default)]
+    struct GseStats { candidates:usize, overlap:usize, limits:usize }
+    struct GseStep { ps:PathSum, guard:NativeGuardFrame, removed:u32, selector:Anf }
+    fn gse_step(ps:&PathSum,n:usize,frame:&NativeGuardFrame,pre:&[Anf],post:&[Anf],
+                stats:&mut GseStats)->Option<GseStep>{
+        let s=compact(ps,n)?;
+        if pre.iter().chain(post).flatten().any(|&m|m>>n!=0){return None;}
+        let ids=native_ids(ps)?;
+        let extra=frame.compact(ps)?;
+        let full=mul_anf(&property_guard(&s,pre,post)?,&extra)?;
+        if full.is_empty(){return None;}
+        let stable=|m:u64|ids.iter().enumerate().fold(0u64,|a,(i,&v)|a|(((m>>i)&1)<<v));
+        // Unlike ordinary RR, even output-used internal IDs are eligible.
+        for (j,&y) in ids.iter().enumerate().skip(n){
+            stats.candidates+=1;
+            let Some(g0)=substitute_guard(&full,j as u32,&Anf::new()) else{stats.limits+=1;continue;};
+            let Some(g1)=substitute_guard(&full,j as u32,&Anf::from([0])) else{stats.limits+=1;continue;};
+            let Some(both)=mul_anf(&g0,&g1) else{stats.limits+=1;continue;};
+            if !both.is_empty(){stats.overlap+=1;continue;}
+            let Some(union)=anf_xor(&g0,&g1) else{stats.limits+=1;continue;};
+            // Bound the selector and its lift BEFORE invoking native
+            // substitution (which is not a resource-isolated operation).
+            if g1.len()>8{stats.limits+=1;continue;}
+            let Some(lifted)=lift_anf(&g1) else{stats.limits+=1;continue;};
+            let bit=1u64<<j;
+            let phase_work=s.phase.keys().map(|&m|if m&bit!=0{lifted.len()}else{1}).sum::<usize>();
+            let output_work=s.output.iter().flatten().map(|&m|if m&bit!=0{g1.len()}else{1}).sum::<usize>();
+            if phase_work+output_work>256{stats.limits+=1;continue;}
+            let selector:Anf=g1.iter().map(|&m|stable(m)).collect();
+            let replacement:rustc_hash::FxHashSet<Vec<u32>>=selector.iter().map(|&m|
+                ids.iter().copied().filter(|&v|m>>v&1!=0).collect()).collect();
+            let mut trial=ps.clone();
+            trial.f.substitute_var_with_poly(y,&replacement);
+            trial.p.substitute_var_with_poly(y,&replacement);
+            if !trial.v.path_vars.remove(&y){return None;}
+            let next=compact(&trial,n)?;
+            if next.h+1!=s.h||next.phase.len()+next.output.iter().map(|o|o.len()).sum::<usize>()>256{return None;}
+            let guard=NativeGuardFrame::new(&trial,union.iter().map(|&m|stable(m)).collect())?;
+            return Some(GseStep{ps:trial,guard,removed:y,selector});
+        }
+        None
+    }
+    #[test]
+    fn hoare_native_guard_selected_elimination(){
+        let gates=[G::H(0),G::H(1),G::CX(0,1),G::CZ(0,1),G::T(0),G::S(1)];
+        let preds=[Anf::from([0]),Anf::from([0,1]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut cases=0usize;let mut eligible=0usize;let mut hits=0usize;let mut multi=0usize;
+        let mut entries=0usize;let mut removed=0usize;let mut wmc=0usize;
+        let mut terminal_before=0usize;let mut terminal_after=0usize;
+        let mut sizes=[0usize;4];let mut stats=GseStats::default();
+        for a in &gates{for b in &gates{for p in &preds{for q in &preds{
+            let n=2;cases+=1;
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for op in [G::H(0),a.clone(),b.clone()]{op.apply(&mut ps,false);}
+            let pre=vec![p.clone()];let post=vec![q.clone()];
+            let mut g=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
+            // Compare GSE only AFTER the existing guarded RR saturates.
+            let mut scale2=0;
+            for _ in 0..16{
+                let Some(step)=guarded_native_step(&ps,n,&g) else{break;};
+                scale2+=step.scale2;ps=step.ps;g=step.guard;
+            }
+            let s=compact(&ps,n).unwrap();
+            let full=mul_anf(&property_guard(&s,&pre,&post).unwrap(),&g.compact(&ps).unwrap()).unwrap();
+            if full.is_empty()||algebraic_injective_paths(&s)||s.h==0{
+                terminal_before+=1;continue;
+            }
+            eligible+=1;
+            let base=guarded_entries(&ps,n,&g,&pre,&post);
+            let (c,d)=guarded_pair(&s,&full);
+            let mut steps=0usize;
+            for _ in 0..8{
+                let Some(step)=gse_step(&ps,n,&g,&pre,&post,&mut stats) else{break;};
+                assert!(step.removed as usize>=n);
+                assert!(step.selector.iter().all(|&m|m&(1u64<<step.removed)==0));
+                assert!(g.compact(&step.ps).is_none());
+                ps=step.ps;g=step.guard;steps+=1;
+                let after=guarded_entries(&ps,n,&g,&pre,&post);
+                assert_eq!(base,after);entries+=base.len();
+            }
+            if steps==0{continue;}
+            hits+=1;removed+=steps;if steps>1{multi+=1;}
+            let after=compact(&ps,n).unwrap();
+            let active=mul_anf(&property_guard(&after,&pre,&post).unwrap(),&g.compact(&ps).unwrap()).unwrap();
+            if active.is_empty()||after.h==0||algebraic_injective_paths(&after){terminal_after+=1;}
+            let (cr,dr)=guarded_pair(&after,&active);
+            let mut batches=0;
+            let before=exact_pair_coeff(&c,d,&[],&mut 2_000_000,&mut batches).unwrap();
+            let result=exact_pair_coeff(&cr,dr,&[],&mut 2_000_000,&mut batches).unwrap();
+            assert_eq!(before,result);wmc+=1;
+            // Original raw squared scale remains the preceding native
+            // RR scale, not a function of the residual path count.
+            let factor=1i128<<scale2;
+            let original=(0..1u64<<n).filter(|&x|eval_conj(&pre,x)).map(|x|
+                raw_for_input(n,&[G::H(0),a.clone(),b.clone()],&post,x))
+                .fold([0i128;2],|s,v|[s[0]+v[0],s[1]+v[1]]);
+            assert_eq!(result.map(|v|v*factor),original);
+            sizes[0]+=c.vars;sizes[1]+=cr.vars;sizes[2]+=c.clauses.len();sizes[3]+=cr.clauses.len();
+        }}}}
+        assert_eq!(cases,576);assert_eq!(cases,terminal_before+eligible);
+        // Positive physical H output selection: output-used internal
+        // variable, arbitrary phase, no raw factor. Also exercise
+        // nonlinear selector and a genuine overlap negative control.
+        let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+        for op in [G::H(0),G::T(0),G::H(1),G::CZ(0,1)]{op.apply(&mut ps,false);}
+        let g=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
+        let post=vec![equal_bits(0,1)];
+        let step=gse_step(&ps,2,&g,&[],&post,&mut stats).unwrap();
+        assert_eq!(guarded_entries(&ps,2,&g,&[],&post),guarded_entries(&step.ps,2,&step.guard,&[],&post));
+        assert!(gse_step(&ps,2,&g,&[],&[Anf::new()],&mut stats).is_none());
+        // Force y=x0*x1 through an extra mask (synthetic property).
+        let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+        G::H(0).apply(&mut ps,false);G::T(0).apply(&mut ps,false);
+        let y=*native_ids(&ps).unwrap().last().unwrap();
+        let g=NativeGuardFrame::new(&ps,Anf::from([0,3,1u64<<y])).unwrap();
+        let step=gse_step(&ps,2,&g,&[],&[Anf::new()],&mut stats).unwrap();
+        assert_eq!(step.selector,Anf::from([3]));
+        assert_eq!(guarded_entries(&ps,2,&g,&[],&[Anf::new()]),guarded_entries(&step.ps,2,&step.guard,&[],&[Anf::new()]));
+        println!("HOARE_NATIVE_GSE cases={cases} terminal_before={terminal_before} eligible={eligible} hits={hits} multi={multi} removed={removed} terminal_after={terminal_after} entries={entries} wmc_checks={wmc} cnf_sizes={sizes:?} candidates={} overlaps={} limits={} positive_controls=2 negative_controls=1 raw_scale2=0",stats.candidates,stats.overlap,stats.limits);
+    }
+
     fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{
         if !admitted(n,ops){return None;}
         let mut ps=PathSum::new(n);

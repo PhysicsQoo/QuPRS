@@ -738,11 +738,11 @@ jobs:
             exit 1
           fi
           native_guarded_reports="$(grep -Ec 'does not depend on any axioms|depends on axioms' /tmp/qasm-lean-native-guarded.log)"
-          test "$native_guarded_reports" -eq 15
-          for theorem in active_phase_entry active_phase_sum scale_chain_sound guard_output_congr projection_entry mask_add elim_entry cancel_entry hh_branch hh_substitute omega_lift sum_paths_congr sum_paths_mask projection_sum paired_paths_cancel; do
+          test "$native_guarded_reports" -eq 16
+          for theorem in guard_selected_entry active_phase_entry active_phase_sum scale_chain_sound guard_output_congr projection_entry mask_add elim_entry cancel_entry hh_branch hh_substitute omega_lift sum_paths_congr sum_paths_mask projection_sum paired_paths_cancel; do
             test "$(grep -Ec "^'QuPRS[.]NativeGuardedPathSum[.]$theorem' (does not depend on any axioms|depends on axioms)" /tmp/qasm-lean-native-guarded.log)" -eq 1
           done
-          echo 'LEAN4_NATIVE_GUARDED_PATHSUM_PASS theorem_axiom_reports=15 active_phase_rewrite=true scale_composition=true conditional_amplitude_algebra=true projection=true local_guarded_rr=true source_refinement=false'
+          echo 'LEAN4_NATIVE_GUARDED_PATHSUM_PASS theorem_axiom_reports=16 guard_selected_elimination=true active_phase_rewrite=true scale_composition=true conditional_amplitude_algebra=true projection=true local_guarded_rr=true source_refinement=false'
           lean HoareSectorTransport.lean 2>&1 | tee /tmp/qasm-lean-hoare-sector.log
           if grep -E 'sorryAx|Lean[.]trustCompiler|Classical[.]choice' /tmp/qasm-lean-hoare-sector.log; then
             echo 'Unexpected sector transport theorem axiom dependency' >&2

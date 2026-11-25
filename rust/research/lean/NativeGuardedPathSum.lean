@@ -200,6 +200,23 @@ theorem active_phase_sum {A Y Z : Type} [Zero A] [Add A] [DecidableEq Z]
   intro y
   exact active_phase_entry (g y) (out y) z (a y) (b y) (h y)
 
+
+/-- At most one of the two guarded paths survives. The selected branch
+    has its original output and amplitude, with no multiplicity factor. -/
+theorem guard_selected_entry {A Z : Type} [Zero A] [Add A] [DecidableEq Z]
+    (h00 : (0 : A) + 0 = 0)
+    (hzl : ∀ a : A, 0+a = a) (hzr : ∀ a : A, a+0 = a)
+    (g0 g1 : Bool) (out : Bool → Z) (a : Bool → A) (z : Z)
+    (exclusive : g0 && g1 = false) :
+    entry g0 (out false) z (a false) + entry g1 (out true) z (a true) =
+      entry (g0 || g1) (out g1) z (a g1) := by
+  cases g0 <;> cases g1
+  · simpa [entry, mask] using h00
+  · simp [entry, mask, hzl]
+  · simp [entry, mask, hzr]
+  · contradiction
+
+#print axioms guard_selected_entry
 #print axioms active_phase_entry
 #print axioms active_phase_sum
 #print axioms scale_chain_sound

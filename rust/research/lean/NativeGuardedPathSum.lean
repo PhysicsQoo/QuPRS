@@ -152,6 +152,31 @@ theorem paired_paths_cancel {Y A : Type} [Zero A] [Add A]
       simp only [sumPaths, h y, ih]
       exact h00
 
+
+/-- Local guarded RR scale factors compose, assuming the action of
+    sqrt(2)^k on the amplitude carrier obeys the stated laws.
+    This does not establish analytic phase laws or native refinement. -/
+inductive ScaleChain {A : Type} (scale : Nat → A → A) :
+    A → List Nat → A → Prop where
+  | nil (a : A) : ScaleChain scale a [] a
+  | cons {a b c : A} {k : Nat} {ks : List Nat}
+      (step : a = scale k b) (tail : ScaleChain scale b ks c) :
+      ScaleChain scale a (k :: ks) c
+
+theorem scale_chain_sound {A : Type} (scale : Nat → A → A)
+    (hzero : ∀ a, scale 0 a = a)
+    (hadd : ∀ k l a, scale k (scale l a) = scale (k+l) a)
+    {a b : A} {ks : List Nat} (h : ScaleChain scale a ks b) :
+    a = scale ks.sum b := by
+  induction h with
+  | nil a => exact (hzero a).symm
+  | cons step tail ih =>
+    calc
+      _ = scale _ _ := step
+      _ = scale _ (scale _ _) := congrArg (scale _) ih
+      _ = _ := hadd _ _ _
+
+#print axioms scale_chain_sound
 #print axioms guard_output_congr
 #print axioms projection_entry
 #print axioms mask_add

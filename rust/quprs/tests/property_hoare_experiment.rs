@@ -831,8 +831,9 @@ mod exact_property_cnf {
         let s=compact(ps,n)?;
         g.compact(ps)?;
         let ids=native_ids(ps)?;
-        let candidates:Vec<_>=ps.get_reducible_vars().into_iter().filter(|&y|
+        let mut candidates:Vec<_>=ps.get_reducible_vars().into_iter().filter(|&y|
             (y as usize)>=n&&y<63&&g.extra.iter().all(|m|m&(1u64<<y)==0)).collect();
+        candidates.sort_unstable();
         for rule in [GuardedRule::Elim,GuardedRule::Omega,GuardedRule::Hh]{
             for &y in &candidates{
                 let (extra,mut expected,scale2)=match rule{
@@ -942,6 +943,140 @@ mod exact_property_cnf {
         let g=NativeGuardFrame::new(&p,Anf::from([0])).unwrap();
         assert!(guarded_native_step(&p,1,&g).is_none());
         println!("HOARE_NATIVE_GUARDED_RR_STEP accepted={accepted:?} blocked={blocked} entries={entries} stale={stale} target_substitutions={target_substitutions} exact_entry_oracle=true");
+    }
+
+
+    // A scoped replay receipt, not a cryptographic or general source
+    // certificate: bind the exact admitted phase/output and stable IDs.
+    #[derive(Clone,Debug,PartialEq,Eq)]
+    struct GuardedSnapshot {
+        n:usize, ids:Vec<u32>, phase:BTreeMap<u64,u8>,
+        output:Vec<Anf>, extra:Anf,
+    }
+    fn guarded_snapshot(ps:&PathSum,n:usize,g:&NativeGuardFrame)->Option<GuardedSnapshot>{
+        let s=compact(ps,n)?;
+        g.compact(ps)?;
+        Some(GuardedSnapshot{n,ids:native_ids(ps)?,phase:s.phase,output:s.output,extra:g.extra.clone()})
+    }
+    #[derive(Clone,Debug,PartialEq,Eq)]
+    struct GuardedReceipt {
+        before:GuardedSnapshot,after:GuardedSnapshot,
+        rule:GuardedRule,removed:Vec<u32>,scale2:u32,
+    }
+    fn guarded_receipt(ps:&PathSum,n:usize,g:&NativeGuardFrame,step:&GuardedStep)->Option<GuardedReceipt>{
+        Some(GuardedReceipt{before:guarded_snapshot(ps,n,g)?,after:guarded_snapshot(&step.ps,n,&step.guard)?,
+            rule:step.rule,removed:step.removed.clone(),scale2:step.scale2})
+    }
+    // Replay recomputes the original RR transition and guard substitution;
+    // a valid prefix is not a claim of saturation or proof of the property.
+    fn replay_guarded_receipts(mut ps:PathSum,n:usize,mut g:NativeGuardFrame,
+                               receipts:&[GuardedReceipt])->Option<(PathSum,NativeGuardFrame,u32)>{
+        let mut scale2=0u32;
+        guarded_snapshot(&ps,n,&g)?;
+        if receipts.len()>32{return None;}
+        for receipt in receipts{
+            if guarded_snapshot(&ps,n,&g)?!=receipt.before{return None;}
+            let step=guarded_native_step(&ps,n,&g)?;
+            if &guarded_receipt(&ps,n,&g,&step)?!=receipt{return None;}
+            scale2=scale2.checked_add(step.scale2)?;
+            ps=step.ps;g=step.guard;
+        }
+        Some((ps,g,scale2))
+    }
+    fn scale_guarded_entry(mut a:Root,scale2:u32)->Root{
+        for _ in 0..scale2/2{a=a.map(|v|2*v);}
+        if scale2%2!=0{
+            let c=shift(a,1);let d=shift(a,3);
+            a=std::array::from_fn(|i|c[i]-d[i]);
+        }
+        a
+    }
+    #[test]
+    fn hoare_native_guarded_rr_trace_soundness(){
+        let circuits=[
+            (1,vec![G::H(0),G::H(0),G::H(0),G::H(0)]),
+            (1,vec![G::H(0),G::S(0),G::H(0),G::S(0),G::H(0)]),
+            (1,vec![G::H(0),G::S(0),G::H(0),G::H(0),G::H(0)]),
+            (2,vec![G::H(0),G::H(0),G::H(1),G::S(1),G::H(1)]),
+            (2,vec![G::H(0),G::CZ(0,1),G::H(0),G::H(1),G::H(1)]),
+            (2,vec![G::H(0),G::H(0),G::H(1),G::S(1),G::S(1),G::S(1),G::H(1)]),
+        ];
+        let mut traces=0usize;let mut multi=0usize;let mut mixed=0usize;
+        let mut checks=0usize;let mut steps=0usize;let mut mutants=0usize;
+        for (n,ops) in circuits{
+            let mut initial=PathSum::new(n);initial.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut initial,false);}
+            // An isolated integration variable with a stable high ID.
+            // Synthetic extra factor tests mixed normalization; not a gate.
+            initial.v.get_fresh_var();
+            let ids=native_ids(&initial).unwrap();
+            let mut guards=vec![Anf::from([0]),Anf::new()];
+            for &i in &ids{
+                guards.push(Anf::from([1u64<<i]));
+                guards.push(Anf::from([0,1u64<<i]));
+                for &j in &ids{
+                    if i<j{guards.push(Anf::from([1u64<<i,1u64<<j]));}
+                }
+            }
+            for extra in guards{
+                let first=NativeGuardFrame::new(&initial,extra).unwrap();
+                let mut ps=initial.clone();let mut g=first.clone();
+                let mut receipts=Vec::new();let mut scale2=0u32;
+                for _ in 0..16{
+                    let Some(step)=guarded_native_step(&ps,n,&g) else{break;};
+                    let receipt=guarded_receipt(&ps,n,&g,&step).unwrap();
+                    scale2=scale2.checked_add(receipt.scale2).unwrap();
+                    assert!(receipt.after.ids.len()<receipt.before.ids.len());
+                    ps=step.ps;g=step.guard;receipts.push(receipt);
+                    let (rp,rg,sc)=replay_guarded_receipts(initial.clone(),n,first.clone(),&receipts).unwrap();
+                    assert_eq!(sc,scale2);
+                    assert_eq!(guarded_snapshot(&rp,n,&rg),guarded_snapshot(&ps,n,&g));
+                    // Exact original-to-prefix entry equality, not merely
+                    // adjacent steps or root-zero equivalence.
+                    for pre in [vec![],vec![bit(0,false)],vec![bit(0,true)]]{
+                        for post in [vec![Anf::new()],vec![bit(0,false)],vec![bit(0,true)]]{
+                            let a=guarded_entries(&initial,n,&first,&pre,&post);
+                            let b=guarded_entries(&ps,n,&g,&pre,&post);
+                            for (x,y) in a.into_iter().zip(b){
+                                assert_eq!(x,scale_guarded_entry(y,scale2));
+                                checks+=1;
+                            }
+                        }
+                    }
+                    steps+=1;
+                }
+                traces+=1;
+                if receipts.len()>=2{
+                    multi+=1;
+                    if receipts.iter().any(|r|r.rule==GuardedRule::Omega)&&
+                        receipts.iter().any(|r|r.rule!=GuardedRule::Omega){mixed+=1;}
+                    let mut swapped=receipts.clone();swapped.swap(0,1);
+                    assert!(replay_guarded_receipts(initial.clone(),n,first.clone(),&swapped).is_none());
+                    mutants+=1;
+                }
+                if !receipts.is_empty(){
+                    let mut wrong=receipts.clone();wrong[0].scale2+=1;
+                    assert!(replay_guarded_receipts(initial.clone(),n,first.clone(),&wrong).is_none());
+                    let mut wrong=receipts.clone();xor_insert(&mut wrong[0].after.extra,0);
+                    assert!(replay_guarded_receipts(initial.clone(),n,first.clone(),&wrong).is_none());
+                    let mut wrong=receipts.clone();add_phase(&mut wrong[0].after.phase,0,1);
+                    assert!(replay_guarded_receipts(initial.clone(),n,first.clone(),&wrong).is_none());
+                    let mut wrong=receipts.clone();wrong[0].removed.clear();
+                    assert!(replay_guarded_receipts(initial.clone(),n,first.clone(),&wrong).is_none());
+                    let mut wrong=receipts.clone();xor_insert(&mut wrong[0].after.output[0],0);
+                    assert!(replay_guarded_receipts(initial.clone(),n,first.clone(),&wrong).is_none());
+                    // Same ID layout but wrong initial semantic guard or phase.
+                    let mut wrong_guard=first.clone();xor_insert(&mut wrong_guard.extra,0);
+                    assert!(replay_guarded_receipts(initial.clone(),n,wrong_guard,&receipts).is_none());
+                    let mut wrong_ps=initial.clone();
+                    wrong_ps.p.add_term(vec![],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,8)));
+                    assert!(replay_guarded_receipts(wrong_ps,n,first.clone(),&receipts).is_none());
+                    mutants+=7;
+                }
+            }
+        }
+        assert!(multi>0&&mixed>0&&checks>0&&mutants>0);
+        println!("HOARE_NATIVE_GUARDED_RR_TRACE traces={traces} multi={multi} mixed={mixed} steps={steps} entries={checks} rejected_mutants={mutants} prefix_replay=true");
     }
 
     fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{

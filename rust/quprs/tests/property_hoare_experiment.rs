@@ -1171,6 +1171,107 @@ mod exact_property_cnf {
             model.free.iter().zip(&model.basis).any(|(&i,&b)|b&mask!=1u64<<i) {return None;}
         Some(model)
     }
+
+    // A deliberately small, input-only constraint context. It never
+    // changes native P/f/v, nor treats an unsupported predicate as empty.
+    // Candidate RREF is checked by an independent incremental XOR rank
+    // computation and direct original-equation checks. For a consistent
+    // rank-r system a valid offset and n-r independent null directions
+    // with an identity free projection cover all legal inputs exactly.
+    enum InputConstraintContext {
+        Affine(AffinePre),
+        Contradictory,
+        Unsupported,
+        InvalidCertificate,
+    }
+    fn xor_rank(rows:impl IntoIterator<Item=u64>)->usize{
+        let mut basis=[0u64;64];
+        let mut rank=0;
+        for mut v in rows{
+            while v!=0{
+                let j=(63-v.leading_zeros()) as usize;
+                if basis[j]==0{basis[j]=v;rank+=1;break;}
+                v^=basis[j];
+            }
+        }
+        rank
+    }
+    fn admitted_affine_rows(n:usize,p:&[Anf])->Option<Vec<(u64,bool)>>{
+        if n==0||n>16||p.len()>128||p.iter().map(|a|a.len()).sum::<usize>()>128{return None;}
+        let mut rows=Vec::new();
+        for a in p{
+            let mut m=0u64;
+            for &v in a{
+                if v>>n!=0||v.count_ones()>1{return None;}
+                m|=v;
+            }
+            rows.push((m,!a.contains(&0)));
+        }
+        Some(rows)
+    }
+    fn check_affine_model(n:usize,rows:&[(u64,bool)],rank:usize,m:&AffinePre)->bool{
+        if m.n!=n||rank>n||m.free.len()!=n-rank||m.basis.len()!=m.free.len()||
+            m.free.iter().any(|&i|i>=n)||m.offset>>n!=0||
+            m.basis.iter().any(|&v|v>>n!=0){return false;}
+        let f=m.free_mask();
+        if f.count_ones() as usize!=m.free.len()||m.offset&f!=0{return false;}
+        if m.free.iter().zip(&m.basis).any(|(&j,&b)|b&f!=1u64<<j){return false;}
+        rows.iter().all(|&(a,b)|parity(a&m.offset)==b&&m.basis.iter().all(|&v|!parity(a&v)))
+    }
+    fn analyze_input_constraints(n:usize,p:&[Anf])->InputConstraintContext{
+        let Some(rows)=admitted_affine_rows(n,p) else{return InputConstraintContext::Unsupported;};
+        let rank=xor_rank(rows.iter().map(|&(a,_)|a));
+        let augmented=xor_rank(rows.iter().map(|&(a,b)|a|((b as u64)<<n)));
+        if augmented>rank{return InputConstraintContext::Contradictory;}
+        let Some(model)=affine_pre(n,p) else{return InputConstraintContext::InvalidCertificate;};
+        if !check_affine_model(n,&rows,rank,&model){return InputConstraintContext::InvalidCertificate;}
+        InputConstraintContext::Affine(model)
+    }
+    #[test]
+    fn hoare_native_input_constraint_context(){
+        let n=3usize;
+        let eqs:Vec<Anf>=(1..1u64<<n).flat_map(|m|{
+            let a:Anf=(0..n).filter(|&i|m>>i&1!=0).map(|i|1u64<<i).collect();
+            let mut b=a.clone();b.insert(0);[a,b]
+        }).collect();
+        let mut consistent=0;let mut empty=0;let mut maps=0;
+        for mask in 0..1usize<<eqs.len(){
+            let p:Vec<_>=eqs.iter().enumerate().filter(|(j,_)|mask>>j&1!=0).map(|(_,a)|a.clone()).collect();
+            let legal:BTreeSet<_>=(0..1u64<<n).filter(|&x|eval_conj(&p,x)).collect();
+            match analyze_input_constraints(n,&p){
+                InputConstraintContext::Affine(m)=>{
+                    assert!(!legal.is_empty());
+                    let xs:Vec<_>=(0..1u64<<n).filter(|&x|x&!m.free_mask()==0).map(|x|m.decode(x)).collect();
+                    assert_eq!(xs.len(),legal.len());
+                    assert_eq!(xs.iter().copied().collect::<BTreeSet<_>>(),legal);
+                    maps+=xs.len();consistent+=1;
+                },
+                InputConstraintContext::Contradictory=>{assert!(legal.is_empty());empty+=1;},
+                _=>panic!("all admitted affine systems must classify"),
+            }
+        }
+        assert_eq!(consistent+empty,1usize<<eqs.len());
+        // Explicit false/true constants, nonlinear, out-of-range and
+        // resource-bound controls. Unsupported never means contradictory.
+        assert!(matches!(analyze_input_constraints(n,&[Anf::new()]),InputConstraintContext::Contradictory));
+        assert!(matches!(analyze_input_constraints(n,&[Anf::from([0])]),InputConstraintContext::Affine(_)));
+        assert!(matches!(analyze_input_constraints(n,&[Anf::from([3])]),InputConstraintContext::Unsupported));
+        assert!(matches!(analyze_input_constraints(n,&[Anf::from([8])]),InputConstraintContext::Unsupported));
+        assert!(matches!(analyze_input_constraints(n,&vec![Anf::from([0]);129]),InputConstraintContext::Unsupported));
+        let p=vec![equal_bits(0,1),bit(2,true)];
+        let rows=admitted_affine_rows(n,&p).unwrap();
+        let rank=xor_rank(rows.iter().map(|&(a,_)|a));
+        let InputConstraintContext::Affine(m)=analyze_input_constraints(n,&p) else{panic!("model");};
+        assert!(check_affine_model(n,&rows,rank,&m));
+        let bad=AffinePre{offset:m.offset^4,basis:m.basis.clone(),free:m.free.clone(),n};
+        assert!(!check_affine_model(n,&rows,rank,&bad));
+        let bad=AffinePre{offset:m.offset,basis:vec![],free:vec![],n};
+        assert!(!check_affine_model(n,&rows,rank,&bad));
+        let bad=AffinePre{offset:m.offset,basis:vec![1u64<<m.free[0]],free:m.free.clone(),n};
+        assert!(!check_affine_model(n,&rows,rank,&bad));
+        println!("HOARE_NATIVE_INPUT_CONTEXT systems={} consistent={consistent} contradictory={empty} decoded={maps} negative_certificates=3 unsupported_distinct=true",1usize<<eqs.len());
+    }
+
     fn specialize_affine(mut ps:PathSum,n:usize,p:&[Anf])->Option<(PathSum,AffinePre)>{
         let model=affine_pre(n,p)?;
         for i in 0..n{
@@ -2972,7 +3073,7 @@ mod exact_property_cnf {
             pre.extend((0..n-2).map(|i|equal_bits(i,i+1)));
             let post=vec![bit(0,false)];
             // Derive the witness basis from the precondition, not from the oracle.
-            let witness_model=affine_pre(n,&pre).expect("consistent affine precondition");
+            let InputConstraintContext::Affine(witness_model)=analyze_input_constraints(n,&pre) else{panic!("checked affine precondition required");};
             assert_eq!(witness_model.free.len(),1);
             let legal:Vec<_>=(0..1u64<<n).filter(|&x|eval_conj(&pre,x)).collect();
             assert_eq!(legal,vec![0,(1u64<<(n-1))-1]);

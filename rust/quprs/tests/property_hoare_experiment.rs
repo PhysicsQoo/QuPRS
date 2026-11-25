@@ -765,6 +765,185 @@ mod exact_property_cnf {
         }
         None
     }
+
+    // Research-only guard frame: monomial bits are stable native variable
+    // IDs, never a compact snapshot's indices. Frame equality checks
+    // layout, not a semantic provenance certificate for arbitrary guards.
+    #[derive(Clone)]
+    struct NativeGuardFrame { ids:Vec<u32>, extra:Anf }
+    fn native_ids(ps:&PathSum)->Option<Vec<u32>>{
+        let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
+        if ids.iter().any(|&i|i>=63){return None;}
+        Some(ids)
+    }
+    impl NativeGuardFrame {
+        fn new(ps:&PathSum,extra:Anf)->Option<Self>{
+            let ids=native_ids(ps)?;
+            let live=ids.iter().fold(0u64,|a,&i|a|(1u64<<i));
+            if extra.len()>256||extra.iter().any(|m|m&!live!=0){return None;}
+            Some(Self{ids,extra})
+        }
+        fn compact(&self,ps:&PathSum)->Option<Anf>{
+            if native_ids(ps)?!=self.ids{return None;}
+            Some(self.extra.iter().map(|&m|self.ids.iter().enumerate()
+                .fold(0u64,|a,(i,&j)|a|(((m>>j)&1)<<i))).collect())
+        }
+    }
+    #[derive(Clone,Copy,Debug,PartialEq,Eq)]
+    enum GuardedRule { Elim, Hh, Omega }
+    struct GuardedStep {
+        ps:PathSum, guard:NativeGuardFrame, rule:GuardedRule,
+        removed:Vec<u32>, scale2:u32,
+    }
+    // Reconstruct exactly the native HH target/replacement on the admitted
+    // exact Z8 snapshot. The real transformation remains native RR.
+    // Refuse input pivots and compare the native removed-ID receipt.
+    fn guarded_hh_replacement(s:&Symbolic,ids:&[u32],y:u32)->Option<(u32,Anf)>{
+        let j=ids.iter().position(|&v|v==y)?;
+        let bit=1u64<<j;
+        let mut phi=Anf::new();
+        for (&m,&k) in &s.phase{
+            if m&bit==0{continue;}
+            if k!=4{return None;}
+            let stable=ids.iter().enumerate().fold(0u64,|a,(i,&v)|a|((((m&!bit)>>i)&1)<<v));
+            xor_insert(&mut phi,stable);
+        }
+        let v=phi.iter().copied().filter(|m|m.count_ones()==1)
+            .filter(|m|phi.iter().all(|q|q==m||q&m==0)).max()?;
+        let target=v.trailing_zeros();
+        if (target as usize)<s.n{return None;}
+        phi.remove(&v);
+        Some((target,phi))
+    }
+    fn substitute_guard(g:&Anf,target:u32,repl:&Anf)->Option<Anf>{
+        let bit=1u64<<target;
+        if repl.iter().any(|m|m&bit!=0){return None;}
+        if g.len().checked_mul(repl.len().max(1))?>4096{return None;}
+        let mut next=Anf::new();
+        for &m in g{
+            if m&bit==0{xor_insert(&mut next,m);}
+            else{for &t in repl{xor_insert(&mut next,(m&!bit)|t);}}
+            if next.len()>256{return None;}
+        }
+        Some(next)
+    }
+    fn guarded_native_step(ps:&PathSum,n:usize,g:&NativeGuardFrame)->Option<GuardedStep>{
+        let s=compact(ps,n)?;
+        g.compact(ps)?;
+        let ids=native_ids(ps)?;
+        let candidates:Vec<_>=ps.get_reducible_vars().into_iter().filter(|&y|
+            (y as usize)>=n&&y<63&&g.extra.iter().all(|m|m&(1u64<<y)==0)).collect();
+        for rule in [GuardedRule::Elim,GuardedRule::Omega,GuardedRule::Hh]{
+            for &y in &candidates{
+                let (extra,mut expected,scale2)=match rule{
+                    GuardedRule::Elim=>(g.extra.clone(),vec![y],2),
+                    GuardedRule::Omega=>(g.extra.clone(),vec![y],1),
+                    GuardedRule::Hh=>{
+                        let Some((target,repl))=guarded_hh_replacement(&s,&ids,y) else{continue;};
+                        let Some(extra)=substitute_guard(&g.extra,target,&repl) else{continue;};
+                        (extra,vec![y,target],2)
+                    }
+                };
+                let mut trial=ps.clone();
+                let ok=match rule{
+                    GuardedRule::Elim=>trial.try_reduce_elim(&[y]),
+                    GuardedRule::Omega=>trial.try_reduce_omega(&[y]),
+                    GuardedRule::Hh=>trial.try_reduce_hh(&[y]),
+                };
+                if !ok{continue;}
+                compact(&trial,n)?;
+                let mut removed:Vec<_>=ps.v.path_vars.difference(&trial.v.path_vars).copied().collect();
+                removed.sort_unstable();expected.sort_unstable();
+                if removed!=expected||!trial.v.path_vars.is_subset(&ps.v.path_vars){return None;}
+                let guard=NativeGuardFrame::new(&trial,extra)?;
+                return Some(GuardedStep{ps:trial,guard,rule,removed,scale2});
+            }
+        }
+        None
+    }
+    // Independent finite path oracle: compare each complex amplitude
+    // exactly using the existing Z8 test oracle, not just total leakage.
+    fn guarded_entries(ps:&PathSum,n:usize,g:&NativeGuardFrame,pre:&[Anf],post:&[Anf])->Vec<Root>{
+        let s=compact(ps,n).unwrap();let extra=g.compact(ps).unwrap();
+        let mut out=vec![[0;4];1usize<<(2*n)];
+        for x in 0..1u64<<n{
+            if !eval_conj(pre,x){continue;}
+            for y in 0..1u64<<s.h{
+                if !eval(&extra,x|(y<<n)){continue;}
+                let (z,k)=path(&s,x,y);
+                if eval_conj(post,z){continue;}
+                let i=(x<<n|z) as usize;
+                out[i]=add(out[i],root(k));
+            }
+        }
+        out
+    }
+    #[test]
+    fn hoare_native_guarded_rr_step_soundness(){
+        let mut accepted=[0usize;3];let mut blocked=0usize;let mut entries=0usize;
+        let mut stale=0usize;let mut target_substitutions=0usize;
+        let circuits=[
+            (1,vec![G::H(0),G::H(0)],false),
+            (1,vec![G::H(0),G::S(0),G::H(0)],false),
+            (1,vec![G::H(0),G::S(0),G::S(0),G::S(0),G::H(0)],false),
+            (1,vec![G::H(0),G::H(0),G::H(0),G::H(0)],false),
+            (2,vec![G::H(0),G::CZ(0,1),G::H(0)],false),
+            (1,vec![],true), // synthetic isolated integration variable
+        ];
+        for (n,ops,isolated) in circuits{
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut ps,false);}
+            if isolated{ps.v.get_fresh_var();}
+            let ids=native_ids(&ps).unwrap();
+            let monomials:Vec<_>=ids.iter().map(|&i|1u64<<i).collect();
+            let mut guards=vec![Anf::new(),Anf::from([0])];
+            for &m in &monomials{
+                guards.push(Anf::from([m]));guards.push(Anf::from([0,m]));
+                for &t in &monomials{
+                    if m<t{guards.push(Anf::from([m,t]));guards.push(Anf::from([m|t]));}
+                }
+            }
+            for extra in guards{
+                let frame=NativeGuardFrame::new(&ps,extra).unwrap();
+                let Some(step)=guarded_native_step(&ps,n,&frame) else{blocked+=1;continue;};
+                let i=match step.rule{GuardedRule::Elim=>0,GuardedRule::Hh=>1,GuardedRule::Omega=>2};
+                accepted[i]+=1;
+                assert_eq!(step.scale2,if i==2{1}else{2});
+                if i==1&&frame.extra!=step.guard.extra{target_substitutions+=1;}
+                assert!(frame.compact(&step.ps).is_none());stale+=1;
+                assert!(step.removed.iter().all(|&v|!step.guard.extra.iter().any(|m|m&(1u64<<v)!=0)));
+                for pre in [vec![],vec![bit(0,false)],vec![bit(0,true)]]{
+                    for post in [vec![Anf::new()],vec![bit(0,false)],vec![bit(0,true)]]{
+                        let before=guarded_entries(&ps,n,&frame,&pre,&post);
+                        let after=guarded_entries(&step.ps,n,&step.guard,&pre,&post);
+                        for (a,b) in before.into_iter().zip(after){
+                            let scaled=if i==2{
+                                let c=shift(b,1);let d=shift(b,3);
+                                std::array::from_fn(|j|c[j]-d[j])
+                            }else{b.map(|v|2*v)};
+                            assert_eq!(a,scaled,"rule {:?}, guard {:?}",step.rule,frame.extra);
+                            entries+=1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(accepted.iter().all(|&n|n>0)&&blocked>0&&target_substitutions>0);
+        // Explicit negative controls: HH integrator dependency, stale
+        // native ID, and input-pivot HH are never accepted.
+        let mut p=PathSum::new(1);p.set_auto_reduce(false);
+        G::H(0).apply(&mut p,false);G::H(0).apply(&mut p,false);
+        let g=NativeGuardFrame::new(&p,Anf::from([2])).unwrap();
+        assert!(guarded_native_step(&p,1,&g).is_none());
+        assert!(NativeGuardFrame::new(&p,Anf::from([1u64<<62])).is_none());
+        let mut p=PathSum::new(1);p.set_auto_reduce(false);
+        let y=p.v.get_fresh_var();
+        p.p.add_term(vec![0,y],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,2)));
+        let g=NativeGuardFrame::new(&p,Anf::from([0])).unwrap();
+        assert!(guarded_native_step(&p,1,&g).is_none());
+        println!("HOARE_NATIVE_GUARDED_RR_STEP accepted={accepted:?} blocked={blocked} entries={entries} stale={stale} target_substitutions={target_substitutions} exact_entry_oracle=true");
+    }
+
     fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{
         if !admitted(n,ops){return None;}
         let mut ps=PathSum::new(n);

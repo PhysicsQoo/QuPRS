@@ -1121,8 +1121,8 @@ mod exact_property_cnf {
         stats.visits+=before-*fuel;
         match result{
             Some(0)=>true,
-            Some(_)=>{stats.sat+=1;false;},
-            None=>{stats.unknown+=1;false;},
+            Some(_)=>{stats.sat+=1;false},
+            None=>{stats.unknown+=1;false},
         }
     }
     fn relative_native_step(ps:&PathSum,n:usize,g:&NativeGuardFrame,pre:&[Anf],post:&[Anf],
@@ -1243,6 +1243,117 @@ mod exact_property_cnf {
         assert!(guarded_entries(&ps,3,&g,&pre,&strict).iter().any(|a|*a!=[0;4]));
         hits[1]+=1;sat_visits+=stats.visits;
         println!("HOARE_NATIVE_RELATIVE_MATCH hits={hits:?} entries={checks} controls={controls} sat_visits={sat_visits} post_only_hh=true");
+    }
+
+
+    // Fixed development cohort, not an estimate of real-world frequency.
+    // The small grid is reused from the earlier forbidden-fiber tests.
+    // Keep vacuous active-path domains and no-candidate cases separate.
+    // Compare one relative step on the same original IR against the best
+    // residual h of bounded pre-only native reductions, not just one
+    // unoptimized standard step. No WMC timing claim in this experiment.
+    #[test]
+    fn hoare_native_relative_match_ablation(){
+        let gates=[G::H(0),G::H(1),G::CX(0,1),G::CZ(0,1),G::T(0),G::S(1)];
+        let preds=[Anf::from([0]),Anf::from([0,1]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut cases:Vec<(String,usize,Vec<G>,Vec<Anf>,Vec<Anf>)>=Vec::new();
+        for (i,g) in gates.iter().enumerate(){for (j,h) in gates.iter().enumerate(){
+            for (a,p) in preds.iter().enumerate(){for (b,q) in preds.iter().enumerate(){
+                cases.push((format!("grid-{i}-{j}-{a}-{b}"),2,
+                    vec![G::H(0),g.clone(),h.clone()],vec![p.clone()],vec![q.clone()]));
+            }}
+        }}
+        for (name,n,ops,p,q,_) in algorithmic_cases(){
+            cases.push((format!("algorithm-{name}"),n,ops,p,q));
+        }
+        for k in [1usize,2]{
+            let (ops,p,q,strict)=conditional_post_case(k);
+            let n=3*k;
+            cases.push((format!("conditional-{k}"),n,ops.clone(),p.clone(),q.clone()));
+            cases.push((format!("strict-{k}"),n,ops.clone(),p.clone(),strict.clone()));
+            // Precondition-constrained control of the SAME circuit.
+            let mut even=p.clone();
+            even.extend((0..k).map(|i|equal_bits(3*i,3*i+1)));
+            cases.push((format!("pre-even-{k}"),n,ops.clone(),even,strict.clone()));
+            let mut mutant=ops;
+            mutant.push(G::X(2));
+            cases.push((format!("conditional-mutant-{k}"),n,mutant,p,q));
+        }
+        assert_eq!(cases.len(),592);
+        let mut groups=BTreeMap::<&str,[u64;16]>::new();
+        for (name,n,ops,pre,post) in cases{
+            let group=if name.starts_with("grid-"){"grid"}else if name.starts_with("algorithm-"){"algorithm"}else{"conditional"};
+            let totals=groups.entry(group).or_default();
+            totals[0]+=1;
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut ps,false);}
+            let s=compact(&ps,n).unwrap();
+            // Enumerating active paths is only a measurement/oracle on
+            // this bounded corpus; never used to certify a phase patch.
+            let active=(0..1u64<<n).filter(|&x|eval_conj(&pre,x))
+                .any(|x|(0..1u64<<s.h).any(|y|!eval_conj(&post,path(&s,x,y).0)));
+            if !active{totals[1]+=1;continue;}
+            let frame=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
+            if ps.get_reducible_vars().is_empty(){totals[2]+=1;continue;}
+            totals[3]+=1;
+            let Some((standard,_))=reduce_existing(ps.clone(),n) else{totals[4]+=1;continue;};
+            let mut best=standard.h;
+            if let Some(p)=mono_substitute(ps.clone(),n,&pre){
+                if let Some((a,_))=reduce_existing(p,n){best=best.min(a.h);}
+            }
+            if let Some((p,_))=specialize_affine(ps.clone(),n,&pre){
+                if let Some((a,_))=reduce_existing(p,n){best=best.min(a.h);}
+            }
+            if let Some((p,_))=guard_phase(ps.clone(),n,&pre,true,200_000){
+                if let Some((a,_))=reduce_existing(p,n){best=best.min(a.h);}
+            }
+            // No need for further matching after all paths integrated.
+            if best==0{totals[5]+=1;continue;}
+            totals[6]+=1;
+            let mut stats_pre=RelativeMatchStats::default();
+            let t=std::time::Instant::now();
+            let pre_only=relative_native_step(&ps,n,&frame,&pre,&[Anf::new()],200_000,&mut stats_pre);
+            let pre_ns=t.elapsed().as_nanos();
+            let mut stats=RelativeMatchStats::default();
+            let t=std::time::Instant::now();
+            let full=relative_native_step(&ps,n,&frame,&pre,&post,200_000,&mut stats);
+            let full_ns=t.elapsed().as_nanos();
+            totals[7]+=u64::from(pre_only.is_some());
+            totals[8]+=u64::from(full.is_some());
+            totals[9]+=stats.queries as u64;
+            totals[10]+=stats.visits;
+            totals[11]+=stats.unknown as u64;
+            let mut pre_h=best;
+            let mut full_h=s.h;
+            // Check every accepted step independently, using the exact
+            // original-to-residual entries at the actual property.
+            for (which,candidate) in [("pre",pre_only.as_ref()),("full",full.as_ref())]{
+                if let Some(r)=candidate{
+                    let h=compact(&r.step.ps,n).unwrap().h;
+                    if which=="pre"{pre_h=pre_h.min(h);}else{full_h=h;}
+                    let a=guarded_entries(&ps,n,&frame,&pre,&post);
+                    let b=guarded_entries(&r.step.ps,n,&r.step.guard,&pre,&post);
+                    for (x,z) in a.into_iter().zip(b){
+                        assert_eq!(x,scale_guarded_entry(z,r.step.scale2),"{name} {which}");
+                        totals[12]+=1;
+                    }
+                }
+            }
+            let extra=pre_h.saturating_sub(full_h);
+            if extra>0{
+                totals[13]+=1;totals[14]+=extra as u64;
+            }
+            // Unknown attempts cannot be treated as evidence of an
+            // absent pre-only match. Report separately from proven hit.
+            if stats_pre.unknown>0{totals[15]+=1;}
+            if full.is_some()||pre_only.is_some()||group!="grid"{
+                println!("HOARE_NATIVE_RELATIVE_ABLATION case={name} initial_h={} standard_h={} best_pre_h={best} pre_h={pre_h} full_h={full_h} extra={extra} pre_hit={} full_hit={} pre_queries={} full_queries={} pre_unknown={} full_unknown={} pre_ns={pre_ns} full_ns={full_ns}",s.h,standard.h,pre_only.is_some(),full.is_some(),stats_pre.queries,stats.queries,stats_pre.unknown,stats.unknown);
+            }
+        }
+        for (name,t) in groups{
+            assert_eq!(t[0],t[1]+t[2]+t[4]+t[5]+t[6]);
+            println!("HOARE_NATIVE_RELATIVE_ABLATION_SUMMARY group={name} cases={} empty_active={} no_candidate={} candidates={} standard_limit={} baseline_zero={} eligible={} pre_hits={} full_hits={} full_queries={} full_visits={} full_unknown_queries={} entry_checks={} extra_h_cases={} extra_h_total={} pre_unknown_cases={}",t[0],t[1],t[2],t[3],t[4],t[5],t[6],t[7],t[8],t[9],t[10],t[11],t[12],t[13],t[14],t[15]);
+        }
     }
 
     fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{

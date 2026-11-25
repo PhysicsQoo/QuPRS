@@ -2965,12 +2965,15 @@ mod exact_property_cnf {
     // used to select a solver route or construct a witness.
     fn export_native_affine_wmc(dir:&std::path::Path){
         let mut manifest=String::new();
-        for n in [6usize,8,10]{
+        for n in [6usize,7,8]{
             let name=format!("linked-mixing-{n}");
             let ops=scale_mixing(n,3);
             let mut pre=vec![bit(n-1,false)];
             pre.extend((0..n-2).map(|i|equal_bits(i,i+1)));
             let post=vec![bit(0,false)];
+            // Derive the witness basis from the precondition, not from the oracle.
+            let witness_model=affine_pre(n,&pre).expect("consistent affine precondition");
+            assert_eq!(witness_model.free.len(),1);
             let legal:Vec<_>=(0..1u64<<n).filter(|&x|eval_conj(&pre,x)).collect();
             assert_eq!(legal,vec![0,(1u64<<(n-1))-1]);
             let oracle:Vec<_>=legal.iter().map(|&x|(x,raw_for_input(n,&ops,&post,x))).collect();
@@ -3027,7 +3030,10 @@ mod exact_property_cnf {
                     (status,h,scale,width,c.vars,c.clauses.len(),format!("{},{},{}",d[0],d[1],d[2]),map.iter().map(|(u,x)|format!("{u}:{x}")).collect::<Vec<_>>().join(","))
                 }else{("UNKNOWN_PREPROCESS_LIMIT",initial_h,0,n,0,0,"-".to_owned(),"-".to_owned())};
                 let enc=t.elapsed().as_nanos();
-                manifest.push_str(&format!("{name}\t{mode}\t{n}\t{initial_h}\t{h}\t{scale}\t{width}\t{vars}\t{clauses}\t{delta}\t{status}\t{prep}\t{enc}\t{},{}\t{map}\t{oracle_text}\n",expected[0],expected[1]));
+                let free_positions=if mode=="free"{(0..witness_model.free.len()).collect::<Vec<_>>()}else{witness_model.free.clone()};
+                let free_positions=free_positions.iter().map(|j|j.to_string()).collect::<Vec<_>>().join(",");
+                let basis=witness_model.basis.iter().map(|b|b.to_string()).collect::<Vec<_>>().join(",");
+                manifest.push_str(&format!("{name}\t{mode}\t{n}\t{initial_h}\t{h}\t{scale}\t{width}\t{vars}\t{clauses}\t{delta}\t{status}\t{prep}\t{enc}\t{},{}\t{map}\t{oracle_text}\t{free_positions}\t{}\t{basis}\n",expected[0],expected[1],witness_model.offset));
             }
         }
         std::fs::write(dir.join("native-affine-wmc.tsv"),manifest).unwrap();

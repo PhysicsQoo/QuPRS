@@ -494,8 +494,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     deadline=time.monotonic()+45
     run_residual_hybrid(directory,solve,deadline,rows)
     if (directory/"native-affine-wmc.tsv").is_file():
-        query_cap=8
-        deadline=time.monotonic()+240
+        query_cap=30
+        deadline=time.monotonic()+720
         long_metrics=[]
         run_native_affine_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
@@ -557,69 +557,133 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
 
 
 
+def affine_prefix_witness(base,delta,width,positions,offset,basis,mode,solve,end):
+    """Search only free input coordinates; no oracle or candidate enumeration.
+    For a bijective affine model the free assignment determines one legal x.
+    Reconfirm the decoded full input in the SAME residual CNF.
+    """
+    assert len(positions)==len(basis) and len(set(positions))==len(positions)
+    assert all(0<=j<width for j in positions)
+    prefix=[];t=0;calls=0
+    for i,j in enumerate(positions):
+        prefix.append(-(j+2));calls+=1
+        if not any(solve(base,delta,prefix,end)):
+            prefix[-1]=j+2;t|=1<<i
+    original=offset
+    for i,v in enumerate(basis):
+        if t>>i&1:original^=v
+    if mode=="mono":
+        encoded=original
+    elif mode=="padded":
+        encoded=sum(((t>>i)&1)<<j for i,j in enumerate(positions))
+    else:
+        assert mode=="free"
+        encoded=t
+    assert 0<=encoded<1<<width
+    full=[j+2 if encoded>>j&1 else -(j+2) for j in range(width)]
+    calls+=1
+    value=tuple(solve(base,delta,full,end))
+    if not any(value) or not positive_surd(value):raise ValueError("invalid affine-prefix witness")
+    return encoded,original,value,calls
+
+
+def affine_prefix_contract():
+    # Two free coordinates, nonzero offset and nontrivial parity; the
+    # positive witness is NOT the all-zero free assignment.
+    # x = 1 xor t0*3 xor t1*4, only x=5 has positive leakage.
+    for mode,width,positions,wanted in (("mono",3,[1,2],5),
+                                        ("padded",3,[1,2],4),
+                                        ("free",2,[0,1],2)):
+        def fake(base,delta,prefix,end):
+            return (3,0) if all(bool(wanted>>(abs(l)-2)&1)==(l>0) for l in prefix) else (0,0)
+        u,x,value,calls=affine_prefix_witness("",[],width,positions,1,[3,4],mode,fake,time.monotonic()+1)
+        assert (u,x,value,calls)==(wanted,5,(3,0),3)
+    print("HOARE_AFFINE_PREFIX_CONTRACT=PASS nonzero_offset=true nonzero_free_assignment=true",flush=True)
+
+
 def run_native_affine_wmc(directory,solve,deadline,metrics):
-    """Matched root/witness pilot; same exact packed GPMC for all arms."""
-    fields="case mode n h0 h scale width vars clauses delta status prep_ns encoding_ns expected mapping oracle".split()
+    """Same exact GPMC root; isolate coordinate encoding from witness search."""
+    affine_prefix_contract()
+    fields="case mode n h0 h scale width vars clauses delta status prep_ns encoding_ns expected mapping oracle free_positions offset basis".split()
     with (directory/"native-affine-wmc.tsv").open() as f:
         plans={(r["case"],r["mode"]):r for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
     assert len(plans)==9
     rows=[]
+    caps={6:(8,5),7:(20,8),8:(30,12)}
     for i,name in enumerate(sorted({name for name,_ in plans},key=lambda s:int(s.rsplit("-",1)[1]))):
+        n=int(name.rsplit("-",1)[1]);root_cap,witness_cap=caps[n]
         for rep in range(2):
             modes=["mono","padded","free"]
             modes=modes[i%3:]+modes[:i%3]
             if rep:modes.reverse()
             for mode in modes:
                 p=plans[name,mode]
-                row=dict(case=name,mode=mode,rep=rep,status=p["status"],root_cap_s=8,
+                row=dict(case=name,mode=mode,rep=rep,status=p["status"],root_cap_s=root_cap,witness_cap_s=witness_cap,
                          **{k:int(p[k]) for k in ("n","h0","h","scale","width","vars","clauses","prep_ns","encoding_ns")})
                 target=tuple(map(int,p["expected"].split(",")))
                 assert p["expected"]==plans[name,"mono"]["expected"]
-                row.update(expected=target,coeff=None,verdict="UNKNOWN",witness_status="NOT_RUN",
-                           root_s=0.0,witness_s=0.0,root_queries=0,witness_queries=0)
-                if p["status"]=="READY":
+                row.update(expected=target,coeff=None,verdict="UNKNOWN",root_s=0.0,root_queries=0,witness_routes={})
+                if p["status"]=="READY" and time.monotonic()<deadline:
                     base=(directory/f"native-affine-{name}-{mode}.cnf").read_bytes()
                     row["cnf_sha256"]=hashlib.sha256(base).hexdigest()
                     delta=list(map(int,p["delta"].split(",")))
+                    positions=list(map(int,p["free_positions"].split(",")))
+                    offset=int(p["offset"]);basis=list(map(int,p["basis"].split(",")))
                     mapping=dict(tuple(map(int,s.split(":"))) for s in p["mapping"].split(","))
                     oracle={int(x):(int(a),int(b)) for x,a,b in (s.split(":") for s in p["oracle"].split(","))}
-                    start=time.monotonic();end=min(deadline,start+8)
+                    start=time.monotonic();end=min(deadline,start+root_cap)
                     metrics.clear()
                     try:
-                        c=tuple(solve(base.decode(),delta,[],end))
                         row["root_queries"]=1
+                        c=tuple(solve(base.decode(),delta,[],end))
                         if any(c) and not positive_surd(c):raise ValueError("negative root")
                         c=tuple(v*(1<<row["scale"]) for v in c)
                         assert c==target,(name,mode,c,target)
-                        row.update(coeff=c,verdict="REFUTED" if any(c) else "PROVED",status="EXACT_ROOT",
-                                   witness_status="UNKNOWN_RESOURCE" if any(c) else "NOT_REQUIRED")
+                        row.update(coeff=c,verdict="REFUTED" if any(c) else "PROVED",status="EXACT_ROOT")
                     except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
                     except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
                     row["root_s"]=time.monotonic()-start
                     row["root_metrics"]=[dict(m) for m in metrics]
                     if row["verdict"]=="REFUTED":
-                        st=time.monotonic();end=min(deadline,st+5)
-                        metrics.clear()
-                        try:
-                            prefix=[];u=0
-                            for j in range(row["width"]):
-                                prefix.append(-(j+2));row["witness_queries"]+=1
-                                if not any(solve(base.decode(),delta,prefix,end)):
-                                    prefix[-1]=j+2;u|=1<<j
-                            row["witness_queries"]+=1
-                            v=tuple(x*(1<<row["scale"]) for x in solve(base.decode(),delta,prefix,end))
-                            x=mapping[u]
-                            assert any(v) and v==oracle[x],(name,mode,u,x,v,oracle)
-                            row.update(witness=x,witness_status="VERIFIED",witness_coeff=v)
-                        except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):pass
-                        row["witness_s"]=time.monotonic()-st
-                        row["witness_metrics"]=[dict(m) for m in metrics]
+                        strategies=["guided"] if mode=="free" else ["full","guided"]
+                        if rep:strategies.reverse()
+                        for strategy in strategies:
+                            rec=dict(status="UNKNOWN_RESOURCE",queries=0,seconds=0.0)
+                            st=time.monotonic();end=min(deadline,st+witness_cap)
+                            metrics.clear()
+                            def counted(base,delta,prefix,end):
+                                rec["queries"]+=1
+                                value=tuple(solve(base,delta,prefix,end))
+                                if any(value) and not positive_surd(value):raise ValueError("negative conditioned leakage")
+                                return value
+                            try:
+                                if strategy=="guided":
+                                    u,x,v,calls=affine_prefix_witness(base.decode(),delta,row["width"],positions,offset,basis,mode,counted,end)
+                                    assert calls==rec["queries"]
+                                else:
+                                    prefix=[];u=0
+                                    for j in range(row["width"]):
+                                        prefix.append(-(j+2))
+                                        if not any(counted(base.decode(),delta,prefix,end)):
+                                            prefix[-1]=j+2;u|=1<<j
+                                    v=counted(base.decode(),delta,prefix,end)
+                                    x=mapping[u]
+                                v=tuple(a*(1<<row["scale"]) for a in v)
+                                assert mapping[u]==x and any(v) and v==oracle[x],(name,mode,strategy,u,x,v)
+                                rec.update(status="VERIFIED",witness=x,coeff=v)
+                            except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):pass
+                            rec["seconds"]=time.monotonic()-st
+                            rec["metrics"]=[dict(m) for m in metrics]
+                            row["witness_routes"][strategy]=rec
+                elif p["status"]=="READY":
+                    row["status"]="GLOBAL_BUDGET_NOT_RUN"
                 rows.append(row)
-                print("HOARE_NATIVE_AFFINE_GPMC "+json.dumps(row),flush=True)
+                print("HOARE_NATIVE_AFFINE_GUIDED "+json.dumps(row),flush=True)
     assert len(rows)==18
-    print("HOARE_NATIVE_AFFINE_GPMC_SUMMARY "+json.dumps({m:dict(attempts=sum(r["mode"]==m for r in rows),
+    print("HOARE_NATIVE_AFFINE_GUIDED_SUMMARY "+json.dumps({m:dict(attempts=sum(r["mode"]==m for r in rows),
         exact=sum(r["mode"]==m and r["coeff"] is not None for r in rows),
-        witnesses=sum(r["mode"]==m and r["witness_status"]=="VERIFIED" for r in rows)) for m in ("mono","padded","free")}),flush=True)
+        full_verified=sum(r["mode"]==m and r["witness_routes"].get("full",{}).get("status")=="VERIFIED" for r in rows),
+        guided_verified=sum(r["mode"]==m and r["witness_routes"].get("guided",{}).get("status")=="VERIFIED" for r in rows)) for m in ("mono","padded","free")}),flush=True)
 
 def run_residual_hybrid(directory,solve,deadline,direct_rows):
     direct={r["case"]:r for r in direct_rows}

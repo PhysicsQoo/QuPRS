@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative"]' || '["fallback","qft16-memory","qft20","qft22","qpeinexact20"]') }}
+        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative","planner-qft16","planner-qft22"]' || '["planner-qft16","planner-qft22"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,6 +35,13 @@ jobs:
           repository: PhysicsQoo/GPMC
           ref: 89bbc89d0de918e7a5385740355df55765039230
           path: .gpmc
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        if: startsWith(matrix.case, 'planner-')
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: e84a59091fdf7dd03da7944de59af64a886812bb
+          path: .rawmocs-candidate
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -90,13 +97,20 @@ jobs:
             --exporter rust/target/release/examples/quprs_long_tail_source_bridge \
             --oracle .rawmocs/crates/rawmocs-cli/tools/repro \
             --out .integration-evidence/comparison
+      - name: Build and test experimental planner candidate
+        if: startsWith(matrix.case, 'planner-')
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs-candidate rev-parse HEAD)" = e84a59091fdf7dd03da7944de59af64a886812bb
+          cargo test --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .rawmocs-candidate/crates/rawmocs-cli/Cargo.toml
       - name: Build expanded native cohort verifier
         if: "!contains(fromJSON('[\"e2e\",\"qpeinexact22-432\",\"grover6-432\",\"gf2-7-333\",\"fallback\"]'), matrix.case)"
         env:
           QUPRS_SOLVER_PROVISION: external
         run: cargo build --locked --release --manifest-path rust/Cargo.toml -p quprs --example rawmocs_cohort
       - name: Run expanded cohort or exact fallback controls
-        if: "!contains(fromJSON('[\"e2e\",\"qpeinexact22-432\",\"grover6-432\",\"gf2-7-333\"]'), matrix.case)"
+        if: "!startsWith(matrix.case, 'planner-') && !contains(fromJSON('[\"e2e\",\"qpeinexact22-432\",\"grover6-432\",\"gf2-7-333\"]'), matrix.case)"
         env:
           PYTHONHASHSEED: '0'
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
@@ -109,6 +123,24 @@ jobs:
           python research/rawmocs_integration/expanded_cohort.py --case "$CASE" \
             --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs --gpmc .gpmc/build/gpmc \
             --bin rust/target/release/examples/rawmocs_cohort --oracle .rawmocs/crates/rawmocs-cli/tools/repro --out .integration-evidence/expanded
+      - name: Run matched planner and memory ablation
+        if: startsWith(matrix.case, 'planner-')
+        env:
+          PYTHONHASHSEED: '0'
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          mkdir -p .integration-evidence
+          git rev-parse HEAD > .integration-evidence/quprs-revision.txt
+          git -C .rawmocs rev-parse HEAD > .integration-evidence/rawmocs-revision.txt
+          git -C .rawmocs-candidate rev-parse HEAD > .integration-evidence/candidate-revision.txt
+          git -C .gpmc rev-parse HEAD > .integration-evidence/gpmc-revision.txt
+          python research/rawmocs_integration/planner_ablation.py --n "${CASE#planner-qft}" \
+            --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs \
+            --candidate .rawmocs-candidate/crates/rawmocs-cli/target/release/rawmocs \
+            --gpmc .gpmc/build/gpmc --bin rust/target/release/examples/rawmocs_cohort \
+            --oracle .rawmocs/crates/rawmocs-cli/tools/repro --out .integration-evidence/ablation
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -843,18 +843,26 @@ def rus_conj(a):
     return [a[0],-a[3],-a[2],-a[1]]
 
 
-def run_rus_pilot(directory,exe,tmp):
+def run_rus_pilot(directory,exe,tmp,rr=False):
     """Positive-integer packed raw and anchor-linear counts; no postselection
     norm shortcut. HSL basis-column targets are hash-pinned transcriptions."""
-    with (directory/"native-rus.tsv").open() as f:
+    route="rr" if rr else "direct"
+    with (directory/("native-rus-rr.tsv" if rr else "native-rus.tsv")).open() as f:
         rows=list(csv.reader(f,delimiter="\t"))
     assert len(rows)==22 and len({r[0] for r in rows})==22
     raw={}
     result={}
+    aligned_raw={}
+    def align(a,scale2):
+        for _ in range(scale2):a=rus_mul(a,[0,1,0,-1])
+        return a
     start=time.monotonic()
-    for case,name,label,h,branch,correct,primary,vs,cs,B,ds,ms,expected,target,prep,enc,checks in rows:
+    for case,name,label,h,branch,correct,primary,vs,cs,B,ds,ms,expected,target,prep,enc,checks,h0,scale2 in rows:
         h,branch,correct,primary,vs,cs,B,prep,enc,checks=map(int,(h,branch,correct,primary,vs,cs,B,prep,enc,checks))
-        assert 0<h<=17 and 0<vs<=10000 and 0<cs<=40000
+        h0,scale2=map(int,(h0,scale2))
+        assert 0<=h<=h0<=17 and 0<=scale2<=2*(h0-h)
+        assert rr or (h==h0 and scale2==0)
+        assert 0<vs<=10000 and 0<cs<=40000
         is_raw=label=="raw"
         assert primary==1+h+(0 if is_raw else 4)
         digit_lits=list(map(int,ds.split(",")))
@@ -879,7 +887,7 @@ def run_rus_pilot(directory,exe,tmp):
         body="c t wmc\n"+header+"\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"\n".join(clauses)+"\n"
         path=pathlib.Path(tmp)/"rus-pilot.cnf"
         path.write_text(body)
-        row=dict(case=case,name=name,label=label,h=h,primary=primary,vars=vs,clauses=cs,prep_ns=prep,encode_ns=enc,checks=checks,
+        row=dict(case=case,name=name,label=label,route=route,h=h,h0=h0,scale2=scale2,primary=primary,vars=vs,clauses=cs,prep_ns=prep,encode_ns=enc,checks=checks,
                  query_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN")
         try:
             remaining=120-(time.monotonic()-start)
@@ -895,6 +903,7 @@ def run_rus_pilot(directory,exe,tmp):
             if is_raw:
                 assert sum(counts)==2<<h
                 raw[name]=counts
+                aligned_raw[name]=[align([counts[8*i+j]-counts[8*i+j+4] for j in range(4)],scale2) for i in range(8)]
             else:
                 signed=[counts[i]-counts[i+1] for i in range(0,32,2)]
                 minors=[signed[i:i+4] for i in range(0,12,4)]
@@ -904,7 +913,11 @@ def run_rus_pilot(directory,exe,tmp):
                 nonzero=any(anchor)
                 complex_ok=nonzero and w==0
                 real_ok=complex_ok and real==rus_conj(real)
-                row.update(minors=minors,anchor=anchor,residual=w,anchor_nonzero=nonzero,
+                aligned_minors=[align(v,scale2) for v in minors]
+                aligned_anchor=align(anchor,scale2)
+                row.update(aligned_minors=aligned_minors,aligned_anchor=aligned_anchor,
+                           aligned_residual=sum(v*v for a in aligned_minors for v in a),
+                           minors=minors,anchor=anchor,residual=w,anchor_nonzero=nonzero,
                            ray_verdict="PROVED" if complex_ok else "REFUTED",
                            real_verdict="PROVED" if real_ok else "REFUTED")
                 # Recompute from independently solver-counted raw fibres,
@@ -931,13 +944,14 @@ def run_rus_pilot(directory,exe,tmp):
     p_expected={"Figure7":(7,0,8),"Figure8":(3,0,4),"Figure9":(5,0,8),
                 "Figure10a":(13,0,16),"Figure10b":(102,17,128),"Figure10c":(58,29,128)}
     for name,counts in raw.items():
-        h=next(int(r[3]) for r in rows if r[1]==name)
+        h=next(int(r[-2]) for r in rows if r[1]==name)
+        scale2=next(int(r[-1]) for r in rows if r[1]==name)
         S=[];F=[]
         for x in range(2):
             for z in range(2):
                 for branch,dst in ((1,S),(0,F)):
                     base=32*x+8*(2*z+branch)
-                    dst.append([counts[base+j]-counts[base+j+4] for j in range(4)])
+                    dst.append(align([counts[base+j]-counts[base+j+4] for j in range(4)],scale2))
         if name in ("Figure7","Figure10b"):
             F[1]=[-v for v in F[1]];F[3]=[-v for v in F[3]]
         def inner(a,b):
@@ -952,15 +966,16 @@ def run_rus_pilot(directory,exe,tmp):
         assert inner(S[:2],S[2:])==[0]*4
         assert F[0]==F[3] and not any(F[1]) and not any(F[2])
         assert rus_mul(F[0],rus_conj(F[0]))==[den-p[0],-p[1],0,-p[3]]
-        print("HOARE_RUS_RETRY "+json.dumps(dict(name=name,success_numerator=p,denominator=den,
+        print("HOARE_RUS_RETRY "+json.dumps(dict(name=name,route=route,success_numerator=p,denominator=den,
              corrected_failure_scalar=F[0],physical_termination="PROVED")),flush=True)
     wanted={("Figure10a","original-post"):18432,("Figure10c","original-post"):1638400,
             ("Figure7","omit-Z-correction"):64,("Figure10b","omit-Z-correction"):106496}
     for key,row in result.items():
-        assert row["residual"]==wanted.get(key,0) and row["anchor_nonzero"]
+        assert row["aligned_residual"]==wanted.get(key,0) and row["anchor_nonzero"]
         assert row["real_verdict"]=="REFUTED"
-    print("HOARE_RUS_GPMC_SUMMARY "+json.dumps(dict(expected=22,raw_exact=len(raw),linear_exact=len(result),
+    print("HOARE_RUS_GPMC_SUMMARY "+json.dumps(dict(route=route,expected=22,raw_exact=len(raw),linear_exact=len(result),
          crosschecked=sum(bool(r.get("raw_crosscheck")) for r in result.values()))),flush=True)
+    return aligned_raw,result
 
 def run_sparse_target_pilot(directory,exe,tmp):
     """Bounded canonical target coefficient lookup versus term selector."""
@@ -1275,7 +1290,16 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     if (directory/"native-sparse-target.tsv").is_file():
         run_sparse_target_pilot(directory,exe,tmp)
     if (directory/"native-rus.tsv").is_file():
-        run_rus_pilot(directory,exe,tmp)
+        direct,dr=run_rus_pilot(directory,exe,tmp)
+        if (directory/"native-rus-rr.tsv").is_file():
+            reduced,rr=run_rus_pilot(directory,exe,tmp,rr=True)
+            raw_pairs=direct.keys() & reduced.keys()
+            linear_pairs=dr.keys() & rr.keys()
+            for k in raw_pairs:assert direct[k]==reduced[k]
+            for k in linear_pairs:
+                for field in ("aligned_anchor","aligned_minors","aligned_residual","ray_verdict","real_verdict"):
+                    assert dr[k][field]==rr[k][field]
+            print("HOARE_RUS_RR_PARITY "+json.dumps(dict(raw_pairs=len(raw_pairs),linear_pairs=len(linear_pairs))),flush=True)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

@@ -522,8 +522,10 @@ def run_partition_pilot(directory, exe, tmp):
     with (directory/"native-partition.tsv").open() as f:
         manifest=list(csv.reader(f,delimiter="\t"))
     assert len({r[1] for r in manifest})==len(manifest)
-    assert {r[0] for r in manifest}=={"fixed","restart","resume"}
-    for strategy in ("fixed","restart","resume"):
+    strategies=("fixed","restart","resume","resume-fixed")
+    assert {r[0] for r in manifest}==set(strategies)
+    exact_rows={}
+    for strategy in strategies:
         cohort=[r for r in manifest if r[0]==strategy]
         assert 1<=len(cohort)<=16
         coverage=set()
@@ -571,6 +573,7 @@ def run_partition_pilot(directory, exe, tmp):
                         assert w==0
                         row.update(status="EXACT",plus=plus,minus=minus,residual=w)
                         decided.update(xs);residual+=w
+                        exact_rows[(strategy,mask,val)]=(plus,minus)
                     except (TimeoutError,subprocess.TimeoutExpired):
                         row["status"]="TIMEOUT"
                     except SolverSignalKilled:
@@ -586,7 +589,19 @@ def run_partition_pilot(directory, exe, tmp):
             strategy=strategy,leaves=len(cohort),coverage=len(coverage),decided_inputs=len(decided),
             residual=residual if decided==coverage else None,
             verdict="PROVED" if decided==coverage else "UNKNOWN",
-            solver_s=solver_seconds,solver_peak_rss_kib=max_rss)),flush=True)
+            solver_s=solver_seconds,solver_peak_rss_kib=max_rss,
+            route_wall_s=time.monotonic()-start)),flush=True)
+    # No RR is applied after final specialization: both signed buckets
+    # must add exactly within every fully solved parent, not just their difference.
+    checked=0
+    for (strategy,mask,val),bucket in exact_rows.items():
+        if strategy!="resume":continue
+        xs=[x for x in range(16) if x&mask==val]
+        children=[exact_rows.get(("resume-fixed",15,x)) for x in xs]
+        if all(c is not None for c in children):
+            assert bucket==tuple(sum(c[i] for c in children) for i in range(2))
+            checked+=1
+    print("HOARE_PARTITION_REBUCKET "+json.dumps(dict(checked=checked)),flush=True)
 
 def run_dual_mask_wmc(directory, count, deadline):
     """Bounded native dual-mask pilot, exact MPZ weights, original input witness."""

@@ -2912,15 +2912,21 @@ fn partition_export(dir:&std::path::Path){
         assert!(base.p.terms.len()+base.f.functions.iter().map(|a|a.len()).sum::<usize>()<=30000);
     }
     let base_ns=base_start.elapsed().as_nanos();
+    let dense_start=std::time::Instant::now();
     let dense:Vec<_>=(0..16u64).map(|x|dense_state(n,&ops,x)).collect();
+    let dense_ns=dense_start.elapsed().as_nanos();
     let mut manifest=String::new();
-    for strategy in ["fixed","restart","resume"]{
+    for strategy in ["fixed","restart","resume","resume-fixed"]{
+        let route_start=std::time::Instant::now();
+        let init_start=std::time::Instant::now();
         let mut stack=Vec::new();
         if strategy=="fixed"{
             for x in (0..16u64).rev(){stack.push((partition_fix(base.clone(),15,x).unwrap(),15u64,x,0u32));}
         }else{stack.push((base.clone(),0u64,0u64,0u32));}
+        let init_ns=init_start.elapsed().as_nanos();
         let mut seen=BTreeSet::new();let(mut nodes,mut leaves,mut steps,mut work,mut peak)=(0usize,0usize,0usize,0usize,0usize);
-        let(mut rr_ns,mut encode_ns,mut oracle_ns)=(0u128,0u128,0u128);
+        let(mut rr_ns,mut encode_ns,mut oracle_ns)=(init_ns,0u128,0u128);
+        let(mut final_split_ns,mut export_ns)=(0u128,0u128);
         let mut exported=0usize;
         while let Some((ps,mask,val,prior_scale))=stack.pop(){
             nodes+=1;assert!(nodes<=31);
@@ -2940,7 +2946,7 @@ fn partition_export(dir:&std::path::Path){
                     let bit=1u64<<i;let child_mask=mask|bit;
                     let start=std::time::Instant::now();
                     for child_val in [val|bit,val]{
-                        let (p,sc)=if strategy=="resume"{
+                        let (p,sc)=if strategy=="resume"||strategy=="resume-fixed"{
                             (partition_fix(ps.clone(),bit,child_val&bit).unwrap(),total_scale)
                         }else{(partition_fix(base.clone(),child_mask,child_val).unwrap(),0)};
                         stack.push((p,child_mask,child_val,sc));
@@ -2949,6 +2955,21 @@ fn partition_export(dir:&std::path::Path){
                     continue;
                 }
             }
+            // Reuse exactly the admitted checkpoint, then independently
+            // specialize each original input before CNF compilation. No extra RR.
+            let split_start=std::time::Instant::now();
+            let terminals=if strategy=="resume-fixed"&&mask!=15&&accepted.is_some(){
+                let s=accepted.as_ref().unwrap();
+                (0..16u64).filter(|x|x&mask==val).map(|x|{
+                    let cube=Cube{mask:15,value:x};
+                    let t=Symbolic{n:s.n,h:s.h,output:s.output.iter().map(|a|specialize_bool(a,cube)).collect(),phase:specialize_phase(&s.phase,cube)};
+                    (15u64,x,Some(t))
+                }).collect::<Vec<_>>()
+            }else{vec![(mask,val,accepted)]};
+            let split_ns=split_start.elapsed().as_nanos();
+            final_split_ns+=split_ns;rr_ns+=split_ns;
+            for (mask,val,accepted) in terminals{
+            let label=format!("partition-{strategy}-{mask}-{val}");
             leaves+=1;assert!(leaves<=16);
             let xs:Vec<_>=(0..16u64).filter(|x|x&mask==val).collect();
             assert!(!xs.is_empty());
@@ -2998,16 +3019,20 @@ fn partition_export(dir:&std::path::Path){
                 }
             }
             oracle_ns+=now.elapsed().as_nanos();
+            let export_start=std::time::Instant::now();
             let mut dimacs=format!("p cnf {} {}\n",e.cnf.vars,e.cnf.clauses.len());
             for cl in &e.cnf.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=e.cnf.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
             std::fs::write(dir.join(format!("{label}.cnf")),dimacs).unwrap();
             let classes=e.classes.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",");
             manifest.push_str(&format!("{strategy}\t{label}\t{mask}\t{val}\t{}\tREADY\t{}\t{}\t{}\t{enc_ns}\t{classes}\t{cp}\t{cm}\t{norm}\n",xs.len(),e.primary,e.cnf.vars,e.cnf.clauses.len()));
             exported+=1;
+            export_ns+=export_start.elapsed().as_nanos();
             println!("HOARE_PARTITION_LEAF case={label} inputs={} terms={} vars={} clauses={} cp={cp} cm={cm}",xs.len(),s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>(),e.cnf.vars,e.cnf.clauses.len());
+            }
         }
         assert_eq!(seen,(0..16u64).collect::<BTreeSet<_>>());
-        println!("HOARE_PARTITION_NATIVE strategy={strategy} nodes={nodes} leaves={leaves} exported={exported} steps={steps} pairs={work} terminal_peak={peak} base_ns={base_ns} rr_ns={rr_ns} encode_ns={encode_ns} oracle_ns={oracle_ns}");
+        let route_wall_ns=route_start.elapsed().as_nanos();
+        println!("HOARE_PARTITION_NATIVE strategy={strategy} nodes={nodes} leaves={leaves} exported={exported} steps={steps} pairs={work} terminal_peak={peak} base_ns={base_ns} rr_ns={rr_ns} encode_ns={encode_ns} oracle_ns={oracle_ns} init_ns={init_ns} final_split_ns={final_split_ns} export_ns={export_ns} dense_ns={dense_ns} route_wall_ns={route_wall_ns}");
     }
     std::fs::write(dir.join("native-partition.tsv"),manifest).unwrap();
 }

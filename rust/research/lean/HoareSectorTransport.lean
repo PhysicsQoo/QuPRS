@@ -1768,4 +1768,151 @@ theorem supported_walsh_nonzero (n : Nat) (f : State → Int) (y : State)
 #print axioms walsh_nonzero
 #print axioms supported_walsh_nonzero
 
+/-! Invertible finite monomial state maps and a nonzero Walsh
+    coefficient of the inverse-permuted phase vector. The finite
+    permutation sum reindexing to fourierAmp is still a separate
+    obligation, as is the complex quantum semantic embedding. -/
+
+def distinctGate : Gate → Prop
+  | .cnot a b => a ≠ b
+  | .cz a b => a ≠ b
+  | _ => True
+
+def reversibleGates (n : Nat) : List Gate → Prop
+  | [] => True
+  | g :: gs => (gateBound n g ∧ distinctGate g) ∧ reversibleGates n gs
+
+theorem bx_cancel_right (a b : Bool) : bx (bx a b) b = a := by
+  cases a <;> cases b <;> decide
+
+theorem advance_involutive (g : Gate) (x : State) (h : distinctGate g) :
+    advance g (advance g x) = x := by
+  cases g with
+  | flip a =>
+      funext i
+      by_cases he : i = a
+      · subst i
+        simp [advance]
+      · simp [advance, he]
+  | cnot a b =>
+      have hab : a ≠ b := h
+      funext i
+      change cnotState a b (cnotState a b x) i = x i
+      by_cases he : i = b
+      · subst i
+        have hs : cnotState a b x a = x a := by simp [cnotState, hab]
+        have ht : cnotState a b x b = bx (x b) (x a) := by simp [cnotState]
+        have ho : cnotState a b (cnotState a b x) b =
+            bx (cnotState a b x b) (cnotState a b x a) := by simp [cnotState]
+        rw [ho, ht, hs, bx_cancel_right]
+      · simp [cnotState, he]
+  | z a => rfl
+  | s a => rfl
+  | t a => rfl
+  | cz a b => rfl
+
+theorem advance_preserves_support (n : Nat) (g : Gate) (x : State)
+    (hg : gateBound n g) (hx : supported n x) : supported n (advance g x) := by
+  intro i hi
+  cases g with
+  | flip a =>
+      have ha : a < n := hg
+      have he : i ≠ a := by omega
+      simpa [advance, he] using hx i hi
+  | cnot a b =>
+      have hb : b < n := hg.2
+      have he : i ≠ b := by omega
+      simpa [advance, cnotState, he] using hx i hi
+  | z a => exact hx i hi
+  | s a => exact hx i hi
+  | t a => exact hx i hi
+  | cz a b => exact hx i hi
+
+def reverseEval : List Gate → State → State
+  | [], x => x
+  | g :: gs, x => advance g (reverseEval gs x)
+
+theorem reverse_eval_left (n : Nat) (gs : List Gate) (x : State)
+    (hg : reversibleGates n gs) : reverseEval gs (evalState gs x) = x := by
+  induction gs generalizing x with
+  | nil => rfl
+  | cons g gs ih =>
+      simp only [reverseEval, evalState]
+      rw [ih (advance g x) hg.2, advance_involutive g x hg.1.2]
+
+theorem reverse_eval_right (n : Nat) (gs : List Gate) (x : State)
+    (hg : reversibleGates n gs) : evalState gs (reverseEval gs x) = x := by
+  induction gs generalizing x with
+  | nil => rfl
+  | cons g gs ih =>
+      simp only [reverseEval, evalState]
+      rw [advance_involutive g (reverseEval gs x) hg.1.2, ih x hg.2]
+
+theorem eval_state_preserves_support (n : Nat) (gs : List Gate) (x : State)
+    (hg : reversibleGates n gs) (hx : supported n x) :
+    supported n (evalState gs x) := by
+  induction gs generalizing x with
+  | nil => exact hx
+  | cons g gs ih =>
+      exact ih (advance g x) hg.2 (advance_preserves_support n g x hg.1.1 hx)
+
+theorem reverse_eval_preserves_support (n : Nat) (gs : List Gate) (x : State)
+    (hg : reversibleGates n gs) (hx : supported n x) :
+    supported n (reverseEval gs x) := by
+  induction gs generalizing x with
+  | nil => exact hx
+  | cons g gs ih =>
+      exact advance_preserves_support n g (reverseEval gs x) hg.1.1 (ih x hg.2 hx)
+
+theorem eval_state_injective (n : Nat) (gs : List Gate) (x y : State)
+    (hg : reversibleGates n gs) (h : evalState gs x = evalState gs y) : x = y := by
+  have he := congrArg (reverseEval gs) h
+  rw [reverse_eval_left n gs x hg, reverse_eval_left n gs y hg] at he
+  exact he
+
+theorem phase_coeff_nonzero (p : Int) :
+    ∃ j : Nat, j < 4 ∧ phaseCoeff p j ≠ 0 := by
+  rcases residue_cases p with hp | hp | hp | hp | hp | hp | hp | hp
+  · exact ⟨0, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+  · exact ⟨1, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+  · exact ⟨2, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+  · exact ⟨3, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+  · exact ⟨0, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+  · exact ⟨1, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+  · exact ⟨2, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+  · exact ⟨3, by decide, by simp only [phaseCoeff, hp] <;> decide⟩
+
+def inversePhaseVector (n : Nat) (gs : List Gate) (x : State) (j : Nat) (y : State) : Int :=
+  sgn (dot n x (reverseEval gs y)) * phaseCoeff (evalPhase gs (reverseEval gs y)) j
+
+/-- Nonzero Walsh coefficient after applying the inverse permutation
+    to the input phase vector. It is not yet a fourierAmp witness until
+    the finite permutation reindexing theorem has been proved. -/
+theorem inverse_phase_walsh_nonzero (n : Nat) (gs : List Gate) (x : State)
+    (hg : reversibleGates n gs) :
+    ∃ z j, supported n z ∧ j < 4 ∧
+      walshSum n zeroState (inversePhaseVector n gs x j) z ≠ 0 := by
+  obtain ⟨j, hj, hn⟩ := phase_coeff_nonzero (evalPhase gs zeroState)
+  have hs : supported n zeroState := fun _ _ => rfl
+  have hy := eval_state_preserves_support n gs zeroState hg hs
+  have hvec : inversePhaseVector n gs x j (evalState gs zeroState) ≠ 0 := by
+    unfold inversePhaseVector
+    rw [reverse_eval_left n gs zeroState hg]
+    intro he
+    cases dot n x zeroState <;> simp [sgn] at he <;> omega
+  obtain ⟨z, hz, hw⟩ :=
+    supported_walsh_nonzero n (inversePhaseVector n gs x j) (evalState gs zeroState) hy hvec
+  exact ⟨z, j, hz, hj, hw⟩
+
+#print axioms bx_cancel_right
+#print axioms advance_involutive
+#print axioms advance_preserves_support
+#print axioms reverse_eval_left
+#print axioms reverse_eval_right
+#print axioms eval_state_preserves_support
+#print axioms reverse_eval_preserves_support
+#print axioms eval_state_injective
+#print axioms phase_coeff_nonzero
+#print axioms inverse_phase_walsh_nonzero
+
 end QuPRS.SectorTransport

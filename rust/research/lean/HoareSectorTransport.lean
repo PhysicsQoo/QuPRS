@@ -1899,7 +1899,16 @@ theorem inverse_phase_walsh_nonzero (n : Nat) (gs : List Gate) (x : State)
     unfold inversePhaseVector
     rw [reverse_eval_left n gs zeroState hg]
     intro he
-    cases dot n x zeroState <;> simp [sgn] at he <;> omega
+    cases hb : dot n x zeroState with
+    | false =>
+        have hz : (1 : Int) * phaseCoeff (evalPhase gs zeroState) j = 0 := by
+          simpa [hb, sgn] using he
+        exact hn ((Int.one_mul _).symm.trans hz)
+    | true =>
+        have hz : (-1 : Int) * phaseCoeff (evalPhase gs zeroState) j = 0 := by
+          simpa [hb, sgn] using he
+        apply hn
+        omega
   obtain ⟨z, hz, hw⟩ :=
     supported_walsh_nonzero n (inversePhaseVector n gs x j) (evalState gs zeroState) hy hvec
   exact ⟨z, j, hz, hj, hw⟩

@@ -1495,17 +1495,16 @@ def phaseCoeff (p : Int) (j : Nat) : Int :=
     else if p % 8 = (j : Int) + 4 then -1 else 0
   else 0
 
-private theorem int_eq_select_true (a b u v : Int) (h : a = b) :
-    (if a = b then u else v) = u := by
-  split
-  · rfl
-  · contradiction
+/-- Constructive finite residue classification. Separate helpers make
+    the axiom dependency of the arithmetic partition auditable. -/
+private theorem residue_cases (p : Int) :
+    p % 8 = 0 ∨ p % 8 = 1 ∨ p % 8 = 2 ∨ p % 8 = 3 ∨
+    p % 8 = 4 ∨ p % 8 = 5 ∨ p % 8 = 6 ∨ p % 8 = 7 := by
+  omega
 
-private theorem int_eq_select_false (a b u v : Int) (h : a ≠ b) :
-    (if a = b then u else v) = v := by
-  split
-  · contradiction
-  · rfl
+private theorem coefficient_index_cases (j : Nat) (h : j < 4) :
+    j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 := by
+  omega
 
 theorem phase_coeff_shift (p q : Int) (j : Nat) (b : Bool)
     (h : (q-p) % 8 = 4 * bit b) :
@@ -1513,37 +1512,18 @@ theorem phase_coeff_shift (p q : Int) (j : Nat) (b : Bool)
   by_cases hj : j < 4
   · cases b with
     | false =>
-        have he : q % 8 = p % 8 := by
-          change (q-p) % 8 = 0 at h
-          omega
+        change (q-p) % 8 = 0 at h
+        have hq : q % 8 = p % 8 := by omega
         unfold phaseCoeff
-        rw [he]
+        rw [hq]
         change _ = 1 * _
         exact (Int.one_mul _).symm
     | true =>
         change (q-p) % 8 = 4 at h
-        have h1 : q % 8 = (j : Int) ↔ p % 8 = (j : Int) + 4 := by omega
-        have h2 : q % 8 = (j : Int) + 4 ↔ p % 8 = (j : Int) := by omega
-        unfold phaseCoeff
-        simp only [lt_select_true j 4 _ 0 hj]
-        by_cases hp : p % 8 = (j : Int)
-        · have hn : p % 8 ≠ (j : Int) + 4 := by omega
-          have hq : q % 8 ≠ (j : Int) := fun he => hn (h1.mp he)
-          have hq4 : q % 8 = (j : Int) + 4 := h2.mpr hp
-          rw [int_eq_select_false _ _ _ _ hq,
-              int_eq_select_true _ _ _ _ hq4,
-              int_eq_select_true _ _ _ _ hp] <;> rfl
-        · by_cases hn : p % 8 = (j : Int) + 4
-          · have hq : q % 8 = (j : Int) := h1.mpr hn
-            rw [int_eq_select_true _ _ _ _ hq,
-                int_eq_select_false _ _ _ _ hp,
-                int_eq_select_true _ _ _ _ hn] <;> rfl
-          · have hq : q % 8 ≠ (j : Int) := fun he => hn (h1.mp he)
-            have hq4 : q % 8 ≠ (j : Int) + 4 := fun he => hp (h2.mp he)
-            rw [int_eq_select_false _ _ _ _ hq,
-                int_eq_select_false _ _ _ _ hq4,
-                int_eq_select_false _ _ _ _ hp,
-                int_eq_select_false _ _ _ _ hn] <;> rfl
+        have hq : q % 8 = (p % 8 + 4) % 8 := by omega
+        rcases coefficient_index_cases j hj with e | e | e | e <;> subst j <;>
+          rcases residue_cases p with hp | hp | hp | hp | hp | hp | hp | hp <;>
+          simp only [phaseCoeff, hq, hp] <;> decide
   · unfold phaseCoeff
     simp only [lt_select_false j 4 _ 0 hj, Int.mul_zero]
 

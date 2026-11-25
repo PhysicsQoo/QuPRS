@@ -1609,4 +1609,163 @@ theorem sampled_fourier_entry_transport (n : Nat) (gs : List Gate)
 #print axioms fourier_entry_transport
 #print axioms sampled_fourier_entry_transport
 
+/-! Constructive nonzero Walsh transform.
+    The integer Walsh transform on a finite Boolean cube is injective.
+    We prove the stronger witness statement directly by induction,
+    without excluded middle over functions or a complex matrix library.
+    The bridge from a reversible gate permutation to this transform
+    is a separate obligation; no nonzero Fourier column claim yet. -/
+
+def agreesTail (n : Nat) (x y : State) : Prop :=
+  ∀ i, n ≤ i → x i = y i
+
+theorem set_wire_self (x : State) (i : Nat) (b : Bool) :
+    setWire x i b i = b := by
+  simp [setWire]
+
+theorem set_wire_other (x : State) (i j : Nat) (b : Bool) (h : j ≠ i) :
+    setWire x i b j = x j := by
+  simp [setWire, h]
+
+theorem set_wire_preserves_support (n i : Nat) (x : State) (b : Bool)
+    (hi : i < n) (hx : supported n x) :
+    supported n (setWire x i b) := by
+  intro j hj
+  have he : j ≠ i := by omega
+  rw [set_wire_other x i j b he]
+  exact hx j hj
+
+theorem cube_sum_congr_tail (n : Nat) (base : State) (f g : State → Int)
+    (h : ∀ y, agreesTail n y base → f y = g y) :
+    cubeSum n base f = cubeSum n base g := by
+  induction n generalizing base with
+  | zero => exact h base (fun _ _ => rfl)
+  | succ n ih =>
+      have ht (b : Bool) : ∀ y, agreesTail n y (setWire base n b) →
+          agreesTail (n+1) y base := by
+        intro y hy i hi
+        rw [hy i (by omega), set_wire_other base n i b (by omega)]
+      simp only [cubeSum]
+      rw [ih (setWire base n false) (fun y hy => h y (ht false y hy)),
+          ih (setWire base n true) (fun y hy => h y (ht true y hy))]
+
+theorem dot_congr_left_below (n : Nat) (a b y : State)
+    (h : ∀ i, i < n → a i = b i) : dot n a y = dot n b y := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+      simp only [dot]
+      rw [ih (fun i hi => h i (by omega)), h n (by omega)]
+
+theorem dot_set_wire_above (n i : Nat) (z y : State) (b : Bool)
+    (hi : n ≤ i) : dot n (setWire z i b) y = dot n z y := by
+  apply dot_congr_left_below
+  intro j hj
+  exact set_wire_other z i j b (by omega)
+
+def walshSum (n : Nat) (base : State) (f : State → Int) (z : State) : Int :=
+  cubeSum n base (fun y => sgn (dot n z y) * f y)
+
+theorem walsh_branch (n : Nat) (base : State) (f : State → Int)
+    (z : State) (a b : Bool) :
+    cubeSum n (setWire base n a)
+      (fun y => sgn (dot (n+1) (setWire z n b) y) * f y) =
+    sgn (b && a) * walshSum n (setWire base n a) f z := by
+  unfold walshSum
+  rw [← cube_sum_scale]
+  apply cube_sum_congr_tail
+  intro y hy
+  have ha : y n = a := by
+    rw [hy n (Nat.le_refl n), set_wire_self]
+  have hb := set_wire_self z n b
+  have hd := dot_set_wire_above n n z y b (Nat.le_refl n)
+  change sgn (bx (dot n (setWire z n b) y)
+    (setWire z n b n && y n)) * f y = _
+  rw [hd, hb, ha, sign_mul]
+  ac_rfl
+
+theorem walsh_split (n : Nat) (base : State) (f : State → Int)
+    (z : State) (b : Bool) :
+    walshSum (n+1) base f (setWire z n b) =
+      walshSum n (setWire base n false) f z +
+        sgn b * walshSum n (setWire base n true) f z := by
+  change cubeSum n (setWire base n false)
+      (fun y => sgn (dot (n+1) (setWire z n b) y) * f y) +
+      cubeSum n (setWire base n true)
+        (fun y => sgn (dot (n+1) (setWire z n b) y) * f y) = _
+  
+  rw [walsh_branch n base f z false b, walsh_branch n base f z true b]
+  cases b <;> simp [sgn]
+
+theorem walsh_nonzero (n : Nat) (base y : State) (f : State → Int)
+    (hy : agreesTail n y base) (hf : f y ≠ 0) :
+    ∃ z, supported n z ∧ walshSum n base f z ≠ 0 := by
+  induction n generalizing base with
+  | zero =>
+      have he : y = base := funext (fun i => hy i (Nat.zero_le i))
+      refine ⟨zeroState, ?_, ?_⟩
+      · intro i _
+        rfl
+      · rw [he] at hf
+        simpa [walshSum, cubeSum, dot, sgn] using hf
+  | succ n ih =>
+      have ht : agreesTail n y (setWire base n (y n)) := by
+        intro i hi
+        by_cases he : i = n
+        · subst i
+          rw [set_wire_self]
+        · rw [set_wire_other base n i (y n) he]
+          exact hy i (by omega)
+      obtain ⟨z, hz, hn⟩ := ih (setWire base n (y n)) ht
+      let a := walshSum n (setWire base n false) f z
+      let b := walshSum n (setWire base n true) f z
+      have hab : a ≠ 0 ∨ b ≠ 0 := by
+        cases h : y n with
+        | false =>
+            left
+            simpa only [h] using hn
+        | true =>
+            right
+            simpa only [h] using hn
+      have hs0 : supported (n+1) (setWire z n false) := by
+        apply set_wire_preserves_support (n+1) n z false (by omega)
+        intro i hi
+        exact hz i (by omega)
+      have hs1 : supported (n+1) (setWire z n true) := by
+        apply set_wire_preserves_support (n+1) n z true (by omega)
+        intro i hi
+        exact hz i (by omega)
+      have h0 : walshSum (n+1) base f (setWire z n false) = a + b := by
+        rw [walsh_split]
+        change a + 1 * b = a + b
+        rw [Int.one_mul]
+      have h1 : walshSum (n+1) base f (setWire z n true) = a - b := by
+        rw [walsh_split]
+        change a + (-1) * b = a - b
+        omega
+      by_cases he : a + b = 0
+      · refine ⟨setWire z n true, hs1, ?_⟩
+        rw [h1]
+        intro h
+        rcases hab with ha | hb <;> omega
+      · exact ⟨setWire z n false, hs0, fun h => he (h0.symm.trans h)⟩
+
+/-- A nonzero supported integer function has a nonzero finite Walsh
+    coefficient. No need to assume a nonzero coefficient in advance. -/
+theorem supported_walsh_nonzero (n : Nat) (f : State → Int) (y : State)
+    (hy : supported n y) (hf : f y ≠ 0) :
+    ∃ z, supported n z ∧ walshSum n zeroState f z ≠ 0 := by
+  exact walsh_nonzero n zeroState y f hy hf
+
+#print axioms set_wire_self
+#print axioms set_wire_other
+#print axioms set_wire_preserves_support
+#print axioms cube_sum_congr_tail
+#print axioms dot_congr_left_below
+#print axioms dot_set_wire_above
+#print axioms walsh_branch
+#print axioms walsh_split
+#print axioms walsh_nonzero
+#print axioms supported_walsh_nonzero
+
 end QuPRS.SectorTransport

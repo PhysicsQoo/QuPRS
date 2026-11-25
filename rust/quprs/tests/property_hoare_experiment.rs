@@ -2763,6 +2763,85 @@ fn multi_encode(s:&Symbolic,copies:usize,factored:bool)->Option<FactorPilotEncod
     multi_encode_domain(s,copies,factored,3,0,0)
 }
 
+
+// Three deterministic CNFs for a shared-input amplitude counterexample.
+// Output roots are literal handles in each individual CNF, not path IDs.
+fn multi_witness_export(t:&Symbolic,variant:&str,dir:&std::path::Path){
+    assert_eq!((t.n,t.h),(8,7));
+    assert!(t.phase.values().all(|&v|v==4));
+    let mut metadata=String::new();
+    for kind in ["cross","self","amp"]{
+        let copies=if kind=="self"{2}else{1};
+        let primary=3+7*copies;
+        let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+        let sign:Anf=t.phase.keys().copied().collect();
+        let mut phases=Vec::new();let mut outputs=Vec::new();
+        for j in 0..copies{
+            let bits:Vec<Lit>=(0..8).map(|i|if i<3{(2+i) as Lit}else{ZERO})
+                .chain((0..7).map(|i|(5+7*j+i) as Lit)).collect();
+            phases.push(f.anf(&sign,&bits,true).unwrap());
+            outputs.push(t.output.iter().map(|a|f.anf(a,&bits,true).unwrap()).collect::<Vec<_>>());
+        }
+        let z=&outputs[0];let p=phases[0];
+        let mut classes=Vec::new();
+        if kind=="cross"{
+            let(mut sup,mut mark)=(ONE,ONE);
+            for i in 0..3{
+                let a=f.gate(true,z[i],(2+i) as Lit).unwrap();sup=f.gate(false,sup,-a).unwrap();
+                let b=f.gate(true,z[3+i],(2+i) as Lit).unwrap();mark=f.gate(false,mark,-b).unwrap();
+            }
+            sup=f.gate(false,sup,-z[6]).unwrap();sup=f.gate(false,sup,z[7]).unwrap();
+            if sup!=ONE{f.c.enforce(sup);}
+            for(a,b,w)in[(mark,-p,11i64),(mark,p,-11),(-mark,p,1),(-mark,-p,-1)]{
+                let l=f.gate(false,a,b).unwrap();classes.push((f.alias(l).unwrap(),w));
+            }
+        }else{
+            let phase=if kind=="self"{
+                for i in 0..8{
+                    let v=f.gate(true,z[i],outputs[1][i]).unwrap();
+                    if v!=ZERO{f.c.enforce(-v);}
+                }
+                f.gate(true,p,phases[1]).unwrap()
+            }else{p};
+            let v=f.alias(phase).unwrap();classes.push((-v,1));classes.push((v,-1));
+        }
+        assert!(f.bounded());
+        let samples=if copies==1{1024u64}else{2048};
+        for i in 0..samples{
+            let x=i&7;let a=(i>>3)&127;let b=if i<1024{a}else{(1009*(i>>3)+31)&127};
+            let(za,pa)=path(t,x,a);
+            let expected=if kind=="cross"{multi_target(3,x,za)*if pa==0{1}else{-1}}
+            else if kind=="self"{let(zb,pb)=path(t,x,b);if za!=zb{0}else if pa==pb{1}else{-1}}
+            else{if pa==0{1}else{-1}};
+            let v=factor_up(&f.c,primary,x|(a<<3)|if copies==2{b<<10}else{0});
+            if expected==0{assert!(v.is_none());}
+            else{
+                let v=v.unwrap();
+                for (i,&l) in z.iter().enumerate(){assert_eq!(lit_value(l,&v)==1,za>>i&1!=0);}
+                let active:Vec<_>=classes.iter().filter(|&&(l,_)|lit_value(l,&v)==1).collect();
+                assert_eq!(active.len(),1);assert_eq!(i128::from(active[0].1),expected);
+            }
+        }
+        let name=format!("witness-{variant}-{kind}");
+        let mut dimacs=format!("p cnf {} {}\n",f.c.vars,f.c.clauses.len());
+        for cl in &f.c.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=f.c.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
+        std::fs::write(dir.join(format!("{name}.cnf")),dimacs).unwrap();
+        let cls=classes.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",");
+        let roots=z.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(",");
+        metadata.push_str(&format!("{kind}\t{name}\t{primary}\t{}\t{}\t{cls}\t{roots}\n",f.c.vars,f.c.clauses.len()));
+        println!("HOARE_WITNESS_EXPORT case={name} vars={} clauses={} checks={samples}",f.c.vars,f.c.clauses.len());
+    }
+    std::fs::write(dir.join(format!("witness-{variant}.tsv")),metadata).unwrap();
+    // Independent signed-path histogram, used only after solver search.
+    let mut hist=vec![(0u64,0u64);8*256];
+    for x in 0..8u64{for y in 0..128u64{
+        let(z,p)=path(t,x,y);assert!(p==0||p==4);
+        if p==0{hist[(x*256+z) as usize].0+=1;}else{hist[(x*256+z) as usize].1+=1;}
+    }}
+    let oracle=hist.iter().map(|(p,m)|format!("{p}\t{m}\n")).collect::<Vec<_>>().concat();
+    std::fs::write(dir.join(format!("witness-{variant}-oracle.tsv")),oracle).unwrap();
+}
+
 fn multi_export(dir:&std::path::Path){
     let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
     let srcdir=std::path::PathBuf::from(srcdir);
@@ -2836,6 +2915,7 @@ fn multi_export(dir:&std::path::Path){
                 assert_eq!(residual,match variant{"source"=>0,"Z-last"=>4*norm,_=>2*norm});
                 println!("HOARE_MULTI_NATIVE case={label} variant={variant} h={} scale2={scale} steps={steps} entries={} terms={} cp={cp} cm={cm} residual={residual} prep_ns={prep_ns}",s.h,xs.len()*(1usize<<n),s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>());
                 if k!=3{continue;}
+                multi_witness_export(&t,variant,dir);
                 for (mode,factored) in [("flat",false),("factor",true)]{for copies in [1usize,2]{
                     let name=format!("mogrover-{k}-{variant}-{mode}-{copies}");
                     let now=std::time::Instant::now();let e=multi_encode(&t,copies,factored).expect("MOGrover03 encoder");

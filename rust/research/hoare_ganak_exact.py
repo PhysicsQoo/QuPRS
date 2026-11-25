@@ -517,6 +517,153 @@ def run_amplitude_factor_pilot(directory, exe, tmp, repeat_round=None, multi=Fal
               matched=matched)),flush=True)
 
 
+
+def witness_target(x,z):
+    if z&7!=x or z>>6!=2:
+        return 0
+    return 11 if (z>>3)&7==x else -1
+
+
+def witness_prefix_search(query):
+    """Query returns exact signed buckets or raises a resource exception.
+    Input-prefix norm uses certified full columns; output prefix never does.
+    No oracle or expected witness is consulted here.
+    """
+    calls=0
+    def signed(kind,xm,xv,zm,zv):
+        nonlocal calls
+        calls+=1
+        p,m=query(kind,xm,xv,zm,zv)
+        assert p>=0 and m>=0
+        return p-m
+    def norm(xm,xv,zm,zv):
+        # Only the declared target support, not circuit amplitudes.
+        return sum(witness_target(x,z)**2 for x in range(8) if x&xm==xv
+                   for z in range(256) if z&zm==zv)
+    def residual(xm,xv,zm,zv):
+        t=norm(xm,xv,zm,zv)
+        s=(8>>xm.bit_count())*128 if zm==0 else signed("self",xm,xv,zm,zv)
+        c=signed("cross",xm,xv,zm,zv)
+        w=s-2*c+t
+        assert s>=0 and w>=0
+        return w
+    root=None
+    trace=[]
+    try:
+        root=residual(0,0,0,0)
+        if root==0:
+            return dict(verdict="PROVED",root=0,witness_status="NOT_REQUIRED",calls=calls,trace=trace)
+        xm=xv=zm=zv=0
+        w=root
+        for i in range(3):
+            bit=1<<i
+            left=residual(xm|bit,xv,0,0)
+            assert 0<=left<=w
+            parent=w
+            if left:
+                w=left
+            else:
+                xv|=bit
+            xm|=bit
+            trace.append(dict(axis="x",bit=i,left=left,parent=parent,kept=w,value=xv))
+        for i in reversed(range(8)):
+            bit=1<<i
+            left=residual(xm,xv,zm|bit,zv)
+            assert 0<=left<=w
+            parent=w
+            if left:
+                w=left
+            else:
+                zv|=bit
+            zm|=bit
+            trace.append(dict(axis="z",bit=i,left=left,parent=parent,kept=w,value=zv))
+        a=signed("amp",7,xv,255,zv)
+        t=witness_target(xv,zv)
+        assert w>0 and (a-t)**2==w
+        return dict(verdict="REFUTED",root=root,witness_status="VERIFIED",calls=calls,
+                    x=xv,z=zv,amplitude=a,target=t,residual=w,trace=trace)
+    except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):
+        return dict(verdict="REFUTED" if root is not None and root>0 else "UNKNOWN",
+                    root=root,witness_status="UNKNOWN",calls=calls,trace=trace)
+
+
+def run_multi_witness_pilot(directory,exe,tmp):
+    for variant in ("source","Z-last","X-scratch","Z-mark0"):
+        records={}
+        with (directory/f"witness-{variant}.tsv").open() as f:
+            for kind,name,primary,vs,cs,classes,roots in csv.reader(f,delimiter="\t"):
+                primary,vs,cs=map(int,(primary,vs,cs))
+                assert kind not in records and kind in ("cross","self","amp")
+                assert primary==(17 if kind=="self" else 10)
+                assert 0<vs<=10000 and 0<cs<=40000
+                weights=[(int(l),int(w)) for l,w in (s.split(":") for s in classes.split(","))]
+                assert sorted(w for l,w in weights)==([-11,-1,1,11] if kind=="cross" else [-1,1])
+                assert len({l for l,w in weights})==len(weights) and all(0<abs(l)<=vs for l,w in weights)
+                roots=list(map(int,roots.split(",")))
+                assert len(roots)==8 and all(0<abs(l)<=vs for l in roots)
+                header,*clauses=(directory/f"{name}.cnf").read_text().splitlines()
+                assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+                records[kind]=(primary,vs,clauses,weights,roots)
+        assert set(records)=={"cross","self","amp"}
+        history=[]
+        start=time.monotonic()
+        def query(kind,xm,xv,zm,zv):
+            primary,vs,clauses,weights,roots=records[kind]
+            assert 0<=xm<=7 and xv&~xm==0 and 0<=zm<=255 and zv&~zm==0
+            units=[(2+i) if xv>>i&1 else -(2+i) for i in range(3) if xm>>i&1]
+            units.extend(l if zv>>i&1 else -l for i,l in enumerate(roots) if zm>>i&1)
+            bound=(1<<primary)*max(abs(w) for l,w in weights)
+            radix=bound+1
+            natural={l:abs(w)*(radix if w<0 else 1) for l,w in weights}
+            for l,w in weights:natural.setdefault(-l,1)
+            text=f"c t wmc\np cnf {vs} {len(clauses)+len(units)}\n"
+            text+="".join(f"c p weight {l} {w} 0\n" for l,w in sorted(natural.items()))
+            text+="\n".join(clauses)+"\n"+"".join(f"{l} 0\n" for l in units)
+            path=pathlib.Path(tmp)/"witness-pilot.cnf"
+            path.write_text(text)
+            row=dict(kind=kind,xm=xm,xv=xv,zm=zm,zv=zv,
+                     sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[])
+            history.append(row)
+            remaining=60-(time.monotonic()-start)
+            if remaining<=0:
+                raise TimeoutError("witness total scheduling deadline")
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(path)],min(5,remaining),
+                             pathlib.Path(tmp)/"witness-time.tsv",row["metrics"])
+            value=parse_gpmc_integer(out,"wmc",bound*(radix+1))
+            p,m=value%radix,value//radix
+            assert p+m<=bound
+            row.update(plus=p,minus=m)
+            return p,m
+        result=witness_prefix_search(query)
+        # Only after search: compare all completed queries against actual
+        # path histograms, and exact returned amplitude against source fixture.
+        hist=[tuple(map(int,l.split("\t"))) for l in (directory/f"witness-{variant}-oracle.tsv").read_text().splitlines()]
+        assert len(hist)==2048
+        checked=0
+        for q in history:
+            if "plus" not in q:continue
+            p=m=0
+            for x in range(8):
+                if x&q["xm"]!=q["xv"]:continue
+                for z in range(256):
+                    if z&q["zm"]!=q["zv"]:continue
+                    a,b=hist[256*x+z]
+                    t=witness_target(x,z)
+                    if q["kind"]=="self":p+=a*a+b*b;m+=2*a*b
+                    elif q["kind"]=="amp":p+=a;m+=b
+                    elif t>=0:p+=a*t;m+=b*t
+                    else:p-=b*t;m-=a*t
+            assert (p,m)==(q["plus"],q["minus"])
+            checked+=1
+        expected={"source":0,"Z-last":4096,"X-scratch":2048,"Z-mark0":2048}[variant]
+        if result["root"] is not None:assert result["root"]==expected
+        if result["witness_status"]=="VERIFIED":
+            x,z=result["x"],result["z"]
+            a,b=hist[256*x+z]
+            assert a-b==result["amplitude"] and (a-b-witness_target(x,z))**2==result["residual"]>0
+        result.update(variant=variant,checked=checked,query_records=history)
+        print("HOARE_SOLVER_WITNESS "+json.dumps(result),flush=True)
+
 def run_partition_pilot(directory, exe, tmp):
     """Separate source-only partition pilot. Unknown leaves never certify a cover."""
     with (directory/"native-partition.tsv").open() as f:
@@ -771,6 +918,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             print("HOARE_FACTOR_REPEAT_SKIPPED opt_in=HOARE_FACTOR_REPEATS=1",flush=True)
     if (directory/"native-multi-factor.tsv").is_file():
         run_amplitude_factor_pilot(directory,exe,tmp,multi=True)
+    if (directory/"witness-source.tsv").is_file():
+        run_multi_witness_pilot(directory,exe,tmp)
     if (directory/"native-partition.tsv").is_file():
         run_partition_pilot(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():

@@ -2761,6 +2761,91 @@ mod exact_property_cnf {
         println!("HOARE_NATIVE_AFFINE_RR_SUMMARY cases={cases} improved={improved} per_input_checks={per_input_checks} native_ir=true");
     }
 
+
+    // Distinguish full affine elimination from a single order-dependent
+    // monomial sweep and a stronger bounded repeated-sweep baseline.
+    // All methods operate on the same native PathSum and original pre.
+    #[test]
+    fn hoare_native_linked_affine_rr_ablation(){
+        let mut cases=0usize;
+        let mut checks=0usize;
+        let mut affine_wins=0usize;
+        let mut repeat_ties=0usize;
+        let mut order_sensitive=0usize;
+        for k in 3..=5usize{
+            let n=k+1;let a=k;
+            let mut ops=vec![G::CX(k-1,0),G::H(a),G::T(0),G::T(a),G::CX(0,a)];
+            ops.extend((0..7).map(|_|G::T(a)));
+            ops.extend([G::CX(0,a),G::H(a),G::CX(k-1,0)]);
+            let post=vec![bit(a,false)];
+            let eqs:Vec<_>=(0..k-1).map(|i|equal_bits(i,i+1)).collect();
+            let mut by_order=Vec::new();
+            for order in 0..3usize{
+                let mut chain=eqs.clone();
+                if order==1{chain.reverse();}
+                if order==2{chain.push(equal_bits(0,k-1));}
+                let mut pre=vec![bit(a,false)];pre.extend(chain);
+                let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+                for op in &ops{op.apply(&mut ps,false);}
+                let direct=compact(&ps,n).unwrap();
+                let (standard,ss)=reduce_existing(ps.clone(),n).unwrap();
+                let ta=std::time::Instant::now();
+                let (special,model)=specialize_affine(ps.clone(),n,&pre).unwrap();
+                let sp=compact(&special,n).unwrap();
+                let (affine,as_)=reduce_existing(special,n).unwrap();
+                let affine_ns=ta.elapsed().as_nanos();
+                let tm=std::time::Instant::now();
+                let one=mono_substitute(ps.clone(),n,&pre).unwrap();
+                let (mono,ms)=reduce_existing(one.clone(),n).unwrap();
+                let mono_ns=tm.elapsed().as_nanos();
+                let tr=std::time::Instant::now();
+                let mut repeated=ps;
+                // Repeated sweeps are bounded by chain length; no global
+                // fixed-point or termination claim for nonlinear systems.
+                for _ in 0..k{repeated=mono_substitute(repeated,n,&pre).unwrap();}
+                let (repeat,rs)=reduce_existing(repeated,n).unwrap();
+                let repeat_ns=tr.elapsed().as_nanos();
+                let legal:BTreeSet<_>=(0..1u64<<n).filter(|&x|eval_conj(&pre,x)).collect();
+                let coded:Vec<_>=(0..1u64<<n).filter(|&x|x&!model.free_mask()==0).collect();
+                assert_eq!(legal,BTreeSet::from([0,(1u64<<k)-1]));
+                assert_eq!(coded.len(),legal.len());
+                assert_eq!(coded.iter().map(|&x|model.decode(x)).collect::<BTreeSet<_>>(),legal);
+                for x in coded{
+                    let original=model.decode(x);
+                    for y in 0..1u64<<sp.h{
+                        assert_eq!(path(&direct,original,y),path(&sp,x,y));
+                    }
+                    let expected=raw_for_input(n,&ops,&post,original);
+                    assert_eq!(expected,[0,0]);
+                    for (s,scale,p,v) in [(&standard,ss.scale2,pre.clone(),original),
+                        (&affine,as_.scale2,model.guard(),x),
+                        (&mono,ms.scale2,pre.clone(),original),
+                        (&repeat,rs.scale2,pre.clone(),original)]{
+                        let (c,d)=two_copy_conj(s,&p,&post);
+                        let units:Vec<_>=(0..n).map(|i|if v>>i&1!=0{i as i32+2}else{-(i as i32+2)}).collect();
+                        let value=exact_pair_coeff(&c,d,&units,&mut 20_000_000,&mut 0).unwrap();
+                        assert_eq!(value.map(|a|a*(1i128<<scale)),expected);
+                        checks+=1;
+                    }
+                }
+                assert_eq!(affine.h,0);
+                if affine.h<mono.h{affine_wins+=1;}
+                if affine.h==repeat.h{repeat_ties+=1;}
+                by_order.push(mono.h);
+                cases+=1;
+                println!("HOARE_NATIVE_LINKED_AFFINE k={k} order={order} rank={} free={} standard_h={} affine_h={} mono_h={} repeated_h={} affine_ns={affine_ns} mono_ns={mono_ns} repeated_ns={repeat_ns}",n-model.free.len(),model.free.len(),standard.h,affine.h,mono.h,repeat.h);
+            }
+            if by_order[0]!=by_order[1]{order_sensitive+=1;}
+            let mut impossible=eqs;
+            impossible.push(bit(0,false));impossible.push(bit(k-1,true));
+            assert!(affine_pre(n,&impossible).is_none());
+            assert!((0..1u64<<n).all(|x|!eval_conj(&impossible,x)));
+        }
+        assert_eq!(cases,9);
+        assert_eq!(checks,72);
+        println!("HOARE_NATIVE_LINKED_AFFINE_SUMMARY cases={cases} checks={checks} affine_wins={affine_wins} repeat_ties={repeat_ties} order_sensitive_families={order_sensitive} contradictions=3");
+    }
+
     #[test]
     fn hoare_pure_rr_matched_corpus(){
         let mut cases:Vec<AlgorithmCase>=algorithmic_cases();

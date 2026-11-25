@@ -1,0 +1,98 @@
+name: Experimental RaWMoCS integration
+on:
+  push:
+    branches: [experiment/rawmocs-integration]
+    paths:
+      - 'research/rawmocs_integration/**'
+      - '.github/workflows/rawmocs-integration-experiment.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rawmocs-integration-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  comparison:
+    name: QuPRS / ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [e2e, qpeinexact22-432, grover6-432, gf2-7-333]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          path: .rawmocs
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/GPMC
+          ref: 89bbc89d0de918e7a5385740355df55765039230
+          path: .gpmc
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .rawmocs/crates/rawmocs-cli -> target
+            rust -> target
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev m4 make gcc time pkg-config
+          python -m pip install numpy sympy symengine 'qiskit==2.6.1' qiskit-qasm3-import psutil
+      - name: Build pinned solvers
+        run: |
+          set -euo pipefail
+          test "$(git -C .rawmocs rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          test "$(git -C .gpmc rev-parse HEAD)" = 89bbc89d0de918e7a5385740355df55765039230
+          cargo build --locked --release --manifest-path .rawmocs/crates/rawmocs-cli/Cargo.toml
+          cmake -S .gpmc -B .gpmc/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build .gpmc/build --target gpmc-bin --parallel 2
+          .rawmocs/crates/rawmocs-cli/target/release/rawmocs --version
+      - name: Build current QuPRS source exporter
+        if: matrix.case != 'e2e'
+        run: |
+          set -euo pipefail
+          bridge=.rawmocs/crates/rawmocs-cli/tools/repro/quprs_long_tail_source_bridge.rs
+          test "$(git hash-object "$bridge")" = fc32f4e8b0a2f34386b86e08ddf147469275c245
+          cp "$bridge" rust/quprs/examples/
+          cargo build --locked --release --no-default-features --manifest-path rust/Cargo.toml -p quprs --example quprs_long_tail_source_bridge
+      - name: Run scoped boundary conformance and comparison
+        env:
+          PYTHONHASHSEED: '0'
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          mkdir -p .integration-evidence
+          python -m pip freeze > .integration-evidence/dependencies.txt
+          git rev-parse HEAD > .integration-evidence/quprs-revision.txt
+          git -C .rawmocs rev-parse HEAD > .integration-evidence/rawmocs-revision.txt
+          git -C .gpmc rev-parse HEAD > .integration-evidence/gpmc-revision.txt
+          if [ "$CASE" = e2e ]; then
+            python .rawmocs/crates/rawmocs-cli/tools/quprs_python_integration.py --bin .rawmocs/crates/rawmocs-cli/target/release/rawmocs --out .integration-evidence/conformance
+          fi
+          python research/rawmocs_integration/compare.py \
+            --case "$CASE" \
+            --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs \
+            --gpmc .gpmc/build/gpmc \
+            --exporter rust/target/release/examples/quprs_long_tail_source_bridge \
+            --oracle .rawmocs/crates/rawmocs-cli/tools/repro \
+            --out .integration-evidence/comparison
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-quprs-${{ matrix.case }}
+          path: .integration-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn

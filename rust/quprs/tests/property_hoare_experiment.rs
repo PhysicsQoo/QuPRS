@@ -1554,6 +1554,237 @@ mod exact_property_cnf {
         std::fs::write(dir.join("native-gse-wmc.tsv"),manifest).unwrap();
     }
 
+
+    // Unified research pipeline. Property and original input labels are
+    // immutable. All reductions are performed on a native PathSum clone.
+    // This is not a production API, a source certificate, or a new IR.
+    #[derive(Clone,Copy,Debug,PartialEq,Eq)]
+    enum NativeVerifyMode { PureRr, PureWmc, Hybrid }
+    #[derive(Clone,Copy,Debug,PartialEq,Eq)]
+    enum NativeRoot { Unknown, Zero, Positive }
+    struct NativeVerifyResult {
+        answer:Answer, root:NativeRoot, reason:&'static str,
+        initial_h:usize, residual_h:usize, scale2:u32,
+        rr_steps:usize, mono_selected:bool, cancellation_hits:usize,
+        gse_hits:usize, sat_visits:u64, count_batches:usize,
+        witness_batches:usize, coefficients:Option<[i128;2]>,
+    }
+    fn native_verify_result(h:usize)->NativeVerifyResult{
+        NativeVerifyResult{answer:Answer::Unknown,root:NativeRoot::Unknown,
+            reason:"inconclusive",initial_h:h,residual_h:h,scale2:0,rr_steps:0,
+            mono_selected:false,cancellation_hits:0,gse_hits:0,sat_visits:0,
+            count_batches:0,witness_batches:0,coefficients:None}
+    }
+    fn native_verify_terminal(r:&mut NativeVerifyResult,answer:Answer,reason:&'static str)->bool{
+        r.root=match &answer{
+            Answer::Proved=>NativeRoot::Zero,
+            Answer::Refuted(_)=>NativeRoot::Positive,
+            Answer::Unknown=>return false,
+        };
+        r.answer=answer;r.reason=reason;true
+    }
+    fn native_rr_checkpoint(mut ps:PathSum,n:usize)->Option<(PathSum,NativeGuardFrame,u32,usize)>{
+        let mut g=NativeGuardFrame::new(&ps,Anf::from([0]))?;
+        let mut scale=0u32;let mut steps=0;
+        for _ in 0..32{
+            let Some(step)=guarded_native_step(&ps,n,&g) else{break;};
+            scale=scale.checked_add(step.scale2)?;
+            ps=step.ps;g=step.guard;steps+=1;
+        }
+        compact(&ps,n)?;
+        Some((ps,g,scale,steps))
+    }
+    // Keep the full external survivor on BOTH copies. This encoding
+    // needs no expanded ANF product of pre AND NOT post(f) AND extra.
+    // A representation-limit fallback must never discard extra.
+    fn native_pipeline_pair(s:&Symbolic,extra:&Anf,pre:&[Anf],post:&[Anf])->(Cnf,[Lit;3]){
+        let (mut c,d)=two_copy_conj(s,pre,post);
+        if extra!=&Anf::from([0]){
+            let l:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+            let r:Vec<_>=(0..s.n).map(|i|i as Lit+2)
+                .chain((s.n+s.h..s.n+2*s.h).map(|i|i as Lit+2)).collect();
+            let a=c.anf(extra,&l);c.enforce(a);
+            let b=c.anf(extra,&r);c.enforce(b);
+        }
+        (c,d)
+    }
+    fn native_pipeline_count(s:&Symbolic,extra:&Anf,input:&HoareInput,mode:NativeVerifyMode,
+                             root_budget:u64,witness_budget:u64,r:&mut NativeVerifyResult){
+        let (c,d)=native_pipeline_pair(s,extra,&input.pre,&input.post);
+        let mut fuel=root_budget;
+        let Some(v)=exact_pair_coeff(&c,d,&[],&mut fuel,&mut r.count_batches) else{
+            r.reason="root-resource";return;
+        };
+        let Some(factor)=1i128.checked_shl(r.scale2) else{r.reason="scale-limit";return;};
+        let (Some(a),Some(b))=(v[0].checked_mul(factor),v[1].checked_mul(factor)) else{
+            r.reason="scale-limit";return;
+        };
+        r.coefficients=Some([a,b]);
+        if v==[0,0]{
+            native_verify_terminal(r,Answer::Proved,"exact-root");return;
+        }
+        // A positive root is distinct from an independently recovered
+        // input witness. Preserve the root fact if witness budget fails.
+        r.root=NativeRoot::Positive;r.reason="positive-root-witness-pending";
+        let affine=if mode!=NativeVerifyMode::PureWmc{
+            match analyze_input_constraints(s.n,&input.pre){
+                InputConstraintContext::Affine(m)=>Some(m),_=>None,
+            }
+        }else{None};
+        let positions:Vec<_>=affine.as_ref().map(|m|m.free.clone()).unwrap_or_else(||(0..s.n).collect());
+        let mut prefix=Vec::new();let mut x=0u64;let mut fuel=witness_budget;
+        for j in positions{
+            let l=j as Lit+2;prefix.push(-l);
+            match exact_pair_coeff(&c,d,&prefix,&mut fuel,&mut r.witness_batches){
+                Some([0,0])=>{*prefix.last_mut().unwrap()=l;x|=1u64<<j;},
+                Some(_)=>{},
+                None=>return,
+            }
+        }
+        if let Some(m)=affine{x=m.decode(x);}
+        if !eval_conj(&input.pre,x){return;}
+        let full:Vec<_>=(0..s.n).map(|j|if x>>j&1!=0{j as Lit+2}else{-(j as Lit+2)}).collect();
+        if exact_pair_coeff(&c,d,&full,&mut fuel,&mut r.witness_batches).is_some_and(|v|v!=[0,0]){
+            native_verify_terminal(r,Answer::Refuted(x),"exact-root-witness");
+        }
+    }
+    fn run_native_verification(input:&HoareInput,mode:NativeVerifyMode,enable_gse:bool,
+                               sat_budget:u64,root_budget:u64,witness_budget:u64)->NativeVerifyResult{
+        let n=input.initial.n;let h=input.initial.h;
+        let mut r=native_verify_result(h);
+        if mode==NativeVerifyMode::PureWmc{
+            native_pipeline_count(&input.initial,&Anf::from([0]),input,mode,root_budget,witness_budget,&mut r);
+            return r;
+        }
+        if matches!(analyze_input_constraints(n,&input.pre),InputConstraintContext::Contradictory){
+            native_verify_terminal(&mut r,Answer::Proved,"contradictory-pre");return r;
+        }
+        let Some((mut ps,mut frame,mut scale,mut steps))=native_rr_checkpoint(input.ps.clone(),n) else{
+            r.reason="rr-admission";return r;
+        };
+        if let Some(mono)=mono_substitute(input.ps.clone(),n,&input.pre){
+            if let Some((p,g,k,t))=native_rr_checkpoint(mono,n){
+                if p.v.path_vars.len()<ps.v.path_vars.len(){
+                    ps=p;frame=g;scale=k;steps=t;r.mono_selected=true;
+                }
+            }
+        }
+        r.scale2=scale;r.rr_steps=steps;
+        let Some(s)=compact(&ps,n) else{return r;};
+        r.residual_h=s.h;
+        if let Some((a,_))=algebraic_terminal(&s,&input.pre,&input.post){
+            if native_verify_terminal(&mut r,a,"native-terminal"){return r;}
+        }
+        let mut report=PureRrReport{mode:PureRrMode::Sat,answer:Answer::Unknown,
+            reason:"native-pipeline",standard_runs:0,monomial_runs:0,algebraic_trials:0,
+            algebraic_hits:0,sat_queries:0,sat_visits:0,directions:vec![],residual_h:s.h};
+        // Existing SAT-assisted fiber proof sees the unmasked checkpoint
+        // only. It may NOT be reused after survivor cancellation/GSE.
+        assert_eq!(frame.extra,Anf::from([0]));
+        if let Some(full)=property_guard(&s,&input.pre,&input.post){
+            let a=guard_terminal(&s,&input.pre,&input.post,&full,&mut report);
+            if native_verify_terminal(&mut r,a,"injective-terminal"){return r;}
+        }
+        if sat_budget>0{
+            let a=sat_rr(&s,&input.pre,&input.post,sat_budget,&mut report);
+            r.sat_visits=report.sat_visits;
+            if native_verify_terminal(&mut r,a,"sat-terminal"){return r;}
+        }
+        // Cancellation mask is the actual full survivor; keep its
+        // property binding for every subsequent transformation.
+        if let Some(full)=residual_guard(&s,&input.pre,&input.post,&mut report){
+            r.cancellation_hits=report.algebraic_hits;
+            let a=guard_terminal(&s,&input.pre,&input.post,&full,&mut report);
+            if native_verify_terminal(&mut r,a,"cancellation-terminal"){return r;}
+            if r.cancellation_hits>0{
+                let ids=native_ids(&ps).unwrap();
+                let stable=|m:u64|ids.iter().enumerate().fold(0u64,|a,(i,&v)|a|(((m>>i)&1)<<v));
+                let Some(g)=NativeGuardFrame::new(&ps,full.iter().map(|&m|stable(m)).collect()) else{return r;};
+                frame=g;
+            }
+        }
+        if enable_gse{
+            let mut stats=GseStats::default();
+            for _ in 0..8{
+                let Some(step)=gse_step(&ps,n,&frame,&input.pre,&input.post,&mut stats) else{break;};
+                ps=step.ps;frame=step.guard;r.gse_hits+=1;
+                // Reuse standard guarded RR only with current frame.
+                for _ in 0..32{
+                    let Some(step)=guarded_native_step(&ps,n,&frame) else{break;};
+                    let Some(k)=r.scale2.checked_add(step.scale2) else{return r;};
+                    r.scale2=k;r.rr_steps+=1;ps=step.ps;frame=step.guard;
+                }
+            }
+        }
+        let Some(s)=compact(&ps,n) else{return r;};
+        r.residual_h=s.h;
+        let Some(extra)=frame.compact(&ps) else{return r;};
+        if let Some(full)=property_guard(&s,&input.pre,&input.post).and_then(|g|mul_anf(&g,&extra)){
+            let a=guard_terminal(&s,&input.pre,&input.post,&full,&mut report);
+            if native_verify_terminal(&mut r,a,"residual-terminal"){return r;}
+        }
+        if mode==NativeVerifyMode::PureRr{r.reason="rr-inconclusive";return r;}
+        native_pipeline_count(&s,&extra,input,mode,root_budget,witness_budget,&mut r);
+        r
+    }
+    #[test]
+    fn hoare_native_unified_pipeline(){
+        let gates=[G::H(0),G::H(1),G::CX(0,1),G::CZ(0,1),G::T(0),G::S(1)];
+        let preds=[Anf::from([0]),Anf::from([0,1]),Anf::from([0,1,2]),Anf::from([3])];
+        let mut totals=[[0usize;7];4];
+        for a in &gates{for b in &gates{for p in &preds{for q in &preds{
+            let n=2;
+            let ops=[G::H(0),a.clone(),b.clone()];
+            let input=HoareInput::build(n,&ops,vec![p.clone()],vec![q.clone()]).unwrap();
+            let expected=(0..1u64<<n).filter(|&x|eval_conj(&input.pre,x))
+                .map(|x|raw_for_input(n,&ops,&input.post,x))
+                .fold([0i128;2],|s,v|[s[0]+v[0],s[1]+v[1]]);
+            for (i,(mode,gse)) in [(NativeVerifyMode::PureRr,false),(NativeVerifyMode::PureWmc,false),
+                                   (NativeVerifyMode::Hybrid,false),(NativeVerifyMode::Hybrid,true)].into_iter().enumerate(){
+                let r=run_native_verification(&input,mode,gse,30_000,2_000_000,2_000_000);
+                assert_eq!(r.initial_h,input.initial.h);
+                assert!(r.residual_h<=r.initial_h);
+                if let Some(c)=r.coefficients{assert_eq!(c,expected);}
+                match r.root{
+                    NativeRoot::Zero=>assert_eq!(expected,[0,0]),
+                    NativeRoot::Positive=>assert_ne!(expected,[0,0]),
+                    NativeRoot::Unknown=>{},
+                }
+                match r.answer{
+                    Answer::Proved=>{assert_eq!(expected,[0,0]);totals[i][0]+=1;},
+                    Answer::Refuted(x)=>{assert!(eval_conj(&input.pre,x));assert_ne!(raw_for_input(n,&ops,&input.post,x),[0,0]);totals[i][1]+=1;},
+                    Answer::Unknown=>totals[i][2]+=1,
+                }
+                if mode==NativeVerifyMode::PureRr{assert_eq!(r.count_batches+r.witness_batches,0);}
+                if mode==NativeVerifyMode::PureWmc{
+                    assert_eq!(r.rr_steps+r.cancellation_hits+r.gse_hits,0);
+                    assert_eq!(r.sat_visits,0);assert!(!r.mono_selected);
+                }
+                totals[i][3]+=r.count_batches;totals[i][4]+=r.witness_batches;
+                totals[i][5]+=r.gse_hits;totals[i][6]+=r.residual_h;
+            }
+        }}}}
+        for t in &totals{assert_eq!(t[0]+t[1]+t[2],576);}
+        assert_eq!(totals[0][3]+totals[0][4],0);
+        assert_eq!(totals[1][2]+totals[2][2]+totals[3][2],0);
+        // Root-positive and witness-resource-limited are distinct.
+        let input=HoareInput::build(1,&[G::H(0)],vec![],vec![bit(0,false)]).unwrap();
+        let r=run_native_verification(&input,NativeVerifyMode::PureWmc,false,0,2_000_000,0);
+        assert_eq!(r.root,NativeRoot::Positive);assert_eq!(r.answer,Answer::Unknown);
+        // Dropping a mask can produce a FALSE zero by restoring a
+        // cancelling partner. The shared encoder must keep it twice.
+        let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+        let y=ps.v.get_fresh_var();
+        ps.p.add_term(vec![y],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,2)));
+        let s=compact(&ps,1).unwrap();
+        let (a,ad)=native_pipeline_pair(&s,&Anf::from([0]),&[],&[Anf::new()]);
+        let (b,bd)=native_pipeline_pair(&s,&Anf::from([1u64<<1]),&[],&[Anf::new()]);
+        let mut batches=0;
+        assert_eq!(exact_pair_coeff(&a,ad,&[],&mut 2_000_000,&mut batches),Some([0,0]));
+        assert_eq!(exact_pair_coeff(&b,bd,&[],&mut 2_000_000,&mut batches),Some([2,0]));
+        println!("HOARE_NATIVE_UNIFIED_PIPELINE cases=576 totals={totals:?} columns=proved,refuted,unknown,root_batches,witness_batches,gse_hits,residual_h positive_root_without_witness=true mask_drop_negative=true");
+    }
+
     fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{
         if !admitted(n,ops){return None;}
         let mut ps=PathSum::new(n);

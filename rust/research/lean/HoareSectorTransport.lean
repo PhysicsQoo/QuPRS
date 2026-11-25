@@ -1924,4 +1924,146 @@ theorem inverse_phase_walsh_nonzero (n : Nat) (gs : List Gate) (x : State)
 #print axioms phase_coeff_nonzero
 #print axioms inverse_phase_walsh_nonzero
 
+/-! Reindex the finite cube sum through an admitted gate permutation.
+    CX is a conditional XOR translation of its target wire, split
+    into two control slices. Distinct wires ensure the translation
+    preserves the slice. No arbitrary finite bijection axiom is used. -/
+
+theorem cube_sum_add (n : Nat) (base : State) (f g : State → Int) :
+    cubeSum n base (fun y => f y + g y) =
+      cubeSum n base f + cubeSum n base g := by
+  induction n generalizing base with
+  | zero => rfl
+  | succ n ih =>
+      simp only [cubeSum, ih]
+      omega
+
+theorem unit_state_supported (n i : Nat) (hi : i < n) :
+    supported n (unitState i) := by
+  intro j hj
+  have he : j ≠ i := by omega
+  simp [unitState, he]
+
+theorem flip_is_unit_shift (i : Nat) (x : State) :
+    advance (.flip i) x = shifted x (unitState i) := by
+  funext j
+  by_cases he : j = i
+  · subst j
+    cases hx : x i <;> simp [advance, shifted, unitState, bx, hx]
+  · simp [advance, shifted, unitState, he, bx_zero_right]
+
+theorem cnot_is_conditional_shift (a b : Nat) (x : State) :
+    advance (.cnot a b) x =
+      if x a then shifted x (unitState b) else x := by
+  funext i
+  by_cases he : i = b
+  · subst i
+    cases ha : x a <;>
+      simp [advance, cnotState, shifted, unitState, bx, ha, bx_zero_right]
+  · cases ha : x a <;>
+      simp [advance, cnotState, shifted, unitState, he, ha, bx_zero_right]
+
+theorem shift_unit_other (x : State) (a b : Nat) (h : a ≠ b) :
+    shifted x (unitState b) a = x a := by
+  unfold shifted
+  have hu : unitState b a = false := by simp [unitState, h]
+  rw [hu, bx_zero_right]
+
+def controlSlice (a : Nat) (v : Bool) (f : State → Int) (x : State) : Int :=
+  if x a = v then f x else 0
+
+theorem control_slice_partition (a : Nat) (f : State → Int) (x : State) :
+    controlSlice a false f x + controlSlice a true f x = f x := by
+  cases hx : x a <;> simp [controlSlice, hx]
+
+theorem cnot_slice_partition (a b : Nat) (f : State → Int) (x : State)
+    (hab : a ≠ b) :
+    f (advance (.cnot a b) x) =
+      controlSlice a false f x +
+        controlSlice a true f (shifted x (unitState b)) := by
+  rw [cnot_is_conditional_shift]
+  have h := shift_unit_other x a b hab
+  cases hx : x a <;> simp [controlSlice, h, hx]
+
+theorem cube_sum_gate_reindex (n : Nat) (g : Gate) (f : State → Int)
+    (hg : gateBound n g) (hd : distinctGate g) :
+    cubeSum n zeroState (fun y => f (advance g y)) = cubeSum n zeroState f := by
+  cases g with
+  | flip a =>
+      have h : cubeSum n zeroState (fun y => f (advance (.flip a) y)) =
+          cubeSum n zeroState (fun y => f (shifted y (unitState a))) := by
+        apply cube_sum_congr
+        intro y
+        rw [flip_is_unit_shift]
+      rw [h]
+      exact cube_sum_xor_reindex n (unitState a) f (unit_state_supported n a hg)
+  | cnot a b =>
+      have hb : b < n := hg.2
+      have hab : a ≠ b := hd
+      calc
+        cubeSum n zeroState (fun y => f (advance (.cnot a b) y)) =
+            cubeSum n zeroState (fun y => controlSlice a false f y +
+              controlSlice a true f (shifted y (unitState b))) := by
+          apply cube_sum_congr
+          intro y
+          exact cnot_slice_partition a b f y hab
+        _ = cubeSum n zeroState (controlSlice a false f) +
+            cubeSum n zeroState (fun y => controlSlice a true f (shifted y (unitState b))) :=
+          cube_sum_add n zeroState _ _
+        _ = cubeSum n zeroState (controlSlice a false f) +
+            cubeSum n zeroState (controlSlice a true f) := by
+          rw [cube_sum_xor_reindex n (unitState b) (controlSlice a true f)
+            (unit_state_supported n b hb)]
+        _ = cubeSum n zeroState (fun y => controlSlice a false f y +
+            controlSlice a true f y) := (cube_sum_add n zeroState _ _).symm
+        _ = cubeSum n zeroState f := by
+          apply cube_sum_congr
+          exact control_slice_partition a f
+  | z a => rfl
+  | s a => rfl
+  | t a => rfl
+  | cz a b => rfl
+
+theorem cube_sum_eval_reindex (n : Nat) (gs : List Gate) (f : State → Int)
+    (hg : reversibleGates n gs) :
+    cubeSum n zeroState (fun y => f (evalState gs y)) = cubeSum n zeroState f := by
+  induction gs with
+  | nil => rfl
+  | cons g gs ih =>
+      change cubeSum n zeroState (fun y => f (evalState gs (advance g y))) = _
+      rw [cube_sum_gate_reindex n g (fun y => f (evalState gs y)) hg.1.1 hg.1.2]
+      exact ih hg.2
+
+theorem inverse_phase_walsh_eq_fourier (n : Nat) (gs : List Gate)
+    (x z : State) (j : Nat) (hg : reversibleGates n gs) :
+    walshSum n zeroState (inversePhaseVector n gs x j) z = fourierAmp n gs x z j := by
+  unfold walshSum fourierAmp
+  rw [← cube_sum_eval_reindex n gs
+    (fun y => sgn (dot n z y) * inversePhaseVector n gs x j y) hg]
+  apply cube_sum_congr
+  intro y
+  simp only [inversePhaseVector, reverse_eval_left n gs y hg, fourierTerm]
+  ac_rfl
+
+/-- A genuine nonzero coefficient of the original finite Fourier
+    amplitude, with a finite supported output and a valid basis index. -/
+theorem fourier_nonzero_output (n : Nat) (gs : List Gate) (x : State)
+    (hg : reversibleGates n gs) :
+    ∃ z j, supported n z ∧ j < 4 ∧ fourierAmp n gs x z j ≠ 0 := by
+  obtain ⟨z, j, hz, hj, hn⟩ := inverse_phase_walsh_nonzero n gs x hg
+  rw [inverse_phase_walsh_eq_fourier n gs x z j hg] at hn
+  exact ⟨z, j, hz, hj, hn⟩
+
+#print axioms cube_sum_add
+#print axioms unit_state_supported
+#print axioms flip_is_unit_shift
+#print axioms cnot_is_conditional_shift
+#print axioms shift_unit_other
+#print axioms control_slice_partition
+#print axioms cnot_slice_partition
+#print axioms cube_sum_gate_reindex
+#print axioms cube_sum_eval_reindex
+#print axioms inverse_phase_walsh_eq_fourier
+#print axioms fourier_nonzero_output
+
 end QuPRS.SectorTransport

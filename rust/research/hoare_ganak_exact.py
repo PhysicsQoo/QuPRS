@@ -843,6 +843,101 @@ def rus_conj(a):
     return [a[0],-a[3],-a[2],-a[1]]
 
 
+
+def rus_gram_real_sign(a):
+    assert a==rus_conj(a)
+    x,y=a[:2]
+    if x==0:return (y>0)-(y<0)
+    if y==0 or (x>0)==(y>0):return (x>0)-(x<0)
+    d=x*x-2*y*y
+    if d==0:return 0
+    return ((x>0)-(x<0)) if d>0 else ((y>0)-(y<0))
+
+
+def run_rus_gram(directory,exe,tmp,reference,linear):
+    """Independent reduced-source Gram queries; no oracle in verdict computation."""
+    with (directory/"native-rus-gram.tsv").open() as f:
+        rows=list(csv.reader(f,delimiter="\t"))
+    assert len(rows)==28 and len({r[0] for r in rows})==28
+    norms={}
+    cross=[]
+    start=time.monotonic()
+    def align(a,scale):
+        for _ in range(scale):a=rus_mul(a,[0,1,0,-1])
+        return a
+    def inner(a,b):
+        terms=[rus_mul(rus_conj(x),y) for x,y in zip(a,b)]
+        return [sum(t[j] for t in terms) for j in range(4)]
+    for case,name,label,kind,branch,correct,h,scale,primary,vs,cs,B,ds,ms,expected,target,enc,checks in rows:
+        branch,correct,h,scale,primary,vs,cs,B,enc,checks=map(int,(branch,correct,h,scale,primary,vs,cs,B,enc,checks))
+        assert kind in ("norm","cross") and branch in (0,1) and correct in (0,1)
+        norm=kind=="norm"
+        assert 0<=h<=17 and 0<=scale<=34 and 0<vs<=4096 and 0<cs<=32768
+        assert primary==1+(2*h if norm else h+2)
+        dl=list(map(int,ds.split(",")))
+        mag=[] if ms=="-" else [tuple(map(int,v.split(":"))) for v in ms.split(",")]
+        ex=list(map(int,expected.split(",")))
+        t=list(map(int,target.split(",")));assert len(t)==16;t=[t[i:i+4] for i in range(0,16,4)]
+        assert len(dl)==3 and len(ex)==8 and all(0<=v<B for v in ex)
+        assert (not mag)==norm
+        assert B==((2<<(2*h)) if norm else (2<<h)*max(w for l,w in mag))+1
+        assert all(1<=w<=5 for l,w in mag)
+        lits=dl+[l for l,w in mag];assert len(lits)==len(set(lits)) and all(0<l<=vs for l in lits)
+        weights={l:B**(1<<i) for i,l in enumerate(dl)}
+        weights.update(mag);weights.update({-l:1 for l in lits})
+        header,*clauses=(directory/f"{case}.cnf").read_text().splitlines()
+        assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+        query=pathlib.Path(tmp)/"rus-gram.cnf"
+        query.write_text("c t wmc\n"+header+"\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"\n".join(clauses)+"\n")
+        r=dict(case=case,name=name,label=label,kind=kind,branch=branch,correct=correct,h=h,scale2=scale,primary=primary,vars=vs,clauses=cs,
+               encode_ns=enc,checks=checks,query_sha256=hashlib.sha256(query.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN")
+        try:
+            remaining=120-(time.monotonic()-start)
+            if remaining<=0:raise TimeoutError("Gram scheduling deadline")
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],min(5,remaining),pathlib.Path(tmp)/"rus-gram-time.tsv",r["metrics"])
+            v=parse_gpmc_integer(out,"wmc",B**8-1)
+            bits=v.bit_length();counts=[]
+            for _ in range(8):counts.append(v%B);v//=B
+            assert v==0 and counts==ex
+            val=[counts[i]-counts[i+4] for i in range(4)] if norm else [counts[2*i]-counts[2*i+1] for i in range(4)]
+            a=align(val,2*scale if norm else scale)
+            r.update(status="EXACT",digits=counts,packed_bits=bits,aligned=a)
+            # Oracle only for cross-check, never for constructing a verdict.
+            if name in reference:
+                A=[reference[name][4*x+2*z+branch] for x in range(2) for z in range(2)]
+                if correct:A=[[-v for v in a] if i&1 else a for i,a in enumerate(A)]
+                assert a==(inner(A,A) if norm else inner(t,A))
+                r["raw_crosscheck"]=True
+            if norm:
+                assert not correct and rus_gram_real_sign(a)>=0
+                assert (name,branch) not in norms
+                norms[name,branch]=a
+            else:cross.append((r,t))
+        except (TimeoutError,subprocess.TimeoutExpired):
+            r["status"]="TIMEOUT"
+        except SolverSignalKilled:
+            r["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        print("HOARE_RUS_GRAM_GPMC "+json.dumps(r),flush=True)
+    exact=0;matched=0
+    for r,t in cross:
+        key=(r["name"],r["branch"])
+        if key not in norms:
+            print("HOARE_RUS_GRAM_VERDICT "+json.dumps(dict(case=r["case"],verdict="UNKNOWN",reason="missing-norm")),flush=True)
+            continue
+        S=norms[key];T=inner(t,t);C=r["aligned"]
+        D=[u-v for u,v in zip(rus_mul(S,T),rus_mul(C,rus_conj(C)))]
+        assert rus_gram_real_sign(D)>=0
+        ray=rus_gram_real_sign(S)>0 and rus_gram_real_sign(T)>0 and not any(D)
+        real=ray and C==rus_conj(C)
+        verdict="PROVED" if ray else "REFUTED";rv="PROVED" if real else "REFUTED"
+        k=(r["name"],r["label"])
+        if k in linear:
+            assert verdict==linear[k]["ray_verdict"] and rv==linear[k]["real_verdict"]
+            matched+=1
+        exact+=1
+        print("HOARE_RUS_GRAM_VERDICT "+json.dumps(dict(case=r["case"],S=S,T=T,C=C,delta=D,verdict=verdict,real_verdict=rv)),flush=True)
+    print("HOARE_RUS_GRAM_SUMMARY "+json.dumps(dict(norm_exact=len(norms),cross_exact=len(cross),verdict_exact=exact,linear_matched=matched)),flush=True)
+
 def run_rus_pilot(directory,exe,tmp,route="direct"):
     """Positive-integer packed raw and anchor-linear counts; no postselection
     norm shortcut. HSL basis-column targets are hash-pinned transcriptions."""
@@ -1304,6 +1399,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
                     assert dr[k][field]==rr[k][field]
                 if route=="fixed":assert dr[k]["digits"]==rr[k]["digits"]
             print("HOARE_RUS_ABLATION_PARITY "+json.dumps(dict(route=route,raw_pairs=len(raw_pairs),linear_pairs=len(linear_pairs))),flush=True)
+        if (directory/"native-rus-gram.tsv").is_file():
+            run_rus_gram(directory,exe,tmp,direct,dr)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

@@ -3135,10 +3135,113 @@ fn rus_target(name:&str)->[Root;4]{
             [[a,0,b,0],zero,zero,[a,0,-b,0]]}
     }
 }
+
+// Gram norm counts share the original input and complete output, not
+// independent inputs. A known diagonal Z correction cancels in this norm.
+// Cross counts use one source copy and a coefficient selector.
+fn rus_gram_export(dir:&std::path::Path,manifest:&mut String,name:&str,s:&Symbolic,
+                   hist:&[u64;64],scale2:u32,branch:usize,correct:bool,
+                   label:&str,t:&[Root;4],norm:bool){
+    let h=s.h;assert!(h<=17&&branch<=1);
+    let primary=1+if norm{2*h}else{h+2};
+    let now=std::time::Instant::now();
+    let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+    let mut phases=Vec::new();let mut outputs=Vec::new();
+    for j in 0..if norm{2}else{1}{
+        let bits:Vec<Lit>=vec![ZERO,2].into_iter().chain((0..h).map(|i|(3+j*h+i) as Lit)).collect();
+        phases.push(mod_phase(&mut f,&s.phase,&bits,3,"factor").unwrap());
+        outputs.push(s.output.iter().map(|a|f.anf(a,&bits,true).unwrap()).collect::<Vec<_>>());
+    }
+    let z=&outputs[0];f.c.enforce(if branch==1{z[0]}else{-z[0]});
+    let mut expected=[0u64;8];let mut magnitude=Vec::<(Lit,i64)>::new();
+    let (digit,radix)=if norm{
+        assert!(!correct);
+        for i in 0..2{
+            let v=f.gate(true,z[i],outputs[1][i]).unwrap();
+            if v!=ZERO{f.c.enforce(-v);}
+        }
+        let neg:Vec<_>=phases[1].iter().map(|&l|-l).collect();
+        let inv=mod_add(&mut f,&neg,&[ONE,ZERO,ZERO]).unwrap();
+        let e=mod_add(&mut f,&phases[0],&inv).unwrap();
+        for i in 0..4{
+            let base=32*(i/2)+8*(2*(i%2)+branch);
+            for a in 0..8{for b in 0..8{
+                expected[(a+8-b)%8]+=hist[base+a]*hist[base+b];
+            }}
+        }
+        (e,(2u64<<(2*h))+1)
+    }else{
+        let mut p=phases[0].clone();if correct{p[2]=f.gate(true,p[2],z[1]).unwrap();}
+        let sel=[(3+h) as Lit,(4+h) as Lit];
+        let roots=vec![z[1],2].into_iter().chain(p.iter().copied()).chain(sel).collect::<Vec<_>>();
+        let tab=(0..128usize).map(|i|shift(rus_conj(t[i&3]),(i>>2)&7)[(i>>5)&3]).collect::<Vec<_>>();
+        let max=tab.iter().map(|v|v.unsigned_abs()).max().unwrap();
+        assert!(max>0&&max<=5);
+        let lookup=|f:&mut FactorPilot,test:&dyn Fn(i64)->bool|{
+            let mut a=tab.iter().map(|&v|test(v)).collect::<Vec<_>>();
+            for i in 0..7{for j in 0..128{if j>>i&1!=0{let v=a[j^(1<<i)];a[j]^=v;}}}
+            let anf=a.iter().enumerate().filter_map(|(i,&v)|v.then_some(i as u64)).collect::<Anf>();
+            f.anf(&anf,&roots,true).unwrap()
+        };
+        let mut enabled=ZERO;
+        for m in 1..=max{
+            if !tab.iter().any(|v|v.unsigned_abs()==m){continue;}
+            let l=lookup(&mut f,&|v|v.unsigned_abs()==m);
+            enabled=f.gate(true,enabled,l).unwrap();magnitude.push((f.alias(l).unwrap(),m as i64));
+        }
+        f.c.enforce(enabled);
+        let sign=lookup(&mut f,&|v|v<0);
+        for i in 0..4{
+            let out=i%2;let base=32*(i/2)+8*(2*out+branch);
+            for e in 0..8{
+                let w=shift(rus_conj(t[i]),(e+if correct{4*out}else{0})%8);
+                for c in 0..4{expected[2*c+usize::from(w[c]<0)]+=hist[base+e]*w[c].unsigned_abs();}
+            }
+        }
+        (vec![sign,sel[0],sel[1]],(2u64<<h)*max+1)
+    };
+    let aliases=digit.iter().map(|&l|f.alias(l).unwrap()).collect::<Vec<_>>();
+    assert!(f.bounded()&&expected.iter().all(|&v|v<radix));
+    let encode_ns=now.elapsed().as_nanos();
+    let samples=if primary<=10{1usize<<primary}else{1024};
+    let mut seed=0x4752414du64;
+    for j in 0..samples{
+        seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let a=if primary<=10{j as u64}else{(seed^(seed>>32))&((1u64<<primary)-1)};
+        let x=a&1;let y=(a>>1)&((1<<h)-1);
+        let (z,e)=path(s,2*x,y);
+        let (w,d)=if z&1!=branch as u64{(0,0)}
+        else if norm{
+            let(zb,eb)=path(s,2*x,(a>>(1+h))&((1<<h)-1));
+            (if z==zb{1}else{0},(e+8-eb)%8)
+        }else{
+            let c=((a>>(1+h))&3) as usize;
+            let w=shift(rus_conj(t[(2*x+(z>>1)) as usize]),(e+if correct{4*(z>>1) as usize}else{0})%8)[c];
+            (w,2*c+usize::from(w<0))
+        };
+        let v=factor_up(&f.c,primary,a);
+        if w==0{assert!(v.is_none());}else{
+            let v=v.unwrap();let actual=aliases.iter().enumerate().fold(0usize,|r,(i,&l)|r|(usize::from(lit_value(l,&v)==1)<<i));
+            assert_eq!(actual,d);
+            if !norm{let active=magnitude.iter().filter(|&&(l,_)|lit_value(l,&v)==1).collect::<Vec<_>>();
+                assert_eq!(active.len(),1);assert_eq!(active[0].1,w.abs());}
+        }
+    }
+    let case=format!("rus-gram-{name}-{label}");
+    std::fs::write(dir.join(format!("{case}.cnf")),dimacs(&f.c,&[]).unwrap()).unwrap();
+    let ds=aliases.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+    let ms=if norm{"-".to_owned()}else{magnitude.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",")};
+    let ex=expected.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+    let target=t.iter().flatten().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+    manifest.push_str(&format!("{case}\t{name}\t{label}\t{}\t{branch}\t{}\t{h}\t{scale2}\t{primary}\t{}\t{}\t{radix}\t{ds}\t{ms}\t{ex}\t{target}\t{encode_ns}\t{samples}\n",
+        if norm{"norm"}else{"cross"},usize::from(correct),f.c.vars,f.c.clauses.len()));
+    println!("HOARE_RUS_GRAM_EXPORT case={case} vars={} clauses={} checks={samples}",f.c.vars,f.c.clauses.len());
+}
+
 fn rus_export(dir:&std::path::Path){
     let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
     let src=std::path::PathBuf::from(srcdir);
-    let mut manifest=String::new();let mut rr_manifest=String::new();let mut fixed_manifest=String::new();
+    let mut manifest=String::new();let mut rr_manifest=String::new();let mut fixed_manifest=String::new();let mut gram_manifest=String::new();
     for (name,h,expected_ops,corr) in [("Figure7",7usize,14usize,true),("Figure8",3,8,false),("Figure9",5,13,false),
         ("Figure10a",9,21,false),("Figure10b",17,37,true),("Figure10c",16,33,false)]{
         let source=std::fs::read_to_string(src.join(format!("rus-{name}-circuit.qasm"))).unwrap();
@@ -3215,8 +3318,15 @@ fn rus_export(dir:&std::path::Path){
         let mut obligations=vec![("raw",0usize,false,identity),("original-post",1,false,raw),("corrected-failure",0,corr,identity)];
         if name=="Figure10a"||name=="Figure10c"{obligations.push(("corrected-post",1,false,raw.map(rus_conj)));}
         if corr{obligations.push(("omit-Z-correction",0,false,identity));}
+        if route=="rr"{
+            for branch in 0..2{
+                let label=if branch==0{"norm-failure"}else{"norm-success"};
+                rus_gram_export(dir,&mut gram_manifest,name,&s,&hist,scale2,branch,false,label,&identity,true);
+            }
+        }
         for (label,branch,correct,t) in obligations{
-            let is_raw=label=="raw";let primary=1+h+if is_raw{0}else{4};
+            let is_raw=label=="raw";
+            if route=="rr"&&!is_raw{rus_gram_export(dir,&mut gram_manifest,name,&s,&hist,scale2,branch,correct,label,&t,false);}let primary=1+h+if is_raw{0}else{4};
             let now=std::time::Instant::now();
             let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
             let bits:Vec<Lit>=vec![ZERO,2].into_iter().chain((0..h).map(|i|(3+i) as Lit)).collect();
@@ -3303,6 +3413,8 @@ fn rus_export(dir:&std::path::Path){
     std::fs::write(dir.join("native-rus-rr.tsv"),rr_manifest).unwrap();
     assert_eq!(fixed_manifest.lines().count(),22);
     std::fs::write(dir.join("native-rus-fixed.tsv"),fixed_manifest).unwrap();
+    assert_eq!(gram_manifest.lines().count(),28);
+    std::fs::write(dir.join("native-rus-gram.tsv"),gram_manifest).unwrap();
 }
 
 fn sparse_target_export(dir:&std::path::Path){

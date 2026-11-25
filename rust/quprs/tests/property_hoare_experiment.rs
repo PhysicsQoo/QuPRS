@@ -3102,6 +3102,38 @@ fn sparse_target_export(dir:&std::path::Path){
             let neg=((diff&u).count_ones()%2!=0)^(e>=m);
             target[diff][e%m]+=if neg{-2}else{2};
         }}
+        // Collapse the two equal-angle factors before target selection.
+        // Codes 0,1,2 stand for the exponent multiplicity, 3 is invalid.
+        // Retain signed coefficient, not the number of original terms.
+        assert_eq!(angles[0],angles[1]);
+        let grouped_term=|diff:usize,u:usize|->(usize,i64){
+            let count=u&3;
+            if count==3{return (0,0);}
+            let s0=if diff&1==0{1i64}else{-1};
+            let s1=if diff&2==0{1i64}else{-1};
+            let mut c=match count{0=>2,1=>2*(s0+s1),2=>2*s0*s1,_=>unreachable!()};
+            let mut q=count*angles[0];
+            for i in 2..n{
+                if u>>i&1!=0{
+                    q+=angles[i];
+                    if diff>>i&1!=0{c=-c;}
+                }
+            }
+            (q%d,c)
+        };
+        for diff in 0..size{
+            let mut t=vec![0i64;m];
+            let mut seen=BTreeSet::new();
+            for u in 0..size{
+                let(q,c)=grouped_term(diff,u);
+                if c==0{continue;}
+                // In this fixture family no remaining canonical phase collision.
+                // This is checked, not assumed for arbitrary target expressions.
+                assert!(seen.insert(q%m));
+                t[q%m]+=if q>=m{-c}else{c};
+            }
+            assert_eq!(t,target[diff]);
+        }
         let norm=(size*ys) as i128;
         assert_eq!((size as i128)*target.iter().flatten().map(|&v|i128::from(v).pow(2)).sum::<i128>(),norm);
         // A separate circuit path interpreter is the source oracle.
@@ -3167,9 +3199,9 @@ fn sparse_target_export(dir:&std::path::Path){
             }}
             assert_eq!(sn,norm);assert_eq!(sp-sm,norm);assert_eq!(cp-cm,tp-tm);
             assert_eq!(w,2*(norm-cp+cm));assert_eq!(w,match variant{"source"=>0,"T"=>norm,_=>2*norm});
-            for route in ["lookup","selector","self"]{
+            for route in ["lookup","selector","grouped","self"]{
                 let start=std::time::Instant::now();
-                let extra=if route=="selector"{n}else if route=="self"{h}else{0};
+                let extra=if route=="selector"||route=="grouped"{n}else if route=="self"{h}else{0};
                 let primary=n+h+extra;
                 let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
                 let copies=if route=="self"{2}else{1};
@@ -3206,6 +3238,40 @@ fn sparse_target_export(dir:&std::path::Path){
                     }
                     // Classes are mutually exclusive by construction.
                     f.c.enforce(enabled);
+                }else if route=="grouped"{
+                    let u0=(2+n+h) as Lit;
+                    let u1=(3+n+h) as Lit;
+                    // 11 is invalid, 01 is exponent count one.
+                    let invalid=f.gate(false,u0,u1).unwrap();
+                    f.c.enforce(-invalid);
+                    let d0=f.gate(true,2,z[0]).unwrap();
+                    let d1=f.gate(true,3,z[1]).unwrap();
+                    let different=f.gate(true,d0,d1).unwrap();
+                    let cancelled=f.gate(false,u0,different).unwrap();
+                    f.c.enforce(-cancelled);
+                    let a=f.gate(false,u0,d0).unwrap();
+                    let b=f.gate(false,u1,different).unwrap();
+                    let mut sign=f.gate(true,a,b).unwrap();
+                    // The repeated angle is 1 for this bounded fixture.
+                    assert_eq!(angles[0],1);
+                    let mut e=vec![ZERO;k];e[0]=u0;e[1]=u1;
+                    for i in 2..n{
+                        let u=(2+n+h+i) as Lit;
+                        let word=(0..k).map(|j|if angles[i]>>j&1!=0{u}else{ZERO}).collect::<Vec<_>>();
+                        e=mod_add(&mut f,&e,&word).unwrap();
+                        let a=f.gate(true,(2+i) as Lit,z[i]).unwrap();
+                        let b=f.gate(false,a,u).unwrap();
+                        sign=f.gate(true,sign,b).unwrap();
+                    }
+                    for i in 0..k-1{
+                        let v=f.gate(true,p[i],e[i]).unwrap();if v!=ZERO{f.c.enforce(-v);}
+                    }
+                    let v=f.gate(true,p[k-1],e[k-1]).unwrap();
+                    let neg=f.gate(true,v,sign).unwrap();
+                    for (a,b,w) in [(u0,-neg,4i64),(u0,neg,-4),(-u0,-neg,2),(-u0,neg,-2)]{
+                        let l=f.gate(false,a,b).unwrap();
+                        classes.push((f.alias(l).unwrap(),w));
+                    }
                 }else{
                     let (other,sign)=if route=="selector"{
                         let mut e=vec![ZERO;k];let mut sign=ZERO;
@@ -3245,6 +3311,9 @@ fn sparse_target_export(dir:&std::path::Path){
                     }else if route=="selector"{
                         let q=exponents[j];
                         if e%m!=q%m{0}else if (e!=q)^(((x^z)&j).count_ones()%2!=0){-2}else{2}
+                    }else if route=="grouped"{
+                        let(q,c)=grouped_term(x^z,j);
+                        if e%m!=q%m{0}else if e==q{c}else{-c}
                     }else{
                         let(zb,q)=eval(x,j);
                         if z!=zb||e%m!=q%m{0}else if e!=q{-1}else{1}
@@ -3260,13 +3329,13 @@ fn sparse_target_export(dir:&std::path::Path){
                 for cl in &f.c.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=f.c.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
                 std::fs::write(dir.join(format!("{name}.cnf")),dimacs).unwrap();
                 let cls=classes.iter().map(|(l,v)|format!("{l}:{v}")).collect::<Vec<_>>().join(",");
-                let(p,q)=match route{"lookup"=>(cp,cm),"selector"=>(tp,tm),_=>(sp,sm)};
+                let(p,q)=match route{"lookup"|"grouped"=>(cp,cm),"selector"=>(tp,tm),_=>(sp,sm)};
                 manifest.push_str(&format!("{name}\t{n}\t{variant}\t{route}\t{primary}\t{}\t{}\t{cls}\t{p}\t{q}\t{norm}\t{w}\t{encode_ns}\t{samples}\n",f.c.vars,f.c.clauses.len()));
                 println!("HOARE_SPARSE_EXPORT case={name} vars={} clauses={} checks={samples} encode_ns={encode_ns}",f.c.vars,f.c.clauses.len());
             }
         }
     }
-    assert_eq!(manifest.lines().count(),24);
+    assert_eq!(manifest.lines().count(),32);
     std::fs::write(dir.join("native-sparse-target.tsv"),manifest).unwrap();
 }
 

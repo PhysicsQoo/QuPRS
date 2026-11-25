@@ -834,17 +834,17 @@ def run_sparse_target_pilot(directory,exe,tmp):
     """Bounded canonical target coefficient lookup versus term selector."""
     with (directory/"native-sparse-target.tsv").open() as f:
         manifest=list(csv.reader(f,delimiter="\t"))
-    assert len(manifest)==24 and len({r[0] for r in manifest})==24
+    assert len(manifest)==32 and len({r[0] for r in manifest})==32
     rows={}
     for name,n,variant,route,primary,vs,cs,classes,ep,em,norm,w,enc,checks in manifest:
         n,primary,vs,cs,ep,em,norm,w,enc,checks=map(int,(n,primary,vs,cs,ep,em,norm,w,enc,checks))
-        assert n in (2,4) and variant in ("source","Z","T","X") and route in ("lookup","selector","self")
+        assert n in (2,4) and variant in ("source","Z","T","X") and route in ("lookup","selector","grouped","self")
         h=2*n+2
-        assert primary==n+h+(n if route=="selector" else h if route=="self" else 0)
+        assert primary==n+h+(n if route in ("selector","grouped") else h if route=="self" else 0)
         assert 0<vs<=10000 and 0<cs<=40000 and norm==1<<(n+h)
         weights=[(int(l),int(v)) for l,v in (x.split(":") for x in classes.split(","))]
         assert len({l for l,v in weights})==len(weights) and all(0<l<=vs for l,v in weights)
-        assert sorted(v for l,v in weights)==([-4,-2,2,4] if route=="lookup" else [-2,2] if route=="selector" else [-1,1])
+        assert sorted(v for l,v in weights)==([-4,-2,2,4] if route in ("lookup","grouped") else [-2,2] if route=="selector" else [-1,1])
         bound=(1<<primary)*max(abs(v) for l,v in weights)
         B=bound+1
         natural={l:abs(v)*(B if v<0 else 1) for l,v in weights}
@@ -872,10 +872,11 @@ def run_sparse_target_pilot(directory,exe,tmp):
     matched=0
     for n in (2,4):
         for v in ("source","Z","T","X"):
-            a,b,c=(rows[n,v,r] for r in ("lookup","selector","self"))
-            if all(r["status"]=="EXACT" for r in (a,b,c)):
-                assert a["score"]==b["score"] and c["score"]==a["norm"]
-                assert a["expected_residual"]==b["expected_residual"]==c["expected_residual"]
+            a,b,g,c=(rows[n,v,r] for r in ("lookup","selector","grouped","self"))
+            if all(r["status"]=="EXACT" for r in (a,b,g,c)):
+                assert a["score"]==b["score"]==g["score"] and c["score"]==a["norm"]
+                assert (a["plus"],a["minus"])==(g["plus"],g["minus"])
+                assert a["expected_residual"]==b["expected_residual"]==g["expected_residual"]==c["expected_residual"]
                 matched+=1
     print("HOARE_SPARSE_GPMC_SUMMARY "+json.dumps(dict(exported=len(rows),exact=sum(r["status"]=="EXACT" for r in rows.values()),matched=matched)),flush=True)
 

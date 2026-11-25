@@ -1401,4 +1401,205 @@ theorem sampled_constant_translation (n : Nat) (gs : List Gate)
 #print axioms circuit_phase_interpolation
 #print axioms sampled_constant_translation
 
+/-! Finite Boolean-cube Fourier coefficient transport.
+    Sum over the first n Boolean wires, with fixed tail. Coefficients
+    are in the integer basis of Z[X]/(X^4+1). This is the unnormalized
+    Hadamard-monomial-Hadamard coefficient formula, not yet a refinement
+    of complex matrices, parser, or native implementation. -/
+
+def setWire (x : State) (j : Nat) (b : Bool) : State :=
+  fun i => if i = j then b else x i
+
+theorem shift_set_wire (x s : State) (j : Nat) (b : Bool) :
+    shifted (setWire x j b) s = setWire (shifted x s) j (bx b (s j)) := by
+  funext i
+  by_cases he : i = j
+  · subst i
+    simp [shifted, setWire]
+  · simp [shifted, setWire, he]
+
+def cubeSum : Nat → State → (State → Int) → Int
+  | 0, x, f => f x
+  | n+1, x, f =>
+      cubeSum n (setWire x n false) f + cubeSum n (setWire x n true) f
+
+theorem cube_sum_congr (n : Nat) (x : State) (f g : State → Int)
+    (h : ∀ y, f y = g y) : cubeSum n x f = cubeSum n x g := by
+  induction n generalizing x with
+  | zero => exact h x
+  | succ n ih =>
+      simp only [cubeSum]
+      rw [ih (setWire x n false), ih (setWire x n true)]
+
+theorem cube_sum_scale (n : Nat) (x : State) (k : Int) (f : State → Int) :
+    cubeSum n x (fun y => k * f y) = k * cubeSum n x f := by
+  induction n generalizing x with
+  | zero => rfl
+  | succ n ih => simp only [cubeSum, ih, Int.mul_add]
+
+theorem cube_sum_shift (n : Nat) (x s : State) (f : State → Int) :
+    cubeSum n x (fun y => f (shifted y s)) =
+      cubeSum n (shifted x s) f := by
+  induction n generalizing x with
+  | zero => rfl
+  | succ n ih =>
+      simp only [cubeSum, ih, shift_set_wire]
+      cases hs : s n <;> simp [hs, bx, Int.add_comm]
+
+theorem cube_sum_tail (n : Nat) (x y : State) (f : State → Int)
+    (h : ∀ i, n ≤ i → x i = y i) : cubeSum n x f = cubeSum n y f := by
+  induction n generalizing x y with
+  | zero =>
+      have he : x = y := funext (fun i => h i (Nat.zero_le i))
+      rw [he]
+  | succ n ih =>
+      have ht (b : Bool) : ∀ i, n ≤ i →
+          setWire x n b i = setWire y n b i := by
+        intro i hi
+        by_cases he : i = n
+        · simp [setWire, he]
+        · have hn : n+1 ≤ i := by omega
+          simp [setWire, he, h i hn]
+      simp only [cubeSum]
+      rw [ih _ _ (ht false), ih _ _ (ht true)]
+
+def zeroState : State := fun _ => false
+
+def supported (n : Nat) (s : State) : Prop :=
+  ∀ i, n ≤ i → s i = false
+
+theorem cube_sum_xor_reindex (n : Nat) (s : State) (f : State → Int)
+    (hs : supported n s) :
+    cubeSum n zeroState (fun y => f (shifted y s)) = cubeSum n zeroState f := by
+  rw [cube_sum_shift]
+  apply cube_sum_tail
+  intro i hi
+  simp [shifted, zeroState, bx, hs i hi]
+
+theorem dot_symmetric (n : Nat) (x y : State) :
+    dot n x y = dot n y x := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simp only [dot, ih, Bool.and_comm]
+
+theorem dot_shift_right (n : Nat) (x y s : State) :
+    dot n x (shifted y s) = bx (dot n x y) (dot n x s) := by
+  rw [dot_symmetric n x (shifted y s)]
+  change dot n (maskXor y s) x = _
+  rw [dot_xor, dot_symmetric n y x, dot_symmetric n s x]
+
+/-- Coefficient j in the basis 1,X,X²,X³, X^4=-1. -/
+def phaseCoeff (p : Int) (j : Nat) : Int :=
+  if j < 4 then
+    if p % 8 = (j : Int) then 1
+    else if p % 8 = (j : Int) + 4 then -1 else 0
+  else 0
+
+theorem phase_coeff_shift (p q : Int) (j : Nat) (b : Bool)
+    (h : (q-p) % 8 = 4 * bit b) :
+    phaseCoeff q j = sgn b * phaseCoeff p j := by
+  by_cases hj : j < 4
+  · cases b with
+    | false =>
+        have he : q % 8 = p % 8 := by
+          change (q-p) % 8 = 0 at h
+          omega
+        simp [phaseCoeff, hj, he, sgn]
+    | true =>
+        change (q-p) % 8 = 4 at h
+        have h1 : q % 8 = (j : Int) ↔ p % 8 = (j : Int) + 4 := by omega
+        have h2 : q % 8 = (j : Int) + 4 ↔ p % 8 = (j : Int) := by omega
+        unfold phaseCoeff
+        simp only [lt_select_true j 4 _ 0 hj]
+        simp only [h1, h2, sgn]
+        by_cases hp : p % 8 = (j : Int)
+        · have hn : p % 8 ≠ (j : Int) + 4 := by omega
+          simp [hp, hn]
+        · by_cases hq : p % 8 = (j : Int) + 4
+          · simp [hp, hq]
+          · simp [hp, hq]
+  · simp [phaseCoeff, hj]
+
+def fourierTerm (n : Nat) (gs : List Gate) (x z y : State) (j : Nat) : Int :=
+  sgn (dot n x y) *
+    (sgn (dot n z (evalState gs y)) * phaseCoeff (evalPhase gs y) j)
+
+def fourierAmp (n : Nat) (gs : List Gate) (x z : State) (j : Nat) : Int :=
+  cubeSum n zeroState (fun y => fourierTerm n gs x z y j)
+
+theorem fourier_term_shift (n : Nat) (gs : List Gate)
+    (x z s t : State) (b : Bool) (j : Nat)
+    (ht : ∀ y, evalState gs (shifted y s) = shifted (evalState gs y) t)
+    (hp : ∀ y, phaseDiff gs s y = 4 * bit b)
+    (y : State) :
+    fourierTerm n gs x z (shifted y s) j =
+      (sgn (dot n x s) * sgn (dot n z t) * sgn b) *
+        fourierTerm n gs x z y j := by
+  have hc := phase_coeff_shift (evalPhase gs y)
+    (evalPhase gs (shifted y s)) j b (hp y)
+  simp only [fourierTerm, ht y, dot_shift_right, sign_mul, hc]
+  ac_rfl
+
+theorem fourier_amp_invariant (n : Nat) (gs : List Gate)
+    (x z s t : State) (b : Bool) (j : Nat) (hs : supported n s)
+    (ht : ∀ y, evalState gs (shifted y s) = shifted (evalState gs y) t)
+    (hp : ∀ y, phaseDiff gs s y = 4 * bit b) :
+    fourierAmp n gs x z j =
+      (sgn (dot n x s) * sgn (dot n z t) * sgn b) * fourierAmp n gs x z j := by
+  unfold fourierAmp
+  have he : cubeSum n zeroState (fun y => fourierTerm n gs x z (shifted y s) j) =
+      cubeSum n zeroState (fun y =>
+        (sgn (dot n x s) * sgn (dot n z t) * sgn b) * fourierTerm n gs x z y j) := by
+    apply cube_sum_congr
+    exact fourier_term_shift n gs x z s t b j ht hp
+  calc
+    cubeSum n zeroState (fun y => fourierTerm n gs x z y j) =
+        cubeSum n zeroState (fun y => fourierTerm n gs x z (shifted y s) j) :=
+      (cube_sum_xor_reindex n s (fun y => fourierTerm n gs x z y j) hs).symm
+    _ = _ := he
+    _ = _ := cube_sum_scale n zeroState _ _
+
+theorem invariant_entry_sign (a e b : Bool) (v : Int)
+    (h : v = (sgn e * sgn a * sgn b) * v) :
+    sgn a * v = sgn (bx e b) * v := by
+  cases a <;> cases e <;> cases b <;> simp [sgn, bx] at h ⊢ <;> omega
+
+/-- The entrywise premise of the terminal theorem follows from
+    finite coefficient summation and a checked constant translation. -/
+theorem fourier_entry_transport (n : Nat) (gs : List Gate)
+    (s t : State) (b : Bool) (hs : supported n s)
+    (ht : ∀ y, evalState gs (shifted y s) = shifted (evalState gs y) t)
+    (hp : ∀ y, phaseDiff gs s y = 4 * bit b) :
+    ∀ x z j, sgn (dot n z t) * fourierAmp n gs x z j =
+      sgn (bx (dot n x s) b) * fourierAmp n gs x z j := by
+  intro x z j
+  exact invariant_entry_sign (dot n z t) (dot n x s) b
+    (fourierAmp n gs x z j) (fourier_amp_invariant n gs x z s t b j hs ht hp)
+
+theorem sampled_fourier_entry_transport (n : Nat) (gs : List Gate)
+    (s t : State) (b : Bool) (hg : gatesBound n gs) (hs : supported n s)
+    (ht : traceDelta gs s = t)
+    (h0 : phaseDiff gs s zeroState = 4 * bit b)
+    (h1 : ∀ i, i < n → phaseDiff gs s (unitState i) = 4 * bit b)
+    (h2 : ∀ i j, j < i → i < n → phaseDiff gs s (pairState j i) = 4 * bit b) :
+    ∀ x z j, sgn (dot n z t) * fourierAmp n gs x z j =
+      sgn (bx (dot n x s) b) * fourierAmp n gs x z j := by
+  have h := sampled_constant_translation n gs s t b hg ht h0 h1 h2
+  exact fourier_entry_transport n gs s t b hs (fun y => (h y).1) (fun y => (h y).2)
+
+#print axioms shift_set_wire
+#print axioms cube_sum_congr
+#print axioms cube_sum_scale
+#print axioms cube_sum_shift
+#print axioms cube_sum_tail
+#print axioms cube_sum_xor_reindex
+#print axioms dot_symmetric
+#print axioms dot_shift_right
+#print axioms phase_coeff_shift
+#print axioms fourier_term_shift
+#print axioms fourier_amp_invariant
+#print axioms invariant_entry_sign
+#print axioms fourier_entry_transport
+#print axioms sampled_fourier_entry_transport
+
 end QuPRS.SectorTransport

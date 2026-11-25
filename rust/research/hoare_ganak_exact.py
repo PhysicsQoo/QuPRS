@@ -419,6 +419,82 @@ def unpack_pair(value, radix):
     return lo-hi
 
 
+def run_dual_mask_wmc(directory, count, deadline):
+    """Bounded native dual-mask pilot, exact MPZ weights, original input witness."""
+    rows = []
+    with (directory / "native-dual-mask.tsv").open() as f:
+        manifest = list(csv.reader(f, delimiter="\t"))
+    assert len(manifest) == 18
+    assert len({(r[0], r[1]) for r in manifest}) == 18
+    assert {r[1] for r in manifest} == {"full", "identity", "flip"}
+    for name, route, sign, primary, vars_, clauses, encode_ns, p0, m0, p1, m1 in manifest:
+        sign, primary, vars_, clauses, encode_ns, p0, m0, p1, m1 = map(
+            int, (sign, primary, vars_, clauses, encode_ns, p0, m0, p1, m1))
+        assert primary == 7 and 0 < abs(sign) <= vars_
+        expected = ((p0, m0), (p1, m1))
+        base = (directory / f"dual-mask-{name}-{route}.cnf").read_text()
+        assert base.splitlines()[0] == f"p cnf {vars_} {clauses}"
+        row = dict(case=name, route=route, vars=vars_, clauses=clauses,
+                   encode_ns=encode_ns, backend="gpmc-mpz-packed",
+                   verdict="UNKNOWN", root=None, root_queries=0, witness_queries=0,
+                   witness=None, witness_status="NOT_RUN", root_s=0.0, witness_s=0.0)
+        def query(prefix, end, field):
+            row[field] += 1
+            value, radix = count(base, prefix, sign, end, primary=primary)
+            plus, minus = value % radix, value // radix
+            if not 0 <= plus + minus <= (1 << (primary - len(prefix))):
+                raise ValueError("dual-mask count exceeds primary assignment bound")
+            if plus < minus:
+                raise ValueError("dual-mask negative projected norm")
+            return plus, minus
+
+        start = time.monotonic()
+        try:
+            root = query([], min(deadline, start + 5), "root_queries")
+        except (TimeoutError, subprocess.TimeoutExpired):
+            row["root_s"] = time.monotonic() - start
+        else:
+            row["root_s"] = time.monotonic() - start
+            row["root"] = root
+            row["verdict"] = "PROVED" if root[0] == root[1] else "REFUTED"
+            row["witness_status"] = "NOT_REQUIRED" if row["verdict"] == "PROVED" else "UNKNOWN_RESOURCE"
+            # Read the independent oracle only after the root decision.
+            assert root == (p0 + p1, m0 + m1), (name, route, root, expected)
+            if row["verdict"] == "REFUTED":
+                start = time.monotonic()
+                end = min(deadline, start + 5)
+                try:
+                    a = query([-2], end, "witness_queries")
+                    assert a == expected[0]
+                    if a[0] > a[1]:
+                        x, witness = 0, a
+                    else:
+                        x, witness = 1, query([2], end, "witness_queries")
+                        assert witness == expected[1]
+                    if witness[0] <= witness[1]:
+                        raise ValueError("dual-mask witness is not positive")
+                    row["witness"] = x
+                    row["witness_status"] = "VERIFIED"
+                    row["witness_count"] = witness
+                except (TimeoutError, subprocess.TimeoutExpired):
+                    pass
+                row["witness_s"] = time.monotonic() - start
+        row["decision_s"] = encode_ns / 1e9 + row["root_s"]
+        rows.append(row)
+        print("HOARE_GPMC_DUAL_MASK " + json.dumps(row), flush=True)
+    for name in {r["case"] for r in rows}:
+        decided = [r for r in rows if r["case"] == name and r["verdict"] != "UNKNOWN"]
+        norms = {r["root"][0] - r["root"][1] for r in decided}
+        assert len(norms) <= 1, (name, norms)
+    print("HOARE_GPMC_DUAL_MASK_SUMMARY " + json.dumps(dict(
+        variants=len(rows), decided=sum(r["verdict"] != "UNKNOWN" for r in rows),
+        proved=sum(r["verdict"] == "PROVED" for r in rows),
+        refuted=sum(r["verdict"] == "REFUTED" for r in rows),
+        witnesses=sum(r["witness_status"] == "VERIFIED" for r in rows),
+        unknown=sum(r["verdict"] == "UNKNOWN" for r in rows))), flush=True)
+    return rows
+
+
 def run_gpmc_pure(directory, exe, tmp, deadline):
     """Two exact natural-weight queries, with arbitrary-precision packed counts.
 
@@ -495,6 +571,9 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_fourier(directory/"fourier-heldout")
     deadline=time.monotonic()+45
     run_residual_hybrid(directory,solve,deadline,rows)
+    if (directory/"native-dual-mask.tsv").is_file():
+        deadline=time.monotonic()+60
+        run_dual_mask_wmc(directory,count,deadline)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

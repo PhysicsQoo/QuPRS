@@ -1959,9 +1959,9 @@ theorem cnot_is_conditional_shift (a b : Nat) (x : State) :
   by_cases he : i = b
   · subst i
     cases ha : x a <;>
-      simp [advance, cnotState, shifted, unitState, bx, ha, bx_zero_right]
+      simp [advance, cnotState, shifted, unitState, bx, ha]
   · cases ha : x a <;>
-      simp [advance, cnotState, shifted, unitState, he, ha, bx_zero_right]
+      simp [advance, cnotState, shifted, unitState, he, bx_zero_right]
 
 theorem shift_unit_other (x : State) (a b : Nat) (h : a ≠ b) :
     shifted x (unitState b) a = x a := by

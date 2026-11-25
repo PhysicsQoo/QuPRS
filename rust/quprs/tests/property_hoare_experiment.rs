@@ -623,6 +623,124 @@ mod exact_property_cnf {
         two_copy_conj(s,std::slice::from_ref(p),std::slice::from_ref(q))
     }
     // Conjunction of small ANFs, without expanding products into a single ANF.
+
+    // Wide-ID dyadic phase projection. Keep native P/f/v; use stable
+    // ID -> CNF literal maps, never shift by a native ID. For D=2^k,
+    // N(delta=0)-N(delta=D/2) is nonnegative and vanishes iff the
+    // projected operator vanishes. It is NOT the physical leakage.
+    fn native_dyadic_projection(ps:&PathSum,pre:&[Anf],post:&[Anf])
+        ->Option<(Cnf,Lit,u32)>{
+        let n=ps.v.num_qubits;
+        if n==0||n>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
+            !ps.v.continuous_vars.is_empty()||ps.f.functions.len()!=n||
+            pre.iter().chain(post).flatten().any(|&m|m>>n!=0){return None;}
+        let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
+        if ids.len()<n||ids.len()>512||(0..n).any(|i|ids[i]!=i as u32)||
+            ps.p.terms.len()+ps.f.functions.iter().map(|f|f.len()).sum::<usize>()>8192{return None;}
+        let h=ids.len()-n;
+        let mut d=2u32;
+        for (m,c) in &ps.p.terms{
+            if c.radians.is_some()||!c.symbols.is_empty()||
+                m.iter().any(|v|!ps.v.path_vars.contains(v)){return None;}
+            let den=u32::try_from(c.constant.denom).ok()?;
+            if !den.is_power_of_two()||den>64{return None;}
+            d=d.max(den);
+        }
+        let k=d.trailing_zeros() as usize;
+        let mut c=Cnf::new(n+2*h);
+        let l:BTreeMap<u32,Lit>=ids.iter().enumerate().map(|(i,&id)|(id,i as Lit+2)).collect();
+        let r:BTreeMap<u32,Lit>=ids.iter().enumerate().map(|(i,&id)|(id,(if i<n{i}else{i+h}) as Lit+2)).collect();
+        let il:Vec<_>=(0..n).map(|i|l[&(i as u32)]).collect();
+        for p in pre{let v=c.anf(p,&il);c.enforce(v);}
+        let mut z=Vec::new();
+        for o in &ps.f.functions{
+            let mut pair=[ZERO;2];
+            let mut ms:Vec<_>=o.iter().collect();ms.sort();
+            for (j,map) in [&l,&r].into_iter().enumerate(){
+                for m in &ms{
+                    let mut v=ONE;
+                    for id in m.iter(){v=c.and(v,*map.get(id)?);}
+                    pair[j]=c.xor(pair[j],v);
+                }
+            }
+            let diff=c.xor(pair[0],pair[1]);c.enforce(-diff);z.push(pair[0]);
+        }
+        let good=post.iter().fold(ONE,|a,q|{let v=c.anf(q,&z);c.and(a,v)});
+        c.enforce(-good);
+        let mut acc=vec![ZERO;k];
+        let mut ts:Vec<_>=ps.p.terms.iter().collect();ts.sort_by(|a,b|a.0.cmp(b.0));
+        for (m,coeff) in ts{
+            if m.is_empty(){continue;} // identical constant phase cancels
+            let v=(d as i128*coeff.constant.numer as i128/coeff.constant.denom as i128).rem_euclid(d as i128);
+            for (map,signed) in [(&l,v),(&r,-v)]{
+                let w=signed.rem_euclid(d as i128) as u32;
+                if w==0{continue;}
+                let mut term=ONE;
+                for id in m{term=c.and(term,*map.get(id)?);}
+                let mut carry=ZERO;
+                for i in 0..k{
+                    let b=if w>>i&1!=0{term}else{ZERO};
+                    let a=acc[i];let t=c.xor(a,b);acc[i]=c.xor(t,carry);
+                    if i+1<k{let ab=c.and(a,b);let tc=c.and(t,carry);carry=c.or(ab,tc);}
+                }
+                if c.vars>4096||c.clauses.len()>32768{return None;}
+            }
+        }
+        // Only phase difference 0 or half a cycle can satisfy these
+        // low-bit constraints. MSB is a signed-count selector.
+        for &v in &acc[..k-1]{c.enforce(-v);}
+        if c.vars>4096||c.clauses.len()>32768{return None;}
+        Some((c,acc[k-1],d))
+    }
+
+    #[test]
+    fn hoare_native_dyadic_projected_count(){
+        let mut checks=0;let mut positives=0;let mut zeros=0;
+        for d in [2i64,4,8,16,32,64]{
+            for mutant in [false,true]{
+                // A pair of paths with an arbitrary dyadic phase on
+                // both branches. With y/2 present they cancel; otherwise
+                // they add. Include high stable IDs and pre/post.
+                let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+                for _ in 0..70{let v=ps.v.get_fresh_var();assert!(ps.v.path_vars.remove(&v));}
+                let u=ps.v.get_fresh_var();let y=ps.v.get_fresh_var();
+                ps.p.add_term(vec![u],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,d)));
+                ps.p.add_term(vec![0,u],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,d)));
+                if !mutant{ps.p.add_term(vec![y],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,2)));}
+                ps.f.functions[0]=rustc_hash::FxHashSet::from_iter([vec![u]]);
+                assert!(u>64&&y>64);
+                for pre in [vec![],vec![bit(1,true)],vec![bit(1,false)]]{
+                    for post in [vec![Anf::new()],vec![bit(0,false)]]{
+                        let (c,sign,actual)=native_dyadic_projection(&ps,&pre,&post).unwrap();
+                        assert_eq!(actual,d as u32);
+                        let mut fuel=2_000_000;
+                        let a=count(&c,&[-sign],&mut fuel,false).unwrap();
+                        let b=count(&c,&[sign],&mut fuel,false).unwrap();
+                        // Independent enumeration of the finite native
+                        // paths, grouped by shared input/output and phase
+                        // modulo the half-period. No CNF helper used.
+                        let mut bins=BTreeMap::<(u64,u64,i64),i128>::new();
+                        for x in 0..4u64{if !eval_conj(&pre,x){continue;}
+                            for u in 0..2u64{for y in 0..2u64{
+                                let z=(x&2)|u;if eval_conj(&post,z){continue;}
+                                let phase=((u*(1+(x&1))) as i64+if mutant{0}else{y as i64*(d/2)}).rem_euclid(d);
+                                *bins.entry((x,z,phase%(d/2))).or_default()+=if phase<d/2{1}else{-1};
+                            }}
+                        }
+                        let expected=bins.values().map(|v|v*v).sum::<i128>() as u128;
+                        assert!(a>=b);assert_eq!(a-b,expected);
+                        if mutant{assert!(expected>0);positives+=1;}else{assert_eq!(expected,0);zeros+=1;}
+                        checks+=1;
+                    }
+                }
+            }
+        }
+        // Non-dyadic phase must not be rounded into the exact lane.
+        let mut ps=PathSum::new(1);ps.p.add_term(vec![0],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,3)));
+        assert!(native_dyadic_projection(&ps,&[],&[Anf::new()]).is_none());
+        println!("HOARE_NATIVE_DYADIC_PROJECTED checks={checks} zero={zeros} positive={positives} high_ids=true unsupported_nondyadic=true");
+    }
+
     fn two_copy_conj(s:&Symbolic,p:&[Anf],q:&[Anf])->(Cnf,[Lit;3]){
         let mut c=Cnf::new(s.n+2*s.h);
         let left:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();

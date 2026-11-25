@@ -741,6 +741,89 @@ mod exact_property_cnf {
         println!("HOARE_NATIVE_DUAL_MASK_ZERO_PHASE checks=12");
     }
 
+    // Realness of selected original input/output fibers. Unlike a
+    // support-only assertion, this detects loss of absolute phase.
+    // The independent dense oracle retains the original H normalization;
+    // the RR multiplier is checked in the same cyclotomic coefficient norm.
+    #[test]
+    fn hoare_native_dual_mask_gate_rr(){
+        let cases=[
+            ("H",1,vec![G::H(0)],false,vec![0u128,0]),
+            ("T",1,vec![G::T(0)],false,vec![0,2]),
+            ("HH",1,vec![G::H(0),G::H(0)],false,vec![0,0]),
+            ("HSH",1,vec![G::H(0),G::S(0),G::H(0)],false,vec![8,8]),
+            ("HTH",1,vec![G::H(0),G::T(0),G::H(0)],false,vec![4,4]),
+            ("HZH",1,vec![G::H(0),G::Z(0),G::H(0)],false,vec![0,0]),
+            ("HH-selected",1,vec![G::H(0),G::H(0)],true,vec![0,0]),
+            ("HTH-selected",1,vec![G::H(0),G::T(0),G::H(0)],true,vec![2,0]),
+            ("H-CZ-H",2,vec![G::H(0),G::CZ(0,1),G::H(0)],false,vec![0,0,0,0]),
+        ];
+        let mut checks=0usize;let mut rr_steps=0usize;let mut guard_hits=0usize;
+        let mut flip_checks=0usize;
+        for (name,n,ops,selected,known) in cases{
+            let pre=if selected{vec![Anf::from([0,1])]}else{vec![]};
+            let post=if selected{vec![Anf::from([0,1])]}else{vec![Anf::new()]};
+            let expected:Vec<u128>=(0..1u64<<n).map(|x|{
+                if !eval_conj(&pre,x){return 0;}
+                dense_state(n,&ops,x).into_iter().enumerate().filter(|(z,_)|!eval_conj(&post,*z as u64))
+                    .map(|(_,a)|{
+                        let conjugate=[a[0],-a[3],-a[2],-a[1]];
+                        a.into_iter().zip(conjugate).map(|(v,w)|{
+                            let d=i128::from(v)-i128::from(w);(d*d) as u128
+                        }).sum::<u128>()
+                    }).sum()
+            }).collect();
+            assert_eq!(expected,known,"independent circuit oracle {name}");
+            let mut original=PathSum::new(n);original.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut original,false);}
+            let (rr,frame,scale2,steps)=native_rr_checkpoint(original.clone(),n).unwrap();
+            // Current checkpoint starts with the true external survivor.
+            // If that contract changes, do not silently lose its guard.
+            assert_eq!(frame.compact(&rr).unwrap(),Anf::from([0]));
+            rr_steps+=steps;
+            for (stage,ps,scale) in [("direct",&original,0u32),("rr",&rr,scale2)]{
+                let symbolic=compact(ps,n).unwrap();
+                let guard=property_guard(&symbolic,&pre,&post).unwrap();
+                let mut report=PureRrReport{mode:PureRrMode::Sat,answer:Answer::Unknown,
+                    reason:"dual-mask-gate",standard_runs:0,monomial_runs:0,algebraic_trials:0,
+                    algebraic_hits:0,sat_queries:0,sat_visits:0,directions:vec![],residual_h:symbolic.h};
+                let survivor=residual_guard(&symbolic,&pre,&post,&mut report).unwrap();
+                guard_hits+=report.algebraic_hits;
+                let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
+                let flip=ids.into_iter().find(|&v|(v as usize)>=n&&
+                    !ps.f.functions.iter().any(|f|f.iter().any(|m|m.contains(&v))));
+                for (guard_kind,g) in [("property",guard),("survivor",survivor)]{
+                    let guards=[g];
+                    let mut routes=vec![("full",None,false),("identity",None,true)];
+                    if let Some(y)=flip{routes.push(("flip",Some(y),true));}
+                    for (route,flip,cancel) in routes{
+                        let (c,sign,_)=dual_mask_native_cnf(ps,&guards,&guards,flip,cancel).unwrap();
+                        let factor=1u128.checked_shl(scale).unwrap();
+                        for x in 0..1u64<<n{
+                            let mut prefix:Vec<Lit>=(0..n).map(|i|{
+                                let l=i as Lit+2;if x>>i&1!=0{l}else{-l}
+                            }).collect();
+                            prefix.push(-sign);
+                            let mut fuel=4_000_000;
+                            let plus=count(&c,&prefix,&mut fuel,false).unwrap();
+                            *prefix.last_mut().unwrap()=sign;
+                            let minus=count(&c,&prefix,&mut fuel,false).unwrap();
+                            assert!(plus>=minus);
+                            assert_eq!((plus-minus).checked_mul(factor).unwrap(),expected[x as usize],
+                                "{name} {stage} {guard_kind} {route} input={x}");
+                            checks+=1;flip_checks+=usize::from(flip.is_some());
+                        }
+                    }
+                }
+            }
+            println!("HOARE_NATIVE_DUAL_MASK_GATE case={name} n={n} rr_steps={steps} scale2={scale2} expected={expected:?}");
+        }
+        assert!(rr_steps>0);
+        assert!(guard_hits>0);
+        assert!(flip_checks>0);
+        println!("HOARE_NATIVE_DUAL_MASK_GATE_SUMMARY cases=9 checks={checks} rr_steps={rr_steps} guard_hits={guard_hits} flip_checks={flip_checks}");
+    }
+
     // Bounded external pilot: export exactly the same original fiber
     // and guards for all three encoders. Counts are independently
     // computed on the finite phase formulas, not from the CNF.

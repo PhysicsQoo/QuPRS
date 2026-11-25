@@ -2766,6 +2766,174 @@ fn multi_encode(s:&Symbolic,copies:usize,factored:bool)->Option<FactorPilotEncod
 
 // Three deterministic CNFs for a shared-input amplitude counterexample.
 // Output roots are literal handles in each individual CNF, not path IDs.
+
+// Research-only modulo 2^k arithmetic DAG; no approximation or snapping.
+fn mod_add(f:&mut FactorPilot,a:&[Lit],b:&[Lit])->Option<Vec<Lit>>{
+    if a.len()!=b.len(){return None;}
+    let mut carry=ZERO;let mut out=Vec::new();
+    for i in 0..a.len(){
+        let t=f.gate(true,a[i],b[i])?;
+        out.push(f.gate(true,t,carry)?);
+        if i+1<a.len(){
+            let ab=f.gate(false,a[i],b[i])?;
+            let tc=f.gate(false,t,carry)?;
+            carry=-f.gate(false,-ab,-tc)?;
+        }
+    }
+    Some(out)
+}
+fn mod_term(f:&mut FactorPilot,m:u64,c:u8,bits:&[Lit],k:usize)->Option<Vec<Lit>>{
+    let a=f.anf(&Anf::from([m]),bits,true)?;
+    Some((0..k).map(|i|if c>>i&1!=0{a}else{ZERO}).collect())
+}
+fn mod_factor(f:&mut FactorPilot,p:&BTreeMap<u64,u8>,bits:&[Lit],k:usize,
+              memo:&mut BTreeMap<Vec<(u64,u8)>,Vec<Lit>>,work:&mut usize)->Option<Vec<Lit>>{
+    *work=work.checked_add(p.len().max(1))?;
+    if *work>2_000_000{return None;}
+    if p.is_empty(){return Some(vec![ZERO;k]);}
+    if p.len()==1{let (&m,&c)=p.iter().next()?;return mod_term(f,m,c,bits,k);}
+    let key=p.iter().map(|(&m,&c)|(m,c)).collect::<Vec<_>>();
+    if let Some(v)=memo.get(&key){return Some(v.clone());}
+    let mask=p.keys().fold(0u64,|a,&m|a|m);
+    if mask==0{return None;}
+    let i=mask.trailing_zeros() as usize;let bit=1u64<<i;
+    let(mut a,mut b)=(BTreeMap::new(),BTreeMap::new());
+    for (&m,&c) in p{if m&bit==0{a.insert(m,c);}else{b.insert(m^bit,c);}}
+    let u=mod_factor(f,&a,bits,k,memo,work)?;
+    let v=mod_factor(f,&b,bits,k,memo,work)?;
+    let v=v.into_iter().map(|l|f.gate(false,l,*bits.get(i)?)).collect::<Option<Vec<_>>>()?;
+    let out=mod_add(f,&u,&v)?;
+    memo.insert(key,out.clone());Some(out)
+}
+fn mod_phase(f:&mut FactorPilot,p:&BTreeMap<u64,u8>,bits:&[Lit],k:usize,mode:&str)->Option<Vec<Lit>>{
+    if !(1..=6).contains(&k)||bits.len()>63||p.len()>30000||
+        p.iter().any(|(&m,&c)|m>>bits.len()!=0||c==0||u16::from(c)>=1u16<<k){return None;}
+    if mode=="flat"{
+        let mut a=vec![ZERO;k];
+        for(&m,&c)in p{let b=mod_term(f,m,c,bits,k)?;a=mod_add(f,&a,&b)?;}
+        return Some(a);
+    }
+    if mode=="heap"{
+        let mut cols=vec![Vec::<Lit>::new();k];
+        for(&m,&c)in p{
+            let a=f.anf(&Anf::from([m]),bits,true)?;
+            if a!=ZERO{for i in 0..k{if c>>i&1!=0{cols[i].push(a);}}}
+        }
+        let mut r=vec![ZERO;k];
+        for i in 0..k{
+            while cols[i].len()>1{
+                let a=cols[i].pop()?;let b=cols[i].pop()?;
+                let t=f.gate(true,a,b)?;
+                if i+1==k{cols[i].push(t);continue;}
+                if let Some(v)=cols[i].pop(){
+                    let s=f.gate(true,t,v)?;
+                    let ab=f.gate(false,a,b)?;let tv=f.gate(false,t,v)?;
+                    let carry=-f.gate(false,-ab,-tv)?;
+                    cols[i].push(s);cols[i+1].push(carry);
+                }else{
+                    cols[i].push(t);cols[i+1].push(f.gate(false,a,b)?);
+                }
+            }
+            r[i]=cols[i].pop().unwrap_or(ZERO);
+        }
+        return Some(r);
+    }
+    let mut memo=BTreeMap::new();let mut work=0;
+    if mode=="factor"{return mod_factor(f,p,bits,k,&mut memo,&mut work);}
+    if mode=="split"{
+        let top=1u8<<(k-1);
+        let lower=p.iter().filter_map(|(&m,&c)|(c%top!=0).then_some((m,c%top))).collect::<BTreeMap<_,_>>();
+        let sign=p.iter().filter_map(|(&m,&c)|(c&top!=0).then_some(m)).collect::<Anf>();
+        let mut a=mod_factor(f,&lower,bits,k,&mut memo,&mut work)?;
+        let b=f.anf(&sign,bits,true)?;
+        a[k-1]=f.gate(true,a[k-1],b)?;
+        return Some(a);
+    }
+    None
+}
+fn mod_check(p:&BTreeMap<u64,u8>,outputs:&[Anf],n:usize,k:usize,assignments:&[(u64,u8,u64)],label:&str){
+    for mode in ["flat","heap","factor","split"]{
+        let bits:Vec<_>=(0..n).map(|i|(i+2) as Lit).collect();
+        let mut f=FactorPilot{c:Cnf::new(n),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+        let phase=mod_phase(&mut f,p,&bits,k,mode).expect("bounded modular phase");
+        let out:Vec<_>=outputs.iter().map(|a|f.anf(a,&bits,true).unwrap()).collect();
+        assert!(f.bounded());
+        for &(a,expected,z) in assignments{
+            let v=factor_up(&f.c,n,a).expect("deterministic total circuit");
+            let got=phase.iter().enumerate().fold(0u8,|r,(i,&l)|r|((lit_value(l,&v)==1) as u8)<<i);
+            let zz=out.iter().enumerate().fold(0u64,|r,(i,&l)|r|((lit_value(l,&v)==1) as u64)<<i);
+            assert_eq!((got,zz),(expected,z),"{label}/{mode}");
+        }
+        println!("HOARE_MOD_FACTOR case={label} d={} mode={mode} vars={} clauses={} checks={}",1u32<<k,f.c.vars,f.c.clauses.len(),assignments.len());
+    }
+}
+fn mod_rng(seed:&mut u32)->u32{
+    *seed^=*seed<<13;*seed^=*seed>>17;*seed^=*seed<<5;*seed
+}
+#[test]
+fn hoare_modular_factor_phase(){
+    let mut seed=0x51465438u32;
+    // Distinct deterministic native fixture cohort, with exhaustive primary assignments.
+    for k in 1..=6usize{for t in 0..24usize{
+        let n=3+t%5;let d=1u16<<k;
+        let mut p=BTreeMap::<u64,u8>::new();
+        let draws=16+(mod_rng(&mut seed)%32) as usize;
+        for _ in 0..draws{
+            let m=u64::from(mod_rng(&mut seed))&((1u64<<n)-1);
+            let c=(u16::from(p.get(&m).copied().unwrap_or(0))+(mod_rng(&mut seed)%u32::from(d)) as u16)%d;
+            if c==0{p.remove(&m);}else{p.insert(m,c as u8);}
+        }
+        let outputs=[Anf::from([1,2]),Anf::from([1u64<<(n-1)])];
+        let a:Vec<_>=(0..1u64<<n).map(|v|{
+            let ph=p.iter().filter(|&(&m,_)|v&m==m).map(|(_,&c)|u16::from(c)).sum::<u16>()%d;
+            let z=((v&1)^(v>>1&1))|((v>>(n-1)&1)<<1);
+            (v,ph as u8,z)
+        }).collect();
+        mod_check(&p,&outputs,n,k,&a,&format!("generated-{k}-{t}"));
+    }}
+    // Real in-repository Feynman file. Parse only admitted exact gates;
+    // Tdg and Sdg are expanded as exact powers, not approximated angles.
+    let src=include_str!("../../../benchmarks/Feynman/qft_4.qasm");
+    let mut ops=Vec::new();let mut gates=0;
+    for line in src.lines().map(str::trim).filter(|l|!l.is_empty()){
+        if matches!(line,"OPENQASM 2.0;"|"include \"qelib1.inc\";"|"qreg qubits[5];"){continue;}
+        let (g,args)=line.strip_suffix(';').unwrap().split_once(' ').unwrap();
+        let a=args.split(',').map(|s|s.trim().strip_prefix("qubits[").unwrap().strip_suffix(']').unwrap().parse::<usize>().unwrap()).collect::<Vec<_>>();
+        gates+=1;
+        match(g,a.as_slice()){
+            ("h",[a])=>ops.push(G::H(*a)),
+            ("cx",[a,b])=>ops.push(G::CX(*a,*b)),
+            ("ccx",[a,b,c])=>ops.push(G::CCX(*a,*b,*c)),
+            ("t",[a])=>ops.push(G::T(*a)),
+            ("tdg",[a])=>ops.extend(std::iter::repeat_n(G::T(*a),7)),
+            ("s",[a])=>ops.push(G::S(*a)),
+            ("sdg",[a])=>ops.extend(std::iter::repeat_n(G::S(*a),3)),
+            _=>panic!("unexpected source gate"),
+        }
+    }
+    assert_eq!(gates,159);
+    let s=native(5,&ops).expect("exact native source");
+    assert_eq!(s.h,46);
+    let mut a=Vec::new();
+    for _ in 0..512{
+        let v=(u64::from(mod_rng(&mut seed))|(u64::from(mod_rng(&mut seed))<<32))&((1u64<<51)-1);
+        let mut z=v&31;let mut ph=0usize;let mut y=0;
+        for g in &ops{
+            match *g{
+                G::H(i)=>{let w=v>>(5+y)&1;ph+=4*((z>>i&1)*w) as usize;z=(z&!(1<<i))|(w<<i);y+=1;}
+                G::CX(i,j)=>z^=(z>>i&1)<<j,
+                G::CCX(i,j,k)=>z^=((z>>i&1)&(z>>j&1))<<k,
+                G::T(i)=>ph+=(z>>i&1) as usize,
+                G::S(i)=>ph+=2*(z>>i&1) as usize,
+                _=>unreachable!(),
+            }
+        }
+        assert_eq!(path(&s,v&31,v>>5),(z,ph%8));
+        a.push((v,(ph%8) as u8,z));
+    }
+    mod_check(&s.phase,&s.output,51,3,&a,"feynman-qft4-source");
+}
+
 fn multi_witness_export(t:&Symbolic,variant:&str,dir:&std::path::Path){
     assert_eq!((t.n,t.h),(8,7));
     assert!(t.phase.values().all(|&v|v==4));

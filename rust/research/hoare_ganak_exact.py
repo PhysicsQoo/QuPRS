@@ -664,6 +664,27 @@ def run_multi_witness_pilot(directory,exe,tmp):
         result.update(variant=variant,checked=checked,query_records=history)
         print("HOARE_SOLVER_WITNESS "+json.dumps(result),flush=True)
 
+        # Replay exact completed query receipts, injecting a timeout at every
+        # call boundary. This tests verdict/witness separation, not OS killing.
+        if checked==result["calls"] and result["witness_status"] in ("VERIFIED","NOT_REQUIRED"):
+            for stop in range(len(history)):
+                at=0
+                def replay(kind,xm,xv,zm,zv):
+                    nonlocal at
+                    q=history[at]
+                    assert (kind,xm,xv,zm,zv)==tuple(q[k] for k in ("kind","xm","xv","zm","zv"))
+                    at+=1
+                    if at==stop+1:
+                        raise TimeoutError("injected query timeout")
+                    return q["plus"],q["minus"]
+                failure=witness_prefix_search(replay)
+                assert failure["calls"]==stop+1 and at==stop+1
+                assert failure["witness_status"]=="UNKNOWN"
+                assert failure["verdict"]==("UNKNOWN" if stop==0 else "REFUTED")
+                assert failure["root"]==(None if stop==0 else result["root"])
+                assert "x" not in failure and "z" not in failure
+            print("HOARE_WITNESS_TIMEOUT_CONTROL "+json.dumps(dict(variant=variant,checks=len(history))),flush=True)
+
 def run_partition_pilot(directory, exe, tmp):
     """Separate source-only partition pilot. Unknown leaves never certify a cover."""
     with (directory/"native-partition.tsv").open() as f:

@@ -133,6 +133,20 @@ jobs:
           test "$(git hash-object "$factor_dir/3-post.hsl")" = 5d45f38067d9e95ff0afe997c5f175cc1082e7e4
           test "$(git hash-object "$factor_dir/4-pre.hsl")" = 3cb06685b906e4a7da6adab65bd6b472370fe800
           test "$(git hash-object "$factor_dir/4-post.hsl")" = c5a97b5c984fb0ea92bfaa624ee41fccf875ece6
+          multi_base="https://raw.githubusercontent.com/fmlab-iis/AutoQ/7eed39ad7ba5615a87c3f532a24f866e08967c12/benchmarks/all/MOGrover"
+          for k in 3 4; do
+            for file in circuit.qasm pre.hsl post.hsl; do
+              curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-time 60 \
+                "$multi_base/0$k/$file" -o "$factor_dir/multi-$k-$file"
+            done
+            mv "$factor_dir/multi-$k-circuit.qasm" "$factor_dir/mogrover-$k.qasm"
+          done
+          test "$(git hash-object "$factor_dir/mogrover-3.qasm")" = 4a5cc0a405f2c67172de5a7fe2ca16fcfac77bdc
+          test "$(git hash-object "$factor_dir/multi-3-pre.hsl")" = 286d24f8d0e43e07535658526682566d4897823d
+          test "$(git hash-object "$factor_dir/multi-3-post.hsl")" = 413ee90158043d0e17dc9285261b05de694793d1
+          test "$(git hash-object "$factor_dir/mogrover-4.qasm")" = 56e26972835eb604ee7ffd005ae0f10cdd081697
+          test "$(git hash-object "$factor_dir/multi-4-pre.hsl")" = 2b1c53ee628ef52edeeb09bf0dc70f1d601f968c
+          test "$(git hash-object "$factor_dir/multi-4-post.hsl")" = 5e63ffba67c329e6fcb14693122c35cd0f004728
           sha256sum "$factor_dir/"* | tee evidence/hoare-factor-source-sha256.txt
           HOARE_FACTOR_SOURCE_DIR="$factor_dir" \
           HOARE_EXACT_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/hoare-exact-fixtures" \

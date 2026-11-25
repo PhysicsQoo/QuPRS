@@ -2493,6 +2493,7 @@ fn factor_source_ops(src:&str,n:usize)->Vec<G>{
         match (gate,a.as_slice()){
             ("h",[a])=>G::H(*a),("x",[a])=>G::X(*a),
             ("cz",[a,b])=>G::CZ(*a,*b),("ccx",[a,b,c])=>G::CCX(*a,*b,*c),
+            ("cx",[a,b])=>G::CX(*a,*b),
             _=>panic!("unsupported pinned source gate"),
         }
     }).collect()
@@ -2644,6 +2645,217 @@ fn factor_export(dir:&std::path::Path){
     std::fs::write(dir.join("native-factor.tsv"),manifest).unwrap();
 }
 
+
+// Research-only sign-phase HH admission; preserve native pivot selection.
+// Budget counts affected monomial products, not full-polynomial products.
+fn multi_rr(mut ps:PathSum,n:usize,label:&str)->Option<(Symbolic,u32,usize)>{
+    let(mut scale,mut steps,mut work)=(0u32,0usize,0usize);
+    for _ in 0..32{
+        let s=compact(&ps,n)?;
+        if s.phase.values().any(|&v|v!=4)||
+            s.phase.len()+s.output.iter().map(|o|o.len()).sum::<usize>()>30000{return None;}
+        let ids=native_ids(&ps)?;
+        let mut cs=ps.get_reducible_vars();cs.sort_unstable();
+        let mut hit=false;let mut blocked=false;
+        for &y in &cs{
+            if (y as usize)<n||y>=63{continue;}
+            let ybit=1u64<<ids.iter().position(|&v|v==y)?;
+            if s.phase.keys().any(|m|m&ybit!=0){continue;}
+            let mut trial=ps.clone();
+            if trial.try_reduce_elim(&[y]){
+                assert_eq!(ps.v.path_vars.difference(&trial.v.path_vars).copied().collect::<Vec<_>>(),vec![y]);
+                ps=trial;scale+=2;steps+=1;hit=true;break;
+            }
+        }
+        if hit{continue;}
+        for y in cs{
+            if (y as usize)<n||y>=63{continue;}
+            let Some((v,r))=guarded_hh_replacement(&s,&ids,y)else{continue;};
+            let ybit=1u64<<ids.iter().position(|&a|a==y)?;
+            let vbit=1u64<<ids.iter().position(|&a|a==v)?;
+            let q:Anf=s.phase.keys().copied().filter(|m|m&ybit==0).collect();
+            let(mut upper,mut pairs,mut max_pairs)=(0usize,0usize,0usize);
+            for a in std::iter::once(&q).chain(s.output.iter()){
+                let c=a.iter().filter(|&&m|m&vbit!=0).count();
+                let product=c.checked_mul(r.len())?;
+                upper=upper.checked_add(a.len()-c)?.checked_add(product)?;
+                pairs=pairs.checked_add(product)?;max_pairs=max_pairs.max(product);
+            }
+            let next=work.checked_add(pairs)?;
+            if upper>30000||max_pairs>2_000_000||next>4_000_000{
+                blocked=true;
+                println!("HOARE_MULTI_RR_BLOCK case={label} step={steps} y={y} v={v} upper={upper} pairs={pairs}");
+                continue;
+            }
+            let mut trial=ps.clone();
+            if !trial.try_reduce_hh(&[y]){continue;}
+            let mut removed:Vec<_>=ps.v.path_vars.difference(&trial.v.path_vars).copied().collect();
+            removed.sort_unstable();let mut expected=vec![y,v];expected.sort_unstable();
+            assert_eq!(removed,expected);assert!(trial.v.path_vars.is_subset(&ps.v.path_vars));
+            let t=compact(&trial,n)?;
+            let terms=t.phase.len()+t.output.iter().map(|a|a.len()).sum::<usize>();
+            assert!(t.phase.values().all(|&p|p==4)&&terms<=upper);
+            println!("HOARE_MULTI_RR_STEP case={label} step={steps} y={y} v={v} upper={upper} pairs={pairs} terms={terms}");
+            ps=trial;scale+=2;steps+=1;work=next;hit=true;break;
+        }
+        if hit{continue;}
+        if blocked{return None;}
+        return Some((s,scale,steps));
+    }
+    None
+}
+fn multi_target(k:usize,x:u64,z:u64)->i128{
+    let mask=(1u64<<k)-1;
+    if z&mask!=x||z>>(2*k)!=1u64<<(k-2){return 0;}
+    if (z>>k)&mask==x{if k==3{11}else{251}}
+    else if k==3{-1}else{-13}
+}
+fn multi_encode(s:&Symbolic,copies:usize,factored:bool)->Option<FactorPilotEncoding>{
+    if s.n!=8||s.h!=7||!(copies==1||copies==2)||
+        s.phase.values().any(|&v|v!=4)||s.output.len()!=8||
+        s.phase.keys().chain(s.output.iter().flatten()).any(|&m|m>>15!=0)||
+        s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>()>8192{return None;}
+    let k=3usize;let primary=k+s.h*copies;
+    let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+    let sign:Anf=s.phase.keys().copied().collect();
+    let mut phases=Vec::new();let mut outputs=Vec::new();
+    for j in 0..copies{
+        // All source columns share the original input bits.
+        let bits:Vec<Lit>=(0..s.n).map(|i|if i<k{(2+i) as Lit}else{ZERO})
+            .chain((0..s.h).map(|i|(2+k+j*s.h+i) as Lit)).collect();
+        phases.push(f.anf(&sign,&bits,factored)?);
+        let mut z=Vec::new();for a in &s.output{z.push(f.anf(a,&bits,factored)?);}
+        outputs.push(z);
+    }
+    let mut classes=Vec::new();
+    if copies==1{
+        let z=&outputs[0];let p=phases[0];let mut sup=ONE;let mut mark=ONE;
+        for i in 0..k{
+            let a=f.gate(true,z[i],(i+2) as Lit)?;sup=f.gate(false,sup,-a)?;
+            let b=f.gate(true,z[k+i],(i+2) as Lit)?;mark=f.gate(false,mark,-b)?;
+        }
+        for i in 2*k..s.n{sup=f.gate(false,sup,if i==s.n-1{z[i]}else{-z[i]})?;}
+        if sup!=ONE{f.c.enforce(sup);}
+        for (a,b,w) in [(mark,-p,11),(mark,p,-11),(-mark,p,1),(-mark,-p,-1)]{
+            let l=f.gate(false,a,b)?;classes.push((f.alias(l)?,w));
+        }
+    }else{
+        for i in 0..s.n{
+            let v=f.gate(true,outputs[0][i],outputs[1][i])?;
+            if v!=ZERO{f.c.enforce(-v);}
+        }
+        let neg=f.gate(true,phases[0],phases[1])?;let v=f.alias(neg)?;
+        classes.push((-v,1));classes.push((v,-1));
+    }
+    if !f.bounded(){return None;}
+    Some(FactorPilotEncoding{cnf:f.c,classes,primary})
+}
+fn multi_export(dir:&std::path::Path){
+    let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
+    let srcdir=std::path::PathBuf::from(srcdir);
+    let mut manifest=String::new();
+    for k in [3usize,4]{
+        let n=3*k-1;let l=if k==3{7usize}else{16};
+        let source=std::fs::read_to_string(srcdir.join(format!("mogrover-{k}.qasm"))).unwrap();
+        let ops=factor_source_ops(&source,n);
+        let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+        assert_eq!((ops.len(),h0),if k==3{(62,17)}else{(120,30)});
+        let cases=if k==3{vec![None]}else{vec![None,Some(0u64),Some(5),Some(15)]};
+        for fixed in cases{
+            let label=format!("mogrover-{k}-{}",fixed.map_or("symbolic".to_owned(),|x|x.to_string()));
+            let start=std::time::Instant::now();
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for i in 0..n{
+                if i>=k||fixed.is_some(){
+                    ps.f.functions[i].clear();
+                    if i<k&&fixed.is_some_and(|x|x>>i&1!=0){ps.f.functions[i].insert(vec![]);}
+                }
+            }
+            let mut built=true;
+            for g in &ops{
+                g.apply(&mut ps,false);
+                if ps.p.terms.len()+ps.f.functions.iter().map(|a|a.len()).sum::<usize>()>30000{built=false;break;}
+            }
+            if !built{println!("HOARE_MULTI_RESOURCE case={label} reason=source-build-cap");continue;}
+            let Some((s,scale,steps))=multi_rr(ps,n,&label)else{
+                println!("HOARE_MULTI_RESOURCE case={label} reason=rr-preflight");continue;
+            };
+            let prep_ns=start.elapsed().as_nanos();
+            if s.h!=l||h0.checked_sub(scale as usize)!=Some(l)||scale%2!=0{
+                println!("HOARE_MULTI_RESOURCE case={label} reason=residual h={} scale2={scale}",s.h);continue;
+            }
+            let xs:Vec<u64>=fixed.map_or_else(||(0..1u64<<k).collect(),|x|vec![x]);
+            let norm=(xs.len() as i128)*(1i128<<l);
+            let dense:Vec<_>=xs.iter().map(|&x|dense_state(n,&ops,x)).collect();
+            let variants=if k==3{vec!["source","Z-last","X-scratch","Z-mark0"]}else{vec!["source"]};
+            for variant in variants{
+                let mut t=Symbolic{n:s.n,h:s.h,output:s.output.clone(),phase:s.phase.clone()};
+                if variant=="X-scratch"{xor_insert(&mut t.output[2*k],0);}
+                if variant=="Z-last"||variant=="Z-mark0"{
+                    let i=if variant=="Z-last"{n-1}else{0};
+                    for &m in &t.output[i]{if t.phase.remove(&m).is_none(){t.phase.insert(m,4);}}
+                }
+                let(mut cp,mut cm,mut sp,mut sm)=(0u128,0u128,0u128,0u128);
+                let(mut residual,mut sn,mut tn)=(0i128,0i128,0i128);let mut witness=None;
+                for (xi,&x) in xs.iter().enumerate(){
+                    let hist=if fixed.is_some(){factor_hist(&t)}else{
+                        let mut h=vec![(0u128,0u128);1<<n];
+                        for y in 0..1u64<<t.h{
+                            let(z,p)=path(&t,x,y);assert!(p==0||p==4);
+                            if p==0{h[z as usize].0+=1;}else{h[z as usize].1+=1;}
+                        }h
+                    };
+                    for (z,&(p,m)) in hist.iter().enumerate(){
+                        let a=p as i128-m as i128;let target=multi_target(k,x,z as u64);
+                        let j=z^if variant=="X-scratch"{1<<(2*k)}else{0};
+                        let sg=if variant=="Z-last"&&z>>(n-1)&1!=0||variant=="Z-mark0"&&z&1!=0{-1}else{1};
+                        let d=dense[xi][j];assert_eq!(d[1..],[0,0,0]);
+                        assert_eq!(a*(1i128<<(scale/2)),i128::from(d[0])*sg);
+                        if a!=target&&witness.is_none(){witness=Some((x<<n)|(z as u64));}
+                        residual+=(a-target)*(a-target);sn+=a*a;tn+=target*target;
+                        sp+=p*p+m*m;sm+=2*p*m;
+                        if target>0{cp+=p*target as u128;cm+=m*target as u128;}
+                        else if target<0{cp+=m*(-target) as u128;cm+=p*(-target) as u128;}
+                    }
+                }
+                assert_eq!((sn,tn),(norm,norm));assert_eq!(sp as i128-sm as i128,norm);
+                assert_eq!(residual,2*(norm-(cp as i128-cm as i128)));
+                assert_eq!(residual,match variant{"source"=>0,"Z-last"=>4*norm,_=>2*norm});
+                println!("HOARE_MULTI_NATIVE case={label} variant={variant} h={} scale2={scale} steps={steps} entries={} terms={} cp={cp} cm={cm} residual={residual} prep_ns={prep_ns}",s.h,xs.len()*(1usize<<n),s.phase.len()+s.output.iter().map(|a|a.len()).sum::<usize>());
+                if k!=3{continue;}
+                for (mode,factored) in [("flat",false),("factor",true)]{for copies in [1usize,2]{
+                    let name=format!("mogrover-{k}-{variant}-{mode}-{copies}");
+                    let now=std::time::Instant::now();let e=multi_encode(&t,copies,factored).expect("MOGrover03 encoder");
+                    let ns=now.elapsed().as_nanos();
+                    let samples=if copies==1{1024u64}else{2048};
+                    for i in 0..samples{
+                        let x=i&7;let a=(i>>3)&127;
+                        let b=if i<1024{a}else{(1009*(i>>3)+31)&127};
+                        let(za,pa)=path(&t,x,a);
+                        let expected=if copies==1{multi_target(k,x,za)*if pa==0{1}else{-1}}
+                        else{let(zb,pb)=path(&t,x,b);if za!=zb{0}else if pa==pb{1}else{-1}};
+                        let assignment=x|(a<<3)|if copies==2{b<<10}else{0};
+                        let v=factor_up(&e.cnf,e.primary,assignment);
+                        if expected==0{assert!(v.is_none());}
+                        else{let v=v.unwrap();let active:Vec<_>=e.classes.iter().filter(|&&(l,_)|lit_value(l,&v)==1).collect();
+                            assert_eq!(active.len(),1);assert_eq!(i128::from(active[0].1),expected);}
+                    }
+                    let mut dimacs=format!("p cnf {} {}\n",e.cnf.vars,e.cnf.clauses.len());
+                    for cl in &e.cnf.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=e.cnf.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
+                    std::fs::write(dir.join(format!("factor-{name}.cnf")),dimacs).unwrap();
+                    let classes=e.classes.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",");
+                    let(plus,minus)=if copies==1{(cp,cm)}else{(sp,sm)};
+                    let w=witness.map_or("-".to_owned(),|v|v.to_string());
+                    manifest.push_str(&format!("{name}\t{k}\t{variant}\t{mode}\t{copies}\t{}\t{}\t{}\t{ns}\t{prep_ns}\t{classes}\t{plus}\t{minus}\t{norm}\t{residual}\t{w}\n",e.primary,e.cnf.vars,e.cnf.clauses.len()));
+                    println!("HOARE_MULTI_EXPORT case={name} vars={} clauses={} checks={samples}",e.cnf.vars,e.cnf.clauses.len());
+                }}
+            }
+        }
+    }
+    assert_eq!(manifest.lines().count(),16,"complete MOGrover03 cohort");
+    std::fs::write(dir.join("native-multi-factor.tsv"),manifest).unwrap();
+}
+
     #[test]
     fn hoare_export_external_exact_fixtures(){
         let Some(dir)=std::env::var_os("HOARE_EXACT_FIXTURE_DIR") else{return;};
@@ -2688,6 +2900,7 @@ fn factor_export(dir:&std::path::Path){
         export_native_affine_wmc(&dir);
         export_native_dual_mask_wmc(&dir);
         factor_export(&dir);
+        multi_export(&dir);
         export_native_gse_wmc(&dir);
     }
 

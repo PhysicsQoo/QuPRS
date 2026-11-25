@@ -420,9 +420,12 @@ def unpack_pair(value, radix):
 
 
 
-def run_amplitude_factor_pilot(directory, exe, tmp, repeat_round=None):
+def run_amplitude_factor_pilot(directory, exe, tmp, repeat_round=None, multi=False):
     """Bounded, exact natural-integer class weights; no float fallback."""
-    manifest = list(csv.reader((directory/"native-factor.tsv").open(), delimiter="\t"))
+    assert not (multi and repeat_round is not None)
+    manifest = list(csv.reader((directory/("native-multi-factor.tsv" if multi else "native-factor.tsv")).open(), delimiter="\t"))
+    if multi:
+        assert len(manifest)==16 and len({r[0] for r in manifest})==16
     if repeat_round is not None:
         # Four-period balanced crossover; same eight source-only queries in
         # each period. Preserve the 10 s cap and all exact bucket checks.
@@ -480,29 +483,33 @@ def run_amplitude_factor_pilot(directory, exe, tmp, repeat_round=None):
             else:
                 actual=2*(norm-score)
                 assert actual>=0 and actual==residual
-                row.update(verdict="PROVED" if actual==0 else "REFUTED",
-                           residual=actual,oracle_output_witness=None if witness=="-" else int(witness))
+                row.update(verdict="PROVED" if actual==0 else "REFUTED", residual=actual,
+                           oracle_output_witness=None if witness=="-" else (int(witness)&255 if multi else int(witness)))
+                if multi:
+                    row["oracle_input_witness"]=None if witness=="-" else int(witness)>>8
             row.update(status="EXACT",plus=plus,minus=minus,score=score)
         except (TimeoutError,subprocess.TimeoutExpired):
             row["status"]="TIMEOUT"
         except SolverSignalKilled:
             row["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        row["target_norm"]=norm
         rows[(k,variant,mode,copies)]=row
         if repeat_round is None:
-            print("HOARE_FACTOR_GPMC "+json.dumps(row),flush=True)
+            print(("HOARE_MULTI_GPMC " if multi else "HOARE_FACTOR_GPMC ")+json.dumps(row),flush=True)
         else:
             row["round"]=repeat_round
             print("HOARE_FACTOR_REPEAT "+json.dumps(row),flush=True)
     matched=0
-    for k in (3,4):
-        for variant in ("source","Z-last","X-scratch"):
+    for k in ((3,) if multi else (3,4)):
+        for variant in (("source","Z-last","X-scratch","Z-mark0") if multi else ("source","Z-last","X-scratch")):
             for mode in ("flat","factor"):
                 a=rows.get((k,variant,mode,1));b=rows.get((k,variant,mode,2))
                 if a and b and a["status"]==b["status"]=="EXACT":
-                    assert a["residual"]==b["score"]-2*a["score"]+(1<<(7 if k==3 else 16))
+                    assert a["target_norm"]==b["target_norm"]
+                    assert a["residual"]==b["score"]-2*a["score"]+a["target_norm"]
                     matched+=1
     if repeat_round is None:
-        print("HOARE_FACTOR_GPMC_SUMMARY "+json.dumps(dict(expected=24,exported=len(rows),
+        print(("HOARE_MULTI_GPMC_SUMMARY " if multi else "HOARE_FACTOR_GPMC_SUMMARY ")+json.dumps(dict(expected=16 if multi else 24,exported=len(rows),
               exact=sum(r["status"]=="EXACT" for r in rows.values()),matched=matched)),flush=True)
     else:
         print("HOARE_FACTOR_REPEAT_SUMMARY "+json.dumps(dict(round=repeat_round,
@@ -668,6 +675,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_amplitude_factor_pilot(directory,exe,tmp)
         for repeat_round in range(4):
             run_amplitude_factor_pilot(directory,exe,tmp,repeat_round=repeat_round)
+    if (directory/"native-multi-factor.tsv").is_file():
+        run_amplitude_factor_pilot(directory,exe,tmp,multi=True)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

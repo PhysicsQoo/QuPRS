@@ -110,6 +110,153 @@ fn source_ops(src:&str)->(Vec<QuantumOp>,usize,usize){
     }
     assert!(header&&include);(ops,n,rx)
 }
+
+ // Phase-congruence quotient, a count-preserving transformation on
+ // the two-copy native phase polynomial, NOT an amplitude encoding.
+ // It consumes a mandatory low-bit-zero condition of the projected
+ // counting problem. Transport every Boolean equality simultaneously.
+ type Poly=FxHashSet<Vec<u32>>;
+ use quprs::pathsum::PhasePolynomial;
+ struct PairPhase{
+     phase:PhasePolynomial, constraints:Vec<Poly>, live:std::collections::BTreeSet<u32>, n:usize
+ }
+ fn toggle(p:&mut Poly,mut m:Vec<u32>){
+     m.sort_unstable();m.dedup();if !p.insert(m.clone()){p.remove(&m);}
+ }
+ fn quotient_den(p:&PhasePolynomial)->Option<u32>{
+     let mut d=2u32;
+     for c in p.terms.values(){
+         if c.radians.is_some()||!c.symbols.is_empty(){return None;}
+         let v=u32::try_from(c.constant.denom).ok()?;
+         if !v.is_power_of_two()||v>64{return None;}
+         d=d.max(v);
+     }
+     Some(d)
+ }
+ fn paired_phase(ps:&PathSum)->Option<PairPhase>{
+     if !admitted(ps)||ps.v.num_qubits!=5{return None;}
+     let n=ps.v.num_qubits;
+     let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
+     let h=ids.len()-n;
+     let l:BTreeMap<_,_>=ids.iter().enumerate().map(|(i,&id)|(id,i as u32)).collect();
+     let r:BTreeMap<_,_>=ids.iter().enumerate().map(|(i,&id)|(id,(if i<n{i}else{i+h}) as u32)).collect();
+     let mut phase=PhasePolynomial::new();
+     for (m,c) in &ps.p.terms{
+         for (map,k) in [(&l,1),(&r,-1)]{
+             let mut a=c.clone();a.mul_scalar_logic(k);
+             phase.add_term(m.iter().map(|id|map[id]).collect(),a);
+         }
+     }
+     let mut constraints=vec![Poly::from_iter([vec![4]])]; // x4=0
+     for o in &ps.f.functions{
+         let mut eq=Poly::default();
+         for m in o{for map in [&l,&r]{toggle(&mut eq,m.iter().map(|id|map[id]).collect());}}
+         constraints.push(eq);
+     }
+     let mut bad=Poly::from_iter([vec![]]); // output4=1
+     for m in &ps.f.functions[4]{toggle(&mut bad,m.iter().map(|id|l[id]).collect());}
+     constraints.push(bad);
+     Some(PairPhase{phase,constraints,live:(0..(n+2*h) as u32).collect(),n})
+ }
+ fn lowbit_candidates(p:&PairPhase,d:u32)->(Poly,Vec<u32>){
+     let odd:Poly=p.phase.terms.iter().filter(|(_,c)|
+         (d as i128*c.constant.numer as i128/c.constant.denom as i128).rem_euclid(2)==1)
+         .map(|(m,_)|m.clone()).collect();
+     let mut ids:Vec<_>=odd.iter().filter(|m|m.len()==1&&(m[0] as usize)>=p.n)
+         .filter(|m|odd.iter().all(|q|q==*m||!q.contains(&m[0])))
+         .map(|m|m[0]).collect();ids.sort_unstable();
+     (odd,ids)
+ }
+ fn quotient_step(p:&mut PairPhase)->Option<(u32,u32,usize)>{
+     let d=quotient_den(&p.phase)?;
+     if d<=2{return None;} // no mandatory low bit remains
+     let (mut odd,ids)=lowbit_candidates(p,d);
+     let y=*ids.first()?;
+     odd.remove(&vec![y]);
+     if odd.len()>8{return None;}
+     let affected=p.phase.terms.keys().filter(|m|m.contains(&y)).count();
+     if affected.checked_mul(1usize<<odd.len())?>32768{return None;}
+     let work=p.constraints.iter().map(|g|g.iter().filter(|m|m.contains(&y)).count()).sum::<usize>();
+     if work.checked_mul(odd.len().max(1))?>32768{return None;}
+     let mut phase=p.phase.clone();
+     phase.substitute_var_with_poly(y,&odd);
+     if phase.terms.len()>8192||quotient_den(&phase)?>d/2{return None;}
+     let mut constraints=Vec::new();
+     for g in &p.constraints{
+         let mut q=Poly::default();
+         for m in g{
+             if m.contains(&y){
+                 let base:Vec<_>=m.iter().copied().filter(|&v|v!=y).collect();
+                 for a in &odd{let mut term=base.clone();term.extend(a);toggle(&mut q,term);}
+             }else{toggle(&mut q,m.clone());}
+         }
+         if q.len()>8192{return None;}
+         constraints.push(q);
+     }
+     assert!(phase.terms.keys().all(|m|!m.contains(&y)));
+     assert!(constraints.iter().flatten().all(|m|!m.contains(&y)));
+     assert!(p.live.remove(&y));p.phase=phase;p.constraints=constraints;
+     Some((y,d,odd.len()))
+ }
+ fn quotient_profile(ps:&PathSum,name:&str,specialized:bool){
+     let Some(mut p)=paired_phase(ps) else{return;};
+     let d0=quotient_den(&p.phase).unwrap();
+     let (odd,ids)=lowbit_candidates(&p,d0);
+     let t0=p.phase.terms.len();let g0=p.constraints.iter().map(|g|g.len()).sum::<usize>();let v0=p.live.len();
+     let mut steps=0;let mut selector_max=0;
+     for _ in 0..6{let Some((_,_,size))=quotient_step(&mut p) else{break;};steps+=1;selector_max=selector_max.max(size);}
+     println!("HOARE_PAPER_PHASE_QUOTIENT name={name} specialized={specialized} d0={d0} odd_terms={} isolated_pivots={} steps={steps} d1={} primary_before={v0} primary_after={} phase_before={t0} phase_after={} guard_before={g0} guard_after={} selector_max={selector_max}",
+         odd.len(),ids.len(),quotient_den(&p.phase).unwrap(),p.live.len(),p.phase.terms.len(),p.constraints.iter().map(|g|g.len()).sum::<usize>());
+ }
+ fn test_pair_counts(p:&PairPhase,fixed:Option<bool>)->[usize;2]{
+     let ids:Vec<_>=p.live.iter().copied().collect();
+     let map:BTreeMap<_,_>=ids.iter().enumerate().map(|(i,&v)|(v,i)).collect();
+     let d=quotient_den(&p.phase).unwrap() as i128;
+     let mut counts=[0usize;2];
+     for x in 0..1u64<<ids.len(){
+         if fixed.is_some_and(|v|v!=(x&1!=0)){continue;}
+         let truth=|m:&Vec<u32>|m.iter().all(|v|x>>map[v]&1!=0);
+         if p.constraints.iter().any(|g|g.iter().fold(false,|a,m|a^truth(m))){continue;}
+         let v=p.phase.terms.iter().filter(|(m,_)|truth(m)).map(|(_,c)|d*c.constant.numer as i128/c.constant.denom as i128).sum::<i128>().rem_euclid(d);
+         if v==0{counts[0]+=1;}else if v==d/2{counts[1]+=1;}
+     }
+     counts
+ }
+ #[test]
+ fn native_phase_congruence_quotient(){
+     use quprs::{Rational,PhaseCoeff};
+     let mut seed=20261125u32;let mut next=||{seed=seed.wrapping_mul(1664525).wrapping_add(1013904223);seed>>16};
+     let mut checks=0;let mut nonlinear=0;
+     for d in [4i64,8,16,32,64]{
+         for _ in 0..64{
+             let ids=[0u32,1,70,71];let mut phase=PhasePolynomial::new();
+             for m in 0..16usize{
+                 let mut k=next() as i64%d;
+                 if m&8!=0{k=if m==8{k|1}else{k&!1};}
+                 let mono=(0..4).filter(|&i|m>>i&1!=0).map(|i|ids[i]).collect();
+                 phase.add_term(mono,PhaseCoeff::new_constant(Rational::new(k,d)));
+             }
+             let mut g=Poly::default();
+             for m in 0..16usize{if next()&1!=0{toggle(&mut g,(0..4).filter(|&i|m>>i&1!=0).map(|i|ids[i]).collect());}}
+             let mut p=PairPhase{phase,constraints:vec![g],live:ids.into_iter().collect(),n:71};
+             // The only internal candidates are high IDs (0/1 remain
+             // fixed labels). Other odd terms may depend on ID70; force
+             // the specified pivot71 by excluding 70 as an input-like
+             // coordinate from pivot admission for this finite oracle.
+             let before=[None,Some(false),Some(true)].map(|v|test_pair_counts(&p,v));
+             let (odd,_)=lowbit_candidates(&p,d as u32);
+             if odd.iter().any(|m|m.len()>1){nonlinear+=1;}
+             let (y,old,_)=quotient_step(&mut p).unwrap();assert_eq!((y,old),(71,d as u32));
+             assert_eq!(p.live.len(),3);
+             assert!(quotient_den(&p.phase).unwrap()<=d as u32/2);
+             for (i,v) in [None,Some(false),Some(true)].into_iter().enumerate(){
+                 assert_eq!(before[i],test_pair_counts(&p,v));checks+=2;
+             }
+         }
+     }
+     println!("HOARE_NATIVE_PHASE_QUOTIENT cases=320 buckets={checks} nonlinear={nonlinear} high_ids=true");
+ }
+
 type Root=[i64;32];
 // Compact only a bounded FINAL residual using dense local positions.
 // The original stable IDs may exceed 64; no bit shift uses those IDs.
@@ -205,6 +352,7 @@ fn paper_qwalk_native_source_admission(){
             println!("HOARE_PAPER_QWALK name={name} status=BUILD_LIMIT built={built} terms={}",terms(&ps));continue;
         }
         let initial_h=h(&ps);assert_eq!(initial_h,rx*2);
+        quotient_profile(&ps,name,false);
         if let Some(dir)=&export{export_projected(dir,name,"pure",&ps,initial_h,0,build_ns,0,expected_bad,&mut rows);}
         let max_id=ps.v.path_vars.iter().copied().max().unwrap();
         for specialize in [false,true]{
@@ -218,6 +366,7 @@ fn paper_qwalk_native_source_admission(){
             }
             let t=std::time::Instant::now();let (out,r)=reduce(trial);
             let rr_ns=t.elapsed().as_nanos();assert!(admitted(&out));
+            quotient_profile(&out,name,specialize);
             assert_eq!(initial_h-h(&out),r.elim+2*r.hh+r.omega);
             if let Some(dir)=&export{
                 export_projected(dir,name,if specialize{"hybrid-pre"}else{"hybrid"},&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);

@@ -76,14 +76,24 @@ def get_ganak_path(*, verify: bool = True) -> Iterator[Path]:
         )
 
 
+@contextmanager
+def get_rawmocs_path() -> Iterator[Path]:
+    """Experimental external executable; no packaged binary or PATH fallback."""
+    override = os.environ.get("QUPRS_RAWMOCS_PATH")
+    path = Path(override) if override else None
+    if path is None or not path.is_absolute() or not path.is_file():
+        raise ValueError("RaWMoCS requires an explicit absolute QUPRS_RAWMOCS_PATH executable")
+    yield path
+
+
 # Alias for backward compatibility, if needed
 def WMC(tool_name="gpmc") -> Iterator[Path]:
     """
-    Context manager to obtain the path to the GPMC or Ganak binary based on the tool
+    Context manager to obtain the path to the GPMC, Ganak or experimental RaWMoCS binary based on the tool
     name.
 
     Args:
-        tool_name (str): The name of the tool, either "gpmc" or "ganak".
+        tool_name (str): The name of the tool, "gpmc", "ganak" or "rawmocs".
     Raises:
         ValueError: If the tool name is not supported.
     """
@@ -91,5 +101,7 @@ def WMC(tool_name="gpmc") -> Iterator[Path]:
         return get_gpmc_path()
     elif tool_name == "ganak":
         return get_ganak_path()
+    elif tool_name == "rawmocs":
+        return get_rawmocs_path()
     else:
         raise ValueError(f"Unsupported tool name: {tool_name}")

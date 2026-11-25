@@ -535,6 +535,13 @@ impl WmcManager {
             let stdout_str = String::from_utf8_lossy(&output.stdout);
             let stderr_str = String::from_utf8_lossy(&output.stderr);
             if !output.status.success() {
+                // RaWMoCS has an explicit internal deadline exit. Preserve
+                // the timeout category, never interpret partial stdout.
+                // Other nonzero exits (including resource refusal) remain
+                // errors, not zero counts or certified physical-memory OOM.
+                if tool_name == "rawmocs" && output.status.code() == Some(4) {
+                    return Err(anyhow!(crate::solver_process::SolverTimeout));
+                }
                 return Err(anyhow!(crate::solver_result::SolverFailure::new(
                     crate::solver_result::SolverFailureKind::NonzeroExit,
                     tool_name,

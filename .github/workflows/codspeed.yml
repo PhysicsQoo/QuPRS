@@ -19,6 +19,7 @@ on:
       - 'benchmarks/**'  # Benchmark fixtures and inputs are performance-sensitive.
       - 'research/rawmocs_integration/codspeed_existing.py'
       - 'research/rawmocs_integration/codspeed_native.py'
+      - 'research/rawmocs_integration/native_acceptance.py'
       - 'pyproject.toml'
       - '.github/workflows/codspeed.yml'
       - '.github/scripts/ci-impact-reuse.cjs'
@@ -1507,6 +1508,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
         run: python research/rawmocs_integration/codspeed_native.py prepare
+      - name: Pair uninstrumented native WallTime in ABBA and BAAB order
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+        run: python research/rawmocs_integration/native_acceptance.py wall
       - name: Measure complete native Hybrid CPU including child solver
         timeout-minutes: 8
         uses: CodSpeedHQ/action@v5
@@ -1520,6 +1525,16 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
         run: python research/rawmocs_integration/codspeed_native.py verify
+      - name: Build PyO3 and verify public Rust backend and fault isolation
+        env:
+          QUPRS_SOLVER_PROVISION: external
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src:${{ github.workspace }}/.rawmocs/crates/rawmocs-cli/tools
+        run: |
+          python -m pip install 'maturin>=1.5,<2'
+          python -m venv --system-site-packages "$RUNNER_TEMP/rawmocs-ffi"
+          source "$RUNNER_TEMP/rawmocs-ffi/bin/activate"
+          maturin develop --release
+          python research/rawmocs_integration/native_acceptance.py api
       - uses: actions/upload-artifact@v4
         if: always()
         with:

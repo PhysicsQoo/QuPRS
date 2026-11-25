@@ -300,7 +300,9 @@ def check_equivalence(
             - 'Naive': Uses a naive strategy.
             - 'Straightforward': Uses a straightforward strategy.
         tool_name (str, optional): External WMC solver selection: "gpmc"
-            (default) or "ganak". This applies when a weighted count is
+            (default) or "ganak". Experimental "rawmocs" with backend="rust"
+            requires an explicit absolute QUPRS_RAWMOCS_PATH; the Python
+            backend still requires a registered adapter. This applies when a weighted count is
             required, including Hybrid fallback and WMC-only runs. QuPRS
             does not silently switch to another solver on failure.
         backend (str, optional): "python" (default) uses the Python

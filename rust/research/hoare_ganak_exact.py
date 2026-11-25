@@ -698,16 +698,16 @@ def run_qft_complex_pilot(directory,exe,tmp):
             with (directory/f"qftcomplex-{n}-{variant}.tsv").open() as f:
                 for mode,kind,name,primary,vs,cs,classes,roots in csv.reader(f,delimiter="\t"):
                     primary,vs,cs=map(int,(primary,vs,cs))
-                    assert (mode,kind) not in records and mode in ("heap","factor") and kind in ("cross","self","amp")
+                    assert (mode,kind) not in records and mode in ("heap","factor") and kind in ("cross","self","amp","amp-bits")
                     assert primary==n+h*(2 if kind=="self" else 1) and 0<vs<=10000 and 0<cs<=40000
                     classes=list(map(int,classes.split(",")))
                     roots=list(map(int,roots.split(",")))
-                    assert len(classes)==(D if kind=="amp" else 2) and len(set(classes))==len(classes)
+                    assert len(classes)==(D if kind=="amp" else D.bit_length()-1 if kind=="amp-bits" else 2) and len(set(classes))==len(classes)
                     assert all(0<l<=vs for l in classes) and len(roots)==n and all(0<abs(l)<=vs for l in roots)
                     header,*clauses=(directory/f"{name}.cnf").read_text().splitlines()
                     assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
                     records[mode,kind]=(primary,vs,clauses,classes,roots)
-            assert set(records)=={("heap","cross"),("heap","self"),("factor","cross"),("factor","self"),("factor","amp")}
+            assert set(records)=={("heap","cross"),("heap","self"),("factor","cross"),("factor","self"),("factor","amp"),("factor","amp-bits")}
             history=[]
             start=time.monotonic()
             def query(mode,kind,xm=0,xv=0,zm=0,zv=0):
@@ -717,7 +717,7 @@ def run_qft_complex_pilot(directory,exe,tmp):
                 units.extend(l if zv>>i&1 else -l for i,l in enumerate(roots) if zm>>i&1)
                 bound=1<<primary
                 B=bound+1
-                natural={l:B**j for j,l in enumerate(classes)}
+                natural={l:B**(1<<j if kind=="amp-bits" else j) for j,l in enumerate(classes)}
                 for l in classes:natural[-l]=1
                 body=f"c t wmc\np cnf {vs} {len(clauses)+len(units)}\n"
                 body+="".join(f"c p weight {l} {w} 0\n" for l,w in sorted(natural.items()))
@@ -731,16 +731,18 @@ def run_qft_complex_pilot(directory,exe,tmp):
                 if remaining<=0:raise TimeoutError("Fourier scheduling deadline")
                 out=profile_gpmc([str(exe),"-mode=1","-natw",str(path)],min(5,remaining),
                                  pathlib.Path(tmp)/"qft-complex-time.tsv",row["metrics"])
-                value=parse_gpmc_integer(out,"wmc",B**len(classes)-1)
+                digit_count=D if kind=="amp-bits" else len(classes)
+                value=parse_gpmc_integer(out,"wmc",B**digit_count-1)
                 digits=[]
                 packed=value
-                for _ in classes:digits.append(packed%B);packed//=B
+                for _ in range(digit_count):digits.append(packed%B);packed//=B
                 assert not packed and sum(digits)<=bound
                 row.update(digits=digits,packed_bits=value.bit_length())
                 return digits
             norm=4*N*N
             root=None
             result=dict(verdict="UNKNOWN",witness_status="UNKNOWN")
+            pack_pairs=0
             try:
                 for mode in ("heap","factor"):
                     a,b=query(mode,"cross")
@@ -754,6 +756,11 @@ def run_qft_complex_pilot(directory,exe,tmp):
                 result.update(root=root,verdict="PROVED" if root==0 else "REFUTED")
                 if root==0:
                     result["witness_status"]="NOT_REQUIRED"
+                    for x,z in ((0,0),(N-1,N-1)):
+                        one=query("factor","amp",N-1,x,N-1,z)
+                        bits=query("factor","amp-bits",N-1,x,N-1,z)
+                        assert one==bits
+                        pack_pairs+=1
                 else:
                     w=root
                     xm=xv=zm=zv=0
@@ -788,6 +795,9 @@ def run_qft_complex_pilot(directory,exe,tmp):
                     t[e%M]=2 if e<M else -2
                     assert sum((u-v)**2 for u,v in zip(a,t))==w>0
                     result.update(witness_status="VERIFIED",x=xv,z=zv,amplitude=a,target=t,residual=w)
+                    compact_digits=query("factor","amp-bits",N-1,xv,N-1,zv)
+                    assert digits==compact_digits
+                    pack_pairs+=1
             except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):
                 if root is not None:
                     result.update(root=root,verdict="REFUTED" if root else "PROVED")
@@ -798,7 +808,7 @@ def run_qft_complex_pilot(directory,exe,tmp):
             checked=0
             for q in history:
                 if "digits" not in q:continue
-                counts=[0]*(D if q["kind"]=="amp" else 2)
+                counts=[0]*(D if q["kind"] in ("amp","amp-bits") else 2)
                 for x in range(N):
                     if x&q["xm"]!=q["xv"]:continue
                     for z in range(N):
@@ -816,7 +826,7 @@ def run_qft_complex_pilot(directory,exe,tmp):
                 checked+=1
             expected=0 if variant=="source" else norm if variant=="T" else 2*norm
             if root is not None:assert root==expected
-            result.update(n=n,d=D,variant=variant,checked=checked,calls=len(history),query_records=history)
+            result.update(n=n,d=D,variant=variant,checked=checked,calls=len(history),pack_pairs=pack_pairs,query_records=history)
             print("HOARE_QFT_COMPLEX_GPMC "+json.dumps(result),flush=True)
 
 def run_partition_pilot(directory, exe, tmp):

@@ -3002,8 +3002,8 @@ fn qft_complex_export(dir:&std::path::Path){
             let norm=4i128*(size*size) as i128;
             assert_eq!(residual,match variant{"source"=>0,"T"=>norm,_=>2*norm});
             let mut metadata=String::new();
-            for mode in ["heap","factor"]{for kind in ["cross","self","amp"]{
-                if mode=="heap"&&kind=="amp"{continue;}
+            for mode in ["heap","factor"]{for kind in ["cross","self","amp","amp-bits"]{
+                if mode=="heap"&&(kind=="amp"||kind=="amp-bits"){continue;}
                 let copies=if kind=="self"{2}else{1};
                 let primary=n+h*copies;
                 let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
@@ -3017,7 +3017,11 @@ fn qft_complex_export(dir:&std::path::Path){
                 }
                 let z=&outputs[0];let p=&phases[0];
                 let mut classes=Vec::new();
-                if kind=="amp"{
+                if kind=="amp-bits"{
+                    // Separate positive aliases, even for constant, repeated or
+                    // complemented phase roots. Each bit gets its own weight.
+                    for &l in p{classes.push(f.alias(l).unwrap());}
+                }else if kind=="amp"{
                     for e in 0..d{
                         let mut v=ONE;
                         for (i,&l) in p.iter().enumerate(){v=f.gate(false,v,if e>>i&1!=0{l}else{-l}).unwrap();}
@@ -3048,7 +3052,7 @@ fn qft_complex_export(dir:&std::path::Path){
                     let x=i%size;let a=(i/size)% (1usize<<h);
                     let b=if i<256{a}else{(1009*i+31)% (1usize<<h)};
                     let(za,pa)=eval(x,a);
-                    let expected=if kind=="amp"{Some(pa)}else{
+                    let expected=if kind=="amp"||kind=="amp-bits"{Some(pa)}else{
                         let(zb,pb)=if kind=="self"{eval(x,b)}else{(za,(d/size)*x*za%d)};
                         if za!=zb||pa%half!=pb%half{None}else{Some(usize::from(pa!=pb))}
                     };
@@ -3058,7 +3062,10 @@ fn qft_complex_export(dir:&std::path::Path){
                         let v=v.expect("admitted weighted extension");
                         for (i,&l) in z.iter().enumerate(){assert_eq!(lit_value(l,&v)==1,za>>i&1!=0);}
                         let active:Vec<_>=classes.iter().enumerate().filter_map(|(i,&l)|(lit_value(l,&v)==1).then_some(i)).collect();
-                        assert_eq!(active,vec![expected]);
+                        if kind=="amp-bits"{
+                            let word=active.iter().fold(0usize,|a,&i|a|(1usize<<i));
+                            assert_eq!(word,expected);
+                        }else{assert_eq!(active,vec![expected]);}
                     }else{assert!(v.is_none());}
                 }
                 let name=format!("qftcomplex-{n}-{variant}-{mode}-{kind}");

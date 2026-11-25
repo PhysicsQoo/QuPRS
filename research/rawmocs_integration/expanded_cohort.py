@@ -16,6 +16,8 @@ import time
 from compare import measure, bounded, digest
 from QuPRS.interface.ps2wmc import run_wmc
 from release_native_paired import parse
+from decimal import Decimal, localcontext
+from release_transfer import check_count
 
 ARMS=("gpmc","rawmocs")
 CASES={
@@ -78,8 +80,8 @@ def run(a,arm,lhs,rhs,label,capture):
             row["status"]="CENSORED_TIMEOUT" if proc.returncode==124 else "EXECUTION_ERROR"
         else:
             line,=[s for s in proc.stdout.splitlines() if s.startswith("COHORT_RESULT ")]
-            verdict,invoked,verify,ps,dimacs,tool=line.split(" ",1)[1].split("\t")
-            row.update(verdict=verdict,invoked=invoked=="true",verification_s=float(verify),pathsum_s=float(ps),dimacs_s=float(dimacs),tool_s=float(tool))
+            verdict,invoked,verify,ps,dimacs,tool,norm=line.split(" ",1)[1].split("\t")
+            row.update(verdict=verdict,invoked=invoked=="true",verification_s=float(verify),pathsum_s=float(ps),dimacs_s=float(dimacs),tool_s=float(tool),normalization_twice_log2=int(norm))
             if verdict in ("Timeout","MemoryOut"):row["status"]="CENSORED_"+verdict.upper()
             elif invoked=="false":row["status"]="RR_OR_ANALYTIC_ONLY"
             elif invoked=="true" and verdict in ("equivalent","equivalent*","not_equivalent"):
@@ -91,6 +93,9 @@ def run(a,arm,lhs,rhs,label,capture):
         row.update(status="CENSORED_WATCHDOG",wall_s=time.monotonic()-start)
     except Exception as e:
         row.update(status="ERROR",error=f"{type(e).__name__}: {e}")
+    if capture:
+        if cnf.exists():row["captured_cnf_sha256"]=digest(cnf)
+        if err.exists():row["solver_stderr_tail"]=err.read_text()[-4000:]
     save(pref.with_suffix(".json"),row)
     return row
 
@@ -109,9 +114,16 @@ def cohort(a,report):
     g,r=(report["preflight"][arm] for arm in ARMS)
     if not all(v["status"]=="COMPLETED" for v in (g,r)):
         report["status"]="RR_ONLY" if all(v["status"]=="RR_OR_ANALYTIC_ONLY" and v["verdict"] in expected for v in (g,r)) else "INCONCLUSIVE"
+        if a.case=="qft22" and g["status"]=="COMPLETED":
+            report["route_diagnostic"]=route_diagnostic(a,g)
         return
-    if not (g["verdict"]==r["verdict"] and g["verdict"] in expected and g["cnf_sha256"]==r["cnf_sha256"] and parity(g,r)):
+    if not (g["verdict"]==r["verdict"] and g["cnf_sha256"]==r["cnf_sha256"] and g["normalization_twice_log2"]==r["normalization_twice_log2"] and parity(g,r)):
         report["status"]="NUMERIC_OR_SOURCE_MISMATCH";return
+    if g["verdict"] not in expected:
+        report["status"]="SOURCE_EXPECTATION_MISMATCH"
+        report["source_diagnostic"]=source_diagnostic(a,g,r)
+        # Never promote the original EQ expectation or publish a speedup.
+        return
     report["rows"]=[]
     for i,arm in enumerate(("gpmc","rawmocs","rawmocs","gpmc")):
         row=run(a,arm,lhs,rhs,f"native-{i}-{arm}",False)
@@ -129,6 +141,74 @@ def cohort(a,report):
             report["solver_memory"][arm]=measure(arm,30,a.raw,a.gpmc,a.out/("memory-"+arm),
                 lambda selected: count_transport(cnf,selected))
         assert all(v["status"]=="COMPLETED" for v in report["solver_memory"].values())
+
+def distance_from_count(row):
+    # Exact squared midpoint, using the native verifier's actual residual
+    # normalization, not a guessed nearest power of two.
+    norm=Fraction(2)**row["normalization_twice_log2"]
+    d2=1-(Fraction(row["real"])**2+Fraction(row["imag"])**2)/norm
+    with localcontext() as ctx:
+        ctx.prec=65
+        x=Decimal(d2.numerator)/Decimal(d2.denominator)
+        return {"signed_distance_squared":str(x),"projective_distance":str(max(Decimal(0),x).sqrt())}
+
+def source_diagnostic(a,g,r):
+    cnf=a.out/"preflight-gpmc.cnf"
+    h=digest(cnf)
+    assert h==g["cnf_sha256"]==r["cnf_sha256"]
+    diag={"scope":"encoded residual CNF only, not source circuit certification",
+          "distance":{arm:distance_from_count(row) for arm,row in zip(ARMS,(g,r))},
+          "oracle_attempts":[],"witness_status":"UNAVAILABLE"}
+    for name in ("original_exact_prejoin.py","original_fixed_interval.py"):
+        proc=bounded([__import__("sys").executable,a.oracle/name,cnf,h],120)
+        (a.out/(name+".stdout")).write_text(proc.stdout)
+        (a.out/(name+".stderr")).write_text(proc.stderr)
+        diag["oracle_attempts"].append({"script":name,"exit":proc.returncode,"stderr_tail":proc.stderr[-500:]})
+        if proc.returncode!=0:continue
+        ref=json.loads(proc.stdout)
+        assert ref["source_sha256"]==h and ref["bits"]==550
+        assert ref["width"]<=19 and ref["work"]<=40000000 and ref["peak"]<=2000000
+        if name=="original_fixed_interval.py":assert ref["order_policy"] in ("fill-reverse","degree-reverse")
+        else:assert ref["status"]=="INDEPENDENT_INTERVAL_COMPLETE"
+        save(a.out/"independent-witness.json",ref)
+        try:
+            diag["witness_relative_upper"]={arm:check_count(row,ref,30) for arm,row in zip(ARMS,(g,r))}
+        except AssertionError:
+            diag["witness_status"]="MISMATCH";return diag
+        def square_bounds(v):
+            lo,hi=map(Fraction,v)
+            return (Fraction(0) if lo<=0<=hi else min(lo*lo,hi*hi),max(lo*lo,hi*hi))
+        rl,rh=square_bounds(ref["real"]);il,ih=square_bounds(ref["imag"])
+        norm=Fraction(2)**g["normalization_twice_log2"]
+        lo=1-(rh+ih)/norm;hi=1-(rl+il)/norm
+        diag["independent_distance_squared_interval"]=[str(lo),str(hi)]
+        diag["witness_status"]="PASS"
+        diag["independent_residual_neq_at_1e-8"]=lo>Fraction(1,10**16)
+        break
+    return diag
+
+def route_diagnostic(a,g):
+    cnf=a.out/"preflight-gpmc.cnf"
+    assert digest(cnf)==g["cnf_sha256"]
+    diag={"cnf_sha256":digest(cnf),"scope":"same captured residual, 90s independent route probes","rows":[]}
+    for mode in ("prejoin","general","auto"):
+        rss=a.out/("route-"+mode+".rss")
+        start=time.monotonic()
+        proc=subprocess.run(["timeout","-k","2s","95s","prlimit","--as="+AS,"--",
+            "/usr/bin/time","-f","%M","-o",str(rss),str(a.raw),"--digits","30","--solver",mode,
+            "--timeout-ms","90000",str(cnf)],text=True,capture_output=True,timeout=100)
+        (a.out/("route-"+mode+".stdout")).write_text(proc.stdout)
+        (a.out/("route-"+mode+".stderr")).write_text(proc.stderr)
+        row={"mode":mode,"exit":proc.returncode,"wall_s":time.monotonic()-start,"stderr_tail":proc.stderr[-4000:]}
+        if rss.exists():row["maxrss_kib_raw"]=rss.read_text()
+        if proc.returncode==0:
+            row.update(inspect("rawmocs",proc.stdout,proc.stderr))
+            row["gpmc_count_parity"]=parity(g,row)
+        else:
+            row["empty_numeric_stdout"]=not proc.stdout.strip()
+        diag["rows"].append(row)
+        save(a.out/"route-diagnostic.json",diag)
+    return diag
 
 def count_transport(cnf,selected):
     v=run_wmc(str(cnf),selected,timeout=30,preserve_count=True,precision_digits=30 if selected=="gpmc" else None)
@@ -152,17 +232,18 @@ def fallback(a,report):
             assert refused.returncode==6 and not refused.stdout.strip(),row
         for arm in ARMS:
             # Actual Python registered adapter and GPMC transport, exact analytic oracle.
-            value=measure(arm,30,a.raw,a.gpmc,a.out/(name+"-"+arm),lambda selected:count_transport(cnf,selected))
+            value=measure(arm,30,a.raw,a.gpmc,a.out/(name+"-"+arm),lambda selected:count_transport(cnf,selected),analytic_unsat_control=(name=="wide_unsat"))
             row["arms"][arm]=value;save(a.out/"report.json",report)
             assert value["status"]=="COMPLETED",value
             assert value["sat"]==sat and Fraction(value["real"])==re and Fraction(value["imag"])==im,value
-            if arm=="rawmocs" and name=="wide_signed":assert value["route"]=="general",value
+            if arm=="rawmocs" and name in ("wide_signed","wide_sat_zero"):assert value["route"]=="general",value
     report["status"]="FALLBACK_ORACLE_PASS"
 
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--case",choices=[*CASES,"fallback"],required=True)
     for name in ("raw","gpmc","out","bin"):p.add_argument("--"+name,required=True,type=lambda x:Path(x).resolve())
+    p.add_argument("--oracle",type=lambda x:Path(x).resolve(),required=True)
     a=p.parse_args();a.out.mkdir(parents=True,exist_ok=True)
     os.environ["QUPRS_GPMC_PATH"]=str(a.gpmc)
     report={"case":a.case,"status":"RUNNING","digits":30,"limit_s":LIMIT,"address_space_bytes":int(AS),"binary_sha256":{arm:digest(a.raw if arm=="rawmocs" else a.gpmc) for arm in ARMS}}
@@ -175,6 +256,6 @@ def main():
         save(a.out/"report.json",report)
         print("EXPANDED_COHORT_FINAL",json.dumps(report),flush=True)
     # Censoring and RR-only are scientifically useful, but mismatch must fail.
-    assert report["status"] in ("FALLBACK_ORACLE_PASS","PAIRED_DIAGNOSTIC_PASS","RR_ONLY","INCONCLUSIVE")
+    assert report["status"] in ("FALLBACK_ORACLE_PASS","PAIRED_DIAGNOSTIC_PASS","RR_ONLY","INCONCLUSIVE","SOURCE_EXPECTATION_MISMATCH")
 
 if __name__=="__main__":main()

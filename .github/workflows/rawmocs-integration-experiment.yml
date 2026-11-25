@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: [e2e, qpeinexact22-432, grover6-432, gf2-7-333, fallback, qft16-memory, qft20, qft22, qpeinexact20, grover6, qaoa9, vqe8, qnn8, wstate8, qft20-negative]
+        case: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["e2e","qpeinexact22-432","grover6-432","gf2-7-333","fallback","qft16-memory","qft20","qft22","qpeinexact20","grover6","qaoa9","vqe8","qnn8","wstate8","qft20-negative"]' || '["fallback","qft16-memory","qft20","qft22","qpeinexact20"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,7 +108,7 @@ jobs:
           git -C .gpmc rev-parse HEAD > .integration-evidence/gpmc-revision.txt
           python research/rawmocs_integration/expanded_cohort.py --case "$CASE" \
             --raw .rawmocs/crates/rawmocs-cli/target/release/rawmocs --gpmc .gpmc/build/gpmc \
-            --bin rust/target/release/examples/rawmocs_cohort --out .integration-evidence/expanded
+            --bin rust/target/release/examples/rawmocs_cohort --oracle .rawmocs/crates/rawmocs-cli/tools/repro --out .integration-evidence/expanded
       - uses: actions/upload-artifact@v4
         if: always()
         with:

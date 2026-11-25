@@ -50,7 +50,7 @@ def bounded(argv, seconds):
     )
 
 
-def measure(arm, digits, raw, gpmc, prefix, action):
+def measure(arm, digits, raw, gpmc, prefix, action, *, analytic_unsat_control=False):
     """Observe the actual QuPRS runner; supervise both arms identically."""
     row = {"arm": arm, "digits": digits, "status": "IN_PROGRESS"}
     original = solver_process.run
@@ -106,7 +106,17 @@ def measure(arm, digits, raw, gpmc, prefix, action):
                     assert int(m[2]) == {30: 100, 60: 200, 100: 333, 130: 432}[digits]
                     row["route"], row["bits"] = m[0], int(m[2])
                 else:
-                    assert re.findall(r"^c o precision (\d+)\s*$", proc.stdout, re.M) == [str(digits)]
+                    precision = re.findall(r"^c o precision (\d+)\s*$", proc.stdout, re.M)
+                    # GPMC can terminate on a Boolean contradiction before
+                    # initializing MPFR or printing its precision header. Only
+                    # the independently known UNSAT-zero fixture may admit
+                    # this omission; do not relax any measured SAT case.
+                    if analytic_unsat_control and not precision:
+                        assert row["sat"] is False and Fraction(row["real"]) == Fraction(row["imag"]) == 0
+                        row["precision_evidence"] = "NOT_APPLICABLE_ANALYTIC_UNSAT"
+                    else:
+                        assert precision == [str(digits)], (precision, digits)
+                        row["precision_evidence"] = "REPORTED"
                 assert row.get("peak_rss_kib", 0) > 0
                 if "transport_real" in row:
                     assert Fraction(row["transport_real"]) == Fraction(row["real"])

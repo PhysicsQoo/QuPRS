@@ -9,6 +9,7 @@ fn main() -> anyhow::Result<()> {
     anyhow::ensure!(n==m,"qubit mismatch");
     let opt=VerificationOptions {tool_name:a[3].clone(),strategy:VerificationStrategy::Proportional,timeout_secs:a[4].parse()?,..VerificationOptions::default()};
     let r=check_equivalence_with_options(n,&lhs,&rhs,&opt)?;
-    println!("COHORT_RESULT {}\t{}\t{:.9}\t{:.9}\t{:.9}\t{:.9}",r.equivalent(),r.solver_invoked,r.verification_time,r.pathsum_time,r.to_dimacs_time.unwrap_or(-1.),r.tool_time.unwrap_or(-1.));
+    let norm_twice = n.checked_add(r.final_ps.v.path_vars.len()).ok_or_else(||anyhow::anyhow!("normalization overflow"))?;
+    println!("COHORT_RESULT {}\t{}\t{:.9}\t{:.9}\t{:.9}\t{:.9}\t{}",r.equivalent(),r.solver_invoked,r.verification_time,r.pathsum_time,r.to_dimacs_time.unwrap_or(-1.),r.tool_time.unwrap_or(-1.),norm_twice);
     Ok(())
 }

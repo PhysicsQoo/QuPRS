@@ -1444,7 +1444,7 @@ theorem cube_sum_shift (n : Nat) (x s : State) (f : State → Int) :
   | zero => rfl
   | succ n ih =>
       simp only [cubeSum, ih, shift_set_wire]
-      cases hs : s n <;> simp [hs, bx, Int.add_comm]
+      cases s n <;> simp [bx, Int.add_comm]
 
 theorem cube_sum_tail (n : Nat) (x y : State) (f : State → Int)
     (h : ∀ i, n ≤ i → x i = y i) : cubeSum n x f = cubeSum n y f := by
@@ -1495,6 +1495,18 @@ def phaseCoeff (p : Int) (j : Nat) : Int :=
     else if p % 8 = (j : Int) + 4 then -1 else 0
   else 0
 
+private theorem int_eq_select_true (a b u v : Int) (h : a = b) :
+    (if a = b then u else v) = u := by
+  split
+  · rfl
+  · contradiction
+
+private theorem int_eq_select_false (a b u v : Int) (h : a ≠ b) :
+    (if a = b then u else v) = v := by
+  split
+  · contradiction
+  · rfl
+
 theorem phase_coeff_shift (p q : Int) (j : Nat) (b : Bool)
     (h : (q-p) % 8 = 4 * bit b) :
     phaseCoeff q j = sgn b * phaseCoeff p j := by
@@ -1504,21 +1516,36 @@ theorem phase_coeff_shift (p q : Int) (j : Nat) (b : Bool)
         have he : q % 8 = p % 8 := by
           change (q-p) % 8 = 0 at h
           omega
-        simp [phaseCoeff, hj, he, sgn]
+        unfold phaseCoeff
+        rw [he]
+        change _ = 1 * _
+        exact (Int.one_mul _).symm
     | true =>
         change (q-p) % 8 = 4 at h
         have h1 : q % 8 = (j : Int) ↔ p % 8 = (j : Int) + 4 := by omega
         have h2 : q % 8 = (j : Int) + 4 ↔ p % 8 = (j : Int) := by omega
         unfold phaseCoeff
         simp only [lt_select_true j 4 _ 0 hj]
-        simp only [h1, h2, sgn]
         by_cases hp : p % 8 = (j : Int)
         · have hn : p % 8 ≠ (j : Int) + 4 := by omega
-          simp [hp, hn]
-        · by_cases hq : p % 8 = (j : Int) + 4
-          · simp [hp, hq]
-          · simp [hp, hq]
-  · simp [phaseCoeff, hj]
+          have hq : q % 8 ≠ (j : Int) := fun he => hn (h1.mp he)
+          have hq4 : q % 8 = (j : Int) + 4 := h2.mpr hp
+          rw [int_eq_select_false _ _ _ _ hq,
+              int_eq_select_true _ _ _ _ hq4,
+              int_eq_select_true _ _ _ _ hp] <;> rfl
+        · by_cases hn : p % 8 = (j : Int) + 4
+          · have hq : q % 8 = (j : Int) := h1.mpr hn
+            rw [int_eq_select_true _ _ _ _ hq,
+                int_eq_select_false _ _ _ _ hp,
+                int_eq_select_true _ _ _ _ hn] <;> rfl
+          · have hq : q % 8 ≠ (j : Int) := fun he => hn (h1.mp he)
+            have hq4 : q % 8 ≠ (j : Int) + 4 := fun he => hp (h2.mp he)
+            rw [int_eq_select_false _ _ _ _ hq,
+                int_eq_select_false _ _ _ _ hq4,
+                int_eq_select_false _ _ _ _ hp,
+                int_eq_select_false _ _ _ _ hn] <;> rfl
+  · unfold phaseCoeff
+    simp only [lt_select_false j 4 _ 0 hj, Int.mul_zero]
 
 def fourierTerm (n : Nat) (gs : List Gate) (x z y : State) (j : Nat) : Int :=
   sgn (dot n x y) *

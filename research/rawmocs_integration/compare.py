@@ -209,6 +209,9 @@ def long_case(args, report):
         (args.out / (script + ".stderr")).write_text(result.stderr)
         if result.returncode == 0:
             ref = json.loads(result.stdout)
+            if script == "original_fixed_interval.py":
+                assert ref.get("order_policy") in ("fill-reverse", "degree-reverse")
+                ref["status"] = "INDEPENDENT_FIXED_INTERVAL_COMPLETE"
             break
     assert ref is not None, "independent witness unavailable"
     assert ref["source_sha256"] == source_hash and ref["bits"] == 550

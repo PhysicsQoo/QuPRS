@@ -1482,6 +1482,78 @@ mod exact_property_cnf {
         println!("HOARE_NATIVE_GSE cases={cases} terminal_before={terminal_before} eligible={eligible} hits={hits} multi={multi} removed={removed} terminal_after={terminal_after} entries={entries} wmc_checks={wmc} cnf_sizes={sizes:?} candidates={} overlaps={} limits={} positive_controls=2 negative_controls=1 raw_scale2=0",stats.candidates,stats.overlap,stats.limits);
     }
 
+
+    // Paired root difficulty discovery: identical property, preceding
+    // precondition specialization, native RR and survivor cancellation.
+    // Only the GSE arm changes the native residual after that boundary.
+    fn export_native_gse_wmc(dir:&std::path::Path){
+        let mut manifest=String::new();
+        for (n,parity_post) in [(6usize,false),(6,true),(7,true),(8,true)]{
+            let name=format!("gse-mixing-{n}-{}",if parity_post{"parity"}else{"bit"});
+            let ops=scale_mixing(n,3);
+            let pre:Vec<_>=(0..n).map(|i|bit(i,true)).collect();
+            let post=if parity_post{vec![equal_bits(0,1)]}else{vec![bit(0,false)]};
+            let x=(1u64<<n)-1;
+            let expected=raw_for_input(n,&ops,&post,x);
+            export_external_property(dir,&name,n,&ops,&pre,&post);
+            let input=HoareInput::build_scale(n,&ops,pre.clone(),post.clone()).expect("bounded mixing admission");
+            let mut ps=mono_substitute(input.ps.clone(),n,&pre).expect("constant input substitution");
+            let start=std::time::Instant::now();
+            let mut frame=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
+            let mut scale2=0u32;
+            for _ in 0..32{
+                let Some(step)=guarded_native_step(&ps,n,&frame) else{break;};
+                scale2+=step.scale2;ps=step.ps;frame=step.guard;
+            }
+            let s=compact(&ps,n).unwrap();
+            let mut report=PureRrReport{mode:PureRrMode::Sat,answer:Answer::Unknown,
+                reason:"gse-pilot",standard_runs:0,monomial_runs:0,algebraic_trials:0,
+                algebraic_hits:0,sat_queries:0,sat_visits:0,directions:vec![],residual_h:s.h};
+            let g=residual_guard(&s,&pre,&post,&mut report);
+            let full=g.unwrap_or_else(||property_guard(&s,&pre,&post).expect("bounded property guard"));
+            let terminal=guard_terminal(&s,&pre,&post,&full,&mut report);
+            let terminal=if matches!(terminal,Answer::Unknown){
+                sat_rr(&s,&pre,&post,200_000,&mut report)
+            }else{terminal};
+            let baseline_status=match terminal{
+                Answer::Proved=>{assert_eq!(expected,[0,0]);"PROVED"},
+                Answer::Refuted(w)=>{assert_eq!(w,x);assert_ne!(expected,[0,0]);"REFUTED"},
+                Answer::Unknown=>"RESIDUAL",
+            };
+            let ids=native_ids(&ps).unwrap();
+            let stable=|m:u64|ids.iter().enumerate().fold(0u64,|a,(i,&v)|a|(((m>>i)&1)<<v));
+            frame=NativeGuardFrame::new(&ps,full.iter().map(|&m|stable(m)).collect()).unwrap();
+            let common_ns=start.elapsed().as_nanos();
+            let mut after_ps=ps.clone();let mut after_frame=frame.clone();
+            let t=std::time::Instant::now();
+            let mut stats=GseStats::default();
+            let mut hits=0usize;
+            if baseline_status=="RESIDUAL"{
+                for _ in 0..8{
+                    let Some(step)=gse_step(&after_ps,n,&after_frame,&pre,&post,&mut stats) else{break;};
+                    after_ps=step.ps;after_frame=step.guard;hits+=1;
+                }
+            }
+            let gse_ns=t.elapsed().as_nanos();
+            for (mode,state,guard) in [("baseline",&ps,&frame),("gse",&after_ps,&after_frame)]{
+                let now=std::time::Instant::now();
+                let v=compact(state,n).unwrap();
+                let active=mul_anf(&property_guard(&v,&pre,&post).unwrap(),&guard.compact(state).unwrap()).unwrap();
+                let (c,d)=guarded_pair(&v,&active);
+                let text=serialize_external(&c,&[]);
+                let status=if baseline_status!="RESIDUAL"{"BASELINE_TERMINAL"}
+                    else if hits==0{"NO_GSE_MATCH"}
+                    else if text.is_none(){"UNKNOWN_ENCODING_LIMIT"}else{"READY"};
+                if let Some(data)=text{std::fs::write(dir.join(format!("native-gse-{name}-{mode}.cnf")),data).unwrap();}
+                let enc_ns=now.elapsed().as_nanos();
+                let prep=if mode=="gse"{gse_ns}else{0};
+                manifest.push_str(&format!("{name}\t{mode}\t{n}\t{}\t{}\t{}\t{scale2}\t{hits}\t{}\t{}\t{},{},{}\t{status}\t{baseline_status}\t{common_ns}\t{prep}\t{enc_ns}\t{},{}\t{}\t{}\t{}\n",
+                    input.initial.h,s.h,v.h,c.vars,c.clauses.len(),d[0],d[1],d[2],expected[0],expected[1],report.algebraic_hits,report.sat_visits,stats.limits));
+            }
+        }
+        std::fs::write(dir.join("native-gse-wmc.tsv"),manifest).unwrap();
+    }
+
     fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{
         if !admitted(n,ops){return None;}
         let mut ps=PathSum::new(n);
@@ -1742,6 +1814,7 @@ mod exact_property_cnf {
         export_scale_benchmark(&dir);
         export_fourier_heldout(&dir);
         export_native_affine_wmc(&dir);
+        export_native_gse_wmc(&dir);
     }
 
 

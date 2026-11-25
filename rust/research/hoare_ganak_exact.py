@@ -500,6 +500,13 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_native_affine_wmc(directory,solve,deadline,long_metrics)
         long_metrics=None
         query_cap=5
+    if (directory/"native-gse-wmc.tsv").is_file():
+        query_cap=35
+        deadline=time.monotonic()+360
+        long_metrics=[]
+        run_native_gse_wmc(directory,solve,deadline,long_metrics)
+        long_metrics=None
+        query_cap=5
     # Preserve the original discovery protocol on explicit request. Default
     # to the frozen long cohort rather than rerunning all 19 known timeouts.
     if os.environ.get("HOARE_SECTOR_TRANSPORT")=="1":
@@ -684,6 +691,52 @@ def run_native_affine_wmc(directory,solve,deadline,metrics):
         exact=sum(r["mode"]==m and r["coeff"] is not None for r in rows),
         full_verified=sum(r["mode"]==m and r["witness_routes"].get("full",{}).get("status")=="VERIFIED" for r in rows),
         guided_verified=sum(r["mode"]==m and r["witness_routes"].get("guided",{}).get("status")=="VERIFIED" for r in rows)) for m in ("mono","padded","free")}),flush=True)
+
+
+def run_native_gse_wmc(directory,solve,deadline,metrics):
+    """Root-only pilot; matched common preparation and GPMC exact backend."""
+    fields="case mode n h0 common_h h scale hits vars clauses delta status baseline_status common_ns prep_ns encoding_ns expected cancellation_hits sat_visits limits".split()
+    with (directory/"native-gse-wmc.tsv").open() as f:
+        plans={(p["case"],p["mode"]):p for p in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
+    assert len(plans)==8
+    rows=[]
+    for i,name in enumerate(sorted({name for name,_ in plans})):
+        n=int(plans[name,"baseline"]["n"]);cap={6:12,7:20,8:35}[n]
+        for rep in range(2):
+            modes=["baseline","gse"]
+            if (i+rep)%2:modes.reverse()
+            for mode in modes:
+                p=plans[name,mode]
+                row=dict(case=name,mode=mode,rep=rep,status=p["status"],baseline_status=p["baseline_status"],cap_s=cap,
+                    **{k:int(p[k]) for k in ("n","h0","common_h","h","scale","hits","vars","clauses","common_ns","prep_ns","encoding_ns","cancellation_hits","sat_visits","limits")})
+                target=tuple(map(int,p["expected"].split(",")))
+                assert p["expected"]==plans[name,"baseline"]["expected"]
+                row.update(expected=target,coeff=None,root_s=0.0,verdict="UNKNOWN")
+                if p["status"]=="READY" and time.monotonic()<deadline:
+                    base=(directory/f"native-gse-{name}-{mode}.cnf").read_bytes()
+                    row["cnf_sha256"]=hashlib.sha256(base).hexdigest()
+                    delta=list(map(int,p["delta"].split(",")))
+                    st=time.monotonic();end=min(deadline,st+cap)
+                    metrics.clear()
+                    try:
+                        v=tuple(solve(base.decode(),delta,[],end))
+                        if any(v) and not positive_surd(v):raise ValueError("negative leakage")
+                        c=tuple(x*(1<<row["scale"]) for x in v)
+                        assert c==target,(name,mode,c,target)
+                        row.update(coeff=c,status="EXACT_ROOT",verdict="REFUTED" if any(c) else "PROVED")
+                    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                    except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+                    row["root_s"]=time.monotonic()-st
+                    row["metrics"]=[dict(m) for m in metrics]
+                elif p["status"]=="READY":
+                    row["status"]="GLOBAL_BUDGET_NOT_RUN"
+                rows.append(row)
+                print("HOARE_NATIVE_GSE_GPMC "+json.dumps(row),flush=True)
+    assert len(rows)==16
+    print("HOARE_NATIVE_GSE_GPMC_SUMMARY "+json.dumps({m:dict(records=sum(r["mode"]==m for r in rows),
+        exact=sum(r["mode"]==m and r["coeff"] is not None for r in rows),
+        no_match=sum(r["mode"]==m and r["status"]=="NO_GSE_MATCH" for r in rows),
+        baseline_terminal=sum(r["mode"]==m and r["status"]=="BASELINE_TERMINAL" for r in rows)) for m in ("baseline","gse")}),flush=True)
 
 def run_residual_hybrid(directory,solve,deadline,direct_rows):
     direct={r["case"]:r for r in direct_rows}

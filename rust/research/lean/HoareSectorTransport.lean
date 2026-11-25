@@ -2454,4 +2454,140 @@ theorem run_sector_algebraic_sound (n : Nat) (gs : List Gate)
 #print axioms finite_algebraic_bad_iff
 #print axioms run_sector_algebraic_sound
 
+
+/-! Independent eight-residue table for the scaled coordinates of
+    exp(i*pi*p/4). The coordinates are integer pairs in Q(sqrt(2)),
+    not floating point and not a formal embedding into Complex.
+    The table is independent of the coefficient bucket definition. -/
+
+def phaseRealR (p : Int) : Int :=
+  if p % 8 = 1 ∨ p % 8 = 7 then 1
+  else if p % 8 = 3 ∨ p % 8 = 5 then -1 else 0
+
+def phaseRealU (p : Int) : Int :=
+  if p % 8 = 0 then 1 else if p % 8 = 4 then -1 else 0
+
+def phaseImagR (p : Int) : Int :=
+  if p % 8 = 1 ∨ p % 8 = 3 then 1
+  else if p % 8 = 5 ∨ p % 8 = 7 then -1 else 0
+
+def phaseImagU (p : Int) : Int :=
+  if p % 8 = 2 then 1 else if p % 8 = 6 then -1 else 0
+
+theorem phase_real_r (p : Int) :
+    phaseRealR p = phaseCoeff p 1 - phaseCoeff p 3 := by
+  rcases residue_cases p with hp | hp | hp | hp | hp | hp | hp | hp <;>
+    simp only [phaseRealR, phaseCoeff, hp] <;> decide
+
+theorem phase_real_u (p : Int) :
+    phaseRealU p = phaseCoeff p 0 := by
+  rcases residue_cases p with hp | hp | hp | hp | hp | hp | hp | hp <;>
+    simp only [phaseRealU, phaseCoeff, hp] <;> decide
+
+theorem phase_imag_r (p : Int) :
+    phaseImagR p = phaseCoeff p 1 + phaseCoeff p 3 := by
+  rcases residue_cases p with hp | hp | hp | hp | hp | hp | hp | hp <;>
+    simp only [phaseImagR, phaseCoeff, hp] <;> decide
+
+theorem phase_imag_u (p : Int) :
+    phaseImagU p = phaseCoeff p 2 := by
+  rcases residue_cases p with hp | hp | hp | hp | hp | hp | hp | hp <;>
+    simp only [phaseImagU, phaseCoeff, hp] <;> decide
+
+theorem cube_sum_sub (n : Nat) (base : State) (f g : State → Int) :
+    cubeSum n base (fun y => f y - g y) =
+      cubeSum n base f - cubeSum n base g := by
+  induction n generalizing base with
+  | zero => rfl
+  | succ n ih =>
+      simp only [cubeSum, ih]
+      omega
+
+/-- Direct signed Hadamard sandwich sum in a chosen scaled coordinate.
+    Physical matrix entries carry the additional nonzero factor
+    1/(2^n sqrt(2)); this file proves only the integer numerator bridge. -/
+def directCoordinate (n : Nat) (gs : List Gate) (x z : State)
+    (coord : Int → Int) : Int :=
+  cubeSum n zeroState (fun y =>
+    sgn (dot n x y) *
+      (sgn (dot n z (evalState gs y)) * coord (evalPhase gs y)))
+
+theorem direct_real_r (n : Nat) (gs : List Gate) (x z : State) :
+    directCoordinate n gs x z phaseRealR =
+      fourierAmp n gs x z 1 - fourierAmp n gs x z 3 := by
+  unfold directCoordinate fourierAmp
+  rw [← cube_sum_sub]
+  apply cube_sum_congr
+  intro y
+  simp only [phase_real_r, fourierTerm, Int.mul_sub]
+
+theorem direct_real_u (n : Nat) (gs : List Gate) (x z : State) :
+    directCoordinate n gs x z phaseRealU = fourierAmp n gs x z 0 := by
+  unfold directCoordinate fourierAmp
+  apply cube_sum_congr
+  intro y
+  simp only [phase_real_u, fourierTerm]
+
+theorem direct_imag_r (n : Nat) (gs : List Gate) (x z : State) :
+    directCoordinate n gs x z phaseImagR =
+      fourierAmp n gs x z 1 + fourierAmp n gs x z 3 := by
+  unfold directCoordinate fourierAmp
+  rw [← cube_sum_add]
+  apply cube_sum_congr
+  intro y
+  simp only [phase_imag_r, fourierTerm, Int.mul_add]
+
+theorem direct_imag_u (n : Nat) (gs : List Gate) (x z : State) :
+    directCoordinate n gs x z phaseImagU = fourierAmp n gs x z 2 := by
+  unfold directCoordinate fourierAmp
+  apply cube_sum_congr
+  intro y
+  simp only [phase_imag_u, fourierTerm]
+
+def directCoordinateZero (n : Nat) (gs : List Gate) (x z : State) : Prop :=
+  let r := directCoordinate n gs x z phaseRealR
+  let u := directCoordinate n gs x z phaseRealU
+  let i := directCoordinate n gs x z phaseImagR
+  let v := directCoordinate n gs x z phaseImagU
+  r*r - 2*(u*u) = 0 ∧ i*i - 2*(v*v) = 0
+
+theorem direct_coordinate_zero_iff (n : Nat) (gs : List Gate) (x z : State) :
+    directCoordinateZero n gs x z ↔ scaledNormZero (fourierAmp n gs x z) := by
+  unfold directCoordinateZero scaledNormZero scaledRealNorm scaledImagNorm
+  simp only [direct_real_r, direct_real_u, direct_imag_r, direct_imag_u]
+
+def finiteDirectBad (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (t : FiniteState n) (q : Bool) : Prop :=
+  ∃ x z : FiniteState n, affinePre n rs x.val ∧ dot n z.val t.val ≠ q ∧
+    ¬ directCoordinateZero n gs x.val z.val
+
+theorem finite_direct_bad_iff (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (t : FiniteState n) (q : Bool) :
+    finiteDirectBad n gs rs t q ↔ finiteAlgebraicBad n gs rs t q := by
+  constructor
+  · rintro ⟨x, z, hp, hq, hn⟩
+    exact ⟨x, z, hp, hq, fun hz => hn ((direct_coordinate_zero_iff n gs x.val z.val).mpr hz)⟩
+  · rintro ⟨x, z, hp, hq, hn⟩
+    exact ⟨x, z, hp, hq, fun hz => hn ((direct_coordinate_zero_iff n gs x.val z.val).mp hz)⟩
+
+theorem run_sector_direct_sound (n : Nat) (gs : List Gate)
+    (rs : List AffineRow) (bs : List Bool) (s t witness : FiniteState n)
+    (e b q : Bool) :
+    Sound (finiteDirectBad n gs rs t q) (runSector n gs rs bs s t witness e b q) := by
+  rw [propext (finite_direct_bad_iff n gs rs t q)]
+  exact run_sector_algebraic_sound n gs rs bs s t witness e b q
+
+#print axioms phase_real_r
+#print axioms phase_real_u
+#print axioms phase_imag_r
+#print axioms phase_imag_u
+#print axioms cube_sum_sub
+#print axioms direct_real_r
+#print axioms direct_real_u
+#print axioms direct_imag_r
+#print axioms direct_imag_u
+#print axioms direct_coordinate_zero_iff
+#print axioms finite_direct_bad_iff
+#print axioms run_sector_direct_sound
+
 end QuPRS.SectorTransport

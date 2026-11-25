@@ -2934,6 +2934,149 @@ fn hoare_modular_factor_phase(){
     mod_check(&s.phase,&s.output,51,3,&a,"feynman-qft4-source");
 }
 
+
+// Generated Fourier-spec fixtures, NOT a production QASM or RR admission.
+// Deliberate trailing HH retains interfering paths and a target scale of 2.
+fn qft_complex_export(dir:&std::path::Path){
+    #[derive(Clone,Copy)]
+    enum Qg{H(usize),Cp(usize,usize,u8),Swap(usize,usize)}
+    for n in [3usize,5]{
+        let k=n.max(3);let d=1usize<<k;let half=d/2;
+        let size=1usize<<n;let h=n+2;
+        let mut ops=Vec::new();
+        for j in (0..n).rev(){
+            ops.push(Qg::H(j));
+            for i in (0..j).rev(){ops.push(Qg::Cp(i,j,(d>>(j-i+1)) as u8));}
+        }
+        for i in 0..n/2{ops.push(Qg::Swap(i,n-1-i));}
+        ops.extend([Qg::H(0),Qg::H(0)]);
+        let mut wire:Vec<usize>=(0..n).collect();
+        let mut p=BTreeMap::<u64,u8>::new();let mut next=n;
+        let put=|p:&mut BTreeMap<u64,u8>,m:u64,c:u8|{
+            let v=(usize::from(p.get(&m).copied().unwrap_or(0))+usize::from(c))%d;
+            if v==0{p.remove(&m);}else{p.insert(m,v as u8);}
+        };
+        for &g in &ops{match g{
+            Qg::H(i)=>{put(&mut p,(1u64<<wire[i])|(1u64<<next),half as u8);wire[i]=next;next+=1;}
+            Qg::Cp(i,j,c)=>put(&mut p,(1u64<<wire[i])|(1u64<<wire[j]),c),
+            Qg::Swap(i,j)=>wire.swap(i,j),
+        }}
+        assert_eq!(next,n+h);
+        for variant in ["source","Z","T","X"]{
+            let mut phase=p.clone();
+            if variant=="Z"||variant=="T"{put(&mut phase,1u64<<wire[0],if variant=="Z"{half as u8}else{(d/8) as u8});}
+            let eval=|x:usize,y:usize|->(usize,usize){
+                // Independent gate path interpreter.
+                let mut z=x;let mut ph=0usize;let mut j=0;
+                for &g in &ops{match g{
+                    Qg::H(i)=>{let b=y>>j&1;j+=1;ph+=half*(z>>i&1)*b;z=(z&!(1<<i))|(b<<i);}
+                    Qg::Cp(i,j,c)=>ph+=usize::from(c)*(z>>i&1)*(z>>j&1),
+                    Qg::Swap(i,j)=>z^=((z>>i^z>>j)&1)*((1<<i)|(1<<j)),
+                }}
+                if variant=="Z"{ph+=half*(z&1);}
+                if variant=="T"{ph+=(d/8)*(z&1);}
+                if variant=="X"{z^=1;}
+                (z,ph%d)
+            };
+            let mut hist=vec![vec![0u64;d];size*size];
+            for x in 0..size{for y in 0..1usize<<h{
+                let(z,ph)=eval(x,y);
+                let a=(x|(y<<n)) as u64;
+                let pp=phase.iter().filter(|&(&m,_)|a&m==m).map(|(_,&c)|usize::from(c)).sum::<usize>()%d;
+                let zz=wire.iter().enumerate().fold(0usize,|r,(i,&j)|r|(((a>>j&1)as usize)<<i))^usize::from(variant=="X");
+                assert_eq!((pp,zz),(ph,z));
+                hist[x*size+z][ph]+=1;
+            }}
+            let mut residual=0i128;
+            for x in 0..size{for z in 0..size{
+                let orig=z^usize::from(variant=="X");
+                let e=((d/size)*x*orig+if variant=="Z"{half*(z&1)}else if variant=="T"{d/8*(z&1)}else{0})%d;
+                let t=(d/size)*x*z%d;
+                for j in 0..half{
+                    let a=i128::from(hist[x*size+z][j])-i128::from(hist[x*size+z][j+half]);
+                    let coeff=|e:usize|if e%half==j{if e>=half{-2i128}else{2}}else{0};
+                    assert_eq!(a,coeff(e));
+                    residual+=(a-coeff(t)).pow(2);
+                }
+            }}
+            let norm=4i128*(size*size) as i128;
+            assert_eq!(residual,match variant{"source"=>0,"T"=>norm,_=>2*norm});
+            let mut metadata=String::new();
+            for mode in ["heap","factor"]{for kind in ["cross","self","amp"]{
+                if mode=="heap"&&kind=="amp"{continue;}
+                let copies=if kind=="self"{2}else{1};
+                let primary=n+h*copies;
+                let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+                let mut phases=Vec::new();let mut outputs=Vec::new();
+                for j in 0..copies{
+                    let bits:Vec<Lit>=(0..n).map(|i|(i+2) as Lit)
+                        .chain((0..h).map(|i|(2+n+j*h+i) as Lit)).collect();
+                    phases.push(mod_phase(&mut f,&phase,&bits,k,mode).expect("bounded Fourier phase"));
+                    let mut out:Vec<_>=wire.iter().map(|&i|bits[i]).collect();
+                    if variant=="X"{out[0]=-out[0];}outputs.push(out);
+                }
+                let z=&outputs[0];let p=&phases[0];
+                let mut classes=Vec::new();
+                if kind=="amp"{
+                    for e in 0..d{
+                        let mut v=ONE;
+                        for (i,&l) in p.iter().enumerate(){v=f.gate(false,v,if e>>i&1!=0{l}else{-l}).unwrap();}
+                        classes.push(f.alias(v).unwrap());
+                    }
+                }else{
+                    let other=if kind=="self"{
+                        for i in 0..n{let l=f.gate(true,z[i],outputs[1][i]).unwrap();if l!=ZERO{f.c.enforce(-l);}}
+                        phases[1].clone()
+                    }else{
+                        // Independent exact target exponent (D/N)*x*z.
+                        let mut t=vec![ZERO;k];
+                        for i in 0..n{for j in 0..n{
+                            let b=i+j+(k-n);if b>=k{continue;}
+                            let l=f.gate(false,(i+2) as Lit,z[j]).unwrap();
+                            let mut word=vec![ZERO;k];word[b]=l;
+                            t=mod_add(&mut f,&t,&word).unwrap();
+                        }}
+                        t
+                    };
+                    for i in 0..k-1{let l=f.gate(true,p[i],other[i]).unwrap();if l!=ZERO{f.c.enforce(-l);}}
+                    let sign=f.gate(true,p[k-1],other[k-1]).unwrap();
+                    classes.push(f.alias(-sign).unwrap());classes.push(f.alias(sign).unwrap());
+                }
+                assert!(f.bounded());
+                let samples=if copies==1{size*(1usize<<h)}else{512};
+                for i in 0..samples{
+                    let x=i%size;let a=(i/size)% (1usize<<h);
+                    let b=if i<256{a}else{(1009*i+31)% (1usize<<h)};
+                    let(za,pa)=eval(x,a);
+                    let expected=if kind=="amp"{Some(pa)}else{
+                        let(zb,pb)=if kind=="self"{eval(x,b)}else{(za,(d/size)*x*za%d)};
+                        if za!=zb||pa%half!=pb%half{None}else{Some(usize::from(pa!=pb))}
+                    };
+                    let assignment=(x|(a<<n)|if copies==2{b<<(n+h)}else{0}) as u64;
+                    let v=factor_up(&f.c,primary,assignment);
+                    if let Some(expected)=expected{
+                        let v=v.expect("admitted weighted extension");
+                        for (i,&l) in z.iter().enumerate(){assert_eq!(lit_value(l,&v)==1,za>>i&1!=0);}
+                        let active:Vec<_>=classes.iter().enumerate().filter_map(|(i,&l)|(lit_value(l,&v)==1).then_some(i)).collect();
+                        assert_eq!(active,vec![expected]);
+                    }else{assert!(v.is_none());}
+                }
+                let name=format!("qftcomplex-{n}-{variant}-{mode}-{kind}");
+                let mut dimacs=format!("p cnf {} {}\n",f.c.vars,f.c.clauses.len());
+                for cl in &f.c.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=f.c.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
+                std::fs::write(dir.join(format!("{name}.cnf")),dimacs).unwrap();
+                let cls=classes.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(",");
+                let roots=z.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(",");
+                metadata.push_str(&format!("{mode}\t{kind}\t{name}\t{primary}\t{}\t{}\t{cls}\t{roots}\n",f.c.vars,f.c.clauses.len()));
+                println!("HOARE_QFT_COMPLEX_EXPORT case={name} vars={} clauses={} checks={samples}",f.c.vars,f.c.clauses.len());
+            }}
+            std::fs::write(dir.join(format!("qftcomplex-{n}-{variant}.tsv")),metadata).unwrap();
+            let oracle=hist.iter().map(|a|a.iter().map(|v|v.to_string()).collect::<Vec<_>>().join("\t")+"\n").collect::<Vec<_>>().concat();
+            std::fs::write(dir.join(format!("qftcomplex-{n}-{variant}-oracle.tsv")),oracle).unwrap();
+        }
+    }
+}
+
 fn multi_witness_export(t:&Symbolic,variant:&str,dir:&std::path::Path){
     assert_eq!((t.n,t.h),(8,7));
     assert!(t.phase.values().all(|&v|v==4));
@@ -3331,6 +3474,7 @@ fn partition_export(dir:&std::path::Path){
         factor_export(&dir);
         multi_export(&dir);
         partition_export(&dir);
+        qft_complex_export(&dir);
         export_native_gse_wmc(&dir);
     }
 

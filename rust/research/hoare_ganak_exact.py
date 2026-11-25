@@ -685,6 +685,140 @@ def run_multi_witness_pilot(directory,exe,tmp):
                 assert "x" not in failure and "z" not in failure
             print("HOARE_WITNESS_TIMEOUT_CONTROL "+json.dumps(dict(variant=variant,checks=len(history))),flush=True)
 
+
+def run_qft_complex_pilot(directory,exe,tmp):
+    """Generated QFT specification: exact trace coefficient norm and packed witness."""
+    for n in (3,5):
+        N=1<<n
+        D=1<<max(3,n)
+        M=D//2
+        h=n+2
+        for variant in ("source","Z","T","X"):
+            records={}
+            with (directory/f"qftcomplex-{n}-{variant}.tsv").open() as f:
+                for mode,kind,name,primary,vs,cs,classes,roots in csv.reader(f,delimiter="\t"):
+                    primary,vs,cs=map(int,(primary,vs,cs))
+                    assert (mode,kind) not in records and mode in ("heap","factor") and kind in ("cross","self","amp")
+                    assert primary==n+h*(2 if kind=="self" else 1) and 0<vs<=10000 and 0<cs<=40000
+                    classes=list(map(int,classes.split(",")))
+                    roots=list(map(int,roots.split(",")))
+                    assert len(classes)==(D if kind=="amp" else 2) and len(set(classes))==len(classes)
+                    assert all(0<l<=vs for l in classes) and len(roots)==n and all(0<abs(l)<=vs for l in roots)
+                    header,*clauses=(directory/f"{name}.cnf").read_text().splitlines()
+                    assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+                    records[mode,kind]=(primary,vs,clauses,classes,roots)
+            assert set(records)=={("heap","cross"),("heap","self"),("factor","cross"),("factor","self"),("factor","amp")}
+            history=[]
+            start=time.monotonic()
+            def query(mode,kind,xm=0,xv=0,zm=0,zv=0):
+                primary,vs,clauses,classes,roots=records[mode,kind]
+                assert 0<=xm<N and xv&~xm==0 and 0<=zm<N and zv&~zm==0
+                units=[(2+i) if xv>>i&1 else -(2+i) for i in range(n) if xm>>i&1]
+                units.extend(l if zv>>i&1 else -l for i,l in enumerate(roots) if zm>>i&1)
+                bound=1<<primary
+                B=bound+1
+                natural={l:B**j for j,l in enumerate(classes)}
+                for l in classes:natural[-l]=1
+                body=f"c t wmc\np cnf {vs} {len(clauses)+len(units)}\n"
+                body+="".join(f"c p weight {l} {w} 0\n" for l,w in sorted(natural.items()))
+                body+="\n".join(clauses)+"\n"+"".join(f"{l} 0\n" for l in units)
+                path=pathlib.Path(tmp)/"qft-complex.cnf"
+                path.write_text(body)
+                row=dict(mode=mode,kind=kind,xm=xm,xv=xv,zm=zm,zv=zv,
+                         sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[])
+                history.append(row)
+                remaining=90-(time.monotonic()-start)
+                if remaining<=0:raise TimeoutError("Fourier scheduling deadline")
+                out=profile_gpmc([str(exe),"-mode=1","-natw",str(path)],min(5,remaining),
+                                 pathlib.Path(tmp)/"qft-complex-time.tsv",row["metrics"])
+                value=parse_gpmc_integer(out,"wmc",B**len(classes)-1)
+                digits=[]
+                packed=value
+                for _ in classes:digits.append(packed%B);packed//=B
+                assert not packed and sum(digits)<=bound
+                row.update(digits=digits,packed_bits=value.bit_length())
+                return digits
+            norm=4*N*N
+            root=None
+            result=dict(verdict="UNKNOWN",witness_status="UNKNOWN")
+            try:
+                for mode in ("heap","factor"):
+                    a,b=query(mode,"cross")
+                    c=2*(a-b)
+                    a,b=query(mode,"self")
+                    assert a-b==norm
+                    w=2*(norm-c)
+                    assert w>=0
+                    if root is None:root=w
+                    else:assert root==w
+                result.update(root=root,verdict="PROVED" if root==0 else "REFUTED")
+                if root==0:
+                    result["witness_status"]="NOT_REQUIRED"
+                else:
+                    w=root
+                    xm=xv=zm=zv=0
+                    def restricted(xm,xv,zm,zv):
+                        T=4*(N>>xm.bit_count())*(N>>zm.bit_count())
+                        if zm:
+                            a,b=query("factor","self",xm,xv,zm,zv)
+                            S=a-b
+                        else:S=4*(N>>xm.bit_count())*N
+                        a,b=query("factor","cross",xm,xv,zm,zv)
+                        W=S-4*(a-b)+T
+                        assert S>=0 and W>=0
+                        return W
+                    for i in range(n):
+                        bit=1<<i
+                        left=restricted(xm|bit,xv,0,0)
+                        assert left<=w
+                        if left:w=left
+                        else:xv|=bit
+                        xm|=bit
+                    for i in reversed(range(n)):
+                        bit=1<<i
+                        left=restricted(xm,xv,zm|bit,zv)
+                        assert left<=w
+                        if left:w=left
+                        else:zv|=bit
+                        zm|=bit
+                    digits=query("factor","amp",N-1,xv,N-1,zv)
+                    a=[digits[j]-digits[j+M] for j in range(M)]
+                    t=[0]*M
+                    e=(D//N)*xv*zv%D
+                    t[e%M]=2 if e<M else -2
+                    assert sum((u-v)**2 for u,v in zip(a,t))==w>0
+                    result.update(witness_status="VERIFIED",x=xv,z=zv,amplitude=a,target=t,residual=w)
+            except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):
+                if root is not None:
+                    result.update(root=root,verdict="REFUTED" if root else "PROVED")
+                    if root==0:result["witness_status"]="NOT_REQUIRED"
+            # No independent circuit histogram loaded until all solver decisions finish.
+            hist=[list(map(int,l.split("\t"))) for l in (directory/f"qftcomplex-{n}-{variant}-oracle.tsv").read_text().splitlines()]
+            assert len(hist)==N*N and all(len(a)==D for a in hist)
+            checked=0
+            for q in history:
+                if "digits" not in q:continue
+                counts=[0]*(D if q["kind"]=="amp" else 2)
+                for x in range(N):
+                    if x&q["xm"]!=q["xv"]:continue
+                    for z in range(N):
+                        if z&q["zm"]!=q["zv"]:continue
+                        a=hist[x*N+z]
+                        e=(D//N)*x*z%D
+                        if q["kind"]=="cross":
+                            counts[0]+=a[e];counts[1]+=a[(e+M)%D]
+                        elif q["kind"]=="self":
+                            counts[0]+=sum(v*v for v in a)
+                            counts[1]+=sum(v*a[(j+M)%D] for j,v in enumerate(a))
+                        else:
+                            for j,v in enumerate(a):counts[j]+=v
+                assert counts==q["digits"]
+                checked+=1
+            expected=0 if variant=="source" else norm if variant=="T" else 2*norm
+            if root is not None:assert root==expected
+            result.update(n=n,d=D,variant=variant,checked=checked,calls=len(history),query_records=history)
+            print("HOARE_QFT_COMPLEX_GPMC "+json.dumps(result),flush=True)
+
 def run_partition_pilot(directory, exe, tmp):
     """Separate source-only partition pilot. Unknown leaves never certify a cover."""
     with (directory/"native-partition.tsv").open() as f:
@@ -943,6 +1077,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_multi_witness_pilot(directory,exe,tmp)
     if (directory/"native-partition.tsv").is_file():
         run_partition_pilot(directory,exe,tmp)
+    if (directory/"qftcomplex-3-source.tsv").is_file():
+        run_qft_complex_pilot(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

@@ -3084,6 +3084,192 @@ fn qft_complex_export(dir:&std::path::Path){
     }
 }
 
+
+// Bounded generated multi-coefficient targets. Compare canonical coefficient
+// lookup to a factored target term selector with deliberate multiplicity.
+// No production parser, RR, or normalization changes.
+fn sparse_target_export(dir:&std::path::Path){
+    let mut manifest=String::new();
+    for n in [2usize,4]{
+        let k=n+2;let d=1usize<<k;let m=d/2;let size=1usize<<n;
+        let h=2*n+2;let ys=1usize<<h;
+        let angles=[1usize,1,d/4,d/8];
+        let mut target=vec![vec![0i64;m];size];
+        let exponents:Vec<_>=(0..size).map(|u|
+            (0..n).filter(|&i|u>>i&1!=0).map(|i|angles[i]).sum::<usize>()%d).collect();
+        for diff in 0..size{for u in 0..size{
+            let e=exponents[u];
+            let neg=((diff&u).count_ones()%2!=0)^(e>=m);
+            target[diff][e%m]+=if neg{-2}else{2};
+        }}
+        let norm=(size*ys) as i128;
+        assert_eq!((size as i128)*target.iter().flatten().map(|&v|i128::from(v).pow(2)).sum::<i128>(),norm);
+        // A separate circuit path interpreter is the source oracle.
+        // Each (true,i,0) is H, each (false,i,c) is a phase gate.
+        let mut ops=Vec::new();
+        for i in 0..n{ops.extend([(true,i,0usize),(false,i,angles[i]),(true,i,0)]);}
+        ops.extend([(true,0,0),(true,0,0)]);
+        let mut wire:Vec<_>=(0..n).collect();
+        let mut phase=BTreeMap::<u64,u8>::new();let mut next=n;
+        let put=|p:&mut BTreeMap<u64,u8>,mask:u64,c:usize|{
+            let v=(usize::from(p.get(&mask).copied().unwrap_or(0))+c)%d;
+            if v==0{p.remove(&mask);}else{p.insert(mask,v as u8);}
+        };
+        for &(hh,i,c) in &ops{
+            if hh{put(&mut phase,(1u64<<wire[i])|(1u64<<next),m);wire[i]=next;next+=1;}
+            else{put(&mut phase,1u64<<wire[i],c);}
+        }
+        assert_eq!(next,n+h);
+        for variant in ["source","Z","T","X"]{
+            let mut phase=phase.clone();
+            if variant=="Z"||variant=="T"{put(&mut phase,1u64<<wire[0],if variant=="Z"{m}else{d/8});}
+            let eval=|x:usize,y:usize|{
+                let mut z=x;let mut e=0;let mut j=0;
+                for &(hh,i,c) in &ops{
+                    if hh{let a=y>>j&1;j+=1;e+=m*(z>>i&1)*a;z=(z&!(1<<i))|(a<<i);}
+                    else{e+=c*(z>>i&1);}
+                }
+                if variant=="Z"{e+=m*(z&1);}
+                if variant=="T"{e+=d/8*(z&1);}
+                if variant=="X"{z^=1;}
+                (z,e%d)
+            };
+            let mut hist=vec![vec![0i128;d];size*size];
+            for x in 0..size{for y in 0..ys{
+                let(z,e)=eval(x,y);
+                let a=(x|(y<<n)) as u64;
+                let p=phase.iter().filter(|&(&mask,_)|a&mask==mask).map(|(_,&v)|usize::from(v)).sum::<usize>()%d;
+                let out=wire.iter().enumerate().fold(0usize,|r,(i,&v)|r|(((a>>v&1) as usize)<<i))^usize::from(variant=="X");
+                assert_eq!((p,out),(e,z));
+                hist[x*size+z][e]+=1;
+            }}
+            let(mut cp,mut cm,mut tp,mut tm,mut sp,mut sm,mut w,mut sn)=(0i128,0i128,0i128,0i128,0i128,0i128,0i128,0i128);
+            for x in 0..size{for z in 0..size{
+                let a=&hist[x*size+z];let t=&target[x^z];
+                let original=&target[x^(z^usize::from(variant=="X"))];
+                let shift=if variant=="Z"{m*(z&1)}else if variant=="T"{d/8*(z&1)}else{0};
+                let mut want=vec![0i64;m];
+                for (j,&v) in original.iter().enumerate(){let e=(j+shift)%d;want[e%m]+=if e>=m{-v}else{v};}
+                for j in 0..m{
+                    let v=a[j]-a[j+m];assert_eq!(v,i128::from(want[j]));
+                    sn+=v*v;w+=(v-i128::from(t[j])).pow(2);
+                }
+                for e in 0..d{
+                    let v=a[e]*i128::from(if e>=m{-t[e%m]}else{t[e%m]});
+                    if v>=0{cp+=v;}else{cm-=v;}
+                    sp+=a[e]*a[e];sm+=a[e]*a[(e+m)%d];
+                }
+                for u in 0..size{
+                    let e=exponents[u];let b=((x^z)&u).count_ones()%2!=0;
+                    let (p,q)=(2*a[e],2*a[(e+m)%d]);
+                    if b{tp+=q;tm+=p;}else{tp+=p;tm+=q;}
+                }
+            }}
+            assert_eq!(sn,norm);assert_eq!(sp-sm,norm);assert_eq!(cp-cm,tp-tm);
+            assert_eq!(w,2*(norm-cp+cm));assert_eq!(w,match variant{"source"=>0,"T"=>norm,_=>2*norm});
+            for route in ["lookup","selector","self"]{
+                let start=std::time::Instant::now();
+                let extra=if route=="selector"{n}else if route=="self"{h}else{0};
+                let primary=n+h+extra;
+                let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+                let copies=if route=="self"{2}else{1};
+                let mut phases=Vec::new();let mut outputs=Vec::new();
+                for j in 0..copies{
+                    let bits:Vec<Lit>=(0..n).map(|i|(i+2) as Lit)
+                        .chain((0..h).map(|i|(2+n+j*h+i) as Lit)).collect();
+                    phases.push(mod_phase(&mut f,&phase,&bits,k,"factor").unwrap());
+                    let mut out:Vec<_>=wire.iter().map(|&i|bits[i]).collect();
+                    if variant=="X"{out[0]=-out[0];}outputs.push(out);
+                }
+                let z=&outputs[0];let p=&phases[0];
+                let mut classes=Vec::<(Lit,i64)>::new();
+                if route=="lookup"{
+                    // Direct coefficient lookup on (x XOR z, phase word).
+                    // Truth table -> Boolean ANF -> shared factor compiler.
+                    // Bounded reference target compiler, not a scalable general HSL parser.
+                    let mut bits=Vec::new();
+                    for i in 0..n{bits.push(f.gate(true,(i+2) as Lit,z[i]).unwrap());}
+                    bits.extend(p.iter().copied());
+                    let mut enabled=ZERO;
+                    for weight in [-4i64,-2,2,4]{
+                        let mut tab:Vec<bool>=(0..size*d).map(|v|{
+                            let e=v>>n;let t=target[v&(size-1)][e%m];
+                            (if e>=m{-t}else{t})==weight
+                        }).collect();
+                        for i in 0..n+k{for j in 0..tab.len(){if j>>i&1!=0{
+                            let a=tab[j^(1<<i)];tab[j]^=a;
+                        }}}
+                        let anf=tab.iter().enumerate().filter_map(|(i,&v)|v.then_some(i as u64)).collect::<Anf>();
+                        let l=f.anf(&anf,&bits,true).unwrap();
+                        enabled=f.gate(true,enabled,l).unwrap();
+                        classes.push((f.alias(l).unwrap(),weight));
+                    }
+                    // Classes are mutually exclusive by construction.
+                    f.c.enforce(enabled);
+                }else{
+                    let (other,sign)=if route=="selector"{
+                        let mut e=vec![ZERO;k];let mut sign=ZERO;
+                        for i in 0..n{
+                            let u=(2+n+h+i) as Lit;
+                            let word=(0..k).map(|j|if angles[i]>>j&1!=0{u}else{ZERO}).collect::<Vec<_>>();
+                            e=mod_add(&mut f,&e,&word).unwrap();
+                            let a=f.gate(true,(2+i) as Lit,z[i]).unwrap();
+                            let b=f.gate(false,a,u).unwrap();
+                            sign=f.gate(true,sign,b).unwrap();
+                        }
+                        (e,sign)
+                    }else{
+                        for i in 0..n{
+                            let v=f.gate(true,z[i],outputs[1][i]).unwrap();if v!=ZERO{f.c.enforce(-v);}
+                        }
+                        (phases[1].clone(),ZERO)
+                    };
+                    for i in 0..k-1{
+                        let v=f.gate(true,p[i],other[i]).unwrap();if v!=ZERO{f.c.enforce(-v);}
+                    }
+                    let v=f.gate(true,p[k-1],other[k-1]).unwrap();
+                    let neg=f.gate(true,v,sign).unwrap();
+                    let weight=if route=="selector"{2}else{1};
+                    classes.push((f.alias(-neg).unwrap(),weight));classes.push((f.alias(neg).unwrap(),-weight));
+                }
+                assert!(f.bounded());
+                let encode_ns=start.elapsed().as_nanos();
+                let samples=if n==2&&route!="self"{1usize<<primary}else{1024};
+                let mut seed=0x48504831u32;
+                for i in 0..samples{
+                    let a=if n==2&&route!="self"{i as u64}else{u64::from(mod_rng(&mut seed))&((1u64<<primary)-1)};
+                    let x=(a as usize)&(size-1);let y=(a as usize>>n)&(ys-1);let j=a as usize>>(n+h);
+                    let(z,e)=eval(x,y);
+                    let want=if route=="lookup"{
+                        let v=target[x^z][e%m];if e>=m{-v}else{v}
+                    }else if route=="selector"{
+                        let q=exponents[j];
+                        if e%m!=q%m{0}else if (e!=q)^(((x^z)&j).count_ones()%2!=0){-2}else{2}
+                    }else{
+                        let(zb,q)=eval(x,j);
+                        if z!=zb||e%m!=q%m{0}else if e!=q{-1}else{1}
+                    };
+                    let v=factor_up(&f.c,primary,a);
+                    if want==0{assert!(v.is_none());}else{
+                        let v=v.unwrap();let active:Vec<_>=classes.iter().filter(|&&(l,_)|lit_value(l,&v)==1).collect();
+                        assert_eq!(active.len(),1);assert_eq!(active[0].1,want);
+                    }
+                }
+                let name=format!("sparse-{n}-{variant}-{route}");
+                let mut dimacs=format!("p cnf {} {}\n",f.c.vars,f.c.clauses.len());
+                for cl in &f.c.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=f.c.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
+                std::fs::write(dir.join(format!("{name}.cnf")),dimacs).unwrap();
+                let cls=classes.iter().map(|(l,v)|format!("{l}:{v}")).collect::<Vec<_>>().join(",");
+                let(p,q)=match route{"lookup"=>(cp,cm),"selector"=>(tp,tm),_=>(sp,sm)};
+                manifest.push_str(&format!("{name}\t{n}\t{variant}\t{route}\t{primary}\t{}\t{}\t{cls}\t{p}\t{q}\t{norm}\t{w}\t{encode_ns}\t{samples}\n",f.c.vars,f.c.clauses.len()));
+                println!("HOARE_SPARSE_EXPORT case={name} vars={} clauses={} checks={samples} encode_ns={encode_ns}",f.c.vars,f.c.clauses.len());
+            }
+        }
+    }
+    assert_eq!(manifest.lines().count(),24);
+    std::fs::write(dir.join("native-sparse-target.tsv"),manifest).unwrap();
+}
+
 fn multi_witness_export(t:&Symbolic,variant:&str,dir:&std::path::Path){
     assert_eq!((t.n,t.h),(8,7));
     assert!(t.phase.values().all(|&v|v==4));
@@ -3482,6 +3668,7 @@ fn partition_export(dir:&std::path::Path){
         multi_export(&dir);
         partition_export(&dir);
         qft_complex_export(&dir);
+        sparse_target_export(&dir);
         export_native_gse_wmc(&dir);
     }
 

@@ -829,6 +829,56 @@ def run_qft_complex_pilot(directory,exe,tmp):
             result.update(n=n,d=D,variant=variant,checked=checked,calls=len(history),pack_pairs=pack_pairs,query_records=history)
             print("HOARE_QFT_COMPLEX_GPMC "+json.dumps(result),flush=True)
 
+
+def run_sparse_target_pilot(directory,exe,tmp):
+    """Bounded canonical target coefficient lookup versus term selector."""
+    with (directory/"native-sparse-target.tsv").open() as f:
+        manifest=list(csv.reader(f,delimiter="\t"))
+    assert len(manifest)==24 and len({r[0] for r in manifest})==24
+    rows={}
+    for name,n,variant,route,primary,vs,cs,classes,ep,em,norm,w,enc,checks in manifest:
+        n,primary,vs,cs,ep,em,norm,w,enc,checks=map(int,(n,primary,vs,cs,ep,em,norm,w,enc,checks))
+        assert n in (2,4) and variant in ("source","Z","T","X") and route in ("lookup","selector","self")
+        h=2*n+2
+        assert primary==n+h+(n if route=="selector" else h if route=="self" else 0)
+        assert 0<vs<=10000 and 0<cs<=40000 and norm==1<<(n+h)
+        weights=[(int(l),int(v)) for l,v in (x.split(":") for x in classes.split(","))]
+        assert len({l for l,v in weights})==len(weights) and all(0<l<=vs for l,v in weights)
+        assert sorted(v for l,v in weights)==([-4,-2,2,4] if route=="lookup" else [-2,2] if route=="selector" else [-1,1])
+        bound=(1<<primary)*max(abs(v) for l,v in weights)
+        B=bound+1
+        natural={l:abs(v)*(B if v<0 else 1) for l,v in weights}
+        for l,v in weights:natural[-l]=1
+        header,*clauses=(directory/f"{name}.cnf").read_text().splitlines()
+        assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+        body="c t wmc\n"+header+"\n"+"".join(f"c p weight {l} {v} 0\n" for l,v in sorted(natural.items()))+"\n".join(clauses)+"\n"
+        path=pathlib.Path(tmp)/"sparse-target.cnf"
+        path.write_text(body)
+        row=dict(case=name,n=n,variant=variant,route=route,primary=primary,vars=vs,clauses=cs,encode_ns=enc,checks=checks,norm=norm,expected_residual=w,status="UNKNOWN",metrics=[],sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        try:
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(path)],5,pathlib.Path(tmp)/"sparse-target-time.tsv",row["metrics"])
+            v=parse_gpmc_integer(out,"wmc",bound*(B+1))
+            p,q=v%B,v//B
+            assert p+q<=bound and (p,q)==(ep,em)
+            row.update(status="EXACT",plus=p,minus=q,score=p-q)
+            if route=="self":assert p-q==norm
+            else:assert 2*(norm-p+q)==w
+        except (TimeoutError,subprocess.TimeoutExpired):
+            row["status"]="TIMEOUT"
+        except SolverSignalKilled:
+            row["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        rows[n,variant,route]=row
+        print("HOARE_SPARSE_GPMC "+json.dumps(row),flush=True)
+    matched=0
+    for n in (2,4):
+        for v in ("source","Z","T","X"):
+            a,b,c=(rows[n,v,r] for r in ("lookup","selector","self"))
+            if all(r["status"]=="EXACT" for r in (a,b,c)):
+                assert a["score"]==b["score"] and c["score"]==a["norm"]
+                assert a["expected_residual"]==b["expected_residual"]==c["expected_residual"]
+                matched+=1
+    print("HOARE_SPARSE_GPMC_SUMMARY "+json.dumps(dict(exported=len(rows),exact=sum(r["status"]=="EXACT" for r in rows.values()),matched=matched)),flush=True)
+
 def run_partition_pilot(directory, exe, tmp):
     """Separate source-only partition pilot. Unknown leaves never certify a cover."""
     with (directory/"native-partition.tsv").open() as f:
@@ -1089,6 +1139,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_partition_pilot(directory,exe,tmp)
     if (directory/"qftcomplex-3-source.tsv").is_file():
         run_qft_complex_pilot(directory,exe,tmp)
+    if (directory/"native-sparse-target.tsv").is_file():
+        run_sparse_target_pilot(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

@@ -420,9 +420,24 @@ def unpack_pair(value, radix):
 
 
 
-def run_amplitude_factor_pilot(directory, exe, tmp):
+def run_amplitude_factor_pilot(directory, exe, tmp, repeat_round=None):
     """Bounded, exact natural-integer class weights; no float fallback."""
     manifest = list(csv.reader((directory/"native-factor.tsv").open(), delimiter="\t"))
+    if repeat_round is not None:
+        # Four-period balanced crossover; same eight source-only queries in
+        # each period. Preserve the 10 s cap and all exact bucket checks.
+        order = ((0,1,3,2),(1,2,0,3),(2,3,1,0),(3,0,2,1))
+        assert 0 <= repeat_round < len(order)
+        routes = (("flat","1"),("flat","2"),("factor","1"),("factor","2"))
+        source = {(int(r[1]),r[3],r[4]):r for r in manifest if r[2]=="source"}
+        assert len(source)==8, "incomplete source-only repeat cohort"
+        assert sum(r[2]=="source" for r in manifest)==8
+        sizes = (3,4) if repeat_round%2==0 else (4,3)
+        manifest = [source[(k,*routes[j])] for k in sizes for j in order[repeat_round]]
+        print("HOARE_FACTOR_REPEAT_PLAN "+json.dumps(dict(
+            round=repeat_round, order=[r[0] for r in manifest],
+            solver_sha256=hashlib.sha256(pathlib.Path(exe).read_bytes()).hexdigest(),
+            cap_s=10)),flush=True)
     rows = {}
     for r in manifest:
         (name,k,variant,mode,copies,primary,vs,cs,encode_ns,prep_ns,
@@ -473,7 +488,11 @@ def run_amplitude_factor_pilot(directory, exe, tmp):
         except SolverSignalKilled:
             row["status"]="UNATTRIBUTED_SIGNAL_KILL"
         rows[(k,variant,mode,copies)]=row
-        print("HOARE_FACTOR_GPMC "+json.dumps(row),flush=True)
+        if repeat_round is None:
+            print("HOARE_FACTOR_GPMC "+json.dumps(row),flush=True)
+        else:
+            row["round"]=repeat_round
+            print("HOARE_FACTOR_REPEAT "+json.dumps(row),flush=True)
     matched=0
     for k in (3,4):
         for variant in ("source","Z-last","X-scratch"):
@@ -482,8 +501,13 @@ def run_amplitude_factor_pilot(directory, exe, tmp):
                 if a and b and a["status"]==b["status"]=="EXACT":
                     assert a["residual"]==b["score"]-2*a["score"]+(1<<(7 if k==3 else 16))
                     matched+=1
-    print("HOARE_FACTOR_GPMC_SUMMARY "+json.dumps(dict(expected=24,exported=len(rows),
-          exact=sum(r["status"]=="EXACT" for r in rows.values()),matched=matched)),flush=True)
+    if repeat_round is None:
+        print("HOARE_FACTOR_GPMC_SUMMARY "+json.dumps(dict(expected=24,exported=len(rows),
+              exact=sum(r["status"]=="EXACT" for r in rows.values()),matched=matched)),flush=True)
+    else:
+        print("HOARE_FACTOR_REPEAT_SUMMARY "+json.dumps(dict(round=repeat_round,
+              expected=8,exported=len(rows),exact=sum(r["status"]=="EXACT" for r in rows.values()),
+              matched=matched)),flush=True)
 
 def run_dual_mask_wmc(directory, count, deadline):
     """Bounded native dual-mask pilot, exact MPZ weights, original input witness."""
@@ -642,6 +666,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_dual_mask_wmc(directory,count,deadline)
     if (directory/"native-factor.tsv").is_file():
         run_amplitude_factor_pilot(directory,exe,tmp)
+        for repeat_round in range(4):
+            run_amplitude_factor_pilot(directory,exe,tmp,repeat_round=repeat_round)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

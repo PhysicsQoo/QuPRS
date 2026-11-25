@@ -118,6 +118,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence/hoare-exact-fixtures
+          factor_dir="$(mktemp -d)"
+          factor_base="https://raw.githubusercontent.com/fmlab-iis/AutoQ/7eed39ad7ba5615a87c3f532a24f866e08967c12/benchmarks/all/Grover"
+          for k in 3 4; do
+            for file in circuit.qasm pre.hsl post.hsl; do
+              curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-time 60 \
+                "$factor_base/0$k/$file" -o "$factor_dir/$k-$file"
+            done
+            mv "$factor_dir/$k-circuit.qasm" "$factor_dir/grover-$k.qasm"
+          done
+          test "$(git hash-object "$factor_dir/grover-3.qasm")" = 79604029953261a0cd419b9ec932b055dd9ea0c8
+          test "$(git hash-object "$factor_dir/grover-4.qasm")" = 2493f92a4ae9b335b30b86d5d17aa70902402b13
+          test "$(git hash-object "$factor_dir/3-pre.hsl")" = 9c369a362f5e504cd5d4cc64b4b5297a06661b42
+          test "$(git hash-object "$factor_dir/3-post.hsl")" = 5d45f38067d9e95ff0afe997c5f175cc1082e7e4
+          test "$(git hash-object "$factor_dir/4-pre.hsl")" = 3cb06685b906e4a7da6adab65bd6b472370fe800
+          test "$(git hash-object "$factor_dir/4-post.hsl")" = c5a97b5c984fb0ea92bfaa624ee41fccf875ece6
+          sha256sum "$factor_dir/"* | tee evidence/hoare-factor-source-sha256.txt
+          HOARE_FACTOR_SOURCE_DIR="$factor_dir" \
           HOARE_EXACT_FIXTURE_DIR="$GITHUB_WORKSPACE/evidence/hoare-exact-fixtures" \
             cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
               --test property_hoare_experiment hoare_export_external_exact_fixtures -- --nocapture

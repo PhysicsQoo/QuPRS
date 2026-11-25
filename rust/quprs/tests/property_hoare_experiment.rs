@@ -2358,6 +2358,292 @@ mod exact_property_cnf {
         assert_eq!(verify_anf(1,&[G::H(0)],&Anf::from([2]),&all,1000).answer,Answer::Unknown);
     }
 
+struct FactorPilot {
+    c: Cnf,
+    gates: BTreeMap<(bool,Lit,Lit),Lit>,
+    polys: BTreeMap<(Vec<Lit>,Anf),Lit>,
+    work: usize,
+}
+impl FactorPilot {
+    fn bounded(&self)->bool {
+        self.c.vars <= 10_000 && self.c.clauses.len() <= 40_000
+    }
+    fn gate(&mut self, xor:bool, mut a:Lit, mut b:Lit)->Option<Lit> {
+        // normalize XOR negations (including constants); AND is not linear
+        let mut sign=1;
+        if xor {
+            if a<0 {a=-a;sign=-sign;}
+            if b<0 {b=-b;sign=-sign;}
+        }
+        if a>b {std::mem::swap(&mut a,&mut b);}
+        let key=(xor,a,b);
+        if let Some(&v)=self.gates.get(&key){return Some(sign*v);}
+        let v=if xor {self.c.xor(a,b)}else{self.c.and(a,b)};
+        if !self.bounded(){return None;}
+        self.gates.insert(key,v);
+        Some(sign*v)
+    }
+    fn anf(&mut self,p:&Anf,bits:&[Lit],factored:bool)->Option<Lit>{
+        self.work=self.work.checked_add(p.len().max(1))?;
+        if self.work>2_000_000{return None;}
+        let key=(bits.to_vec(),p.clone());
+        if let Some(&v)=self.polys.get(&key){return Some(v);}
+        let out=if !factored||p.len()<=1{
+            let mut acc=ZERO;
+            for &m in p{
+                let mut t=ONE;
+                for (i,&l) in bits.iter().enumerate(){
+                    if m>>i&1!=0{t=self.gate(false,t,l)?;}
+                }
+                acc=self.gate(true,acc,t)?;
+            }
+            acc
+        }else{
+            let mask=p.iter().fold(0u64,|a,&m|a|m);
+            if mask==0{return None;}
+            let i=mask.trailing_zeros() as usize;
+            let bit=1u64<<i;
+            let mut a=Anf::new();let mut b=Anf::new();
+            for &m in p{if m&bit==0{a.insert(m);}else{b.insert(m^bit);}}
+            let x=self.anf(&a,bits,true)?;
+            let y=self.anf(&b,bits,true)?;
+            let t=self.gate(false,*bits.get(i)?,y)?;
+            self.gate(true,x,t)?
+        };
+        self.polys.insert(key,out);Some(out)
+    }
+    fn alias(&mut self,l:Lit)->Option<Lit>{
+        let z=self.c.fresh();
+        self.c.clauses.extend([vec![-z,l],vec![z,-l]]);
+        self.bounded().then_some(z)
+    }
+}
+struct FactorPilotEncoding{
+    cnf:Cnf,
+    // signed target magnitudes for single; signed +/-1 buckets for self
+    classes:Vec<(Lit,i64)>,
+    primary:usize,
+}
+fn factor_pilot(s:&Symbolic,x:u64,k:usize,copies:usize,factored:bool)
+    ->Option<FactorPilotEncoding>{
+    if !(k==3||k==4)||s.n!=2*k-1||s.n+s.h>63||
+        x>>s.n!=0||!(copies==1||copies==2)||s.h>16||
+        s.output.len()!=s.n||
+        s.phase.values().any(|&v|v!=4)||
+        s.phase.keys().chain(s.output.iter().flatten())
+            .any(|&m|m>>(s.n+s.h)!=0) {return None;}
+    let terms=s.phase.len()+s.output.iter().map(|o|o.len()).sum::<usize>();
+    if terms>8192{return None;}
+    let primary=s.h*copies;
+    let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),
+        polys:BTreeMap::new(),work:0};
+    // Fixed inputs become constants but remain original witness labels.
+    let sign:Anf=s.phase.keys().copied().collect();
+    let mut phases=Vec::new();let mut outputs=Vec::new();
+    for j in 0..copies{
+        let bits:Vec<Lit>=(0..s.n).map(|i|if x>>i&1!=0{ONE}else{ZERO})
+            .chain((0..s.h).map(|i|(2+j*s.h+i) as Lit)).collect();
+        phases.push(f.anf(&sign,&bits,factored)?);
+        let mut z=Vec::new();
+        for o in &s.output{z.push(f.anf(o,&bits,factored)?);}
+        outputs.push(z);
+    }
+    let mut classes=Vec::new();
+    if copies==1{
+        let z=&outputs[0];let p=phases[0];
+        let mut sup=ONE;let mut mark=ONE;
+        for (i,&l) in z.iter().enumerate().skip(k){
+            sup=f.gate(false,sup,if i==s.n-1{l}else{-l})?;
+        }
+        if sup!=ONE{f.c.enforce(sup);}
+        for (i,&l) in z.iter().take(k).enumerate(){
+            mark=f.gate(false,mark,if i%2==1{l}else{-l})?;
+        }
+        let (hi,lo)=if k==3{(11i64,1i64)}else{(251,13)};
+        for (a,b,w) in [(mark,-p,hi),(mark,p,-hi),(-mark,p,lo),(-mark,-p,-lo)]{
+            let l=f.gate(false,a,b)?;classes.push((f.alias(l)?,w));
+        }
+    }else{
+        for i in 0..s.n{
+            let v=f.gate(true,outputs[0][i],outputs[1][i])?;
+            if v!=ZERO{f.c.enforce(-v);}
+        }
+        let neg=f.gate(true,phases[0],phases[1])?;
+        let v=f.alias(neg)?;
+        classes.push((-v,1));classes.push((v,-1));
+    }
+    if !f.bounded(){return None;}
+    Some(FactorPilotEncoding{cnf:f.c,classes,primary})
+}
+
+// This bounded pilot admits only the pinned real-amplitude benchmark subset.
+// The original basis input is fixed BEFORE native RR, and dense source
+// propagation is independent of PathSum. No production limit is changed.
+fn factor_source_ops(src:&str,n:usize)->Vec<G>{
+    let mut lines=src.lines().map(str::trim).filter(|l|!l.is_empty());
+    assert_eq!(lines.next(),Some("OPENQASM 2.0;"));
+    assert_eq!(lines.next(),Some("include \"qelib1.inc\";"));
+    assert_eq!(lines.next().unwrap(),format!("qreg qubits[{n}];"));
+    lines.map(|line|{
+        let (gate,args)=line.strip_suffix(';').unwrap().split_once(' ').unwrap();
+        let a:Vec<usize>=args.split(',').map(|s|s.trim().strip_prefix("qubits[").unwrap()
+            .strip_suffix(']').unwrap().parse().unwrap()).collect();
+        assert!(a.iter().all(|&i|i<n));
+        assert_eq!(a.iter().copied().collect::<BTreeSet<_>>().len(),a.len());
+        match (gate,a.as_slice()){
+            ("h",[a])=>G::H(*a),("x",[a])=>G::X(*a),
+            ("cz",[a,b])=>G::CZ(*a,*b),("ccx",[a,b,c])=>G::CCX(*a,*b,*c),
+            _=>panic!("unsupported pinned source gate"),
+        }
+    }).collect()
+}
+fn factor_target(k:usize,z:usize)->i128{
+    let n=2*k-1;
+    if z>>k!=1usize<<(n-1-k){return 0;}
+    let mark=(0..k).filter(|i|i%2==1).fold(0usize,|m,i|m|(1<<i));
+    if z&((1<<k)-1)==mark{if k==3{11}else{251}}
+    else if k==3{-1}else{-13}
+}
+fn factor_hist(s:&Symbolic)->Vec<(u128,u128)>{
+    // Independent Boolean subset transform; only fixed original x=0.
+    let size=1usize<<s.h;
+    let table=|a:&Anf|->Vec<u8>{
+        let mut t=vec![0u8;size];
+        for &m in a{if m&((1u64<<s.n)-1)==0{t[(m>>s.n) as usize]^=1;}}
+        for j in 0..s.h{for y in 0..size{if y>>j&1!=0{let v=t[y^(1<<j)];t[y]^=v;}}}
+        t
+    };
+    let phase=table(&s.phase.keys().copied().collect());
+    let outputs:Vec<_>=s.output.iter().map(table).collect();
+    let mut h=vec![(0u128,0u128);1<<s.n];
+    for y in 0..size{
+        let z=outputs.iter().enumerate().fold(0usize,|a,(i,t)|a|((t[y] as usize)<<i));
+        if phase[y]==0{h[z].0+=1;}else{h[z].1+=1;}
+    }
+    h
+}
+fn factor_up(c:&Cnf,primary:usize,a:u64)->Option<Vec<i8>>{
+    let mut v=vec![0;c.vars+1];
+    for j in 0..primary{
+        let l=(j+2) as Lit;assert!(assign(if a>>j&1!=0{l}else{-l},&mut v));
+    }
+    loop{
+        let mut changed=false;
+        for cl in &c.clauses{
+            let mut open=0;let mut last=0;let mut ok=false;
+            for &l in cl{match lit_value(l,&v){1=>{ok=true;break;},0=>{open+=1;last=l;},_=>{}}}
+            if ok{continue;}
+            if open==0{return None;}
+            if open==1{assert!(assign(last,&mut v));changed=true;}
+        }
+        if !changed{break;}
+    }
+    assert!(v[1..].iter().all(|&x|x!=0),"non-unique extension");
+    Some(v)
+}
+fn factor_export(dir:&std::path::Path){
+    let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
+    let srcdir=std::path::PathBuf::from(srcdir);
+    let mut manifest=String::new();
+    for k in [3usize,4]{
+        let n=2*k-1;
+        let source=std::fs::read_to_string(srcdir.join(format!("grover-{k}.qasm"))).unwrap();
+        let ops=factor_source_ops(&source,n);
+        let h0=ops.iter().filter(|g|matches!(g,G::H(_))).count();
+        let expected_l=if k==3{7usize}else{16};
+        assert_eq!((ops.len(),h0),if k==3{(52,17)}else{(100,30)});
+        let prep_start=std::time::Instant::now();
+        let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+        for f in &mut ps.f.functions{f.clear();}
+        for g in &ops{g.apply(&mut ps,false);}
+        let Some((rr,frame,scale,steps))=native_rr_checkpoint(ps,n)else{
+            println!("HOARE_FACTOR_RESOURCE case=grover-{k} reason=rr-admission");continue;
+        };
+        assert_eq!(frame.compact(&rr).unwrap(),Anf::from([0]));
+        let s=compact(&rr,n).unwrap();
+        let prep_ns=prep_start.elapsed().as_nanos();
+        if s.h>16||h0.checked_sub(scale as usize)!=Some(expected_l)||
+           s.phase.values().any(|&v|v!=4)||s.phase.len()+s.output.iter().map(|o|o.len()).sum::<usize>()>8192{
+            println!("HOARE_FACTOR_RESOURCE case=grover-{k} h={} scale2={scale} reason=residual-admission",s.h);continue;
+        }
+        assert_eq!(scale%2,0);
+        // Compare complete source amplitudes, including absolute phase.
+        let dense=dense_state(n,&ops,0);
+        let hist=factor_hist(&s);
+        let norm=1i128<<expected_l;
+        let mut sn=0i128;let mut tn=0i128;
+        for (z,(&(p,m),d)) in hist.iter().zip(&dense).enumerate(){
+            let a=p as i128-m as i128;let target=factor_target(k,z);
+            assert_eq!(d[1..],[0,0,0]);assert_eq!(a*(1i128<<(scale/2)),i128::from(d[0]));
+            assert_eq!(a,target,"pinned target amplitude {k}/{z}");
+            sn+=a*a;tn+=target*target;
+        }
+        assert_eq!((sn,tn),(norm,norm));
+        println!("HOARE_FACTOR_NATIVE case=grover-{k} h0={h0} h={} scale2={scale} steps={steps} prep_ns={prep_ns} dense_entries={}",s.h,1<<n);
+        for variant in ["source","Z-last","X-scratch"]{
+            // These appended gates are exact transformations of the certified
+            // residual, with independent dense relabel/sign checks below.
+            let mut t=Symbolic{n:s.n,h:s.h,output:s.output.clone(),phase:s.phase.clone()};
+            if variant=="X-scratch"{xor_insert(&mut t.output[k],0);}
+            if variant=="Z-last"{for &m in &t.output[n-1]{
+                if t.phase.remove(&m).is_none(){t.phase.insert(m,4);}
+            }}
+            let hh=factor_hist(&t);
+            let (mut cp,mut cm,mut sp,mut sm)=(0u128,0u128,0u128,0u128);
+            let mut witness=None;let mut residual=0i128;let mut source_norm=0i128;
+            for (z,&(p,m)) in hh.iter().enumerate(){
+                let a=p as i128-m as i128;let target=factor_target(k,z);
+                let j=z^if variant=="X-scratch"{1<<k}else{0};
+                let sign=if variant=="Z-last"&&z>>(n-1)&1!=0{-1}else{1};
+                assert_eq!(a*(1i128<<(scale/2)),i128::from(dense[j][0])*sign);
+                if a!=target&&witness.is_none(){witness=Some(z);}
+                residual+=(a-target)*(a-target);source_norm+=a*a;
+                sp+=p*p+m*m;sm+=2*p*m;
+                if target>0{cp+=p*target as u128;cm+=m*target as u128;}
+                else if target<0{cp+=m*(-target) as u128;cm+=p*(-target) as u128;}
+            }
+            assert_eq!(source_norm,norm);
+            assert_eq!(sp as i128-sm as i128,norm);
+            assert_eq!(residual,2*(norm-(cp as i128-cm as i128)));
+            assert_eq!(residual,match variant{"source"=>0,"Z-last"=>4*norm,_=>2*norm});
+            for (mode,factored) in [("flat",false),("factor",true)]{for copies in [1usize,2]{
+                let name=format!("grover-{k}-{variant}-{mode}-{copies}");
+                let start=std::time::Instant::now();
+                let Some(e)=factor_pilot(&t,0,k,copies,factored)else{
+                    println!("HOARE_FACTOR_RESOURCE case={name} reason=encoder-cap");continue;
+                };
+                let ns=start.elapsed().as_nanos();
+                let size=1u64<<t.h;
+                let samples=if k==3{if copies==1{size}else{size*size}}else{32};
+                for i in 0..samples{
+                    let a=if k==3{i%size}else{(251*i+17)%size};
+                    let b=if k==3{i/size}else{(1009*i+31)%size};
+                    let (za,pa)=path(&t,0,a);
+                    let expected=if copies==1{
+                        factor_target(k,za as usize)*if pa==0{1}else{-1}
+                    }else{
+                        let (zb,pb)=path(&t,0,b);
+                        if za!=zb{0}else if pa==pb{1}else{-1}
+                    };
+                    let v=factor_up(&e.cnf,e.primary,a|if copies==2{b<<t.h}else{0});
+                    if expected==0{assert!(v.is_none());}
+                    else{let v=v.unwrap();let active:Vec<_>=e.classes.iter().filter(|&&(l,_)|lit_value(l,&v)==1).collect();
+                        assert_eq!(active.len(),1);assert_eq!(i128::from(active[0].1),expected);}
+                }
+                let mut dimacs=format!("p cnf {} {}\n",e.cnf.vars,e.cnf.clauses.len());
+                for cl in &e.cnf.clauses{for l in cl{assert!(*l!=0&&l.unsigned_abs() as usize<=e.cnf.vars);dimacs.push_str(&format!("{l} "));}dimacs.push_str("0\n");}
+                std::fs::write(dir.join(format!("factor-{name}.cnf")),dimacs).unwrap();
+                let classes=e.classes.iter().map(|(l,w)|format!("{l}:{w}")).collect::<Vec<_>>().join(",");
+                let (plus,minus)=if copies==1{(cp,cm)}else{(sp,sm)};
+                let w=witness.map_or("-".to_owned(),|v|v.to_string());
+                manifest.push_str(&format!("{name}\t{k}\t{variant}\t{mode}\t{copies}\t{}\t{}\t{}\t{ns}\t{prep_ns}\t{classes}\t{plus}\t{minus}\t{norm}\t{residual}\t{w}\n",e.primary,e.cnf.vars,e.cnf.clauses.len()));
+                println!("HOARE_FACTOR_EXPORT case={name} vars={} clauses={} checks={samples}",e.cnf.vars,e.cnf.clauses.len());
+            }}
+        }
+    }
+    std::fs::write(dir.join("native-factor.tsv"),manifest).unwrap();
+}
+
     #[test]
     fn hoare_export_external_exact_fixtures(){
         let Some(dir)=std::env::var_os("HOARE_EXACT_FIXTURE_DIR") else{return;};
@@ -2401,6 +2687,7 @@ mod exact_property_cnf {
         export_fourier_heldout(&dir);
         export_native_affine_wmc(&dir);
         export_native_dual_mask_wmc(&dir);
+        factor_export(&dir);
         export_native_gse_wmc(&dir);
     }
 

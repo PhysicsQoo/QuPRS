@@ -419,6 +419,72 @@ def unpack_pair(value, radix):
     return lo-hi
 
 
+
+def run_factor_pilot(directory, exe, tmp):
+    """Bounded, exact natural-integer class weights; no float fallback."""
+    manifest = list(csv.reader((directory/"native-factor.tsv").open(), delimiter="\t"))
+    rows = {}
+    for r in manifest:
+        (name,k,variant,mode,copies,primary,vs,cs,encode_ns,prep_ns,
+         classes,ep,em,norm,residual,witness)=r
+        k,copies,primary,vs,cs,encode_ns,prep_ns,ep,em,norm,residual=map(
+            int,(k,copies,primary,vs,cs,encode_ns,prep_ns,ep,em,norm,residual))
+        weights = [(int(l),int(w)) for l,w in (pair.split(":") for pair in classes.split(","))]
+        assert len(weights) == (4 if copies==1 else 2)
+        assert len({l for l,w in weights})==len(weights)
+        assert all(0<abs(l)<=vs and w for l,w in weights)
+        bound=(1<<primary)*max(abs(w) for l,w in weights)
+        radix=bound+1
+        # Complementary self classes share a variable; set explicit weights
+        # first, and only then fill unspecified polarities with one.
+        natural={l:abs(w)*(radix if w<0 else 1) for l,w in weights}
+        for l,w in weights:
+            natural.setdefault(-l,1)
+        base=(directory/f"factor-{name}.cnf").read_text()
+        header,*clauses=base.splitlines()
+        assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+        assert 0<=primary<=32 and vs<=10000 and cs<=40000
+        query=pathlib.Path(tmp)/"factor-pilot.cnf"
+        body="".join(f"c p weight {l} {w} 0\n" for l,w in sorted(natural.items()))
+        query.write_text("c t wmc\n"+header+"\n"+body+"\n".join(clauses)+"\n")
+        metrics=[]
+        row=dict(case=name,k=k,variant=variant,mode=mode,copies=copies,
+                 primary=primary,vars=vs,clauses=cs,encode_ns=encode_ns,
+                 prep_ns=prep_ns,query_sha256=hashlib.sha256(query.read_bytes()).hexdigest(),
+                 status="UNKNOWN",metrics=metrics)
+        try:
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(query)],10,
+                             pathlib.Path(tmp)/"factor-time.tsv",metrics)
+            value=parse_gpmc_integer(out,"wmc",bound*(radix+1))
+            plus,minus=value%radix,value//radix
+            assert plus+minus<=bound
+            assert (plus,minus)==(ep,em),(name,plus,minus,ep,em)
+            score=plus-minus
+            if copies==2:
+                assert score==norm
+            else:
+                actual=2*(norm-score)
+                assert actual>=0 and actual==residual
+                row.update(verdict="PROVED" if actual==0 else "REFUTED",
+                           residual=actual,oracle_output_witness=None if witness=="-" else int(witness))
+            row.update(status="EXACT",plus=plus,minus=minus,score=score)
+        except (TimeoutError,subprocess.TimeoutExpired):
+            row["status"]="TIMEOUT"
+        except SolverSignalKilled:
+            row["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        rows[(k,variant,mode,copies)]=row
+        print("HOARE_FACTOR_GPMC "+json.dumps(row),flush=True)
+    matched=0
+    for k in (3,4):
+        for variant in ("source","Z-last","X-scratch"):
+            for mode in ("flat","factor"):
+                a=rows.get((k,variant,mode,1));b=rows.get((k,variant,mode,2))
+                if a and b and a["status"]==b["status"]=="EXACT":
+                    assert a["residual"]==b["score"]-2*a["score"]+(1<<(7 if k==3 else 16))
+                    matched+=1
+    print("HOARE_FACTOR_GPMC_SUMMARY "+json.dumps(dict(expected=24,exported=len(rows),
+          exact=sum(r["status"]=="EXACT" for r in rows.values()),matched=matched)),flush=True)
+
 def run_dual_mask_wmc(directory, count, deadline):
     """Bounded native dual-mask pilot, exact MPZ weights, original input witness."""
     rows = []
@@ -574,6 +640,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     if (directory/"native-dual-mask.tsv").is_file():
         deadline=time.monotonic()+60
         run_dual_mask_wmc(directory,count,deadline)
+    if (directory/"native-factor.tsv").is_file():
+        run_factor_pilot(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

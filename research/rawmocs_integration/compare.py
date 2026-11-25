@@ -115,7 +115,11 @@ def measure(arm, digits, raw, gpmc, prefix, action):
     except solver_process.SolverTimeout as exc:
         row.update(status="CENSORED_TIMEOUT", error=str(exc))
     except Exception as exc:
-        row.update(status="ERROR", error=f"{type(exc).__name__}: {str(exc)[:2000]}")
+        code = row.get("exit_code")
+        status = ("CENSORED_INTERNAL_TIMEOUT" if arm == "rawmocs" and code == 4 else
+                  "RESOURCE_LIMIT" if arm == "rawmocs" and code == 5 else
+                  "EXIT_OR_SIGNAL_FAILURE" if code not in (None, 0) else "ERROR")
+        row.update(status=status, error=f"{type(exc).__name__}: {str(exc)[:2000]}")
     finally:
         row["end_to_end_s"] = time.monotonic() - started
         save(prefix.with_suffix(".json"), row)
@@ -143,7 +147,8 @@ def e2e(args, report):
                             "solver_invoked": result.wmc_solver_invoked,
                             "reported_verification_s": result.verification_time,
                             "pathsum_s": result.pathsum_time,
-                            "cnf_s": result.to_DIMACS_time, "tool_s": result.tool_time}
+                            "cnf_s": result.to_DIMACS_time, "tool_s": result.tool_time,
+                            "normalization_twice_log2": int(round(2 * result.expect)) if result.expect is not None else None}
                 group["rows"][arm] = measure(arm, 30, args.raw, args.gpmc,
                     args.out / f"{name}-{method}-{arm}", action)
                 save(args.out / "report.json", report)
@@ -155,6 +160,16 @@ def e2e(args, report):
                 and g.get("cnf_sha256") == r.get("cnf_sha256")
                 and (g["status"] != "COMPLETED" or g["sat"] == r["sat"])
             ) if all("verdict" in x for x in (g, r)) else False
+            if group["pass"] and g["status"] == "COMPLETED":
+                scale = max(Fraction(1), *(abs(Fraction(row[k])) for row in (g, r) for k in ("real", "imag")))
+                delta = max(abs(Fraction(g[k]) - Fraction(r[k])) for k in ("real", "imag")) / scale
+                group["normalized_component_delta"] = str(delta)
+                group["pass"] = delta <= Fraction(1, 10**24)
+                for row in (g, r):
+                    norm = Fraction(2) ** row["normalization_twice_log2"]
+                    squared = (Fraction(row["real"])**2 + Fraction(row["imag"])**2) / norm
+                    expected_squared = Fraction(1) if expected == "equivalent" else Fraction(0)
+                    group["pass"] &= abs(squared - expected_squared) <= Fraction(1, 10**24)
             save(args.out / "report.json", report)
     return all(g["pass"] for g in report["groups"]) and any(
         g["rows"]["rawmocs"]["status"] == "COMPLETED" for g in report["groups"])

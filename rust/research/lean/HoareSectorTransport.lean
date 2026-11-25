@@ -2289,4 +2289,169 @@ theorem run_sector_sound (n : Nat) (gs : List Gate) (rs : List AffineRow)
 #print axioms check_phase_samples_sound
 #print axioms run_sector_sound
 
+/-! Exact scaled real/imaginary coordinates for Z8 coefficients.
+    For omega = exp(i*pi/4), multiplying the complex amplitude by sqrt(2)
+    gives (a1-a3)+sqrt(2)*a0 + i*((a1+a3)+sqrt(2)*a2).
+    Prove the integer irrationality obstruction constructively, then
+    transfer the finite checker to a zero test on the two algebraic
+    coordinate norms. This is not yet an embedding into a formal real
+    or complex number library, nor a normalized circuit-matrix theorem. -/
+
+theorem square_mod_two (a : Int) : (a*a) % 2 = a % 2 := by
+  have h := Int.mul_emod a a 2
+  have hr : a % 2 = 0 ∨ a % 2 = 1 := by omega
+  rcases hr with he | he <;> rw [h, he] <;> decide
+
+theorem double_square (a : Int) : (2*a)*(2*a) = 4*(a*a) := by
+  calc
+    (2*a)*(2*a) = (2*2)*(a*a) := by ac_rfl
+    _ = 4*(a*a) := rfl
+
+theorem square_twice_even (a b : Int) (h : a*a = 2*(b*b)) :
+    a % 2 = 0 := by
+  have he := square_mod_two a
+  rw [h] at he
+  omega
+
+/-- Finite descent on a bound for |a|. The equation a²=2b² forces
+    a and b even and yields the same equation for the halved pair. -/
+theorem sqrt2_square_zero_bounded (m : Nat) (a b : Int)
+    (hm : a.natAbs ≤ m) (h : a*a = 2*(b*b)) : a = 0 ∧ b = 0 := by
+  induction m generalizing a b with
+  | zero =>
+      have ha : a = 0 := Int.natAbs_eq_zero.mp (by omega : a.natAbs = 0)
+      have hz : b*b = 0 := by rw [ha] at h; omega
+      rcases Int.mul_eq_zero.mp hz with he | he
+      · exact ⟨ha, he⟩
+      · exact ⟨ha, he⟩
+  | succ m ih =>
+      by_cases ha0 : a = 0
+      · have hz : b*b = 0 := by rw [ha0] at h; omega
+        rcases Int.mul_eq_zero.mp hz with he | he
+        · exact ⟨ha0, he⟩
+        · exact ⟨ha0, he⟩
+      · let u : Int := a / 2
+        let v : Int := b / 2
+        have he := square_twice_even a b h
+        have ha : a = 2*u := by unfold u; omega
+        have h1 : b*b = 2*(u*u) := by
+          have hh := h
+          rw [ha, double_square] at hh
+          omega
+        have he' := square_twice_even b u h1
+        have hb : b = 2*v := by unfold v; omega
+        have h2 : u*u = 2*(v*v) := by
+          rw [hb, double_square] at h1
+          omega
+        have hAbs := congrArg Int.natAbs ha
+        rw [Int.natAbs_mul] at hAbs
+        change a.natAbs = 2*u.natAbs at hAbs
+        have hpos : u.natAbs ≠ 0 := by
+          intro hz
+          have haz : a.natAbs = 0 := by omega
+          exact ha0 (Int.natAbs_eq_zero.mp haz)
+        have hsmall : u.natAbs ≤ m := by omega
+        obtain ⟨hu, hv⟩ := ih u v hsmall h2
+        exact ⟨by rw [ha, hu] <;> decide, by rw [hb, hv] <;> decide⟩
+
+theorem sqrt2_square_zero (a b : Int) (h : a*a = 2*(b*b)) :
+    a = 0 ∧ b = 0 :=
+  sqrt2_square_zero_bounded a.natAbs a b (Nat.le_refl _) h
+
+/-- The norm of r + u sqrt(2) is r² - 2u². It is zero only for
+    the zero integer pair. No numerical square root is used. -/
+theorem quadratic_norm_zero_iff (r u : Int) :
+    r*r - 2*(u*u) = 0 ↔ r = 0 ∧ u = 0 := by
+  constructor
+  · intro h
+    exact sqrt2_square_zero r u (by omega)
+  · rintro ⟨hr, hu⟩
+    rw [hr, hu]
+    decide
+
+def scaledRealNorm (a : Nat → Int) : Int :=
+  (a 1-a 3)*(a 1-a 3) - 2*(a 0*a 0)
+
+def scaledImagNorm (a : Nat → Int) : Int :=
+  (a 1+a 3)*(a 1+a 3) - 2*(a 2*a 2)
+
+def scaledNormZero (a : Nat → Int) : Prop :=
+  scaledRealNorm a = 0 ∧ scaledImagNorm a = 0
+
+theorem scaled_norm_zero_iff (a : Nat → Int) :
+    scaledNormZero a ↔ ∀ j : Nat, j < 4 → a j = 0 := by
+  constructor
+  · rintro ⟨hr, hi⟩
+    have hR := (quadratic_norm_zero_iff (a 1-a 3) (a 0)).mp hr
+    have hI := (quadratic_norm_zero_iff (a 1+a 3) (a 2)).mp hi
+    have h1 : a 1 = 0 := by omega
+    have h3 : a 3 = 0 := by omega
+    intro j hj
+    rcases coefficient_index_cases j hj with he | he | he | he <;> subst j
+    · exact hR.2
+    · exact h1
+    · exact hI.2
+    · exact h3
+  · intro h
+    have h0 := h 0 (by decide)
+    have h1 := h 1 (by decide)
+    have h2 := h 2 (by decide)
+    have h3 := h 3 (by decide)
+    unfold scaledNormZero scaledRealNorm scaledImagNorm
+    rw [h0, h1, h2, h3]
+    decide
+
+theorem scaled_norm_nonzero_iff (a : Nat → Int) :
+    ¬ scaledNormZero a ↔ ∃ j : Nat, j < 4 ∧ a j ≠ 0 := by
+  constructor
+  · intro h
+    by_cases h0 : a 0 = 0
+    · by_cases h1 : a 1 = 0
+      · by_cases h2 : a 2 = 0
+        · by_cases h3 : a 3 = 0
+          · exfalso
+            apply h
+            unfold scaledNormZero scaledRealNorm scaledImagNorm
+            rw [h0, h1, h2, h3]
+            decide
+          · exact ⟨3, by decide, h3⟩
+        · exact ⟨2, by decide, h2⟩
+      · exact ⟨1, by decide, h1⟩
+    · exact ⟨0, by decide, h0⟩
+  · rintro ⟨j, hj, hn⟩ hz
+    exact hn ((scaled_norm_zero_iff a).mp hz j hj)
+
+def finiteAlgebraicBad (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (t : FiniteState n) (q : Bool) : Prop :=
+  ∃ x z : FiniteState n, affinePre n rs x.val ∧ dot n z.val t.val ≠ q ∧
+    ¬ scaledNormZero (fourierAmp n gs x.val z.val)
+
+theorem finite_algebraic_bad_iff (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (t : FiniteState n) (q : Bool) :
+    finiteAlgebraicBad n gs rs t q ↔ finiteFourierBad n gs rs t q := by
+  constructor
+  · rintro ⟨x, z, hp, hq, hn⟩
+    obtain ⟨j, hj, hc⟩ := (scaled_norm_nonzero_iff _).mp hn
+    exact ⟨x, z, j, hj, hp, hq, hc⟩
+  · rintro ⟨x, z, j, hj, hp, hq, hn⟩
+    exact ⟨x, z, hp, hq, (scaled_norm_nonzero_iff _).mpr ⟨j, hj, hn⟩⟩
+
+theorem run_sector_algebraic_sound (n : Nat) (gs : List Gate)
+    (rs : List AffineRow) (bs : List Bool) (s t witness : FiniteState n)
+    (e b q : Bool) :
+    Sound (finiteAlgebraicBad n gs rs t q) (runSector n gs rs bs s t witness e b q) := by
+  rw [propext (finite_algebraic_bad_iff n gs rs t q)]
+  exact run_sector_sound n gs rs bs s t witness e b q
+
+#print axioms square_mod_two
+#print axioms double_square
+#print axioms square_twice_even
+#print axioms sqrt2_square_zero_bounded
+#print axioms sqrt2_square_zero
+#print axioms quadratic_norm_zero_iff
+#print axioms scaled_norm_zero_iff
+#print axioms scaled_norm_nonzero_iff
+#print axioms finite_algebraic_bad_iff
+#print axioms run_sector_algebraic_sound
+
 end QuPRS.SectorTransport

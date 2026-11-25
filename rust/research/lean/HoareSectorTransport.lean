@@ -2087,14 +2087,21 @@ theorem gate_ok_sound (n : Nat) (g : Gate) (h : gateOK n g = true) :
     gateBound n g ∧ distinctGate g := by
   cases g with
   | flip a =>
-      exact ⟨of_decide_eq_true h, True.intro⟩
+      have ha : a < n := of_decide_eq_true h
+      exact ⟨ha, True.intro⟩
   | cnot a b =>
       have hh : a < n ∧ (b < n ∧ a ≠ b) := by
         simpa [gateOK] using h
       exact ⟨⟨hh.1, hh.2.1⟩, hh.2.2⟩
-  | z a => exact ⟨of_decide_eq_true h, True.intro⟩
-  | s a => exact ⟨of_decide_eq_true h, True.intro⟩
-  | t a => exact ⟨of_decide_eq_true h, True.intro⟩
+  | z a =>
+      have ha : a < n := of_decide_eq_true h
+      exact ⟨ha, True.intro⟩
+  | s a =>
+      have ha : a < n := of_decide_eq_true h
+      exact ⟨ha, True.intro⟩
+  | t a =>
+      have ha : a < n := of_decide_eq_true h
+      exact ⟨ha, True.intro⟩
   | cz a b =>
       have hh : a < n ∧ (b < n ∧ a ≠ b) := by
         simpa [gateOK] using h

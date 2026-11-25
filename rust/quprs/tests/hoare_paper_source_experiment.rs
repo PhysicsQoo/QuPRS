@@ -3,7 +3,7 @@
 //! Exact finite enumeration is a bounded reference oracle, not WMC.
 #[path="support/native_dyadic_cnf.rs"]
 mod native_dyadic_cnf;
-use native_dyadic_cnf::{Anf,native_dyadic_projection_with_limits};
+use native_dyadic_cnf::{Anf,native_dyadic_projection_variant};
 use quprs::PathSum;
 use quprs::ir::QuantumOp;
 use quprs::qasm::{parse_qasm_str,parse_qasm_str_source_pinned};
@@ -163,7 +163,7 @@ fn export_projected(dir:&std::path::Path,name:&str,mode:&str,ps:&PathSum,h0:usiz
                     scale2:u32,build_ns:u128,rr_ns:u128,expected_bad:bool,rows:&mut String){
     let pred=vec![Anf::from([0,16])]; // q4=0, both original pre/post
     let t=std::time::Instant::now();
-    let plan=native_dyadic_projection_with_limits(ps,&pred,&pred,32768,262144);
+    let plan=native_dyadic_projection_variant(ps,&pred,&pred,32768,262144,mode.ends_with("-heap"));
     let enc_ns=t.elapsed().as_nanos();
     let (status,vars,clauses,sign,d)=if let Some((c,sign,d))=plan{
         let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
@@ -219,7 +219,10 @@ fn paper_qwalk_native_source_admission(){
             let t=std::time::Instant::now();let (out,r)=reduce(trial);
             let rr_ns=t.elapsed().as_nanos();assert!(admitted(&out));
             assert_eq!(initial_h-h(&out),r.elim+2*r.hh+r.omega);
-            if let Some(dir)=&export{export_projected(dir,name,if specialize{"hybrid-pre"}else{"hybrid"},&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);}
+            if let Some(dir)=&export{
+                export_projected(dir,name,if specialize{"hybrid-pre"}else{"hybrid"},&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);
+                if specialize{export_projected(dir,name,"hybrid-pre-heap",&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);}
+            }
             let mut bad=0usize;let mut checks=0usize;
             let status=if let Some(a)=entries(&out){
                 for x in 0..16{for z in 16..32{

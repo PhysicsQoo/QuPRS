@@ -513,7 +513,12 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         query_cap=30
         deadline=time.monotonic()+240
         long_metrics=[]
-        run_paper_projected(directory,count,deadline,long_metrics)
+        with (directory/"paper-projected.tsv").open() as f:
+            optimized=any("\thybrid-pre-heap\t" in line for line in f)
+        if optimized:
+            run_paper_projected_optimized(directory,count,deadline,long_metrics)
+        else:
+            run_paper_projected(directory,count,deadline,long_metrics)
         long_metrics=None
         query_cap=5
     # Preserve the original discovery protocol on explicit request. Default
@@ -747,6 +752,56 @@ def run_native_gse_wmc(directory,solve,deadline,metrics):
         no_match=sum(r["mode"]==m and r["status"]=="NO_GSE_MATCH" for r in rows),
         baseline_terminal=sum(r["mode"]==m and r["status"]=="BASELINE_TERMINAL" for r in rows)) for m in ("baseline","gse")}),flush=True)
 
+
+
+def run_paper_projected_optimized(directory,count,deadline,metrics):
+    fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()
+    with (directory/"paper-projected.tsv").open() as f:
+        plans={(p["case"],p["mode"]):p for p in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
+    assert len(plans)==8
+    rows=[]
+    # Preserve old six-route evidence; rerun only matched specialized
+    # residuals. Fixed x=0 is a deterministic first legal assignment,
+    # not a witness selected from the reference result.
+    for name,scope in [("vchain","root"),("noancilla","first-input"),("noancilla","root")]:
+        modes=["hybrid-pre","hybrid-pre-heap"]
+        if scope=="first-input":modes.reverse()
+        for mode in modes:
+            p=plans[name,mode]
+            r=dict(case=name,mode=mode,scope=scope,status=p["status"],
+                **{k:int(p[k]) for k in ("n","h0","h","scale","vars","clauses","sign","denominator","build_ns","rr_ns","encoding_ns")})
+            r.update(projected_count=None,query_s=0.0,verdict="UNKNOWN",witness=None,metrics=[])
+            if r["status"]=="READY" and time.monotonic()<deadline:
+                base=(directory/f"paper-{name}-{mode}.cnf").read_bytes()
+                r["cnf_sha256"]=hashlib.sha256(base).hexdigest()
+                primary=r["n"]+2*r["h"]
+                prefix=[-(j+2) for j in range(r["n"])] if scope=="first-input" else []
+                metrics.clear();start=time.monotonic()
+                try:
+                    v,radix=count(base.decode(),prefix,r["sign"],min(deadline,start+30),primary=primary)
+                    a,b=v%radix,v//radix
+                    assert a+b<=1<<primary and a>=b
+                    value=a-b;r["projected_count"]=str(value);r["status"]="EXACT"
+                    if scope=="first-input":
+                        if value:r.update(verdict="REFUTED",witness=0)
+                        else:r["status"]="CONDITIONED_ZERO_ONLY"
+                    elif value:
+                        r["status"]="POSITIVE_ROOT"
+                    else:r["verdict"]="PROVED"
+                    # Only consult source reference after the query.
+                    assert bool(value)==(p["expected_bad"]=="true"),(name,mode,scope,value)
+                except (TimeoutError,subprocess.TimeoutExpired):r["status"]="TIMEOUT"
+                except SolverSignalKilled:r["status"]="SIGNAL_KILL"
+                r["query_s"]=time.monotonic()-start;r["metrics"]=[dict(m) for m in metrics]
+            elif r["status"]=="READY":r["status"]="GLOBAL_BUDGET_NOT_RUN"
+            rows.append(r)
+            print("HOARE_PAPER_HEAP_GPMC "+json.dumps(r),flush=True)
+    for name,scope in {(r["case"],r["scope"]) for r in rows}:
+        paired=[r for r in rows if r["case"]==name and r["scope"]==scope and r["projected_count"] is not None]
+        if len(paired)==2:assert paired[0]["projected_count"]==paired[1]["projected_count"]
+    print("HOARE_PAPER_HEAP_GPMC_SUMMARY "+json.dumps(dict(records=len(rows),
+        exact=sum(r["projected_count"] is not None for r in rows),
+        proved=sum(r["verdict"]=="PROVED" for r in rows),refuted=sum(r["verdict"]=="REFUTED" for r in rows))),flush=True)
 
 def run_paper_projected(directory,count,deadline,metrics):
     fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()

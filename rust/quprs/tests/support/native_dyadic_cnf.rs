@@ -68,6 +68,10 @@ impl Cnf {
 // projected operator vanishes. It is NOT the physical leakage.
 pub(crate) fn native_dyadic_projection_with_limits(ps:&PathSum,pre:&[Anf],post:&[Anf],max_vars:usize,max_clauses:usize)
     ->Option<(Cnf,Lit,u32)>{
+    native_dyadic_projection_variant(ps,pre,post,max_vars,max_clauses,false)
+}
+pub(crate) fn native_dyadic_projection_variant(ps:&PathSum,pre:&[Anf],post:&[Anf],max_vars:usize,max_clauses:usize,heap:bool)
+    ->Option<(Cnf,Lit,u32)>{
     let n=ps.v.num_qubits;
     if n==0||n>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
         !ps.v.continuous_vars.is_empty()||ps.f.functions.len()!=n||
@@ -107,22 +111,92 @@ pub(crate) fn native_dyadic_projection_with_limits(ps:&PathSum,pre:&[Anf],post:&
     c.enforce(-good);
     let mut acc=vec![ZERO;k];
     let mut ts:Vec<_>=ps.p.terms.iter().collect();ts.sort_by(|a,b|a.0.cmp(b.0));
-    for (m,coeff) in ts{
-        if m.is_empty(){continue;} // identical constant phase cancels
-        let v=(d as i128*coeff.constant.numer as i128/coeff.constant.denom as i128).rem_euclid(d as i128);
-        for (map,signed) in [(&l,v),(&r,-v)]{
-            let w=signed.rem_euclid(d as i128) as u32;
+    if heap {
+        // w*l - w*r = w*l + w*!r - w, modulo D. Use the same
+        // sparse positive coefficient on both sides; negative
+        // coefficients no longer become dense two's-complement words.
+        // Column compression is an exact integer identity; discard only
+        // carries beyond k bits. Every gate is a unique-extension Tseitin.
+        let mut columns=vec![Vec::<Lit>::new();k];
+        let mut constant=0i128;
+        let mut cache=BTreeMap::<Vec<Lit>,Lit>::new();
+        for (m,coeff) in ts{
+            if m.iter().all(|&id|(id as usize)<n){continue;} // shared input term cancels
+            let w=(d as i128*coeff.constant.numer as i128/coeff.constant.denom as i128).rem_euclid(d as i128) as u32;
             if w==0{continue;}
-            let mut term=ONE;
-            for id in m{term=c.and(term,*map.get(id)?);}
-            let mut carry=ZERO;
-            for i in 0..k{
-                let b=if w>>i&1!=0{term}else{ZERO};
-                let a=acc[i];let t=c.xor(a,b);acc[i]=c.xor(t,carry);
-                if i+1<k{let ab=c.and(a,b);let tc=c.and(t,carry);carry=c.or(ab,tc);}
+            constant-=w as i128;
+            for (map,negative) in [(&l,false),(&r,true)]{
+                let mut key=m.iter().map(|id|map.get(id).copied()).collect::<Option<Vec<_>>>()?;
+                key.sort_unstable();key.dedup();
+                let term=if let Some(&v)=cache.get(&key){v}else{
+                    let v=key.iter().fold(ONE,|a,&b|c.and(a,b));
+                    cache.insert(key,v);v
+                };
+                for i in 0..k{if w>>i&1!=0{columns[i].push(if negative{-term}else{term});}}
             }
             if c.vars>max_vars||c.clauses.len()>max_clauses{return None;}
         }
+        let offset=constant.rem_euclid(d as i128) as u32;
+        for i in 0..k{if offset>>i&1!=0{columns[i].push(ONE);}}
+        for i in 0..k{
+            // Pairwise exact cancellation of l + !l; l + l carries l.
+            // Deterministic literal grouping before column compression.
+            let mut grouped=BTreeMap::<Lit,usize>::new();
+            for v in std::mem::take(&mut columns[i]){if v!=ZERO{*grouped.entry(v).or_default()+=1;}}
+            let keys:Vec<_>=grouped.keys().copied().filter(|&v|v>0).collect();
+            let mut ones=0usize;
+            for v in keys{
+                let a=grouped.get(&v).copied().unwrap_or(0);
+                let b=grouped.get(&-v).copied().unwrap_or(0);
+                let pairs=a.min(b);ones+=pairs;
+                if pairs>0{grouped.insert(v,a-pairs);grouped.insert(-v,b-pairs);}
+            }
+            // Constant ONE terms already counted in grouped; ZERO removed.
+            ones+=grouped.remove(&ONE).unwrap_or(0);
+            if i+1<k{columns[i+1].extend(std::iter::repeat_n(ONE,ones/2));}
+            if ones%2==1{columns[i].push(ONE);}
+            for (v,num) in grouped{
+                if i+1<k{columns[i+1].extend(std::iter::repeat_n(v,num/2));}
+                if num%2==1{columns[i].push(v);}
+            }
+            if i+1==k{
+                acc[i]=columns[i].iter().fold(ZERO,|a,&b|c.xor(a,b));
+            }else{
+                while columns[i].len()>1{
+                    let a=columns[i].pop().unwrap();let b=columns[i].pop().unwrap();
+                    let ab=c.xor(a,b);
+                    if let Some(v)=columns[i].pop(){
+                        let sum=c.xor(ab,v);
+                        let ab1=c.and(a,b);let ab2=c.and(ab,v);
+                        let carry=c.or(ab1,ab2);
+                        columns[i].push(sum);columns[i+1].push(carry);
+                    }else{
+                        columns[i].push(ab);columns[i+1].push(c.and(a,b));
+                    }
+                    if c.vars>max_vars||c.clauses.len()>max_clauses{return None;}
+                }
+                acc[i]=columns[i].pop().unwrap_or(ZERO);
+            }
+        }
+    }else{
+        for (m,coeff) in ts{
+            if m.is_empty(){continue;} // identical constant phase cancels
+            let v=(d as i128*coeff.constant.numer as i128/coeff.constant.denom as i128).rem_euclid(d as i128);
+            for (map,signed) in [(&l,v),(&r,-v)]{
+                let w=signed.rem_euclid(d as i128) as u32;
+                if w==0{continue;}
+                let mut term=ONE;
+                for id in m{term=c.and(term,*map.get(id)?);}
+                let mut carry=ZERO;
+                for i in 0..k{
+                    let b=if w>>i&1!=0{term}else{ZERO};
+                    let a=acc[i];let t=c.xor(a,b);acc[i]=c.xor(t,carry);
+                    if i+1<k{let ab=c.and(a,b);let tc=c.and(t,carry);carry=c.or(ab,tc);}
+                }
+                if c.vars>max_vars||c.clauses.len()>max_clauses{return None;}
+            }
+        }
+    
     }
     // Only phase difference 0 or half a cycle can satisfy these
     // low-bit constraints. MSB is a signed-count selector.

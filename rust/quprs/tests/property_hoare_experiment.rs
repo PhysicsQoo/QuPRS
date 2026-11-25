@@ -594,6 +594,11 @@ mod exact_property_cnf {
                         let mut fuel=2_000_000;
                         let a=count(&c,&[-sign],&mut fuel,false).unwrap();
                         let b=count(&c,&[sign],&mut fuel,false).unwrap();
+                        let (alt,alt_sign,alt_d)=native_dyadic_projection_variant(&ps,&pre,&post,4096,32768,true).unwrap();
+                        assert_eq!(alt_d,actual);
+                        let mut alt_fuel=2_000_000;
+                        assert_eq!(count(&alt,&[-alt_sign],&mut alt_fuel,false),Some(a));
+                        assert_eq!(count(&alt,&[alt_sign],&mut alt_fuel,false),Some(b));
                         // Independent enumeration of the finite native
                         // paths, grouped by shared input/output and phase
                         // modulo the half-period. No CNF helper used.
@@ -617,6 +622,40 @@ mod exact_property_cnf {
         let mut ps=PathSum::new(1);ps.p.add_term(vec![0],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,3)));
         assert!(native_dyadic_projection(&ps,&[],&[Anf::new()]).is_none());
         println!("HOARE_NATIVE_DYADIC_PROJECTED checks={checks} zero={zeros} positive={positives} high_ids=true unsupported_nondyadic=true");
+    }
+
+    #[test]
+    fn hoare_native_dyadic_heap_differential(){
+        let mut checks=0usize;
+        let mut seed=20261125u32;
+        let mut next=||{seed=seed.wrapping_mul(1664525).wrapping_add(1013904223);seed>>16};
+        for d in [2i64,4,8,16,32,64]{
+            for _ in 0..12{
+                let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+                let u=ps.v.get_fresh_var();let y=ps.v.get_fresh_var();
+                let ids=[0,u,y];
+                for mask in 0..8usize{
+                    let m=(0..3).filter(|&i|mask>>i&1!=0).map(|i|ids[i]).collect();
+                    ps.p.add_term(m,quprs::PhaseCoeff::new_constant(quprs::Rational::new((next() as i64% (2*d))-d,d)));
+                }
+                // Include mixed output ANF; both exact buckets must
+                // agree independently, not just their difference.
+                ps.f.functions[0]=rustc_hash::FxHashSet::from_iter([vec![0],vec![u],vec![u,y]]);
+                for pre in [vec![],vec![bit(0,true)]]{
+                    let post=vec![bit(0,false)];
+                    let (a,sa,da)=native_dyadic_projection_variant(&ps,&pre,&post,4096,32768,false).unwrap();
+                    let (b,sb,db)=native_dyadic_projection_variant(&ps,&pre,&post,4096,32768,true).unwrap();
+                    assert_eq!(da,db);
+                    for positive in [false,true]{
+                        let mut fa=2_000_000;let mut fb=2_000_000;
+                        let ca=count(&a,&[if positive{sa}else{-sa}],&mut fa,false).unwrap();
+                        let cb=count(&b,&[if positive{sb}else{-sb}],&mut fb,false).unwrap();
+                        assert_eq!(ca,cb);checks+=1;
+                    }
+                }
+            }
+        }
+        println!("HOARE_NATIVE_DYADIC_HEAP buckets={checks} exact=true seed=20261125");
     }
 
     fn two_copy_conj(s:&Symbolic,p:&[Anf],q:&[Anf])->(Cnf,[Lit;3]){

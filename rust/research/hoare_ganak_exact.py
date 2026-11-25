@@ -854,6 +854,99 @@ def rus_gram_real_sign(a):
     return ((x>0)-(x<0)) if d>0 else ((y>0)-(y<0))
 
 
+
+def run_rus_composite(directory,exe,tmp):
+    """One source copy; source norm derived from local gate certificates,
+    not from any global self query. Fixed all-success product scope only."""
+    names=("Figure7","Figure8","Figure9","Figure10a","Figure10b","Figure10c")
+    def inner(a,b):
+        t=[rus_mul(rus_conj(x),y) for x,y in zip(a,b)]
+        return [sum(v[j] for v in t) for j in range(4)]
+    def prod(v):
+        r=[1,0,0,0]
+        for a in v:r=rus_mul(r,a)
+        return r
+    def align(a,s):
+        for _ in range(s):a=rus_mul(a,[0,1,0,-1])
+        return a
+    cert={}
+    with (directory/"native-rus-composite-cert.tsv").open() as f:
+        for name,h0,h,scale,branch,a,t in csv.reader(f,delimiter="\t"):
+            h0,h,scale,branch=map(int,(h0,h,scale,branch))
+            assert name in names and name not in cert and branch==1 and 0<=h<=h0<=17
+            a=list(map(int,a.split(",")));t=list(map(int,t.split(",")))
+            assert len(a)==len(t)==16
+            a=[a[i:i+4] for i in range(0,16,4)];t=[t[i:i+4] for i in range(0,16,4)]
+            p=inner(a[:2],a[:2]);assert p==inner(a[2:],a[2:]) and not any(inner(a[:2],a[2:]))
+            assert rus_gram_real_sign(p)>0 and rus_gram_real_sign([(1<<h0)-p[0],-p[1],-p[2],-p[3]])>0
+            q=inner(t,t);assert rus_gram_real_sign(q)>0
+            cert[name]=dict(h0=h0,h=h,scale=scale,branch=branch,p=p,t=t,a=a,T=q)
+    assert tuple(cert)==names
+    # Scope is constructed by the fixed source generator, not accepted from
+    # an external certificate. Fail closed on altered branch/domain/order.
+    def admit(scope,k,branch,domain,post):
+        return k in (2,4,6) and tuple(scope)==names[:k] and branch==1 and domain=="full-disjoint-basis" and post in ("source","cz-chain")
+    assert admit(names[:2],2,1,"full-disjoint-basis","cz-chain")
+    assert not admit(names[:2],2,0,"full-disjoint-basis","source")
+    assert not admit(names[:2],2,1,"partial","source")
+    assert not admit((names[0],names[0]),2,1,"full-disjoint-basis","source")
+    assert not admit(names[:2],2,1,"full-disjoint-basis","projector")
+    print("HOARE_RUS_COMPOSITE_SCOPE "+json.dumps(dict(rejected_controls=4)),flush=True)
+    with (directory/"native-rus-composite.tsv").open() as f:rows=list(csv.reader(f,delimiter="\t"))
+    assert len(rows)==6 and len({r[0] for r in rows})==6
+    start=time.monotonic();exact=0
+    for name,k,mut,h,primary,vs,cs,B,ds,ms,ex,scope,enc,checks in rows:
+        k,mut,h,primary,vs,cs,B,enc,checks=map(int,(k,mut,h,primary,vs,cs,B,enc,checks))
+        assert mut in (0,1)
+        scope=scope.split(",");assert admit(scope,k,1,"full-disjoint-basis","cz-chain" if mut else "source")
+        b=[cert[n] for n in scope]
+        assert h==sum(q["h"] for q in b) and primary==3*k+h<=63
+        assert 0<vs<=4096 and 0<cs<=32768
+        dl=list(map(int,ds.split(",")));mag=[tuple(map(int,s.split(":"))) for s in ms.split(",")]
+        assert len(dl)==3 and all(0<=i<k and 1<=w<=5 for i,l,w in mag)
+        import math
+        assert B==(1<<primary)*math.prod(max(w for j,l,w in mag if i==j) for i in range(k))+1
+        lits=dl+[l for i,l,w in mag];assert len(lits)==len(set(lits)) and all(0<l<=vs for l in lits)
+        expected=list(map(int,ex.split(",")));assert len(expected)==8 and all(0<=v<B for v in expected)
+        S=prod([[2*v for v in q["p"]] for q in b]);T=prod([q["T"] for q in b])
+        # Independent exact reference contraction, using original local
+        # gate amplitudes and literal target, not the encoded phase bins.
+        w=[[inner([q["t"][z],q["t"][z+2]],[q["a"][z],q["a"][z+2]]) for z in range(2)] for q in b]
+        v=w[0]
+        for u in w[1:]:
+            v=[rus_mul([a+c for a,c in zip(v[0],v[1])],u[0]),
+               rus_mul([a-c if mut else a+c for a,c in zip(v[0],v[1])],u[1])]
+        oracle=[a+c for a,c in zip(*v)]
+        weights={l:B**(1<<i) for i,l in enumerate(dl)}
+        weights.update({l:w for i,l,w in mag});weights.update({-l:1 for l in lits})
+        header,*clauses=(directory/f"{name}.cnf").read_text().splitlines()
+        assert header==f"p cnf {vs} {cs}" and len(clauses)==cs
+        path=pathlib.Path(tmp)/"rus-composite.cnf"
+        path.write_text("c t wmc\n"+header+"\n"+"".join(f"c p weight {l} {w} 0\n" for l,w in sorted(weights.items()))+"\n".join(clauses)+"\n")
+        r=dict(case=name,k=k,mutant=bool(mut),h=h,primary=primary,vars=vs,clauses=cs,encode_ns=enc,checks=checks,
+               query_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),metrics=[],status="UNKNOWN",verdict="UNKNOWN")
+        try:
+            remaining=90-(time.monotonic()-start)
+            if remaining<=0:raise TimeoutError("composite scheduling deadline")
+            out=profile_gpmc([str(exe),"-mode=1","-natw",str(path)],min(10,remaining),pathlib.Path(tmp)/"rus-composite-time.tsv",r["metrics"])
+            value=parse_gpmc_integer(out,"wmc",B**8-1)
+            bits=value.bit_length();digits=[]
+            for _ in range(8):digits.append(value%B);value//=B
+            assert value==0 and digits==expected
+            C=align([digits[i]-digits[i+4] for i in range(4)],sum(q["scale"] for q in b))
+            D=[u-v for u,v in zip(rus_mul(S,T),rus_mul(C,rus_conj(C)))]
+            assert rus_gram_real_sign(D)>=0 and rus_gram_real_sign(S)>0 and rus_gram_real_sign(T)>0
+            ray=not any(D)
+            assert C==oracle and ray==(not bool(mut))
+            r.update(status="EXACT",verdict="PROVED" if ray else "REFUTED",S=S,T=T,C=C,delta=D,packed_bits=bits,digits=digits)
+            exact+=1
+        except (TimeoutError,subprocess.TimeoutExpired):
+            r["status"]="TIMEOUT"
+        except SolverSignalKilled:
+            r["status"]="UNATTRIBUTED_SIGNAL_KILL"
+        print("HOARE_RUS_COMPOSITE_GPMC "+json.dumps(r),flush=True)
+    print("HOARE_RUS_COMPOSITE_SUMMARY "+json.dumps(dict(expected=6,exact=exact)),flush=True)
+
 def run_rus_gram(directory,exe,tmp,reference,linear):
     """Independent reduced-source Gram queries; no oracle in verdict computation."""
     with (directory/"native-rus-gram.tsv").open() as f:
@@ -1401,6 +1494,8 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
             print("HOARE_RUS_ABLATION_PARITY "+json.dumps(dict(route=route,raw_pairs=len(raw_pairs),linear_pairs=len(linear_pairs))),flush=True)
         if (directory/"native-rus-gram.tsv").is_file():
             run_rus_gram(directory,exe,tmp,direct,dr)
+        if (directory/"native-rus-composite.tsv").is_file():
+            run_rus_composite(directory,exe,tmp)
     if (directory/"native-affine-wmc.tsv").is_file():
         query_cap=30
         deadline=time.monotonic()+720

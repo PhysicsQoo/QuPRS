@@ -3238,10 +3238,136 @@ fn rus_gram_export(dir:&std::path::Path,manifest:&mut String,name:&str,s:&Symbol
     println!("HOARE_RUS_GRAM_EXPORT case={case} vars={} clauses={} checks={samples}",f.c.vars,f.c.clauses.len());
 }
 
+
+// Bounded compositional norm certificate: each local source is independently
+// checked against dense gate propagation before admitting the product.
+struct RusCompositeBlock {
+    name:String, s:Symbolic, hist:[u64;64], h0:usize, scale:u32,
+    a:[Root;4], target:[Root;4],
+}
+fn rus_compose_export(dir:&std::path::Path,blocks:&[RusCompositeBlock]){
+    assert_eq!(blocks.len(),6);
+    let mut cert=String::new();let mut manifest=String::new();
+    let fmt=|a:&[Root;4]|a.iter().flatten().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+    for b in blocks{
+        let inner=|x:&[Root],y:&[Root]|{
+            let mut r=[0i64;4];for (&a,&c) in x.iter().zip(y){let q=rus_mul(rus_conj(a),c);for i in 0..4{r[i]+=q[i];}}r
+        };
+        let p=inner(&b.a[..2],&b.a[0..2]);
+        assert_eq!(p,inner(&b.a[2..],&b.a[2..]));
+        assert_eq!(inner(&b.a[..2],&b.a[2..]),[0;4]);
+        assert!(p.iter().any(|&v|v!=0));
+        cert.push_str(&format!("{}\t{}\t{}\t{}\t1\t{}\t{}\n",b.name,b.h0,b.s.h,b.scale,fmt(&b.a),fmt(&b.target)));
+    }
+    std::fs::write(dir.join("native-rus-composite-cert.tsv"),cert).unwrap();
+    for k in [2usize,4,6]{
+        let bs=&blocks[..k];let h=bs.iter().map(|b|b.s.h).sum::<usize>();
+        let primary=3*k+h;
+        assert!(primary<=63);
+        for mutant in [false,true]{
+            let now=std::time::Instant::now();
+            let mut f=FactorPilot{c:Cnf::new(primary),gates:BTreeMap::new(),polys:BTreeMap::new(),work:0};
+            let mut phase=vec![ZERO;3];let mut out=Vec::new();let mut mag=Vec::new();
+            let mut off=k;let mut maxprod=1u128;
+            // Local target selectors choose a canonical coefficient index.
+            // Weight is its absolute magnitude; negative coefficient shifts
+            // phase by pi, and conjugation negates the basis exponent.
+            for (i,b) in bs.iter().enumerate(){
+                let x=(2+i) as Lit;
+                let bits:Vec<Lit>=vec![ZERO,x].into_iter().chain((0..b.s.h).map(|j|(2+off+j) as Lit)).collect();
+                let p=mod_phase(&mut f,&b.s.phase,&bits,3,"factor").unwrap();
+                let z=b.s.output.iter().map(|a|f.anf(a,&bits,true).unwrap()).collect::<Vec<_>>();
+                f.c.enforce(z[0]);out.push(z[1]);
+                let sel=[(2+k+h+2*i) as Lit,(3+k+h+2*i) as Lit];
+                let roots=[z[1],x,sel[0],sel[1]];
+                let table=(0..16usize).map(|j|b.target[j&3][j>>2]).collect::<Vec<_>>();
+                let lookup=|f:&mut FactorPilot,test:&dyn Fn(i64)->bool|{
+                    let mut a=table.iter().map(|&v|test(v)).collect::<Vec<_>>();
+                    for u in 0..4{for j in 0..16{if j>>u&1!=0{let v=a[j^(1<<u)];a[j]^=v;}}}
+                    let a=a.iter().enumerate().filter_map(|(i,&v)|v.then_some(i as u64)).collect::<Anf>();
+                    f.anf(&a,&roots,true).unwrap()
+                };
+                let max=table.iter().map(|v|v.unsigned_abs()).max().unwrap();assert!(max>0);
+                maxprod=maxprod.checked_mul(max as u128).unwrap();
+                let mut enabled=ZERO;
+                for m in 1..=max{
+                    if !table.iter().any(|v|v.unsigned_abs()==m){continue;}
+                    let l=lookup(&mut f,&|v|v.unsigned_abs()==m);
+                    enabled=f.gate(true,enabled,l).unwrap();
+                    mag.push((i,f.alias(l).unwrap(),m));
+                }
+                f.c.enforce(enabled);
+                let sign=lookup(&mut f,&|v|v<0);
+                let inv=mod_add(&mut f,&[-sel[0],-sel[1],ONE],&[ONE,ZERO,ZERO]).unwrap();
+                let mut local=mod_add(&mut f,&p,&inv).unwrap();
+                local[2]=f.gate(true,local[2],sign).unwrap();
+                phase=mod_add(&mut f,&phase,&local).unwrap();off+=b.s.h;
+            }
+            assert_eq!(off,k+h);
+            if mutant{for i in 1..k{let z=f.gate(false,out[i-1],out[i]).unwrap();phase[2]=f.gate(true,phase[2],z).unwrap();}}
+            let aliases=phase.iter().map(|&l|f.alias(l).unwrap()).collect::<Vec<_>>();
+            let radix=(1u128<<primary).checked_mul(maxprod).unwrap()+1;
+            let enc=now.elapsed().as_nanos();
+            // Independent exact nonnegative phase-bin chain contraction.
+            let mut dp=[[0u128;8];2];dp[0][0]=1;
+            for b in bs{
+                let mut local=[[0u128;8];2];
+                for x in 0..2{for z in 0..2{for e in 0..8{for c in 0..4{
+                    let w=b.target[2*x+z][c];
+                    let j=(e+8-c+if w<0{4}else{0})%8;
+                    local[z][j]+=u128::from(b.hist[32*x+8*(2*z+1)+e])*u128::from(w.unsigned_abs());
+                }}}}
+                let mut next=[[0u128;8];2];
+                for z0 in 0..2{for z in 0..2{for e in 0..8{for q in 0..8{
+                    let j=(e+q+if mutant{4*z0*z}else{0})%8;
+                    next[z][j]+=dp[z0][e]*local[z][q];
+                }}}}
+                dp=next;
+            }
+            let expected:Vec<_>=(0..8).map(|i|dp[0][i]+dp[1][i]).collect();
+            assert!(expected.iter().all(|&v|v<radix));
+            let checks=1024usize;let mut seed=0x434552544752414du64;
+            for _ in 0..checks{
+                seed=seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                let a=(seed^(seed>>29))&((1u64<<primary)-1);
+                let mut off=k;let(mut e,mut last)=(0usize,0usize);let mut valid=true;let mut mags=Vec::new();
+                for (i,b) in bs.iter().enumerate(){
+                    let x=a>>i&1;let y=(a>>off)&((1<<b.s.h)-1);off+=b.s.h;
+                    let(z,p)=path(&b.s,2*x,y);let z=(z>>1) as usize;
+                    // Check measured bit using the same full path, not only data output.
+                    let(full,_)=path(&b.s,2*x,y);
+                    let c=((a>>(k+h+2*i))&3) as usize;let w=b.target[2*x as usize+z][c];
+                    if full&1==0||w==0{valid=false;}
+                    mags.push(w.unsigned_abs());
+                    e=(e+p+8-c+if w<0{4}else{0}+if mutant{4*last*z}else{0})%8;last=z;
+                }
+                let v=factor_up(&f.c,primary,a);
+                if !valid{assert!(v.is_none());}else{
+                    let v=v.unwrap();let digit=aliases.iter().enumerate().fold(0usize,|r,(i,&l)|r|(usize::from(lit_value(l,&v)==1)<<i));assert_eq!(digit,e);
+                    for (i,&w) in mags.iter().enumerate(){
+                        let active=mag.iter().filter(|&&(j,l,_)|j==i&&lit_value(l,&v)==1).collect::<Vec<_>>();
+                        assert_eq!(active.len(),1);assert_eq!(active[0].2,w);
+                    }
+                }
+            }
+            let name=format!("rus-composite-{k}-{}",if mutant{"cz-chain"}else{"source"});
+            let body=dimacs(&f.c,&[]).unwrap();
+            std::fs::write(dir.join(format!("{name}.cnf")),body).unwrap();
+            let ds=aliases.iter().map(|l|l.to_string()).collect::<Vec<_>>().join(",");
+            let ms=mag.iter().map(|(i,l,w)|format!("{i}:{l}:{w}")).collect::<Vec<_>>().join(",");
+            let ex=expected.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(",");
+            let scope=bs.iter().map(|b|b.name.as_str()).collect::<Vec<_>>().join(",");
+            manifest.push_str(&format!("{name}\t{k}\t{}\t{h}\t{primary}\t{}\t{}\t{radix}\t{ds}\t{ms}\t{ex}\t{scope}\t{enc}\t{checks}\n",usize::from(mutant),f.c.vars,f.c.clauses.len()));
+            println!("HOARE_RUS_COMPOSITE_EXPORT case={name} primary={primary} vars={} clauses={} checks={checks}",f.c.vars,f.c.clauses.len());
+        }
+    }
+    std::fs::write(dir.join("native-rus-composite.tsv"),manifest).unwrap();
+}
+
 fn rus_export(dir:&std::path::Path){
     let Some(srcdir)=std::env::var_os("HOARE_FACTOR_SOURCE_DIR")else{return;};
     let src=std::path::PathBuf::from(srcdir);
-    let mut manifest=String::new();let mut rr_manifest=String::new();let mut fixed_manifest=String::new();let mut gram_manifest=String::new();
+    let mut manifest=String::new();let mut rr_manifest=String::new();let mut fixed_manifest=String::new();let mut gram_manifest=String::new();let mut composite=Vec::new();
     for (name,h,expected_ops,corr) in [("Figure7",7usize,14usize,true),("Figure8",3,8,false),("Figure9",5,13,false),
         ("Figure10a",9,21,false),("Figure10b",17,37,true),("Figure10c",16,33,false)]{
         let source=std::fs::read_to_string(src.join(format!("rus-{name}-circuit.qasm"))).unwrap();
@@ -3303,6 +3429,10 @@ fn rus_export(dir:&std::path::Path){
             let a:Root=std::array::from_fn(|j|reduced_hist[8*i+j] as i64-reduced_hist[8*i+j+4] as i64);
             assert_eq!(align(a),d,"RUS complete fibre alignment {name} {i}");
         }
+        let a=std::array::from_fn(|i|dense_state(2,&gates,(2*(i/2)) as u64)[2*(i%2)+1]);
+        let t=rus_target(name);
+        let target=if name=="Figure10a"||name=="Figure10c"{t.map(rus_conj)}else{t};
+        composite.push(RusCompositeBlock{name:name.to_owned(),s:Symbolic{n:reduced.n,h:reduced.h,output:reduced.output.clone(),phase:reduced.phase.clone()},hist:reduced_hist,h0:h,scale:scale2,a,target});
         println!("HOARE_RUS_RR case={name} h0={h} h={} scale2={scale2} steps={rr_steps} elim={elim} hh={hh} omega={omega} prep_ns={rr_prep_ns}",reduced.h);
         let mut fixed_hist=[0u64;64];
         for x in 0..2{for y in 0..1usize<<fixed.h{
@@ -3415,6 +3545,7 @@ fn rus_export(dir:&std::path::Path){
     std::fs::write(dir.join("native-rus-fixed.tsv"),fixed_manifest).unwrap();
     assert_eq!(gram_manifest.lines().count(),28);
     std::fs::write(dir.join("native-rus-gram.tsv"),gram_manifest).unwrap();
+    rus_compose_export(dir,&composite);
 }
 
 fn sparse_target_export(dir:&std::path::Path){

@@ -493,6 +493,13 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         run_fourier(directory/"fourier-heldout")
     deadline=time.monotonic()+45
     run_residual_hybrid(directory,solve,deadline,rows)
+    if (directory/"native-affine-wmc.tsv").is_file():
+        query_cap=8
+        deadline=time.monotonic()+240
+        long_metrics=[]
+        run_native_affine_wmc(directory,solve,deadline,long_metrics)
+        long_metrics=None
+        query_cap=5
     # Preserve the original discovery protocol on explicit request. Default
     # to the frozen long cohort rather than rerunning all 19 known timeouts.
     if os.environ.get("HOARE_SECTOR_TRANSPORT")=="1":
@@ -548,6 +555,71 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     return rows
 
 
+
+
+def run_native_affine_wmc(directory,solve,deadline,metrics):
+    """Matched root/witness pilot; same exact packed GPMC for all arms."""
+    fields="case mode n h0 h scale width vars clauses delta status prep_ns encoding_ns expected mapping oracle".split()
+    with (directory/"native-affine-wmc.tsv").open() as f:
+        plans={(r["case"],r["mode"]):r for r in csv.DictReader(f,fieldnames=fields,delimiter="\t")}
+    assert len(plans)==9
+    rows=[]
+    for i,name in enumerate(sorted({name for name,_ in plans},key=lambda s:int(s.rsplit("-",1)[1]))):
+        for rep in range(2):
+            modes=["mono","padded","free"]
+            modes=modes[i%3:]+modes[:i%3]
+            if rep:modes.reverse()
+            for mode in modes:
+                p=plans[name,mode]
+                row=dict(case=name,mode=mode,rep=rep,status=p["status"],root_cap_s=8,
+                         **{k:int(p[k]) for k in ("n","h0","h","scale","width","vars","clauses","prep_ns","encoding_ns")})
+                target=tuple(map(int,p["expected"].split(",")))
+                assert p["expected"]==plans[name,"mono"]["expected"]
+                row.update(expected=target,coeff=None,verdict="UNKNOWN",witness_status="NOT_RUN",
+                           root_s=0.0,witness_s=0.0,root_queries=0,witness_queries=0)
+                if p["status"]=="READY":
+                    base=(directory/f"native-affine-{name}-{mode}.cnf").read_bytes()
+                    row["cnf_sha256"]=hashlib.sha256(base).hexdigest()
+                    delta=list(map(int,p["delta"].split(",")))
+                    mapping=dict(tuple(map(int,s.split(":"))) for s in p["mapping"].split(","))
+                    oracle={int(x):(int(a),int(b)) for x,a,b in (s.split(":") for s in p["oracle"].split(","))}
+                    start=time.monotonic();end=min(deadline,start+8)
+                    metrics.clear()
+                    try:
+                        c=tuple(solve(base.decode(),delta,[],end))
+                        row["root_queries"]=1
+                        if any(c) and not positive_surd(c):raise ValueError("negative root")
+                        c=tuple(v*(1<<row["scale"]) for v in c)
+                        assert c==target,(name,mode,c,target)
+                        row.update(coeff=c,verdict="REFUTED" if any(c) else "PROVED",status="EXACT_ROOT",
+                                   witness_status="UNKNOWN_RESOURCE" if any(c) else "NOT_REQUIRED")
+                    except (TimeoutError,subprocess.TimeoutExpired):row["status"]="ROOT_TIMEOUT"
+                    except SolverSignalKilled:row["status"]="ROOT_SIGNAL_KILL"
+                    row["root_s"]=time.monotonic()-start
+                    row["root_metrics"]=[dict(m) for m in metrics]
+                    if row["verdict"]=="REFUTED":
+                        st=time.monotonic();end=min(deadline,st+5)
+                        metrics.clear()
+                        try:
+                            prefix=[];u=0
+                            for j in range(row["width"]):
+                                prefix.append(-(j+2));row["witness_queries"]+=1
+                                if not any(solve(base.decode(),delta,prefix,end)):
+                                    prefix[-1]=j+2;u|=1<<j
+                            row["witness_queries"]+=1
+                            v=tuple(x*(1<<row["scale"]) for x in solve(base.decode(),delta,prefix,end))
+                            x=mapping[u]
+                            assert any(v) and v==oracle[x],(name,mode,u,x,v,oracle)
+                            row.update(witness=x,witness_status="VERIFIED",witness_coeff=v)
+                        except (TimeoutError,subprocess.TimeoutExpired,SolverSignalKilled):pass
+                        row["witness_s"]=time.monotonic()-st
+                        row["witness_metrics"]=[dict(m) for m in metrics]
+                rows.append(row)
+                print("HOARE_NATIVE_AFFINE_GPMC "+json.dumps(row),flush=True)
+    assert len(rows)==18
+    print("HOARE_NATIVE_AFFINE_GPMC_SUMMARY "+json.dumps({m:dict(attempts=sum(r["mode"]==m for r in rows),
+        exact=sum(r["mode"]==m and r["coeff"] is not None for r in rows),
+        witnesses=sum(r["mode"]==m and r["witness_status"]=="VERIFIED" for r in rows)) for m in ("mono","padded","free")}),flush=True)
 
 def run_residual_hybrid(directory,solve,deadline,direct_rows):
     direct={r["case"]:r for r in direct_rows}

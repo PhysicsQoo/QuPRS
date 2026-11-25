@@ -1024,6 +1024,7 @@ mod exact_property_cnf {
         export_rare_wmc(&dir);
         export_scale_benchmark(&dir);
         export_fourier_heldout(&dir);
+        export_native_affine_wmc(&dir);
     }
 
 
@@ -2956,6 +2957,80 @@ mod exact_property_cnf {
         assert_eq!(cases,12);
         assert_eq!(conditioned,72);
         println!("HOARE_NATIVE_AFFINE_FREE_SUMMARY cases={cases} conditioned={conditioned} native_ir=true exact_root=true free_coordinate_encoding=true");
+    }
+
+
+    // Fixed difficulty ladder for the linked-input WMC comparison.
+    // Dense gate oracle uses only the two legal original inputs; never
+    // used to select a solver route or construct a witness.
+    fn export_native_affine_wmc(dir:&std::path::Path){
+        let mut manifest=String::new();
+        for n in [6usize,8,10]{
+            let name=format!("linked-mixing-{n}");
+            let ops=scale_mixing(n,3);
+            let mut pre=vec![bit(n-1,false)];
+            pre.extend((0..n-2).map(|i|equal_bits(i,i+1)));
+            let post=vec![bit(0,false)];
+            let legal:Vec<_>=(0..1u64<<n).filter(|&x|eval_conj(&pre,x)).collect();
+            assert_eq!(legal,vec![0,(1u64<<(n-1))-1]);
+            let oracle:Vec<_>=legal.iter().map(|&x|(x,raw_for_input(n,&ops,&post,x))).collect();
+            let expected=oracle.iter().fold([0i128;2],|a,(_,v)|[a[0]+v[0],a[1]+v[1]]);
+            export_external_property(dir,&name,n,&ops,&pre,&post);
+            let mut ps=PathSum::new(n);ps.set_auto_reduce(false);
+            for op in &ops{op.apply(&mut ps,false);}
+            let initial_h=ps.v.path_vars.len()-n;
+            let t=std::time::Instant::now();
+            let a=specialize_affine(ps.clone(),n,&pre).and_then(|(p,m)|{
+                let (s,st)=reduce_existing(p,n)?;Some((s,st,m))
+            });
+            let affine_ns=t.elapsed().as_nanos();
+            let t=std::time::Instant::now();
+            let m=(||{
+                let mut current=ps;
+                for _ in 0..=n{
+                    let before=compact(&current,n)?;
+                    let next=mono_substitute(current,n,&pre)?;
+                    let after=compact(&next,n)?;
+                    current=next;
+                    if before.phase==after.phase&&before.output==after.output&&before.h==after.h{
+                        return reduce_existing(current,n);
+                    }
+                }
+                None
+            })();
+            let mono_ns=t.elapsed().as_nanos();
+            for mode in ["mono","padded","free"]{
+                let t=std::time::Instant::now();
+                let plan=match mode{
+                    "mono"=>m.as_ref().map(|(s,st)|{
+                        let (c,d)=two_copy_conj(s,&pre,&post);
+                        (c,d,s.h,st.scale2,n,oracle.iter().map(|(x,_)|(*x,*x)).collect::<Vec<_>>())
+                    }),
+                    "padded"|"free"=>a.as_ref().and_then(|(s,st,model)|{
+                        let f=model.free.len();
+                        let map=(0..1u64<<f).map(|u|{
+                            let x=model.free.iter().enumerate().fold(0u64,|m,(i,&j)|m|(((u>>i)&1)<<j));
+                            (if mode=="free"{u}else{x},model.decode(x))
+                        }).collect::<Vec<_>>();
+                        assert_eq!(map.iter().map(|&(_,x)|x).collect::<BTreeSet<_>>(),legal.iter().copied().collect());
+                        let (c,d)=if mode=="free"{affine_free_pair(s,model,&post)?}else{two_copy_conj(s,&model.guard(),&post)};
+                        Some((c,d,s.h,st.scale2,if mode=="free"{f}else{n},map))
+                    }),
+                    _=>unreachable!(),
+                };
+                let prep=if mode=="mono"{mono_ns}else{affine_ns};
+                let oracle_text=oracle.iter().map(|(x,v)|format!("{x}:{}:{}",v[0],v[1])).collect::<Vec<_>>().join(",");
+                let (status,h,scale,width,vars,clauses,delta,map)=if let Some((c,d,h,scale,width,map))=plan{
+                    let status=if let Some(text)=serialize_external(&c,&[]){
+                        std::fs::write(dir.join(format!("native-affine-{name}-{mode}.cnf")),text).unwrap();"READY"
+                    }else{"UNKNOWN_ENCODING_LIMIT"};
+                    (status,h,scale,width,c.vars,c.clauses.len(),format!("{},{},{}",d[0],d[1],d[2]),map.iter().map(|(u,x)|format!("{u}:{x}")).collect::<Vec<_>>().join(","))
+                }else{("UNKNOWN_PREPROCESS_LIMIT",initial_h,0,n,0,0,"-".to_owned(),"-".to_owned())};
+                let enc=t.elapsed().as_nanos();
+                manifest.push_str(&format!("{name}\t{mode}\t{n}\t{initial_h}\t{h}\t{scale}\t{width}\t{vars}\t{clauses}\t{delta}\t{status}\t{prep}\t{enc}\t{},{}\t{map}\t{oracle_text}\n",expected[0],expected[1]));
+            }
+        }
+        std::fs::write(dir.join("native-affine-wmc.tsv"),manifest).unwrap();
     }
 
     #[test]

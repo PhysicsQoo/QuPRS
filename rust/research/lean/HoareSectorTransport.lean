@@ -2066,4 +2066,220 @@ theorem fourier_nonzero_output (n : Nat) (gs : List Gate) (x : State)
 #print axioms inverse_phase_walsh_eq_fourier
 #print axioms fourier_nonzero_output
 
+/-! Integrated finite coefficient-level Hoare checker. FiniteState
+    ensures zero tail by construction. Gate admission, translation,
+    phase samples, original-row combination and legal input are checked
+    independently. The exact Fourier coefficient model is the
+    semantics here; complex embedding and native refinement are not
+    asserted. Unsupported/inconsistent inputs remain UNKNOWN. -/
+
+abbrev FiniteState (n : Nat) := { x : State // supported n x }
+
+def gateOK (n : Nat) : Gate → Bool
+  | .flip a => decide (a < n)
+  | .cnot a b => decide (a < n) && (decide (b < n) && decide (a ≠ b))
+  | .z a => decide (a < n)
+  | .s a => decide (a < n)
+  | .t a => decide (a < n)
+  | .cz a b => decide (a < n) && (decide (b < n) && decide (a ≠ b))
+
+theorem gate_ok_sound (n : Nat) (g : Gate) (h : gateOK n g = true) :
+    gateBound n g ∧ distinctGate g := by
+  cases g with
+  | flip a =>
+      exact ⟨of_decide_eq_true h, True.intro⟩
+  | cnot a b =>
+      have hh : a < n ∧ (b < n ∧ a ≠ b) := by
+        simpa [gateOK] using h
+      exact ⟨⟨hh.1, hh.2.1⟩, hh.2.2⟩
+  | z a => exact ⟨of_decide_eq_true h, True.intro⟩
+  | s a => exact ⟨of_decide_eq_true h, True.intro⟩
+  | t a => exact ⟨of_decide_eq_true h, True.intro⟩
+  | cz a b =>
+      have hh : a < n ∧ (b < n ∧ a ≠ b) := by
+        simpa [gateOK] using h
+      exact ⟨⟨hh.1, hh.2.1⟩, hh.2.2⟩
+
+def reversibleOK (n : Nat) : List Gate → Bool
+  | [] => true
+  | g :: gs => gateOK n g && reversibleOK n gs
+
+theorem reversible_ok_sound (n : Nat) (gs : List Gate)
+    (h : reversibleOK n gs = true) : reversibleGates n gs := by
+  induction gs with
+  | nil => exact True.intro
+  | cons g gs ih =>
+      have he : gateOK n g = true ∧ reversibleOK n gs = true := by
+        simpa [reversibleOK] using h
+      exact ⟨gate_ok_sound n g he.1, ih he.2⟩
+
+theorem reversible_implies_bounded (n : Nat) (gs : List Gate)
+    (h : reversibleGates n gs) : gatesBound n gs := by
+  induction gs with
+  | nil => exact True.intro
+  | cons g gs ih => exact ⟨h.1.1, ih h.2⟩
+
+theorem advance_delta_supported (n : Nat) (g : Gate) (d : State)
+    (hg : gateBound n g) (hd : supported n d) :
+    supported n (advanceDelta g d) := by
+  cases g with
+  | flip a => exact hd
+  | cnot a b => exact advance_preserves_support n (.cnot a b) d hg hd
+  | z a => exact hd
+  | s a => exact hd
+  | t a => exact hd
+  | cz a b => exact hd
+
+theorem trace_delta_supported (n : Nat) (gs : List Gate) (s : State)
+    (hg : gatesBound n gs) (hs : supported n s) :
+    supported n (traceDelta gs s) := by
+  induction gs generalizing s with
+  | nil => exact hs
+  | cons g gs ih =>
+      exact ih (advanceDelta g s) hg.2 (advance_delta_supported n g s hg.1 hs)
+
+theorem same_mask_prefix (n : Nat) (a b : State)
+    (h : sameMask n a b = true) : ∀ i, i < n → a i = b i := by
+  induction n with
+  | zero =>
+      intro i hi
+      omega
+  | succ n ih =>
+      have hh : sameMask n a b = true ∧ a n = b n := by
+        simpa [sameMask] using h
+      intro i hi
+      by_cases he : i = n
+      · subst i
+        exact hh.2
+      · exact ih hh.1 i (by omega)
+
+theorem same_mask_supported_eq (n : Nat) (a b : State)
+    (ha : supported n a) (hb : supported n b) (h : sameMask n a b = true) :
+    a = b := by
+  funext i
+  by_cases hi : i < n
+  · exact same_mask_prefix n a b h i hi
+  · rw [ha i (by omega), hb i (by omega)]
+
+def checkBelow : Nat → (Nat → Bool) → Bool
+  | 0, _ => true
+  | n+1, f => checkBelow n f && f n
+
+theorem check_below_sound (n : Nat) (f : Nat → Bool)
+    (h : checkBelow n f = true) : ∀ i, i < n → f i = true := by
+  induction n with
+  | zero =>
+      intro i hi
+      omega
+  | succ n ih =>
+      have hh : checkBelow n f = true ∧ f n = true := by
+        simpa [checkBelow] using h
+      intro i hi
+      by_cases he : i = n
+      · subst i
+        exact hh.2
+      · exact ih hh.1 i (by omega)
+
+def checkPhaseSamples (n : Nat) (gs : List Gate) (s : State) (b : Bool) : Bool :=
+  decide (phaseDiff gs s zeroState = 4 * bit b) &&
+    (checkBelow n (fun i => decide (phaseDiff gs s (unitState i) = 4 * bit b)) &&
+      checkBelow n (fun i => checkBelow i (fun j =>
+        decide (phaseDiff gs s (pairState j i) = 4 * bit b))))
+
+theorem check_phase_samples_sound (n : Nat) (gs : List Gate) (s : State) (b : Bool)
+    (h : checkPhaseSamples n gs s b = true) :
+    (phaseDiff gs s zeroState = 4 * bit b) ∧
+    (∀ i, i < n → phaseDiff gs s (unitState i) = 4 * bit b) ∧
+    (∀ i j, j < i → i < n → phaseDiff gs s (pairState j i) = 4 * bit b) := by
+  have hh : phaseDiff gs s zeroState = 4 * bit b ∧
+      (checkBelow n (fun i => decide (phaseDiff gs s (unitState i) = 4 * bit b)) = true ∧
+      checkBelow n (fun i => checkBelow i (fun j =>
+        decide (phaseDiff gs s (pairState j i) = 4 * bit b))) = true) := by
+    simpa [checkPhaseSamples] using h
+  refine ⟨hh.1, ?_, ?_⟩
+  · intro i hi
+    exact of_decide_eq_true (check_below_sound n _ hh.2.1 i hi)
+  · intro i j hj hi
+    have he := check_below_sound n _ hh.2.2 i hi
+    exact of_decide_eq_true (check_below_sound i _ he j hj)
+
+def finiteFourierBad (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (t : FiniteState n) (q : Bool) : Prop :=
+  ∃ (x z : FiniteState n) (j : Nat), j < 4 ∧ affinePre n rs x.val ∧
+    dot n z.val t.val ≠ q ∧ fourierAmp n gs x.val z.val j ≠ 0
+
+def checkSector (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (bs : List Bool) (s t witness : FiniteState n) (e b : Bool) : Bool :=
+  reversibleOK n gs &&
+    (sameMask n (traceDelta gs s.val) t.val &&
+      (checkPhaseSamples n gs s.val b &&
+        (checkCombination n rs bs s.val e && checkWitness n witness.val rs)))
+
+def runSector (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (bs : List Bool) (s t witness : FiniteState n) (e b q : Bool) : Verdict :=
+  terminal (checkSector n gs rs bs s t witness e b) e b q
+
+/-- An accepted certificate proves or refutes the finite coefficient
+    Hoare property without assuming entry transport or nonzero columns.
+    Rejected certificates conservatively return UNKNOWN. -/
+theorem run_sector_sound (n : Nat) (gs : List Gate) (rs : List AffineRow)
+    (bs : List Bool) (s t witness : FiniteState n) (e b q : Bool) :
+    Sound (finiteFourierBad n gs rs t q) (runSector n gs rs bs s t witness e b q) := by
+  unfold runSector
+  cases ha : checkSector n gs rs bs s t witness e b with
+  | false => exact True.intro
+  | true =>
+      have h : reversibleOK n gs = true ∧
+          sameMask n (traceDelta gs s.val) t.val = true ∧
+          checkPhaseSamples n gs s.val b = true ∧
+          checkCombination n rs bs s.val e = true ∧
+          checkWitness n witness.val rs = true := by
+        simpa [checkSector] using ha
+      have hg := reversible_ok_sound n gs h.1
+      have hb := reversible_implies_bounded n gs hg
+      have ht := same_mask_supported_eq n (traceDelta gs s.val) t.val
+        (trace_delta_supported n gs s.val hb s.property) t.property h.2.1
+      have hp := check_phase_samples_sound n gs s.val b h.2.2.1
+      have htEntry := sampled_fourier_entry_transport n gs s.val t.val b hb s.property ht
+        hp.1 hp.2.1 hp.2.2
+      have transport : ∀ x z j, sgn (dot n z t.val) * fourierAmp n gs x z j =
+          sgn (bx (dot n s.val x) b) * fourierAmp n gs x z j := by
+        intro x z j
+        rw [dot_symmetric n s.val x]
+        exact htEntry x z j
+      have fixed := combination_sound n rs bs s.val e h.2.2.2.1
+      have hw := witness_sound n rs witness.val h.2.2.2.2
+      by_cases hm : bx e b = q
+      · have hsafe : ¬ finiteFourierBad n gs rs t q := by
+          rintro ⟨x, z, j, _, hx, hz, hn⟩
+          apply hn
+          apply support_sector (fourierAmp n gs) (dot n s.val)
+            (fun z => dot n z t.val) b transport x.val z.val j
+          rw [fixed x.val hx, hm]
+          exact hz
+        simpa [terminal, Sound, hm] using hsafe
+      · obtain ⟨z, j, hz, hj, hn⟩ := fourier_nonzero_output n gs witness.val hg
+        have he : dot n z t.val = bx (dot n s.val witness.val) b := by
+          by_cases hv : dot n z t.val = bx (dot n s.val witness.val) b
+          · exact hv
+          · exact False.elim (hn (support_sector (fourierAmp n gs) (dot n s.val)
+              (fun z => dot n z t.val) b transport witness.val z j hv))
+        have hbad : finiteFourierBad n gs rs t q := by
+          refine ⟨witness, ⟨z, hz⟩, j, hj, hw, ?_, hn⟩
+          change dot n z t.val ≠ q
+          rw [he, fixed witness.val hw]
+          exact hm
+        simpa [terminal, Sound, hm] using hbad
+
+#print axioms gate_ok_sound
+#print axioms reversible_ok_sound
+#print axioms reversible_implies_bounded
+#print axioms advance_delta_supported
+#print axioms trace_delta_supported
+#print axioms same_mask_prefix
+#print axioms same_mask_supported_eq
+#print axioms check_below_sound
+#print axioms check_phase_samples_sound
+#print axioms run_sector_sound
+
 end QuPRS.SectorTransport

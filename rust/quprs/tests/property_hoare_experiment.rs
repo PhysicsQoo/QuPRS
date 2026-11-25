@@ -571,6 +571,154 @@ mod exact_property_cnf {
     }
     // Conjunction of small ANFs, without expanding products into a single ANF.
 
+    // Research-only: signed relation between two masked sums of the same
+    // native path polynomial, the right side conjugated. The caller must
+    // establish the same nonzero real normalization. This is not a
+    // production verifier, nor a general affine-lift discovery algorithm.
+    // Guards are conjunctions of ANFs over compact sorted live positions.
+    // A hidden-bit XOR is admitted only if it is syntactically absent
+    // from all output monomials (a sufficient fiber-bijection certificate).
+    fn dual_mask_native_cnf(ps:&PathSum,a:&[Anf],b:&[Anf],
+        flip:Option<u32>,cancel:bool)->Option<(Cnf,Lit,u32)>{
+        let n=ps.v.num_qubits;
+        if n==0||n>16||ps.rr_approximate||ps.rr_tolerance!=0.0||
+            !ps.v.continuous_vars.is_empty()||ps.f.functions.len()!=n{return None;}
+        let mut ids:Vec<_>=ps.v.path_vars.iter().copied().collect();ids.sort_unstable();
+        if ids.len()<n||ids.len()>32||(0..n).any(|i|ids[i]!=i as u32)||
+            a.iter().chain(b).flatten().any(|&m|m>>ids.len()!=0)||
+            ps.p.terms.len()+ps.f.functions.iter().map(|f|f.len()).sum::<usize>()>256{return None;}
+        if let Some(v)=flip{
+            if (v as usize)<n||!ps.v.path_vars.contains(&v)||
+                ps.f.functions.iter().any(|f|f.iter().any(|m|m.contains(&v))){return None;}
+        }
+        let mut d=2u32;
+        for (m,w) in &ps.p.terms{
+            if w.radians.is_some()||!w.symbols.is_empty()||
+                m.iter().any(|v|!ps.v.path_vars.contains(v)){return None;}
+            let den=u32::try_from(w.constant.denom).ok()?;
+            if !den.is_power_of_two()||den>64{return None;}
+            d=d.max(den);
+        }
+        let h=ids.len()-n;let k=d.trailing_zeros() as usize;
+        // Two independent path vectors and independent signed branch bits.
+        let mut c=Cnf::new(n+2*h+2);
+        let selectors=[(n+2*h+2) as Lit,(n+2*h+3) as Lit];
+        let mut words=Vec::new();let mut outputs=Vec::new();
+        for j in 0..2{
+            let bits:Vec<Lit>=(0..ids.len()).map(|i|(if i<n{i}else{i+j*h}) as Lit+2).collect();
+            let mut moved=bits.clone();
+            if let Some(v)=flip{let i=ids.binary_search(&v).ok()?;moved[i]=-moved[i];}
+            let phase=|c:&mut Cnf,vs:&[Lit],neg:bool|->Option<Vec<Lit>>{
+                let map:BTreeMap<_,_>=ids.iter().copied().zip(vs.iter().copied()).collect();
+                let mut acc=vec![ZERO;k];
+                let mut ts:Vec<_>=ps.p.terms.iter().collect();ts.sort_by(|a,b|a.0.cmp(b.0));
+                for (m,w) in ts{
+                    // Include constant and input-only phase: conjugation
+                    // and comparison of distinct branches need both.
+                    let v=d as i128*w.constant.numer as i128/w.constant.denom as i128;
+                    let w=(if neg{-v}else{v}).rem_euclid(d as i128) as u32;
+                    if w==0{continue;}
+                    let mut term=ONE;for id in m{term=c.and(term,*map.get(id)?);}
+                    let mut carry=ZERO;
+                    for i in 0..k{
+                        let b=if w>>i&1!=0{term}else{ZERO};
+                        let a=acc[i];let t=c.xor(a,b);acc[i]=c.xor(t,carry);
+                        if i+1<k{let ab=c.and(a,b);let tc=c.and(t,carry);carry=c.or(ab,tc);}
+                    }
+                    if !c.bounded(){return None;}
+                }Some(acc)
+            };
+            let left=phase(&mut c,&moved,false)?;let right=phase(&mut c,&bits,true)?;
+            let mut ga=ONE;for p in a{let v=c.anf(p,&moved);ga=c.and(ga,v);}
+            let mut gb=ONE;for p in b{let v=c.anf(p,&bits);gb=c.and(gb,v);}
+            if cancel{
+                let mut same=ONE;
+                for i in 0..k{let v=c.xor(left[i],right[i]);same=c.and(same,-v);}
+                let both=c.and(ga,gb);let drop=c.and(both,same);
+                ga=c.and(ga,-drop);gb=c.and(gb,-drop);
+            }
+            let t=selectors[j];
+            let al=c.and(-t,ga);let bl=c.and(t,gb);let active=c.or(al,bl);c.enforce(active);
+            let mut word=Vec::new();
+            for i in 0..k{let a=c.and(-t,left[i]);let b=c.and(t,right[i]);word.push(c.or(a,b));}
+            words.push(word);
+            let map:BTreeMap<_,_>=ids.iter().copied().zip(bits.iter().copied()).collect();
+            let mut out=Vec::new();
+            for f in &ps.f.functions{
+                let mut v=ZERO;let mut ms:Vec<_>=f.iter().collect();ms.sort();
+                for m in ms{let mut t=ONE;for id in m{t=c.and(t,*map.get(id)?);}v=c.xor(v,t);}
+                out.push(v);
+            }
+            outputs.push(out);if !c.bounded(){return None;}
+        }
+        for i in 0..n{let v=c.xor(outputs[0][i],outputs[1][i]);c.enforce(-v);}
+        // Difference of selected phases, then XOR the two coefficient signs.
+        let mut carry=ONE;let mut delta=Vec::new();
+        for i in 0..k{
+            let a=words[0][i];let b=-words[1][i];
+            let t=c.xor(a,b);delta.push(c.xor(t,carry));
+            if i+1<k{let ab=c.and(a,b);let tc=c.and(t,carry);carry=c.or(ab,tc);}
+        }
+        for &v in &delta[..k-1]{c.enforce(-v);}
+        let pair_sign=c.xor(selectors[0],selectors[1]);let sign=c.xor(delta[k-1],pair_sign);
+        c.bounded().then_some((c,sign,d))
+    }
+
+    #[test]
+    fn hoare_native_dual_mask_residual(){
+        let mut checks=0;let mut zero=0;let mut positive=0;
+        for d in [2i64,4,8,16,32,64]{
+            for offset in [0,1]{
+                let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+                for _ in 0..70{let v=ps.v.get_fresh_var();assert!(ps.v.path_vars.remove(&v));}
+                let u=ps.v.get_fresh_var();let y=ps.v.get_fresh_var();
+                ps.f.functions[0]=rustc_hash::FxHashSet::from_iter([vec![0],vec![u]]);
+                for (m,w) in [(vec![],offset),(vec![u],1),(vec![0,u],1),(vec![y],1),(vec![u,y],d/2)]{
+                    ps.p.add_term(m,quprs::PhaseCoeff::new_constant(quprs::Rational::new(w,d)));
+                }
+                let masks=[vec![],vec![Anf::from([4])],vec![Anf::from([0,4])],vec![Anf::new()]];
+                // All masks use dense [x,u,y] positions despite high stable IDs.
+                for a in &masks{for b in &masks{
+                    let guard=|g:&[Anf],v:u64|g.iter().all(|p|eval(p,v));
+                    for fixed in [None,Some(false),Some(true)]{
+                        // Independent original (unreindexed) signed cyclotomic bins.
+                        let mut bins=BTreeMap::<(u64,u64,i64),i128>::new();
+                        for v in 0..8u64{
+                            let x=v&1;let q=(v>>1)&1;let t=(v>>2)&1;
+                            if fixed.is_some_and(|f|f!=(x!=0)){continue;}
+                            let p=offset+(q*(1+x)+t) as i64+d/2*(q*t) as i64;
+                            let z=x^q;
+                            for (g,sgn,e) in [(a,1i128,1i64),(b,-1,-1)]{
+                                if guard(g,v){
+                                    let p=(e*p).rem_euclid(d);
+                                    *bins.entry((x,z,p%(d/2))).or_default()+=sgn*if p<d/2{1}else{-1};
+                                }
+                            }
+                        }
+                        let expected=bins.values().map(|v|v*v).sum::<i128>() as u128;
+                        for (flip,cancel) in [(None,false),(None,true),(Some(y),true)]{
+                            let (c,sign,den)=dual_mask_native_cnf(&ps,a,b,flip,cancel).unwrap();
+                            assert_eq!(den,d as u32);
+                            let mut units=Vec::new();if let Some(x)=fixed{units.push(if x{2}else{-2});}
+                            let mut fuel=4_000_000;units.push(-sign);
+                            let plus=count(&c,&units,&mut fuel,false).unwrap();
+                            *units.last_mut().unwrap()=sign;
+                            let minus=count(&c,&units,&mut fuel,false).unwrap();
+                            assert!(plus>=minus);assert_eq!(plus-minus,expected);
+                            checks+=1;
+                        }
+                        if expected==0{zero+=1;}else{positive+=1;}
+                    }
+                }}
+                assert!(dual_mask_native_cnf(&ps,&[],&[],Some(u),true).is_none());
+                assert!(dual_mask_native_cnf(&ps,&[],&[],Some(0),true).is_none());
+                let (c,sign,_)=dual_mask_native_cnf(&ps,&[],&[],None,false).unwrap();
+                assert_eq!(count(&c,&[-sign],&mut 0,false),None);
+            }
+        }
+        println!("HOARE_NATIVE_DUAL_MASK checks={checks} zero={zero} positive={positive} high_ids=true");
+    }
+
     #[test]
     fn hoare_native_dyadic_projected_count(){
         let mut checks=0;let mut positives=0;let mut zeros=0;

@@ -96,6 +96,23 @@ jobs:
             --test property_hoare_experiment -- --nocapture \
             2>&1 | tee evidence/property-hoare.log
 
+      - name: Check pinned paper-source native PathSum admission
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          base="https://raw.githubusercontent.com/System-Verification-Lab/quokka-sharp-artifacts/53777d525719486eba1038901fbef4a8d8d782ce/benchmark/algorithm/origin"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-time 60 \
+            "$base/qwalk-v-chain_nativegates_ibm_qiskit_opt0_5.qasm" -o "$tmp/vchain.qasm"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-time 60 \
+            "$base/qwalk-noancilla_nativegates_ibm_qiskit_opt0_5.qasm" -o "$tmp/noancilla.qasm"
+          test "$(git hash-object "$tmp/vchain.qasm")" = f0929d665b438229a566a9378d6f939c4f644f6f
+          test "$(git hash-object "$tmp/noancilla.qasm")" = 447ec29073718da096b283ed6916b717a8362ad1
+          sha256sum "$tmp/"*.qasm | tee evidence/hoare-paper-source-sha256.txt
+          HOARE_PAPER_QWALK_DIR="$tmp" cargo test --locked --manifest-path rust/Cargo.toml -p quprs \
+            --test hoare_paper_source_experiment -- --nocapture \
+            2>&1 | tee evidence/hoare-paper-source.log
+
       - name: Verify exact GPMC and Ganak property counts
         run: |
           set -euo pipefail

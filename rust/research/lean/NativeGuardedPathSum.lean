@@ -176,6 +176,32 @@ theorem scale_chain_sound {A : Type} (scale : Nat → A → A)
       _ = scale _ (scale _ _) := congrArg (scale _) ih
       _ = _ := hadd _ _ _
 
+
+/-- A phase rewrite certified only on active paths is sufficient for the
+    projected entries, provided output and guard do not change. The
+    analytic implication from phase congruence to amplitude equality
+    and the SAT encoding/refinement are separate obligations. -/
+theorem active_phase_entry {A Z : Type} [Zero A] [DecidableEq Z]
+    (g : Bool) (out z : Z) (a b : A)
+    (h : g = true → a = b) :
+    entry g out z a = entry g out z b := by
+  by_cases hg : g = true
+  · rw [h hg]
+  · cases g with
+    | false => rfl
+    | true => exact False.elim (hg rfl)
+
+theorem active_phase_sum {A Y Z : Type} [Zero A] [Add A] [DecidableEq Z]
+    (ys : List Y) (g : Y → Bool) (out : Y → Z) (z : Z)
+    (a b : Y → A) (h : ∀ y, g y = true → a y = b y) :
+    sumPaths ys (fun y => entry (g y) (out y) z (a y)) =
+      sumPaths ys (fun y => entry (g y) (out y) z (b y)) := by
+  apply sum_paths_congr
+  intro y
+  exact active_phase_entry (g y) (out y) z (a y) (b y) (h y)
+
+#print axioms active_phase_entry
+#print axioms active_phase_sum
 #print axioms scale_chain_sound
 #print axioms guard_output_congr
 #print axioms projection_entry

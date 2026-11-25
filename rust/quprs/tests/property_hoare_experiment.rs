@@ -1079,6 +1079,172 @@ mod exact_property_cnf {
         println!("HOARE_NATIVE_GUARDED_RR_TRACE traces={traces} multi={multi} mixed={mixed} steps={steps} entries={checks} rejected_mutants={mutants} prefix_replay=true");
     }
 
+
+    // Property-relative phase matching on the existing native PathSum.
+    // Exact SAT checks one-copy active-path phase mismatch. The compact
+    // Z8 view is the existing bounded admission/encoding, not a new IR.
+    // Only the y-dependent phase terms are patched; f, C and IDs stay
+    // identical until the original native guarded RR is invoked.
+    #[derive(Default)]
+    struct RelativeMatchStats { queries:usize, visits:u64, sat:usize, unknown:usize }
+    struct RelativeStep { step:GuardedStep, integrator:u32, desired:BTreeMap<u64,u8> }
+    fn relative_phase_ok(s:&Symbolic,extra:&Anf,pre:&[Anf],post:&[Anf],
+                         y:usize,desired:&BTreeMap<u64,u8>,fuel:&mut u64,
+                         stats:&mut RelativeMatchStats)->bool{
+        let bit=1u64<<y;
+        if y<s.n||y>=s.n+s.h||extra.iter().any(|&m|m&bit!=0)||
+            s.output.iter().flatten().any(|&m|m&bit!=0)||
+            desired.iter().any(|(&m,&k)|m&bit!=0||m>>(s.n+s.h)!=0||k>=8){return false;}
+        if pre.iter().chain(post).flatten().any(|&m|m>>s.n!=0){return false;}
+        let mut c=Cnf::new(s.n+s.h);
+        let bits:Vec<_>=(0..s.n+s.h).map(|i|i as Lit+2).collect();
+        for p in pre{let l=c.anf(p,&bits[..s.n]);c.enforce(l);}
+        let e=c.anf(extra,&bits);c.enforce(e);
+        let z:Vec<_>=s.output.iter().map(|o|c.anf(o,&bits)).collect();
+        let good=post.iter().fold(ONE,|acc,p|{let l=c.anf(p,&z);c.and(acc,l)});
+        c.enforce(-good);
+        // Delta=P(y=1)-P(y=0), evaluated in cycles mod 1.
+        // Prove Delta-desired=0 on active fibers; y is free and unused.
+        let mut gap=BTreeMap::new();
+        for (&m,&k) in &s.phase{if m&bit!=0{add_phase(&mut gap,m&!bit,k);}}
+        for (&m,&k) in desired{add_phase(&mut gap,m,(8-k)%8);}
+        let mut value=[ZERO;3];
+        for (m,k) in gap{
+            let l=c.monomial(m,&bits);
+            let term=std::array::from_fn(|i|if k>>i&1!=0{l}else{ZERO});
+            value=c.add3(value,term);
+        }
+        let nonzero=value.into_iter().fold(ZERO,|a,b|c.or(a,b));
+        c.enforce(nonzero);
+        stats.queries+=1;let before=*fuel;
+        let result=count(&c,&[],fuel,true);
+        stats.visits+=before-*fuel;
+        match result{
+            Some(0)=>true,
+            Some(_)=>{stats.sat+=1;false;},
+            None=>{stats.unknown+=1;false;},
+        }
+    }
+    fn relative_native_step(ps:&PathSum,n:usize,g:&NativeGuardFrame,pre:&[Anf],post:&[Anf],
+                            budget:u64,stats:&mut RelativeMatchStats)->Option<RelativeStep>{
+        let s=compact(ps,n)?;
+        let extra=g.compact(ps)?;
+        let ids=native_ids(ps)?;
+        let mut candidates=ps.get_reducible_vars();candidates.sort_unstable();
+        let mut fuel=budget;
+        for y in candidates{
+            let j=ids.iter().position(|&v|v==y)?;
+            if j<n||extra.iter().any(|&m|m&(1u64<<j)!=0){continue;}
+            let bit=1u64<<j;
+            let actual:BTreeMap<_,_>=s.phase.iter().filter(|(m,_)|**m&bit!=0)
+                .map(|(&m,&k)|(m&!bit,k)).collect();
+            let half:BTreeMap<_,_>=actual.iter().filter(|(_,k)|**k==4)
+                .map(|(&m,&k)|(m,k)).collect();
+            // A half-cycle higher-degree term may be part of a lifted
+            // XOR with quarter-cycle terms. Do not assume all half terms
+            // belong to the desired HH pattern. Try the singleton pattern
+            // too, subject to the SAME exact guarded mismatch query.
+            let linear_half:BTreeMap<_,_>=half.iter().filter(|(m,_)|m.count_ones()<=1)
+                .map(|(&m,&k)|(m,k)).collect();
+            let mut choices=vec![(GuardedRule::Elim,BTreeMap::new()),
+                                  (GuardedRule::Hh,half.clone())];
+            if linear_half!=half{choices.push((GuardedRule::Hh,linear_half));}
+            for k in [2,6]{
+                let mut d=half.clone();d.insert(0,k);
+                choices.push((GuardedRule::Omega,d));
+            }
+            for (rule,desired) in choices{
+                if desired==actual{continue;}
+                if rule==GuardedRule::Hh&&!desired.keys().any(|m|m.count_ones()==1&&m.trailing_zeros() as usize>=n){continue;}
+                if fuel==0{return None;}
+                if !relative_phase_ok(&s,&extra,pre,post,j,&desired,&mut fuel,stats){continue;}
+                let mut patched=ps.clone();
+                patched.p.terms.retain(|m,_|!m.contains(&y));
+                for (&m,&k) in &desired{
+                    let mut mono:Vec<_>=ids.iter().enumerate().filter(|(i,_)|m>>i&1!=0)
+                        .map(|(_,&v)|v).chain(std::iter::once(y)).collect();
+                    mono.sort_unstable();
+                    patched.p.add_term(mono,quprs::PhaseCoeff::new_constant(quprs::Rational::new(k as i64,8)));
+                }
+                // Re-admit the actual patch and check all phase terms,
+                // not just the intended edit. Canonical monomial order
+                // is supplied to add_term below by sorting IDs.
+                let p=compact(&patched,n)?;
+                let mut expected=s.phase.clone();expected.retain(|m,_|m&bit==0);
+                for (&m,&k) in &desired{add_phase(&mut expected,m|bit,k);}
+                if p.phase!=expected||p.output!=s.output||native_ids(&patched)?!=ids{return None;}
+                let Some(step)=guarded_native_step(&patched,n,g) else{continue;};
+                if step.rule!=rule||!step.removed.contains(&y){continue;}
+                return Some(RelativeStep{step,integrator:y,desired});
+            }
+        }
+        None
+    }
+    #[test]
+    fn hoare_native_property_relative_phase_matching(){
+        let mut checks=0usize;let mut hits=[0usize;3];
+        let mut controls=0usize;let mut sat_visits=0u64;
+        // Synthetic local native path sums isolate rule conditions.
+        // Output remains x; HH target t is summed. Distinct post-only
+        // sectors make the integrator gap 0, quarter, or half*t.
+        for (rule,k) in [(GuardedRule::Elim,0u8),(GuardedRule::Omega,2),(GuardedRule::Omega,6),(GuardedRule::Hh,4)]{
+            let mut ps=PathSum::new(1);ps.set_auto_reduce(false);
+            let y=ps.v.get_fresh_var();
+            let t=if rule==GuardedRule::Hh{Some(ps.v.get_fresh_var())}else{None};
+            if let Some(t)=t{
+                ps.p.add_term(vec![y,t],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,2)));
+                // Keep target visible in output, so only y is reducible.
+                ps.f.functions[0].clear();ps.f.functions[0].insert(vec![t]);
+                // Use second original output bit below in physical test;
+                // this synthetic HH case uses a precondition on x.
+            }else if k!=0{
+                ps.p.add_term(vec![y],quprs::PhaseCoeff::new_constant(quprs::Rational::new(k as i64,8)));
+            }
+            ps.p.add_term(vec![0,y],quprs::PhaseCoeff::new_constant(quprs::Rational::new(1,8)));
+            let g=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
+            let pre=if t.is_some(){vec![bit(0,false)]}else{vec![]};
+            let post=if t.is_some(){vec![Anf::new()]}else{vec![bit(0,true)]};
+            assert!(guarded_native_step(&ps,1,&g).is_none());
+            let mut stats=RelativeMatchStats::default();
+            let step=relative_native_step(&ps,1,&g,&pre,&post,200_000,&mut stats).unwrap();
+            assert_eq!(step.step.rule,rule);assert_eq!(step.integrator,y);
+            assert!(step.desired.values().all(|&v|matches!(v,2|4|6)));
+            let a=guarded_entries(&ps,1,&g,&pre,&post);
+            let b=guarded_entries(&step.step.ps,1,&step.step.guard,&pre,&post);
+            for (x,z) in a.into_iter().zip(b){assert_eq!(x,scale_guarded_entry(z,step.step.scale2));checks+=1;}
+            hits[match rule{GuardedRule::Elim=>0,GuardedRule::Hh=>1,GuardedRule::Omega=>2}]+=1;
+            sat_visits+=stats.visits;
+            let mut stats=RelativeMatchStats::default();
+            assert!(relative_native_step(&ps,1,&g,&[],&[Anf::new()],200_000,&mut stats).is_none());
+            assert!(stats.sat>0);controls+=1;
+            assert!(relative_native_step(&ps,1,&g,&pre,&post,0,&mut stats).is_none());controls+=1;
+            let blocked=NativeGuardFrame::new(&ps,Anf::from([1u64<<y])).unwrap();
+            assert!(relative_native_step(&ps,1,&blocked,&pre,&post,200_000,&mut stats).is_none());controls+=1;
+        }
+        // Actual unitary controlled-S cleanup with a postcondition that
+        // selects equal output data bits; pre does not fix their parity.
+        // The original phase delta has a non-half contribution there.
+        let (ops,pre,post,strict)=conditional_post_case(1);
+        let mut ps=PathSum::new(3);ps.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut ps,false);}
+        let g=NativeGuardFrame::new(&ps,Anf::from([0])).unwrap();
+        let mut stats=RelativeMatchStats::default();
+        let first=guarded_native_step(&ps,3,&g);
+        assert!(first.is_none());
+        let mut stats_pre=RelativeMatchStats::default();
+        // Full output domain, same pre, must not admit the intended patch.
+        assert!(relative_native_step(&ps,3,&g,&pre,&[Anf::new()],2_000_000,&mut stats_pre).is_none());
+        let step=relative_native_step(&ps,3,&g,&pre,&post,2_000_000,&mut stats).unwrap();
+        assert_eq!(step.step.rule,GuardedRule::Hh);
+        let a=guarded_entries(&ps,3,&g,&pre,&post);
+        let b=guarded_entries(&step.step.ps,3,&step.step.guard,&pre,&post);
+        for (x,z) in a.into_iter().zip(b){assert_eq!(x,scale_guarded_entry(z,step.step.scale2));checks+=1;}
+        assert!(guarded_entries(&ps,3,&g,&pre,&post).iter().all(|a|*a==[0;4]));
+        assert!(guarded_entries(&ps,3,&g,&pre,&strict).iter().any(|a|*a!=[0;4]));
+        hits[1]+=1;sat_visits+=stats.visits;
+        println!("HOARE_NATIVE_RELATIVE_MATCH hits={hits:?} entries={checks} controls={controls} sat_visits={sat_visits} post_only_hh=true");
+    }
+
     fn reduced_native(n:usize,ops:&[G])->Option<(Symbolic,RrStats)>{
         if !admitted(n,ops){return None;}
         let mut ps=PathSum::new(n);

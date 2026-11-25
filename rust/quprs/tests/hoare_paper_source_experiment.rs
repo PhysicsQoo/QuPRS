@@ -1,6 +1,9 @@
 //! Research-only source admission pilot. No new amplitude representation
 //! in the verification path; native P/f/v are kept until the residual.
 //! Exact finite enumeration is a bounded reference oracle, not WMC.
+#[path="support/native_dyadic_cnf.rs"]
+mod native_dyadic_cnf;
+use native_dyadic_cnf::{Anf,native_dyadic_projection_with_limits};
 use quprs::PathSum;
 use quprs::ir::QuantumOp;
 use quprs::qasm::{parse_qasm_str,parse_qasm_str_source_pinned};
@@ -153,11 +156,34 @@ fn native_rr_stable_ids_beyond_64(){
     assert!(entries(&ps).is_some());
     println!("HOARE_NATIVE_WIDE_ID_PASS initial_h=96 residual_h=0 scale2=96 high_residual_id=true");
 }
+
+// All routes use identical encoder caps. The raw Pure WMC checkpoint is
+// never reduced. The expected verdict is checked only after solving.
+fn export_projected(dir:&std::path::Path,name:&str,mode:&str,ps:&PathSum,h0:usize,
+                    scale2:u32,build_ns:u128,rr_ns:u128,expected_bad:bool,rows:&mut String){
+    let pred=vec![Anf::from([0,16])]; // q4=0, both original pre/post
+    let t=std::time::Instant::now();
+    let plan=native_dyadic_projection_with_limits(ps,&pred,&pred,32768,262144);
+    let enc_ns=t.elapsed().as_nanos();
+    let (status,vars,clauses,sign,d)=if let Some((c,sign,d))=plan{
+        let mut text=format!("p cnf {} {}\n",c.vars,c.clauses.len());
+        for row in &c.clauses{
+            for l in row{text.push_str(&format!("{l} "));}text.push_str("0\n");
+        }
+        std::fs::write(dir.join(format!("paper-{name}-{mode}.cnf")),text).unwrap();
+        ("READY",c.vars,c.clauses.len(),sign,d)
+    }else{("ENCODING_LIMIT_OR_UNSUPPORTED",0,0,0,0)};
+    let width=ps.v.num_qubits;let residual=h(ps);
+    rows.push_str(&format!("{name}\t{mode}\t{width}\t{h0}\t{residual}\t{scale2}\t{vars}\t{clauses}\t{sign}\t{d}\t{status}\t{build_ns}\t{rr_ns}\t{enc_ns}\t{expected_bad}\n"));
+    println!("HOARE_PAPER_PROJECTED_EXPORT name={name} mode={mode} h={residual} vars={vars} clauses={clauses} denominator={d} status={status} encoding_ns={enc_ns}");
+}
 #[test]
 fn paper_qwalk_native_source_admission(){
     let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{
         println!("HOARE_PAPER_QWALK NOT_RUN no pinned fixture directory");return;
     };
+    let export=std::env::var_os("HOARE_PAPER_PROJECTED_DIR").map(std::path::PathBuf::from);
+    let mut rows=String::new();
     for (name,gates,rx,expected_bad) in [("vchain",417,51,false),("noancilla",1305,183,true)]{
         let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
         let (ops,n,rxc)=source_ops(&src);
@@ -179,6 +205,7 @@ fn paper_qwalk_native_source_admission(){
             println!("HOARE_PAPER_QWALK name={name} status=BUILD_LIMIT built={built} terms={}",terms(&ps));continue;
         }
         let initial_h=h(&ps);assert_eq!(initial_h,rx*2);
+        if let Some(dir)=&export{export_projected(dir,name,"pure",&ps,initial_h,0,build_ns,0,expected_bad,&mut rows);}
         let max_id=ps.v.path_vars.iter().copied().max().unwrap();
         for specialize in [false,true]{
             let mut trial=ps.clone();
@@ -192,6 +219,7 @@ fn paper_qwalk_native_source_admission(){
             let t=std::time::Instant::now();let (out,r)=reduce(trial);
             let rr_ns=t.elapsed().as_nanos();assert!(admitted(&out));
             assert_eq!(initial_h-h(&out),r.elim+2*r.hh+r.omega);
+            if let Some(dir)=&export{export_projected(dir,name,if specialize{"hybrid-pre"}else{"hybrid"},&out,initial_h,r.scale2,build_ns,rr_ns,expected_bad,&mut rows);}
             let mut bad=0usize;let mut checks=0usize;
             let status=if let Some(a)=entries(&out){
                 for x in 0..16{for z in 16..32{
@@ -206,4 +234,5 @@ fn paper_qwalk_native_source_admission(){
                 h(&out),terms(&out),r.scale2,r.elim,r.hh,r.omega,r.limit);
         }
     }
+    if let Some(dir)=&export{std::fs::write(dir.join("paper-projected.tsv"),rows).unwrap();}
 }

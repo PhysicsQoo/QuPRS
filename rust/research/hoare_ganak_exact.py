@@ -429,12 +429,14 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
     query_file=pathlib.Path(tmp)/"gpmc-pure.cnf"
     query_cap=5
     long_metrics=None
-    def count(base, assumptions, weighted_lit, end):
+    def count(base, assumptions, weighted_lit, end, primary=None):
         header,*clauses=base.splitlines()
         p,kind,v,c=header.split();v,c=int(v),int(c)
         assert (p,kind)==("p","cnf") and len(clauses)==c
         assert all(0<abs(l)<=v for l in assumptions)
-        radix=1<<(v+1)
+        bound_bits=v if primary is None else primary
+        assert 0<=bound_bits<=v
+        radix=1<<(bound_bits+1)
         weights=""
         mode="mc"
         if weighted_lit is not None:
@@ -454,7 +456,7 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         else:
             stdout=profile_gpmc(args+[str(query_file)],min(query_cap,remaining),
                                 pathlib.Path(tmp)/"gpmc-resource.tsv",long_metrics)
-        result=parse_gpmc_integer(stdout,mode,(1<<v)*(radix if mode=="wmc" else 1))
+        result=parse_gpmc_integer(stdout,mode,(1<<bound_bits)*(radix if mode=="wmc" else 1))
         return result,radix
     def solve(base,delta,prefix,end):
         d0,d1,d2=delta
@@ -505,6 +507,13 @@ def run_gpmc_pure(directory, exe, tmp, deadline):
         deadline=time.monotonic()+360
         long_metrics=[]
         run_native_gse_wmc(directory,solve,deadline,long_metrics)
+        long_metrics=None
+        query_cap=5
+    if (directory/"paper-projected.tsv").is_file():
+        query_cap=30
+        deadline=time.monotonic()+240
+        long_metrics=[]
+        run_paper_projected(directory,count,deadline,long_metrics)
         long_metrics=None
         query_cap=5
     # Preserve the original discovery protocol on explicit request. Default
@@ -737,6 +746,66 @@ def run_native_gse_wmc(directory,solve,deadline,metrics):
         exact=sum(r["mode"]==m and r["coeff"] is not None for r in rows),
         no_match=sum(r["mode"]==m and r["status"]=="NO_GSE_MATCH" for r in rows),
         baseline_terminal=sum(r["mode"]==m and r["status"]=="BASELINE_TERMINAL" for r in rows)) for m in ("baseline","gse")}),flush=True)
+
+
+def run_paper_projected(directory,count,deadline,metrics):
+    fields="case mode n h0 h scale vars clauses sign denominator status build_ns rr_ns encoding_ns expected_bad".split()
+    with (directory/"paper-projected.tsv").open() as f:
+        plans=list(csv.DictReader(f,fieldnames=fields,delimiter="\t"))
+    assert len(plans)==6
+    # First the bounded reference-positive v-chain; reverse ordering
+    # across families, no repeated timing or result-driven case removal.
+    order={"vchain":0,"noancilla":1}
+    plans.sort(key=lambda p:(order[p["case"]],({"pure":0,"hybrid":1,"hybrid-pre":2} if p["case"]=="vchain" else {"hybrid":0,"hybrid-pre":1,"pure":2})[p["mode"]]))
+    rows=[]
+    for p in plans:
+        r=dict(case=p["case"],mode=p["mode"],status=p["status"],expected_bad=p["expected_bad"]=="true",
+            **{k:int(p[k]) for k in ("n","h0","h","scale","vars","clauses","sign","denominator","build_ns","rr_ns","encoding_ns")})
+        r.update(root=None,root_s=0.0,witness_s=0.0,witness=None,root_queries=0,witness_queries=0,verdict="UNKNOWN",metrics=[])
+        if r["status"]=="READY" and time.monotonic()<deadline:
+            base=(directory/f"paper-{r['case']}-{r['mode']}.cnf").read_bytes()
+            r["cnf_sha256"]=hashlib.sha256(base).hexdigest()
+            primary=r["n"]+2*r["h"]
+            def signed(prefix,end):
+                v,radix=count(base.decode(),prefix,r["sign"],end,primary=primary)
+                a,b=v%radix,v//radix
+                if a+b>1<<primary or a<b:raise ValueError("invalid projected count")
+                return a-b
+            metrics.clear()
+            start=time.monotonic()
+            try:
+                r["root_queries"]+=1
+                root=signed([],min(deadline,start+30))
+                r["root"]=str(root)
+                assert bool(root)==r["expected_bad"],(r["case"],r["mode"],root)
+                r["status"]="EXACT_ROOT"
+                if not root:r["verdict"]="PROVED"
+            except (TimeoutError,subprocess.TimeoutExpired):r["status"]="ROOT_TIMEOUT"
+            except SolverSignalKilled:r["status"]="ROOT_SIGNAL_KILL"
+            r["root_s"]=time.monotonic()-start
+            if r["status"]=="EXACT_ROOT" and root:
+                start=time.monotonic();end=min(deadline,start+30)
+                # q4 fixed zero by original property; choose data bits
+                # using nonnegative conditioned counts, not oracle answers.
+                prefix=[-6];x=0
+                try:
+                    for j in range(4):
+                        lit=j+2;r["witness_queries"]+=1
+                        if signed(prefix+[-lit],end):prefix.append(-lit)
+                        else:prefix.append(lit);x|=1<<j
+                    r["witness_queries"]+=1
+                    assert signed(prefix,end)>0
+                    assert 0<=x<16
+                    r.update(witness=x,verdict="REFUTED",status="EXACT_ROOT_WITNESS")
+                except (TimeoutError,subprocess.TimeoutExpired):r["status"]="POSITIVE_ROOT_WITNESS_TIMEOUT"
+                except SolverSignalKilled:r["status"]="POSITIVE_ROOT_WITNESS_SIGNAL_KILL"
+                r["witness_s"]=time.monotonic()-start
+            r["metrics"]=[dict(m) for m in metrics]
+        elif r["status"]=="READY":r["status"]="GLOBAL_BUDGET_NOT_RUN"
+        rows.append(r)
+        print("HOARE_PAPER_PROJECTED_GPMC "+json.dumps(r),flush=True)
+    print("HOARE_PAPER_PROJECTED_GPMC_SUMMARY "+json.dumps(dict(records=len(rows),
+        roots=sum(r["root"] is not None for r in rows),verdicts=sum(r["verdict"]!="UNKNOWN" for r in rows))),flush=True)
 
 def run_residual_hybrid(directory,solve,deadline,direct_rows):
     direct={r["case"]:r for r in direct_rows}

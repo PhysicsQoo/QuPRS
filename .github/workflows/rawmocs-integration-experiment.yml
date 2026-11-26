@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile]
         default: legacy
 permissions:
   contents: read
@@ -569,7 +569,7 @@ jobs:
           if-no-files-found: warn
 
   factor-classes:
-    if: github.event_name == 'push' || inputs.suite == 'factor-classes' || inputs.suite == 'sparse-anchor' || inputs.suite == 'prefix-memo' || inputs.suite == 'axis-profile' || inputs.suite == 'direct-binary'
+    if: github.event_name == 'push' || inputs.suite == 'factor-classes' || inputs.suite == 'sparse-anchor' || inputs.suite == 'prefix-memo' || inputs.suite == 'axis-profile' || inputs.suite == 'direct-binary' || inputs.suite == 'operand-profile'
     name: Contraction ablation / witnessed native and bounded Simulation
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -578,8 +578,9 @@ jobs:
       actions: read
       id-token: write
     env:
-      EXPERIMENT: ${{ inputs.suite == 'factor-classes' && 'factor-classes' || inputs.suite == 'sparse-anchor' && 'sparse-anchor' || inputs.suite == 'prefix-memo' && 'prefix-memo' || inputs.suite == 'axis-profile' && 'axis-profile' || 'direct-binary' }}
-      CANDIDATE_SHA: ${{ inputs.suite == 'factor-classes' && '78a606add677b39d86af076f639f569452ec0ad8' || inputs.suite == 'sparse-anchor' && '69e32e0f140c1aec985167ac472bcde784c53855' || inputs.suite == 'prefix-memo' && '089008aea7b789d66c7c7c51d504aca49a59b67e' || inputs.suite == 'axis-profile' && '975820b2fad04a8583bd16c172b2367d0d1752bd' || '68969ae63f9c5b8c778fac2709abff16c41cae75' }}
+      EXPERIMENT: ${{ inputs.suite == 'factor-classes' && 'factor-classes' || inputs.suite == 'sparse-anchor' && 'sparse-anchor' || inputs.suite == 'prefix-memo' && 'prefix-memo' || inputs.suite == 'axis-profile' && 'axis-profile' || inputs.suite == 'direct-binary' && 'direct-binary' || 'operand-profile' }}
+      CANDIDATE_SHA: ${{ inputs.suite == 'factor-classes' && '78a606add677b39d86af076f639f569452ec0ad8' || inputs.suite == 'sparse-anchor' && '69e32e0f140c1aec985167ac472bcde784c53855' || inputs.suite == 'prefix-memo' && '089008aea7b789d66c7c7c51d504aca49a59b67e' || inputs.suite == 'axis-profile' && '975820b2fad04a8583bd16c172b2367d0d1752bd' || inputs.suite == 'direct-binary' && '68969ae63f9c5b8c778fac2709abff16c41cae75' || '8d4e37626acdc1224baa8efdad80aa28964ab42e' }}
+      BASELINE_SHA: ${{ (github.event_name == 'push' || inputs.suite == 'operand-profile') && '6fffa964fdfb2ba6dfe8f3a2144471a26721b885' || 'ef8d1ee606bed672ee9be62d189a2b3fbcc905a0' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -592,7 +593,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PhysicsQoo/RaWMoCS
-          ref: ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          ref: ${{ env.BASELINE_SHA }}
           path: .classes-base
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -627,7 +628,7 @@ jobs:
           github-token: ${{ github.token }}
           path: .classes-input/rawmocs-quprs-planner-gen-vqe8
       - uses: actions/download-artifact@v4
-        if: env.EXPERIMENT == 'prefix-memo' || env.EXPERIMENT == 'axis-profile' || env.EXPERIMENT == 'direct-binary'
+        if: env.EXPERIMENT == 'prefix-memo' || env.EXPERIMENT == 'axis-profile' || env.EXPERIMENT == 'direct-binary' || env.EXPERIMENT == 'operand-profile'
         with:
           name: rawmocs-quprs-planner-gen-qpeinexact20
           run-id: 45734596083
@@ -640,7 +641,7 @@ jobs:
       - name: Compile exact solver revisions
         run: |
           set -euo pipefail
-          test "$(git -C .classes-base rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
+          test "$(git -C .classes-base rev-parse HEAD)" = "$BASELINE_SHA"
           test "$(git -C .classes-candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
           if [[ "$EXPERIMENT" == factor-classes ]]; then
             test "$(git -C .classes-static rev-parse HEAD)" = d28cdd98fa2b55c73cfd01392fee48ba70602104
@@ -687,18 +688,19 @@ jobs:
           mode = os.environ["EXPERIMENT"]
           anchor = mode == "sparse-anchor"
           memo = mode == "prefix-memo"
-          profile = mode == "axis-profile"
+          operand = mode == "operand-profile"
+          profile = mode in ("axis-profile","operand-profile")
           direct = mode == "direct-binary"
           if memo or profile or direct:
               sources["qpeinexact20"] = ("planner-gen-qpeinexact20", "9dca661e1a9cfecbfe325970cded1bcb5c3664f7983fa1628473bd42f2ba3fcb", 45734596083)
-          flag = "RAWMOCS_RESEARCH_DIRECT_BINARY" if direct else "RAWMOCS_RESEARCH_AXIS_PROFILE" if profile else "RAWMOCS_RESEARCH_PREFIX_MEMO" if memo else "RAWMOCS_RESEARCH_SPARSE_ANCHOR" if anchor else "RAWMOCS_RESEARCH_FACTOR_CLASSES"
-          marker = "PREJOIN_RESEARCH_BINARY" if direct else "PREJOIN_RESEARCH_AXIS" if profile else "PREJOIN_RESEARCH_PREFIX" if memo else "PREJOIN_RESEARCH_ANCHOR" if anchor else "PREJOIN_RESEARCH_CLASSES"
+          flag = "RAWMOCS_RESEARCH_OPERAND_PROFILE" if operand else "RAWMOCS_RESEARCH_DIRECT_BINARY" if direct else "RAWMOCS_RESEARCH_AXIS_PROFILE" if profile else "RAWMOCS_RESEARCH_PREFIX_MEMO" if memo else "RAWMOCS_RESEARCH_SPARSE_ANCHOR" if anchor else "RAWMOCS_RESEARCH_FACTOR_CLASSES"
+          marker = "PREJOIN_RESEARCH_OPERANDS" if operand else "PREJOIN_RESEARCH_BINARY" if direct else "PREJOIN_RESEARCH_AXIS" if profile else "PREJOIN_RESEARCH_PREFIX" if memo else "PREJOIN_RESEARCH_ANCHOR" if anchor else "PREJOIN_RESEARCH_CLASSES"
           arms = {"release":base, "on":candidate} if profile else {"release":base, "off":candidate, "on":candidate}
           if not (anchor or memo or profile or direct):
               static = Path(".classes-static/crates/rawmocs-cli/target/release/rawmocs").resolve()
               arms.update(static_off=static, static_on=static)
           report = {"status":"RUNNING", "experiment":mode, "cases":{},
-                    "baseline_sha":"ef8d1ee606bed672ee9be62d189a2b3fbcc905a0",
+                    "baseline_sha":os.environ["BASELINE_SHA"],
                     "candidate_sha":os.environ["CANDIDATE_SHA"],
                     "static_sha":None if anchor or memo or profile or direct else "d28cdd98fa2b55c73cfd01392fee48ba70602104",
                     "binary_sha256":{k:digest(v) for k,v in arms.items()},
@@ -742,6 +744,7 @@ jobs:
                   env.pop("RAWMOCS_RESEARCH_PREFIX_MEMO",None)
                   env.pop("RAWMOCS_RESEARCH_AXIS_PROFILE",None)
                   env.pop("RAWMOCS_RESEARCH_DIRECT_BINARY",None)
+                  env.pop("RAWMOCS_RESEARCH_OPERAND_PROFILE",None)
                   if arm in ("on","static_on"):
                       env[flag]="1"
                   label = f"{name}-{i}-{arm}"
@@ -775,7 +778,22 @@ jobs:
                   phase,=re.findall(r"^PREJOIN_PHASE_NS .*? execute=(\d+)",p.stderr,re.M)
                   row.update(plan=plan,execute_ns=int(phase))
                   if arm in ("on","static_on"):
-                      if direct:
+                      if operand:
+                          lines=re.findall(r"^PREJOIN_RESEARCH_OPERANDS (.*)$",p.stderr,re.M)
+                          binary_lines=re.findall(r"^PREJOIN_RESEARCH_BINARY ops=(\d+) visits=(\d+) join_visits=(\d+)$",p.stderr,re.M)
+                          leaves=int(re.search(r"\bleaves=(\d+)",plan).group(1))
+                          assert len(lines)==len(binary_lines)==leaves
+                          fields=("absent","zero","one","nonfinite","rr","ri","rc","ir","ii","ic","cr","ci","cc","existing_products","zero_product_upper")
+                          row["operand_telemetry"]=[{k:int(v) for k,v in (term.split("=") for term in line.split())} for line in lines]
+                          for x,b in zip(row["operand_telemetry"],binary_lines):
+                              assert tuple(x)==fields
+                              assert sum(x[k] for k in fields[:13])==int(b[1])
+                              assert x["existing_products"]==4*sum(x[k] for k in fields[3:13])
+                              assert x["zero_product_upper"]==3*sum(x[k] for k in ("rr","ri","ir","ii"))+2*sum(x[k] for k in ("rc","ic","cr","ci"))
+                          row["operand_summary"]={k:sum(x[k] for x in row["operand_telemetry"]) for k in fields}
+                          expected_calls={"qft16":3254360,"qft20":17389912,"qnn8":1608756,"qaoa9":4140,"vqe8":2660,"qpeinexact20":0}
+                          assert 2*sum(row["operand_summary"][k] for k in fields[:13])==expected_calls[source]
+                      elif direct:
                           lines=re.findall(r"^PREJOIN_RESEARCH_BINARY ops=(\d+) visits=(\d+) join_visits=(\d+)$",p.stderr,re.M)
                           leaves=int(re.search(r"\bleaves=(\d+)",plan).group(1))
                           assert len(lines)==leaves
@@ -852,7 +870,7 @@ jobs:
           if profile:
               report["status"]="PASS" if all(c["status"]=="SAME_PLAN_WITNESSED_PASS" for c in report["cases"].values()) else "PARTIAL_WITNESS"
               persist()
-              print("AXIS_PROFILE_FINAL",json.dumps(report),flush=True)
+              print("OPERAND_PROFILE_FINAL" if operand else "AXIS_PROFILE_FINAL",json.dumps(report),flush=True)
           else:
               assert len(config)>3
               Path("codspeed-factor-classes.generated.yml").write_text("\n".join(config)+"\n")
@@ -861,7 +879,7 @@ jobs:
               print("DIRECT_BINARY_NATIVE_FINAL" if direct else "PREFIX_MEMO_NATIVE_FINAL" if memo else "SPARSE_ANCHOR_NATIVE_FINAL" if anchor else "FACTOR_CLASS_NATIVE_FINAL",json.dumps(report),flush=True)
           PY
       - name: Compare bounded solver CPU and flamegraphs
-        if: env.EXPERIMENT != 'axis-profile'
+        if: env.EXPERIMENT != 'axis-profile' && env.EXPERIMENT != 'operand-profile'
         uses: CodSpeedHQ/action@v5
         timeout-minutes: 8
         with:
@@ -871,7 +889,7 @@ jobs:
           simulation-track-subprocess: 'true'
           config: codspeed-factor-classes.generated.yml
       - name: Verify simulated counts
-        if: env.EXPERIMENT != 'axis-profile'
+        if: env.EXPERIMENT != 'axis-profile' && env.EXPERIMENT != 'operand-profile'
         run: |
           python - <<'PY'
           import json

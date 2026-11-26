@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch, streaming-large-general, large-root-closure, large-descendant-closure]
         default: legacy
 permissions:
   contents: read
@@ -1637,7 +1637,7 @@ jobs:
           if-no-files-found: warn
 
   large-root-closure:
-    if: github.event_name == 'push' || inputs.suite == 'large-root-closure'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'large-root-closure'
     name: Ordered root closure / large source search telemetry
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -1764,5 +1764,144 @@ jobs:
         with:
           name: rawmocs-large-root-closure
           path: .root-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  large-descendant-closure:
+    if: github.event_name == 'push' || inputs.suite == 'large-descendant-closure'
+    name: Ordered descendant closure / large source search telemetry
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: e4f583f84a28b98ce3720a6a2e35afc3f049988c
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rawmocs-quprs-planner-gen-*
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .desc-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build and test exact descendant closure candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = e4f583f84a28b98ce3720a6a2e35afc3f049988c
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Matched analytic and original CNF descendant closure ablation
+        run: |
+          set -euo pipefail
+          mkdir -p .desc-evidence
+          python3 - <<'PY'
+          import hashlib,json,os,re,statistics,subprocess,sys,time
+          from fractions import Fraction
+          from pathlib import Path
+          root=Path(".desc-evidence").resolve()
+          binary=Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_native_paired import parse
+          from release_transfer import check_count
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          report={"candidate_sha":"e4f583f84a28b98ce3720a6a2e35afc3f049988c","binary_sha256":digest(binary),"scope":"Large descendant ordered closure; root index disabled in both arms; identical streaming/general solver and telemetry","cases":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          chain=root/"branch-chain8192.cnf"
+          chain.write_text("p cnf 8192 8206\nc t wmc\nc p weight 1 -0.5 0.25 0\nc p weight 8192 0.25 -0.125 0\n"+"".join(f"1 {v} 0\n-1 {v} 0\n" for v in range(2,10))+"".join(f"-{v} {v+1} 0\n" for v in range(2,8192)))
+          for name,sha,digits,limit,large in (
+              ("chain",digest(chain),30,10,True),
+              ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee",30,8,False),
+              ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee",130,8,False),
+              ("qaoa9","9b5bf2619c2c2dd0c16c80f372a33bb23fb0ca0f7feeb671c6fcfd1c80f15be4",30,15,False),
+              ("qnn12","2c74e555a8a8ea974cde02bcc5cc0823c5ed63b5fc7be8f628f777accd433204",30,15,False),
+              ("wstate16","d7b8732b06552354e7e08e516fd858d2f9419b33ccb185e6d8c31ce96d5ba78c",30,20,True)):
+              ref=None
+              if name=="chain":
+                  cnf=chain
+              else:
+                  src=Path(".desc-input")/("rawmocs-quprs-planner-gen-"+name)
+                  cnf,=src.rglob("gpmc-capture.cnf")
+                  witnesses=list(src.rglob("witness.json"))
+                  if witnesses:
+                      assert len(witnesses)==1
+                      obj=json.loads(witnesses[0].read_text())
+                      if obj.get("status") in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"):
+                          assert obj["source_sha256"]==sha and obj["bits"]==550 and obj["width"]<=19 and obj["work"]<=40000000 and obj["peak"]<=2000000
+                          ref=obj
+                  if name=="vqe8": assert ref is not None
+              assert digest(cnf)==sha
+              key=f"{name}-{digits}"
+              case={"sha256":sha,"digits":digits,"limit_s":limit,"rows":[]}
+              report["cases"][key]=case
+              arms=("off","on") if name in ("wstate16","qaoa9","qnn12") else ("off","on","on","off")
+              for i,arm in enumerate(arms):
+                  env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")}
+                  env["RAWMOCS_RESEARCH_ROOT_STATS"]="1"
+                  if arm=="on": env["RAWMOCS_RESEARCH_LARGE_DESC_INDEX"]="1"
+                  label=f"{key}-{i}-{arm}"
+                  rss=root/(label+".rss")
+                  flags=["--large-general"] if large else []
+                  start=time.monotonic()
+                  p=subprocess.run(["timeout","-k","2s",str(limit+5)+"s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(rss),str(binary),"--digits",str(digits),"--solver","general",*flags,"--timeout-ms",str(limit*1000),str(cnf.resolve())],env=env,capture_output=True,text=True,timeout=limit+10)
+                  row={"arm":arm,"exit":p.returncode,"wall_s":time.monotonic()-start}
+                  case["rows"].append(row)
+                  (root/(label+".stdout")).write_text(p.stdout)
+                  (root/(label+".stderr")).write_text(p.stderr)
+                  if rss.exists():
+                      vals=[l for l in rss.read_text().splitlines() if l.strip().isdigit()]
+                      if len(vals)==1: row["rss_kib"]=int(vals[0])
+                  matches=re.findall(r"^RAWMOCS_ROOT_STATS (.+)$",p.stderr,re.M)
+                  assert len(matches)==1,(label,p.returncode,p.stderr[-2000:])
+                  row["stats"]={k:(v=="true" if v in ("true","false") else int(v)) for k,v in (t.split("=") for t in matches[0].split())}
+                  assert row["stats"]["root_index_attempts"]==0
+                  if arm=="off": assert row["stats"]["descendant_index_attempts"]==0
+                  if large: assert "RAWMOCS_SOURCE_ADMITTED " in p.stderr
+                  if p.returncode:
+                      assert name in ("wstate16","qaoa9","qnn12") and p.returncode==4 and not p.stdout.strip() and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr,(label,p.returncode,p.stderr[-1000:])
+                      row["status"]="CENSORED_TIMEOUT"
+                  else:
+                      row.update(parse(p.stdout,"rawmocs"),stdout_sha256=hashlib.sha256(p.stdout.encode()).hexdigest())
+                      if name=="chain":
+                          assert row["sat"] and Fraction(row["real"])==Fraction(5,32) and Fraction(row["imag"])==0
+                          if arm=="on":
+                              assert row["stats"]["descendant_index_complete"]>0
+                              assert row["stats"]["descendant_index_units"]>4000
+                          row["status"]="ANALYTIC_PASS"
+                      elif ref is not None:
+                          row["witness_upper"]=check_count(row,ref,digits)
+                          row["status"]="WITNESSED_PASS"
+                      else:
+                          row["status"]="COMPLETED_UNWITNESSED"
+                  save()
+              rows=case["rows"]
+              if all(r["exit"]==0 for r in rows):
+                  assert len({r["stdout_sha256"] for r in rows})==1
+                  for k in ("nodes","branches","splits","hits"):
+                      assert len({r["stats"][k] for r in rows})==1
+              if name in ("chain","vqe8"):
+                  assert len(rows)==4 and all(r["status"] in ("ANALYTIC_PASS","WITNESSED_PASS") for r in rows)
+                  case["status"]="PAIRED_COUNT_PASS"
+                  case["median_s"]={a:statistics.median(r["wall_s"] for r in rows if r["arm"]==a) for a in ("off","on")}
+              else:
+                  case["status"]="BOUNDED_DESCENDANT_TELEMETRY_ONLY"
+              save()
+          report["status"]="DESCENDANT_CLOSURE_DIAGNOSTIC_COMPLETE"
+          save()
+          print("LARGE_DESC_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-large-descendant-closure
+          path: .desc-evidence/
           include-hidden-files: true
           if-no-files-found: warn

@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative]
         default: legacy
 permissions:
   contents: read
@@ -981,12 +981,12 @@ jobs:
           if-no-files-found: warn
 
   descendant-units:
-    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch' || inputs.suite == 'move-components' || inputs.suite == 'borrowed-cache')
+    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch' || inputs.suite == 'move-components' || inputs.suite == 'borrowed-cache' || inputs.suite == 'general-cumulative')
     name: General fallback descendant unit closure
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
-      EXPERIMENT: ${{ inputs.suite == 'descendant-units' && 'descendant-units' || inputs.suite == 'inplace-scan' && 'inplace-scan' || inputs.suite == 'inplace-branch' && 'inplace-branch' || inputs.suite == 'move-components' && 'move-components' || 'borrowed-cache' }}
+      EXPERIMENT: ${{ inputs.suite == 'descendant-units' && 'descendant-units' || inputs.suite == 'inplace-scan' && 'inplace-scan' || inputs.suite == 'inplace-branch' && 'inplace-branch' || inputs.suite == 'move-components' && 'move-components' || inputs.suite == 'borrowed-cache' && 'borrowed-cache' || 'general-cumulative' }}
       CANDIDATE_SHA: ${{ inputs.suite == 'descendant-units' && '762a1da60c70000134b31dd41aee7e0c78068209' || inputs.suite == 'inplace-scan' && '9b10e04b02637db0eede7e5811f3cd54d054b191' || inputs.suite == 'inplace-branch' && '14cd70cae44cf116ba7014da1a446f30eec4a48b' || inputs.suite == 'move-components' && '0d7c3d482c6d45f6c5b1eeaf718d7b79a96572f8' || '5d74b2649639db3372fcc5ea5155ed0a50233fea' }}
     steps:
       - uses: actions/checkout@v4
@@ -1016,11 +1016,12 @@ jobs:
           cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
           cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
       - name: Source-locked bounded descendant propagation ablation
+        id: general-native
         run: |
           set -euo pipefail
           mkdir -p .descendant-evidence
           python3 - <<'PY'
-          import hashlib, json, os, re, subprocess, sys, time
+          import hashlib, json, os, re, shlex, statistics, subprocess, sys, time
           from fractions import Fraction
           from pathlib import Path
           root = Path(".descendant-evidence").resolve()
@@ -1056,14 +1057,18 @@ jobs:
                   assert ref is not None
               cases.append((name,cnf.resolve(),sha,limit,ref))
           experiment=os.environ["EXPERIMENT"]
-          candidate_arm={"descendant-units":"adaptive","inplace-scan":"inplace","inplace-branch":"branch","move-components":"components","borrowed-cache":"borrowed"}[experiment]
+          candidate_arm={"descendant-units":"adaptive","inplace-scan":"inplace","inplace-branch":"branch","move-components":"components","borrowed-cache":"borrowed","general-cumulative":"borrowed"}[experiment]
           baseline_arm="components" if experiment=="borrowed-cache" else "branch" if experiment=="move-components" else "inplace" if experiment=="inplace-branch" else "scan"
+          cumulative=experiment=="general-cumulative"
+          if cumulative:
+              cases += [(name+"-432",cnf,sha,8,ref) for name,cnf,sha,limit,ref in cases if name in ("chain","vqe8")]
           report={"experiment":experiment,"candidate_sha":os.environ["CANDIDATE_SHA"],"binary_sha256":digest(solver),
-                  "working_bits":100,"scope":"Same-binary instrumented general fallback; bounded search progress, not GPMC speedup","cases":{}}
+                  "working_bits":([100,432] if cumulative else 100),"scope":"Same-binary instrumented general fallback; bounded search progress, not GPMC speedup","cases":{}}
           def save():
               (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
           for name,cnf,sha,limit,ref in cases:
-              case={"source_sha256":sha,"timeout_s":limit,"rows":[]}
+              digits,bits=(130,432) if name.endswith("-432") else (30,100)
+              case={"source_sha256":sha,"timeout_s":limit,"digits":digits,"bits":bits,"rows":[]}
               report["cases"][name]=case
               def run(arm,i):
                   label=f"{name}-{arm}-{i}"
@@ -1086,7 +1091,7 @@ jobs:
                       env["RAWMOCS_RESEARCH_BORROWED_CACHE"]="1"
                   rss=root/(label+".rss")
                   argv=["timeout","-k","2s",str(limit+3)+"s","prlimit","--as=3221225472","--",
-                      "/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits","30",
+                      "/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits",str(digits),
                       "--solver","general","--timeout-ms",str(limit*1000),str(cnf)]
                   t=time.monotonic()
                   p=subprocess.run(argv,env=env,capture_output=True,text=True,timeout=limit+7)
@@ -1116,16 +1121,16 @@ jobs:
                           sat,count=p.stdout.splitlines()
                           f=count.split()
                           assert sat in ("s SATISFIABLE","s UNSATISFIABLE") and f[:3]==["c","r","mpfr"] and len(f)==5
-                          assert "RAWMOCS_COMPLETE route=general digits=30 bits=100 " in p.stderr
+                          assert f"RAWMOCS_COMPLETE route=general digits={digits} bits={bits} " in p.stderr
                           row.update(sat=sat=="s SATISFIABLE",real=f[3],imag=f[4])
                           row["stdout_sha256"]=hashlib.sha256(p.stdout.encode()).hexdigest()
-                          if name=="chain":
+                          if name in ("chain","chain-432"):
                               assert row["sat"] and Fraction(row["real"])==Fraction(-1,4) and Fraction(row["imag"])==Fraction(1,8)
                               if arm=="adaptive":
                                   assert stats["indexed_complete"]>=2 and stats["root_indexed"]==0
                               row["status"]="ANALYTIC_PASS"
                           elif ref is not None:
-                              row["witness_upper"]=check_count(row,ref,30)
+                              row["witness_upper"]=check_count(row,ref,digits)
                               row["status"]="WITNESSED_PASS"
                           else:
                               row["status"]="COUNT_UNWITNESSED"
@@ -1136,8 +1141,10 @@ jobs:
                   return row
               a=run(baseline_arm,0)
               b=run(candidate_arm,1)
-              if name=="chain":
+              if name in ("chain","chain-432"):
                   assert a["status"]==b["status"]=="ANALYTIC_PASS"
+              if cumulative and name in ("vqe8","vqe8-432"):
+                  assert a["status"]==b["status"]=="WITNESSED_PASS"
               if a["exit"]==b["exit"]==0:
                   assert a["stdout_sha256"]==b["stdout_sha256"]
                   for k in ("nodes","cache_hits","branches","splits"):
@@ -1154,13 +1161,72 @@ jobs:
                   case["status"]="CENSORED_COMPARISON"
               save()
           report["status"]="BOUNDED_DIAGNOSTIC_COMPLETE"
+          # Restrict Simulation to two arms on a completed, source-locked
+          # VQE8 case. Never simulate censored long cases.
+          sim=False
+          if cumulative:
+              name="vqe8"
+              case=report["cases"][name]
+              assert case["status"]=="PAIRED_COUNT_PARITY"
+              med={arm:statistics.median(r["wall_s"] for r in case["rows"] if r["arm"]==arm) for arm in ("scan","borrowed")}
+              case["native_median_s"]=med
+              if max(med.values())<=1.5:
+                  cnf=next(cnf for key,cnf,sha,limit,ref in cases if key==name)
+                  flags=["RAWMOCS_RESEARCH_DESCENDANT_UNITS","RAWMOCS_RESEARCH_INPLACE_SCAN","RAWMOCS_RESEARCH_INPLACE_BRANCH","RAWMOCS_RESEARCH_MOVE_COMPONENTS","RAWMOCS_RESEARCH_BORROWED_CACHE","RAWMOCS_RESEARCH_GENERAL_STATS"]
+                  config=["options:",'  max-time: "5s"',"benchmarks:"]
+                  expected=root/"vqe8-scan-0.stdout"
+                  for arm in ("scan","borrowed"):
+                      wrapper=root/f"vqe8-{arm}.simulation.sh"
+                      out=root/f"vqe8-{arm}.simulation.stdout"
+                      cmd=["env"]+[x for flag in flags for x in ("-u",flag)]
+                      if arm=="borrowed":
+                          cmd += [flag+"=1" for flag in flags[1:5]]
+                      cmd += [str(solver),"--digits","30","--solver","general","--timeout-ms","90000",str(cnf)]
+                      wrapper.write_text("#!/bin/sh\nset -eu\nexec "+shlex.join(cmd)+" >"+shlex.quote(str(out))+"\n")
+                      wrapper.chmod(0o755)
+                      config.extend([f'  - name: "rawmocs_general_cumulative/vqe8/{arm}_mpfr100"',f'    exec: "{wrapper}"'])
+                  (root/"vqe8.expected").write_bytes(expected.read_bytes())
+                  Path("codspeed-general.generated.yml").write_text("\n".join(config)+"\n")
+                  case["simulation"]="ADMITTED"
+                  sim=True
+              else:
+                  case["simulation"]="NOT_ADMITTED_NATIVE_LIMIT"
+              with open(os.environ["GITHUB_OUTPUT"],"a") as stream:
+                  stream.write("simulation="+str(sim).lower()+"\n")
           save()
-          print({"descendant-units":"DESCENDANT_UNITS_FINAL","inplace-scan":"INPLACE_SCAN_FINAL","inplace-branch":"INPLACE_BRANCH_FINAL","move-components":"MOVE_COMPONENTS_FINAL","borrowed-cache":"BORROWED_CACHE_FINAL"}[experiment],json.dumps(report),flush=True)
+          print({"descendant-units":"DESCENDANT_UNITS_FINAL","inplace-scan":"INPLACE_SCAN_FINAL","inplace-branch":"INPLACE_BRANCH_FINAL","move-components":"MOVE_COMPONENTS_FINAL","borrowed-cache":"BORROWED_CACHE_FINAL","general-cumulative":"GENERAL_CUMULATIVE_NATIVE_FINAL"}[experiment],json.dumps(report),flush=True)
+          PY
+      - name: Compare bounded general solver Simulation and flamegraphs
+        if: steps.general-native.outputs.simulation == 'true'
+        uses: CodSpeedHQ/action@v5
+        timeout-minutes: 4
+        with:
+          mode: simulation
+          cycle-estimation: 'true'
+          exclude-allocations: 'false'
+          simulation-track-subprocess: 'true'
+          config: codspeed-general.generated.yml
+      - name: Verify simulated counts
+        if: steps.general-native.outputs.simulation == 'true'
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path(".descendant-evidence")
+          report=json.loads((root/"report.json").read_text())
+          assert report["experiment"]=="general-cumulative"
+          for arm in ("scan","borrowed"):
+              assert (root/f"vqe8-{arm}.simulation.stdout").read_bytes()==(root/"vqe8.expected").read_bytes()
+          report["cases"]["vqe8"]["simulation"]="COUNT_PARITY_PASS"
+          (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("GENERAL_CUMULATIVE_SIMULATION_FINAL",json.dumps(report),flush=True)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: rawmocs-${{ env.EXPERIMENT }}
-          path: .descendant-evidence/
+          path: |
+            .descendant-evidence/
+            codspeed-general.generated.yml
           include-hidden-files: true
           if-no-files-found: warn

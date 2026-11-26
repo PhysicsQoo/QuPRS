@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile, direct-binary, operand-profile, pool-profile, last-use-donor, masked-donor, descendant-units, inplace-scan, inplace-branch, move-components, borrowed-cache, general-cumulative, general-simulation-repair, general-native-gpmc, scope-scratch]
         default: legacy
 permissions:
   contents: read
@@ -981,7 +981,7 @@ jobs:
           if-no-files-found: warn
 
   descendant-units:
-    if: github.event_name == 'push' || (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch' || inputs.suite == 'move-components' || inputs.suite == 'borrowed-cache' || inputs.suite == 'general-cumulative' || inputs.suite == 'general-simulation-repair')
+    if: github.event_name == 'workflow_dispatch' && (inputs.suite == 'descendant-units' || inputs.suite == 'inplace-scan' || inputs.suite == 'inplace-branch' || inputs.suite == 'move-components' || inputs.suite == 'borrowed-cache' || inputs.suite == 'general-cumulative' || inputs.suite == 'general-simulation-repair')
     name: General fallback descendant unit closure
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -1275,7 +1275,7 @@ jobs:
           if-no-files-found: warn
 
   general-native-gpmc:
-    if: github.event_name == 'push' || inputs.suite == 'general-native-gpmc'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'general-native-gpmc'
     name: Source-locked long native GPMC / auto route
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -1393,5 +1393,127 @@ jobs:
         with:
           name: rawmocs-general-native-gpmc
           path: .long-evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  scope-scratch:
+    if: github.event_name == 'push' || inputs.suite == 'scope-scratch'
+    name: Scope-reset scratch / same-binary general fallback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: 8edf491a294c2d8bb09486156a8d91b39e4010cd
+          path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rawmocs-quprs-planner-gen-*
+          run-id: 45734596083
+          github-token: ${{ github.token }}
+          path: .scratch-input
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .classes-candidate/crates/rawmocs-cli -> target
+          shared-key: rawmocs-general-dependencies
+          cache-workspace-crates: 'false'
+      - name: Build and test exact candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C .classes-candidate rev-parse HEAD)" = 8edf491a294c2d8bb09486156a8d91b39e4010cd
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
+          cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+      - name: Source locked exact parity and bounded native ablation
+        run: |
+          set -euo pipefail
+          mkdir -p .scratch-evidence
+          python3 - <<'PY'
+          import hashlib, json, os, re, statistics, subprocess, sys, time
+          from pathlib import Path
+          root=Path(".scratch-evidence").resolve()
+          solver=Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          sys.path.insert(0,str(Path(".classes-candidate/crates/rawmocs-cli/tools").resolve()))
+          from release_native_paired import parse
+          from release_transfer import check_count
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          report={"candidate_sha":"8edf491a294c2d8bb09486156a8d91b39e4010cd","binary_sha256":digest(solver),"scope":"Forced general; identical production ownership optimizations; only scratch reuse differs","cases":{}}
+          def save(): (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+          for name,sha,digits,limit in (
+              ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee",30,5),
+              ("vqe8","55938d577be87d91dd520b7002de7ec886c6035405e5400f6f80392a385562ee",130,8),
+              ("qpeinexact20","9dca661e1a9cfecbfe325970cded1bcb5c3664f7983fa1628473bd42f2ba3fcb",30,5),
+              ("qaoa9","9b5bf2619c2c2dd0c16c80f372a33bb23fb0ca0f7feeb671c6fcfd1c80f15be4",30,15),
+              ("qnn12","2c74e555a8a8ea974cde02bcc5cc0823c5ed63b5fc7be8f628f777accd433204",30,15)):
+              src=Path(".scratch-input")/("rawmocs-quprs-planner-gen-"+name)
+              cnf,=src.rglob("gpmc-capture.cnf")
+              assert digest(cnf)==sha
+              ref=None
+              witnesses=list(src.rglob("witness.json"))
+              if witnesses:
+                  assert len(witnesses)==1
+                  obj=json.loads(witnesses[0].read_text())
+                  if obj.get("status") in ("INDEPENDENT_INTERVAL_COMPLETE","INDEPENDENT_FIXED_INTERVAL_COMPLETE"):
+                      assert obj["source_sha256"]==sha and obj["bits"]==550 and obj["width"]<=19 and obj["work"]<=40000000 and obj["peak"]<=2000000
+                      if obj["status"]=="INDEPENDENT_FIXED_INTERVAL_COMPLETE":
+                          assert obj["order_policy"] in ("fill-reverse","degree-reverse")
+                      ref=obj
+              if name!="qnn12": assert ref is not None
+              key=f"{name}-{digits}"
+              case={"source_sha256":sha,"digits":digits,"limit_s":limit,"rows":[]}
+              report["cases"][key]=case
+              for i,arm in enumerate(("off","on","on","off")):
+                  if i>=2 and any(r["status"]!="WITNESSED_PASS" for r in case["rows"]): break
+                  env={k:v for k,v in os.environ.items() if not k.startswith("RAWMOCS_RESEARCH_")}
+                  if arm=="on": env["RAWMOCS_RESEARCH_SCOPE_SCRATCH"]="1"
+                  label=f"{key}-{i}-{arm}"
+                  rss=root/(label+".rss")
+                  start=time.monotonic()
+                  p=subprocess.run(["timeout","-k","2s",str(limit+3)+"s","prlimit","--as=3221225472","--","/usr/bin/time","-f","%M","-o",str(rss),str(solver),"--digits",str(digits),"--solver","general","--timeout-ms",str(limit*1000),str(cnf.resolve())],env=env,capture_output=True,text=True,timeout=limit+7)
+                  row={"arm":arm,"exit":p.returncode,"wall_s":time.monotonic()-start}
+                  case["rows"].append(row)
+                  (root/(label+".stdout")).write_text(p.stdout)
+                  (root/(label+".stderr")).write_text(p.stderr)
+                  if rss.exists():
+                      vals=[l for l in rss.read_text().splitlines() if l.strip().isdigit()]
+                      if len(vals)==1: row["rss_kib"]=int(vals[0])
+                  if p.returncode:
+                      assert not p.stdout.strip() and (p.returncode==124 or (p.returncode==4 and "RAWMOCS_FAILURE kind=TIMEOUT" in p.stderr)),(label,p.returncode,p.stderr[-1000:])
+                      row["status"]="CENSORED_TIMEOUT"
+                  else:
+                      bits={30:100,130:432}[digits]
+                      assert f"RAWMOCS_COMPLETE route=general digits={digits} bits={bits} " in p.stderr
+                      frames,=re.findall(r"^RAWMOCS_GENERAL_COMPLETE max_frames=(\d+)$",p.stderr,re.M)
+                      row.update(parse(p.stdout,"rawmocs"),frames=int(frames),stdout_sha256=hashlib.sha256(p.stdout.encode()).hexdigest())
+                      row["status"]="COUNT_UNWITNESSED"
+                      if ref is not None:
+                          row["witness_upper"]=check_count(row,ref,digits)
+                          row["status"]="WITNESSED_PASS"
+                  save()
+              rows=case["rows"]
+              completed=[r for r in rows if r["exit"]==0]
+              if completed:
+                  assert len({r["stdout_sha256"] for r in completed})==1 and len({r["frames"] for r in completed})==1
+              if name in ("vqe8","qpeinexact20"):
+                  assert len(rows)==4 and all(r["status"]=="WITNESSED_PASS" for r in rows)
+              if len(rows)==4 and all(r["status"]=="WITNESSED_PASS" for r in rows):
+                  case["status"]="PAIRED_WITNESS_PASS"
+                  case["median_s"]={a:statistics.median(r["wall_s"] for r in rows if r["arm"]==a) for a in ("off","on")}
+              else:
+                  case["status"]="CENSORED_OR_UNWITNESSED_NO_RATIO"
+              save()
+          report["status"]="BOUNDED_DIAGNOSTIC_COMPLETE"
+          save()
+          print("SCOPE_SCRATCH_FINAL",json.dumps(report),flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawmocs-scope-scratch
+          path: .scratch-evidence/
           include-hidden-files: true
           if-no-files-found: warn

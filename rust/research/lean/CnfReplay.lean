@@ -3310,11 +3310,41 @@ theorem parse_ledger_snap_raw (raw : Token) (s : LedgerSnap)
           | nil =>
             obtain ⟨nv, _, h1⟩ := ledger_bind_some _ _ _ h
             obtain ⟨ids, _, h2⟩ := ledger_bind_some _ _ _ h1
-            obtain ⟨ps, _, h3⟩ := ledger_bind_some _ _ _ h2
-            obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
-            have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
-              ledger_if_some_branch _ _ _ h4
-            exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
+            -- Lean 4.36 elaborates conditional do-binds to join points.
+            -- Eliminate the two sentinel guards before extracting binds.
+            cases hp : (phase == [126]) with
+            | false =>
+              rw [ledger_bool_false _ _ _ hp] at h2
+              obtain ⟨ps, _, h3⟩ := ledger_bind_some _ _ _ h2
+              cases hc : (cs == [33]) with
+              | false =>
+                rw [ledger_bool_false _ _ _ hc] at h3
+                obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
+                have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
+                  ledger_if_some_branch _ _ _ h4
+                exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
+              | true =>
+                rw [ledger_bool_true _ _ _ hc] at h3
+                obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
+                have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
+                  ledger_if_some_branch _ _ _ h4
+                exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
+            | true =>
+              rw [ledger_bool_true _ _ _ hp] at h2
+              obtain ⟨ps, _, h3⟩ := ledger_bind_some _ _ _ h2
+              cases hc : (cs == [33]) with
+              | false =>
+                rw [ledger_bool_false _ _ _ hc] at h3
+                obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
+                have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
+                  ledger_if_some_branch _ _ _ h4
+                exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
+              | true =>
+                rw [ledger_bool_true _ _ _ hc] at h3
+                obtain ⟨rs, _, h4⟩ := ledger_bind_some _ _ _ h3
+                have he : some (LedgerSnap.mk raw nv ids phase cs ps rs) = some s :=
+                  ledger_if_some_branch _ _ _ h4
+                exact (congrArg LedgerSnap.raw (Option.some.inj he)).symm
 
 theorem parsed_ledger_snap_canonical (raw : Token) (s : LedgerSnap)
     (h : parseLedgerSnap raw = some s) : canonicalLedgerSnap s := by

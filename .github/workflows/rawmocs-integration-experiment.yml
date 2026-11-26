@@ -10,7 +10,7 @@ on:
       suite:
         description: Experimental evidence suite
         type: choice
-        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo]
+        options: [legacy, cross-family, source-admission, root-profile, factor-classes, sparse-anchor, prefix-memo, axis-profile]
         default: legacy
 permissions:
   contents: read
@@ -569,7 +569,7 @@ jobs:
           if-no-files-found: warn
 
   factor-classes:
-    if: github.event_name == 'push' || inputs.suite == 'factor-classes' || inputs.suite == 'sparse-anchor' || inputs.suite == 'prefix-memo'
+    if: github.event_name == 'push' || inputs.suite == 'factor-classes' || inputs.suite == 'sparse-anchor' || inputs.suite == 'prefix-memo' || inputs.suite == 'axis-profile'
     name: Contraction ablation / witnessed native and bounded Simulation
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -578,8 +578,8 @@ jobs:
       actions: read
       id-token: write
     env:
-      EXPERIMENT: ${{ inputs.suite == 'factor-classes' && 'factor-classes' || inputs.suite == 'sparse-anchor' && 'sparse-anchor' || 'prefix-memo' }}
-      CANDIDATE_SHA: ${{ inputs.suite == 'factor-classes' && '78a606add677b39d86af076f639f569452ec0ad8' || inputs.suite == 'sparse-anchor' && '69e32e0f140c1aec985167ac472bcde784c53855' || '089008aea7b789d66c7c7c51d504aca49a59b67e' }}
+      EXPERIMENT: ${{ inputs.suite == 'factor-classes' && 'factor-classes' || inputs.suite == 'sparse-anchor' && 'sparse-anchor' || inputs.suite == 'prefix-memo' && 'prefix-memo' || 'axis-profile' }}
+      CANDIDATE_SHA: ${{ inputs.suite == 'factor-classes' && '78a606add677b39d86af076f639f569452ec0ad8' || inputs.suite == 'sparse-anchor' && '69e32e0f140c1aec985167ac472bcde784c53855' || inputs.suite == 'prefix-memo' && '089008aea7b789d66c7c7c51d504aca49a59b67e' || '975820b2fad04a8583bd16c172b2367d0d1752bd' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -627,7 +627,7 @@ jobs:
           github-token: ${{ github.token }}
           path: .classes-input/rawmocs-quprs-planner-gen-vqe8
       - uses: actions/download-artifact@v4
-        if: env.EXPERIMENT == 'prefix-memo'
+        if: env.EXPERIMENT == 'prefix-memo' || env.EXPERIMENT == 'axis-profile'
         with:
           name: rawmocs-quprs-planner-gen-qpeinexact20
           run-id: 45734596083
@@ -687,28 +687,29 @@ jobs:
           mode = os.environ["EXPERIMENT"]
           anchor = mode == "sparse-anchor"
           memo = mode == "prefix-memo"
-          if memo:
+          profile = mode == "axis-profile"
+          if memo or profile:
               sources["qpeinexact20"] = ("planner-gen-qpeinexact20", "9dca661e1a9cfecbfe325970cded1bcb5c3664f7983fa1628473bd42f2ba3fcb", 45734596083)
-          flag = "RAWMOCS_RESEARCH_PREFIX_MEMO" if memo else "RAWMOCS_RESEARCH_SPARSE_ANCHOR" if anchor else "RAWMOCS_RESEARCH_FACTOR_CLASSES"
-          marker = "PREJOIN_RESEARCH_PREFIX" if memo else "PREJOIN_RESEARCH_ANCHOR" if anchor else "PREJOIN_RESEARCH_CLASSES"
-          arms = {"release":base, "off":candidate, "on":candidate}
-          if not (anchor or memo):
+          flag = "RAWMOCS_RESEARCH_AXIS_PROFILE" if profile else "RAWMOCS_RESEARCH_PREFIX_MEMO" if memo else "RAWMOCS_RESEARCH_SPARSE_ANCHOR" if anchor else "RAWMOCS_RESEARCH_FACTOR_CLASSES"
+          marker = "PREJOIN_RESEARCH_AXIS" if profile else "PREJOIN_RESEARCH_PREFIX" if memo else "PREJOIN_RESEARCH_ANCHOR" if anchor else "PREJOIN_RESEARCH_CLASSES"
+          arms = {"release":base, "on":candidate} if profile else {"release":base, "off":candidate, "on":candidate}
+          if not (anchor or memo or profile):
               static = Path(".classes-static/crates/rawmocs-cli/target/release/rawmocs").resolve()
               arms.update(static_off=static, static_on=static)
           report = {"status":"RUNNING", "experiment":mode, "cases":{},
                     "baseline_sha":"ef8d1ee606bed672ee9be62d189a2b3fbcc905a0",
                     "candidate_sha":os.environ["CANDIDATE_SHA"],
-                    "static_sha":None if anchor or memo else "d28cdd98fa2b55c73cfd01392fee48ba70602104",
+                    "static_sha":None if anchor or memo or profile else "d28cdd98fa2b55c73cfd01392fee48ba70602104",
                     "binary_sha256":{k:digest(v) for k,v in arms.items()},
-                    "scope":"RaWMoCS only; prior independent count witness, not new GPMC timing"}
+                    "scope":"Diagnostic only; instrumentation timing is not an efficiency result" if profile else "RaWMoCS only; prior independent count witness, not new GPMC timing"}
           def persist():
               (root/"report.json").write_text(json.dumps(report,indent=2)+"\n")
           persist()
           config = ["options:",'  max-time: "5s"',"benchmarks:"]
           cohorts = [(name, name, 30, 100, 30) for name in sources]
-          if anchor or memo:
+          if anchor or memo or profile:
               cohorts += [(name+"-432", name, 130, 432, 100) for name in ("qft20","qnn8")]
-          if memo:
+          if memo or profile:
               cohorts += [("qft16-432","qft16",130,432,100)]
           for name,source,digits,bits,target in cohorts:
               artifact,sha,run = sources[source]
@@ -728,7 +729,7 @@ jobs:
               persist()
               expected = None
               signature = None
-              order = ("release","off","on","on","off","release","off","on","release") if anchor or memo else (
+              order = ("release","on") if profile else ("release","off","on","on","off","release","off","on","release") if anchor or memo else (
                        "release","off","on","static_off","static_on",
                        "static_on","static_off","on","off","release",
                        "on","static_on","release","static_off","off")
@@ -738,6 +739,7 @@ jobs:
                   env.pop("RAWMOCS_RESEARCH_FACTOR_CLASSES",None)
                   env.pop("RAWMOCS_RESEARCH_SPARSE_ANCHOR",None)
                   env.pop("RAWMOCS_RESEARCH_PREFIX_MEMO",None)
+                  env.pop("RAWMOCS_RESEARCH_AXIS_PROFILE",None)
                   if arm in ("on","static_on"):
                       env[flag]="1"
                   label = f"{name}-{i}-{arm}"
@@ -771,7 +773,23 @@ jobs:
                   phase,=re.findall(r"^PREJOIN_PHASE_NS .*? execute=(\d+)",p.stderr,re.M)
                   row.update(plan=plan,execute_ns=int(phase))
                   if arm in ("on","static_on"):
-                      if memo:
+                      if profile:
+                          lines=re.findall(r"^PREJOIN_RESEARCH_AXIS (.*)$",p.stderr,re.M)
+                          leaves=int(re.search(r"\bleaves=(\d+)",plan).group(1))
+                          assert len(lines)==leaves
+                          fields=("tables","cells","axes","sample_pairs","sample_equal","sample_75_axes","sample_all_equal","full_pairs","rejected","unverified","proven_axes","proven_saved_cells","projected_saved_cells","projected_saved_calls","unary_calls","binary_calls","wide_calls","join_calls","prefix_twofold_ops","prefix_bounded_ops","prefix_potential_calls","max_table")
+                          row["axis_telemetry"]=[{k:int(v) for k,v in (term.split("=") for term in line.split())} for line in lines]
+                          for x in row["axis_telemetry"]:
+                              assert tuple(x)==fields
+                              assert x["full_pairs"]<=8000000 and x["sample_equal"]<=x["sample_pairs"]
+                              assert x["sample_all_equal"]==x["proven_axes"]+x["rejected"]+x["unverified"]
+                              assert x["sample_all_equal"]<=x["sample_75_axes"]<=x["axes"]
+                              assert x["proven_saved_cells"]<=x["cells"]
+                              assert x["projected_saved_calls"]<=x["unary_calls"]+x["binary_calls"]+x["wide_calls"]
+                              assert x["prefix_bounded_ops"]<=x["prefix_twofold_ops"]
+                          row["axis_summary"]={k:sum(x[k] for x in row["axis_telemetry"]) for k in fields if k!="max_table"}
+                          row["axis_summary"]["max_table"]=max(x["max_table"] for x in row["axis_telemetry"])
+                      elif memo:
                           lines=re.findall(r"^PREJOIN_RESEARCH_PREFIX ops=(\d+) peak_slots=(\d+) hits=(\d+) misses=(\d+) absent_hits=(\d+) saved_calls=(\d+)",p.stderr,re.M)
                           assert lines
                           row["prefix_telemetry"]=[dict(zip(("ops","peak_slots","hits","misses","absent_hits","saved_calls"),map(int,x))) for x in lines]
@@ -797,7 +815,7 @@ jobs:
               case["status"]="SAME_PLAN_WITNESSED_PASS" if all(r["witness_status"]=="PASS" for r in case["rows"]) else "PRECISION_WITNESS_INCONCLUSIVE"
               # Simulation is intentionally short: exclude QFT20 and any
               # case with native p50 > 0.5s on any arm.
-              if name in ("qft16","qnn8","qaoa9","vqe8") and max(x["wall_s"] for x in case["median"].values())<=0.5:
+              if not profile and name in ("qft16","qnn8","qaoa9","vqe8") and max(x["wall_s"] for x in case["median"].values())<=0.5:
                   # Keep the heavier QFT16 at three frozen arms; all five
                   # arms on the other shorter, structurally distinct cases.
                   sim_arms = ["release","off","on"] if name=="qft16" else list(arms)
@@ -817,15 +835,21 @@ jobs:
                   (root/f"{name}.expected").write_text(expected)
                   case["simulation"]="ADMITTED"
               else:
-                  case["simulation"]="NOT_ADMITTED_LONG"
+                  case["simulation"]="NOT_RUN_DIAGNOSTIC" if profile else "NOT_ADMITTED_LONG"
               persist()
-          assert len(config)>3
-          Path("codspeed-factor-classes.generated.yml").write_text("\n".join(config)+"\n")
-          report["status"]="NATIVE_COMPLETE"
-          persist()
-          print("PREFIX_MEMO_NATIVE_FINAL" if memo else "SPARSE_ANCHOR_NATIVE_FINAL" if anchor else "FACTOR_CLASS_NATIVE_FINAL",json.dumps(report),flush=True)
+          if profile:
+              report["status"]="PASS" if all(c["status"]=="SAME_PLAN_WITNESSED_PASS" for c in report["cases"].values()) else "PARTIAL_WITNESS"
+              persist()
+              print("AXIS_PROFILE_FINAL",json.dumps(report),flush=True)
+          else:
+              assert len(config)>3
+              Path("codspeed-factor-classes.generated.yml").write_text("\n".join(config)+"\n")
+              report["status"]="NATIVE_COMPLETE"
+              persist()
+              print("PREFIX_MEMO_NATIVE_FINAL" if memo else "SPARSE_ANCHOR_NATIVE_FINAL" if anchor else "FACTOR_CLASS_NATIVE_FINAL",json.dumps(report),flush=True)
           PY
       - name: Compare bounded solver CPU and flamegraphs
+        if: env.EXPERIMENT != 'axis-profile'
         uses: CodSpeedHQ/action@v5
         timeout-minutes: 8
         with:
@@ -835,6 +859,7 @@ jobs:
           simulation-track-subprocess: 'true'
           config: codspeed-factor-classes.generated.yml
       - name: Verify simulated counts
+        if: env.EXPERIMENT != 'axis-profile'
         run: |
           python - <<'PY'
           import json

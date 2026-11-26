@@ -70,6 +70,40 @@ fn reduce(mut ps:PathSum)->(PathSum,Receipt){
     }
     r.limit=true;(ps,r)
 }
+fn reduce_until(mut ps:PathSum,deadline:std::time::Instant)->(PathSum,Receipt,usize,bool){
+    let mut attempts=0usize;
+    let mut r=Receipt::default();
+    for _ in 0..512{
+        if std::time::Instant::now()>=deadline{return (ps,r,attempts,true);}
+        if !admitted(&ps){r.limit=true;return (ps,r,attempts,false);}
+        let mut ids=ps.get_reducible_vars();ids.sort_unstable();
+        let mut chosen=None;
+        for &y in &ids{
+            for rule in 0..3{
+                if rule==2&&hh_target(&ps,y).is_none(){continue;}
+                let target=if rule==2{hh_target(&ps,y)}else{None};
+                if std::time::Instant::now()>=deadline{return (ps,r,attempts,true);}
+                attempts+=1;
+                let mut t=ps.clone();
+                let ok=match rule{0=>t.try_reduce_elim(&[y]),1=>t.try_reduce_omega(&[y]),_=>t.try_reduce_hh(&[y])};
+                if !ok{continue;}
+                let mut removed:Vec<_>=ps.v.path_vars.difference(&t.v.path_vars).copied().collect();
+                removed.sort_unstable();
+                let mut expected=vec![y];if let Some(v)=target{expected.push(v);}expected.sort_unstable();
+                assert_eq!(removed,expected);
+                assert!(t.v.path_vars.is_subset(&ps.v.path_vars));
+                if !admitted(&t){r.limit=true;continue;}
+                chosen=Some((t,rule));break;
+            }
+            if chosen.is_some(){break;}
+        }
+        let Some((next,rule))=chosen else{return (ps,r);};
+        match rule{0=>{r.elim+=1;r.scale2+=2;},1=>{r.omega+=1;r.scale2+=1;},_=>{r.hh+=1;r.scale2+=2;}}
+        ps=next;
+    }
+    r.limit=true;(ps,r,attempts,false)
+}
+
 // Strict narrow independent parser for these immutable source files.
 // All lines are accounted for. Compare operation-by-operation against
 // the native compatibility parser; do not silently flatten registers.
@@ -1823,6 +1857,133 @@ fn native_qwalk_minimum_basis_pilot(){
                 if arm==0{"d64"}else{"minimum"},exact[arm],positives[arm],works[arm],plan_ns[arm],exec_ns[arm],spent[arm],first[arm],failures[arm]);
         }
         println!("HOARE_QWALK_MIN_BASIS_PARITY name={name} paired={paired} orders={degree_hist:?}");
+    }
+}
+
+
+// Explicit finite coverage state: the oracle is not an input to the verdict.
+fn sector_verdict(values:&[Option<Z64>])->&'static str{
+    if values.iter().flatten().any(|v|*v!=[0;32]){"REFUTED"}
+    else if !values.is_empty()&&values.iter().all(Option::is_some){"PROVED"}
+    else{"UNKNOWN"}
+}
+fn early_sector_minimum(ps:&PathSum,mask:u64,value:u64,deadline:std::time::Instant)
+    ->Result<Vec<Z64>,&'static str>{
+    let d=minimum_cyclo_degree(ps)?;
+    let p=prepare_cyclo_boundary(ps,mask,d,deadline)?;
+    execute_minimum_boundary(&p,value,deadline).map(|(a,_,_)|a)
+}
+#[test]
+fn native_early_sector_coverage_controls(){
+    let mut v=vec![None;4];
+    assert_eq!(sector_verdict(&v),"UNKNOWN");
+    v[0]=Some([0;32]);assert_eq!(sector_verdict(&v),"UNKNOWN");
+    let mut a=[0;32];a[7]=1;v[2]=Some(a);assert_eq!(sector_verdict(&v),"REFUTED");
+    v.fill(Some([0;32]));assert_eq!(sector_verdict(&v),"PROVED");
+    assert_eq!(sector_verdict(&[]),"UNKNOWN");
+    let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+    for _ in 0..4{QuantumOp::H(0).apply(&mut ps,false);}
+    let h0=h(&ps);let (p,r,attempts,expired)=reduce_until(ps.clone(),std::time::Instant::now());
+    assert!(expired);assert_eq!(attempts,0);assert_eq!(r.scale2,0);assert_eq!(h(&p),h0);
+    let (p,r,_,expired)=reduce_until(ps.clone(),std::time::Instant::now()+std::time::Duration::from_secs(5));
+    let (q,s)=reduce(ps);assert!(!expired);assert_eq!(r.scale2,s.scale2);assert_eq!(entries(&p),entries(&q));
+    println!("HOARE_NATIVE_EARLY_COVERAGE partial_zero_unknown=true partial_positive_refuted=true full_zero_proved=true expired_unchanged=true");
+}
+#[test]
+fn native_qwalk_early_witness(){
+    let Some(dir)=std::env::var_os("HOARE_PAPER_QWALK_DIR") else{return;};
+    for name in ["vchain","noancilla"]{
+        let src=std::fs::read_to_string(std::path::Path::new(&dir).join(format!("{name}.qasm"))).unwrap();
+        let (ops,n,_)=source_ops(&src);assert_eq!(n,5);
+        let (native,width)=parse_qasm_str(&src).unwrap();assert_eq!((native,width),(ops.clone(),n));
+        let t=std::time::Instant::now();
+        let mut raw=PathSum::new(n);raw.set_auto_reduce(false);
+        for op in &ops{op.apply(&mut raw,false);}
+        let build=t.elapsed();assert!(admitted(&raw));
+        let mut expected:BTreeMap<u64,Vec<Z64>>=BTreeMap::new();
+        for arm in ["general-first","input-first","probe-then-general"]{
+            let start=std::time::Instant::now();
+            let deadline=start+std::time::Duration::from_secs(30).saturating_sub(build);
+            let mut values=vec![None;256];
+            let mut general_ns=0u128;let mut input_ns=0u128;let mut solve_ns=0u128;
+            let mut attempts=0usize;let mut probe_ns=0u128;let mut calls=0usize;
+            let mut failures=BTreeMap::<&str,usize>::new();
+            let mut first=None;let mut paired=0;
+            // Bounded first legal-input probe only; no oracle-driven input
+            // choice, no inferred zero on rejected/incomplete work.
+            let mut general=None;
+            if arm=="probe-then-general"{
+                let pstart=std::time::Instant::now();
+                let pd=deadline.min(pstart+std::time::Duration::from_millis(500));
+                let (p,r,a,expired)=reduce_until(fixed_input(raw.clone(),0),pd);attempts+=a;
+                if !expired&&!r.limit{
+                    calls+=1;
+                    match early_sector_minimum(&p,16,16,pd){
+                        Ok(v)=>{
+                            assert_eq!(v.len(),16);
+                            let nonzero=v.iter().any(|r|*r!=[0;32]);
+                            for (i,a) in v.into_iter().enumerate(){values[i]=Some(a);}
+                            if nonzero{first=Some((build+start.elapsed()).as_nanos());}
+                        }
+                        Err(e)=>{*failures.entry(e).or_default()+=1;}
+                    }
+                }else{*failures.entry(if expired{"PROBE_DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;}
+                probe_ns=pstart.elapsed().as_nanos();
+            }
+            if sector_verdict(&values)!="REFUTED"&&arm!="input-first"&&std::time::Instant::now()<deadline{
+                let t=std::time::Instant::now();
+                let mut p=raw.clone();let zero=Poly::default();
+                p.p.substitute_var_with_poly(4,&zero);p.f.substitute_var_with_poly(4,&zero);
+                let (p,r,a,expired)=reduce_until(p,deadline);attempts+=a;
+                general_ns=t.elapsed().as_nanos();
+                if !expired&&!r.limit{general=Some(p);}
+                else{*failures.entry(if expired{"DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;}
+            }
+            for x in 0..16u64{
+                if sector_verdict(&values)=="REFUTED"||std::time::Instant::now()>=deadline{break;}
+                let base=if arm=="input-first"{&raw}else if let Some(p)=general.as_ref(){p}else{break};
+                let offset=x as usize*16;
+                if values[offset..offset+16].iter().all(Option::is_some){continue;}
+                let t=std::time::Instant::now();
+                let (p,r,a,expired)=reduce_until(fixed_input(base.clone(),x),deadline);
+                attempts+=a;input_ns+=t.elapsed().as_nanos();
+                if expired||r.limit{*failures.entry(if expired{"DEADLINE"}else{"RR_LIMIT"}).or_default()+=1;continue;}
+                let t=std::time::Instant::now();calls+=1;
+                let result=early_sector_minimum(&p,16,16,deadline);
+                solve_ns+=t.elapsed().as_nanos();
+                match result{
+                    Ok(v)=>{
+                        assert_eq!(v.len(),16);
+                        if arm=="general-first"{expected.insert(x,v.clone());}
+                        else if let Some(w)=expected.get(&x){
+                            // Rule order may change the common complex scale;
+                            // only compare exact support across different RR routes.
+                            for (a,b) in v.iter().zip(w){assert_eq!(*a==[0;32],*b==[0;32]);paired+=1;}
+                        }
+                        let nonzero=v.iter().any(|a|*a!=[0;32]);
+                        for (i,a) in v.into_iter().enumerate(){values[offset+i]=Some(a);}
+                        if nonzero{first=Some((build+start.elapsed()).as_nanos());}
+                    }
+                    Err(e)=>{*failures.entry(e).or_default()+=1;}
+                }
+            }
+            // The bounded probe may finish before the general route.
+            // Compare its support to the independently accepted reference
+            // only after the route has stopped, never use it to choose x.
+            let positive=values.iter().flatten().filter(|v|**v!=[0;32]).count();
+            let exact=values.iter().flatten().count();
+            if name=="vchain"{assert_eq!(positive,0);}
+            else{for x in 0..16usize{
+                let v=&values[16*x..16*x+16];
+                if v.iter().all(Option::is_some){assert_eq!(v.iter().flatten().filter(|a|**a!=[0;32]).count(),2);}
+            }}
+            if name=="noancilla"&&values[..16].iter().all(Option::is_some){
+                let support:Vec<_>=values[..16].iter().enumerate().filter(|(_,a)|a.as_ref().is_some_and(|v|*v!=[0;32])).map(|(i,_)|16+i).collect();
+                assert_eq!(support,vec![28,31]);
+            }
+            let verdict=sector_verdict(&values);
+            println!("HOARE_QWALK_EARLY name={name} arm={arm} exact={exact} positive={positive} verdict={verdict} calls={calls} attempts={attempts} build_ns={} general_ns={general_ns} input_ns={input_ns} probe_ns={probe_ns} solve_ns={solve_ns} first_ns={first:?} paired_support={paired} accounted_ns={} failures={failures:?}",build.as_nanos(),(build+start.elapsed()).as_nanos());
+        }
     }
 }
 

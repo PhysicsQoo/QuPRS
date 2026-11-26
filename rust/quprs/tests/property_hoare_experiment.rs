@@ -1214,6 +1214,7 @@ mod exact_property_cnf {
     struct GuardedStep {
         ps:PathSum, guard:NativeGuardFrame, rule:GuardedRule,
         removed:Vec<u32>, scale2:u32,
+        section:Vec<(u32,Anf)>,
     }
     // Reconstruct exactly the native HH target/replacement on the admitted
     // exact Z8 snapshot. The real transformation remains native RR.
@@ -1256,13 +1257,13 @@ mod exact_property_cnf {
         candidates.sort_unstable();
         for rule in [GuardedRule::Elim,GuardedRule::Omega,GuardedRule::Hh]{
             for &y in &candidates{
-                let (extra,mut expected,scale2)=match rule{
-                    GuardedRule::Elim=>(g.extra.clone(),vec![y],2),
-                    GuardedRule::Omega=>(g.extra.clone(),vec![y],1),
+                let (extra,mut expected,scale2,section)=match rule{
+                    GuardedRule::Elim=>(g.extra.clone(),vec![y],2,vec![(y,Anf::new())]),
+                    GuardedRule::Omega=>(g.extra.clone(),vec![y],1,vec![(y,Anf::new())]),
                     GuardedRule::Hh=>{
                         let Some((target,repl))=guarded_hh_replacement(&s,&ids,y) else{continue;};
                         let Some(extra)=substitute_guard(&g.extra,target,&repl) else{continue;};
-                        (extra,vec![y,target],2)
+                        (extra,vec![y,target],2,vec![(y,Anf::new()),(target,repl)])
                     }
                 };
                 let mut trial=ps.clone();
@@ -1277,7 +1278,7 @@ mod exact_property_cnf {
                 removed.sort_unstable();expected.sort_unstable();
                 if removed!=expected||!trial.v.path_vars.is_subset(&ps.v.path_vars){return None;}
                 let guard=NativeGuardFrame::new(&trial,extra)?;
-                return Some(GuardedStep{ps:trial,guard,rule,removed,scale2});
+                return Some(GuardedStep{ps:trial,guard,rule,removed,scale2,section});
             }
         }
         None
@@ -1382,10 +1383,11 @@ mod exact_property_cnf {
     struct GuardedReceipt {
         before:GuardedSnapshot,after:GuardedSnapshot,
         rule:GuardedRule,removed:Vec<u32>,scale2:u32,
+        section:Vec<(u32,Anf)>,
     }
     fn guarded_receipt(ps:&PathSum,n:usize,g:&NativeGuardFrame,step:&GuardedStep)->Option<GuardedReceipt>{
         Some(GuardedReceipt{before:guarded_snapshot(ps,n,g)?,after:guarded_snapshot(&step.ps,n,&step.guard)?,
-            rule:step.rule,removed:step.removed.clone(),scale2:step.scale2})
+            rule:step.rule,removed:step.removed.clone(),scale2:step.scale2,section:step.section.clone()})
     }
     // Replay recomputes the original RR transition and guard substitution;
     // a valid prefix is not a claim of saturation or proof of the property.
@@ -1499,6 +1501,136 @@ mod exact_property_cnf {
         println!("HOARE_NATIVE_GUARDED_RR_TRACE traces={traces} multi={multi} mixed={mixed} steps={steps} entries={checks} rejected_mutants={mutants} prefix_replay=true");
     }
 
+
+
+    // Section is a coordinate witness, not an amplitude certificate.
+    // Snapshot output ANFs are compact; section and extra use stable IDs.
+    fn section_compact(p:&Anf,ids:&[u32])->Option<Anf>{
+        if ids.len()>63||ids.iter().any(|&id|id>=63){return None;}
+        let live=ids.iter().fold(0u64,|a,&id|a|(1u64<<id));
+        if p.iter().any(|m|m&!live!=0){return None;}
+        Some(p.iter().map(|&m|ids.iter().enumerate().fold(0u64,
+            |a,(i,&id)|a|(((m>>id)&1)<<i))).collect())
+    }
+    fn section_boundary(c:&mut Cnf,s:&GuardedSnapshot,bits:&[Lit],z:&[Lit],
+                        pre:&[Anf],post:&[Anf])->Option<Lit>{
+        if bits.len()!=s.ids.len()||z.len()!=s.n||s.n>bits.len()||
+           pre.iter().chain(post).flatten().any(|&m|m>>s.n!=0){return None;}
+        let mut g=c.anf(&section_compact(&s.extra,&s.ids)?,bits);
+        for p in pre{let a=c.anf(p,&bits[..s.n]);g=c.and(g,a);}
+        let mut good=ONE;
+        for q in post{let a=c.anf(q,z);good=c.and(good,a);}
+        Some(c.and(g,-good))
+    }
+    fn section_bad_cnf(before:&GuardedSnapshot,after:&GuardedSnapshot,
+                       section:&[(u32,Anf)],pre:&[Anf],post:&[Anf])->Option<Cnf>{
+        let n=before.n;
+        if n!=after.n||n==0||n>16||before.output.len()!=n||after.output.len()!=n||
+           before.ids.len()>63||after.ids.len()>63||
+           [&before.ids,&after.ids].iter().any(|ids|
+               ids.len()<n||ids.iter().any(|&id|id>=63)||
+               ids.windows(2).any(|w|w[0]>=w[1])||
+               (0..n).any(|i|ids[i]!=i as u32))||
+           after.ids.iter().any(|id|!before.ids.contains(id))||
+           before.output.iter().flatten().any(|&m|m>>before.ids.len()!=0)||
+           after.output.iter().flatten().any(|&m|m>>after.ids.len()!=0){return None;}
+        let removed:Vec<_>=before.ids.iter().copied().filter(|id|!after.ids.contains(id)).collect();
+        let mut keys:Vec<_>=section.iter().map(|(id,_)|*id).collect();keys.sort_unstable();
+        if keys!=removed||removed.iter().any(|&id|(id as usize)<n)||
+           section.iter().any(|(_,p)|p.len()>256){return None;}
+        let terms=before.output.iter().map(|p|p.len()).sum::<usize>()
+            +after.output.iter().map(|p|p.len()).sum::<usize>()
+            +before.extra.len()+after.extra.len()
+            +section.iter().map(|(_,p)|p.len()).sum::<usize>()
+            +pre.iter().chain(post).map(|p|p.len()).sum::<usize>();
+        if terms>1024{return None;}
+        let mut c=Cnf::new(after.ids.len());
+        let u:Vec<_>=(0..after.ids.len()).map(|i|i as Lit+2).collect();
+        let mut t=Vec::new();
+        for id in &before.ids{
+            if let Some(j)=after.ids.iter().position(|v|v==id){t.push(u[j]);}
+            else{
+                let (_,p)=section.iter().find(|(v,_)|v==id)?;
+                t.push(c.anf(&section_compact(p,&after.ids)?,&u));
+            }
+            if !c.bounded(){return None;}
+        }
+        let z0:Vec<_>=before.output.iter().map(|p|c.anf(p,&t)).collect();
+        let z1:Vec<_>=after.output.iter().map(|p|c.anf(p,&u)).collect();
+        let g0=section_boundary(&mut c,before,&t,&z0,pre,post)?;
+        let g1=section_boundary(&mut c,after,&u,&z1,pre,post)?;
+        let mut bad=-g0;
+        for (&a,&b) in z0.iter().zip(&z1){let neq=c.xor(a,b);bad=c.or(bad,neq);}
+        c.enforce(g1);c.enforce(bad);
+        if !c.bounded(){return None;}
+        Some(c)
+    }
+    fn section_unsat(before:&GuardedSnapshot,after:&GuardedSnapshot,
+                     section:&[(u32,Anf)],pre:&[Anf],post:&[Anf],fuel:u64)->Option<bool>{
+        let c=section_bad_cnf(before,after,section,pre,post)?;
+        let mut fuel=fuel;
+        count(&c,&[],&mut fuel,true).map(|v|v==0)
+    }
+
+    #[test]
+    fn hoare_native_rr_section_transport(){
+        let mut by_rule=[0usize;3];let mut multi=0;let mut steps=0;
+        let mut mutants=0;let mut entries=0;
+        let unrestricted=[Anf::new()];
+        for (ops,isolated) in [
+            (vec![G::H(0),G::H(0)],true),
+            (vec![G::H(0),G::S(0),G::H(0)],false),
+            (vec![G::H(0),G::H(0),G::H(0),G::H(0)],false),
+        ]{
+            let mut initial=PathSum::new(1);initial.set_auto_reduce(false);
+            for op in ops{op.apply(&mut initial,false);}
+            if isolated{initial.v.get_fresh_var();}
+            let first=NativeGuardFrame::new(&initial,Anf::from([0])).unwrap();
+            let mut ps=initial.clone();let mut g=first.clone();
+            let mut receipts=Vec::new();let mut scale2=0;
+            for _ in 0..16{
+                let Some(step)=guarded_native_step(&ps,1,&g) else{break;};
+                let r=guarded_receipt(&ps,1,&g,&step).unwrap();
+                assert_eq!(section_unsat(&r.before,&r.after,&r.section,&[],&unrestricted,200_000),Some(true));
+                assert_eq!(section_unsat(&r.before,&r.after,&r.section,&[],&unrestricted,0),None);
+                by_rule[match r.rule{GuardedRule::Elim=>0,GuardedRule::Hh=>1,GuardedRule::Omega=>2}]+=1;
+                let mut wrong=r.section.clone();wrong.clear();
+                assert!(section_bad_cnf(&r.before,&r.after,&wrong,&[],&unrestricted).is_none());
+                let mut stale=r.section.clone();stale[0].1=Anf::from([1u64<<r.removed[0]]);
+                assert!(section_bad_cnf(&r.before,&r.after,&stale,&[],&unrestricted).is_none());
+                mutants+=2;
+                scale2+=r.scale2;receipts.push(r);
+                let (rp,rg,sc)=replay_guarded_receipts(initial.clone(),1,first.clone(),&receipts).unwrap();
+                assert_eq!(sc,scale2);
+                let mut altered=receipts.clone();xor_insert(&mut altered.last_mut().unwrap().section[0].1,0);
+                assert!(replay_guarded_receipts(initial.clone(),1,first.clone(),&altered).is_none());
+                mutants+=1;
+                ps=step.ps;g=step.guard;
+                assert_eq!(guarded_snapshot(&rp,1,&rg),guarded_snapshot(&ps,1,&g));
+                let a=guarded_entries(&initial,1,&first,&[],&unrestricted);
+                let b=guarded_entries(&ps,1,&g,&[],&unrestricted);
+                for (x,y) in a.into_iter().zip(b){assert_eq!(x,scale_guarded_entry(y,scale2));entries+=1;}
+                steps+=1;
+            }
+            if receipts.len()>1{multi+=1;}
+        }
+        assert!(by_rule.iter().all(|&v|v>0)&&multi>0);
+        let mut ps=PathSum::new(2);ps.set_auto_reduce(false);
+        G::H(0).apply(&mut ps,false);G::T(0).apply(&mut ps,false);
+        let y=*native_ids(&ps).unwrap().last().unwrap();
+        let g=NativeGuardFrame::new(&ps,Anf::from([0,3,1u64<<y])).unwrap();
+        let mut stats=GseStats::default();
+        let step=gse_step(&ps,2,&g,&[],&unrestricted,&mut stats).unwrap();
+        let b=guarded_snapshot(&ps,2,&g).unwrap();
+        let a=guarded_snapshot(&step.ps,2,&step.guard).unwrap();
+        let section=vec![(step.removed,step.selector.clone())];
+        assert_eq!(section_unsat(&b,&a,&section,&[],&unrestricted,200_000),Some(true));
+        let mut wrong=section.clone();xor_insert(&mut wrong[0].1,0);
+        assert_eq!(section_unsat(&b,&a,&wrong,&[],&unrestricted,200_000),Some(false));
+        assert_eq!(guarded_entries(&ps,2,&g,&[],&unrestricted),
+                   guarded_entries(&step.ps,2,&step.guard,&[],&unrestricted));
+        println!("HOARE_NATIVE_RR_SECTION by_rule={by_rule:?} steps={steps} multi={multi} entries={entries} rejected_mutants={} gse=1 zero_fuel_unknown=true",mutants+1);
+    }
 
     // Property-relative phase matching on the existing native PathSum.
     // Exact SAT checks one-copy active-path phase mismatch. The compact

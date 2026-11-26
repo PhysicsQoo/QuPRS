@@ -580,6 +580,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
+      - name: Verify primary repository for CodSpeed upload
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/checkout@v4
+        with:
           repository: PhysicsQoo/RaWMoCS
           ref: ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
           path: .classes-base
@@ -589,6 +597,12 @@ jobs:
           repository: PhysicsQoo/RaWMoCS
           ref: 78a606add677b39d86af076f639f569452ec0ad8
           path: .classes-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/RaWMoCS
+          ref: d28cdd98fa2b55c73cfd01392fee48ba70602104
+          path: .classes-static
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
@@ -617,11 +631,14 @@ jobs:
           set -euo pipefail
           test "$(git -C .classes-base rev-parse HEAD)" = ef8d1ee606bed672ee9be62d189a2b3fbcc905a0
           test "$(git -C .classes-candidate rev-parse HEAD)" = 78a606add677b39d86af076f639f569452ec0ad8
+          test "$(git -C .classes-static rev-parse HEAD)" = d28cdd98fa2b55c73cfd01392fee48ba70602104
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgmp-dev libmpfr-dev m4 make gcc time pkg-config
           cargo build --locked --release --manifest-path .classes-base/crates/rawmocs-cli/Cargo.toml
           cargo test --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
           cargo build --locked --release --manifest-path .classes-candidate/crates/rawmocs-cli/Cargo.toml
+          cargo test --locked --release --manifest-path .classes-static/crates/rawmocs-cli/Cargo.toml
+          cargo build --locked --release --manifest-path .classes-static/crates/rawmocs-cli/Cargo.toml
       - name: Witnessed same-plan native ablation and short Simulation admission
         run: |
           set -euo pipefail
@@ -652,10 +669,12 @@ jobs:
               return hashlib.sha256(p.read_bytes()).hexdigest()
           base = Path(".classes-base/crates/rawmocs-cli/target/release/rawmocs").resolve()
           candidate = Path(".classes-candidate/crates/rawmocs-cli/target/release/rawmocs").resolve()
-          arms = {"release":base, "off":candidate, "on":candidate}
+          static = Path(".classes-static/crates/rawmocs-cli/target/release/rawmocs").resolve()
+          arms = {"release":base, "off":candidate, "on":candidate, "static_off":static, "static_on":static}
           report = {"status":"RUNNING", "bits":100, "digits":30, "cases":{},
                     "baseline_sha":"ef8d1ee606bed672ee9be62d189a2b3fbcc905a0",
                     "candidate_sha":"78a606add677b39d86af076f639f569452ec0ad8",
+                    "static_sha":"d28cdd98fa2b55c73cfd01392fee48ba70602104",
                     "binary_sha256":{k:digest(v) for k,v in arms.items()},
                     "scope":"RaWMoCS only; prior independent count witness, not new GPMC timing"}
           def persist():
@@ -677,11 +696,14 @@ jobs:
               persist()
               expected = None
               signature = None
-              for i,arm in enumerate(("release","off","on","on","off","release","off","on","release")):
+              order = ("release","off","on","static_off","static_on",
+                       "static_on","static_off","on","off","release",
+                       "on","static_on","release","static_off","off")
+              for i,arm in enumerate(order):
                   binary = arms[arm]
                   env = os.environ.copy()
                   env.pop("RAWMOCS_RESEARCH_FACTOR_CLASSES",None)
-                  if arm=="on":
+                  if arm in ("on","static_on"):
                       env["RAWMOCS_RESEARCH_FACTOR_CLASSES"]="1"
                   label = f"{name}-{i}-{arm}"
                   rss = root/(label+".rss")
@@ -705,7 +727,7 @@ jobs:
                   plan,=re.findall(r"^PREJOIN_COMPLETE (.*?) plan_ns=",p.stderr,re.M)
                   phase,=re.findall(r"^PREJOIN_PHASE_NS .*? execute=(\d+)",p.stderr,re.M)
                   row.update(plan=plan,execute_ns=int(phase))
-                  if arm=="on":
+                  if arm in ("on","static_on"):
                       lines=re.findall(r"^PREJOIN_RESEARCH_CLASSES factors=(\d+) cells=(\d+) peak_bytes=(\d+)",p.stderr,re.M)
                       assert lines
                       row["metadata"]=[list(map(int,x)) for x in lines]
@@ -722,11 +744,16 @@ jobs:
               # Simulation is intentionally short: exclude QFT20 and any
               # case with native p50 > 0.5s on any arm.
               if name in ("qft16","qnn8","qaoa9","vqe8") and max(x["wall_s"] for x in case["median"].values())<=0.5:
-                  for arm,binary in arms.items():
+                  # Keep the heavier QFT16 at three frozen arms; all five
+                  # arms on the other shorter, structurally distinct cases.
+                  sim_arms = ["release","off","on"] if name=="qft16" else list(arms)
+                  case["simulation_arms"] = sim_arms
+                  for arm in sim_arms:
+                      binary=arms[arm]
                       wrapper=root/f"{name}-{arm}.simulation.sh"
                       out=root/f"{name}-{arm}.simulation.stdout"
                       cmd=["env","-u","RAWMOCS_RESEARCH_FACTOR_CLASSES"]
-                      if arm=="on":
+                      if arm in ("on","static_on"):
                           cmd+=["RAWMOCS_RESEARCH_FACTOR_CLASSES=1"]
                       cmd += [str(binary),"--digits","30","--solver","prejoin","--timeout-ms","90000",str(cnf)]
                       wrapper.write_text("#!/bin/sh\nset -eu\nexec "+shlex.join(cmd)+" >"+shlex.quote(str(out))+"\n")
@@ -763,7 +790,7 @@ jobs:
           for name,case in report["cases"].items():
               if case["simulation"]!="ADMITTED":
                   continue
-              for arm in ("release","off","on"):
+              for arm in case["simulation_arms"]:
                   assert (root/f"{name}-{arm}.simulation.stdout").read_bytes()==(root/f"{name}.expected").read_bytes()
               case["simulation"]="COUNT_PARITY_PASS"
           report["status"]="PASS"
